@@ -34,5 +34,57 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 dependencies {
-    runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.6.34-GTNH:dev")
+    implementation("com.github.GTNewHorizons:StructureLib:1.3.4:dev")
+    implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.50.36:dev")
+    implementation("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
+    implementation("com.github.GTNewHorizons:NotEnoughItems:2.6.42-GTNH:dev")
+    implementation("com.github.GTNewHorizons:GTNHLib:0.5.13:dev")
+    implementation("com.github.GTNewHorizons:ModularUI:1.2.9:dev")
+    implementation("com.github.GTNewHorizons:waila:1.8.1:dev")
+    implementation("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-436-GTNH:dev")
+    implementation("com.github.GTNewHorizons:AE2FluidCraft-Rework:1.3.39-gtnh:dev")
+
+    implementation("com.github.GTNewHorizons:Avaritia:1.53:dev")
+
+    implementation('com.github.GTNewHorizons:Angelica:1.0.0-beta7:api')
+    implementation("com.github.GTNewHorizons:AppleCore:3.3.2:dev")
+    implementation("com.github.GTNewHorizons:BuildCraft:7.1.39:dev")
+    implementation("com.github.GTNewHorizons:EnderIO:2.8.18:dev")
+    implementation("com.github.GTNewHorizons:ProjectRed:4.10.5-GTNH:dev")
+    implementation("com.github.GTNewHorizons:MrTJPCore:1.2.1:dev")
+    implementation("com.github.GTNewHorizons:ForestryMC:4.9.16:dev")
+    implementation("com.github.GTNewHorizons:Railcraft:9.15.14:dev")
+
+    implementation("com.github.GTNewHorizons:EnderCore:0.4.6:dev")
+    implementation("com.github.GTNewHorizons:Galacticraft:3.2.5-GTNH:dev")
+    implementation("com.github.GTNewHorizons:TinkersConstruct:1.12.11-GTNH:dev")
+    implementation("com.github.GTNewHorizons:Mantle:0.4.1:dev")
+    implementation("com.github.GTNewHorizons:Chisel:2.15.2-GTNH:dev")
+    implementation("com.github.GTNewHorizons:Translocators:1.2.1:dev")
+    implementation("curse.maven:cofh-core-69162:2388751")
+    implementation("com.github.GTNewHorizons:Nuclear-Control:2.6.7:dev")
+    implementation("thaumcraft:Thaumcraft:1.7.10-4.2.3.5:dev")
+    implementation("com.github.GTNewHorizons:Hodgepodge:2.5.71:dev")
+    implementation('com.github.GTNewHorizons:Botania:1.11.5-GTNH:dev')
+    implementation('com.github.GTNewHorizons:HoloInventory:2.4.12-GTNH:dev')
+    implementation('curse.maven:minefactory-reloaded-66672:2366150')
+    implementation('com.github.GTNewHorizons:ServerUtilities:2.0.79:dev')
+
+    implementation("com.google.auto.value:auto-value-annotations:1.10.1")
+    annotationProcessor("com.google.auto.value:auto-value:1.10.1")
+
+    // For testing iApiary
+    //runtimeOnlyNonPublishable("com.github.GTNewHorizons:ForestryMC:4.8.9:dev")
+
+    testImplementation(platform('org.junit:junit-bom:5.9.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation("org.mockito:mockito-core:3.+")
+
+//    functionalTestImplementation(platform('org.junit:junit-bom:5.9.2'))
+//    functionalTestImplementation('org.junit.jupiter:junit-jupiter')
+//    functionalTestImplementation('org.junit.platform:junit-platform-engine')
+//    functionalTestImplementation('org.junit.platform:junit-platform-launcher')
+//    functionalTestImplementation('org.junit.platform:junit-platform-reporting')
+
+    runtimeOnlyNonPublishable("com.github.GTNewHorizons:DuraDisplay:1.2.3:dev")
 }

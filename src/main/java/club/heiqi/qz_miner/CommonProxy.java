@@ -1,19 +1,28 @@
-package com.myname.mymodid;
+package club.heiqi.qz_miner;
 
+import club.heiqi.qz_miner.Command.MinerCommand;
+import club.heiqi.qz_miner.Core.CoreLogic_BlockBreaker;
+import club.heiqi.qz_miner.Storage.AllPlayerStatue;
+import club.heiqi.qz_miner.network.Qz_MinerSimpleNetwork;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import net.minecraftforge.common.MinecraftForge;
 
 public class CommonProxy {
 
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
     // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
-        Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
+        Config.sync(event.getSuggestedConfigurationFile());
 
-        MyMod.LOG.info(Config.greeting);
-        MyMod.LOG.info("I am MyMod at version " + Tags.VERSION);
+        // 方块连锁测试
+        MinecraftForge.EVENT_BUS.register(new CoreLogic_BlockBreaker());
+
+        new Qz_MinerSimpleNetwork();
+        AllPlayerStatue.register();
+
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
@@ -23,5 +32,8 @@ public class CommonProxy {
     public void postInit(FMLPostInitializationEvent event) {}
 
     // register server commands in this event handler (Remove if not needed)
-    public void serverStarting(FMLServerStartingEvent event) {}
+    public void serverStarting(FMLServerStartingEvent event) {
+        Mod_Main.server = event.getServer();
+        MinerCommand.register(event);
+    }
 }

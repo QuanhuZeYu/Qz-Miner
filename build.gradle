@@ -2,3 +2,9 @@
 plugins {
     id 'com.gtnewhorizons.gtnhconvention'
 }
+
+jar {
+    manifest {
+        attributes 'FMLAT': 'qz_miner_at.cfg'
+    }
+}
