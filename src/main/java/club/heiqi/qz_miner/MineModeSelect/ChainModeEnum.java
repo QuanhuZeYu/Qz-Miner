@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.MOD_INFO;
+import club.heiqi.qz_miner.MineModeSelect.AllChainMode.RectangularChainMode;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.resources.I18n;
@@ -9,7 +10,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public enum ChainModeEnum {
-    RectangularMode;
+    rectangularMode;
+
+    public static List<MinerChain> getMinerChain() {
+        List<MinerChain> miner = new ArrayList<>();
+        miner.add(new RectangularChainMode());
+        return miner;
+    }
 
     public static List<String> getStringList() {
         List<String> stringList = new ArrayList<>();
@@ -26,6 +33,14 @@ public enum ChainModeEnum {
             allStrings.add(unlocalizedString);
         }
         return allStrings;
+    }
+
+    public static ChainModeEnum nextMode(ChainModeEnum currentMode) {
+        return ChainModeEnum.values()[(currentMode.ordinal() + 1) % ChainModeEnum.values().length];
+    }
+
+    public static ChainModeEnum getMode(int mode) {
+        return ChainModeEnum.values()[mode % ChainModeEnum.values().length];
     }
 
     @SideOnly(Side.CLIENT)

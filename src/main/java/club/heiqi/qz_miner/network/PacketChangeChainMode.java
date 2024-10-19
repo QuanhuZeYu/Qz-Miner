@@ -18,7 +18,7 @@ public class PacketChangeChainMode implements IMessage {
 
     public PacketChangeChainMode(ChainModeEnum clientMode) {
         switch (clientMode) {
-            case RectangularMode:
+            case rectangularMode:
                 mode = 1;
                 break;
         }
@@ -40,6 +40,7 @@ public class PacketChangeChainMode implements IMessage {
             if(ctx.side.isServer()) {
                 UUID uuid = ctx.getServerHandler().playerEntity.getUniqueID();
                 AllPlayerStatue.getStatue(uuid).currentChainMode = message.mode;
+                AllPlayerStatue.getStatue(uuid).chainMode = ChainModeEnum.getMode(message.mode);
             }
             return null;
         }

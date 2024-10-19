@@ -42,7 +42,13 @@ public class BlockMethodHelper {
         int x = waitCheck.x;
         int y = waitCheck.y;
         int z = waitCheck.z;
-        return (x <= maxX && x >= minX && y <= maxY && y >= minY && z <= maxZ && z >= minZ);
+        if (x <= maxX && x >= minX && y <= maxY && y >= minY && z <= maxZ && z >= minZ) {
+            MY_LOG.LOG.info("点 {} 在范围 {} 内", waitCheck, radius);
+            return true;
+        } else {
+            MY_LOG.LOG.info("点 {} 在范围 {} 外", waitCheck, radius);
+            return false;
+        }
     }
 
     /**
@@ -160,7 +166,7 @@ public class BlockMethodHelper {
                     Point waitPoint = new Point(x, y, z);
 
                     // 检查当前点是否满足条件
-                    if (checkTwoPintBlockOreDictIsSame(world, pointIn, waitPoint)) {
+                    if (checkTwoPintBlockIsSame(world, pointIn, waitPoint)) {
                         ret.add(waitPoint);
                     }
                 }
@@ -169,12 +175,33 @@ public class BlockMethodHelper {
         return ret;
     }
 
-    public static boolean checkTwoPintBlockOreDictIsSame(World world, Point pointA, Point pointB) {
+    public static boolean checkTwoPintBlockIsSame(World world, Point pointA, Point pointB) {
         Block blockA = world.getBlock(pointA.x, pointA.y, pointA.z);
         Block blockB = world.getBlock(pointB.x, pointB.y, pointB.z);
         int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
         int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
-        return checkTwoDictIsSame(dictA, dictB);
+        return checkTwoDictIsSame(dictA, dictB) || checkTwoPointBlockDropIsSame(world, pointA, pointB);
+    }
+
+    public static boolean checkTwoPointBlockDropIsSame(World world, Point A, Point B) {
+        Block blockA = world.getBlock(A.x, A.y, A.z);
+        Block blockB = world.getBlock(B.x, B.y, B.z);
+        int metaA = world.getBlockMetadata(A.x, A.y, A.z);
+        int metaB = world.getBlockMetadata(B.x, B.y, B.z);
+        int fortune = 10;
+        List<ItemStack> blockItemA = blockA.getDrops(world, A.x, A.y, A.z, metaA, fortune);
+        List<ItemStack> blockItemB = blockB.getDrops(world, B.x, B.y, B.z, metaB, fortune);
+        for(ItemStack ISA : blockItemA) {
+            int[] ISAOreDict = OreDictionary.getOreIDs(ISA);
+            for(ItemStack ISB : blockItemB) {
+                int[] ISBOreDict = OreDictionary.getOreIDs(ISB);
+                if(ISA.isItemEqual(ISB) || ISA.getUnlocalizedName() == ISB.getUnlocalizedName()) return true;
+                if(checkTwoDictIsSame(ISAOreDict, ISBOreDict)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public static boolean checkTwoDictIsSame(int[] dict1, int[] dict2) {
@@ -273,37 +300,39 @@ public class BlockMethodHelper {
     }
 
     // region 方块破坏逻辑
-    public static void tryHarvestBlock(BlockEvent.BreakEvent event, World world, EntityPlayerMP player, int x, int y, int z) {
+    public static void tryHarvestBlock(BlockEvent.BreakEvent event, World world, EntityPlayerMP player, Point point) {
+        int x = point.x;
+        int y = point.y;
+        int z = point.z;
         Point playerPos = new Point((int)player.posX, (int) player.posY, (int) player.posZ);
         ItemInWorldManager manager = player.theItemInWorldManager;
         ItemStack stack = player.getCurrentEquippedItem();
         Block block = world.getBlock(x, y, z);
         int meta = world.getBlockMetadata(x, y, z);
         manager.theWorld.playAuxSFXAtEntity(player,2001,x,y,z, getIdFromBlock(block) + meta << 12);
-
-        List<ItemStack> willDrops = getDrops(world, x, y, z, meta, stack == null ? 0 : stack.getItem().getItemEnchantability(stack));
+        // 破坏之前先获取掉落物列表
         Statue playerStatue = AllPlayerStatue.getStatue(player.getUniqueID());
-        // 挖掘之前添加掉落物
-        playerStatue.dropsItem.addAll(willDrops);
-
+        List<ItemStack> dropsItem = block.getDrops(world, x, y, z, meta, EnchantmentHelper.getFortuneModifier(player));
+        playerStatue.dropsItem.clear(); // 添加之前先清理掉
+        playerStatue.dropsItem.addAll(dropsItem);
         boolean removeBlockSuccess = false;
-        if(manager.isCreative()) {
+        if(manager.isCreative()) { // 创造逻辑
             block.onBlockHarvested(world, x, y, z, meta, player);
             removeBlockSuccess = block.removedByPlayer(world, player, x, y, z, false);
             if(removeBlockSuccess) {
                 block.onBlockDestroyedByPlayer(world, x, y, z, meta);
             }
             manager.thisPlayerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x, y, z, world));
-        } else {
+        } else { // 生存逻辑
             ItemStack heldItem = manager.thisPlayerMP.getCurrentEquippedItem();
-            if(heldItem != null) {
+            if(heldItem != null) { // 手上有物品,检查是否销毁?
                 heldItem.func_150999_a(world, block, x, y, z, player);
                 if(heldItem.stackSize == 0) {
                     manager.thisPlayerMP.destroyCurrentEquippedItem();
                 }
             }
             removeBlockSuccess = removeBlock(world, player, x, y, z, false);
-            if(removeBlockSuccess && block.canHarvestBlock(player, meta)) {
+            if(block.canHarvestBlock(player, meta)) {
                 harvestBlock(world, player, x, y, z, meta);
             }
         }
@@ -311,9 +340,6 @@ public class BlockMethodHelper {
         if (!manager.isCreative() && removeBlockSuccess) {
             block.dropXpOnBlockBreak(world, x, y, z, event.getExpToDrop());
         }
-
-        // 结束后清除, 防止内存泄露
-        playerStatue.dropsItem.clear();
     }
 
     public static boolean removeBlock(World world, EntityPlayer player, int x, int y, int z, boolean canHarvest) {
@@ -352,26 +378,14 @@ public class BlockMethodHelper {
             drops.add(itemstack);
         }
         else {
+            // 因为方块已经被破坏了, 无法直接getDrops, 添加预先准备的缓存 =(
             drops.addAll(playerStatue.dropsItem);
+            playerStatue.dropsItem.clear();  // 用完就清理掉
         }
         for(ItemStack stack : drops) {
             String name = stack.getDisplayName();
             MY_LOG.LOG.info("掉落物生成: {}", name);
             worldIn.spawnEntityInWorld(new EntityItem(worldIn, playerPos.x, playerPos.y, playerPos.z, stack));
         }
-    }
-
-    public static List<ItemStack> getDrops(World world, int x, int y, int z, int meta, int fortune) {
-        List<ItemStack> drops = new ArrayList<>();
-        Block block = world.getBlock(x, y, z);
-        MY_LOG.LOG.info("当前挖掘块: {}", block.getLocalizedName());
-        int count = block.quantityDropped(world.rand);
-        for(int i = 0; i < count; i++) {
-            Item blockItem = block.getItemDropped(meta, world.rand, fortune);
-            if(blockItem != null) {
-                drops.add(new ItemStack(blockItem, 1, block.damageDropped(meta)));
-            }
-        }
-        return drops;
     }
 }

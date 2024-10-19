@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.MineModeSelect.AllChainMode;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
+import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper;
 import club.heiqi.qz_miner.MineModeSelect.MinerChain;
 import net.minecraft.block.Block;
@@ -16,7 +17,7 @@ import java.util.function.Supplier;
 /**
  * 该模式通过矿物词典进行连锁挖掘
  */
-public class RectangularChainMode implements MinerChain {
+public class RectangularChainMode implements MinerChain{
     public static int rangeLimit = Config.radiusLimit;
     public static int blockCountLimit = Config.blockLimit;
 
@@ -98,28 +99,31 @@ public class RectangularChainMode implements MinerChain {
         return new Supplier<Point>() {
             @Override
             public Point get() {
-                if(cache.isEmpty()) { // 补充逻辑
-                    Point curPoint = queue.poll();
-                    if(curPoint == null) return null; // 可供寻找相邻的点消耗完毕
-                    if(visited.contains(curPoint)) return get();
-                    List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, Config.chainRange);
-                    for(Point point : surroundPoint) {
-                        if(BlockMethodHelper.checkPointBlockIsValid(world, point)) {
-                            cache.add(point);
-                            queue.add(point);
+                while(true) {
+                    while(cache.isEmpty()) {
+                        Point curPoint = queue.poll();
+                        if(curPoint == null || blockCount[0] >= blockLimit) return null;
+                        if(visited.contains(curPoint)) continue;
+                        visited.add(curPoint);
+
+                        List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, Config.chainRange);
+                        for(Point point : surroundPoint) {
+                            if(!visited.contains(point) && BlockMethodHelper.checkPointBlockIsValid(world, point)) {
+                                cache.add(point);
+                                queue.add(point);
+                            }
                         }
                     }
-                }
-                Point waitRet = cache.remove(0);
-                Block waitRetBlock = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
-                if(BlockMethodHelper.checkPointBlockIsValid(world, waitRet)
-                    && waitRetBlock.canHarvestBlock(player, world.getBlockMetadata(waitRet.x, waitRet.y, waitRet.z))
-                    && BlockMethodHelper.checkPointIsInBox(waitRet, center, radius)
-                ) { // 如果这个点的方块是有效的(不是空气或者液体) 并且 可以被玩家挖掘出掉落物 并且 该点在边界内
-                    blockCount[0]++;
-                    return waitRet;
-                } else {
-                    return get();
+                    MY_LOG.LOG.info("cache size: {}", cache.size());
+                    Point waitRet = cache.remove(0);
+                    Block waitRetBlock = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
+                    if(BlockMethodHelper.checkPointBlockIsValid(world, waitRet)
+                        && waitRetBlock.canHarvestBlock(player, world.getBlockMetadata(waitRet.x, waitRet.y, waitRet.z))
+                        && BlockMethodHelper.checkPointIsInBox(waitRet, center, radius)
+                    ) {
+                        blockCount[0]++;
+                        return waitRet;
+                    }
                 }
             }
         };

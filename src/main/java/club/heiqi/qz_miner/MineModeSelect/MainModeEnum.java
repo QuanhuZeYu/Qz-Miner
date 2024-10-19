@@ -9,8 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public enum MainModeEnum {
-    ChainMode,
-    RangeMode;
+    chainMode,
+    rangeMode;
 
     public static List<String> getStringList() {
         List<String> stringList = new ArrayList<>();
@@ -27,6 +27,16 @@ public enum MainModeEnum {
             unlocalizedStringList.add(unlocalizedString);
         }
         return unlocalizedStringList;
+    }
+
+    public static MainModeEnum nextMode(MainModeEnum currentMode) {
+        int index = currentMode.ordinal();
+        index = (index+1)%values().length;
+        return values()[index];
+    }
+
+    public static MainModeEnum getMode(int mode) {
+        return MainModeEnum.values()[mode % MainModeEnum.values().length];
     }
 
     @SideOnly(Side.CLIENT)

@@ -46,6 +46,7 @@ public class PacketChangeRangeMode implements IMessage {
             if(ctx.side.isServer()) {
                 UUID uuid = ctx.getServerHandler().playerEntity.getUniqueID();
                 AllPlayerStatue.getStatue(uuid).currentRangeMode = message.mode;
+                AllPlayerStatue.getStatue(uuid).rangeMode = RangeModeEnum.getMode(message.mode);
             }
             return null;
         }

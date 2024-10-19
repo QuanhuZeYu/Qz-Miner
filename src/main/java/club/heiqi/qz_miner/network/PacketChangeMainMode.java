@@ -36,6 +36,7 @@ public class PacketChangeMainMode implements IMessage {
             if(ctx.side.isServer()) {
                 UUID uuid = ctx.getServerHandler().playerEntity.getUniqueID();
                 AllPlayerStatue.getStatue(uuid).currentMainMode = message.mode;
+                AllPlayerStatue.getStatue(uuid).mainMode = MainModeEnum.getMode(message.mode);
             }
             return null;
         }

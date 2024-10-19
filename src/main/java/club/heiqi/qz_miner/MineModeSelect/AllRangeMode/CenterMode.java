@@ -70,7 +70,17 @@ public class CenterMode implements MinerChain {
             public Point get() {
                 if(blockCount[0] >= blockLimit) return null;
                 if(queue.isEmpty()) return null;
-                if(cache.isEmpty()) {
+                while(cache.isEmpty()) {
+                    Point curPoint = queue.poll();
+                    if(curPoint == null) return null;
+                    if(visited.contains(curPoint)) continue;
+                    visited.add(curPoint);
+                    List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, radius);
+                    for(Point point : surroundPoint) {
+                        if(!visited.contains(point) && BlockMethodHelper.checkPointBlockIsValid(world, point)) {
+                            cache.add(point);
+                        }
+                    }
                     BlockMethodHelper.getOutLine(world, cache, center, queue, visited, radius);
                 }
                 // 二次校验,校验成功添加计数器
