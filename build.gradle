@@ -2,7 +2,3 @@
 plugins {
     id 'com.gtnewhorizons.gtnhconvention'
 }
-
-tasks.named('spotlessCheck').configure {
-    enabled = false
-}
