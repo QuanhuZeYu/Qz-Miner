@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.MineModeSelect.AllRangeMode;
 
+import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper;
 import club.heiqi.qz_miner.MineModeSelect.MinerChain;
 import club.heiqi.qz_miner.Config;
@@ -66,36 +67,48 @@ public class CenterMode implements MinerChain {
     public Supplier<Point> getPoint_supplier(World world, EntityPlayer player, Point center, int radius, int blockLimit) {
         final List<Point> cache = new ArrayList<>();  // 确认要挖掘的点
         final Set<Point> visited = new HashSet<>();  // 已经访问过的点
-        final Queue<Point> queue = new LinkedList<>(); // 需要待访问周围的点
         final int[] blockCount = new int[]{0};
-        queue.add(center);
+        cache.add(center);
 
         return new Supplier<Point>() {
+            /**
+             * 每提取一个点，
+             * @return
+             */
             @Override
             public Point get() {
-                if(blockCount[0] >= blockLimit) return null;
-                if(queue.isEmpty()) return null;
-                while(cache.isEmpty()) {
-                    Point curPoint = queue.poll();
-                    if(curPoint == null) return null;
-                    if(visited.contains(curPoint)) continue;
+                try {
+                    if(cache.isEmpty()) return null;
+                    if(blockCount[0] >= blockLimit) return null;
+                    Point curPoint = cache.remove(0);
+                    if(visited.contains(curPoint)) return get();
+                    Block curPointBlock = world.getBlock(curPoint.x, curPoint.y, curPoint.z);
                     visited.add(curPoint);
-                    List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, radius);
-                    for(Point point : surroundPoint) {
-                        if(!visited.contains(point) && BlockMethodHelper.checkPointBlockIsValid(world, point)) {
-                            cache.add(point);
-                        }
+                    if (BlockMethodHelper.checkPointBlockIsValid(world, curPoint)
+                        && curPointBlock.canHarvestBlock(player, curPointBlock.getDamageValue(world, curPoint.x, curPoint.y, curPoint.z))) {
+                        checkPointInRadius(cache, curPoint, center, radius);
+                        blockCount[0]++;
+                        return curPoint;
+                    } else {
+                        checkPointInRadius(cache, curPoint, center, radius);
+                        return get();
                     }
-                    BlockMethodHelper.getOutLine(world, cache, center, queue, visited, radius);
+                } catch (Exception e) {
+                    MY_LOG.LOG.warn("寻找点时出现错误:", e);
+                    return null;
                 }
-                // 二次校验,校验成功添加计数器
-                if(BlockMethodHelper.checkPointBlockIsValid(world, cache.get(0)) && world.getBlock(cache.get(0).x, cache.get(0).y, cache.get(0).z).canHarvestBlock(player, world.getBlockMetadata(cache.get(0).x, cache.get(0).y, cache.get(0).z))){
-                    blockCount[0]++;
-                    return cache.remove(0);
-                } else {
-                    return get();
-                }
-            }
+            };
         };
+    }
+
+    public void checkPointInRadius(List<Point> cache, Point curPoint, Point center, int radius) {
+        List<Point> surroundPoint = BlockMethodHelper.getSurroundPoints(curPoint.x, curPoint.y, curPoint.z);
+        for(Point point : surroundPoint) {
+            if(BlockMethodHelper.manhattanDistance(point, center) > radius) {
+                continue;
+            } else {
+                cache.add(point);
+            }
+        }
     }
 }

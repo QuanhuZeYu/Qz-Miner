@@ -144,7 +144,7 @@ public class BlockMethodHelper {
         return new ArrayList<>(Arrays.asList(top, bottom, left, right, front, back));
     }
 
-    public static void getSurroundPoints(List<Point> pointsList, Point center, int radius, int blockLimit) {
+    public static void getSurroundPoints(List<Point> pointsList, Point center) {
         Point top = center.topPoint();
         Point bottom = center.bottomPoint();
         Point left = center.xMinusPoint();

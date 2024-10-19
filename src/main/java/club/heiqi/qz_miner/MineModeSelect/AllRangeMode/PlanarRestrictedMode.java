@@ -86,7 +86,7 @@ public class PlanarRestrictedMode implements MinerChain {
                 if(blockCount[0] >= blockLimit) return null;
                 if (distance[0] > radius) return null;
                 // 如果缓存的点列表为空，尝试填充新的点
-                if (cache.isEmpty()) {
+                while (cache.isEmpty()) {
                     distance[0]++;
                     getOutBoundOfPoint(cache, center, distance[0]); // 补充 cache
                 }

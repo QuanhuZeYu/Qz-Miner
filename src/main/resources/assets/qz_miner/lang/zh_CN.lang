@@ -7,7 +7,7 @@ key.qz_miner.chainModeSwitch=切换挖掘逻辑
 qz_miner.mode.chainMode=连锁模式
 qz_miner.mode.rangeMode=范围爆破模式
 
-qz_miner.mode.rcectangularMode=矩形连锁模式
+qz_miner.mode.rectangularMode=矩形连锁模式
 
 qz_miner.mode.centerMode=球形爆破模式(适合挖碎矿或者挖个球形空间)
 qz_miner.mode.planarRestrictedMode=平面爆破模式(以玩家所在平面为基准 适合平整地形)
