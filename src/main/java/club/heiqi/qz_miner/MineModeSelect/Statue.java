@@ -7,8 +7,14 @@ import club.heiqi.qz_miner.network.PacketChangeRangeMode;
 import club.heiqi.qz_miner.network.Qz_MinerSimpleNetwork;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import net.minecraft.client.Minecraft;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
+
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Queue;
 
 import static club.heiqi.qz_miner.MineModeSelect.MinerModeProxy.*;
 
@@ -18,6 +24,8 @@ public class Statue {
 
     public int currentChainMode = 0;
     public int currentRangeMode = 0;
+
+    public List<ItemStack> dropsItem = new LinkedList<>();
 
     public void nextMainMode() {
         currentMainMode = (currentMainMode + 1) % MainModeEnum.values().length;

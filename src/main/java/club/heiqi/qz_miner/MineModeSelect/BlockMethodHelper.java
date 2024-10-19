@@ -1,33 +1,125 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
+import club.heiqi.qz_miner.MY_LOG;
+import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import net.minecraft.block.Block;
-import net.minecraft.block.material.Material;
+import net.minecraft.enchantment.EnchantmentHelper;
+import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.network.play.server.S23PacketBlockChange;
+import net.minecraft.server.management.ItemInWorldManager;
+import net.minecraft.stats.StatList;
 import net.minecraft.world.World;
 import club.heiqi.qz_miner.CustomData.Point;
+import net.minecraftforge.event.world.BlockEvent;
+import net.minecraftforge.oredict.OreDictionary;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.function.Supplier;
+import java.util.*;
+
+import static net.minecraft.block.Block.getIdFromBlock;
 
 public class BlockMethodHelper {
-    public static List<Block> getSurroundBlocks(World world, EntityPlayer player, int x, int y, int z) {
-        List<Block> surroundBlock = new ArrayList<>();
-        List<Point> surroundBlockPonitList = getSurroundPoints(x, y, z);
-        for(Point point : surroundBlockPonitList) {
-            Block block = world.getBlock(point.x, point.y, point.z);
-            // 判断是否是空气方块
-            if(block == Blocks.air) continue;
-            surroundBlock.add(block);
-        }
-        return surroundBlock;
+    public static double calculateDistance(Point pointA, Point pointB) {
+        return Math.sqrt(Math.pow(pointA.x - pointB.x, 2) + Math.pow(pointA.y - pointB.y, 2) + Math.pow(pointA.z - pointB.z, 2));
     }
 
-    public static List<Block> removeLiquid(List<Block> blockList) {
-        blockList.removeIf(block -> block.getMaterial().isLiquid());
-        return blockList;
+    // 计算曼哈顿距离的方法
+    public static int manhattanDistance(Point p1, Point p2) {
+        return Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y) + Math.abs(p1.z - p2.z);
+    }
+
+    public static boolean checkPointIsInBox(Point waitCheck, Point center, int radius) {
+        int maxX = center.x + radius;
+        int minX = center.x - radius;
+        int maxY = Math.max((center.y + radius), 255);
+        int minY = Math.min((center.y - radius), 0);
+        int maxZ = center.z + radius;
+        int minZ = center.z - radius;
+        int x = waitCheck.x;
+        int y = waitCheck.y;
+        int z = waitCheck.z;
+        return (x <= maxX && x >= minX && y <= maxY && y >= minY && z <= maxZ && z >= minZ);
+    }
+
+    /**
+     * 寻找中心点半径内与中心点相邻的点, 使用 getSurroundPointsEnhanced 作为相邻判断条件, 列表顺序为从内到外
+     * @param world
+     * @param center
+     * @param radius
+     * @return
+     */
+    public static List<Point> getInChainBoxPoint(World world, Point center, int radius) {
+        List<Point> result = new ArrayList<>();
+
+        // 遍历立方体范围内的所有点
+        for (int x = center.x - radius; x <= center.x + radius; x++) {
+            for (int y = center.y - radius; y <= center.y + radius; y++) {
+                for (int z = center.z - radius; z <= center.z + radius; z++) {
+                    // 跳过中心点本身
+                    if (x == center.x && y == center.y && z == center.z) {
+                        continue;
+                    }
+
+                    // 创建当前点对象
+                    Point currentPoint = new Point(x, y, z);
+
+                    // 使用 getSurroundPointsEnhanced 检查当前点是否与中心点相邻
+                    List<Point> surroundPoints = getSurroundPointsEnhanced(world, center, radius);
+                    if (surroundPoints.contains(currentPoint)) {
+                        result.add(currentPoint);
+                    }
+                }
+            }
+        }
+
+        // 按距离从内到外排序（曼哈顿距离）
+        result.sort(Comparator.comparingInt(p -> manhattanDistance(center, p)));
+
+        return result;
+    }
+
+    /**
+     * 寻找给出点所有的周围方块
+     * @param world
+     * @param pointList
+     * @return
+     */
+    public static List<Point> getOutLine(World world, List<Point> pointList) {
+        List<Point> ret = new LinkedList<>();
+        for (Point curPoint : pointList) {
+            if (BlockMethodHelper.checkPointBlockIsValid(world, curPoint)) {
+                ret.add(curPoint);
+            }
+        }
+        return ret;
+    }
+
+    /**
+     * 处理了取人要挖掘的点, 添加了下次要访问的点, 添加了已经访问的点
+     * @param world
+     * @param cache
+     * @param center
+     * @param queue
+     * @param visited
+     */
+    public static void getOutLine(World world, List<Point> cache, Point center, Queue<Point> queue, Set<Point> visited, int radius) {
+        for(int i = 0; i < queue.size(); ++i) {
+            Point curPoint = queue.poll();
+            if(visited.contains(curPoint)) continue; // 避免重复访问
+            visited.add(curPoint); // 添加访问记录,开始操作
+            List<Point> waitAdd = BlockMethodHelper.getSurroundPoints(curPoint.x, curPoint.y, curPoint.z);
+            for(Point p : waitAdd) {
+                if(BlockMethodHelper.calculateDistance(p, center) > radius) continue;
+                if(BlockMethodHelper.checkPointBlockIsValid(world, p)) {
+                    queue.add(p);
+                    cache.add(p);
+                }
+            }
+        }
     }
 
     public static List<Point> getSurroundPoints(int x, int y, int z) {
@@ -38,6 +130,51 @@ public class BlockMethodHelper {
         Point front = new Point(x, y, z+1);
         Point back = new Point(x, y, z-1);
         return new ArrayList<>(Arrays.asList(top, bottom, left, right, front, back));
+    }
+
+    public static void getSurroundPoints(List<Point> pointsList, Point center, int radius, int blockLimit) {
+        Point top = center.topPoint();
+        Point bottom = center.bottomPoint();
+        Point left = center.xMinusPoint();
+        Point right = center.xPlusPoint();
+        Point front = center.zPlusPoint();
+        Point back = center.zMinusPoint();
+        pointsList.addAll(Arrays.asList(top, bottom, left, right, front, back));
+    }
+
+    public static List<Point> getSurroundPointsEnhanced(World world, Point pointIn, int radius) {
+        List<Point> ret = new ArrayList<>();
+        // 需要选取的范围 立方体对角
+        Point TRF = new Point(pointIn.x + radius, pointIn.y + radius, pointIn.z + radius);
+        Point BLB = new Point(pointIn.x - radius, pointIn.y - radius, pointIn.z - radius);
+        // 遍历指定范围内的所有点
+        for (int x = BLB.x; x <= TRF.x; x++) {
+            for (int y = BLB.y; y <= TRF.y; y++) {
+                for (int z = BLB.z; z <= TRF.z; z++) {
+                    // 排除中心点本身
+                    if (x == pointIn.x && y == pointIn.y && z == pointIn.z) {
+                        continue;
+                    }
+
+                    // 创建当前点的对象
+                    Point waitPoint = new Point(x, y, z);
+
+                    // 检查当前点是否满足条件
+                    if (checkTwoPintBlockOreDictIsSame(world, pointIn, waitPoint)) {
+                        ret.add(waitPoint);
+                    }
+                }
+            }
+        }
+        return ret;
+    }
+
+    public static boolean checkTwoPintBlockOreDictIsSame(World world, Point pointA, Point pointB) {
+        Block blockA = world.getBlock(pointA.x, pointA.y, pointA.z);
+        Block blockB = world.getBlock(pointB.x, pointB.y, pointB.z);
+        int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
+        int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
+        return checkTwoDictIsSame(dictA, dictB);
     }
 
     public static boolean checkTwoDictIsSame(int[] dict1, int[] dict2) {
@@ -51,6 +188,11 @@ public class BlockMethodHelper {
             }
         }
         return isSame;
+    }
+
+    public static boolean checkPointBlockIsValid(World world, Point point) {
+        Block block = world.getBlock(point.x, point.y, point.z);
+        return block != Blocks.air && !block.getMaterial().isLiquid();
     }
 
     /**
@@ -130,36 +272,106 @@ public class BlockMethodHelper {
         }
     }
 
-    public static Supplier<Point> getOutBoundOfPointSupplier(World world, EntityPlayer player, Point center, int radius, int blockLimit) {
-        final int[] distance = {0};
-        final List<Point> cache = new ArrayList<>();
-        final int[] blockCount = {0};
+    // region 方块破坏逻辑
+    public static void tryHarvestBlock(BlockEvent.BreakEvent event, World world, EntityPlayerMP player, int x, int y, int z) {
+        Point playerPos = new Point((int)player.posX, (int) player.posY, (int) player.posZ);
+        ItemInWorldManager manager = player.theItemInWorldManager;
+        ItemStack stack = player.getCurrentEquippedItem();
+        Block block = world.getBlock(x, y, z);
+        int meta = world.getBlockMetadata(x, y, z);
+        manager.theWorld.playAuxSFXAtEntity(player,2001,x,y,z, getIdFromBlock(block) + meta << 12);
 
-        return new Supplier<Point>() {
-            @Override
-            public Point get() {
-                // 如果缓存的点列表为空，尝试填充新的点
-                while (cache.isEmpty()) {
-                    if(blockCount[0] >= blockLimit) return null;
-                    if (distance[0] > radius) return null;
-                    distance[0]++;
-                    getOutBoundOfPoint(cache, center, distance[0]); // 补充 cache
-                }
+        List<ItemStack> willDrops = getDrops(world, x, y, z, meta, stack == null ? 0 : stack.getItem().getItemEnchantability(stack));
+        Statue playerStatue = AllPlayerStatue.getStatue(player.getUniqueID());
+        // 挖掘之前添加掉落物
+        playerStatue.dropsItem.addAll(willDrops);
 
-                // 取出一个点
-                Point waitRet = cache.remove(0);
-                Block block = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
-                Material material = block.getMaterial();
-
-                // 如果是液体或空气，跳过该点，继续尝试获取下一个点
-                if (material.isLiquid() || block == Blocks.air) {
-                    return get(); // 递归调用获取下一个有效的点
-                }
-
-                // 返回符合条件的点, 计数器+1
-                blockCount[0]++;
-                return waitRet;
+        boolean removeBlockSuccess = false;
+        if(manager.isCreative()) {
+            block.onBlockHarvested(world, x, y, z, meta, player);
+            removeBlockSuccess = block.removedByPlayer(world, player, x, y, z, false);
+            if(removeBlockSuccess) {
+                block.onBlockDestroyedByPlayer(world, x, y, z, meta);
             }
-        };
+            manager.thisPlayerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x, y, z, world));
+        } else {
+            ItemStack heldItem = manager.thisPlayerMP.getCurrentEquippedItem();
+            if(heldItem != null) {
+                heldItem.func_150999_a(world, block, x, y, z, player);
+                if(heldItem.stackSize == 0) {
+                    manager.thisPlayerMP.destroyCurrentEquippedItem();
+                }
+            }
+            removeBlockSuccess = removeBlock(world, player, x, y, z, false);
+            if(removeBlockSuccess && block.canHarvestBlock(player, meta)) {
+                harvestBlock(world, player, x, y, z, meta);
+            }
+        }
+        // Drop experience
+        if (!manager.isCreative() && removeBlockSuccess) {
+            block.dropXpOnBlockBreak(world, x, y, z, event.getExpToDrop());
+        }
+
+        // 结束后清除, 防止内存泄露
+        playerStatue.dropsItem.clear();
+    }
+
+    public static boolean removeBlock(World world, EntityPlayer player, int x, int y, int z, boolean canHarvest) {
+        Block block = world.getBlock(x, y, z);
+        int meta = world.getBlockMetadata(x, y, z);
+        block.onBlockHarvested(world, x, y, z, meta, player);
+        boolean canRemoveByPlayer = block.removedByPlayer(world, player, x, y, z, canHarvest);
+        if(canRemoveByPlayer) {
+            block.onBlockDestroyedByPlayer(world, x, y, z, meta);
+        }
+        return canRemoveByPlayer;
+    }
+
+    /**
+     * 原版harvest移植, 相同的调用触发事件, 确保不影响本身行为
+     * @param worldIn
+     * @param player
+     * @param x
+     * @param y
+     * @param z
+     */
+    public static void harvestBlock(World worldIn, EntityPlayer player, int x, int y, int z, int meta) {
+        MY_LOG.LOG.info("触发采集方块函数");
+        Statue playerStatue = AllPlayerStatue.getStatue(player.getUniqueID());
+        Point playerPos = new Point((int) player.posX, (int) player.posY, (int) player.posZ);
+        Block block = worldIn.getBlock(x, y, z);
+        player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
+        player.addExhaustion(0.025F);
+        List<ItemStack> drops = new ArrayList<>();
+        if (block.canSilkHarvest(worldIn, player, x, y, z, meta) && EnchantmentHelper.getSilkTouchModifier(player)) {
+            // 精准采集逻辑
+            ArrayList<ItemStack> items = new ArrayList<ItemStack>();
+            Item blockItem = Item.getItemFromBlock(block);
+            int itemMeta = blockItem.getHasSubtypes() ? meta : 0;
+            ItemStack itemstack = new ItemStack(blockItem, 1, itemMeta);
+            drops.add(itemstack);
+        }
+        else {
+            drops.addAll(playerStatue.dropsItem);
+        }
+        for(ItemStack stack : drops) {
+            String name = stack.getDisplayName();
+            MY_LOG.LOG.info("掉落物生成: {}", name);
+            worldIn.spawnEntityInWorld(new EntityItem(worldIn, playerPos.x, playerPos.y, playerPos.z, stack));
+        }
+    }
+
+    public static List<ItemStack> getDrops(World world, int x, int y, int z, int meta, int fortune) {
+        List<ItemStack> drops = new ArrayList<>();
+        Block block = world.getBlock(x, y, z);
+        MY_LOG.LOG.info("当前挖掘块: {}", block.getLocalizedName());
+        int count = block.quantityDropped(world.rand);
+        for(int i = 0; i < count; i++) {
+            Item blockItem = block.getItemDropped(meta, world.rand, fortune);
+            if(blockItem != null) {
+                drops.add(new ItemStack(blockItem, 1, block.damageDropped(meta)));
+            }
+        }
+        return drops;
     }
 }

@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class MinerModeProxy {
+    public static MinerModeProxy INSTANCE;
     public static final ArrayList<MinerChain> chainModeSelect = new ArrayList<>(
         Arrays.asList(new RectangularChainMode())
     );

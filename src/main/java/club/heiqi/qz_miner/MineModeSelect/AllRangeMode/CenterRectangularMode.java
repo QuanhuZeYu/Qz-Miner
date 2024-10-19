@@ -1,16 +1,18 @@
 package club.heiqi.qz_miner.MineModeSelect.AllRangeMode;
 
-import club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper;
 import club.heiqi.qz_miner.MineModeSelect.MinerChain;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
 import net.minecraft.block.Block;
+import net.minecraft.block.material.Material;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 
 import java.util.*;
 import java.util.function.Supplier;
+
+import static club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper.getOutBoundOfPoint;
 
 public class CenterRectangularMode implements MinerChain {
     @Override
@@ -23,7 +25,7 @@ public class CenterRectangularMode implements MinerChain {
         // 从中心点开始
         Point centerPoint = new Point(x, y, z);
         blockCoordinates.add(centerPoint);
-        Supplier<Point> pointSupplier = BlockMethodHelper.getOutBoundOfPointSupplier(world, player, centerPoint, radius, blockLimit);
+        Supplier<Point> pointSupplier = getPoint_supplier(world, player, centerPoint, radius, blockLimit);
         Point supGet; // 从supplier取出的点
         while ((supGet = pointSupplier.get()) != null) {
             blockCoordinates.add(supGet);
@@ -33,21 +35,45 @@ public class CenterRectangularMode implements MinerChain {
         return blockCoordinates.toArray(new Point[0]);
     }
 
-    // 添加方块到集合中并检查是否达到上限
-    public boolean addBlockIfValid(World world, Set<Point> blockCoordinates, Point point, int blockLimit) {
-        if (blockCoordinates.size() >= blockLimit) {
-            return true;
-        }
-        if (checkBlockValid(world, point)) {
-            blockCoordinates.add(point);
-        }
-        return false;
-    }
-
     // 辅助方法：检查方块是否有效
     public boolean checkBlockValid(World world, Point point) {
         Block block = world.getBlock(point.x, point.y, point.z);
         boolean isLiquid = block.getMaterial().isLiquid();
         return block != Blocks.air && !isLiquid;
+    }
+
+    @Override
+    public Supplier<Point> getPoint_supplier(World world, EntityPlayer player, Point center, int radius, int blockLimit) {
+        final int[] distance = {0};
+        final List<Point> cache = new ArrayList<>();
+        final int[] blockCount = {0};
+
+        return new Supplier<Point>() {
+            @Override
+            public Point get() {
+                if(blockCount[0] >= blockLimit) return null;
+                if (distance[0] > radius) return null;
+                // 如果缓存的点列表为空，尝试填充新的点
+                while (cache.isEmpty()) {
+                    distance[0]++;
+                    getOutBoundOfPoint(cache, center, distance[0]); // 补充 cache
+                }
+
+                // 取出一个点
+                Point waitRet = cache.remove(0);
+                // 判断逻辑
+                Block block = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
+                Material material = block.getMaterial();
+                int meta = world.getBlockMetadata(waitRet.x, waitRet.y, waitRet.z);
+                // 如果是液体或空气，跳过该点，继续尝试获取下一个点
+                if (material.isLiquid() || block == Blocks.air || !block.canHarvestBlock(player, meta)) {
+                    return get(); // 递归调用获取下一个有效的点
+                }
+
+                // 返回符合条件的点, 计数器+1
+                blockCount[0]++;
+                return waitRet;
+            }
+        };
     }
 }

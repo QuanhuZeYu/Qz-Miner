@@ -60,7 +60,7 @@ public class MinerKeyBind {
             boolean isHold = AllPlayerStatue.getStatue(uuid).minerIsOpen;
             AllPlayerStatue.getStatue(uuid).minerIsOpen = !isHold;
             Qz_MinerSimpleNetwork.sendMessageToServer(new PacketIsHold(!isHold));
-            MY_LOG.LOG.info("连锁模式已{}", !isHold ? "关闭" : "开启");
+            MY_LOG.LOG.info("连锁模式已{}", isHold ? "关闭" : "开启");
         }
     }
 

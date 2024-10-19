@@ -11,6 +11,7 @@ import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 
 import java.util.*;
+import java.util.function.Supplier;
 
 public class CenterMode implements MinerChain {
     public Point[] getPointList(World world, EntityPlayer player, int x, int y, int z) {
@@ -52,5 +53,34 @@ public class CenterMode implements MinerChain {
 
         // 将坐标列表转换为数组并返回
         return blockCoordinates.toArray(new Point[0]);
+    }
+
+
+
+    @Override
+    public Supplier<Point> getPoint_supplier(World world, EntityPlayer player, Point center, int radius, int blockLimit) {
+        final List<Point> cache = new ArrayList<>();  // 确认要挖掘的点
+        final Set<Point> visited = new HashSet<>();  // 已经访问过的点
+        final Queue<Point> queue = new LinkedList<>(); // 需要待访问周围的点
+        final int[] blockCount = new int[]{0};
+        queue.add(center);
+
+        return new Supplier<Point>() {
+            @Override
+            public Point get() {
+                if(blockCount[0] >= blockLimit) return null;
+                if(queue.isEmpty()) return null;
+                if(cache.isEmpty()) {
+                    BlockMethodHelper.getOutLine(world, cache, center, queue, visited, radius);
+                }
+                // 二次校验,校验成功添加计数器
+                if(BlockMethodHelper.checkPointBlockIsValid(world, cache.get(0)) && world.getBlock(cache.get(0).x, cache.get(0).y, cache.get(0).z).canHarvestBlock(player, world.getBlockMetadata(cache.get(0).x, cache.get(0).y, cache.get(0).z))){
+                    blockCount[0]++;
+                    return cache.remove(0);
+                } else {
+                    return get();
+                }
+            }
+        };
     }
 }

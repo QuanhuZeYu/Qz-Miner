@@ -11,6 +11,30 @@ public class Point {
         this.z = z;
     }
 
+    public Point topPoint() {
+        return new Point(x, y + 1, z);
+    }
+
+    public Point bottomPoint() {
+        return new Point(x, y - 1, z);
+    }
+
+    public Point xPlusPoint() {
+        return new Point(x + 1, y, z);
+    }
+
+    public Point xMinusPoint() {
+        return new Point(x - 1, y, z);
+    }
+
+    public Point zPlusPoint() {
+        return new Point(x, y, z + 1);
+    }
+
+    public Point zMinusPoint() {
+        return new Point(x, y, z - 1);
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {

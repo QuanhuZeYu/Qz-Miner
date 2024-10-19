@@ -10,10 +10,8 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * 该模式通过矿物词典进行连锁挖掘
@@ -88,6 +86,45 @@ public class RectangularChainMode implements MinerChain {
         return pointList.toArray(new Point[0]);
     }
 
+    @Override
+    public Supplier<Point> getPoint_supplier(World world, EntityPlayer player, Point center, int radius, int blockLimit) {
+        final List<Point> cache = new ArrayList<>();
+        final Set<Point> visited = new HashSet<>();
+        final Queue<Point> queue = new LinkedList<>();
+        final int[] distance = new int[]{0};
+        final int[] blockCount = new int[]{0};
+        queue.add(center);
+
+        return new Supplier<Point>() {
+            @Override
+            public Point get() {
+                if(cache.isEmpty()) { // 补充逻辑
+                    Point curPoint = queue.poll();
+                    if(curPoint == null) return null; // 可供寻找相邻的点消耗完毕
+                    if(visited.contains(curPoint)) return get();
+                    List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, Config.chainRange);
+                    for(Point point : surroundPoint) {
+                        if(BlockMethodHelper.checkPointBlockIsValid(world, point)) {
+                            cache.add(point);
+                            queue.add(point);
+                        }
+                    }
+                }
+                Point waitRet = cache.remove(0);
+                Block waitRetBlock = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
+                if(BlockMethodHelper.checkPointBlockIsValid(world, waitRet)
+                    && waitRetBlock.canHarvestBlock(player, world.getBlockMetadata(waitRet.x, waitRet.y, waitRet.z))
+                    && BlockMethodHelper.checkPointIsInBox(waitRet, center, radius)
+                ) { // 如果这个点的方块是有效的(不是空气或者液体) 并且 可以被玩家挖掘出掉落物 并且 该点在边界内
+                    blockCount[0]++;
+                    return waitRet;
+                } else {
+                    return get();
+                }
+            }
+        };
+    }
+
     public boolean checkPoint(Point curPoint, Point centerPoint, List<Point> needRemove) {
         if(Math.abs(curPoint.x - centerPoint.x) > rangeLimit) {
             needRemove.add(curPoint);
@@ -103,4 +140,6 @@ public class RectangularChainMode implements MinerChain {
         }
         return true;
     }
+
+
 }

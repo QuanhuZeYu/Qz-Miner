@@ -3,8 +3,6 @@ plugins {
     id 'com.gtnewhorizons.gtnhconvention'
 }
 
-jar {
-    manifest {
-        attributes 'FMLAT': 'qz_miner_at.cfg'
-    }
+tasks.named('spotlessCheck').configure {
+    enabled = false
 }

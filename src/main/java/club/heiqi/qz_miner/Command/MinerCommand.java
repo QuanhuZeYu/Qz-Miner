@@ -1,7 +1,5 @@
 package club.heiqi.qz_miner.Command;
-
 import club.heiqi.qz_miner.Config;
-import cpw.mods.fml.common.event.FMLServerStartedEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import net.minecraft.command.ICommand;
 import net.minecraft.command.ICommandSender;
