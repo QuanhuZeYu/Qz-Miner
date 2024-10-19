@@ -10,7 +10,12 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 
-import java.util.*;
+import java.util.List;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Set;
+import java.util.ArrayList;
 import java.util.function.Supplier;
 
 public class CenterMode implements MinerChain {

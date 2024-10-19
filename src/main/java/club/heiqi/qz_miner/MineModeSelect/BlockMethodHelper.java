@@ -18,7 +18,13 @@ import club.heiqi.qz_miner.CustomData.Point;
 import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.oredict.OreDictionary;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Queue;
+import java.util.Set;
 
 import static net.minecraft.block.Block.getIdFromBlock;
 
