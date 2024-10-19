@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
+import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
@@ -18,13 +19,7 @@ import club.heiqi.qz_miner.CustomData.Point;
 import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.oredict.OreDictionary;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 
 import static net.minecraft.block.Block.getIdFromBlock;
 
@@ -154,6 +149,13 @@ public class BlockMethodHelper {
         pointsList.addAll(Arrays.asList(top, bottom, left, right, front, back));
     }
 
+    /**
+     * 寻找给出点的周围相似方块-增强模式，会根据中心点坐标和半径范围来确定
+     * @param world
+     * @param pointIn
+     * @param radius
+     * @return
+     */
     public static List<Point> getSurroundPointsEnhanced(World world, Point pointIn, int radius) {
         List<Point> ret = new ArrayList<>();
         // 需要选取的范围 立方体对角
@@ -184,12 +186,16 @@ public class BlockMethodHelper {
     public static boolean checkTwoPintBlockIsSame(World world, Point pointA, Point pointB) {
         Block blockA = world.getBlock(pointA.x, pointA.y, pointA.z);
         Block blockB = world.getBlock(pointB.x, pointB.y, pointB.z);
+        if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
+            return true;
+        }
         int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
         int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
         return checkTwoDictIsSame(dictA, dictB) || checkTwoPointBlockDropIsSame(world, pointA, pointB);
     }
 
     public static boolean checkTwoPointBlockDropIsSame(World world, Point A, Point B) {
+        boolean ret = false;
         Block blockA = world.getBlock(A.x, A.y, A.z);
         Block blockB = world.getBlock(B.x, B.y, B.z);
         int metaA = world.getBlockMetadata(A.x, A.y, A.z);
@@ -198,22 +204,49 @@ public class BlockMethodHelper {
         List<ItemStack> blockItemA = blockA.getDrops(world, A.x, A.y, A.z, metaA, fortune);
         List<ItemStack> blockItemB = blockB.getDrops(world, B.x, B.y, B.z, metaB, fortune);
         for(ItemStack ISA : blockItemA) {
-            int[] ISAOreDict = OreDictionary.getOreIDs(ISA);
             for(ItemStack ISB : blockItemB) {
-                int[] ISBOreDict = OreDictionary.getOreIDs(ISB);
-                if(ISA.isItemEqual(ISB) || ISA.getUnlocalizedName() == ISB.getUnlocalizedName()) return true;
-                if(checkTwoDictIsSame(ISAOreDict, ISBOreDict)) {
-                    return true;
+                if(ISA.isItemEqual(ISB) || Objects.equals(ISA.getUnlocalizedName(), ISB.getUnlocalizedName())) {
+                    ret = true; // 判断完全相同
+                    break;
+                }
+                if(checkIsSimilarToCenterOre(ISA, ISB)) {
+                    ret = true;
+                    break;
                 }
             }
         }
-        return false;
+        return ret;
+    }
+
+    public static boolean checkIsSimilarToCenterOre(ItemStack center, ItemStack itemB) {
+        boolean result = false;
+        int[] dictCenter = OreDictionary.getOreIDs(center);
+        int[] dictB = OreDictionary.getOreIDs(itemB);
+        for(int idCenter : dictCenter) {
+            String oreName = OreDictionary.getOreName(idCenter);
+            if(oreName.startsWith("ore") || oreName.contains("blockores") || oreName.toLowerCase().startsWith("rawore")) {
+                for(int idB : dictB) {
+                    String oreNameB = OreDictionary.getOreName(idB);
+                    if(oreNameB.startsWith("ore") || oreNameB.contains("blockores") || oreNameB.toLowerCase().startsWith("rawore")) {
+                        result = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     public static boolean checkTwoDictIsSame(int[] dict1, int[] dict2) {
         boolean isSame = false;
         for(int thisDict : dict1) {
+            String thisDictName = OreDictionary.getOreName(thisDict);
             for(int targetDict : dict2) {
+                String targetDictName = OreDictionary.getOreName(targetDict);
+                if(thisDictName.equals(targetDictName)) {
+                    isSame = true;
+                    break;
+                }
                 if(thisDict == targetDict) {
                     isSame = true;
                     break;

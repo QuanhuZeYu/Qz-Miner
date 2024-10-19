@@ -21,7 +21,7 @@ public class MinerCommand implements ICommand {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/qz_m <set_radiusLimit|set_blockLimit> <value>";
+        return "/qz_m <set_radiusLimit|set_blockLimit|set_chainRange> <value>";
     }
 
     @Override
@@ -32,7 +32,7 @@ public class MinerCommand implements ICommand {
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.addChatMessage(new ChatComponentText("用法错误！使用 /qz_m <set_radiusLimit|set_blockLimit> <值>"));
+            sender.addChatMessage(new ChatComponentText("用法错误！使用 /qz_m <set_radiusLimit|set_blockLimit|set_chainRange> <值>"));
             return;
         }
         String subCommand = args[0];
@@ -40,21 +40,31 @@ public class MinerCommand implements ICommand {
             int value = Integer.parseInt(args[1]); // 将第二个参数解析为整数
 
             switch (subCommand) {
-                case "set_radiusLimit":
+                case "set_radiusLimit" -> {
                     // 这里设置 radiusLimit 的值
                     Config.radiusLimit = value;
                     sender.addChatMessage(new ChatComponentText("radiusLimit 已设置为: " + value));
+                    Config.save();
                     break;
-
-                case "set_blockLimit":
+                }
+                case "set_blockLimit" -> {
                     // 这里设置 blockLimit 的值
                     Config.blockLimit = value;
                     sender.addChatMessage(new ChatComponentText("blockLimit 已设置为: " + value));
+                    Config.save();
                     break;
+                }
+                case "set_chainRange" -> {
+                    Config.chainRange = value;
+                    sender.addChatMessage(new ChatComponentText("chainRange 已设置为: " + value));
+                    Config.save();
+                    break;
+                }
 
-                default:
+                default -> {
                     sender.addChatMessage(new ChatComponentText("未知的二级命令: " + subCommand));
                     break;
+                }
             }
         } catch (NumberFormatException e) {
             sender.addChatMessage(new ChatComponentText("请输入一个有效的整数值！"));
@@ -81,7 +91,7 @@ public class MinerCommand implements ICommand {
     public List<String> addTabCompletionOptions(ICommandSender sender, String[] args) {
         if (args.length == 1) {
             // 返回子命令的自动补全
-            return Arrays.asList("set_radiusLimit", "set_blockLimit");
+            return Arrays.asList("set_radiusLimit", "set_blockLimit", "set_chainRange");
         }
         return null;
     }

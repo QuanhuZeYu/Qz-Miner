@@ -96,40 +96,68 @@ public class RectangularChainMode implements MinerChain{
     public Supplier<Point> getPoint_supplier(World world, EntityPlayer player, Point center, int radius, int blockLimit) {
         final List<Point> cache = new ArrayList<>();
         final Set<Point> visited = new HashSet<>();
-        final Queue<Point> queue = new LinkedList<>();
         final int[] distance = new int[]{0};
         final int[] blockCount = new int[]{0};
-        queue.add(center);
+        cache.add(center);
 
         return new Supplier<Point>() {
             @Override
             public Point get() {
-                while(true) {
-                    while(cache.isEmpty()) {
-                        Point curPoint = queue.poll();
-                        if(curPoint == null || blockCount[0] >= blockLimit) return null;
-                        if(visited.contains(curPoint)) continue;
-                        visited.add(curPoint);
+                try {
+                    if(blockCount[0] >= blockLimit) return null;
+                    if(cache.isEmpty()) return null; // 缓存为空, 认定链路结束
+                    Point curPoint = cache.remove(0); // 获取到点
+                    if(curPoint == null) return null;
+                    if(visited.contains(curPoint)) return get();
+                    visited.add(curPoint); // 标记为已访问
 
-                        List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, Config.chainRange);
-                        for(Point point : surroundPoint) {
-                            if(!visited.contains(point) && BlockMethodHelper.checkPointBlockIsValid(world, point)) {
-                                cache.add(point);
-                                queue.add(point);
-                            }
+                    // 随挖随补
+                    List<Point> surroundingPoints = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, Config.chainRange);// 获取范围内临近的所有点
+                    for(Point point : surroundingPoints) { // 如果点未访问过 检查点是否在范围内, 剔除掉超过范围的点
+                        if(!visited.contains(point) && BlockMethodHelper.checkPointBlockIsValid(world, point)) {
+                            cache.add(point);
                         }
                     }
-                    MY_LOG.LOG.info("cache size: {}", cache.size());
-                    Point waitRet = cache.remove(0);
-                    Block waitRetBlock = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
-                    if(BlockMethodHelper.checkPointBlockIsValid(world, waitRet)
-                        && waitRetBlock.canHarvestBlock(player, world.getBlockMetadata(waitRet.x, waitRet.y, waitRet.z))
-                        && BlockMethodHelper.checkPointIsInBox(waitRet, center, radius)
-                    ) {
+
+                    Block curPointBlock = world.getBlock(curPoint.x, curPoint.y, curPoint.z);
+                    int meta = world.getBlockMetadata(curPoint.x, curPoint.y, curPoint.z);
+                    if (BlockMethodHelper.checkPointBlockIsValid(world, curPoint)
+                        && curPointBlock.canHarvestBlock(player, curPointBlock.getDamageValue(world, curPoint.x, curPoint.y, curPoint.z))) {
                         blockCount[0]++;
-                        return waitRet;
+                        return curPoint;
+                    } else {
+                        return get();
                     }
+                } catch (Exception e) {
+                    MY_LOG.LOG.error("getPoint_supplier 函数错误", e);
+                    return null;
                 }
+//                while(true) {
+//                    while(cache.isEmpty()) {
+//                        Point curPoint = queue.poll();
+//                        if(curPoint == null || blockCount[0] >= blockLimit) return null;
+//                        if(visited.contains(curPoint)) continue;
+//                        visited.add(curPoint);
+//
+//                        List<Point> surroundPoint = BlockMethodHelper.getSurroundPointsEnhanced(world, curPoint, Config.chainRange);
+//                        for(Point point : surroundPoint) {
+//                            if(!visited.contains(point) && BlockMethodHelper.checkPointBlockIsValid(world, point)) {
+//                                cache.add(point);
+//                                queue.add(point);
+//                            }
+//                        }
+//                    }
+//                    MY_LOG.LOG.info("cache size: {}", cache.size());
+//                    Point waitRet = cache.remove(0);
+//                    Block waitRetBlock = world.getBlock(waitRet.x, waitRet.y, waitRet.z);
+//                    if(BlockMethodHelper.checkPointBlockIsValid(world, waitRet)
+//                        && waitRetBlock.canHarvestBlock(player, world.getBlockMetadata(waitRet.x, waitRet.y, waitRet.z))
+//                        && BlockMethodHelper.checkPointIsInBox(waitRet, center, radius)
+//                    ) {
+//                        blockCount[0]++;
+//                        return waitRet;
+//                    }
+//                }
             }
         };
     }
