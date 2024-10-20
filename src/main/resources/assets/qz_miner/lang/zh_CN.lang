@@ -4,6 +4,10 @@ key.qz_miner.switchMode=切换范围模式
 key.qz_miner.holdOn=切换开启
 key.qz_miner.chainModeSwitch=切换挖掘逻辑
 
+key.qz_miner.holdOn.tip=当前开启状态: 
+key.qz_miner.holdOn.tip.on=开启
+key.qz_miner.holdOn.tip.off=关闭
+
 qz_miner.mode.chainMode=连锁模式
 qz_miner.mode.rangeMode=范围爆破模式
 

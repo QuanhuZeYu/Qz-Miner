@@ -15,7 +15,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.resources.I18n;
+import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraftforge.common.MinecraftForge;
 import org.lwjgl.input.Keyboard;
 import net.minecraft.client.settings.KeyBinding;
 
@@ -24,6 +28,8 @@ import java.util.UUID;
 
 @SideOnly(Side.CLIENT)
 public class MinerKeyBind {
+    public static Minecraft mc = Minecraft.getMinecraft();
+
     public static final List<String> keyList = ProxyMinerMode.rangeModeListString;
     private static final KeyBinding switchMode = new KeyBinding(
         I18n.format("key."+ MOD_INFO.MODID +".switchMode"), Keyboard.KEY_G, ("key.categories."+ MOD_INFO.MODID)
@@ -39,6 +45,7 @@ public class MinerKeyBind {
         ClientRegistry.registerKeyBinding(switchMode);
         ClientRegistry.registerKeyBinding(isUse);
         ClientRegistry.registerKeyBinding(chainModeSwitch);
+        MinecraftForge.EVENT_BUS.register(new MinerKeyBind());
         FMLCommonHandler.instance().bus().register(new MinerKeyBind());
     }
 
@@ -62,6 +69,30 @@ public class MinerKeyBind {
             Qz_MinerSimpleNetwork.sendMessageToServer(new PacketIsHold(!isHold));
             MY_LOG.LOG.info("连锁模式已{}", isHold ? "关闭" : "开启");
         }
+    }
+
+    @SubscribeEvent
+    public void onRenderGameOverlay(RenderGameOverlayEvent.Post event) {
+        if(!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return;
+        mc.mcProfiler.startSection("qz_miner_tip");
+        boolean isHold = AllPlayerStatue.getStatue(Minecraft.getMinecraft().thePlayer.getUniqueID()).minerIsOpen;
+        FontRenderer fr = mc.fontRenderer;
+        // 获取当前界面的宽度和高度
+        int screenWidth = mc.displayWidth;
+        int screenHeight = mc.displayHeight;
+        ScaledResolution resolution = event.resolution;
+        int scale = resolution.getScaleFactor();
+        String translation1 = I18n.format("key."+ MOD_INFO.MODID +".holdOn.tip");
+        String curState = isHold ? I18n.format("key."+ MOD_INFO.MODID +".holdOn.tip.on") : I18n.format("key."+ MOD_INFO.MODID +".holdOn.tip.off");
+
+        int x = (int) (screenWidth * 0.05);
+        int y = (int) (screenHeight * 0.95);
+        x = x / scale;
+        y = y / scale;
+        fr.drawString(translation1, x, y, 0xFFFFFF);
+        int fontWidth = fr.getStringWidth(translation1);
+        fr.drawString(curState, x + fontWidth + 2, y, 0xff7500);
+        mc.mcProfiler.endSection();
     }
 
     @SubscribeEvent
