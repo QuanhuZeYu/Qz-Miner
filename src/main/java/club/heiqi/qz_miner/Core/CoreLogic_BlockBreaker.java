@@ -7,11 +7,16 @@ import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 
 public class CoreLogic_BlockBreaker {
     public World world = null;
     public EntityPlayer player = null;
+
+    public static void register() {
+        MinecraftForge.EVENT_BUS.register(new CoreLogic_BlockBreaker());
+    }
 
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent breakEvent) {
@@ -30,7 +35,7 @@ public class CoreLogic_BlockBreaker {
         this.world = breakEvent.world;
         this.player = breakEvent.getPlayer();
 
-        MinerModeProxy.proxyStart(breakEvent, world, player, new Point(x, y, z));
+        MinerModeProxy.proxyStart(world, player, new Point(x, y, z));
 
 //        Point[] blockList = MinerModeProxy.getBlockList(this.world, player, x, y, z);
 //        DebugPrint.printBlockList(world, blockList); // 打印调试信息

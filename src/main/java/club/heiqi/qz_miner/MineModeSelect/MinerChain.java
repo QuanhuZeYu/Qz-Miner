@@ -10,4 +10,6 @@ public interface MinerChain {
     abstract public Point[] getPointList(World world, EntityPlayer player, int x, int y, int z);
 
     abstract public Supplier<Point> getPoint_supplier(World world, EntityPlayer player, Point center, int radius, int blockLimit);
+
+    abstract public Supplier<Point> getPoint_supplier(Point center, int radius, int blockLimit);
 }

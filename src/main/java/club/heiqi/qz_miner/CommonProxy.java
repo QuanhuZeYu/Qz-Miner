@@ -8,7 +8,6 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
-import net.minecraftforge.common.MinecraftForge;
 
 public class CommonProxy {
 
@@ -18,11 +17,10 @@ public class CommonProxy {
         Config.sync(event.getSuggestedConfigurationFile());
 
         // 方块连锁测试
-        MinecraftForge.EVENT_BUS.register(new CoreLogic_BlockBreaker());
+        CoreLogic_BlockBreaker.register();
 
         new Qz_MinerSimpleNetwork();
         AllPlayerStatue.register();
-
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)

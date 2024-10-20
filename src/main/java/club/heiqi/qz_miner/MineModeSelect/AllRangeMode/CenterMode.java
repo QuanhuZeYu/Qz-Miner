@@ -101,6 +101,11 @@ public class CenterMode implements MinerChain {
         };
     }
 
+    @Override
+    public Supplier<Point> getPoint_supplier(Point center, int radius, int blockLimit) {
+        return null;
+    }
+
     public void checkPointInRadius(List<Point> cache, Point curPoint, Point center, int radius) {
         List<Point> surroundPoint = BlockMethodHelper.getSurroundPoints(curPoint.x, curPoint.y, curPoint.z);
         for(Point point : surroundPoint) {

@@ -12,6 +12,7 @@ public class Config {
     public static String configFile;
     public static int radiusLimit = 10;
     public static int blockLimit = 1024;
+    public static int perTickBlockMine = 64;
     public static int chainRange = 3;
     public static List<List<String>> sameBlockNameList = new ArrayList<>();
 
@@ -21,6 +22,7 @@ public class Config {
 
         radiusLimit = configuration.getInt("radiusLimit", Configuration.CATEGORY_GENERAL, 10, 1, 128, "挖掘者搜索范围");
         blockLimit = configuration.getInt("blockLimit", Configuration.CATEGORY_GENERAL, 128, 1, 40960, "一次性最多挖掘数量");
+        perTickBlockMine = configuration.getInt("perTickBlockMine", Configuration.CATEGORY_GENERAL, 64, 1, 128, "每tick挖掘数量");
         chainRange = configuration.getInt("chainRange", Configuration.CATEGORY_GENERAL, 3, 1, 6, "连锁模式搜索相邻范围");
 
         if (configuration.hasChanged()) {
@@ -32,6 +34,8 @@ public class Config {
         Configuration configuration = new Configuration(new File(configFile));
         configuration.get(Configuration.CATEGORY_GENERAL, "radiusLimit", radiusLimit).set(radiusLimit);
         configuration.get(Configuration.CATEGORY_GENERAL, "blockLimit", blockLimit).set(blockLimit);
+        configuration.get(Configuration.CATEGORY_GENERAL, "perTickBlockMine", perTickBlockMine).set(perTickBlockMine);
+        configuration.get(Configuration.CATEGORY_GENERAL, "chainRange", chainRange).set(chainRange);
         configuration.save();
     }
 

@@ -109,4 +109,9 @@ public class PlanarRestrictedMode implements MinerChain {
             }
         };
     }
+
+    @Override
+    public Supplier<Point> getPoint_supplier(Point center, int radius, int blockLimit) {
+        return null;
+    }
 }

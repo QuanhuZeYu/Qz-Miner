@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.MY_LOG;
+import club.heiqi.qz_miner.MineModeSelect.AllChainMode.RectangularChainMode;
 import club.heiqi.qz_miner.network.PacketChangeChainMode;
 import club.heiqi.qz_miner.network.PacketChangeMainMode;
 import club.heiqi.qz_miner.network.PacketChangeRangeMode;
@@ -11,7 +12,9 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -26,8 +29,9 @@ public class Statue {
 
     public MainModeEnum mainMode = MainModeEnum.chainMode;  // 默认为连锁模式
     public ChainModeEnum chainMode = ChainModeEnum.rectangularMode;
-
     public RangeModeEnum rangeMode = RangeModeEnum.centerMode;
+
+    public List<MinerChain> chainModeSelect = new ArrayList<>(Arrays.asList(new RectangularChainMode()));
 
     public List<ItemStack> dropsItem = new ArrayList<>();
 

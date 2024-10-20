@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
-import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
@@ -33,6 +32,13 @@ public class BlockMethodHelper {
         return Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y) + Math.abs(p1.z - p2.z);
     }
 
+    /**
+     * 无遍历, 放心使用; 检测点是否在框选立方体之内
+     * @param waitCheck
+     * @param center
+     * @param radius
+     * @return
+     */
     public static boolean checkPointIsInBox(Point waitCheck, Point center, int radius) {
         int maxX = center.x + radius;
         int minX = center.x - radius;
@@ -44,10 +50,8 @@ public class BlockMethodHelper {
         int y = waitCheck.y;
         int z = waitCheck.z;
         if (x <= maxX && x >= minX && y <= maxY && y >= minY && z <= maxZ && z >= minZ) {
-            MY_LOG.LOG.info("点 {} 在范围 {} 内", waitCheck, radius);
             return true;
         } else {
-            MY_LOG.LOG.info("点 {} 在范围 {} 外", waitCheck, radius);
             return false;
         }
     }
@@ -339,7 +343,7 @@ public class BlockMethodHelper {
     }
 
     // region 方块破坏逻辑
-    public static void tryHarvestBlock(BlockEvent.BreakEvent event, World world, EntityPlayerMP player, Point point) {
+    public static void tryHarvestBlock(World world, EntityPlayerMP player, Point point) {
         int x = point.x;
         int y = point.y;
         int z = point.z;
@@ -377,7 +381,7 @@ public class BlockMethodHelper {
         }
         // Drop experience
         if (!manager.isCreative() && removeBlockSuccess) {
-            block.dropXpOnBlockBreak(world, x, y, z, event.getExpToDrop());
+            block.dropXpOnBlockBreak(world, x, y, z, block.getExpDrop(world, meta, EnchantmentHelper.getFortuneModifier(player)));
         }
     }
 
@@ -401,7 +405,6 @@ public class BlockMethodHelper {
      * @param z
      */
     public static void harvestBlock(World worldIn, EntityPlayer player, int x, int y, int z, int meta) {
-        MY_LOG.LOG.info("触发采集方块函数");
         Statue playerStatue = AllPlayerStatue.getStatue(player.getUniqueID());
         Point playerPos = new Point((int) player.posX, (int) player.posY, (int) player.posZ);
         Block block = worldIn.getBlock(x, y, z);
@@ -422,8 +425,6 @@ public class BlockMethodHelper {
             playerStatue.dropsItem.clear();  // 用完就清理掉
         }
         for(ItemStack stack : drops) {
-            String name = stack.getDisplayName();
-            MY_LOG.LOG.info("掉落物生成: {}", name);
             worldIn.spawnEntityInWorld(new EntityItem(worldIn, playerPos.x, playerPos.y, playerPos.z, stack));
         }
     }
