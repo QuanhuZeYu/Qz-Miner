@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
-import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.MineModeSelect.AllChainMode.RectangularChainMode;
 import club.heiqi.qz_miner.network.PacketChangeChainMode;
 import club.heiqi.qz_miner.network.PacketChangeMainMode;
@@ -9,16 +8,11 @@ import club.heiqi.qz_miner.network.Qz_MinerSimpleNetwork;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
 
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedList;
 import java.util.List;
-
-import static club.heiqi.qz_miner.MineModeSelect.MinerModeProxy.*;
 
 public class Statue {
     public boolean minerIsOpen = false;
@@ -31,7 +25,7 @@ public class Statue {
     public ChainModeEnum chainMode = ChainModeEnum.rectangularMode;
     public RangeModeEnum rangeMode = RangeModeEnum.centerMode;
 
-    public List<MinerChain> chainModeSelect = new ArrayList<>(Arrays.asList(new RectangularChainMode()));
+    public List<AbstractMiner> chainModeSelect = new ArrayList<>(Arrays.asList(new RectangularChainMode()));
 
     public List<ItemStack> dropsItem = new ArrayList<>();
 

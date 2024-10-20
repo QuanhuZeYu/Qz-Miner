@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner.KeyBind;
 
 import club.heiqi.qz_miner.MY_LOG;
-import club.heiqi.qz_miner.MineModeSelect.MinerModeProxy;
+import club.heiqi.qz_miner.MineModeSelect.ProxyMinerMode;
 import club.heiqi.qz_miner.MOD_INFO;
 
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
@@ -24,7 +24,7 @@ import java.util.UUID;
 
 @SideOnly(Side.CLIENT)
 public class MinerKeyBind {
-    public static final List<String> keyList = MinerModeProxy.rangeModeListString;
+    public static final List<String> keyList = ProxyMinerMode.rangeModeListString;
     private static final KeyBinding switchMode = new KeyBinding(
         I18n.format("key."+ MOD_INFO.MODID +".switchMode"), Keyboard.KEY_G, ("key.categories."+ MOD_INFO.MODID)
     );

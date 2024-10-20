@@ -16,8 +16,8 @@ public enum RangeModeEnum {
     planarRestrictedMode,
     centerRectangularMode;
 
-    public static List<MinerChain> getMinerChain() {
-        List<MinerChain> miner = new ArrayList<>();
+    public static List<AbstractMiner> getMinerChain() {
+        List<AbstractMiner> miner = new ArrayList<>();
         miner.add(new CenterMode());
         miner.add(new PlanarRestrictedMode());
         miner.add(new CenterRectangularMode());

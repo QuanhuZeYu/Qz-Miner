@@ -48,6 +48,11 @@ public class Point {
     }
 
     @Override
+    public String toString() {
+        return "(x: " + x + ", y: " + y + ",z: " + z + ")";
+    }
+
+    @Override
     public int hashCode() {
         int result = 17;
         result = 31 * result + x; // 乘以质数31来组合哈希码

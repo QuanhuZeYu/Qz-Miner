@@ -15,45 +15,49 @@ import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
 import net.minecraft.world.World;
 import club.heiqi.qz_miner.CustomData.Point;
-import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.oredict.OreDictionary;
 
-import java.util.*;
+
+import java.util.Comparator;
+import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Arrays;
+import java.util.Objects;
 
 import static net.minecraft.block.Block.getIdFromBlock;
 
 public class BlockMethodHelper {
-    public static double calculateDistance(Point pointA, Point pointB) {
-        return Math.sqrt(Math.pow(pointA.x - pointB.x, 2) + Math.pow(pointA.y - pointB.y, 2) + Math.pow(pointA.z - pointB.z, 2));
-    }
-
-    // 计算曼哈顿距离的方法
-    public static int manhattanDistance(Point p1, Point p2) {
-        return Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y) + Math.abs(p1.z - p2.z);
+    public static Block getBlock(World world, Point point) {
+        return world.getBlock(point.x, point.y, point.z);
     }
 
     /**
-     * 无遍历, 放心使用; 检测点是否在框选立方体之内
-     * @param waitCheck
-     * @param center
-     * @param radius
+     * 注意!!!! 该方法需要方块存在
+     * @param world
+     * @param player
+     * @param point
      * @return
      */
-    public static boolean checkPointIsInBox(Point waitCheck, Point center, int radius) {
-        int maxX = center.x + radius;
-        int minX = center.x - radius;
-        int maxY = Math.max((center.y + radius), 255);
-        int minY = Math.min((center.y - radius), 0);
-        int maxZ = center.z + radius;
-        int minZ = center.z - radius;
-        int x = waitCheck.x;
-        int y = waitCheck.y;
-        int z = waitCheck.z;
-        if (x <= maxX && x >= minX && y <= maxY && y >= minY && z <= maxZ && z >= minZ) {
-            return true;
-        } else {
-            return false;
+    public static List<ItemStack> getDrops(World world, EntityPlayer player, Point point) {
+        Block block = getBlock(world, point);
+        int fortune = EnchantmentHelper.getFortuneModifier(player);
+        int meta = world.getBlockMetadata(point.x, point.y, point.z);
+        return block.getDrops(world, point.x, point.y, point.z, meta, fortune);
+    }
+
+    public static boolean checkPointDropIsSimilarToStack(World world, EntityPlayer player, Point targetPoint, Set<ItemStack> drops) {
+        List<ItemStack> targetDrops = getDrops(world, player, targetPoint);
+        for (ItemStack targetDrop : targetDrops) {
+            for (ItemStack drop : drops) {
+                if (checkTwoItemIsSimilar(drop, targetDrop)) {
+                    return true;
+                }
+            }
         }
+        return false;
     }
 
     /**
@@ -88,7 +92,7 @@ public class BlockMethodHelper {
         }
 
         // 按距离从内到外排序（曼哈顿距离）
-        result.sort(Comparator.comparingInt(p -> manhattanDistance(center, p)));
+        result.sort(Comparator.comparingInt(p -> PointMethodHelper.manhattanDistance(center, p)));
 
         return result;
     }
@@ -124,7 +128,7 @@ public class BlockMethodHelper {
             visited.add(curPoint); // 添加访问记录,开始操作
             List<Point> waitAdd = BlockMethodHelper.getSurroundPoints(curPoint.x, curPoint.y, curPoint.z);
             for(Point p : waitAdd) {
-                if(BlockMethodHelper.calculateDistance(p, center) > radius) continue;
+                if(PointMethodHelper.calculateDistance(p, center) > radius) continue;
                 if(BlockMethodHelper.checkPointBlockIsValid(world, p)) {
                     queue.add(p);
                     cache.add(p);
@@ -198,6 +202,25 @@ public class BlockMethodHelper {
         return checkTwoDictIsSame(dictA, dictB) || checkTwoPointBlockDropIsSame(world, pointA, pointB);
     }
 
+    public static boolean checkTwoBlockIsSameOrSimlar(Block blockA, Block blockB) {
+        if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
+            return true;
+        }
+        int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
+        int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
+        for(int dA : dictA) {
+            String dA_OreName = OreDictionary.getOreName(dA);
+            for(int dB : dictB) {
+                String dB_OreName = OreDictionary.getOreName(dB);
+                if(dA_OreName.equals(dB_OreName)) {
+                    return true;
+                }
+                if(dA_OreName.toLowerCase().startsWith("ore") && dB_OreName.toLowerCase().startsWith("ore")) return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean checkTwoPointBlockDropIsSame(World world, Point A, Point B) {
         boolean ret = false;
         Block blockA = world.getBlock(A.x, A.y, A.z);
@@ -213,7 +236,7 @@ public class BlockMethodHelper {
                     ret = true; // 判断完全相同
                     break;
                 }
-                if(checkIsSimilarToCenterOre(ISA, ISB)) {
+                if(checkTwoItemIsSimilar(ISA, ISB)) {
                     ret = true;
                     break;
                 }
@@ -222,7 +245,7 @@ public class BlockMethodHelper {
         return ret;
     }
 
-    public static boolean checkIsSimilarToCenterOre(ItemStack center, ItemStack itemB) {
+    public static boolean checkTwoItemIsSimilar(ItemStack center, ItemStack itemB) {
         boolean result = false;
         int[] dictCenter = OreDictionary.getOreIDs(center);
         int[] dictB = OreDictionary.getOreIDs(itemB);

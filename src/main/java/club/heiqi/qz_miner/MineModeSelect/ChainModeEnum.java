@@ -12,8 +12,8 @@ import java.util.List;
 public enum ChainModeEnum {
     rectangularMode;
 
-    public static List<MinerChain> getMinerChain() {
-        List<MinerChain> miner = new ArrayList<>();
+    public static List<AbstractMiner> getMinerChain() {
+        List<AbstractMiner> miner = new ArrayList<>();
         miner.add(new RectangularChainMode());
         return miner;
     }

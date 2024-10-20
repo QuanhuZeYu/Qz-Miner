@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.Core;
 
 import club.heiqi.qz_miner.CustomData.Point;
 import club.heiqi.qz_miner.MY_LOG;
-import club.heiqi.qz_miner.MineModeSelect.MinerModeProxy;
+import club.heiqi.qz_miner.MineModeSelect.ProxyMinerMode;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayer;
@@ -35,7 +35,7 @@ public class CoreLogic_BlockBreaker {
         this.world = breakEvent.world;
         this.player = breakEvent.getPlayer();
 
-        MinerModeProxy.proxyStart(world, player, new Point(x, y, z));
+        ProxyMinerMode.proxyStart(world, player, new Point(x, y, z));
 
 //        Point[] blockList = MinerModeProxy.getBlockList(this.world, player, x, y, z);
 //        DebugPrint.printBlockList(world, blockList); // 打印调试信息
