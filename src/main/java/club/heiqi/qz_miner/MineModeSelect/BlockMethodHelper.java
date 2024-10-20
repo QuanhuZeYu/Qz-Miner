@@ -48,10 +48,40 @@ public class BlockMethodHelper {
         return block.getDrops(world, point.x, point.y, point.z, meta, fortune);
     }
 
+    /**
+     * 检查两个物品是否相似, 包括CrushedOre--碎矿 选取的范围更广
+     * @param world
+     * @param player
+     * @param targetPoint
+     * @param drops
+     * @return
+     */
+    public static boolean checkPointDropIsSimilarToStack_IncludeCrushedOre(World world, EntityPlayer player, Point targetPoint, Set<ItemStack> drops) {
+        List<ItemStack> targetDrops = getDrops(world, player, targetPoint);
+        for (ItemStack targetDrop : targetDrops) {
+            for (ItemStack drop : drops) {
+                if(drop.equals(targetDrop)) return true; // 完全相同提前返回
+                if (checkTwoItemIsSimilar_IncludeCrushedOre(drop, targetDrop)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 检查两个物品是否相似 主要包含 ore rawore
+     * @param world
+     * @param player
+     * @param targetPoint
+     * @param drops
+     * @return
+     */
     public static boolean checkPointDropIsSimilarToStack(World world, EntityPlayer player, Point targetPoint, Set<ItemStack> drops) {
         List<ItemStack> targetDrops = getDrops(world, player, targetPoint);
         for (ItemStack targetDrop : targetDrops) {
             for (ItemStack drop : drops) {
+                if(drop.equals(targetDrop)) return true; // 完全相同提前返回
                 if (checkTwoItemIsSimilar(drop, targetDrop)) {
                     return true;
                 }
@@ -202,7 +232,7 @@ public class BlockMethodHelper {
         return checkTwoDictIsSame(dictA, dictB) || checkTwoPointBlockDropIsSame(world, pointA, pointB);
     }
 
-    public static boolean checkTwoBlockIsSameOrSimlar(Block blockA, Block blockB) {
+    public static boolean checkTwoBlockIsSameOrSimilar(Block blockA, Block blockB) {
         if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
             return true;
         }
@@ -236,7 +266,7 @@ public class BlockMethodHelper {
                     ret = true; // 判断完全相同
                     break;
                 }
-                if(checkTwoItemIsSimilar(ISA, ISB)) {
+                if(checkTwoItemIsSimilar_IncludeCrushedOre(ISA, ISB)) {
                     ret = true;
                     break;
                 }
@@ -245,7 +275,7 @@ public class BlockMethodHelper {
         return ret;
     }
 
-    public static boolean checkTwoItemIsSimilar(ItemStack center, ItemStack itemB) {
+    public static boolean checkTwoItemIsSimilar_IncludeCrushedOre(ItemStack center, ItemStack itemB) {
         boolean result = false;
         int[] dictCenter = OreDictionary.getOreIDs(center);
         int[] dictB = OreDictionary.getOreIDs(itemB);
@@ -255,6 +285,25 @@ public class BlockMethodHelper {
                 for(int idB : dictB) {
                     String oreNameB = OreDictionary.getOreName(idB);
                     if(oreNameB.startsWith("ore") || oreNameB.contains("blockores") || oreNameB.toLowerCase().startsWith("rawore")) {
+                        result = true;
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    public static boolean checkTwoItemIsSimilar(ItemStack center, ItemStack itemB) {
+        boolean result = false;
+        int[] dictCenter = OreDictionary.getOreIDs(center);
+        int[] dictB = OreDictionary.getOreIDs(itemB);
+        for(int idCenter : dictCenter) {
+            String oreName = OreDictionary.getOreName(idCenter);
+            if(oreName.startsWith("ore") || oreName.toLowerCase().startsWith("rawore")) {
+                for(int idB : dictB) {
+                    String oreNameB = OreDictionary.getOreName(idB);
+                    if(oreNameB.startsWith("ore") || oreNameB.toLowerCase().startsWith("rawore")) {
                         result = true;
                         break;
                     }

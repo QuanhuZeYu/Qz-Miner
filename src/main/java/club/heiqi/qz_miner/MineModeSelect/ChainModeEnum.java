@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.MOD_INFO;
+import club.heiqi.qz_miner.MineModeSelect.AllChainMode.ExcludeCrushedOreChainMode;
 import club.heiqi.qz_miner.MineModeSelect.AllChainMode.RectangularChainMode;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -10,11 +11,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public enum ChainModeEnum {
-    rectangularMode;
+    rectangularMode,
+    excludeCrushedOreMode;
 
     public static List<AbstractMiner> getMinerChain() {
         List<AbstractMiner> miner = new ArrayList<>();
         miner.add(new RectangularChainMode());
+        miner.add(new ExcludeCrushedOreChainMode());
         return miner;
     }
 

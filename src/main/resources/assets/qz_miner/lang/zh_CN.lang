@@ -11,7 +11,8 @@ key.qz_miner.holdOn.tip.off=关闭
 qz_miner.mode.chainMode=连锁模式
 qz_miner.mode.rangeMode=范围爆破模式
 
-qz_miner.mode.rectangularMode=矩形连锁模式
+qz_miner.mode.rectangularMode=模糊连锁模式--碎矿和粗矿一起连锁
+qz_miner.mode.excludeCrushedOreMode=普通连锁模式--只连锁粗矿原矿
 
 qz_miner.mode.centerMode=球形爆破模式(适合挖碎矿或者挖个球形空间)
 qz_miner.mode.planarRestrictedMode=平面爆破模式(以玩家所在平面为基准 适合平整地形)

@@ -40,7 +40,7 @@ public abstract class AbstractMiner {
             miner.currentState = AbstractMiner.TaskState.Start;
             FMLCommonHandler.instance().bus().register(miner);
         } else {
-            MY_LOG.LOG.info("当前任务正在执行, 拒绝请求");
+//            MY_LOG.LOG.info("当前任务正在执行, 拒绝请求");
         }
     }
 
@@ -104,7 +104,7 @@ public abstract class AbstractMiner {
     }
 
     public void complete() {
-        MY_LOG.LOG.info("卸载实例");
+//        MY_LOG.LOG.info("卸载实例");
         blockCount = 0;
         currentState = TaskState.IDLE;
         FMLCommonHandler.instance().bus().unregister(this);

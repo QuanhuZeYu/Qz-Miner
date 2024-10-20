@@ -71,17 +71,7 @@ public abstract class AbstractChainMiner extends AbstractMiner {
             boolean canHarvest = world.getBlock(point.x, point.y, point.z).canHarvestBlock(player, world.getBlockMetadata(point.x, point.y, point.z));
             if(!canHarvest) continue;
             // 修改部分
-            Point add = null;
-            for(Block visitedBlock : visited) {
-                boolean dropIsSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack(world, player, point, droppedItems);
-                if(dropIsSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimlar(visitedBlock, world.getBlock(point.x, point.y, point.z))) {
-                    ret.add(point);
-                    add = point;
-                    curPoint++;
-                    break;
-                }
-            }
-            if(add != null) visited.add(BlockMethodHelper.getBlock(world, add));
+            curPoint = excludeLogic(world, player, point, visited, ret, curPoint);
             // =====================
         }
         if(ret.isEmpty()) {
@@ -98,5 +88,23 @@ public abstract class AbstractChainMiner extends AbstractMiner {
     public void complete() {
         visited.clear();
         super.complete();
+    }
+
+    /**
+     * 从已经搜寻到的点中排除的逻辑
+     */
+    public int excludeLogic(World world, EntityPlayer player, Point checkP, Set<Block> visited, List<Point> ret, int curPoints) {
+        Point point = null;
+        for(Block vistedBlock : visited) {
+            boolean dropIsSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack_IncludeCrushedOre(world, player, checkP, droppedItems);
+            if(dropIsSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(vistedBlock, world.getBlock(checkP.x, checkP.y, checkP.z))) {
+                ret.add(checkP);
+                point = checkP;
+                curPoints++;
+                break;
+            }
+        }
+        if(point != null) visited.add(BlockMethodHelper.getBlock(world, point));
+        return curPoints;
     }
 }
