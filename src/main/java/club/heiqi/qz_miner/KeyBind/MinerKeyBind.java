@@ -30,11 +30,14 @@ import java.util.UUID;
 public class MinerKeyBind {
     public static Minecraft mc = Minecraft.getMinecraft();
 
+    public static int intervalTime = 50;  // 发包间隔必须大于50ms
+    public static long lastSendTime = System.currentTimeMillis();
+
     public static final List<String> keyList = ProxyMinerMode.rangeModeListString;
     private static final KeyBinding switchMode = new KeyBinding(
         I18n.format("key."+ MOD_INFO.MODID +".switchMode"), Keyboard.KEY_G, ("key.categories."+ MOD_INFO.MODID)
     );
-    private static final KeyBinding isUse = new KeyBinding(
+    private static final KeyBinding isPress = new KeyBinding(
         I18n.format("key."+ MOD_INFO.MODID +".holdOn"), Keyboard.KEY_GRAVE, ("key.categories."+ MOD_INFO.MODID)
     );
     private static final KeyBinding chainModeSwitch = new KeyBinding(
@@ -43,7 +46,7 @@ public class MinerKeyBind {
 
     public static void registry() {
         ClientRegistry.registerKeyBinding(switchMode);
-        ClientRegistry.registerKeyBinding(isUse);
+        ClientRegistry.registerKeyBinding(isPress);
         ClientRegistry.registerKeyBinding(chainModeSwitch);
         MinecraftForge.EVENT_BUS.register(new MinerKeyBind());
         FMLCommonHandler.instance().bus().register(new MinerKeyBind());
@@ -62,12 +65,21 @@ public class MinerKeyBind {
         if(switchMode.isPressed()) {
             AllPlayerStatue.getStatue(uuid).nextMode(event);
         }
+    }
 
-        if(isUse.isPressed()) {
-            boolean isHold = AllPlayerStatue.getStatue(uuid).minerIsOpen;
-            AllPlayerStatue.getStatue(uuid).minerIsOpen = !isHold;
-            Qz_MinerSimpleNetwork.sendMessageToServer(new PacketIsHold(!isHold));
-            MY_LOG.LOG.info("连锁模式已{}", isHold ? "关闭" : "开启");
+    @SubscribeEvent
+    public void onInputEvent(InputEvent event) {
+        long curTime = System.currentTimeMillis();
+        if(curTime - lastSendTime < intervalTime) return; // 节流
+        boolean isPressed = isPress.getIsKeyPressed();
+        if(!isPressed && AllPlayerStatue.getStatue(Minecraft.getMinecraft().thePlayer.getUniqueID()).minerIsOpen) {
+            UUID playerUUID = Minecraft.getMinecraft().thePlayer.getUniqueID();
+            AllPlayerStatue.getStatue(playerUUID).minerIsOpen = false;
+            Qz_MinerSimpleNetwork.sendMessageToServer(new PacketIsHold(false));
+        } else if(isPressed && !AllPlayerStatue.getStatue(Minecraft.getMinecraft().thePlayer.getUniqueID()).minerIsOpen) {
+            UUID playerUUID = Minecraft.getMinecraft().thePlayer.getUniqueID();
+            AllPlayerStatue.getStatue(playerUUID).minerIsOpen = true;
+            Qz_MinerSimpleNetwork.sendMessageToServer(new PacketIsHold(true));
         }
     }
 
