@@ -9,35 +9,17 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
+
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 /**
  * 该模式通过矿物词典进行连锁挖掘
  */
 public class RectangularChainMode extends AbstractChainMiner {
-    public World world;
-    public EntityPlayer player;
-
-    public Point center;
-
-    public static int taskTimeLimit = 30; // 单个任务执行限制20ms, 不保证一定小于, 但是在检测时若超过10ms则停止任务让出进程
-
-    public TaskState currentState = TaskState.IDLE;
-    public int blockCount = 0;
-    public List<Point> cache = new ArrayList<>();
-
-    public enum TaskState {
-        IDLE,
-        Start,
-        End,
-        Complete;
-    }
-
-    @Override
-    public List<Point> taskStartPhase(World world, EntityPlayer player, Point startPoint) {
-        return super.taskStartPhase(world, player, startPoint);
-    }
 
     @Override
     public void taskEndPhase() {

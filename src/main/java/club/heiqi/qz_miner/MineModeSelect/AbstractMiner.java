@@ -2,28 +2,36 @@ package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
-import club.heiqi.qz_miner.MY_LOG;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.gameevent.TickEvent;
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.List;
 import java.util.function.Supplier;
+
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public abstract class AbstractMiner {
     public World world;
     public EntityPlayer player;
 
     public Point center;
+    public Block centerBlock;
+    public int centerBlockMeta;
+    public Set<ItemStack> centerBlockDropItems = new HashSet<>();
 
-    public static int taskTimeLimit = 30; // 单个任务执行限制20ms, 不保证一定小于, 但是在检测时若超过10ms则停止任务让出进程
-
+    public static int taskTimeLimit = 50; // 单个任务执行限制20ms, 不保证一定小于, 但是在检测时若超过10ms则停止任务让出进程
     public TaskState currentState = TaskState.IDLE;
     public int blockCount = 0;
     public List<Point> cache = new ArrayList<>();
+    public Supplier<Point> pointSupplier;
 
     public enum TaskState {
         IDLE,
@@ -36,6 +44,11 @@ public abstract class AbstractMiner {
         miner.world = world;
         miner.player = player;
         miner.center = center;
+        miner.centerBlock = BlockMethodHelper.getBlock(world, center);
+        miner.centerBlockMeta = world.getBlockMetadata(center.x, center.y, center.z);
+        List<ItemStack> drops = BlockMethodHelper.getDrops(world, player, center);
+        centerBlockDropItems.addAll(drops);
+        pointSupplier = getPoint_supplier(center, Config.radiusLimit, Config.blockLimit);
         if(miner.currentState == TaskState.IDLE) {
             miner.currentState = AbstractMiner.TaskState.Start;
             FMLCommonHandler.instance().bus().register(miner);
@@ -44,18 +57,17 @@ public abstract class AbstractMiner {
         }
     }
 
-    public List<Point> taskStartPhase(World world, EntityPlayer player, Point startPoint) {
+    public void taskStartPhase(World world, EntityPlayer player, Point startPoint) {
         // 如果任务当前状态是 IDLE 注册Tick事件 开始任务
         // 开始阶段: 检测点是否达到上限|超过距离 获取Supplier -> 在限制时间内 -> 获取点 -> 检测点
         // 结束阶段: 挖掘获取到的点
-        if(center == null || world == null || player == null) return null;
+        if(center == null || world == null || player == null) return;
         if(blockCount > Config.blockLimit) {
             currentState = TaskState.Complete;
             this.complete();
-            return null;
+            return;
         }
         List<Point> ret = new ArrayList<>();
-        Supplier<Point> pointSupplier = getPoint_supplier(startPoint, Config.radiusLimit, Config.blockLimit);
         long startTime = System.currentTimeMillis();
         int curPoint = 0;
         while(System.currentTimeMillis() - startTime < taskTimeLimit && curPoint < Config.perTickBlockMine) {
@@ -76,11 +88,11 @@ public abstract class AbstractMiner {
         if(ret.isEmpty()) {
             currentState = TaskState.Complete;
             this.complete(); // 结束任务
-            return null;
+            return;
         }
 
         currentState = TaskState.End; // 获取点后进入结束阶段
-        return ret;
+        cache.addAll(ret);
     }
 
     public void taskEndPhase() {
@@ -117,12 +129,7 @@ public abstract class AbstractMiner {
         switch(event.phase) {
             case START -> {
                 if(currentState != TaskState.Start) return;
-                List<Point> validPoints = taskStartPhase(world, player, center);
-                if(validPoints == null) {
-                    complete();
-                    return;
-                };
-                cache.addAll(validPoints);
+                taskStartPhase(world, player, center);
             }
             case END ->  {
                 if(currentState != TaskState.End) return;

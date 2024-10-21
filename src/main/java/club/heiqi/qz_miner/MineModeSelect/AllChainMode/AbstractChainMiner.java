@@ -8,8 +8,11 @@ import club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper;
 import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 import cpw.mods.fml.common.FMLCommonHandler;
 import net.minecraft.block.Block;
+import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 
 import java.util.ArrayList;
@@ -19,92 +22,93 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 public abstract class AbstractChainMiner extends AbstractMiner {
-    public Set<Block> visited = new HashSet<>(); // 添加一个字段缓存访问过的方块
-    public Set<ItemStack> droppedItems = new HashSet<>();
 
     @Override
-    public void runTask(AbstractMiner miner, World world, EntityPlayer player, Point center) {
-        // 修改的逻辑: 开始时在访问过的点中添加中心点
-        miner.world = world;
-        miner.player = player;
-        miner.center = center;
-        if(miner.currentState == TaskState.IDLE) {
-            // =====修改部分========
-            Block centerBlock = BlockMethodHelper.getBlock(world, center);
-            visited.add(centerBlock);
-            droppedItems.addAll(BlockMethodHelper.getDrops(world, player, center));
-            // ====================
-            miner.currentState = TaskState.Start;
-            FMLCommonHandler.instance().bus().register(miner);
-        } else {
-            MY_LOG.LOG.info("当前任务正在执行, 拒绝请求");
-        }
-    }
-
-    @Override
-    public List<Point> taskStartPhase(World world, EntityPlayer player, Point startPoint) {
+    public void taskStartPhase(World world, EntityPlayer player, Point startPoint) {
         // 如果任务当前状态是 IDLE 注册Tick事件 开始任务
         // 开始阶段: 检测点是否达到上限|超过距离 获取Supplier -> 在限制时间内 -> 获取点 -> 检测点
         // 结束阶段: 挖掘获取到的点
 
         // 需要修改的逻辑: 判断要挖掘的点是否和挖掘过的方块(掉落物)是否相同
-        if(center == null || world == null || player == null) return null;
-        if(blockCount > Config.blockLimit) {
+        if(center == null || world == null || player == null) return;
+        if(blockCount > Config.blockLimit) { // 如果挖掘计数器超过限制, 则任务完成
+//            LOG.info("因达到数量限制 停止连锁");
             currentState = TaskState.Complete;
             this.complete();
-            return null;
+            return;
         }
-        List<Point> ret = new ArrayList<>();
-        Supplier<Point> pointSupplier = getPoint_supplier(startPoint, Config.radiusLimit, Config.blockLimit);
+        List<Point> ret = new ArrayList<>(); // 需要返回的数组
         long startTime = System.currentTimeMillis();
         int curPoint = 0;
-        while(System.currentTimeMillis() - startTime < taskTimeLimit && curPoint < Config.perTickBlockMine) {
-            Point point = pointSupplier.get();
-            if(point == null) {
+        while(true) {
+            if(System.currentTimeMillis() - startTime > taskTimeLimit) {
                 currentState = TaskState.End; // 当前阶段完成任务, 交给下一个阶段继续执行
                 break;
             }
+            if(curPoint > Config.perTickBlockMine) {
+                currentState = TaskState.End; // 当前阶段完成任务, 交给下一个阶段继续执行
+                break;
+            }
+
+            Point point = pointSupplier.get(); // 从范围内的点取出一个
+            if(point == null) { // 如果取出的点是null, 表示区域已经遍历完 任务完成
+                MY_LOG.printToChatMessage(world.isRemote, player.getDisplayName()+"范围内点已经全部遍历完成");
+                currentState = TaskState.End; // 当前阶段完成任务, 交给下一个阶段继续执行
+                break; // 打断循环 提交结果
+            }
             boolean inRadius = PointMethodHelper.checkPointIsInBox(point, startPoint, Config.radiusLimit);
-            if(!inRadius) continue;
+            if(!inRadius) continue; // 超出范围,寻找下一个点
             boolean isValid = BlockMethodHelper.checkPointBlockIsValid(world, point);
-            if(!isValid) continue;
+            if(!isValid) continue;  // 不可破坏方块, 寻找下一个
             boolean canHarvest = world.getBlock(point.x, point.y, point.z).canHarvestBlock(player, world.getBlockMetadata(point.x, point.y, point.z));
-            if(!canHarvest) continue;
+            if(!canHarvest) continue; // 不可采集, 寻找下一个
             // 修改部分
-            curPoint = excludeLogic(world, player, point, visited, ret, curPoint);
+            curPoint = excludeLogic(world, player, point, ret, curPoint); // 对当前计数器进行累加
             // =====================
         }
         if(ret.isEmpty()) {
+//            LOG.info("没有可挖掘的点,任务完成");
             currentState = TaskState.Complete;
             this.complete(); // 结束任务
-            return null;
+            return;
         }
 
-        currentState = TaskState.End; // 获取点后进入结束阶段
-        return ret;
+        cache.addAll(ret);
+//        LOG.info("缓存点数量: {}", ret.size());
     }
 
     @Override
-    public void complete() {
-        visited.clear();
-        super.complete();
+    public void taskEndPhase() {
+        if(cache.isEmpty()) {
+//            LOG.info("没有可供挖掘的点, 任务结束");
+            complete();
+            return;
+        } else {
+            // 挖掘逻辑
+            while (!cache.isEmpty()) { // cache不为空继续挖掘 -- cache 数量一般是 perTickBlockMine 数值
+                Point point = cache.remove(0); // 取出一个点
+                // 二次校验该点
+                boolean isValid = BlockMethodHelper.checkPointBlockIsValid(world, point);
+                if(!isValid) continue;
+                boolean canHarvest = world.getBlock(point.x, point.y, point.z).canHarvestBlock(player, world.getBlockMetadata(point.x, point.y, point.z));
+                if(!canHarvest) continue;
+                BlockMethodHelper.tryHarvestBlock(world, (EntityPlayerMP) player, point);
+                blockCount++;
+            }
+//            LOG.info("当前已挖掘数量: {}", blockCount);
+            currentState = TaskState.Start; // 继续开始任务
+        }
     }
 
     /**
      * 从已经搜寻到的点中排除的逻辑
      */
-    public int excludeLogic(World world, EntityPlayer player, Point checkP, Set<Block> visited, List<Point> ret, int curPoints) {
-        Point point = null;
-        for(Block vistedBlock : visited) {
-            boolean dropIsSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack_IncludeCrushedOre(world, player, checkP, droppedItems);
-            if(dropIsSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(vistedBlock, world.getBlock(checkP.x, checkP.y, checkP.z))) {
-                ret.add(checkP);
-                point = checkP;
-                curPoints++;
-                break;
-            }
+    public int excludeLogic(World world, EntityPlayer player, Point checkP, List<Point> ret, int curPoints) {
+        boolean isSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack_IncludeCrushedOre(world, player, checkP, centerBlockDropItems);
+        if(isSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(centerBlock, world.getBlock(checkP.x, checkP.y, checkP.z))) {
+            ret.add(checkP);
+            curPoints++;
         }
-        if(point != null) visited.add(BlockMethodHelper.getBlock(world, point));
         return curPoints;
     }
 }

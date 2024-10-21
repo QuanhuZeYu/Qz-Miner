@@ -36,23 +36,16 @@ public class ExcludeCrushedOreChainMode extends AbstractChainMiner{
      * @param world
      * @param player
      * @param checkP
-     * @param visited
      * @param ret
      * @param curPoints
      */
     @Override
-    public int excludeLogic(World world, EntityPlayer player, Point checkP, Set<Block> visited, List<Point> ret, int curPoints) {
-        Point point = null;
-        for(Block vistedBlock : visited) {
-            boolean dropIsSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack(world, player, checkP, droppedItems);
-            if(dropIsSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(vistedBlock, world.getBlock(checkP.x, checkP.y, checkP.z))) {
-                ret.add(checkP);
-                point = checkP;
-                curPoints++;
-                break;
-            }
+    public int excludeLogic(World world, EntityPlayer player, Point checkP, List<Point> ret, int curPoints) {
+        boolean isSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack(world, player, checkP, centerBlockDropItems);
+        if(isSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(BlockMethodHelper.getBlock(world, checkP), centerBlock)) {
+            ret.add(checkP);
+            curPoints++;
         }
-        if(point != null) visited.add(BlockMethodHelper.getBlock(world, point));
         return curPoints;
     }
 }
