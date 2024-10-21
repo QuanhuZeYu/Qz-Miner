@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
+import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.block.Block;
@@ -96,6 +97,9 @@ public abstract class AbstractMiner {
     }
 
     public void taskEndPhase() {
+        if(!AllPlayerStatue.getStatue(player.getUniqueID()).minerIsOpen) {
+            complete();
+        }
         if(cache.isEmpty()) {
             complete();
             return;
@@ -119,6 +123,14 @@ public abstract class AbstractMiner {
 //        MY_LOG.LOG.info("卸载实例");
         blockCount = 0;
         currentState = TaskState.IDLE;
+        pointSupplier = null;
+        cache.clear();
+        centerBlockDropItems.clear();
+        center = null;
+        centerBlock = null;
+        centerBlockMeta = 0;
+        world = null;
+        player = null;
         FMLCommonHandler.instance().bus().unregister(this);
     };
 
