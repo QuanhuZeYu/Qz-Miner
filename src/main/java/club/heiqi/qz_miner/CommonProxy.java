@@ -3,6 +3,7 @@ package club.heiqi.qz_miner;
 import club.heiqi.qz_miner.Command.MinerCommand;
 import club.heiqi.qz_miner.Core.CoreLogic_BlockBreaker;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
+import club.heiqi.qz_miner.Util.CheckCompatibility;
 import club.heiqi.qz_miner.network.Qz_MinerSimpleNetwork;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
@@ -27,7 +28,9 @@ public class CommonProxy {
     public void init(FMLInitializationEvent event) {}
 
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
-    public void postInit(FMLPostInitializationEvent event) {}
+    public void postInit(FMLPostInitializationEvent event) {
+        CheckCompatibility.isHasClass_BlockOresAbstract(); // 检查是否含有粗矿类
+    }
 
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {

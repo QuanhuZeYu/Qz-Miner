@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
+import club.heiqi.qz_miner.Util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
@@ -224,8 +225,10 @@ public class BlockMethodHelper {
     public static boolean checkTwoPintBlockIsSame(World world, Point pointA, Point pointB) {
         Block blockA = world.getBlock(pointA.x, pointA.y, pointA.z);
         Block blockB = world.getBlock(pointB.x, pointB.y, pointB.z);
-        if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
-            return true;
+        if(CheckCompatibility.isHasClass_BlockOresAbstract) {
+            if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
+                return true;
+            }
         }
         int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
         int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
@@ -233,8 +236,10 @@ public class BlockMethodHelper {
     }
 
     public static boolean checkTwoBlockIsSameOrSimilar(Block blockA, Block blockB) {
-        if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
-            return true;
+        if(CheckCompatibility.isHasClass_BlockOresAbstract){
+            if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
+                return true;
+            }
         }
         int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
         int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
