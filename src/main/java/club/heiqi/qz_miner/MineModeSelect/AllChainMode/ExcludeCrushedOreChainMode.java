@@ -1,16 +1,9 @@
 package club.heiqi.qz_miner.MineModeSelect.AllChainMode;
 
 import club.heiqi.qz_miner.CustomData.Point;
-import club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper;
+import club.heiqi.qz_miner.MineModeSelect.MethodHelper.BlockMethodHelper;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
-import net.minecraft.block.Block;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.world.World;
-
-import java.util.List;
-import java.util.Set;
-import java.util.function.Supplier;
 
 public class ExcludeCrushedOreChainMode extends AbstractChainMiner{
 

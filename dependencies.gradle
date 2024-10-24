@@ -37,7 +37,11 @@ dependencies {
     implementation("com.github.GTNewHorizons:StructureLib:1.3.4:dev")
     implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.50.36:dev")
     implementation("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
+
     implementation("com.github.GTNewHorizons:NotEnoughItems:2.6.42-GTNH:dev")
+    implementation("com.github.GTNewHorizons:NotEnoughCharacters:1.7.10-1.5.3-GTNH:dev")
+    implementation("com.github.GTNewHorizons:NotEnoughIds:2.1.6:dev")
+
     implementation("com.github.GTNewHorizons:GTNHLib:0.5.13:dev")
     implementation("com.github.GTNewHorizons:ModularUI:1.2.9:dev")
     implementation("com.github.GTNewHorizons:waila:1.8.1:dev")
@@ -70,6 +74,14 @@ dependencies {
     implementation('curse.maven:minefactory-reloaded-66672:2366150')
     implementation('com.github.GTNewHorizons:ServerUtilities:2.0.79:dev')
     implementation('com.github.GTNewHorizons:Draconic-Evolution:1.3.11.GTNH:dev')
+
+    implementation('com.github.GTNewHorizons:TinkersConstruct:1.12.12-GTNH:dev')
+    implementation("com.github.GTNewHorizons:TinkersGregworks:GTNH-1.0.30-pre:dev")
+    implementation("com.github.GTNewHorizons:TiC-Tooltips:1.3.1:dev")
+    implementation("com.github.GTNewHorizons:TinkersMechworks:0.3.1:dev")
+
+    implementation("com.github.GTNewHorizons:InGame-Info-XML:2.8.14:dev")
+    implementation("com.github.GTNewHorizons:Mobs-Info:0.4.6-GTNH:dev")
 
     implementation("com.google.auto.value:auto-value-annotations:1.10.1")
     annotationProcessor("com.google.auto.value:auto-value:1.10.1")

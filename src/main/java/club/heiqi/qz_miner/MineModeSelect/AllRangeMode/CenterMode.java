@@ -1,14 +1,9 @@
 package club.heiqi.qz_miner.MineModeSelect.AllRangeMode;
 
 import club.heiqi.qz_miner.MineModeSelect.AbstractMiner;
-import club.heiqi.qz_miner.CustomData.Point;
-import club.heiqi.qz_miner.MineModeSelect.PointFonder.PointFonder_Center;
-import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
+import club.heiqi.qz_miner.MineModeSelect.MethodHelper.PointFonder.PointFonder_Center;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
-
-import java.util.List;
-import java.util.function.Supplier;
 
 public class CenterMode extends AbstractMiner {
 

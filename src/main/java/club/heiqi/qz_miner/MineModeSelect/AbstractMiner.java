@@ -2,9 +2,10 @@ package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
-import club.heiqi.qz_miner.MineModeSelect.PointFonder.PointFonder;
-import club.heiqi.qz_miner.MineModeSelect.PointFonder.PointFonder_Rectangular;
+import club.heiqi.qz_miner.MineModeSelect.MethodHelper.BlockMethodHelper;
+import club.heiqi.qz_miner.MineModeSelect.MethodHelper.PointFonder.PointFonder;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
+import club.heiqi.qz_miner.Storage.Statue;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.block.Block;
@@ -20,6 +21,7 @@ import static club.heiqi.qz_miner.MY_LOG.printMessageClient;
 public abstract class AbstractMiner {
     public World world;
     public EntityPlayer player;
+    public Statue pStatue;
 
     public Point center;
     public Block centerBlock;
@@ -44,10 +46,9 @@ public abstract class AbstractMiner {
         return false;
     };
 
-    /**
-     * 请重载该方法 并添加搜索者的赋值!!
-     */
     public void runTask(AbstractMiner miner, World world, EntityPlayer player, Point center) {
+        pStatue = AllPlayerStatue.getStatue(player.getUniqueID());
+        pStatue.isMining = true;
         miner.world = world;
         miner.player = player;
         miner.center = center;
@@ -131,6 +132,7 @@ public abstract class AbstractMiner {
         centerBlockMeta = 0;
         world = null;
         player = null;
+        pStatue.isMining = false;
         if(pointFonder != null) pointFonder.cache.clear();
 //        printMessage("任务已完成");
         FMLCommonHandler.instance().bus().unregister(this);

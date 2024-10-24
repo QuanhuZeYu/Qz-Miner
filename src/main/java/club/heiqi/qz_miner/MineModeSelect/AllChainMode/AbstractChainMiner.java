@@ -3,15 +3,11 @@ package club.heiqi.qz_miner.MineModeSelect.AllChainMode;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
 import club.heiqi.qz_miner.MineModeSelect.AbstractMiner;
-import club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper;
-import club.heiqi.qz_miner.MineModeSelect.PointFonder.PointFonder_Rectangular;
+import club.heiqi.qz_miner.MineModeSelect.MethodHelper.BlockMethodHelper;
+import club.heiqi.qz_miner.MineModeSelect.MethodHelper.PointFonder.PointFonder_Rectangular;
 import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.world.World;
-
-import java.util.List;
 
 public abstract class AbstractChainMiner extends AbstractMiner {
 

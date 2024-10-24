@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.Command.MinerCommand;
-import club.heiqi.qz_miner.Core.CoreLogic_BlockBreaker;
+import club.heiqi.qz_miner.EventIn.BlockBreakerEventIn;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import club.heiqi.qz_miner.Util.CheckCompatibility;
 import club.heiqi.qz_miner.network.Qz_MinerSimpleNetwork;
@@ -18,7 +18,7 @@ public class CommonProxy {
         Config.sync(event.getSuggestedConfigurationFile());
 
         // 方块连锁测试
-        CoreLogic_BlockBreaker.register();
+        BlockBreakerEventIn.register();
 
         new Qz_MinerSimpleNetwork();
         AllPlayerStatue.register();

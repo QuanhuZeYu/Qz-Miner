@@ -1,15 +1,10 @@
 package club.heiqi.qz_miner.MineModeSelect.AllRangeMode;
 
 import club.heiqi.qz_miner.MineModeSelect.AbstractMiner;
-import club.heiqi.qz_miner.CustomData.Point;
-import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
-import java.util.List;
-import java.util.function.Supplier;
-
-import static club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper.getOutBoundOfPoint;
+import static club.heiqi.qz_miner.MineModeSelect.MethodHelper.BlockMethodHelper.getOutBoundOfPoint;
 
 public class PlanarRestrictedMode extends AbstractMiner {
 

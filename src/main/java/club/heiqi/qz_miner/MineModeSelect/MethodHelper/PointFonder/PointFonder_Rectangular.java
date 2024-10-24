@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.MineModeSelect.PointFonder;
+package club.heiqi.qz_miner.MineModeSelect.MethodHelper.PointFonder;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;

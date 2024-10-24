@@ -1,5 +1,8 @@
-package club.heiqi.qz_miner.MineModeSelect;
+package club.heiqi.qz_miner.Storage;
 
+import club.heiqi.qz_miner.MineModeSelect.ChainModeEnum;
+import club.heiqi.qz_miner.MineModeSelect.MainModeEnum;
+import club.heiqi.qz_miner.MineModeSelect.RangeModeEnum;
 import club.heiqi.qz_miner.network.PacketChangeChainMode;
 import club.heiqi.qz_miner.network.PacketChangeMainMode;
 import club.heiqi.qz_miner.network.PacketChangeRangeMode;
@@ -14,6 +17,7 @@ import java.util.List;
 
 public class Statue {
     public boolean minerIsOpen = false;
+    public boolean isMining = false;
     public int currentMainMode = 0;
 
     public int currentChainMode = 0;

@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.Core;
+package club.heiqi.qz_miner.EventIn;
 
 import club.heiqi.qz_miner.CustomData.Point;
 import club.heiqi.qz_miner.MY_LOG;
@@ -10,12 +10,12 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 
-public class CoreLogic_BlockBreaker {
+public class BlockBreakerEventIn {
     public World world = null;
     public EntityPlayer player = null;
 
     public static void register() {
-        MinecraftForge.EVENT_BUS.register(new CoreLogic_BlockBreaker());
+        MinecraftForge.EVENT_BUS.register(new BlockBreakerEventIn());
     }
 
     @SubscribeEvent

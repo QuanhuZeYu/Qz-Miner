@@ -1,5 +1,7 @@
-package club.heiqi.qz_miner.MineModeSelect;
+package club.heiqi.qz_miner.MineModeSelect.MethodHelper;
 
+import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
+import club.heiqi.qz_miner.Storage.Statue;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import club.heiqi.qz_miner.Util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
@@ -16,6 +18,8 @@ import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
 import net.minecraft.world.World;
 import club.heiqi.qz_miner.CustomData.Point;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.oredict.OreDictionary;
 
 
@@ -419,8 +423,7 @@ public class BlockMethodHelper {
         }
     }
 
-    // region 方块破坏逻辑
-    public static void tryHarvestBlock(World world, EntityPlayerMP player, Point point) {
+    /*public static void tryHarvestBlock(World world, EntityPlayerMP player, Point point) {
         int x = point.x;
         int y = point.y;
         int z = point.z;
@@ -439,8 +442,10 @@ public class BlockMethodHelper {
         if(manager.isCreative()) { // 创造逻辑
             block.onBlockHarvested(world, x, y, z, meta, player);
             removeBlockSuccess = block.removedByPlayer(world, player, x, y, z, false);
-            if(removeBlockSuccess) {
-                block.onBlockDestroyedByPlayer(world, x, y, z, meta);
+            if(removeBlockSuccess) { // 破坏成功了
+                BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(x, y, z, world, block, meta,
+                    EnchantmentHelper.getFortuneModifier(player), 1.0f, new ArrayList<>(dropsItem), player, false);
+                MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
             }
             manager.thisPlayerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x, y, z, world));
         } else { // 生存逻辑
@@ -451,7 +456,6 @@ public class BlockMethodHelper {
                     manager.thisPlayerMP.destroyCurrentEquippedItem();
                 }
             }
-//            removeBlockSuccess = removeBlock(world, player, x, y, z, false);
             removeBlockSuccess = block.removedByPlayer(world, player, x, y, z);
             block.onBlockDestroyedByPlayer(world, x, y, z, meta);
             if(removeBlockSuccess && block.canHarvestBlock(player, meta)) {
@@ -462,17 +466,57 @@ public class BlockMethodHelper {
         if (!manager.isCreative() && removeBlockSuccess) {
             block.dropXpOnBlockBreak(world, x, y, z, block.getExpDrop(world, meta, EnchantmentHelper.getFortuneModifier(player)));
         }
-    }
+    }*/
 
-    public static boolean removeBlock(World world, EntityPlayer player, int x, int y, int z, boolean canHarvest) {
+    // region 方块破坏逻辑
+    /**
+     *
+     */
+    public static void tryHarvestBlock(World world, EntityPlayerMP player, Point point) {
+        int x = point.x;
+        int y = point.y;
+        int z = point.z;
+        ItemInWorldManager manager = player.theItemInWorldManager;  // 玩家管理器
         Block block = world.getBlock(x, y, z);
         int meta = world.getBlockMetadata(x, y, z);
-        block.onBlockHarvested(world, x, y, z, meta, player);
-        boolean canRemoveByPlayer = block.removedByPlayer(world, player, x, y, z, canHarvest);
-        if(canRemoveByPlayer) {
+        manager.theWorld.playAuxSFXAtEntity(player,2001,x,y,z, getIdFromBlock(block) + meta << 12);
+        // 破坏之前先获取掉落物列表
+        Statue playerStatue = AllPlayerStatue.getStatue(player.getUniqueID());
+        List<ItemStack> dropsItem = block.getDrops(world, x, y, z, meta, EnchantmentHelper.getFortuneModifier(player));
+        playerStatue.dropsItem.clear(); // 添加之前先清理掉
+        playerStatue.dropsItem.addAll(dropsItem);
+        boolean removeBlockSuccess = false;
+        if(manager.isCreative()) { // 创造逻辑
+            block.onBlockHarvested(world, x, y, z, meta, player);
+            removeBlockSuccess = block.removedByPlayer(world, player, x, y, z, false);
+            if(removeBlockSuccess) { // 破坏成功了
+                BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(x, y, z, world, block, meta,
+                    EnchantmentHelper.getFortuneModifier(player), 1.0f, new ArrayList<>(dropsItem), player, false);
+                MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
+            }
+            manager.thisPlayerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x, y, z, world));
+        } else { // 生存逻辑
+            ItemStack heldItem = manager.thisPlayerMP.getCurrentEquippedItem();
+            heldItem.getItem().onBlockStartBreak(heldItem, x, y, z, player);
+            block.onBlockHarvested(world, x, y, z, meta, player);
+            if(heldItem != null) { // 手上有物品,检查是否销毁?
+                heldItem.func_150999_a(world, block, x, y, z, player);
+                if(heldItem.stackSize == 0) {
+                    manager.thisPlayerMP.destroyCurrentEquippedItem();
+                }
+            }
+            removeBlockSuccess = block.removedByPlayer(world, player, x, y, z);
             block.onBlockDestroyedByPlayer(world, x, y, z, meta);
+            if(removeBlockSuccess && block.canHarvestBlock(player, meta)) {
+                harvestBlock(world, player, x, y, z, meta);
+                heldItem.getItem().onBlockDestroyed(heldItem, world, block, x, y, z, player);
+                block.onBlockDestroyedByPlayer(world, x, y, z, meta);
+            }
         }
-        return canRemoveByPlayer;
+        // Drop experience
+        if (!manager.isCreative() && removeBlockSuccess) {
+            block.dropXpOnBlockBreak(world, x, y, z, block.getExpDrop(world, meta, EnchantmentHelper.getFortuneModifier(player)));
+        }
     }
 
     /**
@@ -486,17 +530,23 @@ public class BlockMethodHelper {
     public static void harvestBlock(World worldIn, EntityPlayer player, int x, int y, int z, int meta) {
         Statue playerStatue = AllPlayerStatue.getStatue(player.getUniqueID());
         Point playerPos = new Point((int) player.posX, (int) player.posY, (int) player.posZ);
+        ItemStack heldItem = player.getCurrentEquippedItem();
         Block block = worldIn.getBlock(x, y, z);
-        player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
-        player.addExhaustion(0.025F);
+        player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1); // 添加统计信息
+        player.addExhaustion(0.025F);  // 添加饥饿值
         List<ItemStack> drops = new ArrayList<>();
         if (block.canSilkHarvest(worldIn, player, x, y, z, meta) && EnchantmentHelper.getSilkTouchModifier(player)) {
             // 精准采集逻辑
             ArrayList<ItemStack> items = new ArrayList<ItemStack>();
             Item blockItem = Item.getItemFromBlock(block);
-            int itemMeta = blockItem.getHasSubtypes() ? meta : 0;
-            ItemStack itemstack = new ItemStack(blockItem, 1, itemMeta);
-            drops.add(itemstack);
+            if(blockItem == null) {
+                drops.addAll(playerStatue.dropsItem);
+                playerStatue.dropsItem.clear();  // 用完就清理掉
+            } else {
+                int itemMeta = blockItem.getHasSubtypes() ? meta : 0;
+                ItemStack itemstack = new ItemStack(blockItem, 1, itemMeta);
+                drops.add(itemstack);
+            }
         }
         else {
             // 因为方块已经被破坏了, 无法直接getDrops, 添加预先准备的缓存 =(
@@ -504,7 +554,8 @@ public class BlockMethodHelper {
             playerStatue.dropsItem.clear();  // 用完就清理掉
         }
         for(ItemStack stack : drops) {
-            worldIn.spawnEntityInWorld(new EntityItem(worldIn, playerPos.x, playerPos.y, playerPos.z, stack));
+            worldIn.spawnEntityInWorld(new EntityItem(worldIn, playerPos.x, playerPos.y, playerPos.z, stack)); // 生成掉落物逻辑
         }
     }
+    // endregion
 }
