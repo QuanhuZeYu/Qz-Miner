@@ -100,8 +100,8 @@ public class PointFonder_Rectangular extends PointFonder{
             return false;
         }
         radius++;
-        maxX = centerP.x + radius; maxY = Math.max(centerP.y + radius, 255); maxZ = centerP.z + radius;
-        minX = centerP.x - radius; minY = Math.min(centerP.y - radius, 0  ); minZ = centerP.z - radius;
+        maxX = centerP.x + radius; maxY = Math.min(centerP.y + radius, 255); maxZ = centerP.z + radius;
+        minX = centerP.x - radius; minY = Math.max(centerP.y - radius, 0  ); minZ = centerP.z - radius;
         return true;
     }
 

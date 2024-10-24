@@ -121,7 +121,7 @@ public abstract class AbstractMiner {
     }
 
     public void complete() {
-        printMessage("已挖掘 "+ blockCount + " 个方块");
+        printMessage("任务完成: 已挖掘 "+ blockCount + " 个方块");
         blockCount = 0;
         currentState = TaskState.IDLE;
         cache.clear();
@@ -132,7 +132,7 @@ public abstract class AbstractMiner {
         world = null;
         player = null;
         if(pointFonder != null) pointFonder.cache.clear();
-        printMessage("任务已完成");
+//        printMessage("任务已完成");
         FMLCommonHandler.instance().bus().unregister(this);
     };
 
@@ -144,12 +144,12 @@ public abstract class AbstractMiner {
             case START -> {
                 if(currentState != TaskState.Start) return;
                 taskStartPhase(world, player, center);
-                printMessage("搜寻点任务完成");
+//                printMessage("搜寻点任务完成");
             }
             case END ->  {
                 if(currentState != TaskState.End) return;
                 taskEndPhase();
-                printMessage("挖掘点任务完成");
+//                printMessage("挖掘点任务完成");
             }
         }
     }

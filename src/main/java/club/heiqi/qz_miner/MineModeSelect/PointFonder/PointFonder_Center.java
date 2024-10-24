@@ -2,6 +2,8 @@ package club.heiqi.qz_miner.MineModeSelect.PointFonder;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
+import club.heiqi.qz_miner.MY_LOG;
+import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,6 +25,7 @@ public class PointFonder_Center extends PointFonder{
         }
     };
     public int searchP = 0;  // 遍历cache的索引
+    public List<Point> validPoints = new ArrayList<>();
 
     public PointFonder_Center(Point point) {
         super(point);
@@ -43,26 +46,32 @@ public class PointFonder_Center extends PointFonder{
         while(nextSearch.iterator().hasNext()) {
             Point curPoint = nextSearch.iterator().next();
             nextSearch.remove(curPoint); // 取出点并删除
-            visitedPoints.add(curPoint);
+//            visitedPoints.add(curPoint);
             List<Point> surround = surroundPoints(curPoint);
-            List<Point> validSurround = new ArrayList<>();
-            for(int i = searchP; i < surround.size();) {
-                Point p = surround.get(i);
-                i++; searchP++;
-                if(visitedPoints.contains(p)) {
-                    if(checkShouldStop() || checkCacheOverSize()) return;
-                    continue;
-                }
-                validSurround.add(p);
-                if(checkShouldStop() || checkCacheOverSize()) return;
+            searchSurround(surround);
+            if(validPoints.isEmpty()) continue;
+            for(Point p: validPoints) {
+                MY_LOG.LOG.info("合法点: {}", p);
             }
-            if(validSurround.isEmpty()) continue;
-            nextSearch.addAll(validSurround);
-            cache.addAll(validSurround);
+            nextSearch.addAll(validPoints);
+            cache.addAll(validPoints);
+            validPoints.clear();
 
             if(checkShouldStop() || checkCacheOverSize()) return;
         }
         curState = TaskState.End;
+    }
+
+    public void searchSurround(List<Point> surround) {
+        for(int i = searchP; i < surround.size();) {
+            Point p = surround.get(i);
+            i++; searchP++;
+            if(/*visitedPoints.contains(p) || */!isInLimitRange(p)) {
+                continue;
+            }
+            validPoints.add(p);
+        }
+        searchP = 0;
     }
 
     public List<Point> surroundPoints(Point p) {
@@ -73,5 +82,11 @@ public class PointFonder_Center extends PointFonder{
         Point front = p.zPlusPoint();
         Point back = p.zMinusPoint();
         return Arrays.asList(up, down, left, right, front, back);
+    }
+
+    public boolean isInLimitRange(Point p) {
+        int distance = PointMethodHelper.calculateDistance_Sqz(p, centerP);
+        int radiusLimit = Config.radiusLimit;
+        return distance <= radiusLimit*radiusLimit;
     }
 }
