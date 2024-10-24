@@ -9,10 +9,8 @@ import net.minecraft.world.World;
 import java.util.List;
 
 public class ProxyMinerMode {
-    public static final List<AbstractMiner> rangeModeSelect = RangeModeEnum.getMinerChain();
-    public static final List<String> chainModeSelectString = ChainModeEnum.getUnlocalizedStringList();
-    public static final List<String> mainModeSelectString = MainModeEnum.getUnlocalizedStringList();
-    public static final List<String> rangeModeListString = RangeModeEnum.getUnlocalizedStringList();
+    public static List<AbstractMiner> rangeModeSelect = RangeModeEnum.getMinerChain();
+    public static List<AbstractMiner> chainModeSelect = ChainModeEnum.getMinerChain();
 
     public static void proxyStart(World world, EntityPlayer player, Point breakPoint) {
         int radius = Config.radiusLimit;
@@ -22,12 +20,12 @@ public class ProxyMinerMode {
         MainModeEnum mainMode = statue.mainMode;
         switch (mainMode) {
             case chainMode -> {
-                AbstractMiner chainMode = statue.chainModeSelect.get(statue.currentChainMode);
+                AbstractMiner chainMode = chainModeSelect.get(statue.currentChainMode);
 //                chainMode.getPoint_supplier(world, player, breakPoint, radius, blockLimit);
                 chainMode.runTask(chainMode, world, player, breakPoint);
             }
             case rangeMode -> {
-                AbstractMiner rangeMode = rangeModeSelect.get(statue.rangeMode.ordinal());
+                AbstractMiner rangeMode = rangeModeSelect.get(statue.currentRangeMode);
                 rangeMode.runTask(rangeMode, world, player, breakPoint);
             }
         };

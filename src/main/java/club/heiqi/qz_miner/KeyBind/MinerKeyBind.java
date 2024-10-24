@@ -33,7 +33,6 @@ public class MinerKeyBind {
     public static int intervalTime = 50;  // 发包间隔必须大于50ms
     public static long lastSendTime = System.currentTimeMillis();
 
-    public static final List<String> keyList = ProxyMinerMode.rangeModeListString;
     private static final KeyBinding switchMode = new KeyBinding(
         I18n.format("key."+ MOD_INFO.MODID +".switchMode"), Keyboard.KEY_G, ("key.categories."+ MOD_INFO.MODID)
     );
@@ -103,7 +102,11 @@ public class MinerKeyBind {
         y = y / scale;
         fr.drawString(translation1, x, y, 0xFFFFFF);
         int fontWidth = fr.getStringWidth(translation1);
-        fr.drawString(curState, x + fontWidth + 2, y, 0xff7500);
+        if(isHold) {
+            fr.drawString(curState, x + fontWidth + 2, y, 0x1eff00);
+        } else {
+            fr.drawString(curState, x + fontWidth + 2, y, 0xff7500);
+        }
         mc.mcProfiler.endSection();
     }
 

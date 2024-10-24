@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.MineModeSelect.AllRangeMode;
 
 import club.heiqi.qz_miner.MineModeSelect.AbstractMiner;
 import club.heiqi.qz_miner.CustomData.Point;
+import club.heiqi.qz_miner.MineModeSelect.PointFonder.PointFonder_Center;
 import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -10,6 +11,12 @@ import java.util.List;
 import java.util.function.Supplier;
 
 public class CenterMode extends AbstractMiner {
+
+    @Override
+    public boolean addPointFonder() {
+        pointFonder = new PointFonder_Center(center);
+        return true;
+    }
 
     /**
      * 这个方法要重写并添加Event注解才有效!!!!!
@@ -22,16 +29,4 @@ public class CenterMode extends AbstractMiner {
         super.onTick(event);
     }
 
-    @Override
-    public Supplier<Point> getPoint_supplier(Point center, int radius, int blockLimit) {
-        final List<Point> cache = PointMethodHelper.getAllPointInRadius(center, radius);
-
-        return new Supplier<Point>() {
-            @Override
-            public Point get() {
-                if(cache.isEmpty()) return null;
-                return cache.remove(0);
-            }
-        };
-    }
 }

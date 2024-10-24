@@ -32,7 +32,7 @@ public class MinerCommand implements ICommand {
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.addChatMessage(new ChatComponentText("用法错误！使用 /qz_m <set_radiusLimit|set_blockLimit|set_chainRange> <值>"));
+            sender.addChatMessage(new ChatComponentText("用法错误！使用 /qz_m <set_radiusLimit|set_blockLimit|set_pointFoundCache|set_chainRange> <值>"));
             return;
         }
         String subCommand = args[0];
@@ -51,6 +51,12 @@ public class MinerCommand implements ICommand {
                     // 这里设置 blockLimit 的值
                     Config.blockLimit = value;
                     sender.addChatMessage(new ChatComponentText("blockLimit 已设置为: " + value));
+                    Config.save();
+                    break;
+                }
+                case "set_pointFoundCache" -> {
+                    Config.pointFounderCacheSize = value;
+                    sender.addChatMessage(new ChatComponentText("pointFounderCacheSize 已设置为: " + value));
                     Config.save();
                     break;
                 }
@@ -78,7 +84,7 @@ public class MinerCommand implements ICommand {
      */
     @Override
     public boolean canCommandSenderUseCommand(ICommandSender sender) {
-        return true;
+        return sender.canCommandSenderUseCommand(2, getCommandName());
     }
 
     /**
@@ -91,7 +97,7 @@ public class MinerCommand implements ICommand {
     public List<String> addTabCompletionOptions(ICommandSender sender, String[] args) {
         if (args.length == 1) {
             // 返回子命令的自动补全
-            return Arrays.asList("set_radiusLimit", "set_blockLimit", "set_chainRange");
+            return Arrays.asList("set_radiusLimit", "set_blockLimit", "set_chainRange", "set_pointFoundCache");
         }
         return null;
     }

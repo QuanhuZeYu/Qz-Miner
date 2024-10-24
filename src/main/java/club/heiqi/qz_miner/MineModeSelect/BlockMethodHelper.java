@@ -451,8 +451,10 @@ public class BlockMethodHelper {
                     manager.thisPlayerMP.destroyCurrentEquippedItem();
                 }
             }
-            removeBlockSuccess = removeBlock(world, player, x, y, z, false);
-            if(block.canHarvestBlock(player, meta)) {
+//            removeBlockSuccess = removeBlock(world, player, x, y, z, false);
+            removeBlockSuccess = block.removedByPlayer(world, player, x, y, z);
+            block.onBlockDestroyedByPlayer(world, x, y, z, meta);
+            if(removeBlockSuccess && block.canHarvestBlock(player, meta)) {
                 harvestBlock(world, player, x, y, z, meta);
             }
         }

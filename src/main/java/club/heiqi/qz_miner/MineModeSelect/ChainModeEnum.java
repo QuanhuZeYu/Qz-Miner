@@ -1,32 +1,34 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
 import club.heiqi.qz_miner.MOD_INFO;
+import club.heiqi.qz_miner.MineModeSelect.AllChainMode.EnhanceChainMode;
 import club.heiqi.qz_miner.MineModeSelect.AllChainMode.ExcludeCrushedOreChainMode;
-import club.heiqi.qz_miner.MineModeSelect.AllChainMode.RectangularChainMode;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.resources.I18n;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public enum ChainModeEnum {
-    rectangularMode,
-    excludeCrushedOreMode;
+    rectangularMode("rectangularMode", new EnhanceChainMode()),
+    excludeCrushedOreMode("excludeCrushedOreMode", new ExcludeCrushedOreChainMode());
+
+    public final String name;
+    public final AbstractMiner miner;
+
+    ChainModeEnum(String name0, AbstractMiner miner0) {
+        this.name = name0;
+        this.miner = miner0;
+    }
 
     public static List<AbstractMiner> getMinerChain() {
-        List<AbstractMiner> miner = new ArrayList<>();
-        miner.add(new RectangularChainMode());
-        miner.add(new ExcludeCrushedOreChainMode());
-        return miner;
+        return Arrays.asList(rectangularMode.miner, excludeCrushedOreMode.miner);
     }
 
     public static List<String> getStringList() {
-        List<String> stringList = new ArrayList<>();
-        for (ChainModeEnum mode : ChainModeEnum.values()) {
-            stringList.add(mode.name());
-        }
-        return stringList;
+        return Arrays.asList(rectangularMode.name, excludeCrushedOreMode.name);
     }
 
     public static List<String> getUnlocalizedStringList() {

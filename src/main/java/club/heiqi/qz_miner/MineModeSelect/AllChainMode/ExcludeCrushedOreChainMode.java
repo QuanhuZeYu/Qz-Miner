@@ -25,27 +25,15 @@ public class ExcludeCrushedOreChainMode extends AbstractChainMiner{
         super.onTick(event);
     }
 
-    @Override
-    public Supplier<Point> getPoint_supplier(Point center, int radius, int blockLimit) {
-        return null;
-    }
-
     /**
      * 从已经搜寻到的点中排除的逻辑
-     *
-     * @param world
-     * @param player
-     * @param checkP
-     * @param ret
-     * @param curPoints
      */
     @Override
-    public int excludeLogic(World world, EntityPlayer player, Point checkP, List<Point> ret, int curPoints) {
-        boolean isSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack(world, player, checkP, centerBlockDropItems);
-        if(isSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(BlockMethodHelper.getBlock(world, checkP), centerBlock)) {
-            ret.add(checkP);
-            curPoints++;
+    public boolean excludeLogic(Point curPoint) {
+        boolean isSimilar = BlockMethodHelper.checkPointDropIsSimilarToStack(world, player, curPoint, centerBlockDropItems);
+        if(isSimilar || BlockMethodHelper.checkTwoBlockIsSameOrSimilar(BlockMethodHelper.getBlock(world, curPoint), centerBlock)) {
+            return false;
         }
-        return curPoints;
+        return true;
     }
 }

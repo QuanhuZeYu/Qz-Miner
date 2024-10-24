@@ -24,16 +24,4 @@ public class PlanarRestrictedMode extends AbstractMiner {
         super.onTick(event);
     }
 
-    @Override
-    public Supplier<Point> getPoint_supplier(Point center, int radius, int blockLimit) {
-        final List<Point> cache = PointMethodHelper.getAllPointUpperHorizons(center, radius);
-
-        return new Supplier<Point>() {
-            @Override
-            public Point get() {
-                if(cache.isEmpty()) return null;
-                return cache.remove(0);
-            }
-        };
-    }
 }
