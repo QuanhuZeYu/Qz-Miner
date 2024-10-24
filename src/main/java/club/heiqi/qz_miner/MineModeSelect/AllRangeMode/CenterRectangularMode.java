@@ -11,7 +11,6 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import java.util.List;
 import java.util.function.Supplier;
 
-import static club.heiqi.qz_miner.MY_LOG.printMessage;
 import static club.heiqi.qz_miner.MineModeSelect.BlockMethodHelper.getOutBoundOfPoint;
 
 public class CenterRectangularMode extends AbstractMiner {

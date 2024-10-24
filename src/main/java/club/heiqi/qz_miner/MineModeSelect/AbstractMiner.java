@@ -15,7 +15,7 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.*;
 
-import static club.heiqi.qz_miner.MY_LOG.printMessage;
+import static club.heiqi.qz_miner.MY_LOG.printMessageClient;
 
 public abstract class AbstractMiner {
     public World world;
@@ -121,7 +121,7 @@ public abstract class AbstractMiner {
     }
 
     public void complete() {
-        printMessage("任务完成: 已挖掘 "+ blockCount + " 个方块");
+        if(world.isRemote) printMessageClient("任务完成: 已挖掘 "+ blockCount + " 个方块");
         blockCount = 0;
         currentState = TaskState.IDLE;
         cache.clear();

@@ -8,7 +8,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
-import static club.heiqi.qz_miner.MY_LOG.printMessage;
 
 public abstract class PointFonder {
     public long updateLifeTime = System.currentTimeMillis();
@@ -79,7 +78,6 @@ public abstract class PointFonder {
             return;
         }
         if(curState != TaskState.IDLE) {
-            printMessage("当前状态为" + curState.name() + "拒绝连锁");
             return;
         }
         if(taskTimeLimit != Config.pointFonderTaskTimeLimit) taskTimeLimit = Config.pointFonderTaskTimeLimit;

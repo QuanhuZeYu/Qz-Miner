@@ -25,7 +25,7 @@ public class MY_LOG {
     }
 
     @SideOnly(Side.CLIENT)
-    public static void printMessage(String string) {
+    public static void printMessageClient(String string) {
         Minecraft.getMinecraft().thePlayer.addChatMessage(new ChatComponentText(string));
     }
 }
