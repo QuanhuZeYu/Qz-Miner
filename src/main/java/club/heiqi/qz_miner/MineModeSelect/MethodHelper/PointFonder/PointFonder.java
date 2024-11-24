@@ -42,6 +42,10 @@ public abstract class PointFonder {
         Complete
     }
 
+    /**
+     * 初始化缓存指针, 记录中心点
+     * @param point
+     */
     public PointFonder(Point point) {
         centerP = point;
         cache.clear();
@@ -96,9 +100,7 @@ public abstract class PointFonder {
      */
     public abstract void startPhase();
 
-    public void endPhase() {
-
-    };
+    public void endPhase() {};
 
     public void completePhase() {
         curState = TaskState.Complete;

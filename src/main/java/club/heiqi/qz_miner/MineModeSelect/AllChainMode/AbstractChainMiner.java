@@ -9,6 +9,8 @@ import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import net.minecraft.entity.player.EntityPlayerMP;
 
+import static club.heiqi.qz_miner.MY_LOG.logger;
+
 public abstract class AbstractChainMiner extends AbstractMiner {
 
     @Override
@@ -36,9 +38,14 @@ public abstract class AbstractChainMiner extends AbstractMiner {
 //                    printMessage("2.当前点是空气或者液体");
                     continue;
                 }
+                // 获取对应点的方块是否可以收获
                 boolean canHarvest = world.getBlock(point.x, point.y, point.z).canHarvestBlock(player, world.getBlockMetadata(point.x, point.y, point.z));
+                /*logger.info("当前尝试挖掘的方块: {Name: {}, MetaID: {}, canHarvest: {}}",
+                    world.getBlock(point.x, point.y, point.z).getLocalizedName(),
+                    world.getBlockMetadata(point.x, point.y, point.z),
+                    canHarvest);*/
                 if(!canHarvest) {
-//                    printMessage("2.当前点无法收获");
+                    /*logger.info("2.当前点无法收获");*/
                     continue;
                 }
                 if(excludeLogic(point)) continue;

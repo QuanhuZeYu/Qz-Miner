@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.MOD_INFO;
 import club.heiqi.qz_miner.MineModeSelect.AllRangeMode.CenterMode;
 import club.heiqi.qz_miner.MineModeSelect.AllRangeMode.CenterRectangularMode;
 import club.heiqi.qz_miner.MineModeSelect.AllRangeMode.PlanarRestrictedMode;
+import club.heiqi.qz_miner.MineModeSelect.AllRangeMode.TunnelMode;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.resources.I18n;
@@ -12,15 +13,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 public enum RangeModeEnum {
-    centerMode,
-    planarRestrictedMode,
-    centerRectangularMode;
+    centerMode("centerMode", new CenterMode()),
+    planarRestrictedMode("planarRestrictedMode", new PlanarRestrictedMode()),
+    centerRectangularMode("centerRectangularMode", new CenterRectangularMode()),
+    tunnelMode("tunnelMode", new TunnelMode());
+
+    public final String name;
+    public final AbstractMiner miner;
+    RangeModeEnum(String name, AbstractMiner miner) {
+        this.name = name;
+        this.miner = miner;
+    }
 
     public static List<AbstractMiner> getMinerChain() {
         List<AbstractMiner> miner = new ArrayList<>();
-        miner.add(new CenterMode());
-        miner.add(new PlanarRestrictedMode());
-        miner.add(new CenterRectangularMode());
+        for (RangeModeEnum mode : RangeModeEnum.values()) {
+            miner.add(mode.miner);
+        }
         return miner;
     }
 

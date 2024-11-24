@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.MineModeSelect.MethodHelper;
 
-import club.heiqi.qz_miner.MineModeSelect.PointMethodHelper;
 import club.heiqi.qz_miner.Storage.Statue;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import club.heiqi.qz_miner.Util.CheckCompatibility;
@@ -23,13 +22,9 @@ import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.oredict.OreDictionary;
 
 
-import java.util.Comparator;
 import java.util.Set;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.Arrays;
 import java.util.Objects;
 
 import static net.minecraft.block.Block.getIdFromBlock;
@@ -65,7 +60,12 @@ public class BlockMethodHelper {
         List<ItemStack> targetDrops = getDrops(world, player, targetPoint);
         for (ItemStack targetDrop : targetDrops) {
             for (ItemStack drop : drops) {
-                if(drop.equals(targetDrop)) return true; // 完全相同提前返回
+                if(drop.equals(targetDrop)) {
+                    return true; // 完全相同提前返回
+                }
+                if (Objects.equals(drop.getUnlocalizedName(), targetDrop.getUnlocalizedName())) {
+                    return true;
+                }
                 if (checkTwoItemIsSimilar_IncludeCrushedOre(drop, targetDrop)) {
                     return true;
                 }
@@ -95,150 +95,6 @@ public class BlockMethodHelper {
         return false;
     }
 
-    /**
-     * 寻找中心点半径内与中心点相邻的点, 使用 getSurroundPointsEnhanced 作为相邻判断条件, 列表顺序为从内到外
-     * @param world
-     * @param center
-     * @param radius
-     * @return
-     */
-    public static List<Point> getInChainBoxPoint(World world, Point center, int radius) {
-        List<Point> result = new ArrayList<>();
-
-        // 遍历立方体范围内的所有点
-        for (int x = center.x - radius; x <= center.x + radius; x++) {
-            for (int y = center.y - radius; y <= center.y + radius; y++) {
-                for (int z = center.z - radius; z <= center.z + radius; z++) {
-                    // 跳过中心点本身
-                    if (x == center.x && y == center.y && z == center.z) {
-                        continue;
-                    }
-
-                    // 创建当前点对象
-                    Point currentPoint = new Point(x, y, z);
-
-                    // 使用 getSurroundPointsEnhanced 检查当前点是否与中心点相邻
-                    List<Point> surroundPoints = getSurroundPointsEnhanced(world, center, radius);
-                    if (surroundPoints.contains(currentPoint)) {
-                        result.add(currentPoint);
-                    }
-                }
-            }
-        }
-
-        // 按距离从内到外排序（曼哈顿距离）
-        result.sort(Comparator.comparingInt(p -> PointMethodHelper.manhattanDistance(center, p)));
-
-        return result;
-    }
-
-    /**
-     * 寻找给出点所有的周围方块
-     * @param world
-     * @param pointList
-     * @return
-     */
-    public static List<Point> getOutLine(World world, List<Point> pointList) {
-        List<Point> ret = new LinkedList<>();
-        for (Point curPoint : pointList) {
-            if (BlockMethodHelper.checkPointBlockIsValid(world, curPoint)) {
-                ret.add(curPoint);
-            }
-        }
-        return ret;
-    }
-
-    /**
-     * 处理了取人要挖掘的点, 添加了下次要访问的点, 添加了已经访问的点
-     * @param world
-     * @param cache
-     * @param center
-     * @param queue
-     * @param visited
-     */
-    public static void getOutLine(World world, List<Point> cache, Point center, Queue<Point> queue, Set<Point> visited, int radius) {
-        for(int i = 0; i < queue.size(); ++i) {
-            Point curPoint = queue.poll();
-            if(visited.contains(curPoint)) continue; // 避免重复访问
-            visited.add(curPoint); // 添加访问记录,开始操作
-            List<Point> waitAdd = BlockMethodHelper.getSurroundPoints(curPoint.x, curPoint.y, curPoint.z);
-            for(Point p : waitAdd) {
-                if(PointMethodHelper.calculateDistance(p, center) > radius) continue;
-                if(BlockMethodHelper.checkPointBlockIsValid(world, p)) {
-                    queue.add(p);
-                    cache.add(p);
-                }
-            }
-        }
-    }
-
-    public static List<Point> getSurroundPoints(int x, int y, int z) {
-        Point top = new Point(x, y+1, z);
-        Point bottom = new Point(x, y-1, z);
-        Point left = new Point(x-1, y, z);
-        Point right = new Point(x+1, y, z);
-        Point front = new Point(x, y, z+1);
-        Point back = new Point(x, y, z-1);
-        return new ArrayList<>(Arrays.asList(top, bottom, left, right, front, back));
-    }
-
-    public static void getSurroundPoints(List<Point> pointsList, Point center) {
-        Point top = center.topPoint();
-        Point bottom = center.bottomPoint();
-        Point left = center.xMinusPoint();
-        Point right = center.xPlusPoint();
-        Point front = center.zPlusPoint();
-        Point back = center.zMinusPoint();
-        pointsList.addAll(Arrays.asList(top, bottom, left, right, front, back));
-    }
-
-    /**
-     * 寻找给出点的周围相似方块-增强模式，会根据中心点坐标和半径范围来确定
-     * @param world
-     * @param pointIn
-     * @param radius
-     * @return
-     */
-    public static List<Point> getSurroundPointsEnhanced(World world, Point pointIn, int radius) {
-        List<Point> ret = new ArrayList<>();
-        // 需要选取的范围 立方体对角
-        Point TRF = new Point(pointIn.x + radius, pointIn.y + radius, pointIn.z + radius);
-        Point BLB = new Point(pointIn.x - radius, pointIn.y - radius, pointIn.z - radius);
-        // 遍历指定范围内的所有点
-        for (int x = BLB.x; x <= TRF.x; x++) {
-            for (int y = BLB.y; y <= TRF.y; y++) {
-                for (int z = BLB.z; z <= TRF.z; z++) {
-                    // 排除中心点本身
-                    if (x == pointIn.x && y == pointIn.y && z == pointIn.z) {
-                        continue;
-                    }
-
-                    // 创建当前点的对象
-                    Point waitPoint = new Point(x, y, z);
-
-                    // 检查当前点是否满足条件
-                    if (checkTwoPintBlockIsSame(world, pointIn, waitPoint)) {
-                        ret.add(waitPoint);
-                    }
-                }
-            }
-        }
-        return ret;
-    }
-
-    public static boolean checkTwoPintBlockIsSame(World world, Point pointA, Point pointB) {
-        Block blockA = world.getBlock(pointA.x, pointA.y, pointA.z);
-        Block blockB = world.getBlock(pointB.x, pointB.y, pointB.z);
-        if(CheckCompatibility.isHasClass_BlockOresAbstract) {
-            if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
-                return true;
-            }
-        }
-        int[] dictA = OreDictionary.getOreIDs(new ItemStack(blockA));
-        int[] dictB = OreDictionary.getOreIDs(new ItemStack(blockB));
-        return checkTwoDictIsSame(dictA, dictB) || checkTwoPointBlockDropIsSame(world, pointA, pointB);
-    }
-
     public static boolean checkTwoBlockIsSameOrSimilar(Block blockA, Block blockB) {
         if(CheckCompatibility.isHasClass_BlockOresAbstract){
             if(blockA instanceof BlockOresAbstract && blockB instanceof BlockOresAbstract) {
@@ -258,30 +114,6 @@ public class BlockMethodHelper {
             }
         }
         return false;
-    }
-
-    public static boolean checkTwoPointBlockDropIsSame(World world, Point A, Point B) {
-        boolean ret = false;
-        Block blockA = world.getBlock(A.x, A.y, A.z);
-        Block blockB = world.getBlock(B.x, B.y, B.z);
-        int metaA = world.getBlockMetadata(A.x, A.y, A.z);
-        int metaB = world.getBlockMetadata(B.x, B.y, B.z);
-        int fortune = 10;
-        List<ItemStack> blockItemA = blockA.getDrops(world, A.x, A.y, A.z, metaA, fortune);
-        List<ItemStack> blockItemB = blockB.getDrops(world, B.x, B.y, B.z, metaB, fortune);
-        for(ItemStack ISA : blockItemA) {
-            for(ItemStack ISB : blockItemB) {
-                if(ISA.isItemEqual(ISB) || Objects.equals(ISA.getUnlocalizedName(), ISB.getUnlocalizedName())) {
-                    ret = true; // 判断完全相同
-                    break;
-                }
-                if(checkTwoItemIsSimilar_IncludeCrushedOre(ISA, ISB)) {
-                    ret = true;
-                    break;
-                }
-            }
-        }
-        return ret;
     }
 
     public static boolean checkTwoItemIsSimilar_IncludeCrushedOre(ItemStack center, ItemStack itemB) {
@@ -320,25 +152,6 @@ public class BlockMethodHelper {
             }
         }
         return result;
-    }
-
-    public static boolean checkTwoDictIsSame(int[] dict1, int[] dict2) {
-        boolean isSame = false;
-        for(int thisDict : dict1) {
-            String thisDictName = OreDictionary.getOreName(thisDict);
-            for(int targetDict : dict2) {
-                String targetDictName = OreDictionary.getOreName(targetDict);
-                if(thisDictName.equals(targetDictName)) {
-                    isSame = true;
-                    break;
-                }
-                if(thisDict == targetDict) {
-                    isSame = true;
-                    break;
-                }
-            }
-        }
-        return isSame;
     }
 
     public static boolean checkPointBlockIsValid(World world, Point point) {

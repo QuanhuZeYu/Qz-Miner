@@ -1,11 +1,12 @@
 package club.heiqi.qz_miner.MineModeSelect;
 
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.CustomData.Point;
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
 import club.heiqi.qz_miner.Storage.Statue;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
+
+import static club.heiqi.qz_miner.MY_LOG.logger;
 
 import java.util.List;
 
@@ -26,9 +27,10 @@ public class ProxyMinerMode {
             }
             case rangeMode -> {
                 AbstractMiner rangeMode = rangeModeSelect.get(statue.currentRangeMode);
+                logger.info("当前模式: {}", RangeModeEnum.getLocalizationList().get(statue.currentRangeMode));
                 rangeMode.runTask(rangeMode, world, player, breakPoint);
             }
-        };
+        }
     }
 }
 

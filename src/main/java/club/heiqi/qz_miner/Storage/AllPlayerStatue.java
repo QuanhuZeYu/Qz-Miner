@@ -13,7 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.HashMap;
 
-import static club.heiqi.qz_miner.MY_LOG.LOG;
+import static club.heiqi.qz_miner.MY_LOG.logger;
 
 
 public class AllPlayerStatue {
@@ -33,20 +33,20 @@ public class AllPlayerStatue {
         UUID uuid = player.getUniqueID();
         playerList.add(uuid);
         playerModeMap.put(uuid, new Statue());
-        LOG.info("玩家: {} 已进入, 已创建该玩家的连锁实例.", player.getDisplayName());
+        logger.info("玩家: {} 已进入, 已创建该玩家的连锁实例.", player.getDisplayName());
     }
 
     @SubscribeEvent
     public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         playerList.remove(event.player.getUniqueID());
         playerModeMap.remove(event.player.getUniqueID());
-        LOG.info("玩家: {} 已退出, 卸载该玩家的连锁实例.", event.player.getDisplayName());
+        logger.info("玩家: {} 已退出, 卸载该玩家的连锁实例.", event.player.getDisplayName());
     }
 
     public static Statue getStatue(UUID uuid) {
         if(playerModeMap.get(uuid) == null) {
             playerModeMap.put(uuid, new Statue());
-            MY_LOG.LOG.info("玩家: {}; 的连锁模式状态为空, 已创建", uuid);
+            MY_LOG.logger.info("玩家: {}; 的连锁模式状态为空, 已创建", uuid);
         }
         return playerModeMap.get(uuid);
     }

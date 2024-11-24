@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.KeyBind;
 
 import club.heiqi.qz_miner.MY_LOG;
-import club.heiqi.qz_miner.MineModeSelect.ProxyMinerMode;
 import club.heiqi.qz_miner.MOD_INFO;
 
 import club.heiqi.qz_miner.Storage.AllPlayerStatue;
@@ -23,7 +22,6 @@ import net.minecraftforge.common.MinecraftForge;
 import org.lwjgl.input.Keyboard;
 import net.minecraft.client.settings.KeyBinding;
 
-import java.util.List;
 import java.util.UUID;
 
 @SideOnly(Side.CLIENT)
@@ -55,7 +53,7 @@ public class MinerKeyBind {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         UUID uuid = Minecraft.getMinecraft().thePlayer.getUniqueID();
         if(uuid == null) {
-            MY_LOG.LOG.warn("UUID为空, 忽略按键事件");
+            MY_LOG.logger.warn("UUID为空, 忽略按键事件");
             return;
         }
         if(chainModeSwitch.isPressed()) {

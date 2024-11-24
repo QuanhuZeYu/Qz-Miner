@@ -17,3 +17,4 @@ qz_miner.mode.excludeCrushedOreMode=连锁模式普通型--只连锁粗矿原矿
 qz_miner.mode.centerMode=球形爆破模式(适合挖碎矿或者挖个球形空间)
 qz_miner.mode.planarRestrictedMode=平面爆破模式(以玩家所在平面为基准 适合平整地形)
 qz_miner.mode.centerRectangularMode=矩形爆破模式(适合挖碎矿或者挖个长方形空间)
+qz_miner.mode.tunnelMode=隧道爆破模式(3*3固定大小)

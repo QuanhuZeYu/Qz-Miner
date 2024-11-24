@@ -50,9 +50,6 @@ public class PointFonder_Center extends PointFonder{
             List<Point> surround = surroundPoints(curPoint);
             searchSurround(surround);
             if(validPoints.isEmpty()) continue;
-            for(Point p: validPoints) {
-                MY_LOG.LOG.info("合法点: {}", p);
-            }
             nextSearch.addAll(validPoints);
             cache.addAll(validPoints);
             validPoints.clear();

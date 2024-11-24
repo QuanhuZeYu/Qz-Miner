@@ -16,6 +16,7 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.*;
 
+import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.MY_LOG.printMessageClient;
 
 public abstract class AbstractMiner {
@@ -65,7 +66,7 @@ public abstract class AbstractMiner {
             miner.currentState = AbstractMiner.TaskState.Start;
             FMLCommonHandler.instance().bus().register(miner);
         } else {
-//            MY_LOG.LOG.info("当前任务正在执行, 拒绝请求");
+            logger.info("任务状态异常");
         }
     }
 
@@ -107,7 +108,6 @@ public abstract class AbstractMiner {
                     continue;
                 }
                 if(excludeLogic(point)) continue;
-
                 BlockMethodHelper.tryHarvestBlock(world, (EntityPlayerMP) player, point);
                 blockCount++;
 

@@ -21,7 +21,6 @@ public class BlockBreakerEventIn {
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent breakEvent) {
         if(breakEvent.world.isRemote) {
-            MY_LOG.LOG.warn("客户端下阻止使用");
             return;
         }
         if(!AllPlayerStatue.getStatue(breakEvent.getPlayer().getUniqueID()).minerIsOpen) {

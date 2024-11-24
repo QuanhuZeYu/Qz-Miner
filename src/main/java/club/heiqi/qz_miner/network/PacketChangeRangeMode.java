@@ -25,6 +25,11 @@ public class PacketChangeRangeMode implements IMessage {
                 mode = 2;
                 break;
             case centerMode:
+                mode = 0;
+                break;
+            case tunnelMode:
+                mode = 3;
+                break;
             default:
                 mode = 0;
         }
