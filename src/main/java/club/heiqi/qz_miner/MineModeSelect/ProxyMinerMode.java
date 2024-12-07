@@ -27,7 +27,7 @@ public class ProxyMinerMode {
             }
             case rangeMode -> {
                 AbstractMiner rangeMode = rangeModeSelect.get(statue.currentRangeMode);
-                logger.info("当前模式: {}", RangeModeEnum.getLocalizationList().get(statue.currentRangeMode));
+//                logger.info("当前模式: {}", RangeModeEnum.getLocalizationList().get(statue.currentRangeMode));
                 rangeMode.runTask(rangeMode, world, player, breakPoint);
             }
         }
