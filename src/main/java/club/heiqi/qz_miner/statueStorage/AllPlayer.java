@@ -1,8 +1,11 @@
 package club.heiqi.qz_miner.statueStorage;
 
+import club.heiqi.qz_miner.MOD_INFO;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
+import cpw.mods.fml.common.network.NetworkCheckHandler;
+import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -36,6 +39,39 @@ public class AllPlayer {
             playerStatueMap.remove(playerUUID);
         } else {
             logger.info("玩家: {} 已登出，连锁实例中不存在，无需删除", playerUUID);
+        }
+    }
+
+    /**
+     * 兼容性检查
+     * @param mods
+     * @param side
+     * @return
+     */
+    @NetworkCheckHandler
+    public boolean checkClientVersion(Map<String, String> mods, Side side) {
+        if (mods.isEmpty()) {
+            return true;
+        }
+        if (mods.containsKey(MOD_INFO.MODID)) {
+            String clientVersion = mods.get(MOD_INFO.MODID);
+            String serverVersion = MOD_INFO.VERSION;
+            if (serverVersion.equals(clientVersion) || serverVersion.startsWith(clientVersion) || clientVersion.startsWith(serverVersion)) {
+                return true;
+            }
+            int clientMajor = Integer.parseInt(clientVersion.split("\\.")[0]);
+            int clientMinor = Integer.parseInt(clientVersion.split("\\.")[1]);
+            int clientPatch = Integer.parseInt(clientVersion.split("\\.")[2]);
+            int serverMajor = Integer.parseInt(serverVersion.split("\\.")[0]);
+            int serverMinor = Integer.parseInt(serverVersion.split("\\.")[1]);
+            int serverPatch = Integer.parseInt(serverVersion.split("\\.")[2]);
+            if (serverMajor == clientMajor && serverMinor == clientMinor) {
+                return serverPatch >= clientPatch;
+            } else {
+                return false;
+            }
+        } else {
+            return true;
         }
     }
 
