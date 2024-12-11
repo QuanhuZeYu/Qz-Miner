@@ -86,14 +86,14 @@ dependencies {
 //    implementation("com.github.GTNewHorizons:Mobs-Info:0.4.6-GTNH:dev")
 //
 //    implementation("com.google.auto.value:auto-value-annotations:1.10.1")
-//    annotationProcessor("com.google.auto.value:auto-value:1.10.1")
+    annotationProcessor("com.google.auto.value:auto-value:1.10.1")
 
     // For testing iApiary
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:ForestryMC:4.8.9:dev")
 
-//    testImplementation(platform('org.junit:junit-bom:5.9.2'))
-//    testImplementation('org.junit.jupiter:junit-jupiter')
-//    testImplementation("org.mockito:mockito-core:3.+")
+    testImplementation(platform('org.junit:junit-bom:5.9.2'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation("org.mockito:mockito-core:3.+")
 
 //    functionalTestImplementation(platform('org.junit:junit-bom:5.9.2'))
 //    functionalTestImplementation('org.junit.jupiter:junit-jupiter')
@@ -101,7 +101,7 @@ dependencies {
 //    functionalTestImplementation('org.junit.platform:junit-platform-launcher')
 //    functionalTestImplementation('org.junit.platform:junit-platform-reporting')
 
-//    runtimeOnlyNonPublishable("com.github.GTNewHorizons:DuraDisplay:1.2.3:dev")
+    runtimeOnlyNonPublishable("com.github.GTNewHorizons:DuraDisplay:1.2.3:dev")
 }
 
 if(useMoreMod) {
