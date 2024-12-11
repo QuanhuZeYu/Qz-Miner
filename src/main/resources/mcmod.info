@@ -2,11 +2,11 @@
 	"modListVersion": 2,
 	"modList": [{
 		"modid": "${modId}",
-		"name": "${modName}",
+		"name": "qz_miner-爆破连锁",
 		"description": "连锁挖矿模组,喜欢吗.",
 		"version": "${modVersion}",
 		"mcversion": "${minecraftVersion}",
-		"url": "https://github.com/SinTh0r4s/MyMod",
+		"url": "https://github.com/QuanhuZeYu/Qz-Miner",
 		"updateUrl": "",
 		"authorList": ["SinTho0r4s", "Quanhu_Zeyu", "Quanhu_Heiqi"],
 		"credits": "",

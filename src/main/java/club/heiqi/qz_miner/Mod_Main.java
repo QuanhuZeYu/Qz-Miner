@@ -12,7 +12,8 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-@Mod(modid = MOD_INFO.MODID, version = Tags.VERSION, name = MOD_INFO.NAME, acceptedMinecraftVersions = "[1.7.10]")
+@Mod(modid = MOD_INFO.MODID, version = Tags.VERSION, name = MOD_INFO.NAME, acceptedMinecraftVersions = "[1.7.10]",
+     guiFactory = MOD_INFO.GUI_FACTORY_CLASS)
 public class Mod_Main {
     public static AllPlayer allPlayerStorage = new AllPlayer();
     public static QzMinerNetWork qzMinerNetWork;
