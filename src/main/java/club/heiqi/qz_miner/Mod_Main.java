@@ -1,19 +1,22 @@
 package club.heiqi.qz_miner;
 
-import net.minecraft.server.MinecraftServer;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import club.heiqi.qz_miner.command.QzMinerCommand;
+import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.statueStorage.AllPlayer;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 @Mod(modid = MOD_INFO.MODID, version = Tags.VERSION, name = MOD_INFO.NAME, acceptedMinecraftVersions = "[1.7.10]")
 public class Mod_Main {
-    public static MinecraftServer server = null;
+    public static AllPlayer allPlayerStorage = new AllPlayer();
+    public static QzMinerNetWork qzMinerNetWork;
+    public static QzMinerCommand qzMinerCommand = new QzMinerCommand();
 
     public static final String MODID = MOD_INFO.MODID;
     public static final Logger LOG = LogManager.getLogger(MODID);

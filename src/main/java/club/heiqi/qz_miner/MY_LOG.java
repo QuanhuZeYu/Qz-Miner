@@ -1,7 +1,5 @@
 package club.heiqi.qz_miner;
 
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.ChatComponentTranslation;
@@ -22,10 +20,5 @@ public class MY_LOG {
                 Minecraft.getMinecraft().thePlayer.addChatMessage(translation);
             }
         }
-    }
-
-    @SideOnly(Side.CLIENT)
-    public static void printMessageClient(String string) {
-        Minecraft.getMinecraft().thePlayer.addChatMessage(new ChatComponentText(string));
     }
 }

@@ -1,14 +1,14 @@
 package club.heiqi.qz_miner;
 
-import club.heiqi.qz_miner.Command.MinerCommand;
-import club.heiqi.qz_miner.EventIn.BlockBreakerEventIn;
-import club.heiqi.qz_miner.Storage.AllPlayerStatue;
-import club.heiqi.qz_miner.Util.CheckCompatibility;
-import club.heiqi.qz_miner.network.Qz_MinerSimpleNetwork;
+import club.heiqi.qz_miner.eventIn.BlockBreakEvent;
+import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.util.CheckCompatibility;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+
+import static club.heiqi.qz_miner.Mod_Main.*;
 
 public class CommonProxy {
 
@@ -17,11 +17,10 @@ public class CommonProxy {
     public void preInit(FMLPreInitializationEvent event) {
         Config.sync(event.getSuggestedConfigurationFile());
 
-        // 方块连锁测试
-        BlockBreakerEventIn.register();
+        allPlayerStorage.register(); // 注册存储玩家连锁状态的容器类
+        BlockBreakEvent.register();
 
-        new Qz_MinerSimpleNetwork();
-        AllPlayerStatue.register();
+        qzMinerNetWork = new QzMinerNetWork(); // 初始化网络通信
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
@@ -34,7 +33,6 @@ public class CommonProxy {
 
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
-        Mod_Main.server = event.getServer();
-        MinerCommand.register(event);
+        qzMinerCommand.register(event);
     }
 }
