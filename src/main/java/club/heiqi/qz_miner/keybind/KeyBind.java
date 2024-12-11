@@ -1,6 +1,8 @@
 package club.heiqi.qz_miner.keybind;
 
 import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.network.PacketIsReady;
+import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.statueStorage.PlayerStatue;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -67,17 +69,17 @@ public class KeyBind {
         long timer = System.currentTimeMillis();
         if (timer - lastSendTime < intervalTime) return; // 节流
         boolean isPressed = isPress.getIsKeyPressed();
-        /*if (!isPressed && modeManager.isReady) { // 如果未按下，且玩家状态为连锁就绪，关闭就绪状态
+        if (!isPressed && modeManager.getIsReady()) { // 如果未按下，且玩家状态为连锁就绪，关闭就绪状态
             modeManager.setIsReady(true);
             QzMinerNetWork.sendMessageToServer(new PacketIsReady(false));
         }
-        if (isPressed && !modeManager.isReady) { // 如果按下，且玩家状态为未就绪，就开启就绪状态
+        if (isPressed && !modeManager.getIsReady()) { // 如果按下，且玩家状态为未就绪，就开启就绪状态
             modeManager.setIsReady(true);
             QzMinerNetWork.sendMessageToServer(new PacketIsReady(true));
-        }*/
-        if (isPressed) {
-            modeManager.setIsReady(!modeManager.getIsReady());
         }
+        /*if (isPressed) {
+            modeManager.setIsReady(!modeManager.getIsReady());
+        }*/
     }
 
     @SubscribeEvent
