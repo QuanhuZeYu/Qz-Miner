@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner;
 
-import club.heiqi.qz_miner.keybind.KeyBind;
+import club.heiqi.qz_miner.client.keybind.KeyBind;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
 public class ClientProxy extends CommonProxy {

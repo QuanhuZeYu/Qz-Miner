@@ -9,6 +9,7 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.UUID;
 
+import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class PacketMainMode implements IMessage {
@@ -35,12 +36,11 @@ public class PacketMainMode implements IMessage {
     public static class Handler implements IMessageHandler<PacketMainMode, IMessage> {
         @Override
         public IMessage onMessage(PacketMainMode message, MessageContext ctx) {
-            if (ctx.side.isServer()) {
-                EntityPlayer player = ctx.getServerHandler().playerEntity;
-                UUID uuid = player.getUniqueID();
-                ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid).modeManager;
-                modeManager.mainMode = ModeManager.MainMode.values()[message.mode];
-            }
+            EntityPlayer player = ctx.getServerHandler().playerEntity;
+            UUID uuid = player.getUniqueID();
+            ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
+            modeManager.mainMode = ModeManager.MainMode.values()[message.mode];
+            logger.info("主模式已切换为: {}", modeManager.mainMode.unLocalizedName);
             return null;
         }
     }

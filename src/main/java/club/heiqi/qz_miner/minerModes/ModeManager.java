@@ -9,6 +9,8 @@ import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
+import cpw.mods.fml.common.network.simpleimpl.IMessage;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
@@ -23,33 +25,28 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 每个玩家都有独属于自身的管理类
  */
 public class ModeManager {
-    public EntityPlayerMP player;
 
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
     public RangeMode rangeMode = RangeMode.RECTANGULAR; // 默认为矩形模式
     public ChainMode chainMode = ChainMode.BASE_CHAIN_MODE; // 默认为矩形模式
     public AtomicBoolean isReady = new AtomicBoolean(false);
 
-    public ModeManager(EntityPlayerMP player) {
-        this.player = player;
-    }
-
     /**
      * 由方块破坏事件触发该方法，该方法调用模式类中的run方法，完成模式运行
      * @param world 挖掘方块所在的世界
      * @param center 方块所在的坐标
      */
-    public void proxyMine(World world, Vector3i center) {
+    public void proxyMine(World world, Vector3i center, EntityPlayer player) {
         MainMode proxyMain = mainMode;
         switch (proxyMain) {
             case CHAIN_MODE -> {
                 AbstractMode proxyMode = chainMode.mode;
-                proxyMode.setup(world, player, center);
+                proxyMode.setup(world, (EntityPlayerMP) player, center);
                 proxyMode.run();
             }
             case RANGE_MODE -> {
                 AbstractMode proxyMode = rangeMode.mode;
-                proxyMode.setup(world, player, center);
+                proxyMode.setup(world, (EntityPlayerMP) player, center);
                 proxyMode.run();
             }
         }
@@ -57,18 +54,18 @@ public class ModeManager {
 
     public void nextMainMode() {
         mainMode = MainMode.values()[(mainMode.ordinal() + 1) % MainMode.values().length];
-        QzMinerNetWork.sendMessageToPlayer(new PacketMainMode(mainMode), player);
+        QzMinerNetWork.sendMessageToServer(new PacketMainMode(mainMode));
     }
 
     public void nextSubMode() {
         switch (mainMode) {
             case CHAIN_MODE -> {
                 chainMode = ChainMode.values()[(chainMode.ordinal() + 1) % ChainMode.values().length];
-                QzMinerNetWork.sendMessageToPlayer(new PacketChainMode(chainMode), player);
+                QzMinerNetWork.sendMessageToServer(new PacketChainMode(chainMode));
             }
             case RANGE_MODE -> {
                 rangeMode = RangeMode.values()[(rangeMode.ordinal() + 1) % RangeMode.values().length];
-                QzMinerNetWork.sendMessageToPlayer(new PacketRangeMode(rangeMode), player);
+                QzMinerNetWork.sendMessageToServer(new PacketRangeMode(rangeMode));
             }
         }
     }

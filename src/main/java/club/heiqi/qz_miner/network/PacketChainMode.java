@@ -11,6 +11,8 @@ import java.util.UUID;
 
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
+import static club.heiqi.qz_miner.MY_LOG.logger;
+
 public class PacketChainMode implements IMessage {
     public int mode;
 
@@ -35,12 +37,11 @@ public class PacketChainMode implements IMessage {
     public static class Handler implements IMessageHandler<PacketChainMode, IMessage> {
         @Override
         public IMessage onMessage(PacketChainMode message, MessageContext ctx) {
-            if (ctx.side.isServer()) {
-                EntityPlayer player = ctx.getServerHandler().playerEntity;
-                UUID uuid = player.getUniqueID();
-                ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid).modeManager;
-                modeManager.chainMode = ModeManager.ChainMode.values()[message.mode];
-            }
+            EntityPlayer player = ctx.getServerHandler().playerEntity;
+            UUID uuid = player.getUniqueID();
+            ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
+            modeManager.chainMode = ModeManager.ChainMode.values()[message.mode];
+            logger.info("链模式已切换到: {}", modeManager.chainMode.unLocalizedName);
             return null;
         }
     }

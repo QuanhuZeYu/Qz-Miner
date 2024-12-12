@@ -5,6 +5,7 @@ import com.glodblock.github.util.BlockPos;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
 import cpw.mods.fml.relauncher.Side;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 public class QzMinerNetWork {
@@ -14,7 +15,7 @@ public class QzMinerNetWork {
         networkWrapper.registerMessage(PacketMainMode.Handler.class, PacketMainMode.class, 0, Side.SERVER);
         networkWrapper.registerMessage(PacketRangeMode.Handler.class, PacketRangeMode.class, 1, Side.SERVER);
         networkWrapper.registerMessage(PacketChainMode.Handler.class, PacketChainMode.class, 2, Side.SERVER);
-        networkWrapper.registerMessage(PacketIsReady.Handler.class, PacketIsReady.class, 3, Side.CLIENT);
+        networkWrapper.registerMessage(PacketIsReady.Handler.class, PacketIsReady.class, 3, Side.SERVER);
     }
 
     public static void sendMessageToDim(IMessage message, int dim) {

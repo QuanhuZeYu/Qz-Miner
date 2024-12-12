@@ -22,12 +22,12 @@ public class BlockBreakEvent {
         }
         World world = event.world;
         EntityPlayer player = event.getPlayer();
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).modeManager.getIsReady()) {
+        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
             return;
         }
         // 获取破坏方块的坐标
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID()).modeManager;
-        modeManager.proxyMine(world, breakBlockPos);
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        modeManager.proxyMine(world, breakBlockPos, player);
     }
 }

@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes.breakBlock;
 
+import club.heiqi.qz_miner.Config;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
@@ -14,6 +15,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 import org.joml.*;
 
+import java.lang.Math;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -92,7 +94,7 @@ public class BlockBreaker {
 
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
-        player.addExhaustion(0.025f);
+        player.addExhaustion(Config.hunger);
         if (block.canSilkHarvest(world, player, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z))
             && EnchantmentHelper.getSilkTouchModifier(player)) { // 判断是否可以进行精准采集
             Item blockItem = Item.getItemFromBlock(block);
@@ -100,17 +102,25 @@ public class BlockBreaker {
                 int itemMeta = blockItem.getHasSubtypes() ? meta : 0;
                 ItemStack itemStack = new ItemStack(blockItem, 1, itemMeta);
                 drops.add(itemStack);
+                checkFoodLevel();
             }
         } else { // 否则进行普通采集
             // 后续可在此处添加事件触发功能
             if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z)) { // 移除方块事件
                 List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
                 drops.addAll(drop);
+                checkFoodLevel();
             }
         }
         for (ItemStack drop : drops) {
             world.spawnEntityInWorld(new EntityItem(world, dropPos.x, dropPos.y, dropPos.z, drop));
         }
         drops.clear();
+    }
+
+    public void checkFoodLevel() {
+        if (player.getFoodStats().getFoodLevel() <= 3) {
+            player.setHealth(Math.max(0, player.getHealth() - Config.overMiningDamage));
+        }
     }
 }

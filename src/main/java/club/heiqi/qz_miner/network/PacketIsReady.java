@@ -8,6 +8,7 @@ import io.netty.buffer.ByteBuf;
 
 import java.util.UUID;
 
+import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class PacketIsReady implements IMessage {
@@ -35,8 +36,9 @@ public class PacketIsReady implements IMessage {
         @Override
         public IMessage onMessage(PacketIsReady message, MessageContext ctx) {
             UUID uuid = ctx.getServerHandler().playerEntity.getUniqueID();
-            ModeManager manager = allPlayerStorage.playerStatueMap.get(uuid).modeManager;
+            ModeManager manager = allPlayerStorage.playerStatueMap.get(uuid);
             manager.setIsReady(message.isReady);
+            logger.info("玩家 {} 准备状态已切换为: {}", ctx.getServerHandler().playerEntity.getUniqueID(), manager.getIsReady());
             return null;
         }
     }

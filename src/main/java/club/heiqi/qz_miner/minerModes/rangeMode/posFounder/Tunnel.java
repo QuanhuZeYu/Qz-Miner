@@ -61,7 +61,8 @@ public class Tunnel extends PositionFounder {
                         return;
                     }
                     try {
-                        cache.put(pos);
+                        if (checkCanBreak(pos))
+                            cache.put(pos);
                     } catch (InterruptedException e) {
                         logger.error("缓存队列异常");
                     }

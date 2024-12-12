@@ -51,12 +51,18 @@ public class Sphere extends PositionFounder {
             Vector3i right = new Vector3i(pos.x + 1, pos.y, pos.z);
             Vector3i front = new Vector3i(pos.x, pos.y, pos.z + 1);
             Vector3i back = new Vector3i(pos.x, pos.y, pos.z - 1);
-            cacheSet.add(up);
-            cacheSet.add(down);
-            cacheSet.add(left);
-            cacheSet.add(right);
-            cacheSet.add(front);
-            cacheSet.add(back);
+            if (checkCanBreak(up))
+                cacheSet.add(up);
+            if (checkCanBreak(down))
+                cacheSet.add(down);
+            if (checkCanBreak(left))
+                cacheSet.add(left);
+            if (checkCanBreak(right))
+                cacheSet.add(right);
+            if (checkCanBreak(front))
+                cacheSet.add(front);
+            if (checkCanBreak(back))
+                cacheSet.add(back);
         }
         shellSet.clear();
         // 新的球体减去旧的球体获得壳层

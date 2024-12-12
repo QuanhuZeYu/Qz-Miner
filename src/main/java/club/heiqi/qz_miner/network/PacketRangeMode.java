@@ -9,6 +9,7 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.UUID;
 
+import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class PacketRangeMode implements IMessage {
@@ -35,12 +36,11 @@ public class PacketRangeMode implements IMessage {
     public static class Handler implements IMessageHandler<PacketRangeMode, IMessage> {
         @Override
         public IMessage onMessage(PacketRangeMode message, MessageContext ctx) {
-            if (ctx.side.isServer()) {
-                EntityPlayer player = ctx.getServerHandler().playerEntity;
-                UUID uuid = player.getUniqueID();
-                ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid).modeManager;
-                modeManager.rangeMode = ModeManager.RangeMode.values()[message.mode];
-            }
+            EntityPlayer player = ctx.getServerHandler().playerEntity;
+            UUID uuid = player.getUniqueID();
+            ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
+            modeManager.rangeMode = ModeManager.RangeMode.values()[message.mode];
+            logger.info("范围模式已切换为: {}", modeManager.rangeMode.unLocalizedName);
             return null;
         }
     }

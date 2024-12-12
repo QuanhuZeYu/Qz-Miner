@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.configGUI;
+package club.heiqi.qz_miner.client.configGUI;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MOD_INFO;

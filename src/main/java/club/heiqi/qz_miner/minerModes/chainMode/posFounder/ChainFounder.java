@@ -113,7 +113,7 @@ public class ChainFounder extends PositionFounder {
             setStop(true);
             return true;
         }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).modeManager.getIsReady()) {
+        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
 //            logger.info("玩家未就绪，停止搜索");
             setStop(true);
             return true;

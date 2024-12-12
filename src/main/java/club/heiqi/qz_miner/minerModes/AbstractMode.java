@@ -121,6 +121,9 @@ public abstract class AbstractMode {
             && positionFounder.getStop()) { // 缓存为空且任务结束
             return true;
         }
+        if (breaker.player.isDead || breaker.player.getHealth() <= 1) {
+            return true;
+        }
         if (positionFounder.cache.isEmpty()) {
             if (getCacheFailCount <= 1) {
                 getCacheFailCount++;
@@ -131,7 +134,7 @@ public abstract class AbstractMode {
         } else {
             getCacheFailCount = 0;
         }
-        boolean isReady = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).modeManager.getIsReady();
+        boolean isReady = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady();
         return !isReady;
     }
 

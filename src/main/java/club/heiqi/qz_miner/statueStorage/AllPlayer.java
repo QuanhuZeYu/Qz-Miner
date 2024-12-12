@@ -1,11 +1,13 @@
 package club.heiqi.qz_miner.statueStorage;
 
 import club.heiqi.qz_miner.MOD_INFO;
+import club.heiqi.qz_miner.minerModes.ModeManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -16,17 +18,19 @@ import java.util.UUID;
 import static club.heiqi.qz_miner.MY_LOG.logger;
 
 public class AllPlayer {
-    public Map<UUID, PlayerStatue> playerStatueMap = new HashMap<>();
+    public Map<UUID, ModeManager> playerStatueMap = new HashMap<>();
+
+    // 客户端连接服务器事件
 
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        EntityPlayerMP player = (EntityPlayerMP) event.player;
+        EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {
-            logger.info("玩家: {} 已在缓存连锁实例中，无需再次创建", uuid);
+            logger.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
         } else {
-            logger.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", uuid);
-            playerStatueMap.put(uuid, new PlayerStatue(player));
+            logger.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
+            playerStatueMap.put(uuid, new ModeManager());
         }
     }
 
@@ -35,10 +39,10 @@ public class AllPlayer {
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {
-            logger.info("玩家: {} 已登出，连锁实例中已删除", playerUUID);
+            logger.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
             playerStatueMap.remove(playerUUID);
         } else {
-            logger.info("玩家: {} 已登出，连锁实例中不存在，无需删除", playerUUID);
+            logger.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
         }
     }
 

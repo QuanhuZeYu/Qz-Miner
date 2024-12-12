@@ -1,7 +1,12 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.init.Blocks;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
@@ -97,8 +102,12 @@ public abstract class PositionFounder implements Runnable {
 //            logger.info("玩家取消连锁，停止搜索");
             return true;
         }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).modeManager.getIsReady()) {
+        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
 //            logger.info("玩家未就绪，停止搜索");
+            setStop(true);
+            return true;
+        }
+        if (player.getHealth() <= 1 || player.isDead) {
             setStop(true);
             return true;
         }
@@ -125,5 +134,39 @@ public abstract class PositionFounder implements Runnable {
 
     public boolean checkOutTime(long millis) {
         return System.currentTimeMillis() - timer > millis;
+    }
+
+    public boolean checkCanBreak(Vector3i pos) {
+        World world = player.worldObj;;
+        Block block = world.getBlock(pos.x, pos.y, pos.z);
+        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
+        EntityPlayerMP player = (EntityPlayerMP) this.player;
+        ItemInWorldManager iwm = player.theItemInWorldManager;
+        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
+        // 判断是否为创造模式
+        if (iwm.getGameType().isCreative()) {
+            return true;
+        }
+        // 判断工具能否挖掘
+        if (holdItem != null) {
+            return block.canHarvestBlock(player, meta);
+        }
+        // 判断是否为空气
+        if (block == Blocks.air) {
+            return false;
+        }
+        // 判断是否为流体
+        if (block.getMaterial().isLiquid()) {
+            return false;
+        }
+        // 判断是否为基岩
+        if (block == Blocks.bedrock) {
+            return false;
+        }
+        // 判断是否为非固体
+        if (!block.getMaterial().isSolid()) {
+            return false;
+        }
+        return true;
     }
 }

@@ -55,8 +55,10 @@ public class Rectangular extends PositionFounder {
                     return;
                 }
                 try {
-                    cache.put(up);
-                    cache.put(down);
+                    if (checkCanBreak(up))
+                        cache.put(up);
+                    if (checkCanBreak(down))
+                        cache.put(down);
                     if (checkShouldShutdown()) return;
                 } catch (InterruptedException e) {
                     logger.error("缓存队列异常");

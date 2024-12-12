@@ -1,9 +1,9 @@
-package club.heiqi.qz_miner.keybind;
+package club.heiqi.qz_miner.client.keybind;
 
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
-import club.heiqi.qz_miner.statueStorage.PlayerStatue;
+import club.heiqi.qz_miner.statueStorage.SelfStatue;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -47,14 +47,14 @@ public class KeyBind {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         EntityPlayer player = mc.thePlayer;
         UUID uuid = player.getUniqueID();
-        PlayerStatue manager = allPlayerStorage.playerStatueMap.get(uuid);
+        ModeManager manager = SelfStatue.modeManager;
         if (switchMainMode.isPressed()) {
-            manager.modeManager.nextMainMode();
+            manager.nextMainMode();
             String message = "当前主模式: " + getMainMode();
             printMessageOnChat(message);
         }
         if (switchMode.isPressed()) {
-            manager.modeManager.nextSubMode();
+            manager.nextSubMode();
             String message = "当前子模式: " + getSubMode();
             printMessageOnChat(message);
         }
@@ -62,15 +62,10 @@ public class KeyBind {
 
     @SubscribeEvent
     public void onInputEvent(InputEvent event) {
-        EntityPlayer player = mc.thePlayer;
-        UUID uuid = player.getUniqueID();
-        PlayerStatue statue = allPlayerStorage.playerStatueMap.get(uuid);
-        ModeManager modeManager = statue.modeManager;
-        long timer = System.currentTimeMillis();
-        if (timer - lastSendTime < intervalTime) return; // 节流
+        ModeManager modeManager = SelfStatue.modeManager;
         boolean isPressed = isPress.getIsKeyPressed();
         if (!isPressed && modeManager.getIsReady()) { // 如果未按下，且玩家状态为连锁就绪，关闭就绪状态
-            modeManager.setIsReady(true);
+            modeManager.setIsReady(false);
             QzMinerNetWork.sendMessageToServer(new PacketIsReady(false));
         }
         if (isPressed && !modeManager.getIsReady()) { // 如果按下，且玩家状态为未就绪，就开启就绪状态
@@ -86,7 +81,7 @@ public class KeyBind {
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过
         mc.mcProfiler.startSection(MODID + "_tip");
-        ModeManager manager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID()).modeManager;
+        ModeManager manager = SelfStatue.modeManager;
         boolean isReady = manager.getIsReady();
 
         FontRenderer fr = mc.fontRenderer;
@@ -113,21 +108,21 @@ public class KeyBind {
     public String getMainMode() {
         EntityPlayer player = mc.thePlayer;
         UUID uuid = player.getUniqueID();
-        PlayerStatue manager = allPlayerStorage.playerStatueMap.get(uuid);
-        return I18n.format(manager.modeManager.mainMode.unLocalizedName);
+        ModeManager modeManager = SelfStatue.modeManager;
+        return I18n.format(modeManager.mainMode.unLocalizedName);
     }
 
     public String getSubMode() {
         EntityPlayer player = mc.thePlayer;
         UUID uuid = player.getUniqueID();
-        PlayerStatue manager = allPlayerStorage.playerStatueMap.get(uuid);
-        ModeManager.MainMode mainMode = manager.modeManager.mainMode;
+        ModeManager modeManager = SelfStatue.modeManager;
+        ModeManager.MainMode mainMode = modeManager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {
-                return I18n.format(manager.modeManager.rangeMode.unLocalizedName);
+                return I18n.format(modeManager.rangeMode.unLocalizedName);
             }
             case CHAIN_MODE -> {
-                return I18n.format(manager.modeManager.chainMode.unLocalizedName);
+                return I18n.format(modeManager.chainMode.unLocalizedName);
             }
         }
         return "获取当前模式时发生错误！";

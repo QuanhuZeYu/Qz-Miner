@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.configGUI;
+package club.heiqi.qz_miner.client.configGUI;
 
 import cpw.mods.fml.client.IModGuiFactory;
 import net.minecraft.client.Minecraft;
