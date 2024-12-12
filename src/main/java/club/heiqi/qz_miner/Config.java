@@ -6,6 +6,7 @@ import java.io.File;
 
 public class Config {
     public static String configFile;
+    public static Configuration config;
     public static int radiusLimit = 10;
     public static int blockLimit = 1024;
     public static int pointFounderCacheSize = 4096;
@@ -15,8 +16,10 @@ public class Config {
     public static float hunger = 1f;
     public static float overMiningDamage = 0.0003f;
 
-    public static Configuration config;
-
+    /**
+     * 读取配置文件 - 写入到全局变量
+     * @param configFile
+     */
     public static void sync(File configFile) {
         Config.configFile = configFile.getAbsolutePath();
         config = new Configuration(configFile);
@@ -35,16 +38,19 @@ public class Config {
         }
     }
 
+    /**
+     * 将全局变量写入到配置文件
+     */
     public static void save() {
         Configuration configuration = new Configuration(new File(configFile));
-        configuration.get(Configuration.CATEGORY_GENERAL, "radiusLimit", radiusLimit).set(radiusLimit);
-        configuration.get(Configuration.CATEGORY_GENERAL, "blockLimit", blockLimit).set(blockLimit);
-        configuration.get(Configuration.CATEGORY_GENERAL, "pointFounderCacheSize", pointFounderCacheSize).set(pointFounderCacheSize);
-        configuration.get(Configuration.CATEGORY_GENERAL, "taskTimeLimit", taskTimeLimit).set(taskTimeLimit);
-        configuration.get(Configuration.CATEGORY_GENERAL, "chainRange", chainRange).set(chainRange);
-        configuration.get(Configuration.CATEGORY_GENERAL, "getCacheTimeOut", getCacheTimeOut).set(getCacheTimeOut);
-        configuration.get(Configuration.CATEGORY_GENERAL, "hunger", hunger).set(hunger);
-        configuration.get(Configuration.CATEGORY_GENERAL, "overMiningDamage", overMiningDamage).set(overMiningDamage);
+        configuration.get(Configuration.CATEGORY_GENERAL, "radiusLimit", 10).set(radiusLimit);
+        configuration.get(Configuration.CATEGORY_GENERAL, "blockLimit", 1024).set(blockLimit);
+        configuration.get(Configuration.CATEGORY_GENERAL, "pointFounderCacheSize", 4096).set(pointFounderCacheSize);
+        configuration.get(Configuration.CATEGORY_GENERAL, "taskTimeLimit", 16).set(taskTimeLimit);
+        configuration.get(Configuration.CATEGORY_GENERAL, "chainRange", 4).set(chainRange);
+        configuration.get(Configuration.CATEGORY_GENERAL, "getCacheTimeOut", 1000).set(getCacheTimeOut);
+        configuration.get(Configuration.CATEGORY_GENERAL, "hunger", 0.25f).set(hunger);
+        configuration.get(Configuration.CATEGORY_GENERAL, "overMiningDamage", 0.001f).set(overMiningDamage);
         configuration.save();
     }
 }

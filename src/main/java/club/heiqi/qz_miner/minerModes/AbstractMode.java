@@ -15,6 +15,7 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -54,10 +55,10 @@ public abstract class AbstractMode {
         /*logger.info("当前线程池运行线程数: {}, 当前等待数: {}, 缓存大小: {}, stop: {}",
             QzMinerThreadPool.pool.getActiveCount(), QzMinerThreadPool.pool.getQueue().size(), positionFounder.cache.size(), positionFounder.getStop());*/
         timer = System.currentTimeMillis();
-        while (!checkTimeout() && !positionFounder.cache.isEmpty()) {
+        while (!checkTimeout() && !positionFounder.cache.isEmpty() && !checkShouldShutdown()) {
             try {
                 Vector3i pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
-                if (pos != null && checkCanBreak(pos) && filter(pos)) {
+                if (pos != null && checkCanBreak(pos) && filter(pos) && !checkShouldShutdown()) {
                     breaker.tryHarvestBlock(pos);
                     blockCount++;
                     if (checkShouldShutdown()) {
@@ -74,6 +75,7 @@ public abstract class AbstractMode {
     }
 
     public void readConfig() {
+        Config.sync(new File(Config.configFile));
         timeLimit = Config.taskTimeLimit;
     }
 

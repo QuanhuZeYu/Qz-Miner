@@ -54,7 +54,6 @@ public class ChainFounder extends PositionFounder {
     }
 
     public void foundChain() {
-        int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         Set<Vector3i> temp2 = new HashSet<>(); // 下一次存储搜索到的链路点
         for (Vector3i pos : nextChainSet) {
             List<Vector3i> box = scanBox(pos);
@@ -62,16 +61,24 @@ public class ChainFounder extends PositionFounder {
                 Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
                 if (filter(block) && !visitedChainSet.contains(pos2)) {
                     temp2.add(pos2);
-                    if (checkCacheFull_ShouldStop()) {
-                        return;
-                    }
-                    try {
-                        cache.put(pos2);
-                    } catch (InterruptedException e) {
-                        logger.warn("缓存队列异常");
-                        Thread.currentThread().interrupt(); // 恢复中断状态
-                    }
                     checkShouldShutdown();
+                }
+            }
+            // 将temp2中的点 与 center 计算距离sort
+            List<Vector3i> sort = new ArrayList<>(temp2);
+            sort.sort((o1, o2) -> {
+                int d1 = (int) o1.distanceSquared(center);
+                int d2 = (int) o2.distanceSquared(center);
+                return d1 - d2;
+            });
+            // 逐个put到cache中
+            for (Vector3i pos2 : sort) {
+                if (checkCacheFull_ShouldStop()) break;
+                try {
+                    cache.put(pos2);
+                } catch (InterruptedException e) {
+                    logger.warn("缓存队列异常");
+                    Thread.currentThread().interrupt(); // 恢复中断状态
                 }
             }
         }
