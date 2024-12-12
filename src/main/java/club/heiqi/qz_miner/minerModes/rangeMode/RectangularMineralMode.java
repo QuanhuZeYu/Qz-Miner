@@ -3,11 +3,15 @@ package club.heiqi.qz_miner.minerModes.rangeMode;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.breakBlock.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.Rectangular;
+import club.heiqi.qz_miner.util.CheckCompatibility;
+import gregtech.common.blocks.BlockOres;
+import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
+import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
 
 import java.util.List;
@@ -33,18 +37,27 @@ public class RectangularMineralMode extends AbstractMode {
     public boolean filter(Vector3i pos) {
         Block block = breaker.world.getBlock(pos.x, pos.y, pos.z);
         String blockUnLocalizedName = block.getUnlocalizedName().toLowerCase();
-        int meta = breaker.world.getBlockMetadata(pos.x, pos.y, pos.z);
-        int fortune = EnchantmentHelper.getFortuneModifier(breaker.player);
-        List<ItemStack> drop = block.getDrops(breaker.world, pos.x, pos.y, pos.z, meta, fortune);
-        // 如果和样本掉落物有一样的则认为可以连锁
-        for (ItemStack stack : drop) {
-            for (ItemStack sample : dropSample) {
-                if (stack.isItemEqual(sample)) {
+        String sampleUnLocalizedName = blockSample.getUnlocalizedName().toLowerCase();
+        ItemStack sampleStack = new ItemStack(blockSample);
+        ItemStack blockStack = new ItemStack(block);
+        int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
+        int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
+        boolean is270Upper = CheckCompatibility.isHasClass_BlockOresAbstract;
+        // 粗矿逻辑直接通过
+        if (is270Upper) {
+            if (block instanceof BlockOresAbstract) {
+                return true;
+            }
+        }
+        // 连锁逻辑
+        for (int sampleOreID : sampleOreIDs) {
+            for (int blockOreID : blockOreIDs) {
+                if (sampleOreID == blockOreID) {
                     return true;
                 }
             }
         }
-        String sampleUnLocalizedName = blockSample.getUnlocalizedName().toLowerCase();
+        // 下面这段逻辑即将废弃
         if ((blockUnLocalizedName.startsWith("ore")
             || blockUnLocalizedName.contains("blockore")
             || blockUnLocalizedName.contains("rawore")
