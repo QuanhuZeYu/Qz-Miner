@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
@@ -16,7 +17,9 @@ import java.util.Set;
 import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
-public class ChainFounder extends PositionFounder {
+public class ChainFounder_Lumberjack extends PositionFounder {
+    public static int lumberjackRange = 255;
+
     public Block sampleBlock;
     public String sampleBlockUnLocalizedName;
     public Set<Vector3i> visitedChainSet = new HashSet<>();
@@ -27,12 +30,23 @@ public class ChainFounder extends PositionFounder {
      * @param center 被破坏方块的中心坐标
      * @param player
      */
-    public ChainFounder(Vector3i center, EntityPlayer player) {
+    public ChainFounder_Lumberjack(Vector3i center, EntityPlayer player) {
         super(center, player);
         nextChainSet.add(center);
         visitedChainSet.add(center);
         sampleBlock = world.getBlock(center.x, center.y, center.z);
         sampleBlockUnLocalizedName = sampleBlock.getUnlocalizedName();
+        int[] sampleOreIDs = OreDictionary.getOreIDs(new ItemStack(sampleBlock));
+        boolean isLog = false;
+        for (int sampleOreID : sampleOreIDs) {
+            if (OreDictionary.getOreName(sampleOreID).equals("logWood")
+                || OreDictionary.getOreName(sampleOreID).equals("treeLeaves")) {
+                isLog = true;
+            }
+        }
+        if (!isLog) {
+            setStop(true);
+        }
     }
 
     @Override
@@ -84,7 +98,7 @@ public class ChainFounder extends PositionFounder {
     public List<Vector3i> scanBox(Vector3i pos) {
         List<Vector3i> result = new ArrayList<>();
         int minX = pos.x - radiusLimit; int maxX = pos.x + radiusLimit;
-        int minY = Math.max(0, (pos.y - radiusLimit)); int maxY = Math.min(255, (pos.y + radiusLimit));
+        int minY = Math.max(0, (pos.y - lumberjackRange)); int maxY = Math.min(255, (pos.y + lumberjackRange));
         int minZ = pos.z - radiusLimit; int maxZ = pos.z + radiusLimit;
         for (int i = Math.max((pos.x - chainRange), minX); i <= Math.min((pos.x + chainRange), maxX); i++) {
             int ir = Math.abs(i - center.x);
@@ -111,13 +125,11 @@ public class ChainFounder extends PositionFounder {
         int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
         for (int sampleOreID : sampleOreIDs) {
             for (int blockOreID : blockOreIDs) {
+                String blockOreName = OreDictionary.getOreName(blockOreID);
                 if (sampleOreID == blockOreID) {
                     return true;
                 }
             }
-        }
-        if (block.getUnlocalizedName().equals(sampleBlockUnLocalizedName)) {
-            return true;
         }
         return false;
     }

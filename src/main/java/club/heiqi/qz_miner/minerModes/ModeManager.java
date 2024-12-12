@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
+import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
@@ -103,6 +104,7 @@ public class ModeManager {
 
     public enum ChainMode implements GetUnLocalized{
         BASE_CHAIN_MODE("qz_miner.chainmode.base_chain", new BaseChainMode()),
+        LUMBER_JACK("qz_miner.chainmode.lumberjack", new LumberJackMode())
         ;
         public final String unLocalizedName;
         public final AbstractMode mode;
