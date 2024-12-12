@@ -17,6 +17,7 @@ import org.joml.*;
 
 import java.lang.Math;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static net.minecraft.block.Block.getIdFromBlock;
@@ -39,10 +40,8 @@ public class BlockBreaker {
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
-
         itemInWorldManager.theWorld.playAuxSFXAtEntity(player, 2001, pos.x, pos.y, pos.z, getIdFromBlock(block) + (meta << 12)); // 播放方块破坏音效
         List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
-//        drops.addAll(drop);
 
         boolean removeSuccess = false; // 是否成功移除方块
         if (itemInWorldManager.isCreative()) { // 创造模式
@@ -101,13 +100,21 @@ public class BlockBreaker {
             if (blockItem != null) {
                 int itemMeta = blockItem.getHasSubtypes() ? meta : 0;
                 ItemStack itemStack = new ItemStack(blockItem, 1, itemMeta);
-                drops.add(itemStack);
+                BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
+                    pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(Arrays.asList(itemStack)), player, true);
+                MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
+                drops.addAll(event.drops);
                 checkFoodLevel();
             }
         } else { // 否则进行普通采集
             // 后续可在此处添加事件触发功能
+            List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
+            BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
+                pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(drop), player, false
+            );
+            MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
+            drop = event.drops;
             if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z)) { // 移除方块事件
-                List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
                 drops.addAll(drop);
                 checkFoodLevel();
             }
