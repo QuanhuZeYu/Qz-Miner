@@ -8,5 +8,5 @@ public class MOD_INFO {
     public static final String NETWORK_CHANNEL = "qz_miner";
 
     public static final String VERSION = Tags.VERSION;
-    public static final String GUI_FACTORY_CLASS = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory.java";
+    public static final String GUI_FACTORY_CLASS = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory";
 }
