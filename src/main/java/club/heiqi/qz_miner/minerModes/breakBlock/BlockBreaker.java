@@ -106,8 +106,10 @@ public class BlockBreaker {
                 BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
                     pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(Arrays.asList(itemStack)), player, true);
                 MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
-                drops.addAll(event.drops);
-                checkFoodLevel();
+                if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z)) {
+                    drops.addAll(event.drops);
+                    checkFoodLevel();
+                }
             }
         } else { // 否则进行普通采集
             // 后续可在此处添加事件触发功能

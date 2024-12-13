@@ -9,6 +9,7 @@ public class Config {
     public static Configuration config;
     public static int radiusLimit = 10;
     public static int blockLimit = 1024;
+    public static int perTickBlockLimit = 64;
     public static int pointFounderCacheSize = 4096;
     public static int taskTimeLimit = 16;
     public static int chainRange = 4;
@@ -26,6 +27,7 @@ public class Config {
 
         radiusLimit = config.getInt("radiusLimit", Configuration.CATEGORY_GENERAL, 10, 1, Integer.MAX_VALUE, "挖掘者搜索范围");
         blockLimit = config.getInt("blockLimit", Configuration.CATEGORY_GENERAL, 1024, 64, Integer.MAX_VALUE, "单次连锁挖掘方块的数量上限");
+        perTickBlockLimit = config.getInt("perTickBlockLimit", Configuration.CATEGORY_GENERAL, 64, -1, Integer.MAX_VALUE, "每tick允许挖掘的方块数量，用于限制挖掘速度，无上限设置为-1即可此时每tick挖掘数量会由taskLimit进行动态限制以保证游戏流畅运行");
         pointFounderCacheSize = config.getInt("pointFounderCacheSize", Configuration.CATEGORY_GENERAL, 4096, 256, Integer.MAX_VALUE, "每个游戏刻中允许搜索的点上限，过高可能会导致内存溢出");
         taskTimeLimit = config.getInt("taskTimeLimit", Configuration.CATEGORY_GENERAL, 16, 5, 25, "每个游戏刻中允许执行任务的毫秒数");
         chainRange = config.getInt("chainRange", Configuration.CATEGORY_GENERAL, 4, 1, 10, "连锁挖掘的相邻半径");

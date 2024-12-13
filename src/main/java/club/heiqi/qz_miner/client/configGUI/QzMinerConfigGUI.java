@@ -34,6 +34,5 @@ public class QzMinerConfigGUI extends GuiConfig {
 //        Config.save();
         Config.config.save();
         Config.sync(new File(Config.configFile));
-        logger.info("修改后的全局变量为: {radiusLimit: {}, blockLimit: {}}", Config.radiusLimit, Config.blockLimit);
     }
 }

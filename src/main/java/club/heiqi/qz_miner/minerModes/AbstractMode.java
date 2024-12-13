@@ -31,6 +31,7 @@ import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 public abstract class AbstractMode {
     public static int timeout = 1000;
     public static int timeLimit = Config.taskTimeLimit;
+    public static int perTickBlock = Config.perTickBlockLimit;
 
     public PositionFounder positionFounder; // 搜索器
     public BlockBreaker breaker;
@@ -73,6 +74,7 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void onTick(TickEvent.ServerTickEvent event) {
+        int perTickBlockCount = 0;
         timer = System.currentTimeMillis();
         updateTaskType();
         if (taskState == TaskState.WAIT || taskState == TaskState.IDLE) taskState = TaskState.RUNNING;
@@ -83,11 +85,13 @@ public abstract class AbstractMode {
                 if (pos != null && checkCanBreak(pos) && filter(pos)) {
                     breaker.tryHarvestBlock(pos);
                     blockCount++;
+                    perTickBlockCount++;
                 }
             } catch (InterruptedException e) {
                 logger.warn("线程异常");
             }
             updateTaskType();
+            checkToWait(perTickBlockCount);
         }
         updateTaskType();
         if (taskState == TaskState.STOP) {
@@ -97,6 +101,10 @@ public abstract class AbstractMode {
 
     public void readConfig() {
         timeLimit = Config.taskTimeLimit;
+        perTickBlock = Config.perTickBlockLimit;
+        if (perTickBlock <= 0) {
+            perTickBlock = Integer.MAX_VALUE;
+        }
     }
 
     public void register() {
@@ -132,6 +140,17 @@ public abstract class AbstractMode {
     public boolean checkTimeout() {
         long time = System.currentTimeMillis() - timer;
         return time > timeLimit;
+    }
+
+    public <T> void checkToWait(T input) {
+        int perTickBlockCount = (int) input;
+        // 挖掘数量达到限制
+        if (perTickBlockCount >= perTickBlock) {
+            taskState = TaskState.WAIT;
+        }
+        if (checkShouldWait()) {
+            taskState = TaskState.WAIT;
+        }
     }
 
     public boolean checkShouldWait() {

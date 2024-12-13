@@ -91,6 +91,7 @@ public abstract class PositionFounder implements Runnable {
         // 该方法只会进入一次
         readConfig();
         while (getTaskState() != TaskState.STOP) {
+            setTaskState(TaskState.RUNNING);
             runLoopTimer = System.currentTimeMillis();
             loopLogic();
             updateTaskState();
