@@ -13,3 +13,5 @@ qz_miner.rangemode.rectangular_mineral=爆破模式-矩形矿脉  (以挖掘点�
 qz_miner.rangemode.rectangular=爆破模式-矩形  (以挖掘点为中心破坏半径内所有可挖掘方块)
 qz_miner.rangemode.sphere=爆破模式-球体  (以挖掘点为中心破坏半径内的所有可挖掘方块)
 qz_miner.rangemode.tunnel=爆破模式-隧道  (从挖掘点开始向面朝向挖掘)
+
+qz_miner.message.pleasewait=上一个任务还在执行，请稍等...

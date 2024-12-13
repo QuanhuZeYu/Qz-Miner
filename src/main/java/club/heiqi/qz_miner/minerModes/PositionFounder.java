@@ -10,9 +10,10 @@ import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.List;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
@@ -20,9 +21,9 @@ import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 /**
  * 用法指南：<br>
  * 1.构建该类时传入一个点作为中心点<br>
- * 2.创建一个线程，传入该类，并调用线程的start方法<br>
+ * 2.运行run方法，自动提交线程池任务<br>
  * 3.直接使用queue.tack()来逐个获取点<br>
- * 该类依赖于TaskState.COMPLETE来结束，挖掘数量上限需要在MC主线程中进行判断和设置该状态为COMPLETE，使用时切勿忘记
+ * 该类会频繁销毁与创建，所以无需关注资源重置问题
  */
 public abstract class PositionFounder implements Runnable {
     public static int taskTimeLimit = Config.taskTimeLimit;
@@ -31,23 +32,43 @@ public abstract class PositionFounder implements Runnable {
     public static int blockLimit = Config.blockLimit;
     public static int chainRange = Config.chainRange;
 
-    public long timer;
+    public int canBreakBlockCount = 0;
+    public long runLoopTimer;
     public AtomicInteger radius = new AtomicInteger(0);
     public EntityPlayer player;
     public World world;
     public Vector3i center;
+    public volatile TaskState taskState = TaskState.WAIT;
+    public ReentrantReadWriteLock lock;
 
-    public AtomicBoolean stop = new AtomicBoolean(false); // 线程停止标志
+    public TaskState getTaskState() {
+        lock.readLock().lock();
+        try {
+            return taskState;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+    public void setTaskState(TaskState taskState) {
+        lock.writeLock().lock();
+        try {
+            this.taskState = taskState;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
 
-    public volatile ArrayBlockingQueue<Vector3i> cache = new ArrayBlockingQueue<>(cacheSizeMAX);
+    public volatile LinkedBlockingQueue<Vector3i> cache = new LinkedBlockingQueue<>(cacheSizeMAX);
 
     /**
      * 构造函数准备执行搜索前的准备工作
      *
      * @param center 被破坏方块的中心坐标
      * @param player
+     * @param lock
      */
-    public PositionFounder(Vector3i center, EntityPlayer player) {
+    public PositionFounder(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
+        this.lock = lock;
         this.center = center;
         this.player = player;
         this.world = player.worldObj;
@@ -59,18 +80,30 @@ public abstract class PositionFounder implements Runnable {
         setRadius(0);
     }
 
+    public void updateTaskState() {
+        if (checkShouldShutdown()) {
+            taskState = TaskState.STOP;
+        }
+    }
+
     @Override
     public void run() {
+        // 该方法只会进入一次
         readConfig();
+        while (getTaskState() != TaskState.STOP) {
+            runLoopTimer = System.currentTimeMillis();
+            loopLogic();
+            updateTaskState();
+            try { // 默认休眠50ms - 1tick
+                Thread.sleep(5);
+            } catch (InterruptedException e) {
+                logger.error(e);
+                Thread.interrupted();
+            }
+        }
+        setTaskState(TaskState.STOP);
     }
-
-    public boolean getStop() {
-        return stop.get();
-    }
-
-    public void setStop(boolean stop) {
-        this.stop.set(stop);
-    }
+    public abstract void loopLogic();
 
     public int getRadius() {
         return radius.get();
@@ -92,33 +125,33 @@ public abstract class PositionFounder implements Runnable {
         chainRange = Config.chainRange;
     }
 
+    /**
+     * 一定可以停止任务的条件
+     * @return
+     */
     public boolean checkShouldShutdown() {
-        if (getRadius() > radiusLimit) {
-//            logger.info("半径超限，停止搜索");
-            setStop(true);
+        if (getRadius() > radiusLimit) { // 超出最大半径
             return true;
         }
-        if (getStop()) {
-//            logger.info("玩家取消连锁，停止搜索");
+        if (getTaskState() == TaskState.STOP) {
             return true;
         }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
-//            logger.info("玩家未就绪，停止搜索");
-            setStop(true);
+        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
             return true;
         }
-        if (player.getHealth() <= 1 || player.isDead) {
-            setStop(true);
+
+        // 特殊终止条件
+        if (player.getHealth() <= 2) { // 玩家血量过低
             return true;
         }
         return false;
     }
 
     /**
-     * 轮询方法，并且轮询时候会检查是否需要停止
-     * @return
+     * 每一次put进行检查
+     * @return 返回true表示线程需要停止，false表示可以继续
      */
-    public boolean checkCacheFull_ShouldStop() {
+    public boolean beforePutCheck() {
         while (cache.size() >= cacheSizeMAX - 10) {
             if (checkShouldShutdown()) {
                 return true;
@@ -126,14 +159,11 @@ public abstract class PositionFounder implements Runnable {
             try {
                 Thread.sleep(50);
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                logger.warn("等待时出现异常: {}", e.toString());
+                Thread.interrupted();
             }
         }
         return false;
-    }
-
-    public boolean checkOutTime(long millis) {
-        return System.currentTimeMillis() - timer > millis;
     }
 
     public boolean checkCanBreak(Vector3i pos) {
@@ -168,5 +198,15 @@ public abstract class PositionFounder implements Runnable {
             return false;
         }
         return true;
+    }
+
+    public List<Vector3i> sort(List<Vector3i> list) {
+        // 根据到center的距离进行排序
+        list.sort((o1, o2) -> {
+            int d1 = (int) o1.distanceSquared(center);
+            int d2 = (int) o2.distanceSquared(center);
+            return d1 - d2;
+        });
+        return list;
     }
 }

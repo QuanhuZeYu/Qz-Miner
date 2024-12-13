@@ -1,42 +1,36 @@
 package club.heiqi.qz_miner.minerModes.rangeMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
+import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.entity.player.EntityPlayer;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
+
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.MY_LOG.logger;
 
 public class Tunnel extends PositionFounder {
     public static int tunnelWidth = 3;
+
+    public Vector3i axialDir;
     /**
      * 构造函数准备执行搜索前的准备工作
      *
      * @param center 被破坏方块的中心坐标
      * @param player
+     * @param lock
      */
-    public Tunnel(Vector3i center, EntityPlayer player) {
-        super(center, player);
+    public Tunnel(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
+        super(center, player, lock);
         setRadius(0);
+        Vector3f dir = getDirection();
+        axialDir = getAxialDir(dir);
     }
 
     @Override
-    public void run() {
-        super.run();
-        Vector3f dir = getDirection();
-        Vector3i axialDir = getAxialDir(dir);
-        while (!getStop()) {
-            timer = System.currentTimeMillis();
-            scan(axialDir);
-            if (!checkOutTime(50)) {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    logger.warn("等待时出现异常: {}", e.toString());
-                }
-            }
-        }
-        setStop(true);
+    public void loopLogic() {
+        scan(axialDir);
     }
 
     public void scan(Vector3i dir) {
@@ -57,16 +51,14 @@ public class Tunnel extends PositionFounder {
                         cCenter.y + i * vertical2.y + j * vertical1.y,
                         cCenter.z + i * vertical2.z + j * vertical1.z
                     );
-                    if (checkCacheFull_ShouldStop()) {
-                        return;
-                    }
+                    if (beforePutCheck()) return;
                     try {
-                        if (checkCanBreak(pos))
-                            cache.put(pos);
+                        if (checkCanBreak(pos)) {
+                            cache.put(pos); canBreakBlockCount++;
+                        }
                     } catch (InterruptedException e) {
                         logger.error("缓存队列异常");
                     }
-                    if (checkShouldShutdown()) return;
                 }
             }
         }

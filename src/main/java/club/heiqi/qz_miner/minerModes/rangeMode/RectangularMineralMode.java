@@ -1,10 +1,8 @@
 package club.heiqi.qz_miner.minerModes.rangeMode;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
-import club.heiqi.qz_miner.minerModes.breakBlock.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.Rectangular;
 import club.heiqi.qz_miner.util.CheckCompatibility;
-import gregtech.common.blocks.BlockOres;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
@@ -14,8 +12,6 @@ import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
 
-import java.util.List;
-
 public class RectangularMineralMode extends AbstractMode {
     public RectangularMineralMode() {
         super();
@@ -23,8 +19,7 @@ public class RectangularMineralMode extends AbstractMode {
 
     @Override
     public void setup(World world, EntityPlayerMP player, Vector3i center) {
-        positionFounder = new Rectangular(center, player);
-        breaker = new BlockBreaker(player, world);
+        super.setup(world, player, center);
         // 收集掉落物样本
         Block block = breaker.world.getBlock(center.x, center.y, center.z);
         int meta = breaker.world.getBlockMetadata(center.x, center.y, center.z);

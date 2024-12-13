@@ -20,12 +20,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 /**
- * 继承后在构造函数中需要修改未本地化名称字段
+ * 该类被创建后不会频繁创建销毁，资源会持续复用
  */
 public abstract class AbstractMode {
     public static int timeout = 1000;
@@ -39,10 +40,30 @@ public abstract class AbstractMode {
     public long getCacheFailTimeOutTimer;
     public int getCacheFailCount = 0;
     public int blockCount;
+    public ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    public TaskState taskState = TaskState.IDLE;
     public Block blockSample;
     public List<ItemStack> dropSample = new ArrayList<>(); // 掉落物样本数组
 
-    public abstract void setup(World world, EntityPlayerMP player, Vector3i center);
+    public void updateTaskType() {
+        if (checkShouldWait()) {
+            taskState = TaskState.WAIT;
+        }
+        if (checkShouldShutdown()) {
+            taskState = TaskState.STOP;
+        }
+    }
+
+    public void setup(World world, EntityPlayerMP player, Vector3i center) {
+        if (taskState == TaskState.STOP || taskState == TaskState.WAIT) {
+            printMessage("qz_miner.message.pleasewait");
+            return;
+        }
+        breaker = new BlockBreaker(player, world);
+
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        positionFounder = modeManager.getPositionFounder(center, player, lock);
+    }
 
     public void run() {
         readConfig();
@@ -52,30 +73,29 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void onTick(TickEvent.ServerTickEvent event) {
-        /*logger.info("当前线程池运行线程数: {}, 当前等待数: {}, 缓存大小: {}, stop: {}",
-            QzMinerThreadPool.pool.getActiveCount(), QzMinerThreadPool.pool.getQueue().size(), positionFounder.cache.size(), positionFounder.getStop());*/
         timer = System.currentTimeMillis();
-        while (!checkTimeout() && !positionFounder.cache.isEmpty() && !checkShouldShutdown()) {
+        updateTaskType();
+        if (taskState == TaskState.WAIT || taskState == TaskState.IDLE) taskState = TaskState.RUNNING;
+        // 每次循环只挖掘一个点
+        while (taskState == TaskState.RUNNING) {
             try {
                 Vector3i pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
-                if (pos != null && checkCanBreak(pos) && filter(pos) && !checkShouldShutdown()) {
+                if (pos != null && checkCanBreak(pos) && filter(pos)) {
                     breaker.tryHarvestBlock(pos);
                     blockCount++;
-                    if (checkShouldShutdown()) {
-                        break;
-                    }
                 }
             } catch (InterruptedException e) {
                 logger.warn("线程异常");
             }
+            updateTaskType();
         }
-        if (checkShouldShutdown()) {
+        updateTaskType();
+        if (taskState == TaskState.STOP) {
             unregister();
         }
     }
 
     public void readConfig() {
-        Config.sync(new File(Config.configFile));
         timeLimit = Config.taskTimeLimit;
     }
 
@@ -98,11 +118,13 @@ public abstract class AbstractMode {
     }
 
     public void reset() {
-        positionFounder.setStop(true);
+        positionFounder.setTaskState(TaskState.STOP); // 通知结束
         positionFounder = null;
         breaker = null;
         timer = 0;
+        getCacheFailCount = 0;
         blockCount = 0;
+        taskState = TaskState.IDLE;
         blockSample = null;
         dropSample.clear();
     }
@@ -112,21 +134,31 @@ public abstract class AbstractMode {
         return time > timeLimit;
     }
 
+    public boolean checkShouldWait() {
+        if (positionFounder.cache.isEmpty()) { // 如果缓存为空
+            return true;
+        }
+        if (checkTimeout()) { // 超时
+            return true;
+        }
+        return false;
+    }
+
     /**
-     * 检查并执行清理工作
+     * 该方法指示了一定会达成停止的条件
      */
     public boolean checkShouldShutdown() {
         if (blockCount >= Config.blockLimit) { // 达到限制数量
             return true;
         }
         if (positionFounder.cache.isEmpty()
-            && positionFounder.getStop()) { // 缓存为空且任务结束
+            && positionFounder.getTaskState() == TaskState.STOP) { // 缓存为空且任务结束
             return true;
         }
-        if (breaker.player.isDead || breaker.player.getHealth() <= 1) {
+        if (breaker.player.getHealth() <= 2) { // 玩家生命值过低
             return true;
         }
-        if (positionFounder.cache.isEmpty()) {
+        if (positionFounder.cache.isEmpty()) { // 获取缓存失败
             if (getCacheFailCount <= 1) {
                 getCacheFailCount++;
                 getCacheFailTimeOutTimer = System.currentTimeMillis();
@@ -136,7 +168,7 @@ public abstract class AbstractMode {
         } else {
             getCacheFailCount = 0;
         }
-        boolean isReady = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady();
+        boolean isReady = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady(); // 玩家主动取消-存在一定延迟
         return !isReady;
     }
 

@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.Config;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -21,9 +22,11 @@ import java.util.Arrays;
 import java.util.List;
 
 import static net.minecraft.block.Block.getIdFromBlock;
+import static club.heiqi.qz_miner.MY_LOG.logger;
 
 /**
- * 采掘者类，存储了当前挖掘的世界和进行挖掘的玩家
+ * 采掘者类，存储了当前挖掘的世界和进行挖掘的玩家<br>
+ * 仅限服务端运行!
  */
 public class BlockBreaker {
     public EntityPlayerMP player;
@@ -40,7 +43,7 @@ public class BlockBreaker {
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
-        itemInWorldManager.theWorld.playAuxSFXAtEntity(player, 2001, pos.x, pos.y, pos.z, getIdFromBlock(block) + (meta << 12)); // 播放方块破坏音效
+        world.playAuxSFXAtEntity(player, 2001, pos.x, pos.y, pos.z, getIdFromBlock(block) + (meta << 12)); // 播放方块破坏音效
         List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
 
         boolean removeSuccess = false; // 是否成功移除方块

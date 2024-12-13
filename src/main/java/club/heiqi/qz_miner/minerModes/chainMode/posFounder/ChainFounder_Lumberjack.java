@@ -1,10 +1,10 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
+import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
@@ -29,9 +30,10 @@ public class ChainFounder_Lumberjack extends PositionFounder {
      *
      * @param center 被破坏方块的中心坐标
      * @param player
+     * @param lock
      */
-    public ChainFounder_Lumberjack(Vector3i center, EntityPlayer player) {
-        super(center, player);
+    public ChainFounder_Lumberjack(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
+        super(center, player, lock);
         nextChainSet.add(center);
         visitedChainSet.add(center);
         sampleBlock = world.getBlock(center.x, center.y, center.z);
@@ -45,26 +47,13 @@ public class ChainFounder_Lumberjack extends PositionFounder {
             }
         }
         if (!isLog) {
-            setStop(true);
+            setTaskState(TaskState.STOP);
         }
     }
 
     @Override
-    public void run() {
-        super.run();
-        while (!getStop()) {
-            timer = System.currentTimeMillis();
-            if (checkShouldShutdown()) break;
-            foundChain();
-            if (!checkOutTime(50)) {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    logger.warn("等待时出现异常: {}", e.toString());
-                }
-            }
-        }
-        setStop(true);
+    public void loopLogic() {
+        foundChain();
     }
 
     public void foundChain() {
@@ -76,7 +65,7 @@ public class ChainFounder_Lumberjack extends PositionFounder {
                 Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
                 if (filter(block) && !visitedChainSet.contains(pos2)) {
                     temp2.add(pos2);
-                    if (checkCacheFull_ShouldStop()) {
+                    if (beforePutCheck()) {
                         return;
                     }
                     try {
@@ -106,12 +95,10 @@ public class ChainFounder_Lumberjack extends PositionFounder {
                 int jr = Math.abs(j - center.y);
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
                     int kr = Math.abs(k - center.z);
-                    if (i == pos.x && j == pos.y && k == pos.z) continue;
+                    if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     result.add(new Vector3i(i, j, k));
-                    int maxRadius = Math.max(ir, Math.max(jr, kr));
-                    int rl = radiusLimit;
-                    int mr = Math.max(rl, maxRadius);
-                    setRadius(mr);
+                    int maxRadius = Math.max(ir, Math.max(jr, kr)); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
+                    setRadius(maxRadius);
                 }
             }
         }
@@ -125,7 +112,6 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
         for (int sampleOreID : sampleOreIDs) {
             for (int blockOreID : blockOreIDs) {
-                String blockOreName = OreDictionary.getOreName(blockOreID);
                 if (sampleOreID == blockOreID) {
                     return true;
                 }
@@ -138,15 +124,15 @@ public class ChainFounder_Lumberjack extends PositionFounder {
     public boolean checkShouldShutdown() {
         if (nextChainSet.isEmpty()) {
 //            logger.info("没有找到链路，停止搜索");
-            setStop(true);
+            setTaskState(TaskState.STOP);
             return true;
         }
         if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
 //            logger.info("玩家未就绪，停止搜索");
-            setStop(true);
+            setTaskState(TaskState.STOP);
             return true;
         }
-        if (getStop()) {
+        if (getTaskState() == TaskState.STOP) {
 //            logger.info("玩家取消连锁，停止搜索");
             return true;
         }
