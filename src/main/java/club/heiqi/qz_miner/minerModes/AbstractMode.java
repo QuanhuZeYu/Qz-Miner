@@ -119,8 +119,9 @@ public abstract class AbstractMode {
         // 注销监听器
         logger.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
         String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
-        logger.info(text);
-        printMessage(text);
+        if (text != null) {
+            printMessage(text);
+        }
         reset();
         FMLCommonHandler.instance().bus().unregister(this);
     }
@@ -231,6 +232,11 @@ public abstract class AbstractMode {
 
     public void printMessage(String message) {
         ChatComponentText text = new ChatComponentText(message);
+        if (text == null) {
+            ChatComponentText error = new ChatComponentText("[QZ_Miner] 错误：你不应该看到这段文本，如果看到该段请上报至该模组的github仓库issue，或者在GTNH中文一群报告此信息");
+            breaker.player.addChatMessage(error);
+            return;
+        }
         breaker.player.addChatMessage(text);
     }
 }
