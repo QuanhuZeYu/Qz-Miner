@@ -36,7 +36,6 @@ public class Rectangular extends PositionFounder {
     }
 
     public void scanXZ() {
-        if (checkShouldShutdown()) return;
         List<Vector3i> tempList = new ArrayList<>();
         temp1 = new Vector3i(center.x, center.y + getRadius(), center.z);
         temp2 = new Vector3i(center.x, center.y - getRadius(), center.z);
@@ -61,15 +60,14 @@ public class Rectangular extends PositionFounder {
                 if (checkCanBreak(pos)) {
                     cache.put(pos); canBreakBlockCount++;
                 }
-                if (checkShouldShutdown()) return;
             } catch (InterruptedException e) {
                 logger.warn("缓存队列异常");
+                Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
     }
 
     public void scanYZ() {
-        if (checkShouldShutdown()) return;
         List<Vector3i> tempList = new ArrayList<>();
         temp1 = new Vector3i(center.x + getRadius(), center.y, center.z);
         temp2 = new Vector3i(center.x - getRadius(), center.y, center.z);
@@ -94,15 +92,14 @@ public class Rectangular extends PositionFounder {
                 if (checkCanBreak(pos)) {
                     cache.put(pos); canBreakBlockCount++;
                 }
-                if (checkShouldShutdown()) return;
             } catch (InterruptedException e) {
                 logger.warn("缓存队列异常");
+                Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
     }
 
     public void scanXY() {
-        if (checkShouldShutdown()) return;
         List<Vector3i> tempList = new ArrayList<>();
         temp1 = new Vector3i(center.x, center.y, center.z + getRadius());
         temp2 = new Vector3i(center.x, center.y, center.z - getRadius());
@@ -127,31 +124,11 @@ public class Rectangular extends PositionFounder {
                 if (checkCanBreak(pos)) {
                     cache.put(pos); canBreakBlockCount++;
                 }
-                if (checkShouldShutdown()) return;
             } catch (InterruptedException e) {
                 logger.warn("缓存队列异常");
+                Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
-    }
-
-    @Override
-    public boolean checkShouldShutdown() {
-        if (getRadius() > radiusLimit) { // 半径超限
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-        if (getTaskState() == TaskState.STOP) { // 状态停止
-            return true;
-        }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家主动取消-存在一定延迟
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-        if (player.getHealth() <= 2) { // 玩家死亡
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-        return false;
     }
 }
 
