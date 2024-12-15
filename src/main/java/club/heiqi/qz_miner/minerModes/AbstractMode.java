@@ -127,7 +127,12 @@ public abstract class AbstractMode {
     }
 
     public void reset() {
-        positionFounder.setTaskState(TaskState.STOP); // 通知结束
+        try {
+            positionFounder.setTaskState(TaskState.STOP); // 通知结束
+            positionFounder.thread.interrupt(); // 中断线程
+        } catch (Exception e) {
+            logger.warn("线程异常: {}", e.toString());
+        }
         positionFounder = null;
         breaker = null;
         timer = 0;
@@ -159,6 +164,12 @@ public abstract class AbstractMode {
             return true;
         }
         if (checkTimeout()) { // 超时
+            return true;
+        }
+        long[] tickTimes = FMLCommonHandler.instance().getMinecraftServerInstance().tickTimeArray;
+        long lastTickTime = tickTimes[tickTimes.length - 1] / 1000000;
+        if (lastTickTime - timer > 50) { // 线程阻塞时间过长
+            printMessage("qz_miner.message.tickTooLong");
             return true;
         }
         return false;
