@@ -15,3 +15,4 @@ qz_miner.rangemode.sphere=爆破模式-球体  (以挖掘点为中心破坏半�
 qz_miner.rangemode.tunnel=爆破模式-隧道  (从挖掘点开始向面朝向挖掘)
 
 qz_miner.message.pleasewait=上一个任务还在执行，请稍等...
+qz_miner.message.tickTooLong=检测到 tick 时间过长，正在动态降低挖掘速度
