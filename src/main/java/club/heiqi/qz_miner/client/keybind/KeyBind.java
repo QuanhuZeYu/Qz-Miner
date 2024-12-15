@@ -18,7 +18,6 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
-import org.joml.Vector3f;
 import org.joml.Vector3i;
 import org.lwjgl.input.Keyboard;
 
@@ -56,12 +55,12 @@ public class KeyBind {
         if (switchMainMode.isPressed()) {
             manager.nextMainMode();
             String message = "当前主模式: " + getMainMode();
-            printMessageOnChat(message);
+            printMessage(message);
         }
         if (switchMode.isPressed()) {
             manager.nextSubMode();
             String message = "当前子模式: " + getSubMode();
-            printMessageOnChat(message);
+            printMessage(message);
         }
     }
 
@@ -130,41 +129,7 @@ public class KeyBind {
         return "获取当前模式时发生错误！";
     }
 
-    public static Vector3i getPlayerLookAtBlock() {
-        if (mc.thePlayer == null || mc.theWorld == null) {
-            return null; // 玩家或世界为空
-        }
-        float reachDistance = mc.playerController.getBlockReachDistance();
-
-        // 获取玩家视线起点和方向
-        Vector3f eyePosition = new Vector3f((float) mc.thePlayer.posX, (float) (mc.thePlayer.posY + mc.thePlayer.getEyeHeight()), (float) mc.thePlayer.posZ);
-        float pitch = (float) Math.toRadians(mc.thePlayer.rotationPitch);
-        float yaw = (float) Math.toRadians(mc.thePlayer.rotationYaw);
-        Vector3f lookDirection = new Vector3f(
-            (float) (-Math.sin(yaw) * Math.cos(pitch)),
-            (float) -Math.sin(pitch),
-            (float) (Math.cos(yaw) * Math.cos(pitch))
-        ).normalize();
-        // 设置步进参数
-        float stepSize = 0.3f;
-        Vector3f curPos = new Vector3f(eyePosition);
-        for (float step = 0; step < reachDistance; step += stepSize) {
-            // 当前射线位置 = 起点 + 方向 * 步进距离
-            curPos.set(eyePosition).add(lookDirection.mul(step, new Vector3f()));
-            // 将浮点坐标转换为方块坐标
-            Vector3i blockPos = new Vector3i(
-                (int) Math.floor(curPos.x()),
-                (int) Math.floor(curPos.y()),
-                (int) Math.floor(curPos.z()));
-            // 检测是否是方块
-            if (!mc.theWorld.isAirBlock(blockPos.x, blockPos.y, blockPos.z)) {
-                return blockPos;
-            }
-        }
-        return null;
-    }
-
-    public void printMessageOnChat(String message) {
+    public void printMessage(String message) {
         ChatComponentText text = new ChatComponentText(message);
         mc.thePlayer.addChatMessage(text);
     }
