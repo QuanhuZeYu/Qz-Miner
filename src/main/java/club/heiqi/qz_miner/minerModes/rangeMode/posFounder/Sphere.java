@@ -69,9 +69,9 @@ public class Sphere extends PositionFounder {
                     if (checkCanBreak(pos)) { // 只放入可挖掘的点
                         cache.put(pos); canBreakBlockCount++;
                     }
-                    if (checkShouldShutdown()) return;
                 } catch (InterruptedException e) {
                     logger.warn("缓存队列异常");
+                    Thread.currentThread().interrupt(); // 恢复中断状态
                 }
             }
         }
