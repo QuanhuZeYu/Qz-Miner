@@ -7,6 +7,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.management.ItemInWorldManager;
+import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
@@ -34,6 +35,7 @@ public abstract class PositionFounder implements Runnable {
 
     public int canBreakBlockCount = 0;
     public long runLoopTimer;
+    public Thread thread;
     public AtomicInteger radius = new AtomicInteger(0);
     public EntityPlayer player;
     public World world;
@@ -76,6 +78,7 @@ public abstract class PositionFounder implements Runnable {
             cache.put(center);
         } catch (InterruptedException e) {
             logger.error(e);
+            Thread.currentThread().interrupt(); // 恢复中断状态
         }
         setRadius(0);
     }
@@ -88,6 +91,7 @@ public abstract class PositionFounder implements Runnable {
 
     @Override
     public void run() {
+        thread = Thread.currentThread();
         // 该方法只会进入一次
         readConfig();
         while (getTaskState() != TaskState.STOP) {
@@ -99,7 +103,7 @@ public abstract class PositionFounder implements Runnable {
                 Thread.sleep(5);
             } catch (InterruptedException e) {
                 logger.error(e);
-                Thread.interrupted();
+                Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
         setTaskState(TaskState.STOP);
@@ -140,6 +144,9 @@ public abstract class PositionFounder implements Runnable {
         if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
             return true;
         }
+        if (Thread.currentThread().isInterrupted()) { // 线程被中断
+            return true;
+        }
 
         // 特殊终止条件
         if (player.getHealth() <= 2) { // 玩家血量过低
@@ -154,14 +161,11 @@ public abstract class PositionFounder implements Runnable {
      */
     public boolean beforePutCheck() {
         while (cache.size() >= cacheSizeMAX - 10) {
-            if (checkShouldShutdown()) {
-                return true;
-            }
             try {
                 Thread.sleep(50);
             } catch (InterruptedException e) {
                 logger.warn("等待时出现异常: {}", e.toString());
-                Thread.interrupted();
+                Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
         return false;
@@ -209,5 +213,15 @@ public abstract class PositionFounder implements Runnable {
             return d1 - d2;
         });
         return list;
+    }
+
+    public void printMessage(String message) {
+        ChatComponentText text = new ChatComponentText(message);
+        if (text == null) {
+            ChatComponentText error = new ChatComponentText("[QZ_Miner] 错误：你不应该看到这段文本，如果看到该段请上报至该模组的github仓库issue，或者在GTNH中文一群报告此信息");
+            player.addChatMessage(error);
+            return;
+        }
+        player.addChatMessage(text);
     }
 }
