@@ -5,6 +5,7 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.world.BlockEvent;
 import org.joml.Vector3i;
 
@@ -22,7 +23,14 @@ public class BlockBreakEvent {
         }
         World world = event.world;
         EntityPlayer player = event.getPlayer();
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
+        if (player instanceof FakePlayer) {
+            return;
+        }
+        try {
+            if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
+                return;
+            }
+        } catch (Exception e) {
             return;
         }
         // 获取破坏方块的坐标
