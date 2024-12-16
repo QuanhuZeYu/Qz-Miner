@@ -11,6 +11,7 @@ public class QzMinerThreadPool {
     public static final int THREAD_NUM = 4;
     public static ThreadFactory qzMinerThreadFactory = new ThreadFactoryBuilder()
         .setNameFormat("QzMinerThreadPool-%d")
+        .setDaemon(true) // 守护线程
         .build();
     public static ThreadPoolExecutor pool = new ThreadPoolExecutor(
         THREAD_NUM,
