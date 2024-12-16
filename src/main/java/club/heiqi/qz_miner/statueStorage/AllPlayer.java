@@ -30,7 +30,9 @@ public class AllPlayer {
             logger.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
         } else {
             logger.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
-            playerStatueMap.put(uuid, new ModeManager());
+            ModeManager modeManager = new ModeManager();
+            modeManager.playerMP = (EntityPlayerMP) player;
+            playerStatueMap.put(uuid, modeManager);
         }
     }
 
