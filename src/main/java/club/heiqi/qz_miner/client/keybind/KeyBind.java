@@ -32,7 +32,7 @@ public class KeyBind {
     public static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     public static Vector3i center = new Vector3i();
 
-    public static int intervalTime = 50; // 最大发包间隔50ms
+    public static int intervalTime = 50; // 最小发包间隔50ms
     public static int renderInterval = 500;
     public static long lastSendTime;
     public static String category = "key.categories.qz_miner";
@@ -68,6 +68,8 @@ public class KeyBind {
     public void onInputEvent(InputEvent event) {
         ModeManager modeManager = SelfStatue.modeManager;
         boolean isPressed = isPress.getIsKeyPressed();
+        if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
+        lastSendTime = System.currentTimeMillis();
         if (!isPressed && modeManager.getIsReady()) { // 如果未按下，且玩家状态为连锁就绪，关闭就绪状态
             modeManager.setIsReady(false);
             QzMinerNetWork.sendMessageToServer(new PacketIsReady(false));
