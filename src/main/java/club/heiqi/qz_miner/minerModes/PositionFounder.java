@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.statueStorage.SelfStatue;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -141,7 +142,7 @@ public abstract class PositionFounder implements Runnable {
         if (getTaskState() == TaskState.STOP) {
             return true;
         }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
+        if (!getIsReady()) {
             return true;
         }
         if (Thread.currentThread().isInterrupted()) { // 线程被中断
@@ -151,6 +152,23 @@ public abstract class PositionFounder implements Runnable {
         // 特殊终止条件
         if (player.getHealth() <= 2) { // 玩家血量过低
             return true;
+        }
+        return false;
+    }
+
+    public boolean getIsReady() {
+        try {
+            if (allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
+                return true;
+            }
+        } catch (Exception e) {
+            try {
+                if (SelfStatue.modeManager.getIsReady()) {
+                    return true;
+                }
+            } catch (Exception ee) {
+                logger.warn("获取就绪状态时出错: {}", ee.toString());
+            }
         }
         return false;
     }
@@ -166,6 +184,7 @@ public abstract class PositionFounder implements Runnable {
             } catch (InterruptedException e) {
                 logger.warn("等待时出现异常: {}", e.toString());
                 Thread.currentThread().interrupt(); // 恢复中断状态
+                return true;
             }
         }
         return false;
@@ -175,13 +194,17 @@ public abstract class PositionFounder implements Runnable {
         World world = player.worldObj;;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        EntityPlayerMP player = (EntityPlayerMP) this.player;
-        ItemInWorldManager iwm = player.theItemInWorldManager;
-        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
-        // 判断是否为创造模式
-        if (iwm.getGameType().isCreative()) {
-            return true;
+        try {
+            EntityPlayerMP player = (EntityPlayerMP) this.player;
+            ItemInWorldManager iwm = player.theItemInWorldManager;
+            // 判断是否为创造模式
+            if (iwm.getGameType().isCreative()) {
+                return true;
+            }
+        } catch (Exception e) {
+            logger.warn("检查是否可以挖掘时出现异常: {}", e.toString());
         }
+        ItemStack holdItem = player.getCurrentEquippedItem();
         // 判断工具能否挖掘
         if (holdItem != null) {
             return block.canHarvestBlock(player, meta);
