@@ -71,8 +71,9 @@ public class ChainFounder_Lumberjack extends PositionFounder {
                     try {
                         cache.put(pos2);
                     } catch (InterruptedException e) {
-                        logger.warn("缓存队列异常");
+                        logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                         Thread.currentThread().interrupt(); // 恢复中断状态
+                        return;
                     }
                     checkShouldShutdown();
                 }
@@ -127,7 +128,7 @@ public class ChainFounder_Lumberjack extends PositionFounder {
             setTaskState(TaskState.STOP);
             return true;
         }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
+        if (!getIsReady()) {
 //            logger.info("玩家未就绪，停止搜索");
             setTaskState(TaskState.STOP);
             return true;
