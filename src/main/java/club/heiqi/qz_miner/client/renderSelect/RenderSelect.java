@@ -49,6 +49,7 @@ public class RenderSelect {
     public static Set<Vector3i> cached = new HashSet<>(40960);
     public static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     public static Minecraft mc = Minecraft.getMinecraft();
+    public static Vector3d camPos = new Vector3d();
     public static int vao;
     public static int verticesVbo;
     public static int ebo;
