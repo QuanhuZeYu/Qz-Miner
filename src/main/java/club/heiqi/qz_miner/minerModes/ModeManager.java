@@ -30,6 +30,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class ModeManager {
     public ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    public EntityPlayerMP playerMP;
 
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
     public RangeMode rangeMode = RangeMode.RECTANGULAR; // 默认为矩形模式
