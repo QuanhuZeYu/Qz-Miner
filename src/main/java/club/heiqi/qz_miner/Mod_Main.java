@@ -18,6 +18,7 @@ public class Mod_Main {
     public static AllPlayer allPlayerStorage = new AllPlayer();
     public static QzMinerNetWork qzMinerNetWork;
     public static QzMinerCommand qzMinerCommand = new QzMinerCommand();
+    public static Config config = new Config();
 
     public static final String MODID = MOD_INFO.MODID;
     public static final Logger LOG = LogManager.getLogger(MODID);
