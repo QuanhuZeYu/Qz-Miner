@@ -44,6 +44,7 @@ public class ChainFounder extends PositionFounder {
     @Override
     public void loopLogic() {
         foundChain();
+        checkShouldShutdown();
     }
 
     public void foundChain() {
@@ -54,7 +55,6 @@ public class ChainFounder extends PositionFounder {
                 Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
                 if (filter(block) && !visitedChainSet.contains(pos2)) {
                     temp2.add(pos2);
-                    checkShouldShutdown();
                 }
             }
         }
@@ -68,8 +68,9 @@ public class ChainFounder extends PositionFounder {
                     cache.put(pos2); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.warn("缓存队列异常");
+                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
+                return;
             }
         }
         // 将搜索到的链路放入下个节点容器以便进行遍历
@@ -126,19 +127,23 @@ public class ChainFounder extends PositionFounder {
 
     @Override
     public boolean checkShouldShutdown() {
-        if (canBreakBlockCount >= blockLimit) {
-            setTaskState(TaskState.STOP);
-            return true;
-        }
         if (nextChainSet.isEmpty()) {
             setTaskState(TaskState.STOP);
             return true;
         }
-        if (!allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) {
+        if (!getIsReady()) {
             setTaskState(TaskState.STOP);
             return true;
         }
         if (getTaskState() == TaskState.STOP) {
+            return true;
+        }
+        if (Thread.currentThread().isInterrupted()) {
+            setTaskState(TaskState.STOP);
+            return true;
+        }
+
+        if (player.getHealth() <= 2) {
             return true;
         }
         return false;
@@ -146,16 +151,21 @@ public class ChainFounder extends PositionFounder {
 
     @Override
     public boolean checkCanBreak(Vector3i pos) {
-        World world = player.worldObj;;
+        World world = player.worldObj;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        EntityPlayerMP player = (EntityPlayerMP) this.player;
-        ItemInWorldManager iwm = player.theItemInWorldManager;
-        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
-        // 判断是否为创造模式
-        if (iwm.getGameType().isCreative()) {
-            return true;
+        try {
+            EntityPlayerMP player = allPlayerStorage.playerStatueMap.get(this.player.getUniqueID()).playerMP;
+            ItemInWorldManager iwm = player.theItemInWorldManager;
+
+            // 判断是否为创造模式
+            if (iwm.getGameType().isCreative()) {
+                return true;
+            }
+        } catch (Exception ignored) {
+
         }
+        ItemStack holdItem = player.getCurrentEquippedItem();
         // 判断工具能否挖掘
         if (holdItem != null) {
             return block.canHarvestBlock(player, meta);
