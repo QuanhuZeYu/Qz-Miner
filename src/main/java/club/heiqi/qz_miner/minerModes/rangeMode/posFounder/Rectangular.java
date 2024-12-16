@@ -61,8 +61,9 @@ public class Rectangular extends PositionFounder {
                     cache.put(pos); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.warn("缓存队列异常");
+                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
+                return;
             }
         }
     }
@@ -93,8 +94,9 @@ public class Rectangular extends PositionFounder {
                     cache.put(pos); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.warn("缓存队列异常");
+                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
+                return;
             }
         }
     }
@@ -125,8 +127,9 @@ public class Rectangular extends PositionFounder {
                     cache.put(pos); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.warn("缓存队列异常");
+                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
+                return;
             }
         }
     }
