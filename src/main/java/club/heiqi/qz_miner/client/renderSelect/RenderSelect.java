@@ -91,6 +91,11 @@ public class RenderSelect {
     }
 
     @SubscribeEvent
+    public void onRenderWorldLastEvent(RenderWorldLastEvent event) {
+        updateCampos();
+    }
+
+    @SubscribeEvent
     public void onDrawBlockHighlightEvent(DrawBlockHighlightEvent event) {
         if (SelfStatue.modeManager.getIsReady()) {
             readConfig();
@@ -102,7 +107,7 @@ public class RenderSelect {
             if (curCenter != null && !center.equals(curCenter)) {
                 center = curCenter;
                 sameTimes = 0;
-            } else if (center.equals(curCenter)){
+            } else if (center.equals(curCenter)) {
                 sameTimes++;
                 if (sameTimes == beforeShowTime) {
                     ModeManager modeManager = SelfStatue.modeManager;
@@ -208,11 +213,14 @@ public class RenderSelect {
         RenderSelect.color.set(r, g, b);
     }
 
+    public void updateCampos() {
+        camPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY + mc.thePlayer.getEyeHeight() - 0.1f, mc.thePlayer.posZ);
+    }
+
     public static void renderBlock(Vector3i pos) {
         if (!vaoIsInit) initVao();
         int curProgram = glGetInteger(GL_CURRENT_PROGRAM);
         glUseProgram(0);
-        Vector3d camPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY + mc.thePlayer.eyeHeight, mc.thePlayer.posZ);
         Vector3d translate = new Vector3d(pos.x - camPos.x, pos.y - camPos.y, pos.z - camPos.z);
         glPushMatrix();
         glMatrixMode(GL_MODELVIEW);
