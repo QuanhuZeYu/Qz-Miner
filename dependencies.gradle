@@ -35,13 +35,28 @@
  */
 ext {
     useMoreMod = project.hasProperty('useMoreMod') ? project.property("useMoreMod") : false
+    lwjglVersion = "3.3.4"
+
+    natives = "natives-windows"
 }
 
 dependencies {
+    /*implementation "org.lwjgl:lwjgl:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-opengl:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-glfw:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-stb:${lwjglVersion}"
+    implementation "org.lwjgl:lwjgl-assimp:${lwjglVersion}"
+
+    runtimeOnly "org.lwjgl:lwjgl:${lwjglVersion}:${natives}"
+    runtimeOnly "org.lwjgl:lwjgl-opengl:${lwjglVersion}:${natives}"
+    runtimeOnly "org.lwjgl:lwjgl-glfw:${lwjglVersion}:${natives}"
+    runtimeOnly "org.lwjgl:lwjgl-stb:${lwjglVersion}:${natives}"
+    runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjglVersion}:${natives}"*/
+
     implementation("com.github.GTNewHorizons:NotEnoughItems:2.6.46-GTNH:dev")
     implementation("com.github.GTNewHorizons:NotEnoughIds:2.1.6:dev")
     implementation('com.github.GTNewHorizons:ServerUtilities:2.0.88:dev')
-    implementation('com.github.GTNewHorizons:Angelica:1.0.0-beta25:api')
+//    runtimeOnly('com.github.GTNewHorizons:Angelica:1.0.0-beta25:dev')
     implementation("com.github.GTNewHorizons:Avaritia:1.56:dev")
     implementation("com.github.GTNewHorizons:AppleCore:3.3.4:dev")
     implementation("com.github.GTNewHorizons:LootGames:2.1.4:dev")
