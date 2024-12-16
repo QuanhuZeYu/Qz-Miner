@@ -44,33 +44,33 @@ public class QzMinerCommand implements ICommand {
                     // 这里设置 radiusLimit 的值
                     Config.radiusLimit = value;
                     sender.addChatMessage(new ChatComponentText("radiusLimit 已设置为: " + value));
-                    Config.save();
+                    Config.globalVarToSave();
                 }
                 case "set_blockLimit" -> {
                     // 这里设置 blockLimit 的值
                     Config.blockLimit = value;
                     sender.addChatMessage(new ChatComponentText("blockLimit 已设置为: " + value));
-                    Config.save();
+                    Config.globalVarToSave();
                 }
                 case "set_perTickBlock" -> {
                     Config.perTickBlockLimit = value;
                     sender.addChatMessage(new ChatComponentText("perTickBlockLimit 已设置为: " + value));
-                    Config.save();
+                    Config.globalVarToSave();
                 }
                 case "set_pointFoundCache" -> {
                     Config.pointFounderCacheSize = value;
                     sender.addChatMessage(new ChatComponentText("pointFounderCacheSize 已设置为: " + value));
-                    Config.save();
+                    Config.globalVarToSave();
                 }
                 case "set_chainRange" -> {
                     Config.chainRange = value;
                     sender.addChatMessage(new ChatComponentText("chainRange 已设置为: " + value));
-                    Config.save();
+                    Config.globalVarToSave();
                 }
                 case "set_cacheTimeOut" -> {
                     Config.getCacheTimeOut = value;
                     sender.addChatMessage(new ChatComponentText("getCacheTimeOut 已设置为: " + value));
-                    Config.save();
+                    Config.globalVarToSave();
                 }
 
                 default -> {

@@ -15,7 +15,8 @@ public class CommonProxy {
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
     // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
-        Config.sync(event.getSuggestedConfigurationFile());
+        config.init(event.getSuggestedConfigurationFile());
+        config.register();
 
         allPlayerStorage.register(); // 注册存储玩家连锁状态的容器类
         BlockBreakEvent.register();
