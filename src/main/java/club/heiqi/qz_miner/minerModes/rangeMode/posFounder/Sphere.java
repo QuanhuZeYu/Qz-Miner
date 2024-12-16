@@ -72,6 +72,7 @@ public class Sphere extends PositionFounder {
                 } catch (InterruptedException e) {
                     logger.warn("缓存队列异常");
                     Thread.currentThread().interrupt(); // 恢复中断状态
+                    return;
                 }
             }
         }

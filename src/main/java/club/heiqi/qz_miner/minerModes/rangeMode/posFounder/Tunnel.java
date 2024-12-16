@@ -59,6 +59,7 @@ public class Tunnel extends PositionFounder {
                     } catch (InterruptedException e) {
                         logger.error("缓存队列异常");
                         Thread.currentThread().interrupt(); // 恢复中断状态
+                        return;
                     }
                 }
             }
