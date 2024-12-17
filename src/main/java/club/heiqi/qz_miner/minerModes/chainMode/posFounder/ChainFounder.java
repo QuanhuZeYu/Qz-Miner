@@ -81,20 +81,20 @@ public class ChainFounder extends PositionFounder {
 
     public List<Vector3i> scanBox(Vector3i pos) {
         List<Vector3i> result = new ArrayList<>();
-        int minX = pos.x - radiusLimit; int maxX = pos.x + radiusLimit; // 设定允许搜索的边界
-        int minY = Math.max(0, (pos.y - radiusLimit)); int maxY = Math.min(255, (pos.y + radiusLimit)); // 限制Y
-        int minZ = pos.z - radiusLimit; int maxZ = pos.z + radiusLimit;
+        int minX = center.x - radiusLimit; int maxX = center.x + radiusLimit; // 设定允许搜索的边界
+        int minY = Math.max(0, (center.y - radiusLimit)); int maxY = Math.min(255, (center.y + radiusLimit)); // 限制Y
+        int minZ = center.z - radiusLimit; int maxZ = center.z + radiusLimit;
         // 搜索
         for (int i = Math.max((pos.x - chainRange), minX); i <= Math.min((pos.x + chainRange), maxX); i++) {
-            int ir = Math.abs(i - center.x);
+            int xr = Math.abs(i - center.x); // 记录当前半径值
             for (int j = Math.max((pos.y - chainRange), minY); j <= Math.min((pos.y + chainRange), maxY); j++) {
-                int jr = Math.abs(j - center.y);
+                int yr = Math.abs(j - center.y);
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
-                    int kr = Math.abs(k - center.z);
+                    int zr = Math.abs(k - center.z);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     if (!checkCanBreak(new Vector3i(i, j, k))) continue; // 排除不可挖掘方块
                     result.add(new Vector3i(i, j, k));
-                    int maxRadius = Math.max(ir, Math.max(jr, kr)); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
+                    int maxRadius = Math.max(xr, Math.max(yr, zr)); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
                     setRadius(maxRadius);
                 }
             }
