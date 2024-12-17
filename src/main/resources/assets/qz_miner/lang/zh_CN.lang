@@ -2,17 +2,22 @@ key.qz_miner.isReady=开启
 key.qz_miner.notReady=关闭
 key.qz_miner.tip=当前连锁状态
 
+key.categories.qz_miner=爆破连锁
+key.qz_miner.switchMode=切换主模式
+key.qz_miner.switchSubMode=切换副模式
+key.qz_miner.isPress=持续按压开启
+
 qz_miner.chain_mode=连锁模式
 qz_miner.range_mode=爆破模式
 
-qz_miner.chainmode.base_chain=连锁模式-基础  (连锁相同的方块)
-qz_miner.chainmode.rectangular=连锁模式-矩形  (以挖掘点为中心收集半径内与中心相同方块)
-qz_miner.chainmode.lumberjack=连锁模式-伐木  (解除高度限制仅砍伐木头)
+qz_miner.chainmode.base_chain=连锁模式-基础--(连锁相同的方块)
+qz_miner.chainmode.rectangular=连锁模式-矩形--(以挖掘点为中心收集半径内与中心相同方块)
+qz_miner.chainmode.lumberjack=连锁模式-伐木--(解除高度限制仅砍伐木头)
 
 qz_miner.rangemode.rectangular_mineral=爆破模式-矩形矿脉  (以挖掘点为中心收集半径内所有矿石)
-qz_miner.rangemode.rectangular=爆破模式-矩形  (以挖掘点为中心破坏半径内所有可挖掘方块)
-qz_miner.rangemode.sphere=爆破模式-球体  (以挖掘点为中心破坏半径内的所有可挖掘方块)
-qz_miner.rangemode.tunnel=爆破模式-隧道  (从挖掘点开始向面朝向挖掘)
+qz_miner.rangemode.rectangular=爆破模式-矩形--(以挖掘点为中心破坏半径内所有可挖掘方块)
+qz_miner.rangemode.sphere=爆破模式-球体--(以挖掘点为中心破坏半径内的所有可挖掘方块)
+qz_miner.rangemode.tunnel=爆破模式-隧道--(从挖掘点开始向面朝向挖掘)
 
 qz_miner.message.pleasewait=上一个任务还在执行，请稍等...
 qz_miner.message.tickTooLong=检测到 tick 时间过长，正在动态降低挖掘速度
