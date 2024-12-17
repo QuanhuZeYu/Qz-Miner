@@ -17,6 +17,10 @@
 * 平面模式, 以玩家脚底为基准, 挖掉上方的所有方块, 该模式目前只有矩形范围, 毕竟矩形更常见(v1.4.0 暂未对它进行适配)
 
 ### 支持预览挖掘区域，会渲染出可能被连锁的方块
+![a620d5cfb6d195d167f8fefb24974616](https://github.com/user-attachments/assets/6fef1eed-6593-446b-b775-f2b12e451ad8)
+![acae9b07ebefffe9c43290144ba0370b](https://github.com/user-attachments/assets/09f6225e-8bbe-425b-b48a-72af94ff8c74)
+
+
 
 ## 更新日志
 
