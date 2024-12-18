@@ -119,7 +119,7 @@ public abstract class AbstractMode {
         // 注销监听器
         logger.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
         String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
-        if (text != null) {
+        if (text != null && allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getPrintResult()) {
             printMessage(text);
         }
         reset();
