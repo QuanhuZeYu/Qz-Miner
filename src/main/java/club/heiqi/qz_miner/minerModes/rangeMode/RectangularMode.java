@@ -11,9 +11,4 @@ public class RectangularMode extends AbstractMode {
     public RectangularMode() {
         super();
     }
-
-    @Override
-    public void setup(World world, EntityPlayerMP player, Vector3i center) {
-        super.setup(world, player, center);
-    }
 }
