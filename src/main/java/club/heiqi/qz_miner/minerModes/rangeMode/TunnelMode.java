@@ -7,8 +7,5 @@ import net.minecraft.world.World;
 import org.joml.Vector3i;
 
 public class TunnelMode extends AbstractMode {
-    @Override
-    public void setup(World world, EntityPlayerMP player, Vector3i center) {
-        super.setup(world, player, center);
-    }
+
 }
