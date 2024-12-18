@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
 import cpw.mods.fml.client.event.ConfigChangedEvent;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -7,6 +9,9 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
 
 import java.io.File;
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.function.Consumer;
 
 import static club.heiqi.qz_miner.MY_LOG.logger;
 
@@ -26,6 +31,24 @@ public class Config {
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
     public static float renderFadeSpeedMultiplier = 1000.0f;
+    public static boolean printResult = true;
+
+    public static Multimap<String, Object> configMap = ArrayListMultimap.create();
+    static {
+        configMap.put("radiusLimit", radiusLimit);                              configMap.put("radiusLimit", Configuration.CATEGORY_GENERAL);           configMap.put("radiusLimit", 10);                   configMap.put("radiusLimit", "挖掘者搜索范围");                                                                            configMap.put("radiusLimit", 1);                          configMap.put("radiusLimit", Integer.MAX_VALUE);
+        configMap.put("blockLimit", blockLimit);                                configMap.put("blockLimit", Configuration.CATEGORY_GENERAL);            configMap.put("blockLimit", 1024);                  configMap.put("blockLimit", "一次连锁挖掘方块的数量上限");                                                                   configMap.put("blockLimit", 64);                          configMap.put("blockLimit", Integer.MAX_VALUE);
+        configMap.put("perTickBlockLimit", perTickBlockLimit);                  configMap.put("perTickBlockLimit", Configuration.CATEGORY_GENERAL);     configMap.put("perTickBlockLimit", 64);             configMap.put("perTickBlockLimit", "每tick挖掘方块的数量上限，用于限制挖掘速度，无上限设为-1即可，无上限可能导致游戏卡顿，请酌情设置");  configMap.put("perTickBlockLimit", -1);                   configMap.put("perTickBlockLimit", Integer.MAX_VALUE);
+        configMap.put("pointFounderCacheSize", pointFounderCacheSize);          configMap.put("pointFounderCacheSize", Configuration.CATEGORY_GENERAL); configMap.put("pointFounderCacheSize", 4096);       configMap.put("pointFounderCacheSize", "搜索队列允许缓存点数量，实现方案为多线程阻塞队列，如果你知道这是什么可以随意调整");            configMap.put("pointFounderCacheSize", 256);              configMap.put("pointFounderCacheSize", Integer.MAX_VALUE);
+        configMap.put("taskTimeLimit", taskTimeLimit);                          configMap.put("taskTimeLimit", Configuration.CATEGORY_GENERAL);         configMap.put("taskTimeLimit", 8);                  configMap.put("taskTimeLimit", "每个游戏刻连锁任务允许允许的时间，请不要设置过低或大于30可能会影响游戏流畅度或使连锁无法正常工作");       configMap.put("taskTimeLimit", 5);                        configMap.put("taskTimeLimit", 25);
+        configMap.put("chainRange", chainRange);                                configMap.put("chainRange", Configuration.CATEGORY_GENERAL);            configMap.put("chainRange", 3);                     configMap.put("chainRange", "连锁挖掘判定相邻半径");                                                                        configMap.put("chainRange", 1);                           configMap.put("chainRange", 5);
+        configMap.put("getCacheTimeOut", getCacheTimeOut);                      configMap.put("getCacheTimeOut", Configuration.CATEGORY_GENERAL);       configMap.put("getCacheTimeOut", 1000);             configMap.put("getCacheTimeOut", "挖掘任务获取缓存队列超时时间");                                                             configMap.put("getCacheTimeOut", 100);                   configMap.put("getCacheTimeOut", Integer.MAX_VALUE);
+        configMap.put("hunger", hunger);                                        configMap.put("hunger", Configuration.CATEGORY_GENERAL);                configMap.put("hunger", 0.25f);                     configMap.put("hunger", "每次挖掘时消耗的饱食度(参考:0.025是原版值)");                                                         configMap.put("hunger", 0.0f);                               configMap.put("hunger", 2.0f);
+        configMap.put("overMiningDamage", overMiningDamage);                    configMap.put("overMiningDamage", Configuration.CATEGORY_GENERAL);      configMap.put("overMiningDamage", 0.001f);          configMap.put("overMiningDamage", "挖掘时如果饱食度不足将会造成伤害，每次空饱食度挖掘都会造成一次伤害");                             configMap.put("overMiningDamage", 0.0f);                     configMap.put("overMiningDamage", 2.0f);
+        configMap.put("printResult", printResult);                              configMap.put("printResult", CATEGORY_CLIENT);                          configMap.put("printResult", true);                 configMap.put("printResult", "在聊天栏打印挖掘结果");
+        configMap.put("renderLineWidth", renderLineWidth);                      configMap.put("renderLineWidth", CATEGORY_CLIENT);                      configMap.put("renderLineWidth", 1.5f);             configMap.put("renderLineWidth", "渲染线框宽度");                                                                          configMap.put("renderLineWidth", 0.1f);                   configMap.put("renderLineWidth", 10.0f);
+        configMap.put("renderFadeSpeedMultiplier", renderFadeSpeedMultiplier);  configMap.put("renderFadeSpeedMultiplier", CATEGORY_CLIENT);            configMap.put("renderFadeSpeedMultiplier", 50.0f);    configMap.put("renderFadeSpeedMultiplier", "渲染框颜色变化时间乘数，越大越慢");                                                configMap.put("renderFadeSpeedMultiplier", 10.0f);          configMap.put("renderFadeSpeedMultiplier", Float.MAX_VALUE);
+        // 用于传递进去判断类型                                                     // 分类
+    }
 
     public void init(File configFile) {
         if (config == null) {
@@ -35,23 +58,51 @@ public class Config {
         }
     }
 
+    public static void walkMap(Consumer<ConfigFieldData> handler) {
+        Iterator<String> iterator = configMap.keySet().iterator();
+        Class<Config> clazz = Config.class;
+        while (iterator.hasNext()) {
+            String name = iterator.next();
+            Collection<Object> value = configMap.get(name);
+            List<Object> values = new ArrayList<>(value);
+            Object staticValue = values.get(0); // 用于获取类型
+            Field field = null;
+            try {
+                field = clazz.getDeclaredField(name);
+            } catch (NoSuchFieldException e) {
+                throw new RuntimeException(e);
+            }
+            String category = (String) values.get(1);
+            Object defaultValue = values.get(2);
+            String description = (String) values.get(3);
+            Object minValue = new Object(), maxValue = new Object();
+            if (values.size() > 4) {
+                minValue = values.get(4);
+                maxValue = values.get(5);
+            }
+            // 在此处可以插入自定义的函数处理上述内容
+            ConfigFieldData fieldData = new ConfigFieldData(field, name, staticValue, category, defaultValue, description, minValue, maxValue);
+            handler.accept(fieldData);
+        }
+    }
+
     /**
      * 读取配置文件 - 写入到全局变量
      */
     public static void sync() {
-        radiusLimit = config.getInt("radiusLimit", Configuration.CATEGORY_GENERAL, 10, 1, Integer.MAX_VALUE, "挖掘者搜索范围");
-        blockLimit = config.getInt("blockLimit", Configuration.CATEGORY_GENERAL, 1024, 64, Integer.MAX_VALUE, "单次连锁挖掘方块的数量上限");
-        perTickBlockLimit = config.getInt("perTickBlockLimit", Configuration.CATEGORY_GENERAL, 64, -1, Integer.MAX_VALUE, "每tick允许挖掘的方块数量，用于限制挖掘速度，无上限设置为-1即可，无上限可能会使游戏事件队列阻塞暂无动态方案，请酌情设置");
-        pointFounderCacheSize = config.getInt("pointFounderCacheSize", Configuration.CATEGORY_GENERAL, 4096, 256, Integer.MAX_VALUE, "每个游戏刻中允许搜索的点上限，过高可能会导致内存溢出");
-        taskTimeLimit = config.getInt("taskTimeLimit", Configuration.CATEGORY_GENERAL, 16, 5, 25, "每个游戏刻中允许执行任务的毫秒数");
-        chainRange = config.getInt("chainRange", Configuration.CATEGORY_GENERAL, 4, 1, 10, "连锁挖掘的相邻半径");
-        getCacheTimeOut = config.getInt("getCacheTimeOut", Configuration.CATEGORY_GENERAL, 1000, 100, Integer.MAX_VALUE, "获取缓存失败后，等待的时间");
-        hunger = config.getFloat("hunger", Configuration.CATEGORY_GENERAL, 0.25f, 0.0f, 10.0f, "每次挖掘时消耗的饱食度（0.025是原版消耗值）");
-        overMiningDamage = config.getFloat("overMiningDamage", Configuration.CATEGORY_GENERAL, 0.001f, 0.0f, 10.0f, "挖掘时如果饱食度不够将会对玩家造成伤害，每次空饱食度挖掘都会造成一次");
-
-        renderLineWidth = config.getFloat("renderLineWidth", CATEGORY_CLIENT, 1.5f, 0.1f, 10.0f, "渲染线框的宽度");
-        renderFadeSpeedMultiplier = config.getFloat("renderFadeSpeedMultiplier", CATEGORY_CLIENT, 10.0f, 1.0f, 100.0f, "渐变速度乘数，越大渐变速度越慢");
-
+        walkMap(f -> {
+            try {
+                if (f.staticValue instanceof Integer) {
+                    f.field.set(null, config.getInt(f.name, f.category, (Integer) f.defaultValue, (Integer) f.minValue, (Integer) f.maxValue, f.description));
+                } else if (f.staticValue instanceof Float) {
+                    f.field.set(null, config.getFloat(f.name, f.category, (Float) f.defaultValue, (Float) f.minValue, (Float) f.maxValue, f.description));
+                } else if (f.staticValue instanceof Boolean) {
+                    f.field.set(null, config.getBoolean(f.name, f.category, (Boolean) f.defaultValue, f.description));
+                }
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
         config.save();
         printConfig();
     }
@@ -59,7 +110,6 @@ public class Config {
     @SubscribeEvent
     public void onConfigChangeEvent(ConfigChangedEvent event) {
         if (event.modID.equalsIgnoreCase(MOD_INFO.MODID)) {
-            logger.info("触发保存");
             sync();
         }
     }
@@ -69,38 +119,57 @@ public class Config {
      */
     public static void globalVarToSave() {
         Configuration configuration = new Configuration(new File(configPath));
-        configuration.get(Configuration.CATEGORY_GENERAL, "radiusLimit", 10, "挖掘者搜索范围").set(radiusLimit);
-        configuration.get(Configuration.CATEGORY_GENERAL, "blockLimit", 1024, "单次连锁挖掘方块的数量上限").set(blockLimit);
-        configuration.get(Configuration.CATEGORY_GENERAL, "pointFounderCacheSize", 4096, "每tick允许挖掘的方块数量，用于限制挖掘速度，无上限设置为-1即可，无上限可能会使游戏事件队列阻塞暂无动态方案，请酌情设置").set(pointFounderCacheSize);
-        configuration.get(Configuration.CATEGORY_GENERAL, "taskTimeLimit", 16, "每个游戏刻中允许搜索的点上限，过高可能会导致内存溢出").set(taskTimeLimit);
-        configuration.get(Configuration.CATEGORY_GENERAL, "chainRange", 4, "连锁挖掘的相邻半径").set(chainRange);
-        configuration.get(Configuration.CATEGORY_GENERAL, "getCacheTimeOut", 1000, "获取缓存失败后，等待的时间").set(getCacheTimeOut);
-        configuration.get(Configuration.CATEGORY_GENERAL, "hunger", 0.25f, "每次挖掘时消耗的饱食度（0.025是原版消耗值）").set(hunger);
-        configuration.get(Configuration.CATEGORY_GENERAL, "overMiningDamage", 0.001f, "挖掘时如果饱食度不够将会对玩家造成伤害，每次空饱食度挖掘都会造成一次").set(overMiningDamage);
-
-        configuration.get(CATEGORY_CLIENT, "renderLineWidth", 1.5f, "渲染线框的宽度").set(renderLineWidth);
-        configuration.get(CATEGORY_CLIENT, "renderFadeSpeedMultiplier", 10.0f, "渐变速度乘数，越大渐变速度越慢").set(renderFadeSpeedMultiplier);
+        walkMap(f -> {
+            try {
+                if (f.staticValue instanceof Integer) {
+                    configuration.get(f.category, f.name, (Integer) f.defaultValue).set((Integer) f.field.get(null));
+                } else if (f.staticValue instanceof Float) {
+                    configuration.get(f.category, f.name, (Float) f.defaultValue).set((Float) f.field.get(null));
+                } else if (f.staticValue instanceof Boolean) {
+                    configuration.get(f.category, f.name, (Boolean) f.defaultValue).set((Boolean) f.field.get(null));
+                }
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        configuration.save();
     }
 
     public static void printConfig() {
-        Configuration configuration = new Configuration(new File(configPath));
-        int radiusLimit = configuration.getInt("radiusLimit", Configuration.CATEGORY_GENERAL, 10, 1, Integer.MAX_VALUE, "挖掘者搜索范围");
-        int blockLimit = configuration.getInt("blockLimit", Configuration.CATEGORY_GENERAL, 1024, 64, Integer.MAX_VALUE, "单次连锁挖掘方块的数量上限");
-        int pointFounderCacheSize = configuration.getInt("pointFounderCacheSize", Configuration.CATEGORY_GENERAL, 4096, 256, Integer.MAX_VALUE, "每个游戏刻中允许搜索的点上限，过高可能会导致内存溢出");
-        int taskTimeLimit = configuration.getInt("taskTimeLimit", Configuration.CATEGORY_GENERAL, 16, 5, 25, "每个游戏刻中允许执行任务的毫秒数");
-        int chainRange = configuration.getInt("chainRange", Configuration.CATEGORY_GENERAL, 4, 1, 10, "连锁挖掘的相邻半径");
-        int getCacheTimeOut = configuration.getInt("getCacheTimeOut", Configuration.CATEGORY_GENERAL, 1000, 100, Integer.MAX_VALUE, "获取缓存失败后，等待的时间");
-        float hunger = configuration.getFloat("hunger", Configuration.CATEGORY_GENERAL, 0.25f, 0.0f, 10.0f, "每次挖掘时消耗的饱食度（0.025是原版消耗值）");
-        float overMiningDamage = configuration.getFloat("overMiningDamage", Configuration.CATEGORY_GENERAL, 0.001f, 0.0f, 10.0f, "挖掘时如果饱食度不够将会对玩家造成伤害，每次空饱食度挖掘都会造成一次");
-
-        float renderLineWidth = (float) configuration.get(CATEGORY_CLIENT, "renderLineWidth", 1.5f).getDouble();
-        float renderFadeSpeedMultiplier = (float) configuration.get(CATEGORY_CLIENT, "renderFadeSpeedMultiplier", 10.0f).getDouble();
-        logger.info("radiusLimit: {}, blockLimit: {}, pointFounderCacheSize: {}, taskTimeLimit: {}, chainRange: {}, getCacheTimeOut: {}, hunger: {}, overMiningDamage: {}, renderLineWidth: {}, renderFadeSpeedMultiplier: {}",
-            radiusLimit, blockLimit, pointFounderCacheSize, taskTimeLimit, chainRange, getCacheTimeOut, hunger, overMiningDamage, renderLineWidth, renderFadeSpeedMultiplier);
+        walkMap(f -> {
+            try {
+                logger.info("{}: {}", f.name, f.field.get(null));
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     public void register() {
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
+    }
+
+    public static class ConfigFieldData {
+        public Field field;
+        public String name;
+        public Object staticValue;
+        public String category;
+        public Object defaultValue;
+        public String description;
+        public Object minValue;
+        public Object maxValue;
+
+        public ConfigFieldData(Field field, String name, Object staticValue, String category,
+                               Object defaultValue, String description, Object minValue, Object maxValue) {
+            this.field = field;
+            this.name = name;
+            this.staticValue = staticValue;
+            this.category = category;
+            this.defaultValue = defaultValue;
+            this.description = description;
+            this.minValue = minValue;
+            this.maxValue = maxValue;
+        }
     }
 }

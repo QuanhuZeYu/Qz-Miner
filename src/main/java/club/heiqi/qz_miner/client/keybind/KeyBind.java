@@ -1,13 +1,16 @@
 package club.heiqi.qz_miner.client.keybind;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketIsReady;
+import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.statueStorage.SelfStatue;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
@@ -49,8 +52,6 @@ public class KeyBind {
 
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
-        EntityPlayer player = mc.thePlayer;
-        UUID uuid = player.getUniqueID();
         ModeManager manager = SelfStatue.modeManager;
         if (switchMainMode.isPressed()) {
             manager.nextMainMode();
@@ -106,6 +107,19 @@ public class KeyBind {
             fr.drawString(ready, x + fontWidth + 1, y, 0xff7500);
         }
         mc.mcProfiler.endSection();
+    }
+
+    @SubscribeEvent
+    public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        new Thread(() -> {
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                QzMinerNetWork.sendMessageToServer(new PacketPrintResult(Config.printResult));
+            }
+        });
     }
 
     public String getMainMode() {

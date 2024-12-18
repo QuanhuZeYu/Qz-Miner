@@ -35,7 +35,10 @@ public class ModeManager {
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
     public RangeMode rangeMode = RangeMode.RECTANGULAR; // 默认为矩形模式
     public ChainMode chainMode = ChainMode.BASE_CHAIN_MODE; // 默认为矩形模式
-    public volatile boolean isReady = false;
+
+    public volatile AtomicBoolean isReady = new AtomicBoolean(false);
+    public volatile AtomicBoolean printResult = new AtomicBoolean(true);
+
 
     // 实例成员列表顺序和枚举顺序需要一致，添加时务必小心
     public List<AbstractMode> chainModes = new ArrayList<>(Arrays.asList(
@@ -109,21 +112,22 @@ public class ModeManager {
         return PosFounder.createFounder(posEnum, pos, player, lock);
     }
 
+
     public void setIsReady(boolean isReady) {
-        lock.writeLock().lock();
-        this.isReady = isReady;
-        lock.writeLock().unlock();
+        this.isReady.set(isReady);
     }
 
     public boolean getIsReady() {
-        lock.readLock().lock();
-        try {
-            return isReady;
-        } finally {
-            lock.readLock().unlock();
-        }
+        return isReady.get();
     }
 
+    public void setPrintResult(boolean printResult) {
+        this.printResult.set(printResult);
+    }
+
+    public boolean getPrintResult() {
+        return printResult.get();
+    }
 
 
 

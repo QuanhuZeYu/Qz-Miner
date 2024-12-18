@@ -7,8 +7,11 @@ import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class QzMinerCommand implements ICommand {
     public void register(FMLServerStartingEvent event) {
@@ -21,7 +24,18 @@ public class QzMinerCommand implements ICommand {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/qz_m <set_radiusLimit|set_blockLimit|set_perTickBlock|set_pointFoundCache|set_chainRange|set_cacheTimeOut> <value>";
+        AtomicReference<String> usageList = new AtomicReference<>("");
+        Config.walkMap(f -> {
+            String origin = usageList.get();
+            String result;
+            if (origin.isEmpty()) {
+                result = f.name + "(" + f.description + ")\n";
+            } else {
+                result = origin + " | " + f.name + "(" + f.description + ")\n";
+            }
+            usageList.set(result);
+        });
+        return usageList.get();
     }
 
     @Override
@@ -31,56 +45,46 @@ public class QzMinerCommand implements ICommand {
 
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
-        if (args.length < 2) {
-            sender.addChatMessage(new ChatComponentText("用法错误！使用 /qz_m <set_radiusLimit|set_blockLimit|set_perTickBlock|set_pointFoundCache|set_chainRange|set_cacheTimeOut> <值>"));
+        String subCommand = args[0];
+        if (Objects.equals(subCommand, "check")) {
+            Config.walkMap(f -> {
+                try {
+                    sender.addChatMessage(new ChatComponentText(f.name + ": " + f.field.get(null)));
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                }
+            });
             return;
         }
-        String subCommand = args[0];
-        try {
-            int value = Integer.parseInt(args[1]); // 将第二个参数解析为整数
-
-            switch (subCommand) {
-                case "set_radiusLimit" -> {
-                    // 这里设置 radiusLimit 的值
-                    Config.radiusLimit = value;
-                    sender.addChatMessage(new ChatComponentText("radiusLimit 已设置为: " + value));
-                    Config.globalVarToSave();
-                }
-                case "set_blockLimit" -> {
-                    // 这里设置 blockLimit 的值
-                    Config.blockLimit = value;
-                    sender.addChatMessage(new ChatComponentText("blockLimit 已设置为: " + value));
-                    Config.globalVarToSave();
-                }
-                case "set_perTickBlock" -> {
-                    Config.perTickBlockLimit = value;
-                    sender.addChatMessage(new ChatComponentText("perTickBlockLimit 已设置为: " + value));
-                    Config.globalVarToSave();
-                }
-                case "set_pointFoundCache" -> {
-                    Config.pointFounderCacheSize = value;
-                    sender.addChatMessage(new ChatComponentText("pointFounderCacheSize 已设置为: " + value));
-                    Config.globalVarToSave();
-                }
-                case "set_chainRange" -> {
-                    Config.chainRange = value;
-                    sender.addChatMessage(new ChatComponentText("chainRange 已设置为: " + value));
-                    Config.globalVarToSave();
-                }
-                case "set_cacheTimeOut" -> {
-                    Config.getCacheTimeOut = value;
-                    sender.addChatMessage(new ChatComponentText("getCacheTimeOut 已设置为: " + value));
-                    Config.globalVarToSave();
-                }
-
-                default -> {
-                    sender.addChatMessage(new ChatComponentText("未知的二级命令: " + subCommand));
-                    break;
+        if (Objects.equals(subCommand, "help")) {
+            sender.addChatMessage(new ChatComponentText(getCommandUsage(sender)));
+            return;
+        }
+        // 匹配整数的正则表达式：正负整数
+        String integerRegex = "^-?\\d+$";
+        // 匹配小数的正则表达式：正负小数（含小数点）
+        String decimalRegex = "^-?\\d+\\.\\d+$";
+        Object value;
+        if (args[1].matches(integerRegex)) {
+            value = Integer.parseInt(args[1]);
+        } else if (args[1].matches(decimalRegex)) {
+            value = Double.parseDouble(args[1]);
+        } else {
+            sender.addChatMessage(new ChatComponentText("请输入一个有效数值！"));
+            return;
+        }
+        Object finalValue = value;
+        Config.walkMap(f -> {
+            if (Objects.equals(f.name, subCommand)) {
+                try {
+                    f.field.set(null, finalValue);
+                    sender.addChatMessage(new ChatComponentText(f.name + " 已设置为: " + finalValue));
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
                 }
             }
-        } catch (NumberFormatException e) {
-            sender.addChatMessage(new ChatComponentText("请输入一个有效的整数值！"));
-        }
+        });
+        Config.globalVarToSave();
     }
 
     @Override
@@ -91,8 +95,11 @@ public class QzMinerCommand implements ICommand {
     @Override
     public List<String> addTabCompletionOptions(ICommandSender sender, String[] args) {
         if (args.length == 1) {
-            // 返回子命令的自动补全
-            return Arrays.asList("set_radiusLimit", "set_blockLimit", "set_perTickBlock", "set_pointFoundCache", "set_chainRange", "set_cacheTimeOut");
+            List<String> result = new ArrayList<>();
+            Config.walkMap(f -> result.add(f.name));
+            result.add("check");
+            result.add("help");
+            return result;
         }
         return null;
     }
