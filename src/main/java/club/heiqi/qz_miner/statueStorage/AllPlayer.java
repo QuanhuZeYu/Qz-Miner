@@ -72,7 +72,7 @@ public class AllPlayer {
             int serverMinor = Integer.parseInt(serverVersion.split("\\.")[1]);
             int serverPatch = Integer.parseInt(serverVersion.split("\\.")[2]);
             if (serverMajor == clientMajor && serverMinor == clientMinor) {
-                return serverPatch >= clientPatch;
+                return true;
             } else {
                 return false;
             }
