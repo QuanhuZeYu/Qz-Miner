@@ -29,9 +29,12 @@ public class QzMinerCommand implements ICommand {
             String origin = usageList.get();
             String result;
             if (origin.isEmpty()) {
-                result = f.name + "(" + f.description + ")\n";
+                result = f.name + "(" + f.description + ")    ";
+                sender.addChatMessage(new ChatComponentText(result));
             } else {
-                result = origin + " | " + f.name + "(" + f.description + ")\n";
+                String temp = " | " + f.name + "(" + f.description + ")    ";
+                result = origin + temp;
+                sender.addChatMessage(new ChatComponentText(temp));
             }
             usageList.set(result);
         });
@@ -45,6 +48,10 @@ public class QzMinerCommand implements ICommand {
 
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
+        if (args.length == 0) {
+            getCommandUsage(sender);
+            return;
+        }
         String subCommand = args[0];
         if (Objects.equals(subCommand, "check")) {
             Config.walkMap(f -> {
@@ -57,7 +64,7 @@ public class QzMinerCommand implements ICommand {
             return;
         }
         if (Objects.equals(subCommand, "help")) {
-            sender.addChatMessage(new ChatComponentText(getCommandUsage(sender)));
+            getCommandUsage(sender);
             return;
         }
         // 匹配整数的正则表达式：正负整数
@@ -78,13 +85,13 @@ public class QzMinerCommand implements ICommand {
             if (Objects.equals(f.name, subCommand)) {
                 try {
                     f.field.set(null, finalValue);
-                    sender.addChatMessage(new ChatComponentText(f.name + " 已设置为: " + finalValue));
+                    sender.addChatMessage(new ChatComponentText(f.name + " 已设置为: " + f.field.get(null)));
+                    Config.globalVarToSave();
                 } catch (IllegalAccessException e) {
                     throw new RuntimeException(e);
                 }
             }
         });
-        Config.globalVarToSave();
     }
 
     @Override

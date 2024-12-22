@@ -28,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.MODID;
+import static club.heiqi.qz_miner.MY_LOG.logger;
 
 @SideOnly(Side.CLIENT)
 public class KeyBind {
@@ -119,7 +120,7 @@ public class KeyBind {
             } finally {
                 QzMinerNetWork.sendMessageToServer(new PacketPrintResult(Config.printResult));
             }
-        });
+        }).start();
     }
 
     public String getMainMode() {
