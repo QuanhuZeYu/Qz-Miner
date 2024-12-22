@@ -13,6 +13,7 @@ qz_miner.range_mode=爆破模式
 qz_miner.chainmode.base_chain=连锁模式-基础--(连锁相同的方块)
 qz_miner.chainmode.rectangular=连锁模式-矩形--(以挖掘点为中心收集半径内与中心相同方块)
 qz_miner.chainmode.lumberjack=连锁模式-伐木--(解除高度限制仅砍伐木头)
+qz_miner.chainmode.strict=连锁模式-严格--(只有完全相同的方块才会被连锁)
 
 qz_miner.rangemode.rectangular_mineral=爆破模式-矩形矿脉  (以挖掘点为中心收集半径内所有矿石)
 qz_miner.rangemode.rectangular=爆破模式-矩形--(以挖掘点为中心破坏半径内所有可挖掘方块)
