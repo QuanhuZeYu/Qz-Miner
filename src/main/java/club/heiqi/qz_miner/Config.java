@@ -82,7 +82,7 @@ public class Config {
             }
             // 在此处可以插入自定义的函数处理上述内容
             ConfigFieldData fieldData = new ConfigFieldData(field, name, staticValue, category, defaultValue, description, minValue, maxValue);
-            handler.accept(fieldData);
+            handler.accept(fieldData); // 回调
         }
     }
 
@@ -118,21 +118,21 @@ public class Config {
      * 将全局变量写入到配置文件
      */
     public static void globalVarToSave() {
-        Configuration configuration = new Configuration(new File(configPath));
         walkMap(f -> {
             try {
                 if (f.staticValue instanceof Integer) {
-                    configuration.get(f.category, f.name, (Integer) f.defaultValue).set((Integer) f.field.get(null));
+                    config.get(f.category, f.name, (Integer) f.defaultValue, f.description).set((Integer) f.field.get(null));
                 } else if (f.staticValue instanceof Float) {
-                    configuration.get(f.category, f.name, (Float) f.defaultValue).set((Float) f.field.get(null));
+                    config.get(f.category, f.name, (Float) f.defaultValue, f.description).set((Float) f.field.get(null));
                 } else if (f.staticValue instanceof Boolean) {
-                    configuration.get(f.category, f.name, (Boolean) f.defaultValue).set((Boolean) f.field.get(null));
+                    config.get(f.category, f.name, (Boolean) f.defaultValue, f.description).set((Boolean) f.field.get(null));
                 }
             } catch (IllegalAccessException e) {
                 throw new RuntimeException(e);
             }
         });
-        configuration.save();
+        config.save();
+        sync();
     }
 
     public static void printConfig() {
