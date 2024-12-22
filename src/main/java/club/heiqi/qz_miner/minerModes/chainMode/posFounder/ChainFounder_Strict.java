@@ -118,11 +118,15 @@ public class ChainFounder_Strict extends PositionFounder {
     public boolean filter(Block block, Vector3i pos) {
         if (sampleBlock.equals(block)) {
             // 再检查metaID是否一致
-            int blockMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-            int itemMeta = new ItemStack(block, 1, blockMeta).getItemDamage();
-            if (itemMeta == itemBlockMeta) {
+            try {
+                int blockMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
+                int itemMeta = new ItemStack(block, 1, blockMeta).getItemDamage();
+                if (itemMeta == itemBlockMeta) {
 //                LOG.info("{} == {}", block.getLocalizedName() + blockMeta, sampleBlockUnLocalizedName + itemBlockMeta);
-                return true;
+                    return true;
+                }
+            } catch (Exception e) {
+                return false;
             }
         }
         return false;
