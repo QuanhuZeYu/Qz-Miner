@@ -24,6 +24,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
 import java.lang.reflect.Constructor;
@@ -97,6 +98,7 @@ public class ModeManager {
         };
     }
 
+    @Nullable
     public PositionFounder getPositionFounder(Vector3i pos, EntityPlayer player, ReentrantReadWriteLock lock) {
         return switch (mainMode) {
             case CHAIN_MODE -> ChainMode.createFounder(chainMode, pos, player, lock);

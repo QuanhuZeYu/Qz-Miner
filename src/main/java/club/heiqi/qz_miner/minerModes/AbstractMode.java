@@ -13,6 +13,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
@@ -31,8 +32,8 @@ public abstract class AbstractMode {
     public static int timeout = 1000;
     public static int timeLimit = Config.taskTimeLimit;
     public static int perTickBlock = Config.perTickBlockLimit;
-
-    public PositionFounder positionFounder; // 搜索器
+    @Nullable
+    public PositionFounder positionFounder;
     public BlockBreaker breaker;
     public AtomicBoolean isRunning = new AtomicBoolean(false);
 
@@ -68,7 +69,9 @@ public abstract class AbstractMode {
     public void run() {
         readConfig();
         register();
-        QzMinerThreadPool.pool.submit(positionFounder);
+        if (positionFounder != null) {
+            QzMinerThreadPool.pool.submit(positionFounder);
+        }
     }
 
     @SubscribeEvent
@@ -80,7 +83,10 @@ public abstract class AbstractMode {
         // 每次循环只挖掘一个点
         while (taskState == TaskState.RUNNING) {
             try {
-                Vector3i pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
+                Vector3i pos = null;
+                if (positionFounder != null) {
+                    pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
+                }
                 if (pos != null && checkCanBreak(pos) && filter(pos)) {
                     breaker.tryHarvestBlock(pos);
                     blockCount++;
@@ -117,7 +123,10 @@ public abstract class AbstractMode {
         isRunning.set(false);
         // 注销监听器
         LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
-        String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
+        String text = null;
+        if (positionFounder != null) {
+            text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
+        }
         if (text != null && allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getPrintResult()) {
             printMessage(text);
         }
@@ -127,8 +136,10 @@ public abstract class AbstractMode {
 
     public void reset() {
         try {
-            positionFounder.setTaskState(TaskState.STOP); // 通知结束
-            positionFounder.thread.interrupt(); // 中断线程
+            if (positionFounder != null) {
+                positionFounder.setTaskState(TaskState.STOP); // 通知结束
+                positionFounder.thread.interrupt(); // 中断线程
+            }
         } catch (Exception e) {
             LOG.warn("线程异常: {}", e.toString());
         }
@@ -159,7 +170,7 @@ public abstract class AbstractMode {
     }
 
     public boolean checkShouldWait() {
-        if (positionFounder.cache.isEmpty()) { // 如果缓存为空
+        if (positionFounder != null && positionFounder.cache.isEmpty()) { // 如果缓存为空
             return true;
         }
         if (checkTimeout()) { // 超时
@@ -181,22 +192,20 @@ public abstract class AbstractMode {
         if (blockCount >= Config.blockLimit) { // 达到限制数量
             return true;
         }
-        if (positionFounder.cache.isEmpty()
+        if (positionFounder != null && positionFounder.cache.isEmpty()
             && positionFounder.getTaskState() == TaskState.STOP) { // 缓存为空且任务结束
             return true;
         }
         if (breaker.player.getHealth() <= 2) { // 玩家生命值过低
             return true;
         }
-        if (positionFounder.cache.isEmpty()) { // 获取缓存失败
+        if (positionFounder != null && positionFounder.cache.isEmpty()) { // 获取缓存失败
             if (getCacheFailCount <= 1) {
                 getCacheFailCount++;
                 getCacheFailTimeOutTimer = System.currentTimeMillis();
             } else {
                 return System.currentTimeMillis() - getCacheFailTimeOutTimer > timeout;
             }
-        } else {
-            getCacheFailCount = 0;
         }
         boolean isReady = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady(); // 玩家主动取消-存在一定延迟
         return !isReady;

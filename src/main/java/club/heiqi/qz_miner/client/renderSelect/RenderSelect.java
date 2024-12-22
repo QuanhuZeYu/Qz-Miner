@@ -116,7 +116,9 @@ public class RenderSelect {
                     if (positionFounder != null) positionFounder.thread.interrupt();
                     positionFounder = modeManager.getPositionFounder(curCenter, mc.thePlayer, lock);
 //                    positionFounder.run();
-                    QzMinerThreadPool.pool.submit(positionFounder);
+                    if (positionFounder != null) {
+                        QzMinerThreadPool.pool.submit(positionFounder);
+                    }
                 }
                 if (sameTimes > beforeShowTime) {
                     enduringAddCacheAndRender();
@@ -141,7 +143,9 @@ public class RenderSelect {
                     cached.add(pos);
             } catch (InterruptedException e) {
                 LOG.warn("线程异常");
-            }
+            } /*catch (Exception e) {
+                LOG.warn("异常: {}", e.toString());
+            }*/
         }
         // 持续渲染点，每次执行只允许运行2.5ms
         Iterator<Vector3i> iterator = cached.iterator();

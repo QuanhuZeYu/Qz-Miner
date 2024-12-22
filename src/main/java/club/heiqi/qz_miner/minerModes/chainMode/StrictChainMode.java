@@ -16,8 +16,10 @@ public class StrictChainMode extends AbstractMode {
         super.setup(world, player, center);
         blockSample = world.getBlock(center.x, center.y, center.z);
         ChainFounder_Strict founder = ((ChainFounder_Strict) positionFounder);
-        founder.sampleBlock = blockSample;
-        founder.itemBlockMeta = world.getBlockMetadata(center.x, center.y, center.z);
+        if (founder != null) {
+            founder.sampleBlock = blockSample;
+            founder.itemBlockMeta = world.getBlockMetadata(center.x, center.y, center.z);
+        }
     }
 
     @Override
