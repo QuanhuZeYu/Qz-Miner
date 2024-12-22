@@ -15,6 +15,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
@@ -24,6 +25,7 @@ import java.awt.*;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -45,6 +47,7 @@ public class RenderSelect {
     public static Vector3i center = new Vector3i(-1000, -1000, -1000);
     public static volatile Vector3f color = new Vector3f(1, 1, 1);
     public static int taskLimit = 10;
+    @Nullable
     public static PositionFounder positionFounder;
     public static Set<Vector3i> cached = new HashSet<>(40960);
     public static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -54,29 +57,26 @@ public class RenderSelect {
     public static int verticesVbo;
     public static int ebo;
     public static float[] vertices = {
-        -0.5f, -0.5f, -0.5f, // 0
-        0.5f, -0.5f, -0.5f, // 1
-        0.5f,  0.5f, -0.5f, // 2
-        -0.5f,  0.5f, -0.5f, // 3
-        -0.5f, -0.5f,  0.5f, // 4
-        0.5f, -0.5f,  0.5f, // 5
-        0.5f,  0.5f,  0.5f, // 6
-        -0.5f,  0.5f,  0.5f  // 7
+        1,1,1,
+        1,1,0,
+        1,0,1,
+        1,0,0,
+        0,1,1,
+        0,1,0,
+        0,0,1,
+        0,0,0
     };
     public static int[] indices = {
-        0, 1, // 边 0-1
-        1, 2, // 边 1-2
-        2, 3, // 边 2-3
-        3, 0, // 边 3-0
-        4, 5, // 边 4-5
-        5, 6, // 边 5-6
-        6, 7, // 边 6-7
-        7, 4, // 边 7-4
-        0, 4, // 边 0-4
-        1, 5, // 边 1-5
-        2, 6, // 边 2-6
-        3, 7  // 边 3-7
+        0,1, 1,3, 3,2, 2,0,
+        6,7, 7,5, 5,4, 4,6,
+        2,6, 4,0, 7,3, 1,5
     };
+    public static int[] up = {0,1, 1,5, 5,4, 4,0};
+    public static int[] down = {3,2, 7,3, 6,7, 2,6};
+    public static int[] right = {2,6, 4,0, 4,6, 2,0};
+    public static int[] back = {6,7, 7,5, 5,4, 4,6};
+    public static int[] front = {0,1, 1,3, 3,2, 2,0};
+    public static int[] left = {1,5, 7,5, 7,3, 1,3};
     public static boolean vaoIsInit = false;
 
     public static void register(RenderSelect renderSelect) {
@@ -138,21 +138,29 @@ public class RenderSelect {
         // 持续获取点，每次执行任务只允许运行5ms
         while (System.currentTimeMillis() - timer < taskLimit && cached.size() < 4096) {
             try {
-                Vector3i pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
-                if (pos != null)
-                    cached.add(pos);
+                if (positionFounder != null) {
+                    Vector3i pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
+                    if (pos != null)
+                        cached.add(pos);
+                } else {
+                    ModeManager modeManager = SelfStatue.modeManager;
+                    positionFounder = modeManager.getPositionFounder(center, mc.thePlayer, lock);
+                }
             } catch (InterruptedException e) {
                 LOG.warn("线程异常");
-            } /*catch (Exception e) {
+            } catch (Exception e) {
                 LOG.warn("异常: {}", e.toString());
-            }*/
+            }
         }
         // 持续渲染点，每次执行只允许运行2.5ms
+        int curProgram = glGetInteger(GL_CURRENT_PROGRAM);
+        glUseProgram(0);
         Iterator<Vector3i> iterator = cached.iterator();
         while (System.currentTimeMillis() - timer < taskLimit + Config.renderTime && iterator.hasNext()) {
             Vector3i pos = iterator.next();
             renderBlock(pos);
         }
+        glUseProgram(curProgram);
     }
 
     /*@SubscribeEvent
@@ -183,7 +191,7 @@ public class RenderSelect {
         glBufferData(GL_ARRAY_BUFFER, buffer, GL_STATIC_DRAW);
         glVertexPointer(3, GL_FLOAT, 0, 0);
         glEnableClientState(GL_VERTEX_ARRAY);
-
+        // 完整ebo
         ebo = glGenBuffers();
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         IntBuffer buffer2 = BufferUtils.createIntBuffer(indices.length);
@@ -219,30 +227,34 @@ public class RenderSelect {
     }
 
     public void updateCampos() {
-        camPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY + mc.thePlayer.getEyeHeight() - 0.1f, mc.thePlayer.posZ);
+        camPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY + mc.thePlayer.getEyeHeight() - 0.12f, mc.thePlayer.posZ);
     }
 
     public static void renderBlock(Vector3i pos) {
         if (!vaoIsInit) initVao();
-        int curProgram = glGetInteger(GL_CURRENT_PROGRAM);
-        glUseProgram(0);
+        int ebo;
+        if (Config.cullRender) {
+            int[] indices = RenderSelect.calculateNeighbor(pos);
+            if (indices.length < 2) return;
+            ebo = registerEBO(indices);
+        } else {
+            ebo = RenderSelect.ebo;
+        }
+
         Vector3d translate = new Vector3d(pos.x - camPos.x, pos.y - camPos.y, pos.z - camPos.z);
         glPushMatrix();
         glMatrixMode(GL_MODELVIEW);
-        glTranslated(translate.x + 0.5f, translate.y + 0.5f, translate.z + 0.5f);
+        glTranslated(translate.x, translate.y, translate.z);
         glLineWidth(lineWidth);
         glColor3f(color.x, color.y, color.z);
-        glScalef(1.01f, 1.01f, 1.01f);
         glDisable(GL_TEXTURE_2D);
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND);
 
-        /*double x1 = 0, y1 = 0, z1 = 0;
-        double x2 = 1, y2 = 1, z2 = 1;*/
-
         glEnableClientState(GL_VERTEX_ARRAY);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glBindVertexArray(vao);
+
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glDrawElements(GL_LINES, indices.length, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
@@ -250,85 +262,79 @@ public class RenderSelect {
         glDisableClientState(GL_VERTEX_ARRAY);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-        /*glBegin(GL_LINES);
-        glVertex3d(x1, y1, z1); glVertex3d(x2, y1, z1);
-        glVertex3d(x1, y1, z2); glVertex3d(x2, y1, z2);
-        glVertex3d(x1, y1, z1); glVertex3d(x1, y1, z2);
-        glVertex3d(x2, y1, z1); glVertex3d(x2, y1, z2);
-        glVertex3d(x1, y2, z1); glVertex3d(x2, y2, z1);
-        glVertex3d(x1, y2, z2); glVertex3d(x2, y2, z2);
-        glVertex3d(x1, y2, z1); glVertex3d(x1, y2, z2);
-        glVertex3d(x2, y2, z1); glVertex3d(x2, y2, z2);
-
-        glVertex3d(x1, y1, z1); glVertex3d(x1, y2, z1);
-        glVertex3d(x2, y1, z1); glVertex3d(x2, y2, z1);
-        glVertex3d(x1, y1, z2); glVertex3d(x1, y2, z2);
-        glVertex3d(x2, y1, z2); glVertex3d(x2, y2, z2);
-        glEnd();*/
-
-        /*Tessellator tess = Tessellator.instance;
-
-        tess.startDrawing(GL_LINES);
-
-        tess.addVertex(x1, y1, z1); tess.addVertex(x2, y1, z1);
-        tess.addVertex(x1, y1, z2); tess.addVertex(x2, y1, z2);
-        tess.addVertex(x1, y1, z1); tess.addVertex(x1, y1, z2);
-        tess.addVertex(x2, y1, z1); tess.addVertex(x2, y1, z2);
-        tess.addVertex(x1, y2, z1); tess.addVertex(x2, y2, z1);
-        tess.addVertex(x1, y2, z2); tess.addVertex(x2, y2, z2);
-        tess.addVertex(x1, y2, z1); tess.addVertex(x1, y2, z2);
-        tess.addVertex(x2, y2, z1); tess.addVertex(x2, y2, z2);
-
-        tess.addVertex(x1, y1, z1); tess.addVertex(x1, y2, z1);
-        tess.addVertex(x2, y1, z1); tess.addVertex(x2, y2, z1);
-        tess.addVertex(x1, y1, z2); tess.addVertex(x1, y2, z2);
-        tess.addVertex(x2, y1, z2); tess.addVertex(x2, y2, z2);
-
-        tess.draw();*/
-
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
         glDisable(GL_BLEND);
         glPopMatrix();
-
-        glUseProgram(curProgram);
     }
 
-    public static Vector3i getPlayerLookAtBlock() {
-        if (mc.thePlayer == null || mc.theWorld == null) {
-            return null; // 玩家或世界为空
+    public static int[] calculateNeighbor(Vector3i pos) {
+        int[] indices = RenderSelect.indices;
+        Vector3i up = new Vector3i(pos.x, pos.y + 1, pos.z);
+        if (cached.contains(up)) {
+            indices = RenderSelect.indexSubtract(indices, RenderSelect.up);
         }
-        float reachDistance = mc.playerController.getBlockReachDistance();
+        Vector3i down = new Vector3i(pos.x, pos.y - 1, pos.z);
+        if (cached.contains(down)) {
+            indices = RenderSelect.indexSubtract(indices, RenderSelect.down);
+        }
+        Vector3i left = new Vector3i(pos.x, pos.y, pos.z - 1);
+        if (cached.contains(left)) {
+            indices = RenderSelect.indexSubtract(indices, RenderSelect.left);
+        }
+        Vector3i right = new Vector3i(pos.x, pos.y, pos.z + 1);
+        if (cached.contains(right)) {
+            indices = RenderSelect.indexSubtract(indices, RenderSelect.right);
+        }
+        Vector3i front = new Vector3i(pos.x + 1, pos.y, pos.z);
+        if (cached.contains(front)) {
+            indices = RenderSelect.indexSubtract(indices, RenderSelect.front);
+        }
+        Vector3i back = new Vector3i(pos.x - 1, pos.y, pos.z);
+        if (cached.contains(back)) {
+            indices = RenderSelect.indexSubtract(indices, RenderSelect.back);
+        }
+        return indices;
+    }
 
-        // 获取玩家视线起点和方向
-        Vector3f eyePosition = new Vector3f((float) mc.thePlayer.posX, (float) (mc.thePlayer.posY + mc.thePlayer.getEyeHeight()), (float) mc.thePlayer.posZ);
-        float pitch = (float) Math.toRadians(mc.thePlayer.rotationPitch);
-        float yaw = (float) Math.toRadians(mc.thePlayer.rotationYaw);
-        Vector3f lookDirection = new Vector3f(
-            (float) (-Math.sin(yaw) * Math.cos(pitch)),
-            (float) -Math.sin(pitch),
-            (float) (Math.cos(yaw) * Math.cos(pitch))
-        ).normalize();
-        // 设置步进参数
-        float stepSize = 0.1f;
-        Vector3f curPos = new Vector3f(eyePosition);
-        for (float step = 0; step < reachDistance; step += stepSize) {
-            // 当前射线位置 = 起点 + 方向 * 步进距离
-            curPos.set(eyePosition).add(lookDirection.mul(step, new Vector3f()));
-            // 将浮点坐标转换为方块坐标
-            Vector3i blockPos = new Vector3i(
-                (int) Math.floor(curPos.x()),
-                (int) Math.floor(curPos.y()),
-                (int) Math.floor(curPos.z()));
-            // 检测是否是方块
-            if (!mc.theWorld.isAirBlock(blockPos.x, blockPos.y, blockPos.z)) {
-                return blockPos;
-            }
-        }
-        return null;
+    public static int registerEBO(int[] indices) {
+        int ebo = glGenBuffers();
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        IntBuffer buffer2 = BufferUtils.createIntBuffer(indices.length);
+        buffer2.put(indices).flip();
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, buffer2, GL_STATIC_DRAW);
+        return ebo;
     }
 
     public static void readConfig() {
         if (lineWidth != Config.renderLineWidth) lineWidth = Config.renderLineWidth;
+    }
+
+    public static int[] indexSubtract(int[] original, int[] subtract) {
+        // 将 subtract 数组的每对元素存入集合（忽略顺序）
+        Set<String> subtractPairs = new HashSet<>();
+        for (int i = 0; i < subtract.length; i += 2) {
+            int[] pair = new int[]{subtract[i], subtract[i + 1]};
+            Arrays.sort(pair); // 忽略顺序
+            subtractPairs.add(Arrays.toString(pair));
+        }
+
+        // 遍历 original 数组，保留未在集合中出现的对
+        List<Integer> resultList = new ArrayList<>();
+        for (int i = 0; i < original.length; i += 2) {
+            int[] pair = new int[]{original[i], original[i + 1]};
+            Arrays.sort(pair); // 忽略顺序
+            if (!subtractPairs.contains(Arrays.toString(pair))) {
+                resultList.add(original[i]);
+                resultList.add(original[i + 1]);
+            }
+        }
+
+        // 将结果转换为数组并返回
+        int[] result = new int[resultList.size()];
+        for (int i = 0; i < resultList.size(); i++) {
+            result[i] = resultList.get(i);
+        }
+        return result;
     }
 }
