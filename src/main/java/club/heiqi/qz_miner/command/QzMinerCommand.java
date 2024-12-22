@@ -29,10 +29,16 @@ public class QzMinerCommand implements ICommand {
             String origin = usageList.get();
             String result;
             if (origin.isEmpty()) {
-                result = f.name + "(" + f.description + ")    ";
+                result = f.name + "(" + f.description + ") " +
+                    "min:" + (f.minValue == null ? "" : f.minValue) + ", " +
+                    "max:" + (f.maxValue == null ? "" : f.maxValue) + ", " +
+                    "default:" + f.defaultValue;
                 sender.addChatMessage(new ChatComponentText(result));
             } else {
-                String temp = " | " + f.name + "(" + f.description + ")    ";
+                String temp = " | " + f.name + "(" + f.description + ") " +
+                    "min:" + (f.minValue == null ? "" : f.minValue) + ", " +
+                    "max:" + (f.maxValue == null ? "" : f.maxValue) + ", " +
+                    "default:" + f.defaultValue;
                 result = origin + temp;
                 sender.addChatMessage(new ChatComponentText(temp));
             }
