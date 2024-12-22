@@ -56,7 +56,8 @@ public class ChainFounder_Strict extends PositionFounder {
             List<Vector3i> box = scanBox(pos); // 每个点所需要搜索的范围
             for (Vector3i pos2 : box) { // 遍历box范围下的点 - 如果是所需要的点则先缓存到temp2
                 Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
-                if (filter(block, pos2) && !visitedChainSet.contains(pos2)) {
+                if (!visitedChainSet.contains(pos2)) {
+                    if (!filter(block, pos2)) continue;
                     temp2.add(pos2);
                 }
             }
@@ -116,6 +117,7 @@ public class ChainFounder_Strict extends PositionFounder {
      * @return 是否通过
      */
     public boolean filter(Block block, Vector3i pos) {
+        if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
         if (sampleBlock.equals(block)) {
             // 再检查metaID是否一致
             try {

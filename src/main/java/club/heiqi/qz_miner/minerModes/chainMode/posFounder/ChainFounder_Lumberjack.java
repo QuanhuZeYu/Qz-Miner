@@ -62,7 +62,8 @@ public class ChainFounder_Lumberjack extends PositionFounder {
             List<Vector3i> box = scanBox(pos);
             for (Vector3i pos2 : box) {
                 Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
-                if (filter(block) && !visitedChainSet.contains(pos2)) {
+                if (!visitedChainSet.contains(pos2)) {
+                    if (!filter(block, pos2)) continue;
                     temp2.add(pos2);
                     if (beforePutCheck()) {
                         return;
@@ -105,7 +106,8 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         return result;
     }
 
-    public boolean filter(Block block) {
+    public boolean filter(Block block, Vector3i pos) {
+        if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
         ItemStack sampleStack = new ItemStack(sampleBlock);
         ItemStack blockStack = new ItemStack(block);
         int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
