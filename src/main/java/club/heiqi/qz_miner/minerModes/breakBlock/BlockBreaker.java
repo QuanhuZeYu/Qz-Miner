@@ -4,7 +4,6 @@ import club.heiqi.qz_miner.Config;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -22,7 +21,6 @@ import java.util.Arrays;
 import java.util.List;
 
 import static net.minecraft.block.Block.getIdFromBlock;
-import static club.heiqi.qz_miner.MY_LOG.logger;
 
 /**
  * 采掘者类，存储了当前挖掘的世界和进行挖掘的玩家<br>
