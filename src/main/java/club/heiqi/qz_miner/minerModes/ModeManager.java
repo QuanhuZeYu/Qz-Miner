@@ -2,11 +2,13 @@ package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
+import club.heiqi.qz_miner.minerModes.chainMode.ChainGroupMode;
 import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerModes.chainMode.StrictChainMode;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder_Lumberjack;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder_Strict;
+import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainGroup;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
@@ -142,6 +144,7 @@ public class ModeManager {
     public enum ChainMode {
         BASE_CHAIN_MODE("qz_miner.chainmode.base_chain", BaseChainMode.class, ChainFounder.class),
         STRICT("qz_miner.chainmode.strict", StrictChainMode.class, ChainFounder_Strict.class),
+        CHAIN_GROUP("qz_miner.chainmode.chain_group", ChainGroupMode.class, ChainGroup.class),
         LUMBER_JACK("qz_miner.chainmode.lumberjack", LumberJackMode.class, ChainFounder_Lumberjack.class)
         ;
         public final String unLocalizedName;
