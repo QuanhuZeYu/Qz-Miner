@@ -194,15 +194,17 @@ public abstract class PositionFounder implements Runnable {
         World world = player.worldObj;;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        try {
-            EntityPlayerMP player = (EntityPlayerMP) this.player;
-            ItemInWorldManager iwm = player.theItemInWorldManager;
-            // 判断是否为创造模式
-            if (iwm.getGameType().isCreative()) {
-                return true;
+        if (this.player instanceof EntityPlayerMP) {
+            try {
+                EntityPlayerMP player = (EntityPlayerMP) this.player;
+                ItemInWorldManager iwm = player.theItemInWorldManager;
+                // 判断是否为创造模式
+                if (iwm.getGameType().isCreative()) {
+                    return true;
+                }
+            } catch (Exception ignore) {
+//            logger.warn("检查是否可以挖掘时出现异常: {}", e.toString());
             }
-        } catch (Exception e) {
-            logger.warn("检查是否可以挖掘时出现异常: {}", e.toString());
         }
         ItemStack holdItem = player.getCurrentEquippedItem();
         // 判断工具能否挖掘
