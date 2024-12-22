@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.client.renderSelect;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import club.heiqi.qz_miner.statueStorage.SelfStatue;
@@ -11,8 +12,6 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
@@ -20,10 +19,6 @@ import org.joml.Vector3d;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 import org.lwjgl.BufferUtils;
-import ru.timeconqueror.lootgames.api.util.Pos2i;
-import ru.timeconqueror.lootgames.common.block.tile.MSMasterTile;
-import ru.timeconqueror.lootgames.minigame.minesweeper.GameMineSweeper;
-import ru.timeconqueror.lootgames.minigame.minesweeper.MSBoard;
 
 import java.awt.*;
 import java.nio.FloatBuffer;
@@ -39,7 +34,7 @@ import static org.lwjgl.opengl.GL20.glUseProgram;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 import static org.lwjgl.opengl.GL30.glGenVertexArrays;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 @SideOnly(Side.CLIENT)
 public class RenderSelect {
@@ -145,12 +140,12 @@ public class RenderSelect {
                 if (pos != null)
                     cached.add(pos);
             } catch (InterruptedException e) {
-                logger.warn("线程异常");
+                LOG.warn("线程异常");
             }
         }
-        // 持续渲染点，每次执行只允许运行10ms
+        // 持续渲染点，每次执行只允许运行2.5ms
         Iterator<Vector3i> iterator = cached.iterator();
-        while (System.currentTimeMillis() - timer < taskLimit * 2L && iterator.hasNext()) {
+        while (System.currentTimeMillis() - timer < taskLimit + Config.renderTime && iterator.hasNext()) {
             Vector3i pos = iterator.next();
             renderBlock(pos);
         }

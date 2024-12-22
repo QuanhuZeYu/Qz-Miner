@@ -8,7 +8,6 @@ import io.netty.buffer.ByteBuf;
 
 import java.util.UUID;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class PacketIsReady implements IMessage {

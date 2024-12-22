@@ -15,14 +15,13 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 /**
@@ -88,7 +87,7 @@ public abstract class AbstractMode {
                     perTickBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.warn("线程异常");
+                LOG.warn("线程异常");
             }
             updateTaskType();
             checkToWait(perTickBlockCount);
@@ -111,13 +110,13 @@ public abstract class AbstractMode {
         isRunning.set(true);
         // 注册监听器
         FMLCommonHandler.instance().bus().register(this);
-        logger.info("玩家: {} 的挖掘任务已启动，注册监听器", breaker.player.getDisplayName());
+        LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", breaker.player.getDisplayName());
     }
 
     public void unregister() {
         isRunning.set(false);
         // 注销监听器
-        logger.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
+        LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
         String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
         if (text != null && allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getPrintResult()) {
             printMessage(text);
@@ -131,7 +130,7 @@ public abstract class AbstractMode {
             positionFounder.setTaskState(TaskState.STOP); // 通知结束
             positionFounder.thread.interrupt(); // 中断线程
         } catch (Exception e) {
-            logger.warn("线程异常: {}", e.toString());
+            LOG.warn("线程异常: {}", e.toString());
         }
         positionFounder = null;
         breaker = null;

@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class ChainFounder extends PositionFounder {
@@ -68,7 +68,7 @@ public class ChainFounder extends PositionFounder {
                     cache.put(pos2); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
+//                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
                 return;
             }

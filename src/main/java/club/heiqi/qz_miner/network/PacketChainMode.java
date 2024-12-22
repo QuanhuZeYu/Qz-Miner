@@ -11,8 +11,6 @@ import java.util.UUID;
 
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
-
 public class PacketChainMode implements IMessage {
     public int mode;
 

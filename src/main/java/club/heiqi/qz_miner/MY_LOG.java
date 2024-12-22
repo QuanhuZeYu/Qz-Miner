@@ -7,7 +7,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class MY_LOG {
-    public static final Logger logger = LogManager.getLogger(MOD_INFO.MODID);
+    public static final Logger LOG = LogManager.getLogger(MOD_INFO.MODID);
 
     public static void printToChatMessage(boolean isRemote, Object... args) {
         if (isRemote) {

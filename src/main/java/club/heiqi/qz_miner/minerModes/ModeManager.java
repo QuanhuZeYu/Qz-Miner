@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes;
 
+import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
 import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder;

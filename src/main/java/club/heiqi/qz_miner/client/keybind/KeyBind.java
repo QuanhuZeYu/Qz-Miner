@@ -28,7 +28,6 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.MODID;
-import static club.heiqi.qz_miner.MY_LOG.logger;
 
 @SideOnly(Side.CLIENT)
 public class KeyBind {
@@ -36,7 +35,7 @@ public class KeyBind {
     public static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     public static Vector3i center = new Vector3i();
 
-    public static int intervalTime = 50; // 最小发包间隔50ms
+    public static int intervalTime = 25; // 最小发包间隔50ms
     public static int renderInterval = 500;
     public static long lastSendTime;
     public static String category = "key.categories.qz_miner";

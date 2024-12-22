@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.statueStorage.SelfStatue;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
@@ -17,7 +18,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 /**
@@ -78,7 +79,7 @@ public abstract class PositionFounder implements Runnable {
         try {
             cache.put(center);
         } catch (InterruptedException e) {
-            logger.error(e);
+            LOG.error(e);
             Thread.currentThread().interrupt(); // 恢复中断状态
         }
         setRadius(0);
@@ -103,7 +104,7 @@ public abstract class PositionFounder implements Runnable {
             try { // 默认休眠50ms - 1tick
                 Thread.sleep(5);
             } catch (InterruptedException e) {
-                logger.error(e);
+                LOG.error(e);
                 Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
@@ -167,7 +168,7 @@ public abstract class PositionFounder implements Runnable {
                     return true;
                 }
             } catch (Exception ee) {
-                logger.warn("获取就绪状态时出错: {}", ee.toString());
+                LOG.warn("获取就绪状态时出错: {}", ee.toString());
             }
         }
         return false;
@@ -182,7 +183,7 @@ public abstract class PositionFounder implements Runnable {
             try {
                 Thread.sleep(50);
             } catch (InterruptedException e) {
-                logger.warn("等待时出现异常: {}", e.toString());
+                LOG.warn("等待时出现异常: {}", e.toString());
                 Thread.currentThread().interrupt(); // 恢复中断状态
                 return true;
             }
@@ -202,8 +203,8 @@ public abstract class PositionFounder implements Runnable {
                 if (iwm.getGameType().isCreative()) {
                     return true;
                 }
-            } catch (Exception ignore) {
-//            logger.warn("检查是否可以挖掘时出现异常: {}", e.toString());
+            } catch (Exception e) {
+                Mod_Main.LOG.warn("检查是否可以挖掘时出现异常: {}", e.toString());
             }
         }
         ItemStack holdItem = player.getCurrentEquippedItem();

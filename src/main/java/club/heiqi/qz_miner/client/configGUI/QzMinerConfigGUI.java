@@ -3,7 +3,6 @@ package club.heiqi.qz_miner.client.configGUI;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MOD_INFO;
 import cpw.mods.fml.client.config.GuiConfig;
-import cpw.mods.fml.client.config.GuiConfigEntries;
 import cpw.mods.fml.client.config.IConfigElement;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraftforge.common.config.ConfigCategory;
@@ -13,8 +12,6 @@ import net.minecraftforge.common.config.Configuration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-
-import static club.heiqi.qz_miner.MY_LOG.logger;
 
 public class QzMinerConfigGUI extends GuiConfig {
     public QzMinerConfigGUI(GuiScreen parentScreen) {

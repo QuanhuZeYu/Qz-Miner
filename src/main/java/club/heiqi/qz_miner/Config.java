@@ -13,7 +13,7 @@ import java.lang.reflect.Field;
 import java.util.*;
 import java.util.function.Consumer;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class Config {
     public static String configPath;
@@ -138,7 +138,7 @@ public class Config {
     public static void printConfig() {
         walkMap(f -> {
             try {
-                logger.info("{}: {}", f.name, f.field.get(null));
+                LOG.info("{}: {}", f.name, f.field.get(null));
             } catch (IllegalAccessException e) {
                 throw new RuntimeException(e);
             }

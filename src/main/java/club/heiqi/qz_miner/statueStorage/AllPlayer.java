@@ -15,7 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class AllPlayer {
     public Map<UUID, ModeManager> playerStatueMap = new HashMap<>();
@@ -27,9 +27,9 @@ public class AllPlayer {
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {
-            logger.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
+            LOG.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
         } else {
-            logger.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
+            LOG.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
             ModeManager modeManager = new ModeManager();
             modeManager.playerMP = (EntityPlayerMP) player;
             playerStatueMap.put(uuid, modeManager);
@@ -41,10 +41,10 @@ public class AllPlayer {
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {
-            logger.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
+            LOG.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
             playerStatueMap.remove(playerUUID);
         } else {
-            logger.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
+            LOG.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
         }
     }
 

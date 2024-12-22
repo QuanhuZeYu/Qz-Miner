@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.minerModes.rangeMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
-import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.entity.player.EntityPlayer;
 import org.joml.Vector3i;
 
@@ -9,8 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class Rectangular extends PositionFounder {
     public Vector3i temp1 = new Vector3i(); // 存储需要扫描平面的正负两个端点的坐标
@@ -61,7 +59,7 @@ public class Rectangular extends PositionFounder {
                     cache.put(pos); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
+//                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
                 return;
             }
@@ -94,7 +92,7 @@ public class Rectangular extends PositionFounder {
                     cache.put(pos); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
+//                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
                 return;
             }
@@ -127,7 +125,7 @@ public class Rectangular extends PositionFounder {
                     cache.put(pos); canBreakBlockCount++;
                 }
             } catch (InterruptedException e) {
-                logger.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
+//                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
                 return;
             }

@@ -9,7 +9,6 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.UUID;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class PacketMainMode implements IMessage {

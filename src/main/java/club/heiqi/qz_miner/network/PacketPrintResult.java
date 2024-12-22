@@ -10,7 +10,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import java.util.UUID;
 
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class PacketPrintResult implements IMessage {
     public boolean printResult;
@@ -38,7 +38,7 @@ public class PacketPrintResult implements IMessage {
             UUID uuid = player.getUniqueID();
             ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
             modeManager.setPrintResult(message.printResult);
-            logger.info("{}已设置为：{}", player.getDisplayName(), modeManager.getPrintResult());
+//            LOG.info("{}已设置为：{}", player.getDisplayName(), modeManager.getPrintResult());
             return null;
         }
     }

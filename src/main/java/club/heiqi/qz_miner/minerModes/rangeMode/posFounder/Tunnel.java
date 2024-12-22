@@ -1,14 +1,13 @@
 package club.heiqi.qz_miner.minerModes.rangeMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
-import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.entity.player.EntityPlayer;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.logger;
+import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class Tunnel extends PositionFounder {
     public static int tunnelWidth = 3;
@@ -57,7 +56,7 @@ public class Tunnel extends PositionFounder {
                             cache.put(pos); canBreakBlockCount++;
                         }
                     } catch (InterruptedException e) {
-                        logger.error("缓存队列异常");
+                        LOG.error("缓存队列异常");
                         Thread.currentThread().interrupt(); // 恢复中断状态
                         return;
                     }

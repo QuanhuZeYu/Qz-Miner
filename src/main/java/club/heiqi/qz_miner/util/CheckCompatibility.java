@@ -10,7 +10,7 @@ public class CheckCompatibility {
             Class<?> clazz = Class.forName("gregtech.common.blocks.BlockOresAbstract");
             isHasClass_BlockOresAbstract = true;
         } catch (ClassNotFoundException e) {
-            MY_LOG.logger.warn("未检测到 粗矿类");
+            MY_LOG.LOG.warn("未检测到 粗矿类");
             isHasClass_BlockOresAbstract = false;
         }
     }
