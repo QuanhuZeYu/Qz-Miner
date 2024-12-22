@@ -33,6 +33,7 @@ public class Config {
     public static float renderFadeSpeedMultiplier = 1000.0f;
     public static boolean printResult = true;
     public static float renderTime = 8f;
+    public static float renderDistance = 4.5f;
 
     public static Multimap<String, Object> configMap = ArrayListMultimap.create();
     static {
@@ -49,6 +50,7 @@ public class Config {
         configMap.put("renderLineWidth", renderLineWidth);                      configMap.put("renderLineWidth", CATEGORY_CLIENT);                      configMap.put("renderLineWidth", 1.5f);             configMap.put("renderLineWidth", "渲染线框宽度");                                                                             configMap.put("renderLineWidth", 0.1f);                   configMap.put("renderLineWidth", 10.0f);
         configMap.put("renderFadeSpeedMultiplier", renderFadeSpeedMultiplier);  configMap.put("renderFadeSpeedMultiplier", CATEGORY_CLIENT);            configMap.put("renderFadeSpeedMultiplier", 50.0f);  configMap.put("renderFadeSpeedMultiplier", "渲染框颜色变化时间乘数，越大越慢");                                                 configMap.put("renderFadeSpeedMultiplier", 10.0f);          configMap.put("renderFadeSpeedMultiplier", Float.MAX_VALUE);
         configMap.put("renderTime", renderTime);                                configMap.put("renderTime", CATEGORY_CLIENT);                           configMap.put("renderTime", 8f);                     configMap.put("renderTime", "每帧渲染选择结果允许的时长，过短可能会导致闪烁或者无法显示");                                           configMap.put("renderTime", 5f);                         configMap.put("renderTime", 15f);
+        configMap.put("renderDistance", renderDistance);                        configMap.put("renderDistance", CATEGORY_CLIENT);                       configMap.put("renderDistance", 4.5f);               configMap.put("renderDistance", "选择渲染框选择点最大距离");                                                               configMap.put("renderDistance", 3f);                         configMap.put("renderDistance", 15f);
         // 用于传递进去判断类型                                                     // 分类
     }
 

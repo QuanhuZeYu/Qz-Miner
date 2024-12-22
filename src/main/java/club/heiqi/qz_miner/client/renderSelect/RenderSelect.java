@@ -102,7 +102,7 @@ public class RenderSelect {
             readConfig();
             Vector3i curCenter = new Vector3i(event.target.blockX, event.target.blockY, event.target.blockZ);
             Vector3d playerPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY, mc.thePlayer.posZ);
-            if (playerPos.distanceSquared(new Vector3d(curCenter)) > 16) {
+            if (playerPos.distanceSquared(new Vector3d(curCenter)) > (Config.renderDistance * Config.renderDistance)) {
                 return;
             }
             if (curCenter != null && !center.equals(curCenter)) {
