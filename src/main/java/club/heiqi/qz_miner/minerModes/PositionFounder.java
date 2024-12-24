@@ -8,6 +8,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
@@ -182,6 +183,11 @@ public abstract class PositionFounder implements Runnable {
         long timer = System.currentTimeMillis();
         while (cache.size() >= cacheSizeMAX - 10) {
             if (System.currentTimeMillis() - timer > 3000) { // 死等倒计时
+                Mod_Main.LOG.info("出现死等现象，强行终止连锁任务!");
+                MinecraftServer server = MinecraftServer.getServer();
+                for (EntityPlayerMP player : server.getConfigurationManager().playerEntityList) {
+                    player.addChatMessage(new ChatComponentText(this.player.getDisplayName() + "出现死等现象，强行终止" + Thread.currentThread().getName() + "连锁任务!"));
+                }
                 return true;
             }
             try {
