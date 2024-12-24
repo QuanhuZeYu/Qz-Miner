@@ -18,8 +18,8 @@ public class QzMinerThreadPool {
         6,
         60L,
         TimeUnit.SECONDS,
-        new ArrayBlockingQueue<>(4),
+        new ArrayBlockingQueue<>(6),
         qzMinerThreadFactory,
-        new ThreadPoolExecutor.CallerRunsPolicy()
+        new ThreadPoolExecutor.DiscardPolicy()
     );
 }
