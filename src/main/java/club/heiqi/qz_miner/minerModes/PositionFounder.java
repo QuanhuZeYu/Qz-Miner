@@ -179,7 +179,11 @@ public abstract class PositionFounder implements Runnable {
      * @return 返回true表示线程需要停止，false表示可以继续
      */
     public boolean beforePutCheck() {
+        long timer = System.currentTimeMillis();
         while (cache.size() >= cacheSizeMAX - 10) {
+            if (System.currentTimeMillis() - timer > 3000) { // 死等倒计时
+                return true;
+            }
             try {
                 Thread.sleep(50);
             } catch (InterruptedException e) {
