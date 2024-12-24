@@ -184,6 +184,7 @@ public abstract class PositionFounder implements Runnable {
         while (cache.size() >= cacheSizeMAX - 10) {
             if (System.currentTimeMillis() - timer > 3000) { // 死等倒计时
                 Mod_Main.LOG.info("出现死等现象，强行终止连锁任务!");
+                if (world.isRemote) return true;
                 MinecraftServer server = MinecraftServer.getServer();
                 for (EntityPlayerMP player : server.getConfigurationManager().playerEntityList) {
                     player.addChatMessage(new ChatComponentText(this.player.getDisplayName() + "出现死等现象，强行终止" + Thread.currentThread().getName() + "连锁任务!"));
