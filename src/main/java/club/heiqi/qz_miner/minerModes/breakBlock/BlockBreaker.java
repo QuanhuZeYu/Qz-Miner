@@ -83,8 +83,8 @@ public class BlockBreaker {
         // 计算掉落物落点
         Vector3d playerPos = new Vector3d(player.posX, player.posY, player.posZ);
         Vector4f zForward = new Vector4f(0, 0, -1, 0);
-        float pitch = player.rotationPitch;
-        float yaw = player.rotationYaw;
+        float pitch = (float) Math.toRadians(player.rotationPitch);
+        float yaw = (float) Math.toRadians(player.rotationYaw);
         Matrix4f rotationMatrix = new Matrix4f();
         rotationMatrix.rotateY(yaw);
         rotationMatrix.rotateX(pitch);
