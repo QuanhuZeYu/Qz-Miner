@@ -11,7 +11,10 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import ic2.core.block.BlockTileEntity;
+import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
@@ -96,12 +99,19 @@ public class RenderSelect {
         updateCampos();
     }
 
+    public void readInfo(Vector3i pos) {
+        Block block = mc.theWorld.getBlock(pos.x, pos.y, pos.z);
+        TileEntity tileEntity = mc.theWorld.getTileEntity(pos.x, pos.y, pos.z);
+        LOG.info("Block: " + block + " TileEntity: " + tileEntity);
+    }
+
     @SubscribeEvent
     public void onDrawBlockHighlightEvent(DrawBlockHighlightEvent event) {
         if (SelfStatue.modeManager.getIsReady()) {
             readConfig();
             Vector3i curCenter = new Vector3i(event.target.blockX, event.target.blockY, event.target.blockZ);
             Vector3d playerPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY, mc.thePlayer.posZ);
+//            readInfo(curCenter);
             if (playerPos.distanceSquared(new Vector3d(curCenter)) > (Config.renderDistance * Config.renderDistance)) {
                 return;
             }
