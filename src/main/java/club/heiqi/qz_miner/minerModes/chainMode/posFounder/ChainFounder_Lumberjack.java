@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
-import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.EntityPlayer;
@@ -14,8 +13,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class ChainFounder_Lumberjack extends PositionFounder {
     public static int lumberjackRange = 255;
@@ -46,7 +43,7 @@ public class ChainFounder_Lumberjack extends PositionFounder {
             }
         }
         if (!isLog) {
-            setTaskState(TaskState.STOP);
+            isRunning.set(false);
         }
     }
 
@@ -126,18 +123,9 @@ public class ChainFounder_Lumberjack extends PositionFounder {
     public boolean checkShouldShutdown() {
         if (nextChainSet.isEmpty()) {
 //            logger.info("没有找到链路，停止搜索");
-            setTaskState(TaskState.STOP);
+            isRunning.set(false);
             return true;
         }
-        if (!getIsReady()) {
-//            logger.info("玩家未就绪，停止搜索");
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-        if (getTaskState() == TaskState.STOP) {
-//            logger.info("玩家取消连锁，停止搜索");
-            return true;
-        }
-        return false;
+        return super.checkShouldShutdown();
     }
 }

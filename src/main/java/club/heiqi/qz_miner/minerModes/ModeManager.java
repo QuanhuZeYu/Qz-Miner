@@ -20,6 +20,7 @@ import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.util.MessageUtil;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import net.minecraft.entity.player.EntityPlayer;
@@ -47,6 +48,7 @@ public class ModeManager {
     public RangeMode rangeMode = RangeMode.RECTANGULAR; // 默认为矩形模式
     public ChainMode chainMode = ChainMode.BASE_CHAIN_MODE; // 默认为矩形模式
 
+    public volatile AtomicBoolean isRunning = new AtomicBoolean(false);
     public volatile AtomicBoolean isReady = new AtomicBoolean(false);
     public volatile AtomicBoolean printResult = new AtomicBoolean(true);
 
@@ -56,20 +58,32 @@ public class ModeManager {
      * @param center 方块所在的坐标
      */
     public void proxyMine(World world, Vector3i center, EntityPlayer player) {
+        if (isRunning.get()) {
+            MessageUtil.broadcastMessage("[" + player.getDisplayName() + "] " + "请您不要重复触发连锁");
+            return;
+        }
         MainMode proxyMain = mainMode;
         switch (proxyMain) {
             case CHAIN_MODE -> {
                 AbstractMode proxyMode = ChainMode.newAbstractMode(chainMode);
-                if (proxyMode == null) player.addChatMessage(new ChatComponentText("[QZ_Miner] 错误：创建模式失败"));
+                if (proxyMode == null) {
+                    player.addChatMessage(new ChatComponentText("错误：创建模式失败"));
+                    return;
+                }
                 proxyMode.setup(world, (EntityPlayerMP) player, center);
                 proxyMode.run();
             }
             case RANGE_MODE -> {
                 AbstractMode proxyMode = RangeMode.newAbstractMode(rangeMode);
+                if (proxyMode == null) {
+                    player.addChatMessage(new ChatComponentText("错误：创建模式失败"));
+                    return;
+                }
                 proxyMode.setup(world, (EntityPlayerMP) player, center);
                 proxyMode.run();
             }
         }
+        isRunning.set(true);
     }
 
     public void nextMainMode() {
@@ -177,7 +191,7 @@ public class ModeManager {
                 Constructor<? extends AbstractMode> constructor = chainMode.constructors.get(0);
                 return constructor.newInstance();
             } catch (Exception e) {
-                MY_LOG.LOG.error(e.toString());
+                MY_LOG.LOG.error(e);
                 return null;
             }
         }
@@ -230,8 +244,8 @@ public class ModeManager {
                 Constructor<? extends AbstractMode> mode = rangeMode.constructors.get(0);
                 return mode.newInstance();
             } catch (Exception e) {
-                MY_LOG.LOG.error(e.toString());
-                throw new RuntimeException(e);
+                MY_LOG.LOG.error(e);
+                return null;
             }
         }
         public static PositionFounder createFounder(RangeMode rangeMode,

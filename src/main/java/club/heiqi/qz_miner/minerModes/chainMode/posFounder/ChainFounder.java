@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
-import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -18,7 +17,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.LOG;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class ChainFounder extends PositionFounder {
@@ -95,7 +93,7 @@ public class ChainFounder extends PositionFounder {
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     if (!checkCanBreak(new Vector3i(i, j, k))) continue; // 排除不可挖掘方块
                     result.add(new Vector3i(i, j, k));
-                    int maxRadius = Math.max(xr, Math.max(yr, zr)); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
+                    int maxRadius = Math.max(getRadius(), Math.max(xr, Math.max(yr, zr))); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
                     setRadius(maxRadius);
                 }
             }
@@ -123,30 +121,6 @@ public class ChainFounder extends PositionFounder {
                     return true;
                 }
             }
-        }
-        return false;
-    }
-
-    @Override
-    public boolean checkShouldShutdown() {
-        if (nextChainSet.isEmpty()) {
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-        if (!getIsReady()) {
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-        if (getTaskState() == TaskState.STOP) {
-            return true;
-        }
-        if (Thread.currentThread().isInterrupted()) {
-            setTaskState(TaskState.STOP);
-            return true;
-        }
-
-        if (player.getHealth() <= 2) {
-            return true;
         }
         return false;
     }

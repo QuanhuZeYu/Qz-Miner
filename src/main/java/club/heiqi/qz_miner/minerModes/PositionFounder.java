@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.minerModes;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.statueStorage.SelfStatue;
+import club.heiqi.qz_miner.util.MessageUtil;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -16,6 +17,7 @@ import org.joml.Vector3i;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -43,25 +45,9 @@ public abstract class PositionFounder implements Runnable {
     public EntityPlayer player;
     public World world;
     public Vector3i center;
-    public volatile TaskState taskState = TaskState.WAIT;
+    public volatile AtomicBoolean isRunning = new AtomicBoolean(false);
     public ReentrantReadWriteLock lock;
 
-    public TaskState getTaskState() {
-        lock.readLock().lock();
-        try {
-            return taskState;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-    public void setTaskState(TaskState taskState) {
-        lock.writeLock().lock();
-        try {
-            this.taskState = taskState;
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
 
     public volatile LinkedBlockingQueue<Vector3i> cache = new LinkedBlockingQueue<>(cacheSizeMAX);
 
@@ -73,6 +59,7 @@ public abstract class PositionFounder implements Runnable {
      * @param lock
      */
     public PositionFounder(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
+        isRunning.set(true);
         this.lock = lock;
         this.center = center;
         this.player = player;
@@ -88,7 +75,7 @@ public abstract class PositionFounder implements Runnable {
 
     public void updateTaskState() {
         if (checkShouldShutdown()) {
-            taskState = TaskState.STOP;
+            isRunning.set(false);
         }
     }
 
@@ -97,19 +84,17 @@ public abstract class PositionFounder implements Runnable {
         thread = Thread.currentThread();
         // 该方法只会进入一次
         readConfig();
-        while (getTaskState() != TaskState.STOP) {
-            setTaskState(TaskState.RUNNING);
+        while (isRunning.get()) {
             runLoopTimer = System.currentTimeMillis();
             loopLogic();
             updateTaskState();
-            try { // 默认休眠50ms - 1tick
+            try { // 默认休眠5ms - 0.1tick
                 Thread.sleep(5);
             } catch (InterruptedException e) {
-                LOG.error(e);
                 Thread.currentThread().interrupt(); // 恢复中断状态
             }
         }
-        setTaskState(TaskState.STOP);
+        isRunning.set(false); // 标志结束
     }
     public abstract void loopLogic();
 
@@ -141,7 +126,7 @@ public abstract class PositionFounder implements Runnable {
         if (getRadius() > radiusLimit) { // 超出最大半径
             return true;
         }
-        if (getTaskState() == TaskState.STOP) {
+        if (!isRunning.get()) {
             return true;
         }
         if (!getIsReady()) {
@@ -182,13 +167,13 @@ public abstract class PositionFounder implements Runnable {
     public boolean beforePutCheck() {
         long timer = System.currentTimeMillis();
         while (cache.size() >= cacheSizeMAX - 10) {
+            if (!getIsReady() || Thread.currentThread().isInterrupted()) {
+                Mod_Main.LOG.info("测试终止点");
+                return true;
+            }
             if (System.currentTimeMillis() - timer > 3000) { // 死等倒计时
-                Mod_Main.LOG.info("出现死等现象，强行终止连锁任务!");
-                if (world.isRemote) return true;
-                MinecraftServer server = MinecraftServer.getServer();
-                for (EntityPlayerMP player : server.getConfigurationManager().playerEntityList) {
-                    player.addChatMessage(new ChatComponentText(this.player.getDisplayName() + "出现死等现象，强行终止" + Thread.currentThread().getName() + "连锁任务!"));
-                }
+                Mod_Main.LOG.info("出现死等现象，强行终止连锁搜索任务!");
+                MessageUtil.broadcastMessage(this.player.getDisplayName() + "出现死等现象，强行终止" + Thread.currentThread().getName() + "连锁任务!");
                 return true;
             }
             try {
@@ -250,15 +235,5 @@ public abstract class PositionFounder implements Runnable {
             return d1 - d2;
         });
         return list;
-    }
-
-    public void printMessage(String message) {
-        ChatComponentText text = new ChatComponentText(message);
-        if (text == null) {
-            ChatComponentText error = new ChatComponentText("[QZ_Miner] 错误：你不应该看到这段文本，如果看到该段请上报至该模组的github仓库issue，或者在GTNH中文一群报告此信息");
-            player.addChatMessage(error);
-            return;
-        }
-        player.addChatMessage(text);
     }
 }

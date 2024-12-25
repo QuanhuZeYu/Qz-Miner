@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
-import club.heiqi.qz_miner.minerModes.TaskState;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -17,7 +16,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.LOG;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class ChainFounder_Strict extends PositionFounder {
@@ -137,18 +135,18 @@ public class ChainFounder_Strict extends PositionFounder {
     @Override
     public boolean checkShouldShutdown() {
         if (nextChainSet.isEmpty()) {
-            setTaskState(TaskState.STOP);
+            isRunning.set(false);
             return true;
         }
         if (!getIsReady()) {
-            setTaskState(TaskState.STOP);
+            isRunning.set(false);
             return true;
         }
-        if (getTaskState() == TaskState.STOP) {
+        if (!isRunning.get()) {
             return true;
         }
         if (Thread.currentThread().isInterrupted()) {
-            setTaskState(TaskState.STOP);
+            isRunning.set(false);
             return true;
         }
 
