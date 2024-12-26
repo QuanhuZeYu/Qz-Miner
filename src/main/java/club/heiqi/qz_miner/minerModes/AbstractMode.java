@@ -1,7 +1,9 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.minerModes.breakBlock.BlockBreaker;
+import club.heiqi.qz_miner.statueStorage.SelfStatue;
 import club.heiqi.qz_miner.threadPool.QzMinerThreadPool;
 import club.heiqi.qz_miner.util.MessageUtil;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -179,7 +181,7 @@ public abstract class AbstractMode {
                 return System.currentTimeMillis() - getCacheFailTimeOutTimer > timeout;
             }
         }
-        boolean isReady = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady(); // 玩家主动取消-存在一定延迟
+        boolean isReady = getIsReady();
         return !isReady;
     }
 
@@ -219,6 +221,29 @@ public abstract class AbstractMode {
 
     public boolean filter(Vector3i pos) {
         return true;
+    }
+
+    public boolean getIsReady() {
+        try {
+            if (allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady()) { // 玩家未就绪
+                return true;
+            }
+        } catch (Exception e) {
+            Mod_Main.LOG.error("服务端获取就绪状态时出错: {}", e.toString());
+            try {
+                if (SelfStatue.modeManager.getIsReady()) {
+                    return true;
+                }
+            } catch (Exception ee) {
+                LOG.error("获取就绪状态时出错: {}", ee.toString());
+                try {
+                    MessageUtil.broadcastMessage("获取就绪状态时出错");
+                } catch (Exception ex) {
+                    Mod_Main.LOG.error("发送消息时出错");
+                }
+            }
+        }
+        return false;
     }
 
     public void sendMessage(String message) {
