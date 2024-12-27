@@ -42,6 +42,7 @@ public class Config {
     public static float renderTime = 8f;
     public static float renderDistance = 4.5f;
     public static boolean cullRender = false;
+    public static boolean showTip = true;
 
     public static Multimap<String, Object> configMap = ArrayListMultimap.create();
     static {
@@ -60,6 +61,7 @@ public class Config {
         configMap.put("renderTime", renderTime);                                configMap.put("renderTime", CATEGORY_CLIENT);                           configMap.put("renderTime", 8f);                                configMap.put("renderTime", "每帧渲染选择结果允许的时长，过短可能会导致闪烁或者无法显示，如果需要关闭渲染功能，设置为-1即可");             configMap.put("renderTime", -1f);                          configMap.put("renderTime", 15f);
         configMap.put("renderDistance", renderDistance);                        configMap.put("renderDistance", CATEGORY_CLIENT);                       configMap.put("renderDistance", 4.5f);                          configMap.put("renderDistance", "选择渲染框选择点最大距离");                                                                  configMap.put("renderDistance", 3f);                      configMap.put("renderDistance", 15f);
         configMap.put("cullRender", cullRender);                                configMap.put("cullRender", CATEGORY_CLIENT);                           configMap.put("cullRender", false);                             configMap.put("cullRender", "是否剔除重合边");
+        configMap.put("showTip", showTip);                                      configMap.put("showTip", CATEGORY_CLIENT);                              configMap.put("showTip", true);                                 configMap.put("showTip", "是否显示提示信息");
         // 用于传递进去判断类型                                                     // 分类
     }
 

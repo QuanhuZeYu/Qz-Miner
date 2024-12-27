@@ -94,17 +94,23 @@ public class KeyBind {
         int scale = event.resolution.getScaleFactor();
         String ready = isReady ? I18n.format("key.qz_miner.isReady") : I18n.format("key.qz_miner.notReady");
         String tip = I18n.format("key.qz_miner.tip", ready);
+        if (!Config.showTip) {
+            ready = isReady ? "●" : "○";
+            tip = "";
+        }
 
-        int x = (int) (screenWidth * 0.05);
-        int y = (int) (screenHeight * 0.95);
+        int x = (int) (screenWidth * 0.01);
+        int y = (int) (screenHeight * 0.99);
         x = x / scale;
         y = y / scale;
-        fr.drawString(tip, x, y, 0xFFFFFF);
         int fontWidth = fr.getStringWidth(tip);
+        int fontHeight = fr.FONT_HEIGHT;
+        int heightHalf = (int) Math.ceil(fontHeight / 2d);
+        fr.drawString(tip, x, y - heightHalf, 0xFFFFFF);
         if (isReady) {
-            fr.drawString(ready, x + fontWidth + 1, y, 0x1eff00);
+            fr.drawString(ready, x + fontWidth + 1, y - heightHalf, 0x1eff00);
         } else {
-            fr.drawString(ready, x + fontWidth + 1, y, 0xff7500);
+            fr.drawString(ready, x + fontWidth + 1, y - heightHalf, 0xff7500);
         }
         mc.mcProfiler.endSection();
     }
