@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.MY_LOG.LOG;
@@ -40,6 +41,7 @@ public abstract class PositionFounder implements Runnable {
 
     public int canBreakBlockCount = 0;
     public long runLoopTimer;
+    public AtomicLong minerHeartbeat = new AtomicLong(System.currentTimeMillis());
     public Thread thread;
     public AtomicInteger radius = new AtomicInteger(0);
     public EntityPlayer player;
@@ -118,75 +120,6 @@ public abstract class PositionFounder implements Runnable {
         chainRange = Config.chainRange;
     }
 
-    /**
-     * 一定可以停止任务的条件
-     * @return
-     */
-    public boolean checkShouldShutdown() {
-        if (getRadius() > radiusLimit) { // 超出最大半径
-            return true;
-        }
-        if (!isRunning.get()) {
-            return true;
-        }
-        if (!getIsReady()) {
-            return true;
-        }
-        if (Thread.currentThread().isInterrupted()) { // 线程被中断
-            return true;
-        }
-
-        // 特殊终止条件
-        if (player.getHealth() <= 2) { // 玩家血量过低
-            return true;
-        }
-        return false;
-    }
-
-    public boolean getIsReady() {
-        try {
-            if (allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
-                return true;
-            }
-        } catch (Exception e) {
-            try {
-                if (SelfStatue.modeManager.getIsReady()) {
-                    return true;
-                }
-            } catch (Exception ee) {
-                LOG.warn("获取就绪状态时出错: {}", ee.toString());
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 每一次put进行检查
-     * @return 返回true表示线程需要停止，false表示可以继续
-     */
-    public boolean beforePutCheck() {
-        long timer = System.currentTimeMillis();
-        while (cache.size() >= cacheSizeMAX - 10) {
-            if (!getIsReady() || Thread.currentThread().isInterrupted()) {
-                Mod_Main.LOG.info("测试终止点");
-                return true;
-            }
-            if (System.currentTimeMillis() - timer > 3000) { // 死等倒计时
-                Mod_Main.LOG.info("出现死等现象，强行终止连锁搜索任务!");
-                MessageUtil.broadcastMessage(this.player.getDisplayName() + "出现死等现象，强行终止" + Thread.currentThread().getName() + "连锁任务!");
-                return true;
-            }
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                LOG.warn("等待时出现异常: {}", e.toString());
-                Thread.currentThread().interrupt(); // 恢复中断状态
-                return true;
-            }
-        }
-        return false;
-    }
-
     public boolean checkCanBreak(Vector3i pos) {
         World world = player.worldObj;;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
@@ -225,6 +158,80 @@ public abstract class PositionFounder implements Runnable {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 每一次put进行检查
+     * @return 返回true表示线程需要停止，false表示可以继续
+     */
+    public boolean beforePutCheck() {
+        long timer = System.currentTimeMillis();
+        while (cache.size() >= cacheSizeMAX - 10) {
+            if (!getIsReady() || Thread.currentThread().isInterrupted()) {
+//                Mod_Main.LOG.info("测试终止点");
+                return true;
+            }
+            if (isHeartbeatTimeout()) {
+                return true;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                LOG.warn("等待时出现异常: {}", e.toString());
+                Thread.currentThread().interrupt(); // 恢复中断状态
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 一定可以停止任务的条件
+     * @return
+     */
+    public boolean checkShouldShutdown() {
+        if (getRadius() > radiusLimit) { // 超出最大半径
+            return true;
+        }
+        if (!isRunning.get()) {
+            return true;
+        }
+        if (!getIsReady()) {
+            return true;
+        }
+        if (Thread.currentThread().isInterrupted()) { // 线程被中断
+            return true;
+        }
+        if (isHeartbeatTimeout()) {
+            return true;
+        }
+
+        // 特殊终止条件
+        if (player.getHealth() <= 2) { // 玩家血量过低
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isHeartbeatTimeout() {
+        return System.currentTimeMillis() - minerHeartbeat.get() > 3000;
+    }
+
+    public boolean getIsReady() {
+        try {
+            if (allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
+                return true;
+            }
+        } catch (Exception e) {
+            try {
+                if (SelfStatue.modeManager.getIsReady()) {
+                    return true;
+                }
+            } catch (Exception ee) {
+                LOG.warn("获取就绪状态时出错: {}", ee.toString());
+            }
+        }
+        return false;
     }
 
     public List<Vector3i> sort(List<Vector3i> list) {

@@ -86,6 +86,7 @@ public abstract class AbstractMode {
                 }
                 if (pos != null && checkCanBreak(pos) && filter(pos)) {
                     breaker.tryHarvestBlock(pos);
+                    sendHeartbeat();
                     blockCount++;
                     perTickCounter++;
                 }
@@ -105,12 +106,38 @@ public abstract class AbstractMode {
         }
     }
 
-    public void readConfig() {
-        timeLimit = Config.taskTimeLimit;
-        perTickBlock = Config.perTickBlockLimit;
-        if (perTickBlock <= 0) {
-            perTickBlock = Integer.MAX_VALUE;
+    public boolean checkCanBreak(Vector3i pos) {
+        World world = breaker.world;
+        Block block = world.getBlock(pos.x, pos.y, pos.z);
+        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
+        EntityPlayerMP player = breaker.player;
+        ItemInWorldManager iwm = player.theItemInWorldManager;
+        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
+        // 判断是否为创造模式
+        if (iwm.getGameType().isCreative()) {
+            return true;
         }
+        // 判断是否为空气
+        if (block == Blocks.air) {
+            return false;
+        }
+        // 判断是否为流体
+        if (block.getMaterial().isLiquid()) {
+            return false;
+        }
+        // 判断是否为基岩
+        if (block == Blocks.bedrock) {
+            return false;
+        }
+        // 判断是否为非固体
+        if (!block.getMaterial().isSolid()) {
+            return false;
+        }
+        // 判断工具能否挖掘
+        if (holdItem != null) {
+            return block.canHarvestBlock(player, meta);
+        }
+        return true;
     }
 
     public void register() {
@@ -198,40 +225,6 @@ public abstract class AbstractMode {
         return false;
     }
 
-    public boolean checkCanBreak(Vector3i pos) {
-        World world = breaker.world;
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        EntityPlayerMP player = breaker.player;
-        ItemInWorldManager iwm = player.theItemInWorldManager;
-        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
-        // 判断是否为创造模式
-        if (iwm.getGameType().isCreative()) {
-            return true;
-        }
-        // 判断是否为空气
-        if (block == Blocks.air) {
-            return false;
-        }
-        // 判断是否为流体
-        if (block.getMaterial().isLiquid()) {
-            return false;
-        }
-        // 判断是否为基岩
-        if (block == Blocks.bedrock) {
-            return false;
-        }
-        // 判断是否为非固体
-        if (!block.getMaterial().isSolid()) {
-            return false;
-        }
-        // 判断工具能否挖掘
-        if (holdItem != null) {
-            return block.canHarvestBlock(player, meta);
-        }
-        return true;
-    }
-
     public boolean filter(Vector3i pos) {
         return true;
     }
@@ -247,6 +240,21 @@ public abstract class AbstractMode {
         return false;
     }
 
+    /**
+     * 仅在挖掘成功时或者尝试挖掘时发送心跳
+     */
+    public void sendHeartbeat() {
+        try {
+            if (positionFounder != null) {
+                positionFounder.minerHeartbeat.set(System.currentTimeMillis());
+            } else {
+                throw new RuntimeException("positionFounder为null");
+            }
+        } catch (Exception e) {
+            Mod_Main.LOG.error("发送心跳时出错: {}", e.toString());
+        }
+    }
+
     public void sendMessage(String message) {
         ChatComponentText text = new ChatComponentText(message);
         if (text == null) {
@@ -255,5 +263,13 @@ public abstract class AbstractMode {
             return;
         }
         breaker.player.addChatMessage(text);
+    }
+
+    public void readConfig() {
+        timeLimit = Config.taskTimeLimit;
+        perTickBlock = Config.perTickBlockLimit;
+        if (perTickBlock <= 0) {
+            perTickBlock = Integer.MAX_VALUE;
+        }
     }
 }

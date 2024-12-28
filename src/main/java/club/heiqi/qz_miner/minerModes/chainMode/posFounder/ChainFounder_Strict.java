@@ -133,30 +133,6 @@ public class ChainFounder_Strict extends PositionFounder {
     }
 
     @Override
-    public boolean checkShouldShutdown() {
-        if (nextChainSet.isEmpty()) {
-            isRunning.set(false);
-            return true;
-        }
-        if (!getIsReady()) {
-            isRunning.set(false);
-            return true;
-        }
-        if (!isRunning.get()) {
-            return true;
-        }
-        if (Thread.currentThread().isInterrupted()) {
-            isRunning.set(false);
-            return true;
-        }
-
-        if (player.getHealth() <= 2) {
-            return true;
-        }
-        return false;
-    }
-
-    @Override
     public boolean checkCanBreak(Vector3i pos) {
         World world = player.worldObj;
         Block block = world.getBlock(pos.x, pos.y, pos.z);

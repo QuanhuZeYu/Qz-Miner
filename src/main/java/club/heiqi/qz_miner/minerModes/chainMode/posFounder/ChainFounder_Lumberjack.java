@@ -118,14 +118,4 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         }
         return false;
     }
-
-    @Override
-    public boolean checkShouldShutdown() {
-        if (nextChainSet.isEmpty()) {
-//            logger.info("没有找到链路，停止搜索");
-            isRunning.set(false);
-            return true;
-        }
-        return super.checkShouldShutdown();
-    }
 }
