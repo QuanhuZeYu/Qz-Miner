@@ -124,13 +124,18 @@ public abstract class AbstractMode {
         isRunning.set(false);
         // 注销监听器
         LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID());
-        modeManager.isRunning.set(false);
-        if (positionFounder != null && modeManager.getPrintResult()) {
-            String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
-            sendMessage(text);
+        try {
+            ModeManager modeManager = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID());
+            modeManager.isRunning.set(false);
+            if (positionFounder != null && modeManager.getPrintResult()) {
+                String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
+                sendMessage(text);
+            }
+        } catch (Exception e) {
+            Mod_Main.LOG.error("卸载监听器发送结果消息时出错: {}", e.toString());
+        } finally {
+            FMLCommonHandler.instance().bus().unregister(this);
         }
-        FMLCommonHandler.instance().bus().unregister(this);
     }
 
     public boolean checkTimeout() {
