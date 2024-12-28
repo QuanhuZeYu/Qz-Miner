@@ -52,12 +52,8 @@ public abstract class AbstractMode {
     public List<ItemStack> dropSample = new ArrayList<>(); // 掉落物样本数组
 
     public void updateTaskType() {
-        if (checkShouldWait()) {
-            isWait.set(true);
-        }
-        if (checkShouldShutdown()) {
-            isRunning.set(false);
-        }
+        isWait.set(checkShouldWait());
+        isRunning.set(!checkShouldShutdown());
     }
 
     public void setup(World world, EntityPlayerMP player, Vector3i center) {
@@ -97,7 +93,10 @@ public abstract class AbstractMode {
                 LOG.warn("线程异常");
             }
             updateTaskType();
-            if (isWait.get()) break;
+            if (isWait.get()) {
+//                Mod_Main.LOG.info("正在等待");
+                break;
+            }
         }
         perTickCounter = 0;
         updateTaskType();
@@ -163,14 +162,17 @@ public abstract class AbstractMode {
      */
     public boolean checkShouldShutdown() {
         if (blockCount >= Config.blockLimit) { // 达到限制数量
+//            Mod_Main.LOG.info("达到数量上限停止");
             return true;
         }
         if (positionFounder != null
             && positionFounder.cache.isEmpty()
             && !positionFounder.isRunning.get()) { // 缓存为空且任务结束
+//            Mod_Main.LOG.info("缓存为空且任务结束停止");;
             return true;
         }
         if (breaker.player.getHealth() <= 2) { // 玩家生命值过低
+//            Mod_Main.LOG.info("玩家生命值过低");
             return true;
         }
         if (positionFounder != null && positionFounder.cache.isEmpty()) { // 获取缓存失败
@@ -178,11 +180,17 @@ public abstract class AbstractMode {
                 getCacheFailCount++;
                 getCacheFailTimeOutTimer = System.currentTimeMillis();
             } else {
-                return System.currentTimeMillis() - getCacheFailTimeOutTimer > timeout;
+                if (System.currentTimeMillis() - getCacheFailTimeOutTimer > timeout) {
+//                    Mod_Main.LOG.info("获取缓存失败");
+                    return true;
+                }
             }
         }
-        boolean isReady = getIsReady();
-        return !isReady;
+        if (!getIsReady()) {
+//            Mod_Main.LOG.info("挖掘任务未就绪");
+            return true;
+        }
+        return false;
     }
 
     public boolean checkCanBreak(Vector3i pos) {
