@@ -17,6 +17,7 @@ public class QzMinerNetWork {
         networkWrapper.registerMessage(PacketChainMode.Handler.class, PacketChainMode.class, 2, Side.SERVER);
         networkWrapper.registerMessage(PacketIsReady.Handler.class, PacketIsReady.class, 3, Side.SERVER);
         networkWrapper.registerMessage(PacketPrintResult.Handler.class, PacketPrintResult.class, 4, Side.SERVER);
+        networkWrapper.registerMessage(PacketIsRunning.Handler.class, PacketIsRunning.class, 5, Side.CLIENT);
     }
 
     public static void sendMessageToDim(IMessage message, int dim) {

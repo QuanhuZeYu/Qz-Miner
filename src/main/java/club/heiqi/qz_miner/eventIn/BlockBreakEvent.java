@@ -22,9 +22,6 @@ public class BlockBreakEvent {
 
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
-        if (event.world.isRemote) { // 如果事件在客户端
-            return;
-        }
         World world = event.world;
         EntityPlayer player = event.getPlayer();
         if (player instanceof FakePlayer) {

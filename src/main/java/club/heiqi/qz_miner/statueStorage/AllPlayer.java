@@ -24,6 +24,7 @@ public class AllPlayer {
 
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.player.worldObj.isRemote) SelfStatue.modeManager = new ModeManager();
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {

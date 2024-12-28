@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM;
@@ -107,7 +108,9 @@ public class RenderSelect {
 
     @SubscribeEvent
     public void onDrawBlockHighlightEvent(DrawBlockHighlightEvent event) {
-        if (SelfStatue.modeManager.getIsReady()) {
+        if (!Config.useRender) return;
+        ModeManager modeManager = SelfStatue.modeManager;
+        if (SelfStatue.modeManager.getIsReady() && !modeManager.isRunning.get()) {
             readConfig();
             Vector3i curCenter = new Vector3i(event.target.blockX, event.target.blockY, event.target.blockZ);
             Vector3d playerPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY, mc.thePlayer.posZ);
@@ -121,9 +124,8 @@ public class RenderSelect {
             } else if (center.equals(curCenter)) {
                 sameTimes++;
                 if (sameTimes == beforeShowTime) {
-                    ModeManager modeManager = SelfStatue.modeManager;
                     cached.clear();
-                    if (positionFounder != null) positionFounder.thread.interrupt();
+                    if (positionFounder != null && positionFounder.thread != null) positionFounder.thread.interrupt();
                     positionFounder = modeManager.getPositionFounder(curCenter, mc.thePlayer, lock);
 //                    positionFounder.run();
                     if (positionFounder != null) {

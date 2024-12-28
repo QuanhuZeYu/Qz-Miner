@@ -243,18 +243,6 @@ public abstract class AbstractMode {
             }
         } catch (Exception e) {
             Mod_Main.LOG.error("服务端获取就绪状态时出错: {}", e.toString());
-            try {
-                if (SelfStatue.modeManager.getIsReady()) {
-                    return true;
-                }
-            } catch (Exception ee) {
-                LOG.error("获取就绪状态时出错: {}", ee.toString());
-                try {
-                    MessageUtil.broadcastMessage("获取就绪状态时出错");
-                } catch (Exception ex) {
-                    Mod_Main.LOG.error("发送消息时出错");
-                }
-            }
         }
         return false;
     }
