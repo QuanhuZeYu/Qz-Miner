@@ -200,7 +200,7 @@ public abstract class AbstractMode {
         if (positionFounder != null
             && positionFounder.cache.isEmpty()
             && !positionFounder.isRunning.get()) { // 缓存为空且任务结束
-//            Mod_Main.LOG.info("缓存为空且任务结束停止");;
+//            Mod_Main.LOG.info("缓存为空且任务结束停止");
             return true;
         }
         if (breaker.player.getHealth() <= 2) { // 玩家生命值过低

@@ -5,7 +5,9 @@ import net.minecraft.entity.player.EntityPlayer;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.MY_LOG.LOG;
@@ -13,6 +15,7 @@ import static club.heiqi.qz_miner.MY_LOG.LOG;
 public class Rectangular extends PositionFounder {
     public Vector3i temp1 = new Vector3i(); // 存储需要扫描平面的正负两个端点的坐标
     public Vector3i temp2 = new Vector3i();
+    public Set<Vector3i> visited = new HashSet<>();
     /**
      * 构造函数准备执行搜索前的准备工作
      *
@@ -41,11 +44,11 @@ public class Rectangular extends PositionFounder {
             for (int j = temp1.z - getRadius(); j <= temp1.z + getRadius(); j++) {
                 Vector3i up = new Vector3i(i, temp1.y, j); // Y坐标双向
                 Vector3i down = new Vector3i(i, temp2.y, j);
-                if (checkCanBreak(up)) {
-                    tempList.add(up); canBreakBlockCount++;
+                if (checkCanBreak(up) || !isVisited(up)) {
+                    tempList.add(up); canBreakBlockCount++; visited.add(up);
                 }
-                if (checkCanBreak(down)) {
-                    tempList.add(down); canBreakBlockCount++;
+                if (checkCanBreak(down) || !isVisited(down)) {
+                    tempList.add(down); canBreakBlockCount++; visited.add(down);
                 }
             }
         }
@@ -56,7 +59,7 @@ public class Rectangular extends PositionFounder {
             }
             try {
                 if (checkCanBreak(pos)) {
-                    cache.put(pos); canBreakBlockCount++;
+                    cache.put(pos);
                 }
             } catch (InterruptedException e) {
 //                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
@@ -74,11 +77,11 @@ public class Rectangular extends PositionFounder {
             for (int j = temp1.z - getRadius(); j <= temp1.z + getRadius(); j++) {
                 Vector3i pos1 = new Vector3i(temp1.x, i, j); // X坐标双向
                 Vector3i pos2 = new Vector3i(temp2.x, i, j);
-                if (checkCanBreak(pos1)) {
-                    tempList.add(pos1); canBreakBlockCount++;
+                if (checkCanBreak(pos1) || !isVisited(pos1)) {
+                    tempList.add(pos1); canBreakBlockCount++; visited.add(pos1);
                 }
-                if (checkCanBreak(pos2)) {
-                    tempList.add(pos2); canBreakBlockCount++;
+                if (checkCanBreak(pos2) || !isVisited(pos2)) {
+                    tempList.add(pos2); canBreakBlockCount++; visited.add(pos2);
                 }
             }
         }
@@ -89,7 +92,7 @@ public class Rectangular extends PositionFounder {
             }
             try {
                 if (checkCanBreak(pos)) {
-                    cache.put(pos); canBreakBlockCount++;
+                    cache.put(pos);
                 }
             } catch (InterruptedException e) {
 //                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
@@ -107,11 +110,11 @@ public class Rectangular extends PositionFounder {
             for (int j = temp1.y - getRadius(); j <= temp1.y + getRadius(); j++) {
                 Vector3i pos1 = new Vector3i(i, j, temp1.z); // Z坐标双向
                 Vector3i pos2 = new Vector3i(i, j, temp2.z);
-                if (checkCanBreak(pos1)) {
-                    tempList.add(pos1); canBreakBlockCount++;
+                if (checkCanBreak(pos1) || !isVisited(pos1)) {
+                    tempList.add(pos1); canBreakBlockCount++; visited.add(pos1);
                 }
-                if (checkCanBreak(pos2)) {
-                    tempList.add(pos2); canBreakBlockCount++;
+                if (checkCanBreak(pos2) || !isVisited(pos2)) {
+                    tempList.add(pos2); canBreakBlockCount++; visited.add(pos2);
                 }
             }
         }
@@ -122,7 +125,7 @@ public class Rectangular extends PositionFounder {
             }
             try {
                 if (checkCanBreak(pos)) {
-                    cache.put(pos); canBreakBlockCount++;
+                    cache.put(pos);
                 }
             } catch (InterruptedException e) {
 //                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
@@ -130,6 +133,10 @@ public class Rectangular extends PositionFounder {
                 return;
             }
         }
+    }
+
+    public boolean isVisited(Vector3i pos) {
+        return visited.contains(pos);
     }
 }
 
