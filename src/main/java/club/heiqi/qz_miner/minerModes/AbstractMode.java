@@ -13,6 +13,7 @@ import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
@@ -20,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -177,6 +179,9 @@ public abstract class AbstractMode {
      * @return true: 需要等待
      */
     public boolean checkShouldWait() {
+        if (isInLag()) {
+            return true;
+        }
         if (positionFounder != null && positionFounder.cache.isEmpty()) { // 如果缓存为空
             return true;
         }
@@ -271,5 +276,18 @@ public abstract class AbstractMode {
         if (perTickBlock <= 0) {
             perTickBlock = Integer.MAX_VALUE;
         }
+    }
+
+    public boolean isInLag() {
+        MinecraftServer server = MinecraftServer.getServer();
+        int tickCounter = server.getTickCounter();
+        long[] ticks = server.tickTimeArray;
+        double[] tickMillis = new double[ticks.length];
+        for (int i = 0; i < ticks.length; i++) {
+            tickMillis[i] = ((float) ticks[i] / 1000000);
+        }
+        double average = Arrays.stream(tickMillis).filter(x -> x > 0).average().orElse(0);
+        double lastTick = tickMillis[tickCounter % ticks.length];
+        return average > 50 || lastTick > 50;
     }
 }
