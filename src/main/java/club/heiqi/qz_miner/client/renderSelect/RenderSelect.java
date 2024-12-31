@@ -100,11 +100,11 @@ public class RenderSelect {
         updateCampos();
     }
 
-    public void readInfo(Vector3i pos) {
-        Block block = mc.theWorld.getBlock(pos.x, pos.y, pos.z);
-        TileEntity tileEntity = mc.theWorld.getTileEntity(pos.x, pos.y, pos.z);
-        LOG.info("Block: " + block + " TileEntity: " + tileEntity);
-    }
+//    public void readInfo(Vector3i pos) {
+//        Block block = mc.theWorld.getBlock(pos.x, pos.y, pos.z);
+//        TileEntity tileEntity = mc.theWorld.getTileEntity(pos.x, pos.y, pos.z);
+//        LOG.info("Block: " + block + " TileEntity: " + tileEntity);
+//    }
 
     @SubscribeEvent
     public void onDrawBlockHighlightEvent(DrawBlockHighlightEvent event) {
