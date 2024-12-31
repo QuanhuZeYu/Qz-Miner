@@ -33,23 +33,9 @@ public abstract class MixinsTileEntityOres {
     protected static boolean shouldSilkTouch = false;
     @Shadow
     protected static boolean shouldFortune = false;
-    @Unique
-    public World Qz_Miner$world;
-
-    @Unique
-    private void Qz_Miner$$getWorldObj() {
-        Class<?> clazz = TileEntity.class;
-        try {
-            Method method = clazz.getMethod("getWorldObj");
-            Qz_Miner$world = (World) method.invoke(this);
-        } catch (IllegalAccessException | NoSuchMethodException | InvocationTargetException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     @Inject(method = "getDrops", at = @At("HEAD"), cancellable = true)
     public void $getDrops(Block aDroppedOre, int aFortune, CallbackInfoReturnable<ArrayList<ItemStack>> cir) {
-        Qz_Miner$$getWorldObj();
         ArrayList<ItemStack> rList = new ArrayList<>();
         if (this.mMetaData <= 0) {
             rList.add(new ItemStack(Blocks.cobblestone, 1, 0));
@@ -92,7 +78,7 @@ public abstract class MixinsTileEntityOres {
                             // Max applicable fortune
                             aFortune = Math.min(aFortune, Config.maxFortuneLevel);
                             int amount = aMinAmount
-                                + Math.max(Qz_Miner$world.rand.nextInt(aFortune * (tIsRich ? 2 : 1) + 2) - 1, 0);
+                                + Math.max(((TileEntityOres) (Object) this).getWorldObj().rand.nextInt(aFortune * (tIsRich ? 2 : 1) + 2) - 1, 0);
                             for (int i = 0; i < amount; i++) {
                                 rList.add(GTOreDictUnificator.get(OrePrefixes.rawOre, aOreMaterial, 1));
                             }

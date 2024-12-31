@@ -54,14 +54,14 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjglVersion}:${natives}"*/
 
     implementation("com.github.GTNewHorizons:NotEnoughItems:2.6.46-GTNH:dev")
-    implementation("com.github.GTNewHorizons:NotEnoughIds:2.1.6:dev")
+//    implementation("com.github.GTNewHorizons:NotEnoughIds:2.1.6:dev")
     implementation('com.github.GTNewHorizons:ServerUtilities:2.0.88:dev')
 //    runtimeOnly('com.github.GTNewHorizons:Angelica:1.0.0-beta25:dev')
     implementation("com.github.GTNewHorizons:Avaritia:1.56:dev")
-    implementation("com.github.GTNewHorizons:AppleCore:3.3.4:dev")
+//    implementation("com.github.GTNewHorizons:AppleCore:3.3.4:dev")
     implementation("com.github.GTNewHorizons:LootGames:2.1.4:dev")
 
-    implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.50.106:dev")
+    implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.50.103:dev")
 //    implementation("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
 //    implementation("com.github.GTNewHorizons:waila:1.8.2:dev")
 //    implementation("com.github.GTNewHorizons:Mantle:0.4.2:dev")
