@@ -173,10 +173,8 @@ public abstract class AbstractMode {
     }
 
     /**
-     * 是否应该等待<br>
-     * 判定条件: 1. 缓存为空<br>
-     * 2. 超时
-     * @return true: 需要等待
+     * 达到条件会跳过tick的执行，直到满足可以运行tick的条件
+     * @return
      */
     public boolean checkShouldWait() {
         if (isInLag()) {

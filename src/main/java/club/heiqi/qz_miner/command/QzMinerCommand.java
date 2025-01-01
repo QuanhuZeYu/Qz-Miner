@@ -95,6 +95,13 @@ public class QzMinerCommand implements ICommand {
                     Config.globalVarToSave();
                 } catch (IllegalAccessException e) {
                     throw new RuntimeException(e);
+                } catch (IllegalArgumentException il) {
+                    // 尝试转换为float
+                    try {
+                        f.field.set(null, (float) finalValue);
+                    } catch (IllegalAccessException e) {
+                        throw new RuntimeException(e);
+                    }
                 }
             }
         });
