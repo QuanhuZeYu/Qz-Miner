@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.mixins.BWTileEntityMetaGeneratedOreAccessor;
 import club.heiqi.qz_miner.mixins.BlockBaseOreAccessor;
 import club.heiqi.qz_miner.mixins.TileEntityOresAccessor;
+import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOres;
 import gtPlusPlus.core.block.base.BlockBaseOre;
 import net.minecraft.block.Block;
@@ -44,6 +45,9 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockBefore(Block block, EntityPlayer player) {
+        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+            return;
+        }
         if (block instanceof BlockOres) {
             if (EnchantmentHelper.getSilkTouchModifier(player)) {
                 TileEntityOresAccessor.setShouldSilkTouch(true);
@@ -70,6 +74,9 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockAfter(Block block) {
+        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+            return;
+        }
         if (block instanceof BlockOres) {
             if (TileEntityOresAccessor.getShouldSilkTouch()) {
                 TileEntityOresAccessor.setShouldFortune(false);
