@@ -6,7 +6,10 @@
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
-    "MixinsTileEntityOres"
+    "BlockBaseOreAccessor",
+    "BWTileEntityMetaGeneratedOreAccessor",
+    "MixinsTileEntityOres",
+    "TileEntityOresAccessor"
   ],
   "client": [],
   "server": []

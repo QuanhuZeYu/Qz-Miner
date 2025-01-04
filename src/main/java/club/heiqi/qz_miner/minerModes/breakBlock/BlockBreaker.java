@@ -1,9 +1,16 @@
 package club.heiqi.qz_miner.minerModes.breakBlock;
 
+import bartworks.system.material.BWMetaGeneratedOres;
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.mixins.BWTileEntityMetaGeneratedOreAccessor;
+import club.heiqi.qz_miner.mixins.BlockBaseOreAccessor;
+import club.heiqi.qz_miner.mixins.TileEntityOresAccessor;
+import gregtech.common.blocks.BlockOres;
+import gtPlusPlus.core.block.base.BlockBaseOre;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -36,6 +43,65 @@ public class BlockBreaker {
         this.world = world;
     }
 
+    private void gtOreHarvestBlockBefore(Block block, EntityPlayer player) {
+        if (block instanceof BlockOres) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                TileEntityOresAccessor.setShouldSilkTouch(true);
+                return;
+            }
+            TileEntityOresAccessor.setShouldFortune(true);
+        }
+
+        if (block instanceof BWMetaGeneratedOres) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(true);
+                return;
+            }
+            BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(true);
+        }
+
+        if (block instanceof BlockBaseOre) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                BlockBaseOreAccessor.setShouldSilkTouch(true);
+                return;
+            }
+            BlockBaseOreAccessor.setShouldFortune(true);
+        }
+    }
+
+    private void gtOreHarvestBlockAfter(Block block) {
+        if (block instanceof BlockOres) {
+            if (TileEntityOresAccessor.getShouldSilkTouch()) {
+                TileEntityOresAccessor.setShouldFortune(false);
+            }
+
+            if (TileEntityOresAccessor.getShouldFortune()) {
+                TileEntityOresAccessor.setShouldFortune(false);
+            }
+        }
+
+        if (block instanceof BWMetaGeneratedOres) {
+            if (BWTileEntityMetaGeneratedOreAccessor.getShouldSilkTouch()) {
+                BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(false);
+            }
+
+            if (BWTileEntityMetaGeneratedOreAccessor.getShouldFortune()) {
+                BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(false);
+            }
+        }
+
+        if (block instanceof BlockBaseOre) {
+            if (BlockBaseOreAccessor.getShouldSilkTouch()) {
+                BlockBaseOreAccessor.setShouldFortune(false);
+            }
+
+            if (BlockBaseOreAccessor.getShouldFortune()) {
+                BlockBaseOreAccessor.setShouldFortune(false);
+            }
+        }
+    }
+
+
     public void tryHarvestBlock(Vector3i pos) {
         ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
@@ -60,13 +126,15 @@ public class BlockBreaker {
             if (holdItem != null) {
                 holdItem.func_150999_a(world, block, pos.x, pos.y, pos.z, player);
                 holdItem.getItem().onBlockStartBreak(holdItem, pos.x, pos.y, pos.z, player);
-                if(holdItem.stackSize == 0) {
+                if (holdItem.stackSize == 0) {
                     itemInWorldManager.thisPlayerMP.destroyCurrentEquippedItem();
                 }
             }
             // removeSuccess = block.removedByPlayer(world, player, pos.x, pos.y, pos.z); // 移除方块事件
             if (block.canHarvestBlock(player, meta)) {
+                gtOreHarvestBlockBefore(block, player);
                 harvestBlock(pos, meta);
+                gtOreHarvestBlockAfter(block);
                 if (holdItem != null) {
                     holdItem.getItem().onBlockDestroyed(holdItem, world, block, pos.x, pos.y, pos.z, player);
                 }
@@ -123,6 +191,9 @@ public class BlockBreaker {
             }
         }
         for (ItemStack drop : drops) {
+            if (drop == null) {
+                continue;
+            }
             world.spawnEntityInWorld(new EntityItem(world, dropPos.x, dropPos.y, dropPos.z, drop));
         }
         drops.clear();
