@@ -3,7 +3,6 @@ package club.heiqi.qz_miner.minerModes.breakBlock;
 import bartworks.system.material.BWMetaGeneratedOres;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.mixins.BWTileEntityMetaGeneratedOreAccessor;
-import club.heiqi.qz_miner.mixins.BlockBaseOreAccessor;
 import club.heiqi.qz_miner.mixins.TileEntityOresAccessor;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOres;
@@ -24,6 +23,7 @@ import net.minecraftforge.event.world.BlockEvent;
 import org.joml.*;
 
 import java.lang.Math;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -44,8 +44,24 @@ public class BlockBreaker {
         this.world = world;
     }
 
+    private static Class<?> blockBaseOreClass;
+    private static Field blockBaseOreShouldSilkTouch;
+    private static Field blockBaseOreShouldFortune;
+
+    static {
+        try {
+            blockBaseOreClass = Class.forName("gtPlusPlus.core.block.base.BlockBaseOre");
+            blockBaseOreShouldSilkTouch = blockBaseOreClass.getDeclaredField("shouldSilkTouch");
+            blockBaseOreShouldFortune = blockBaseOreClass.getDeclaredField("shouldFortune");
+            blockBaseOreShouldSilkTouch.setAccessible(true);
+            blockBaseOreShouldFortune.setAccessible(true);
+        } catch (ClassNotFoundException | NoSuchFieldException e) {
+            blockBaseOreClass = null;
+        }
+    }
+
     private void gtOreHarvestBlockBefore(Block block, EntityPlayer player) {
-        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+        if (!CheckCompatibility.isHasClass_BlockOresAbstract) {
             return;
         }
         if (block instanceof BlockOres) {
@@ -64,17 +80,22 @@ public class BlockBreaker {
             BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(true);
         }
 
-        if (block instanceof BlockBaseOre) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                BlockBaseOreAccessor.setShouldSilkTouch(true);
-                return;
+        if (blockBaseOreClass != null && blockBaseOreClass.isInstance(block)) {
+            try {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    blockBaseOreShouldSilkTouch.set(null, true);
+                    return;
+                }
+                blockBaseOreShouldFortune.set(null, true);
+            } catch (IllegalAccessException ignore) {
+
             }
-            BlockBaseOreAccessor.setShouldFortune(true);
         }
+
     }
 
     private void gtOreHarvestBlockAfter(Block block) {
-        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+        if (!CheckCompatibility.isHasClass_BlockOresAbstract) {
             return;
         }
         if (block instanceof BlockOres) {
@@ -97,15 +118,19 @@ public class BlockBreaker {
             }
         }
 
-        if (block instanceof BlockBaseOre) {
-            if (BlockBaseOreAccessor.getShouldSilkTouch()) {
-                BlockBaseOreAccessor.setShouldFortune(false);
-            }
+        if (blockBaseOreClass != null && blockBaseOreClass.isInstance(block)) {
+            try {
+                if (blockBaseOreShouldSilkTouch.getBoolean(null)) {
+                    blockBaseOreShouldSilkTouch.set(null, false);
+                }
+                if (blockBaseOreShouldFortune.getBoolean(null)) {
+                    blockBaseOreShouldFortune.set(null, false);
+                }
+            } catch (IllegalAccessException ignore) {
 
-            if (BlockBaseOreAccessor.getShouldFortune()) {
-                BlockBaseOreAccessor.setShouldFortune(false);
             }
         }
+
     }
 
 
