@@ -20,6 +20,7 @@ import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
@@ -37,6 +38,7 @@ import static net.minecraft.block.Block.getIdFromBlock;
  * 仅限服务端运行!
  */
 public class BlockBreaker {
+    public static float dropDistance = 2.0f;
     public EntityPlayerMP player;
     public World world;
     public List<ItemStack> drops = new ArrayList<>();
@@ -109,15 +111,18 @@ public class BlockBreaker {
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         // 计算掉落物落点
         Vector3d playerPos = new Vector3d(player.posX, player.posY, player.posZ);
-        Vector4f zForward = new Vector4f(0, 0, 1, 0);
-        float pitch = (float) Math.toRadians(player.rotationPitch);
-        float yaw = (float) Math.toRadians(player.rotationYaw);
-        Matrix4f rotationMatrix = new Matrix4f();
-        rotationMatrix.rotateY(yaw);
-        rotationMatrix.rotateX(pitch);
-        rotationMatrix.transform(zForward);
-        Vector3f direction = new Vector3f(zForward.x, zForward.y, zForward.z);
-        Vector3d dropPos = playerPos.add(new Vector3d(direction.x * 1, direction.y * 1, direction.z * 1));
+        // 计算玩家视线方向
+        float pitchRadians = player.rotationPitch * (float) Math.PI / 180.0F; // 俯仰角转弧度
+        float yawRadians = player.rotationYaw * (float) Math.PI / 180.0F;     // 偏航角转弧度
+
+        float rotationX = MathHelper.cos(yawRadians);
+        float rotationZ = MathHelper.sin(yawRadians);
+        float rotationYZ = -rotationZ * MathHelper.sin(pitchRadians);
+        float rotationXY = rotationX * MathHelper.sin(pitchRadians);
+        float directionY = -MathHelper.cos(pitchRadians);
+        // 视线方向的单位向量
+        Vector3d direction = new Vector3d(rotationYZ, directionY, rotationXY);
+        Vector3d dropPos = playerPos.add(new Vector3d(direction.x * dropDistance, direction.y * dropDistance, direction.z * dropDistance));
 
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
@@ -171,7 +176,7 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockBefore(TileEntity tileEntity, Block block, EntityPlayer player) {
-        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+        if (!CheckCompatibility.hasAll){
             return;
         }
 
@@ -201,7 +206,7 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockAfter(TileEntity tileEntity, Block block) {
-        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+        if (!CheckCompatibility.hasAll){
             return;
         }
 

@@ -29,7 +29,7 @@ public class CommonProxy {
 
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {
-        CheckCompatibility.isHasClass_BlockOresAbstract(); // 检查是否含有粗矿类
+        CheckCompatibility.checkAll(); // 检查是否含有粗矿类
     }
 
     // register server commands in this event handler (Remove if not needed)
