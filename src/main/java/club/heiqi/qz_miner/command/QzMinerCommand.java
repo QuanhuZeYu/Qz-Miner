@@ -90,18 +90,34 @@ public class QzMinerCommand implements ICommand {
         Config.walkMap(f -> {
             if (Objects.equals(f.name, subCommand)) {
                 try {
-                    f.field.set(null, finalValue);
+                    Class<?> fieldType = f.field.getType();
+
+                    if (fieldType.equals(int.class)) {
+                        f.field.set(null, Integer.parseInt(finalValue.toString()));
+                    } else if (fieldType.equals(double.class)) {
+                        f.field.set(null, Double.parseDouble(finalValue.toString()));
+                    } else if (fieldType.equals(float.class)) {
+                        f.field.set(null, Float.parseFloat(finalValue.toString()));
+                    } else if (fieldType.equals(boolean.class)) {
+                        boolean parsedValue;
+                        if (finalValue instanceof Boolean) {
+                            parsedValue = (boolean) finalValue;
+                        } else if (finalValue instanceof Number) {
+                            parsedValue = ((Number) finalValue).intValue() > 0;
+                        } else {
+                            parsedValue = Boolean.parseBoolean(finalValue.toString());
+                        }
+                        f.field.set(null, parsedValue);
+                    } else {
+                        sender.addChatMessage(new ChatComponentText("不支持的字段类型: " + fieldType.getName()));
+                        return;
+                    }
+
                     sender.addChatMessage(new ChatComponentText(f.name + " 已设置为: " + f.field.get(null)));
                     Config.globalVarToSave();
-                } catch (IllegalAccessException e) {
+                } catch (IllegalAccessException | NumberFormatException e) {
+                    sender.addChatMessage(new ChatComponentText("无法设置字段值: " + e.getMessage()));
                     throw new RuntimeException(e);
-                } catch (IllegalArgumentException il) {
-                    // 尝试转换为float
-                    try {
-                        f.field.set(null, (float) finalValue);
-                    } catch (IllegalAccessException e) {
-                        throw new RuntimeException(e);
-                    }
                 }
             }
         });
