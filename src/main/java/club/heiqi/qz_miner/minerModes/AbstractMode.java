@@ -46,7 +46,7 @@ public abstract class AbstractMode {
     public long timer;
     public long getCacheFailTimeOutTimer;   // 获取cache超时会结束
     public int getCacheFailCount = 0;       // 获取cache失败次数，用于重置超时时间
-    public int blockCount;                  // 挖掘方块数量，达到挖掘数量时也会结束
+    public int blockCount = 1;                  // 挖掘方块数量，达到挖掘数量时也会结束
     public int perTickCounter;
 
     public ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
