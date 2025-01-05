@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.client.keybind;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
@@ -11,15 +12,18 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.joml.Vector3i;
 import org.lwjgl.input.Keyboard;
@@ -28,6 +32,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.MODID;
+import static org.lwjgl.opengl.GL11.*;
 
 @SideOnly(Side.CLIENT)
 public class KeyBind {
@@ -83,6 +88,30 @@ public class KeyBind {
 
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
+        if (!Config.showTip) {
+            glPushAttrib(GL_ALL_ATTRIB_BITS);
+            boolean isReady = SelfStatue.modeManager.getIsReady();
+            if (!isReady) {
+                glColor4f(0.823f, 0.411f, 0.117f, 0.3f);
+            } else {
+                glColor4f(0.678f, 1.0f, 0.184f, 1.0f);
+            }
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_TEXTURE_2D);
+            glDisable(GL_LIGHTING);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glPushMatrix();
+            glBegin(GL_TRIANGLES);
+            glVertex2i(3, event.resolution.getScaledHeight());
+            glVertex2i(0, event.resolution.getScaledHeight() - 3);
+            glVertex2i(0, event.resolution.getScaledHeight());
+            glEnd();
+            glPopMatrix();
+//            glColor3f(1.0f, 1.0f, 1.0f);
+            glPopAttrib();
+            return;
+        }
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过
         mc.mcProfiler.startSection(MODID + "_tip");
         ModeManager manager = SelfStatue.modeManager;
@@ -94,10 +123,6 @@ public class KeyBind {
         int scale = event.resolution.getScaleFactor();
         String ready = isReady ? I18n.format("key.qz_miner.isReady") : I18n.format("key.qz_miner.notReady");
         String tip = I18n.format("key.qz_miner.tip", ready);
-        if (!Config.showTip) {
-            ready = isReady ? "●" : "○";
-            tip = "";
-        }
 
         int x = (int) (screenWidth * 0.01);
         int y = (int) (screenHeight * 0.99);
