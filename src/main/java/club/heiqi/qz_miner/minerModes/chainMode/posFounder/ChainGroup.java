@@ -42,17 +42,6 @@ public class ChainGroup extends ChainFounder_Strict{
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
         int blockMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         ItemStack blockItem = new ItemStack(block, 1, blockMeta);
-        int blockItemMeta = blockItem.getItemDamage();
-        // 完全一致返回true
-        if (sampleBlock.equals(block)) {
-            try {
-                if (blockItemMeta == sampleBlockItemMeta) {
-                    return true;
-                }
-            } catch (Exception e) {
-                MY_LOG.LOG.error("异常: {}", e.toString());
-            }
-        }
         for (ItemStack itemStack : sameList) {
 //            MY_LOG.LOG.info("对比项: {} - {}, {} - {}", itemStack.getUnlocalizedName(), itemStack.getItemDamage(), blockItem.getUnlocalizedName(), blockItem.getItemDamage());
             if (itemStack.isItemEqual(blockItem)) {
