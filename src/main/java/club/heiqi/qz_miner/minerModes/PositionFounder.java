@@ -3,15 +3,12 @@ package club.heiqi.qz_miner.minerModes;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.statueStorage.SelfStatue;
-import club.heiqi.qz_miner.util.MessageUtil;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ItemInWorldManager;
-import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
@@ -191,23 +188,29 @@ public abstract class PositionFounder implements Runnable {
      */
     public boolean checkShouldShutdown() {
         if (getRadius() > radiusLimit) { // 超出最大半径
+//            LOG.info("[Founder]超出最大半径");
             return true;
         }
         if (!isRunning.get()) {
+//            LOG.info("[Founder]运行标志结束");
             return true;
         }
         if (!getIsReady()) {
+//            LOG.info("[Founder]玩家就绪状态为否");
             return true;
         }
         if (Thread.currentThread().isInterrupted()) { // 线程被中断
+//            LOG.info("[Founder]线程被中断");
             return true;
         }
         if (isHeartbeatTimeout()) {
+//            LOG.info("[Founder]线程心跳超时");
             return true;
         }
 
         // 特殊终止条件
         if (player.getHealth() <= 2) { // 玩家血量过低
+            LOG.info("[Founder]血量过低");
             return true;
         }
         return false;

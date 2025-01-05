@@ -1,15 +1,25 @@
 package club.heiqi.qz_miner.minerModes.breakBlock;
 
+import bartworks.system.material.BWTileEntityMetaGeneratedOre;
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.MY_LOG;
+import club.heiqi.qz_miner.mixins.BWTileEntityMetaGeneratedOreAccessor;
+import club.heiqi.qz_miner.mixins.BlockBaseOreAccessor;
+import club.heiqi.qz_miner.mixins.TileEntityOresAccessor;
+import club.heiqi.qz_miner.util.CheckCompatibility;
+import gregtech.common.blocks.TileEntityOres;
+import gtPlusPlus.core.block.base.BlockBaseOre;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
@@ -42,39 +52,56 @@ public class BlockBreaker {
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         world.playAuxSFXAtEntity(player, 2001, pos.x, pos.y, pos.z, getIdFromBlock(block) + (meta << 12)); // 播放方块破坏音效
-        List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
 
-        boolean removeSuccess = false; // 是否成功移除方块
         if (itemInWorldManager.isCreative()) { // 创造模式
-            block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player); // 触发方块的方块破坏事件
-            removeSuccess = block.removedByPlayer(world, player, pos.x, pos.y, pos.z, false);
-            if (removeSuccess) {
-                BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(pos.x, pos.y, pos.z, world, block, meta,
-                    EnchantmentHelper.getFortuneModifier(player), 1.0f, new ArrayList<>(drop), player, false);
-                MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
-            }
-            itemInWorldManager.thisPlayerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(pos.x, pos.y, pos.z, world)); // 发送方块更新包
+            handleCreativeMode(pos, block, meta);
         } else { // 非创造模式
-            ItemStack holdItem = itemInWorldManager.thisPlayerMP.getCurrentEquippedItem();
-            block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player); // 触发方块的方块收获事件
-            if (holdItem != null) {
-                holdItem.func_150999_a(world, block, pos.x, pos.y, pos.z, player);
-                holdItem.getItem().onBlockStartBreak(holdItem, pos.x, pos.y, pos.z, player);
-                if(holdItem.stackSize == 0) {
-                    itemInWorldManager.thisPlayerMP.destroyCurrentEquippedItem();
-                }
+            handleSurvivalMode(pos, block, meta);
+        }
+    }
+
+    public void handleCreativeMode(Vector3i pos, Block block, int meta) {
+        ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
+        block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+
+        if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, false)) {
+            BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
+                pos.x, pos.y, pos.z, world, block, meta,
+                EnchantmentHelper.getFortuneModifier(player), 1.0f, new ArrayList<>(drops), player, false
+            );
+            MinecraftForge.EVENT_BUS.post(event);
+        }
+
+        // 发送方块更新包
+        itemInWorldManager.thisPlayerMP.playerNetServerHandler.sendPacket(
+            new S23PacketBlockChange(pos.x, pos.y, pos.z, world)
+        );
+    }
+
+    public void handleSurvivalMode(Vector3i pos, Block block, int meta) {
+        TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
+        ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
+        ItemStack holdItem = itemInWorldManager.thisPlayerMP.getCurrentEquippedItem();
+        block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+
+        if (holdItem != null && holdItem.getItem() != null) {
+            // holdItem.func_150999_a(world, block, pos.x, pos.y, pos.z, player); // 拆解出来为以下步骤
+            holdItem.getItem().onBlockStartBreak(holdItem, pos.x, pos.y, pos.z, player);
+            if (holdItem.getItem().onBlockDestroyed(holdItem, world, block, pos.x, pos.y, pos.z, player)) {
+                player.addStat(StatList.objectUseStats[Item.getIdFromItem(holdItem.getItem())], 1);
             }
-            // removeSuccess = block.removedByPlayer(world, player, pos.x, pos.y, pos.z); // 移除方块事件
-            if (block.canHarvestBlock(player, meta)) {
-                harvestBlock(pos, meta);
-                if (holdItem != null) {
-                    holdItem.getItem().onBlockDestroyed(holdItem, world, block, pos.x, pos.y, pos.z, player);
-                }
-                block.onBlockDestroyedByPlayer(world, pos.x, pos.y, pos.z, meta);
+
+            if (holdItem.stackSize == 0) {
+                itemInWorldManager.thisPlayerMP.destroyCurrentEquippedItem();
             }
         }
-        if (!itemInWorldManager.isCreative() && removeSuccess) {
-            block.dropXpOnBlockBreak(world, pos.x, pos.y, pos.z, block.getExpDrop(world, meta, fortune));
+
+        if (block.canHarvestBlock(player, meta)) {
+
+            block.onBlockDestroyedByPlayer(world, pos.x, pos.y, pos.z, meta);
+            gtOreHarvestBlockBefore(tileEntity, block, player);
+            harvestBlock(pos, meta);
+            gtOreHarvestBlockAfter(tileEntity, block);
         }
     }
 
@@ -82,7 +109,7 @@ public class BlockBreaker {
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         // 计算掉落物落点
         Vector3d playerPos = new Vector3d(player.posX, player.posY, player.posZ);
-        Vector4f zForward = new Vector4f(0, 0, -1, 0);
+        Vector4f zForward = new Vector4f(0, 0, 1, 0);
         float pitch = (float) Math.toRadians(player.rotationPitch);
         float yaw = (float) Math.toRadians(player.rotationYaw);
         Matrix4f rotationMatrix = new Matrix4f();
@@ -90,11 +117,14 @@ public class BlockBreaker {
         rotationMatrix.rotateX(pitch);
         rotationMatrix.transform(zForward);
         Vector3f direction = new Vector3f(zForward.x, zForward.y, zForward.z);
-        Vector3d dropPos = playerPos.add(new Vector3d(direction.x * 0.5, direction.y * 0.5, direction.z * 0.5));
+        Vector3d dropPos = playerPos.add(new Vector3d(direction.x * 1, direction.y * 1, direction.z * 1));
 
         Block block = world.getBlock(pos.x, pos.y, pos.z);
+        TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
+
         player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
         player.addExhaustion(Config.hunger);
+
         if (block.canSilkHarvest(world, player, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z))
             && EnchantmentHelper.getSilkTouchModifier(player)) { // 判断是否可以进行精准采集
             Item blockItem = Item.getItemFromBlock(block);
@@ -111,13 +141,24 @@ public class BlockBreaker {
             }
         } else { // 否则进行普通采集
             // 后续可在此处添加事件触发功能
-            List<ItemStack> drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
+            ArrayList<ItemStack> drop;
+            if (tileEntity instanceof TileEntityOres) {
+                drop = ((TileEntityOres) tileEntity).getDrops(block, fortune);
+            } else {
+                drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
+            }
+//            drop.forEach(itemStack -> MY_LOG.LOG.info("未修改前: 掉落物x{}个: {}", itemStack.stackSize, itemStack.getDisplayName()));
+
             BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
                 pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(drop), player, false
             );
             MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
             drop = event.drops;
-            if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z)) { // 移除方块事件
+            /*drop.forEach(itemStack -> {
+                MY_LOG.LOG.info("当前时运: {}, 掉落物x{}个: {}", fortune, itemStack.stackSize, itemStack.getDisplayName());
+            });*/
+
+            if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, true)) { // 移除方块事件
                 drops.addAll(drop);
                 checkFoodLevel();
             }
@@ -125,7 +166,72 @@ public class BlockBreaker {
         for (ItemStack drop : drops) {
             world.spawnEntityInWorld(new EntityItem(world, dropPos.x, dropPos.y, dropPos.z, drop));
         }
+        block.dropXpOnBlockBreak(world, pos.x, pos.y, pos.z, block.getExpDrop(world, meta, fortune));
         drops.clear();
+    }
+
+    private void gtOreHarvestBlockBefore(TileEntity tileEntity, Block block, EntityPlayer player) {
+        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+            return;
+        }
+
+        if (tileEntity instanceof TileEntityOres tileEntityOres) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                TileEntityOresAccessor.setShouldSilkTouch(true);
+                return;
+            }
+            TileEntityOresAccessor.setShouldFortune(true);
+        }
+
+        if (tileEntity instanceof BWTileEntityMetaGeneratedOre bwTileEntityMetaGeneratedOre) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(true);
+                return;
+            }
+            BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(true);
+        }
+
+        if (block instanceof BlockBaseOre) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                BlockBaseOreAccessor.setShouldSilkTouch(true);
+                return;
+            }
+            BlockBaseOreAccessor.setShouldFortune(true);
+        }
+    }
+
+    private void gtOreHarvestBlockAfter(TileEntity tileEntity, Block block) {
+        if (!CheckCompatibility.isHasClass_BlockOresAbstract){
+            return;
+        }
+
+        if (tileEntity instanceof TileEntityOres tileEntityOres) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                TileEntityOresAccessor.setShouldSilkTouch(false);
+                return;
+            }
+            TileEntityOresAccessor.setShouldFortune(false);
+            if (Config.forceNatural)
+                tileEntityOres.mNatural = false;
+        }
+
+        if (tileEntity instanceof BWTileEntityMetaGeneratedOre bwTileEntityMetaGeneratedOre) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(false);
+                return;
+            }
+            BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(false);
+            if (Config.forceNatural)
+                bwTileEntityMetaGeneratedOre.mNatural = false;
+        }
+
+        if (block instanceof BlockBaseOre) {
+            if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                BlockBaseOreAccessor.setShouldSilkTouch(false);
+                return;
+            }
+            BlockBaseOreAccessor.setShouldFortune(false);
+        }
     }
 
     public void checkFoodLevel() {
