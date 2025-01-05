@@ -42,4 +42,10 @@ public class LumberJackMode extends AbstractMode {
         }
         return true;
     }
+
+    @Override
+    public void readConfig() {
+        super.readConfig();
+        blockLimit = Integer.MAX_VALUE;
+    }
 }

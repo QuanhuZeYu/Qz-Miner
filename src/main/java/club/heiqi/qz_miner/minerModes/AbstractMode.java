@@ -37,6 +37,7 @@ public abstract class AbstractMode {
     public static int timeout = 1000;
     public static int timeLimit = Config.taskTimeLimit;
     public static int perTickBlock = Config.perTickBlockLimit;
+    public static int blockLimit = Config.blockLimit;
     @Nullable
     public PositionFounder positionFounder;
     public BlockBreaker breaker;
@@ -196,7 +197,7 @@ public abstract class AbstractMode {
      * 该方法指示了一定会达成停止的条件
      */
     public boolean checkShouldShutdown() {
-        if (blockCount >= Config.blockLimit) { // 达到限制数量
+        if (blockCount >= blockLimit) { // 达到限制数量
 //            Mod_Main.LOG.info("达到数量上限停止");
             return true;
         }
@@ -271,6 +272,7 @@ public abstract class AbstractMode {
     public void readConfig() {
         timeLimit = Config.taskTimeLimit;
         perTickBlock = Config.perTickBlockLimit;
+        blockLimit = Config.blockLimit;
         if (perTickBlock <= 0) {
             perTickBlock = Integer.MAX_VALUE;
         }
