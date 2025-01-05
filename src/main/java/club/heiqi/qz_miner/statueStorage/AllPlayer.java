@@ -39,6 +39,7 @@ public class AllPlayer {
 
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.player.worldObj.isRemote) SelfStatue.modeManager = null;
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {
