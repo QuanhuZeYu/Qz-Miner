@@ -2,6 +2,7 @@ package club.heiqi.qz_miner;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.primitives.UnsignedBytes;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -36,6 +37,7 @@ public class Config {
     public static String[] chainGroup = new String[]{"{id:\"minecraft:stone\", meta:0}", "{id:\"minecraft:dirt\"}"};
     public static int maxFortuneLevel = 3;
     public static boolean forceNatural = false;
+    public static float dropDistance = 1.0f;
 
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
@@ -58,8 +60,10 @@ public class Config {
         configMap.put("getCacheTimeOut", getCacheTimeOut);                      configMap.put("getCacheTimeOut", Configuration.CATEGORY_GENERAL);       configMap.put("getCacheTimeOut", 1000);                         configMap.put("getCacheTimeOut", "挖掘任务获取缓存队列超时时间");                                                              configMap.put("getCacheTimeOut", 100);                    configMap.put("getCacheTimeOut", Integer.MAX_VALUE);
         configMap.put("hunger", hunger);                                        configMap.put("hunger", Configuration.CATEGORY_GENERAL);                configMap.put("hunger", 0.25f);                                 configMap.put("hunger", "每次挖掘时消耗的饱食度(参考:0.025是原版值)");                                                          configMap.put("hunger", 0.0f);                            configMap.put("hunger", 2.0f);
         configMap.put("overMiningDamage", overMiningDamage);                    configMap.put("overMiningDamage", Configuration.CATEGORY_GENERAL);      configMap.put("overMiningDamage", 0.001f);                      configMap.put("overMiningDamage", "挖掘时如果饱食度不足将会造成伤害，每次空饱食度挖掘都会造成一次伤害");                              configMap.put("overMiningDamage", 0.0f);                  configMap.put("overMiningDamage", 2.0f);
-        configMap.put("maxFortuneLevel", maxFortuneLevel);                      configMap.put("maxFortuneLevel", Configuration.CATEGORY_GENERAL);       configMap.put("maxFortuneLevel", 3);                            configMap.put("maxFortuneLevel", "矿石接受的最大时运等级");                                                                   configMap.put("maxFortuneLevel", 3);                     configMap.put("maxFortuneLevel", 255);
+        configMap.put("maxFortuneLevel", maxFortuneLevel);                      configMap.put("maxFortuneLevel", Configuration.CATEGORY_GENERAL);       configMap.put("maxFortuneLevel", 3);                            configMap.put("maxFortuneLevel", "矿石接受的最大时运等级");                                                                   configMap.put("maxFortuneLevel", 3);                     configMap.put("maxFortuneLevel", UnsignedBytes.MAX_VALUE);
         configMap.put("forceNatural", forceNatural);                            configMap.put("forceNatural", Configuration.CATEGORY_GENERAL);          configMap.put("forceNatural", false);                           configMap.put("forceNatural", "强制所有矿石均为自然生成类型，只有自然类型的矿石接受时运效果");
+        configMap.put("dropDistance", dropDistance);                            configMap.put("dropDistance", Configuration.CATEGORY_GENERAL);          configMap.put("dropDistance", 1.0f);                            configMap.put("dropDistance", "挖掘时掉落物距离自身的距离，距离越远掉落物越远");                                                   configMap.put("dropDistance", Integer.MIN_VALUE);       configMap.put("dropDistance", Integer.MAX_VALUE);
+
         configMap.put("printResult", printResult);                              configMap.put("printResult", CATEGORY_CLIENT);                          configMap.put("printResult", true);                             configMap.put("printResult", "在聊天栏打印挖掘结果");
         configMap.put("renderLineWidth", renderLineWidth);                      configMap.put("renderLineWidth", CATEGORY_CLIENT);                      configMap.put("renderLineWidth", 1.5f);                         configMap.put("renderLineWidth", "渲染线框宽度");                                                                           configMap.put("renderLineWidth", 0.1f);                   configMap.put("renderLineWidth", 10.0f);
         configMap.put("renderFadeSpeedMultiplier", renderFadeSpeedMultiplier);  configMap.put("renderFadeSpeedMultiplier", CATEGORY_CLIENT);            configMap.put("renderFadeSpeedMultiplier", 50.0f);              configMap.put("renderFadeSpeedMultiplier", "渲染框颜色变化时间乘数，越大越慢");                                                 configMap.put("renderFadeSpeedMultiplier", 10.0f);        configMap.put("renderFadeSpeedMultiplier", Float.MAX_VALUE);

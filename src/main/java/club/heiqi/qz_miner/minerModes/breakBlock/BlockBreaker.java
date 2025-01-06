@@ -38,7 +38,6 @@ import static net.minecraft.block.Block.getIdFromBlock;
  * 仅限服务端运行!
  */
 public class BlockBreaker {
-    public static float dropDistance = 2.0f;
     public EntityPlayerMP player;
     public World world;
     public List<ItemStack> drops = new ArrayList<>();
@@ -120,7 +119,7 @@ public class BlockBreaker {
         float vz = (float) (Math.cos(pitch) * Math.sin(yaw));
         // 视线方向的单位向量
         Vector3f direction = new Vector3f(vx, vy, vz).normalize();
-        Vector3f dropPos = new Vector3f(direction).mul(dropDistance).add(playerPos);
+        Vector3f dropPos = new Vector3f(direction).mul(Config.dropDistance).add(playerPos);
 
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
