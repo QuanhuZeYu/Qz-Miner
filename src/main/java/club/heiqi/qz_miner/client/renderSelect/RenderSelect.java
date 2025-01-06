@@ -10,7 +10,9 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
@@ -19,6 +21,8 @@ import org.joml.Vector3d;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 import org.lwjgl.BufferUtils;
+import org.lwjgl.input.Mouse;
+import ru.timeconqueror.lootgames.utils.future.WorldExt;
 
 import java.awt.*;
 import java.nio.FloatBuffer;
@@ -234,7 +238,7 @@ public class RenderSelect {
     }
 
     public void updateCampos() {
-        camPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY + mc.thePlayer.getEyeHeight() - 0.12f, mc.thePlayer.posZ);
+        camPos = new Vector3d(mc.thePlayer.posX, mc.thePlayer.posY - mc.thePlayer.getEyeHeight() + mc.thePlayer.eyeHeight, mc.thePlayer.posZ);
     }
 
     public static void renderBlock(Vector3i pos) {
@@ -317,6 +321,12 @@ public class RenderSelect {
         if (lineWidth != Config.renderLineWidth) lineWidth = Config.renderLineWidth;
     }
 
+    /**
+     * 渲染边框剔除重合
+     * @param original
+     * @param subtract
+     * @return
+     */
     public static int[] indexSubtract(int[] original, int[] subtract) {
         // 将 subtract 数组的每对元素存入集合（忽略顺序）
         Set<String> subtractPairs = new HashSet<>();

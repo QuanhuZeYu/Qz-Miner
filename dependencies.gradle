@@ -56,14 +56,10 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjglVersion}:${natives}"*/
 
     implementation("com.github.GTNewHorizons:NotEnoughItems:2.6.46-GTNH:dev")
-//    implementation("com.github.GTNewHorizons:NotEnoughIds:2.1.6:dev")
     implementation('com.github.GTNewHorizons:ServerUtilities:2.0.88:dev')
-//    runtimeOnly('com.github.GTNewHorizons:Angelica:1.0.0-beta25:dev')
     implementation("com.github.GTNewHorizons:Avaritia:1.56:dev")
-//    implementation("com.github.GTNewHorizons:AppleCore:3.3.4:dev")
-    implementation("com.github.GTNewHorizons:LootGames:2.1.4:dev")
-
     implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.50.103:dev")
+
 //    implementation("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
 //    implementation("com.github.GTNewHorizons:waila:1.8.2:dev")
 //    implementation("com.github.GTNewHorizons:Mantle:0.4.2:dev")
@@ -89,36 +85,7 @@ dependencies {
     // Postea
     // AE2Wireless
     // Baubles
-//    implementation("com.github.GTNewHorizons:AE2FluidCraft-Rework:1.3.50-gtnh:dev")
-
-
-//    implementation("com.github.GTNewHorizons:BuildCraft:7.1.39:dev")
-//    implementation("com.github.GTNewHorizons:EnderIO:2.8.22:dev")
-//    implementation("com.github.GTNewHorizons:ProjectRed:4.10.5-GTNH:dev")
-//    implementation("com.github.GTNewHorizons:MrTJPCore:1.2.1:dev")
-//    implementation("com.github.GTNewHorizons:ForestryMC:4.9.19:dev")
-//    implementation("com.github.GTNewHorizons:Railcraft:9.15.15:dev")
-//
-//    implementation("com.github.GTNewHorizons:EnderCore:0.4.6:dev")
-//    implementation("com.github.GTNewHorizons:Galacticraft:3.2.8-GTNH:dev")
-//    implementation("com.github.GTNewHorizons:Chisel:2.15.3-GTNH:dev")
-//    implementation("com.github.GTNewHorizons:Translocators:1.2.1:dev")
-//    implementation("com.github.GTNewHorizons:Nuclear-Control:2.6.7:dev")
-//    implementation("thaumcraft:Thaumcraft:1.7.10-4.2.3.5:dev")
-//    implementation('com.github.GTNewHorizons:Botania:1.11.6-GTNH:dev')
-//    implementation('com.github.GTNewHorizons:HoloInventory:2.4.13-GTNH:dev')
-//    implementation('curse.maven:minefactory-reloaded-66672:2366150')
-//    implementation('com.github.GTNewHorizons:Draconic-Evolution:1.3.11.GTNH:dev')
-//
-//    implementation("com.github.GTNewHorizons:TinkersGregworks:GTNH-1.0.30-pre:dev")
-//    implementation("com.github.GTNewHorizons:TiC-Tooltips:1.3.1:dev")
-//    implementation("com.github.GTNewHorizons:TinkersMechworks:0.3.1:dev")
-//
-//    implementation("com.github.GTNewHorizons:InGame-Info-XML:2.8.14:dev")
-//    implementation("com.github.GTNewHorizons:Mobs-Info:0.4.7-GTNH:dev")
-//
-//    implementation("com.google.auto.value:auto-value-annotations:1.10.1")
-//    annotationProcessor("com.google.auto.value:auto-value:1.10.1")
+    implementation("com.github.GTNewHorizons:LootGames:2.1.4:dev")
 
     // For testing iApiary
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:ForestryMC:4.8.9:dev")
@@ -138,6 +105,8 @@ dependencies {
 
 if(useMoreMod) {
     dependencies {
-        implementation("com.github.GTNewHorizons:NotEnoughCharacters:1.7.10-1.5.3-GTNH:dev")
+        runtimeOnly("com.github.GTNewHorizons:waila:1.8.2:dev")
+        runtimeOnly("com.github.GTNewHorizons:InGame-Info-XML:2.8.19:dev")
+        runtimeOnly("com.github.GTNewHorizons:NotEnoughCharacters:1.7.10-1.5.3-GTNH:dev")
     }
 }

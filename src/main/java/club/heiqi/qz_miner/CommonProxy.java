@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner;
 
+import club.heiqi.qz_miner.client.debug.Debug;
 import club.heiqi.qz_miner.eventIn.BlockBreakEvent;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.util.CheckCompatibility;
@@ -22,6 +23,8 @@ public class CommonProxy {
         BlockBreakEvent.register();
 
         qzMinerNetWork = new QzMinerNetWork(); // 初始化网络通信
+        Debug debug = new Debug();
+        debug.register();
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
