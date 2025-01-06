@@ -41,6 +41,8 @@ ext {
 }
 
 dependencies {
+    implementation('org.joml:joml:1.10.8')
+
     /*implementation "org.lwjgl:lwjgl:${lwjglVersion}"
     implementation "org.lwjgl:lwjgl-opengl:${lwjglVersion}"
     implementation "org.lwjgl:lwjgl-glfw:${lwjglVersion}"

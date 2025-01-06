@@ -110,19 +110,17 @@ public class BlockBreaker {
     public void harvestBlock(Vector3i pos, int meta) {
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         // 计算掉落物落点
-        Vector3d playerPos = new Vector3d(player.posX, player.posY, player.posZ);
+        Vector3f playerPos = new Vector3f((float) player.posX, (float) player.posY + player.eyeHeight, (float) player.posZ);
         // 计算玩家视线方向
-        float pitchRadians = player.rotationPitch * (float) Math.PI / 180.0F; // 俯仰角转弧度
-        float yawRadians = player.rotationYaw * (float) Math.PI / 180.0F;     // 偏航角转弧度
+        float pitch = (float) Math.toRadians(player.rotationPitch);
+        float yaw = (float) Math.toRadians(player.rotationYaw + 90);
 
-        float rotationX = MathHelper.cos(yawRadians);
-        float rotationZ = MathHelper.sin(yawRadians);
-        float rotationYZ = -rotationZ * MathHelper.sin(pitchRadians);
-        float rotationXY = rotationX * MathHelper.sin(pitchRadians);
-        float directionY = -MathHelper.cos(pitchRadians);
+        float vx = (float) (Math.cos(pitch) * Math.cos(yaw));
+        float vy = (float) -Math.sin(pitch);
+        float vz = (float) (Math.cos(pitch) * Math.sin(yaw));
         // 视线方向的单位向量
-        Vector3d direction = new Vector3d(rotationYZ, directionY, rotationXY);
-        Vector3d dropPos = playerPos.add(new Vector3d(direction.x * dropDistance, direction.y * dropDistance, direction.z * dropDistance));
+        Vector3f direction = new Vector3f(vx, vy, vz).normalize();
+        Vector3f dropPos = new Vector3f(direction).mul(dropDistance).add(playerPos);
 
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
