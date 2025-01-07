@@ -2,8 +2,6 @@ package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockSnow;
-import net.minecraft.block.BlockSnowBlock;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
@@ -110,11 +108,11 @@ public class ChainFounder extends PositionFounder {
      */
     public boolean filter(Block block, Vector3i pos) {
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        if (sampleBlock.equals(block)) {
+        if (Block.isEqualTo(sampleBlock, block)) { // 如果正在挖掘的方块和样本 equals 则通过
             return true;
         }
-        ItemStack sampleStack = new ItemStack(sampleBlock);
-        ItemStack blockStack = new ItemStack(block);
+        ItemStack sampleStack = new ItemStack(sampleBlock); // 样本方块物品
+        ItemStack blockStack = new ItemStack(block); // 当前方块物品
         int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
         int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
         for (int sampleOreID : sampleOreIDs) {

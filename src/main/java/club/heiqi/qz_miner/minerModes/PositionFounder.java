@@ -33,7 +33,6 @@ public abstract class PositionFounder implements Runnable {
     public static int taskTimeLimit = Config.taskTimeLimit;
     public static int cacheSizeMAX = Config.pointFounderCacheSize;
     public static int radiusLimit = Config.radiusLimit;
-    public static int blockLimit = Config.blockLimit;
     public static int chainRange = Config.chainRange;
 
     public int canBreakBlockCount = 0;
@@ -113,7 +112,6 @@ public abstract class PositionFounder implements Runnable {
         taskTimeLimit = Config.taskTimeLimit;
         cacheSizeMAX = Config.pointFounderCacheSize;
         radiusLimit = Config.radiusLimit;
-        blockLimit = Config.blockLimit;
         chainRange = Config.chainRange;
     }
 

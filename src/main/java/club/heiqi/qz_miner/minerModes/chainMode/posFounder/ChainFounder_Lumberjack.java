@@ -118,4 +118,26 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         }
         return false;
     }
+
+    @Override
+    public boolean checkShouldShutdown() {
+        if (!isRunning.get()) {
+            return true;
+        }
+        if (!getIsReady()) {
+            return true;
+        }
+        if (Thread.currentThread().isInterrupted()) { // 线程被中断
+            return true;
+        }
+        if (isHeartbeatTimeout()) {
+            return true;
+        }
+
+        // 特殊终止条件
+        if (player.getHealth() <= 2) { // 玩家血量过低
+            return true;
+        }
+        return false;
+    }
 }
