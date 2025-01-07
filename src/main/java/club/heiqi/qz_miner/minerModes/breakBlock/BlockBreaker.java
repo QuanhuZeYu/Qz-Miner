@@ -2,7 +2,6 @@ package club.heiqi.qz_miner.minerModes.breakBlock;
 
 import bartworks.system.material.BWTileEntityMetaGeneratedOre;
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.mixins.BWTileEntityMetaGeneratedOreAccessor;
 import club.heiqi.qz_miner.mixins.BlockBaseOreAccessor;
 import club.heiqi.qz_miner.mixins.TileEntityOresAccessor;
@@ -20,7 +19,6 @@ import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
@@ -173,7 +171,7 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockBefore(TileEntity tileEntity, Block block, EntityPlayer player) {
-        if (!CheckCompatibility.hasAll){
+        if (!CheckCompatibility.is270Upper){
             return;
         }
 
@@ -203,7 +201,7 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockAfter(TileEntity tileEntity, Block block) {
-        if (!CheckCompatibility.hasAll){
+        if (!CheckCompatibility.is270Upper){
             return;
         }
 

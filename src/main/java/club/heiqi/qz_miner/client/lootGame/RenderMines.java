@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.client.lootGame;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.statueStorage.SelfStatue;
+import club.heiqi.qz_miner.util.CheckCompatibility;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -46,6 +47,10 @@ public class RenderMines {
     @SubscribeEvent
     @SideOnly(Side.CLIENT)
     public void findMines(TickEvent.PlayerTickEvent event) {
+        if (!CheckCompatibility.isHasClass_MSMTile) {
+            unregister();
+            return;
+        }
         ModeManager modeManager = SelfStatue.modeManager;
         if (modeManager == null) return;
         if (modeManager.getIsReady()) {
@@ -71,6 +76,7 @@ public class RenderMines {
     @SubscribeEvent
     @SideOnly(Side.CLIENT)
     public void renderBomb(DrawBlockHighlightEvent event) {
+        if (!CheckCompatibility.isHasClass_MSMTile) return;
         if (needRender && findBomb.isEmpty()) {
             ArrayList<Vector3i> findBomb = new ArrayList<>(findBombMap.get(event.player.getUniqueID()));
             if (findBomb.isEmpty()) return;
@@ -148,5 +154,10 @@ public class RenderMines {
     public void register() {
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
+    }
+
+    public void unregister() {
+        MinecraftForge.EVENT_BUS.unregister(this);
+        FMLCommonHandler.instance().bus().unregister(this);
     }
 }

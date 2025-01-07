@@ -7,8 +7,9 @@ public class CheckCompatibility {
     public static boolean isHasClass_BlockOresAbstract = false;
     public static boolean isHasClass_TileEntityOre = false;
     public static boolean isHasClass_BWTileEntityGenOre = false;
+    public static boolean isHasClass_MSMTile = false;
 
-    public static boolean hasAll = false;
+    public static boolean is270Upper = false;
 
     public static void checkAll() {
         isHasClass_BlockOresAbstract();
@@ -16,7 +17,8 @@ public class CheckCompatibility {
         isHaseClass_BlockBaseOre();
         isHaseClass_BWTileEntityGenOre();
         MY_LOG.LOG.info("检测到所有类");
-        hasAll = isHasClass_BlockOresAbstract && isHasClass_TileEntityOre && isHaseClass_BlockBaseOre && isHasClass_BWTileEntityGenOre;
+        isHaseClass_MSMTile();
+        is270Upper = isHasClass_BlockOresAbstract && isHasClass_TileEntityOre && isHaseClass_BlockBaseOre && isHasClass_BWTileEntityGenOre;
     }
 
     public static void isHasClass_BlockOresAbstract() {
@@ -56,6 +58,16 @@ public class CheckCompatibility {
         } catch (ClassNotFoundException e) {
             MY_LOG.LOG.warn("未检测到 BWTileEntityGenOre");
             isHasClass_BWTileEntityGenOre = false;
+        }
+    }
+
+    public static void isHaseClass_MSMTile() {
+        try {
+            Class<?> clazz = Class.forName("ru.timeconqueror.lootgames.common.block.tile.MSMasterTile");
+            isHasClass_MSMTile = true;
+        } catch (ClassNotFoundException e) {
+            MY_LOG.LOG.warn("未检测到 MSMTile");
+            isHasClass_MSMTile = false;
         }
     }
 }

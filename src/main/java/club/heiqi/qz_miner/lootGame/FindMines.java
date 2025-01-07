@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketSweepMine;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.util.CheckCompatibility;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -28,6 +29,7 @@ import java.util.Set;
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class FindMines {
+    public static FindMines findMines = new FindMines();
     public static long coolDown = (long) (Config.coolDown * 1_000_000_000L - 2000000000L); // 冷却1分钟
     public long lastUse = 0;
 
@@ -35,6 +37,10 @@ public class FindMines {
     public long durationReady = 0;
     @SubscribeEvent
     public void findMines(TickEvent.PlayerTickEvent event) {
+        if (!CheckCompatibility.isHasClass_MSMTile) {
+            unregister();
+            return;
+        }
         if (event.side.isClient()) return;
         EntityPlayer player = event.player;
         ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
@@ -123,6 +129,10 @@ public class FindMines {
     }
 
     public static void register() {
-        FMLCommonHandler.instance().bus().register(new FindMines());
+        FMLCommonHandler.instance().bus().register(findMines);
+    }
+
+    public static void unregister() {
+        FMLCommonHandler.instance().bus().unregister(findMines);
     }
 }
