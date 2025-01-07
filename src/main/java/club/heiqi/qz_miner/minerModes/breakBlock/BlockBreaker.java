@@ -92,7 +92,6 @@ public class BlockBreaker {
             if (holdItem.getItem().onBlockDestroyed(holdItem, world, block, pos.x, pos.y, pos.z, player)) {
                 player.addStat(StatList.objectUseStats[Item.getIdFromItem(holdItem.getItem())], 1);
             }
-
             if (holdItem.stackSize == 0) {
                 itemInWorldManager.thisPlayerMP.destroyCurrentEquippedItem();
             }
@@ -145,7 +144,7 @@ public class BlockBreaker {
         } else { // 否则进行普通采集
             // 后续可在此处添加事件触发功能
             ArrayList<ItemStack> drop;
-            if (tileEntity instanceof TileEntityOres) {
+            if (CheckCompatibility.is270Upper && tileEntity instanceof TileEntityOres) {
                 drop = ((TileEntityOres) tileEntity).getDrops(block, fortune);
             } else {
                 drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
@@ -161,10 +160,11 @@ public class BlockBreaker {
                 MY_LOG.LOG.info("当前时运: {}, 掉落物x{}个: {}", fortune, itemStack.stackSize, itemStack.getDisplayName());
             });*/
 
-            if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, true)) { // 移除方块事件
-                drops.addAll(drop);
-                checkFoodLevel();
-            }
+            // if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, false)) { // 移除方块事件--造成复制的元凶
+            world.setBlockToAir(pos.x, pos.y, pos.z);
+            drops.addAll(drop);
+            checkFoodLevel();
+//            }
         }
         for (ItemStack drop : drops) {
             world.spawnEntityInWorld(new EntityItem(world, dropPos.x, dropPos.y, dropPos.z, drop));
