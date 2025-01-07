@@ -1,5 +1,5 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.8.5-GTNH",
   "package": "club.heiqi.qz_miner.mixins.late",
   "refmap": "mixins.qz_miner.refmap.json",
