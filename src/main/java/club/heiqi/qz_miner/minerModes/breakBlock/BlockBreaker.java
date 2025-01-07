@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.minerModes.breakBlock;
 
 import bartworks.system.material.BWTileEntityMetaGeneratedOre;
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.mixins.BWTileEntityMetaGeneratedOreAccessor;
 import club.heiqi.qz_miner.mixins.BlockBaseOreAccessor;
 import club.heiqi.qz_miner.mixins.TileEntityOresAccessor;
@@ -28,6 +29,8 @@ import java.lang.Math;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.function.Consumer;
 
 import static net.minecraft.block.Block.getIdFromBlock;
 
@@ -174,30 +177,35 @@ public class BlockBreaker {
         if (!CheckCompatibility.is270Upper){
             return;
         }
-
-        if (tileEntity instanceof TileEntityOres tileEntityOres) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                TileEntityOresAccessor.setShouldSilkTouch(true);
-                return;
+        tryCatch(() -> {
+            if (tileEntity instanceof TileEntityOres tileEntityOres) {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    TileEntityOresAccessor.setShouldSilkTouch(true);
+                    return;
+                }
+                TileEntityOresAccessor.setShouldFortune(true);
             }
-            TileEntityOresAccessor.setShouldFortune(true);
-        }
+        });
 
-        if (tileEntity instanceof BWTileEntityMetaGeneratedOre bwTileEntityMetaGeneratedOre) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(true);
-                return;
+        tryCatch(() -> {
+            if (tileEntity instanceof BWTileEntityMetaGeneratedOre bwTileEntityMetaGeneratedOre) {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(true);
+                    return;
+                }
+                BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(true);
             }
-            BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(true);
-        }
+        });
 
-        if (block instanceof BlockBaseOre) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                BlockBaseOreAccessor.setShouldSilkTouch(true);
-                return;
+        tryCatch(() -> {
+            if (block instanceof BlockBaseOre) {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    BlockBaseOreAccessor.setShouldSilkTouch(true);
+                    return;
+                }
+                BlockBaseOreAccessor.setShouldFortune(true);
             }
-            BlockBaseOreAccessor.setShouldFortune(true);
-        }
+        });
     }
 
     private void gtOreHarvestBlockAfter(TileEntity tileEntity, Block block) {
@@ -205,32 +213,46 @@ public class BlockBreaker {
             return;
         }
 
-        if (tileEntity instanceof TileEntityOres tileEntityOres) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                TileEntityOresAccessor.setShouldSilkTouch(false);
-                return;
+        tryCatch(() -> {
+            if (tileEntity instanceof TileEntityOres tileEntityOres) {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    TileEntityOresAccessor.setShouldSilkTouch(false);
+                    return;
+                }
+                TileEntityOresAccessor.setShouldFortune(false);
+                if (Config.forceNatural)
+                    tileEntityOres.mNatural = false;
             }
-            TileEntityOresAccessor.setShouldFortune(false);
-            if (Config.forceNatural)
-                tileEntityOres.mNatural = false;
-        }
+        });
 
-        if (tileEntity instanceof BWTileEntityMetaGeneratedOre bwTileEntityMetaGeneratedOre) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(false);
-                return;
+        tryCatch(() -> {
+            if (tileEntity instanceof BWTileEntityMetaGeneratedOre bwTileEntityMetaGeneratedOre) {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    BWTileEntityMetaGeneratedOreAccessor.setShouldSilkTouch(false);
+                    return;
+                }
+                BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(false);
+                if (Config.forceNatural)
+                    bwTileEntityMetaGeneratedOre.mNatural = false;
             }
-            BWTileEntityMetaGeneratedOreAccessor.setShouldFortune(false);
-            if (Config.forceNatural)
-                bwTileEntityMetaGeneratedOre.mNatural = false;
-        }
+        });
 
-        if (block instanceof BlockBaseOre) {
-            if (EnchantmentHelper.getSilkTouchModifier(player)) {
-                BlockBaseOreAccessor.setShouldSilkTouch(false);
-                return;
+        tryCatch(() -> {
+            if (block instanceof BlockBaseOre) {
+                if (EnchantmentHelper.getSilkTouchModifier(player)) {
+                    BlockBaseOreAccessor.setShouldSilkTouch(false);
+                    return;
+                }
+                BlockBaseOreAccessor.setShouldFortune(false);
             }
-            BlockBaseOreAccessor.setShouldFortune(false);
+        });
+    }
+
+    public void tryCatch(Runnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            MY_LOG.LOG.warn(e.toString());
         }
     }
 
