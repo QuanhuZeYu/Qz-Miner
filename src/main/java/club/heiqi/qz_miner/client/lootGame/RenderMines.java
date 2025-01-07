@@ -57,10 +57,10 @@ public class RenderMines {
             unregister();
             return;
         }
-        if (!findAroundHasLootGame(event.player)) return;
         ModeManager modeManager = SelfStatue.modeManager;
         if (modeManager == null) return;
         if (modeManager.getIsReady()) {
+            if (!findAroundHasLootGame(event.player)) return;
             if (!inReady) { // 首次进入设置状态
                 coolDown = (long) (Config.coolDown * 1_000_000_000L);
                 inReady = true;
