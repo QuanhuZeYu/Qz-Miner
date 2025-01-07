@@ -9,14 +9,16 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.I18n;
-import net.minecraft.util.ChatComponentText;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.joml.Vector3d;
 import org.joml.Vector3i;
+import ru.timeconqueror.lootgames.api.block.GameBlock;
 
 import java.text.NumberFormat;
 import java.util.ArrayList;
@@ -55,10 +57,12 @@ public class RenderMines {
             unregister();
             return;
         }
+        if (!findAroundHasLootGame(event.player)) return;
         ModeManager modeManager = SelfStatue.modeManager;
         if (modeManager == null) return;
         if (modeManager.getIsReady()) {
             if (!inReady) { // 首次进入设置状态
+                coolDown = (long) (Config.coolDown * 1_000_000_000L);
                 inReady = true;
                 durationReady = System.nanoTime();
             }
@@ -143,18 +147,20 @@ public class RenderMines {
         glPopAttrib();
     }
 
-    /*public static class Field {
-        public String type;
-        public Vector3i pos;
-
-        public Field(String type, Vector3i pos) {
-            this.type = type;
-            this.pos = pos;
+    public boolean findAroundHasLootGame(EntityPlayer player) {
+        Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
+        for (int x = -2; x <= 2; x++) {
+            for (int y = -2; y <= 2; y++) {
+                for (int z = -2; z <= 2; z++) {
+                    Block block = player.worldObj.getBlock(playerPos.x + x, playerPos.y + y, playerPos.z + z);
+                    if (block instanceof GameBlock) {
+                        return true;
+                    }
+                }
+            }
         }
-        public String toString() {
-            return type + ": " + "(" + pos.x + ", " + pos.y + ", " + pos.z + ")";
-        }
-    }*/
+        return false;
+    }
 
     @SideOnly(Side.CLIENT)
     public void register() {
