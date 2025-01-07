@@ -9,6 +9,10 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.I18n;
+import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.ChatComponentTranslation;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.joml.Vector3d;
@@ -23,7 +27,6 @@ import java.util.UUID;
 import static club.heiqi.qz_miner.client.renderSelect.RenderSelect.camPos;
 import static org.lwjgl.opengl.GL11.*;
 
-@SideOnly(Side.CLIENT)
 public class RenderMines {
     public static NumberFormat format = NumberFormat.getIntegerInstance();
     public static long coolDown = (long) (Config.coolDown * 1_000_000_000L);
@@ -35,6 +38,7 @@ public class RenderMines {
     public long lastUse = 0L;
 
     @SubscribeEvent
+    @SideOnly(Side.CLIENT)
     public void onPlayerJoin(TickEvent.PlayerTickEvent event) {
         if (event.side == Side.CLIENT) {
             UUID uuid = event.player.getUniqueID();
@@ -62,9 +66,15 @@ public class RenderMines {
                 durationReady = System.nanoTime() - durationReady;
                 if (durationReady > 5000000000L) { // 持续按压了5s
                     if (System.nanoTime() - lastUse > coolDown) { // 上次使用时间到现在超过了冷却时间
+                        event.player.addChatMessage(new ChatComponentTranslation("qz_miner.message.revealing_mines"));
                         needRender = true;
                         lastUse = System.nanoTime();
-                        //MY_LOG.LOG.info("准备渲染地雷");
+                    } else {
+                        Minecraft.getMinecraft().ingameGUI.func_110326_a(
+                            I18n.format("qz_miner.message.revealing_mines_cool_down",
+                                String.format("%.2f", ((double)(coolDown / 1_000_000_000L) - ((double) (System.nanoTime() - lastUse) / 1_000_000_000L))) + "s"
+                            ), true
+                        );
                     }
                 }
             }
@@ -81,12 +91,6 @@ public class RenderMines {
             ArrayList<Vector3i> findBomb = new ArrayList<>(findBombMap.get(event.player.getUniqueID()));
             if (findBomb.isEmpty()) return;
 
-            /*findBombMap.forEach((uuid, bb) -> {
-                StringBuilder sb = new StringBuilder();
-                bb.forEach(b -> sb.append(b.toString(format)).append(", "));
-                sb.delete(sb.length() - 2, sb.length());
-                MY_LOG.LOG.info(sb.toString());
-            });*/
             Vector3i playerPos = new Vector3i((int) event.player.posX, (int) event.player.posY, (int) event.player.posZ);
             // findBomb到玩家的距离从近到远排序
             findBomb.sort((o1, o2) -> {
@@ -108,6 +112,7 @@ public class RenderMines {
         }
     }
 
+    @SideOnly(Side.CLIENT)
     public void renderBlock(Vector3i pos) {
         glPushAttrib(GL_ALL_ATTRIB_BITS);
         glPushMatrix();
@@ -151,11 +156,13 @@ public class RenderMines {
         }
     }*/
 
+    @SideOnly(Side.CLIENT)
     public void register() {
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
     }
 
+    @SideOnly(Side.CLIENT)
     public void unregister() {
         MinecraftForge.EVENT_BUS.unregister(this);
         FMLCommonHandler.instance().bus().unregister(this);

@@ -22,7 +22,7 @@ public class CommonProxy {
         allPlayerStorage.register(); // 注册存储玩家连锁状态的容器类
         BlockBreakEvent.register();
 
-        qzMinerNetWork = new QzMinerNetWork(); // 初始化网络通信
+        qzMinerNetWork = new QzMinerNetWork(event); // 初始化网络通信
         FindMines.register();
     }
 

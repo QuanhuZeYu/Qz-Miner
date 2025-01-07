@@ -24,6 +24,8 @@ qz_miner.rangemode.tunnel=爆破模式-隧道--(从挖掘点开始向面朝向�
 
 qz_miner.message.pleasewait=上一个任务还在执行，请稍等...
 qz_miner.message.tickTooLong=检测到 tick 时间过长，正在动态降低挖掘速度
+qz_miner.message.revealing_mines=正在揭示离你最近的地雷
+qz_miner.message.revealing_mines_cool_down=地雷揭示冷却中: %s
 
 qz_miner.config.category.general=服务端配置
 qz_miner.config.category.client=客户端配置
