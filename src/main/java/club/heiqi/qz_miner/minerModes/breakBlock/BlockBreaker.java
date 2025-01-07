@@ -87,7 +87,9 @@ public class BlockBreaker {
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
         ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
         ItemStack holdItem = itemInWorldManager.thisPlayerMP.getCurrentEquippedItem();
-        block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+        if (!Block.isEqualTo(block, Blocks.skull)) {
+            block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+        }
 
         if (holdItem != null && holdItem.getItem() != null) {
             // holdItem.func_150999_a(world, block, pos.x, pos.y, pos.z, player); // 拆解出来为以下步骤
