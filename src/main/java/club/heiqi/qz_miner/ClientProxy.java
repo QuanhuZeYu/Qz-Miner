@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.client.keybind.KeyBind;
+import club.heiqi.qz_miner.client.lootGame.RenderMines;
 import club.heiqi.qz_miner.client.renderSelect.RenderSelect;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -18,6 +19,8 @@ public class ClientProxy extends CommonProxy {
         keyBind.register();
         renderSelect = new RenderSelect();
         RenderSelect.register(renderSelect);
+        RenderMines renderMines = new RenderMines();
+        renderMines.register();
     }
 
     @Override

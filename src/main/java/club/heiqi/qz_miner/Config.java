@@ -38,6 +38,7 @@ public class Config {
     public static int maxFortuneLevel = 3;
     public static boolean forceNatural = false;
     public static float dropDistance = 1.1f;
+    public static float coolDown = 30.0f;
 
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
@@ -62,7 +63,8 @@ public class Config {
         configMap.put("overMiningDamage", overMiningDamage);                    configMap.put("overMiningDamage", Configuration.CATEGORY_GENERAL);      configMap.put("overMiningDamage", 0.001f);                      configMap.put("overMiningDamage", "挖掘时如果饱食度不足将会造成伤害，每次空饱食度挖掘都会造成一次伤害");                              configMap.put("overMiningDamage", 0.0f);                  configMap.put("overMiningDamage", 2.0f);
         configMap.put("maxFortuneLevel", maxFortuneLevel);                      configMap.put("maxFortuneLevel", Configuration.CATEGORY_GENERAL);       configMap.put("maxFortuneLevel", 3);                            configMap.put("maxFortuneLevel", "矿石接受的最大时运等级");                                                                   configMap.put("maxFortuneLevel", 3);                     configMap.put("maxFortuneLevel", 255);
         configMap.put("forceNatural", forceNatural);                            configMap.put("forceNatural", Configuration.CATEGORY_GENERAL);          configMap.put("forceNatural", false);                           configMap.put("forceNatural", "强制所有矿石均为自然生成类型，只有自然类型的矿石接受时运效果");
-        configMap.put("dropDistance", dropDistance);                            configMap.put("dropDistance", Configuration.CATEGORY_GENERAL);          configMap.put("dropDistance", 1.1f);                            configMap.put("dropDistance", "挖掘时掉落物距离自身的距离，距离越远掉落物越远");                                                   configMap.put("dropDistance", Float.MIN_VALUE);       configMap.put("dropDistance", Float.MAX_VALUE);
+        configMap.put("dropDistance", dropDistance);                            configMap.put("dropDistance", Configuration.CATEGORY_GENERAL);          configMap.put("dropDistance", 1.1f);                            configMap.put("dropDistance", "挖掘时掉落物距离自身的距离，距离越远掉落物越远");                                                   configMap.put("dropDistance", Float.MIN_VALUE);         configMap.put("dropDistance", Float.MAX_VALUE);
+        configMap.put("coolDown", coolDown);                                    configMap.put("coolDown", Configuration.CATEGORY_GENERAL);              configMap.put("coolDown", 30.0f);                               configMap.put("coolDown", "每次揭示时需要等待的时间，单位秒");                                                                  configMap.put("coolDown", 0.0f);                        configMap.put("coolDown", Float.MAX_VALUE);
 
         configMap.put("printResult", printResult);                              configMap.put("printResult", CATEGORY_CLIENT);                          configMap.put("printResult", true);                             configMap.put("printResult", "在聊天栏打印挖掘结果");
         configMap.put("renderLineWidth", renderLineWidth);                      configMap.put("renderLineWidth", CATEGORY_CLIENT);                      configMap.put("renderLineWidth", 1.5f);                         configMap.put("renderLineWidth", "渲染线框宽度");                                                                           configMap.put("renderLineWidth", 0.1f);                   configMap.put("renderLineWidth", 10.0f);
