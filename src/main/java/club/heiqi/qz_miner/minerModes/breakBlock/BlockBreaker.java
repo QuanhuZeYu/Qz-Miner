@@ -14,6 +14,7 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.server.S23PacketBlockChange;
@@ -64,7 +65,9 @@ public class BlockBreaker {
 
     public void handleCreativeMode(Vector3i pos, Block block, int meta) {
         ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
-        block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+        if (!Block.isEqualTo(block, Blocks.skull)) {
+            block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+        }
 
         if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, false)) {
             BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
