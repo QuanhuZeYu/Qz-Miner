@@ -37,8 +37,8 @@ public class LumberJackMode extends AbstractMode {
             return false;
         }
         // 判断工具能否挖掘
-        if (holdItem != null) {
-            return block.canHarvestBlock(player, meta);
+        if (!checkToolCanBreak(pos)) {
+            return false;
         }
         return true;
     }
