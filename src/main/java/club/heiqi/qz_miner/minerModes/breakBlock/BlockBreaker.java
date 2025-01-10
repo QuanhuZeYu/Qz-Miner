@@ -30,8 +30,6 @@ import java.lang.Math;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.function.Consumer;
 
 import static net.minecraft.block.Block.getIdFromBlock;
 

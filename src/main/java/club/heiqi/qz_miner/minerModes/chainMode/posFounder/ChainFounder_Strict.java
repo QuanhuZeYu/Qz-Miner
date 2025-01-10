@@ -1,12 +1,18 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.PositionFounder;
+import club.heiqi.qz_miner.util.CheckCompatibility;
+import gregtech.api.metatileentity.BaseMetaTileEntity;
+import gregtech.api.metatileentity.BaseTileEntity;
+import gregtech.api.metatileentity.CoverableTileEntity;
+import gregtech.common.blocks.TileEntityOres;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.management.ItemInWorldManager;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 
@@ -20,6 +26,7 @@ import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class ChainFounder_Strict extends PositionFounder {
     public Block sampleBlock;
+    public TileEntity sampleBlockEntity;
     public int itemBlockMeta;
     public String sampleBlockUnLocalizedName;
     public Set<Vector3i> visitedChainSet = new HashSet<>();
@@ -36,6 +43,7 @@ public class ChainFounder_Strict extends PositionFounder {
         nextChainSet.add(center);
         visitedChainSet.add(center);
         sampleBlock = world.getBlock(center.x, center.y, center.z);
+        sampleBlockEntity = world.getTileEntity(center.x, center.y, center.z);
         int meta = world.getBlockMetadata(center.x, center.y, center.z);
         ItemStack sampleItemStack = new ItemStack(sampleBlock, 1, meta);
         itemBlockMeta = sampleItemStack.getItemDamage();
@@ -53,9 +61,7 @@ public class ChainFounder_Strict extends PositionFounder {
         for (Vector3i pos : nextChainSet) { // 遍历下个节点下的所有点
             List<Vector3i> box = scanBox(pos); // 每个点所需要搜索的范围
             for (Vector3i pos2 : box) { // 遍历box范围下的点 - 如果是所需要的点则先缓存到temp2
-                Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
                 if (!visitedChainSet.contains(pos2)) {
-                    if (!filter(block, pos2)) continue;
                     temp2.add(pos2);
                 }
             }
@@ -66,9 +72,7 @@ public class ChainFounder_Strict extends PositionFounder {
         for (Vector3i pos2 : sort) {
             if (beforePutCheck()) break;
             try {
-                if (checkCanBreak(pos2)) {
-                    cache.put(pos2); canBreakBlockCount++;
-                }
+                cache.put(pos2); canBreakBlockCount++;
             } catch (InterruptedException e) {
 //                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
                 Thread.currentThread().interrupt(); // 恢复中断状态
@@ -98,8 +102,10 @@ public class ChainFounder_Strict extends PositionFounder {
                 int yr = Math.abs(j - center.y);
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
                     int zr = Math.abs(k - center.z);
+                    Block block = world.getBlock(i, j, k);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     if (!checkCanBreak(new Vector3i(i, j, k))) continue; // 排除不可挖掘方块
+                    if (!filter(block, new Vector3i(i, j, k))) continue; // 排除非目标方块
                     result.add(new Vector3i(i, j, k));
                     int maxRadius = Math.max(xr, Math.max(yr, zr)); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
                     setRadius(maxRadius);
@@ -122,8 +128,23 @@ public class ChainFounder_Strict extends PositionFounder {
                 int blockMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
                 int itemMeta = new ItemStack(block, 1, blockMeta).getItemDamage();
                 if (itemMeta == itemBlockMeta) {
-//                LOG.info("{} == {}", block.getLocalizedName() + blockMeta, sampleBlockUnLocalizedName + itemBlockMeta);
-                    return true;
+                    if (!CheckCompatibility.is270Upper) return true; // 270以下版本不检查metaID
+                    TileEntity tile = world.getTileEntity(pos.x, pos.y, pos.z);
+                    if (tile != null && (tile instanceof TileEntityOres tileEntityOre) && (sampleBlockEntity instanceof TileEntityOres sampleEntityOre)){
+                        int sampleMMeta = sampleEntityOre.mMetaData;
+                        int blockMMeta = tileEntityOre.mMetaData;
+                        if (sampleMMeta == blockMMeta) {
+                            return true;
+                        }
+                    } else if (tile != null && (tile instanceof BaseMetaTileEntity baseTile && sampleBlockEntity instanceof BaseMetaTileEntity sampleEntity)) {
+                        int baseMID = baseTile.getMetaTileID();
+                        int sampleMID = sampleEntity.getMetaTileID();
+                        if (baseMID == sampleMID) {
+                            return true;
+                        }
+                    } else {
+                        return true;
+                    }
                 }
             } catch (Exception e) {
                 return false;
