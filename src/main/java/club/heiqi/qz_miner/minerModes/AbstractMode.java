@@ -138,6 +138,10 @@ public abstract class AbstractMode {
         }
         // 判断工具能否挖掘
         if (holdItem != null) {
+            // 检查工具耐久度
+            if (holdItem.getItemDamage() <= 1) {
+                return false;
+            }
             return block.canHarvestBlock(player, meta);
         }
         return true;
