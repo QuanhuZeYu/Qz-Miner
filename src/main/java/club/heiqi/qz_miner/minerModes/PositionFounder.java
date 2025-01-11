@@ -28,6 +28,7 @@ import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
  * 2.运行run方法，自动提交线程池任务<br>
  * 3.直接使用queue.tack()来逐个获取点<br>
  * 该类会频繁销毁与创建，所以无需关注资源重置问题
+ * 使用时需要注意心跳 - {@link club.heiqi.qz_miner.minerModes.PositionFounder#minerHeartbeat}
  */
 public abstract class PositionFounder implements Runnable {
     public static int taskTimeLimit = Config.taskTimeLimit;

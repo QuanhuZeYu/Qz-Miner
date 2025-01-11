@@ -1,12 +1,9 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.Mod_Main;
-import club.heiqi.qz_miner.minerModes.breakBlock.BlockBreaker;
-import club.heiqi.qz_miner.statueStorage.SelfStatue;
+import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.threadPool.QzMinerThreadPool;
-import club.heiqi.qz_miner.util.MessageUtil;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -81,6 +78,7 @@ public abstract class AbstractMode {
     public void onTick(TickEvent.ServerTickEvent event) {
         timer = System.currentTimeMillis();
         updateTaskType();
+        // 每次循环只挖掘一个点
         while (isRunning.get()) {
             try {
                 Vector3i pos = null;
@@ -112,10 +110,10 @@ public abstract class AbstractMode {
     public boolean checkCanBreak(Vector3i pos) {
         World world = breaker.world;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         EntityPlayerMP player = breaker.player;
         ItemInWorldManager iwm = player.theItemInWorldManager;
-        ItemStack holdItem = player.inventory.getCurrentItem();
+        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
+        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         // 判断是否为创造模式
         if (iwm.getGameType().isCreative()) {
             return true;
@@ -137,21 +135,14 @@ public abstract class AbstractMode {
             return false;
         }
         // 判断工具能否挖掘
-        if (!checkToolCanBreak(pos)) {
-            return false;
-        }
-        return true;
-    }
-
-    public boolean checkToolCanBreak(Vector3i pos) {
-        EntityPlayerMP player = breaker.player;
-        ItemStack holdItem = player.inventory.getCurrentItem();
         if (holdItem != null) {
-            if (holdItem.getMaxDamage() - holdItem.getItemDamage() <= 1) {
+            // 检查工具耐久度
+            if (holdItem.getItemDamage() <= 1) {
                 return false;
             }
+            return block.canHarvestBlock(player, meta);
         }
-        return breaker.world.getBlock(pos.x, pos.y, pos.z).canHarvestBlock(player, breaker.world.getBlockMetadata(pos.x, pos.y, pos.z));
+        return true;
     }
 
     public void register() {
