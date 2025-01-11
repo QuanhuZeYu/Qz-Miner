@@ -38,6 +38,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.MODID;
 import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM;
+import static org.lwjgl.opengl.GL20.glUseProgram;
 
 @SideOnly(Side.CLIENT)
 public class KeyBind {
@@ -94,6 +96,8 @@ public class KeyBind {
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
         if (!Config.showTip) {
+            int curShader = glGetInteger(GL_CURRENT_PROGRAM);
+            glUseProgram(0);
             glPushAttrib(GL_ALL_ATTRIB_BITS);
             boolean isReady = SelfStatue.modeManager.getIsReady();
             if (!isReady) {
@@ -115,6 +119,7 @@ public class KeyBind {
             glPopMatrix();
 //            glColor3f(1.0f, 1.0f, 1.0f);
             glPopAttrib();
+            glUseProgram(curShader);
             return;
         }
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过

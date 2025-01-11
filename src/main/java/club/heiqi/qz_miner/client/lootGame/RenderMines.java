@@ -28,6 +28,8 @@ import java.util.UUID;
 
 import static club.heiqi.qz_miner.client.renderSelect.RenderSelect.camPos;
 import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM;
+import static org.lwjgl.opengl.GL20.glUseProgram;
 
 public class RenderMines {
     public static NumberFormat format = NumberFormat.getIntegerInstance();
@@ -105,7 +107,10 @@ public class RenderMines {
             this.findBomb = findBomb;
         } else if (needRender && !findBomb.isEmpty()) {
             Vector3i closest = findBomb.get(0);
+            int curShader = glGetInteger(GL_CURRENT_PROGRAM);
+            glUseProgram(0);
             renderBlock(closest);
+            glUseProgram(curShader);
         }
         if (needRender) {
             if (System.nanoTime() - lastUse > 5000000000L) {
