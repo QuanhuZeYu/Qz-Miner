@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner;
 
+import club.heiqi.qz_miner.eventIn.PlayerInteractive;
 import club.heiqi.qz_miner.lootGame.FindMines;
 import club.heiqi.qz_miner.eventIn.BlockBreakEvent;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
@@ -24,6 +25,7 @@ public class CommonProxy {
 
         qzMinerNetWork = new QzMinerNetWork(event); // 初始化网络通信
         FindMines.register();
+        PlayerInteractive.INSTANCE.register(event); // 注册玩家交互事件监听器
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)

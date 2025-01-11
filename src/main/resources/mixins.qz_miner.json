@@ -6,11 +6,12 @@
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
-    "BlockBaseOreAccessor",
-    "BWTileEntityMetaGeneratedOreAccessor",
-    "MixinsBWTileEntityMetaGenOre",
-    "MixinsTileEntityOres",
-    "TileEntityOresAccessor"
+    "enderio.MixinRightClickCrop",
+    "GTMixin.BlockBaseOreAccessor",
+    "GTMixin.BWTileEntityMetaGeneratedOreAccessor",
+    "GTMixin.MixinsBWTileEntityMetaGenOre",
+    "GTMixin.MixinsTileEntityOres",
+    "GTMixin.TileEntityOresAccessor"
   ],
   "client": [],
   "server": []
