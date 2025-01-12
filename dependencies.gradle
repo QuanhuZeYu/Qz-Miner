@@ -117,5 +117,6 @@ if(useMoreMod) {
         runtimeOnly("com.github.GTNewHorizons:Tinkers-Defense:1.2.2:dev")
         runtimeOnly("com.github.GTNewHorizons:TinkersGregworks:GTNH-1.0.30-pre:dev")
         runtimeOnly("com.github.GTNewHorizons:IguanaTweaksTConstruct:2.5.0:dev")
+        runtimeOnly("com.github.GTNewHorizons:Galacticraft:3.2.9-GTNH:dev")
     }
 }
