@@ -42,7 +42,6 @@ public class RenderMines {
     public long lastUse = 0L;
 
     @SubscribeEvent
-    @SideOnly(Side.CLIENT)
     public void onPlayerJoin(TickEvent.PlayerTickEvent event) {
         if (event.side == Side.CLIENT) {
             UUID uuid = event.player.getUniqueID();
@@ -53,7 +52,6 @@ public class RenderMines {
     }
 
     @SubscribeEvent
-    @SideOnly(Side.CLIENT)
     public void findMines(TickEvent.PlayerTickEvent event) {
         if (!CheckCompatibility.isHasClass_MSMTile) {
             unregister();
@@ -90,7 +88,6 @@ public class RenderMines {
     }
 
     @SubscribeEvent
-    @SideOnly(Side.CLIENT)
     public void renderBomb(DrawBlockHighlightEvent event) {
         if (!CheckCompatibility.isHasClass_MSMTile) return;
         if (needRender && findBomb.isEmpty()) {
@@ -121,7 +118,6 @@ public class RenderMines {
         }
     }
 
-    @SideOnly(Side.CLIENT)
     public void renderBlock(Vector3i pos) {
         glPushAttrib(GL_ALL_ATTRIB_BITS);
         glPushMatrix();
@@ -167,7 +163,6 @@ public class RenderMines {
         return false;
     }
 
-    @SideOnly(Side.CLIENT)
     public void register() {
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
