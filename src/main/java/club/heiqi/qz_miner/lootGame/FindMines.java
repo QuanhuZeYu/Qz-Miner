@@ -53,7 +53,7 @@ public class FindMines {
             } else { // 持续状态下进行计时
                 durationReady = System.nanoTime() - durationReady;
                 if (durationReady > 3000000000L) { // 持续按压了5s
-                    if (System.nanoTime() - lastUse > coolDown) { // 上次使用时间到现在超过了冷却时间
+                    if (System.nanoTime() - lastUse > (coolDown = (long) (Config.coolDown * 1_000_000_000L - 2000000000L))) { // 上次使用时间到现在超过了冷却时间
                         //MY_LOG.LOG.info("准备扫描地雷");
                         findSMT_Mines(player);
                         lastUse = System.nanoTime();
