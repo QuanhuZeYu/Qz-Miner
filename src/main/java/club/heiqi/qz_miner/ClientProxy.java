@@ -3,6 +3,8 @@ package club.heiqi.qz_miner;
 import club.heiqi.qz_miner.client.keybind.KeyBind;
 import club.heiqi.qz_miner.client.lootGame.RenderMines;
 import club.heiqi.qz_miner.client.renderSelect.RenderSelect;
+import club.heiqi.qz_miner.util.CheckCompatibility;
+import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
@@ -17,14 +19,25 @@ public class ClientProxy extends CommonProxy {
         super.preInit(event);
         keyBind = new KeyBind();
         keyBind.register();
+
         renderSelect = new RenderSelect();
         RenderSelect.register(renderSelect);
-        RenderMines renderMines = new RenderMines();
-        renderMines.register();
+
+
+    }
+
+    @Override
+    public void init(FMLInitializationEvent event) {
+        super.init(event);
+        if (CheckCompatibility.isHasClass_MSMTile) {
+            RenderMines renderMines = new RenderMines();
+            renderMines.register();
+        }
     }
 
     @Override
     public void postInit(FMLPostInitializationEvent event) {
         super.postInit(event);
+
     }
 }

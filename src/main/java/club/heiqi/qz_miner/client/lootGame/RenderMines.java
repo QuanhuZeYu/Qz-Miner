@@ -168,7 +168,6 @@ public class RenderMines {
         FMLCommonHandler.instance().bus().register(this);
     }
 
-    @SideOnly(Side.CLIENT)
     public void unregister() {
         MinecraftForge.EVENT_BUS.unregister(this);
         FMLCommonHandler.instance().bus().unregister(this);

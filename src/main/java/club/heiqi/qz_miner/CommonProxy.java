@@ -24,16 +24,21 @@ public class CommonProxy {
         BlockBreakEvent.register();
 
         qzMinerNetWork = new QzMinerNetWork(event); // 初始化网络通信
-        FindMines.register();
+
         PlayerInteractive.INSTANCE.register(event); // 注册玩家交互事件监听器
     }
 
-    // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
-    public void init(FMLInitializationEvent event) {}
-
-    // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
-    public void postInit(FMLPostInitializationEvent event) {
+    //加载“进行你的mod设置。构建你关心的任何数据结构。注册食谱。” （不需要的话可以删除）
+    public void init(FMLInitializationEvent event) {
         CheckCompatibility.checkAll(); // 检查是否含有粗矿类
+        if (CheckCompatibility.isHasClass_MSMTile) {
+            FindMines.register();
+        }
+    }
+
+    // postInit“处理与其他模组的交互，基于此完成您的设置。” （不需要的话可以删除）
+    public void postInit(FMLPostInitializationEvent event) {
+
     }
 
     // register server commands in this event handler (Remove if not needed)

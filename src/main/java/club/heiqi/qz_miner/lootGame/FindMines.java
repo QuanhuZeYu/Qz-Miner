@@ -35,6 +35,7 @@ public class FindMines {
 
     public boolean inReady = false; // 持续准备标志
     public long durationReady = 0;
+
     @SubscribeEvent
     public void findMines(TickEvent.PlayerTickEvent event) {
         if (!CheckCompatibility.isHasClass_MSMTile) {
