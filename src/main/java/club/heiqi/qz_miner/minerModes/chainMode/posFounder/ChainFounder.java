@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
+import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
@@ -9,19 +10,19 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class ChainFounder extends PositionFounder {
-    public Block sampleBlock;
-    public String sampleBlockUnLocalizedName;
+    public Logger LOG = LogManager.getLogger();
     public Set<Vector3i> visitedChainSet = new HashSet<>();
     public Set<Vector3i> nextChainSet = new HashSet<>();
     /**
@@ -29,53 +30,29 @@ public class ChainFounder extends PositionFounder {
      *
      * @param center 被破坏方块的中心坐标
      * @param player
-     * @param lock
      */
-    public ChainFounder(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-        super(center, player, lock);
+    public ChainFounder(AbstractMode mode, Vector3i center, EntityPlayer player) {
+        super(mode, center, player);
         nextChainSet.add(center);
-        visitedChainSet.add(center);
-        sampleBlock = world.getBlock(center.x, center.y, center.z);
-        sampleBlockUnLocalizedName = sampleBlock.getUnlocalizedName();
     }
 
     @Override
-    public void loopLogic() {
-        foundChain();
-        checkShouldShutdown();
-    }
-
-    public void foundChain() {
-        Set<Vector3i> temp2 = new HashSet<>(); // 下一次存储搜索到的链路点
-        for (Vector3i pos : nextChainSet) { // 遍历下个节点下的所有点
-            List<Vector3i> box = scanBox(pos); // 每个点所需要搜索的范围
-            for (Vector3i pos2 : box) { // 遍历box范围下的点 - 如果是所需要的点则先缓存到temp2
-                Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
-                if (!visitedChainSet.contains(pos2)) {
-                    if (!filter(block, pos2)) continue;
-                    temp2.add(pos2);
-                }
-            }
+    public void mainLogic() {
+        // 1.建立当前遍历所需列表，添加已访问点
+        List<Vector3i> searchList = new ArrayList<>(nextChainSet);
+        nextChainSet = new HashSet<>();
+        visitedChainSet.addAll(searchList);
+        // 2.搜索连锁点
+        Set<Vector3i> result = new HashSet<>();
+        for (Vector3i pos : searchList) {
+            result.addAll(scanBox(pos));
         }
-        // 将temp2中的点 与 center 计算距离sort
-        List<Vector3i> sort = sort(new ArrayList<>(temp2));
-        // 逐个put到cache中
-        for (Vector3i pos2 : sort) {
-            if (beforePutCheck()) break;
-            try {
-                if (checkCanBreak(pos2)) {
-                    cache.put(pos2); canBreakBlockCount++;
-                }
-            } catch (InterruptedException e) {
-//                LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
-                Thread.currentThread().interrupt(); // 恢复中断状态
-                return;
-            }
-        }
-        // 将搜索到的链路放入下个节点容器以便进行遍历
-        nextChainSet = new HashSet<>(temp2);
-        // 设置已访问点
-        visitedChainSet.addAll(nextChainSet);
+        // 3.从结果中移除已访问过的点，将结果添加到cache
+        result.removeAll(visitedChainSet);
+        cache.addAll(sort(new ArrayList<>(result)));
+        sendHeartbeat(); // 发送心跳
+        // 4.将结果作为下一次遍历的点
+        nextChainSet.addAll(result);
     }
 
     public List<Vector3i> scanBox(Vector3i pos) {
@@ -83,38 +60,34 @@ public class ChainFounder extends PositionFounder {
         int minX = center.x - radiusLimit; int maxX = center.x + radiusLimit; // 设定允许搜索的边界
         int minY = Math.max(0, (center.y - radiusLimit)); int maxY = Math.min(255, (center.y + radiusLimit)); // 限制Y
         int minZ = center.z - radiusLimit; int maxZ = center.z + radiusLimit;
-        // 搜索
+        // 遍历半径为 相邻距离配置 最大边界不超过最大半径
         for (int i = Math.max((pos.x - chainRange), minX); i <= Math.min((pos.x + chainRange), maxX); i++) {
-            int xr = Math.abs(i - center.x); // 记录当前半径值
             for (int j = Math.max((pos.y - chainRange), minY); j <= Math.min((pos.y + chainRange), maxY); j++) {
-                int yr = Math.abs(j - center.y);
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
-                    int zr = Math.abs(k - center.z);
+                    Vector3i thisPos = new Vector3i(i, j, k);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
-                    if (!checkCanBreak(new Vector3i(i, j, k))) continue; // 排除不可挖掘方块
-                    result.add(new Vector3i(i, j, k));
-                    int maxRadius = Math.max(getRadius(), Math.max(xr, Math.max(yr, zr))); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
-                    setRadius(maxRadius);
+                    if (!checkCanBreak(thisPos)) continue; // 排除不可挖掘方块
+                    if (!filter(thisPos)) continue; // 排除非连锁方块
+                    result.add(thisPos);
+                    sendHeartbeat();
                 }
             }
         }
         return result;
     }
 
-    /**
-     * 通过矿词过滤方块
-     * @param block 需要过滤的方块
-     * @return 是否通过
-     */
-    public boolean filter(Block block, Vector3i pos) {
+    public boolean filter(Vector3i pos) {
+        Block block = world.getBlock(pos.x, pos.y, pos.z);
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        if (Block.isEqualTo(sampleBlock, block)) { // 如果正在挖掘的方块和样本 equals 则通过
+        if (Block.isEqualTo(mode.blockSample, block)) { // 如果正在挖掘的方块和样本 equals 则通过
             return true;
         }
-        ItemStack sampleStack = new ItemStack(sampleBlock); // 样本方块物品
+        ItemStack sampleStack = new ItemStack(mode.blockSample); // 样本方块物品
         ItemStack blockStack = new ItemStack(block); // 当前方块物品
+        // 1.获取矿词
         int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
         int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
+        // 2.对比是否有相同的矿词
         for (int sampleOreID : sampleOreIDs) {
             for (int blockOreID : blockOreIDs) {
                 if (sampleOreID == blockOreID) {
@@ -125,49 +98,11 @@ public class ChainFounder extends PositionFounder {
         return false;
     }
 
+    public long sendTime = System.nanoTime();
     @Override
-    public boolean checkCanBreak(Vector3i pos) {
-        World world = player.worldObj;
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        try {
-            EntityPlayerMP player = allPlayerStorage.playerStatueMap.get(this.player.getUniqueID()).playerMP;
-            ItemInWorldManager iwm = player.theItemInWorldManager;
-
-            // 判断是否为创造模式
-            if (iwm.getGameType().isCreative()) {
-                return true;
-            }
-        } catch (Exception ignored) {
-
-        }
-        ItemStack holdItem = player.getCurrentEquippedItem();
-        // 判断工具能否挖掘
-        if (holdItem != null) {
-            return block.canHarvestBlock(player, meta);
-        }
-        // 判断是否为空气
-        if (block == Blocks.air) {
-            return false;
-        }
-        // 判断是否为流体
-        if (block.getMaterial().isLiquid()) {
-            return false;
-        }
-        // 判断是否为基岩
-        if (block == Blocks.bedrock) {
-            return false;
-        }
-        return true;
-    }
-
-    @Override
-    public boolean checkShouldShutdown() {
-        if (nextChainSet.isEmpty()) {
-//            logger.info("没有找到链路，停止搜索");
-            isRunning.set(false);
-            return true;
-        }
-        return super.checkShouldShutdown();
+    public void sendHeartbeat() {
+        if (System.nanoTime() - sendTime <= 50_000_000) return;
+        sendTime = System.nanoTime();
+        super.sendHeartbeat();
     }
 }

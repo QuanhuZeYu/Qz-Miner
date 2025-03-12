@@ -1,42 +1,32 @@
 package club.heiqi.qz_miner.client.keybind;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
-import club.heiqi.qz_miner.statueStorage.SelfStatue;
-import com.cleanroommc.modularui.utils.fakeworld.RenderWorld;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.ScaledResolution;
-import net.minecraft.client.renderer.GLAllocation;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
-import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.joml.Vector3i;
-import org.lwjgl.BufferUtils;
 import org.lwjgl.input.Keyboard;
 
-import java.nio.FloatBuffer;
-import java.nio.IntBuffer;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.Mod_Main.MODID;
+import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM;
 import static org.lwjgl.opengl.GL20.glUseProgram;
@@ -64,7 +54,7 @@ public class KeyBind {
 
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
-        ModeManager manager = SelfStatue.modeManager;
+        ModeManager manager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
         if (switchMainMode.isPressed()) {
             manager.nextMainMode();
             String message = "当前主模式: " + getMainMode();
@@ -79,7 +69,7 @@ public class KeyBind {
 
     @SubscribeEvent
     public void onInputEvent(InputEvent event) {
-        ModeManager modeManager = SelfStatue.modeManager;
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
         boolean isPressed = isPress.getIsKeyPressed();
         if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
         lastSendTime = System.currentTimeMillis();
@@ -95,11 +85,12 @@ public class KeyBind {
 
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
         if (!Config.showTip) {
             int curShader = glGetInteger(GL_CURRENT_PROGRAM);
             glUseProgram(0);
             glPushAttrib(GL_ALL_ATTRIB_BITS);
-            boolean isReady = SelfStatue.modeManager.getIsReady();
+            boolean isReady = modeManager.getIsReady();
             if (!isReady) {
                 glColor4f(0.823f, 0.411f, 0.117f, 0.3f);
             } else {
@@ -123,9 +114,7 @@ public class KeyBind {
             return;
         }
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过
-        mc.mcProfiler.startSection(MODID + "_tip");
-        ModeManager manager = SelfStatue.modeManager;
-        boolean isReady = manager.getIsReady();
+        boolean isReady = modeManager.getIsReady();
 
         FontRenderer fr = mc.fontRenderer;
         int screenWidth = mc.displayWidth;
@@ -164,16 +153,14 @@ public class KeyBind {
     }
 
     public String getMainMode() {
-        EntityPlayer player = mc.thePlayer;
-        UUID uuid = player.getUniqueID();
-        ModeManager modeManager = SelfStatue.modeManager;
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
         return I18n.format(modeManager.mainMode.unLocalizedName);
     }
 
     public String getSubMode() {
         EntityPlayer player = mc.thePlayer;
         UUID uuid = player.getUniqueID();
-        ModeManager modeManager = SelfStatue.modeManager;
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
         ModeManager.MainMode mainMode = modeManager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {

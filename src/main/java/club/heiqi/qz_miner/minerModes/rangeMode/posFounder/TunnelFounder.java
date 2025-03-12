@@ -1,68 +1,52 @@
 package club.heiqi.qz_miner.minerModes.rangeMode.posFounder;
 
+import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.entity.player.EntityPlayer;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+public class TunnelFounder extends PositionFounder {
 
-import static club.heiqi.qz_miner.MY_LOG.LOG;
 
-public class Tunnel extends PositionFounder {
-    public static int tunnelWidth = 3;
-
-    public Vector3i axialDir;
-    /**
-     * 构造函数准备执行搜索前的准备工作
-     *
-     * @param center 被破坏方块的中心坐标
-     * @param player
-     * @param lock
-     */
-    public Tunnel(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-        super(center, player, lock);
-        setRadius(0);
+    public TunnelFounder(AbstractMode mode, Vector3i center, EntityPlayer player) {
+        super(mode, center, player);
         Vector3f dir = getDirection();
-        axialDir = getAxialDir(dir);
+        this.dir = getAxialDir(dir);
+        this.dir = getAxialDir(getDirection());
+        vertical = calculateVertical(getAxialDir(getDirection()));
+        vertical1 = vertical[0];
+        vertical2 = vertical[1];
     }
 
+    public static int tunnelWidth = 3;
+    public Vector3i dir;
+    public int radius = 0;
+    public int width = (tunnelWidth -1)/2;
+    public Vector3i[] vertical;
+    public Vector3i vertical1;
+    public Vector3i vertical2;
     @Override
-    public void loopLogic() {
-        scan(axialDir);
-    }
-
-    public void scan(Vector3i dir) {
-        int width = (tunnelWidth - 1) / 2;
-        Vector3i[] vertical = calculateVertical(dir);
-        Vector3i vertical1 = vertical[0];
-        Vector3i vertical2 = vertical[1];
-        for (; getRadius() <= radiusLimit; increaseRadius()) {
-            Vector3i cCenter = new Vector3i(
-                center.x + dir.x * getRadius(),
-                center.y + dir.y * getRadius(),
-                center.z + dir.z * getRadius()
-            );
-            for (int i = -width; i <= width; i++) {
-                for (int j = -width; j <= width; j++) {
-                    Vector3i pos = new Vector3i(
-                        cCenter.x + i * vertical2.x + j * vertical1.x,
-                        cCenter.y + i * vertical2.y + j * vertical1.y,
-                        cCenter.z + i * vertical2.z + j * vertical1.z
-                    );
-                    if (beforePutCheck()) return;
-                    try {
-                        if (checkCanBreak(pos)) {
-                            cache.put(pos); canBreakBlockCount++;
-                        }
-                    } catch (InterruptedException e) {
-                        LOG.error("缓存队列异常");
-                        Thread.currentThread().interrupt(); // 恢复中断状态
-                        return;
-                    }
+    public void mainLogic() {
+        if (radius > radiusLimit) return;
+        Vector3i cCenter = new Vector3i(
+            center.x + dir.x * radius,
+            center.y + dir.y * radius,
+            center.z + dir.z * radius
+        );
+        for (int i = -width; i <= width; i++) {
+            for (int j = -width; j <= width; j++) {
+                Vector3i pos = new Vector3i(
+                    cCenter.x + i * vertical2.x + j * vertical1.x,
+                    cCenter.y + i * vertical2.y + j * vertical1.y,
+                    cCenter.z + i * vertical2.z + j * vertical1.z
+                );
+                if (checkCanBreak(pos)) {
+                    cache.add(pos); canBreakBlockCount++;
                 }
             }
         }
+        radius++;
     }
 
     public Vector3f getDirection() {
@@ -119,5 +103,13 @@ public class Tunnel extends PositionFounder {
         result[0] = vertical1;
         result[1] = vertical2;
         return result;
+    }
+
+    public long sendTime = System.nanoTime();
+    @Override
+    public void sendHeartbeat() {
+        if (System.nanoTime() - sendTime <= 5_000_000) return;
+        sendTime = System.nanoTime();
+        super.sendHeartbeat();
     }
 }

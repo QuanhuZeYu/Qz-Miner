@@ -1,137 +1,111 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.Mod_Main;
-import club.heiqi.qz_miner.statueStorage.SelfStatue;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
-import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.world.World;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.MY_LOG.LOG;
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
-
 /**
- * 用法指南：<br>
- * 1.构建该类时传入一个点作为中心点<br>
- * 2.运行run方法，自动提交线程池任务<br>
- * 3.直接使用queue.tack()来逐个获取点<br>
- * 该类会频繁销毁与创建，所以无需关注资源重置问题
- * 使用时需要注意心跳 - {@link club.heiqi.qz_miner.minerModes.PositionFounder#minerHeartbeat}
+ * 继承类只需处理好搜点工作即可
  */
 public abstract class PositionFounder implements Runnable {
-    public static int taskTimeLimit = Config.taskTimeLimit;
-    public static int cacheSizeMAX = Config.pointFounderCacheSize;
+    public Logger LOG = LogManager.getLogger();
+    public static int heartbeatTimeout = Config.heartbeatTimeout;
     public static int radiusLimit = Config.radiusLimit;
-    public static int chainRange = Config.chainRange;
+    public static int chainRange = Config.neighborDistance;
 
     public int canBreakBlockCount = 0;
-    public long runLoopTimer;
-    public AtomicLong minerHeartbeat = new AtomicLong(System.currentTimeMillis());
-    public Thread thread;
-    public AtomicInteger radius = new AtomicInteger(0);
-    public EntityPlayer player;
-    public World world;
-    public Vector3i center;
-    public volatile AtomicBoolean isRunning = new AtomicBoolean(false);
-    public ReentrantReadWriteLock lock;
+    public final EntityPlayer player;
+    public final World world;
+    public final Vector3i center;
+    public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis()+10_000);
+    public final AbstractMode mode;
+    public final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-
-    public volatile LinkedBlockingQueue<Vector3i> cache = new LinkedBlockingQueue<>(cacheSizeMAX);
+    /**获取到的点列表*/
+    public volatile ConcurrentLinkedQueue<Vector3i> cache = new ConcurrentLinkedQueue<>();
 
     /**
      * 构造函数准备执行搜索前的准备工作
      *
      * @param center 被破坏方块的中心坐标
-     * @param player
-     * @param lock
+     * @param player 执行者
      */
-    public PositionFounder(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-        isRunning.set(true);
-        this.lock = lock;
+    public PositionFounder(AbstractMode mode, Vector3i center, EntityPlayer player) {
+        this.mode = mode;
         this.center = center;
         this.player = player;
         this.world = player.worldObj;
-        try {
-            cache.put(center);
-        } catch (InterruptedException e) {
-            LOG.error(e);
-            Thread.currentThread().interrupt(); // 恢复中断状态
-        }
-        setRadius(0);
+        cache.add(center);
+        readConfig();
     }
 
-    public void updateTaskState() {
-        if (checkShouldShutdown()) {
-            isRunning.set(false);
-        }
-    }
-
+    /**
+     * 只有主线程AbstractMode结束，该类的run才会结束
+     */
     @Override
     public void run() {
-        thread = Thread.currentThread();
-        // 该方法只会进入一次
-        readConfig();
-        while (isRunning.get()) {
-            runLoopTimer = System.currentTimeMillis();
-            loopLogic();
-            updateTaskState();
-            try { // 默认休眠5ms - 0.1tick
-                Thread.sleep(5);
+        while (!Thread.currentThread().isInterrupted()) {
+            sendHeartbeat();
+            if (Thread.currentThread().isInterrupted()) {
+                LOG.warn("检测到线程已中断");
+                return;
+            }
+            if (System.currentTimeMillis() - heartbeatTimer.get() >= heartbeatTimeout) {
+                LOG.warn(" 心跳超时，主动中断线程");
+                Thread.currentThread().interrupt();
+                return;
+            }
+            try {
+                mainLogic();
+            } catch (Exception e) {
+                LOG.error("执行主要逻辑过程中发生错误");
+                return;
+            }
+            try {
+                Thread.sleep(0);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // 恢复中断状态
+                LOG.error("休眠时中断线程");
+                Thread.currentThread().interrupt(); // 终止线程
             }
         }
-        isRunning.set(false); // 标志结束
-    }
-    public abstract void loopLogic();
-
-    public int getRadius() {
-        return radius.get();
     }
 
-    public void setRadius(int radius) {
-        this.radius.set(radius);
+    public abstract void mainLogic();
+
+
+    public void updateHeartbeat(long timestamp) {
+        heartbeatTimer.set(timestamp);
     }
 
-    public void increaseRadius() {
-        setRadius(getRadius() + 1);
+    public void sendHeartbeat() {
+        mode.updateHeartbeat(System.currentTimeMillis());
     }
 
     public void readConfig() {
-        taskTimeLimit = Config.taskTimeLimit;
-        cacheSizeMAX = Config.pointFounderCacheSize;
+        heartbeatTimeout = Config.heartbeatTimeout;
         radiusLimit = Config.radiusLimit;
-        chainRange = Config.chainRange;
+        chainRange = Config.neighborDistance;
     }
 
     public boolean checkCanBreak(Vector3i pos) {
         World world = player.worldObj;;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        if (this.player instanceof EntityPlayerMP) {
-            try {
-                EntityPlayerMP player = (EntityPlayerMP) this.player;
-                ItemInWorldManager iwm = player.theItemInWorldManager;
-                // 判断是否为创造模式
-                if (iwm.getGameType().isCreative()) {
-                    return true;
-                }
-            } catch (Exception e) {
-                Mod_Main.LOG.warn("检查是否可以挖掘时出现异常: {}", e.toString());
-            }
-        }
+        // 创造模式直接返回 true
+        if (player.capabilities.isCreativeMode) return true;
         ItemStack holdItem = player.getCurrentEquippedItem();
         // 判断工具能否挖掘
         if (holdItem != null) {
@@ -154,86 +128,6 @@ public abstract class PositionFounder implements Runnable {
             return false;
         }
         return true;
-    }
-
-    /**
-     * 每一次put进行检查
-     * @return 返回true表示线程需要停止，false表示可以继续
-     */
-    public boolean beforePutCheck() {
-        long timer = System.currentTimeMillis();
-        while (cache.size() >= cacheSizeMAX - 10) {
-            if (!getIsReady() || Thread.currentThread().isInterrupted()) {
-//                Mod_Main.LOG.info("测试终止点");
-                return true;
-            }
-            if (isHeartbeatTimeout()) {
-                return true;
-            }
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                LOG.warn("等待时出现异常: {}", e.toString());
-                Thread.currentThread().interrupt(); // 恢复中断状态
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 一定可以停止任务的条件
-     * @return
-     */
-    public boolean checkShouldShutdown() {
-        if (getRadius() > radiusLimit) { // 超出最大半径
-//            LOG.info("[Founder]超出最大半径");
-            return true;
-        }
-        if (!isRunning.get()) {
-//            LOG.info("[Founder]运行标志结束");
-            return true;
-        }
-        if (!getIsReady()) {
-//            LOG.info("[Founder]玩家就绪状态为否");
-            return true;
-        }
-        if (Thread.currentThread().isInterrupted()) { // 线程被中断
-//            LOG.info("[Founder]线程被中断");
-            return true;
-        }
-        if (isHeartbeatTimeout()) {
-//            LOG.info("[Founder]线程心跳超时");
-            return true;
-        }
-
-        // 特殊终止条件
-        if (player.getHealth() <= 2) { // 玩家血量过低
-            LOG.info("[Founder]血量过低");
-            return true;
-        }
-        return false;
-    }
-
-    public boolean isHeartbeatTimeout() {
-        return System.currentTimeMillis() - minerHeartbeat.get() > 3000;
-    }
-
-    public boolean getIsReady() {
-        try {
-            if (allPlayerStorage.playerStatueMap.get(player.getUniqueID()).getIsReady()) { // 玩家未就绪
-                return true;
-            }
-        } catch (Exception e) {
-            try {
-                if (SelfStatue.modeManager.getIsReady()) {
-                    return true;
-                }
-            } catch (Exception ee) {
-                LOG.warn("获取就绪状态时出错: {}", ee.toString());
-            }
-        }
-        return false;
     }
 
     public List<Vector3i> sort(List<Vector3i> list) {

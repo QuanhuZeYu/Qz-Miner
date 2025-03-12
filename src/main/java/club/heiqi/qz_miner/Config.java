@@ -2,7 +2,6 @@ package club.heiqi.qz_miner;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-import com.google.common.primitives.UnsignedBytes;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -10,7 +9,6 @@ import cpw.mods.fml.client.event.ConfigChangedEvent;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.block.Block;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
@@ -28,13 +26,12 @@ public class Config {
     public static int radiusLimit = 10;
     public static int blockLimit = 1024;
     public static int perTickBlockLimit = 128;
-    public static int pointFounderCacheSize = 4096;
     public static int taskTimeLimit = 16;
-    public static int chainRange = 4;
-    public static int getCacheTimeOut = 1000;
+    public static int neighborDistance = 4;
+    public static int heartbeatTimeout = 5_000; // 5s
     public static float hunger = 1f;
     public static float overMiningDamage = 0.0003f;
-    public static String[] chainGroup = new String[]{"{id:\"minecraft:stone\", meta:0}", "{id:\"minecraft:dirt\"}"};
+    public static String[] chainGroup = new String[]{"{\"id\":\"minecraft:stone\", \"meta\":0}", "{\"id\":\"minecraft:dirt\"}"};
     public static int maxFortuneLevel = 3;
     public static boolean forceNatural = false;
     public static float dropDistance = 1.1f;
@@ -50,31 +47,48 @@ public class Config {
     public static boolean showTip = true;
     public static boolean useRender = true;
 
-    public static Multimap<String, Object> configMap = ArrayListMultimap.create();
-    static {
-        configMap.put("radiusLimit", radiusLimit);                              configMap.put("radiusLimit", Configuration.CATEGORY_GENERAL);           configMap.put("radiusLimit", 10);                               configMap.put("radiusLimit", "挖掘者搜索范围");                                                                             configMap.put("radiusLimit", 1);                          configMap.put("radiusLimit", Integer.MAX_VALUE);
-        configMap.put("blockLimit", blockLimit);                                configMap.put("blockLimit", Configuration.CATEGORY_GENERAL);            configMap.put("blockLimit", 1024);                              configMap.put("blockLimit", "一次连锁挖掘方块的数量上限");                                                                    configMap.put("blockLimit", 1);                          configMap.put("blockLimit", Integer.MAX_VALUE);
-        configMap.put("perTickBlockLimit", perTickBlockLimit);                  configMap.put("perTickBlockLimit", Configuration.CATEGORY_GENERAL);     configMap.put("perTickBlockLimit", 64);                         configMap.put("perTickBlockLimit", "每tick挖掘方块的数量上限，用于限制挖掘速度，无上限设为-1即可，无上限可能导致游戏卡顿，请酌情设置");   configMap.put("perTickBlockLimit", -1);                   configMap.put("perTickBlockLimit", Integer.MAX_VALUE);
-        configMap.put("pointFounderCacheSize", pointFounderCacheSize);          configMap.put("pointFounderCacheSize", Configuration.CATEGORY_GENERAL); configMap.put("pointFounderCacheSize", 4096);                   configMap.put("pointFounderCacheSize", "搜索队列允许缓存点数量，实现方案为多线程阻塞队列，如果你知道这是什么可以随意调整");             configMap.put("pointFounderCacheSize", 256);              configMap.put("pointFounderCacheSize", Integer.MAX_VALUE);
-        configMap.put("taskTimeLimit", taskTimeLimit);                          configMap.put("taskTimeLimit", Configuration.CATEGORY_GENERAL);         configMap.put("taskTimeLimit", 8);                              configMap.put("taskTimeLimit", "每个游戏刻连锁任务允许允许的时间，请不要设置过低或大于30可能会影响游戏流畅度或使连锁无法正常工作");        configMap.put("taskTimeLimit", 5);                        configMap.put("taskTimeLimit", 25);
-        configMap.put("chainRange", chainRange);                                configMap.put("chainRange", Configuration.CATEGORY_GENERAL);            configMap.put("chainRange", 3);                                 configMap.put("chainRange", "连锁挖掘判定相邻半径");                                                                         configMap.put("chainRange", 1);                           configMap.put("chainRange", 5);
-        configMap.put("getCacheTimeOut", getCacheTimeOut);                      configMap.put("getCacheTimeOut", Configuration.CATEGORY_GENERAL);       configMap.put("getCacheTimeOut", 1000);                         configMap.put("getCacheTimeOut", "挖掘任务获取缓存队列超时时间");                                                              configMap.put("getCacheTimeOut", 100);                    configMap.put("getCacheTimeOut", Integer.MAX_VALUE);
-        configMap.put("hunger", hunger);                                        configMap.put("hunger", Configuration.CATEGORY_GENERAL);                configMap.put("hunger", 0.25f);                                 configMap.put("hunger", "每次挖掘时消耗的饱食度(参考:0.025是原版值)");                                                          configMap.put("hunger", 0.0f);                            configMap.put("hunger", 2.0f);
-        configMap.put("overMiningDamage", overMiningDamage);                    configMap.put("overMiningDamage", Configuration.CATEGORY_GENERAL);      configMap.put("overMiningDamage", 0.001f);                      configMap.put("overMiningDamage", "挖掘时如果饱食度不足将会造成伤害，每次空饱食度挖掘都会造成一次伤害");                              configMap.put("overMiningDamage", 0.0f);                  configMap.put("overMiningDamage", 2.0f);
-        configMap.put("maxFortuneLevel", maxFortuneLevel);                      configMap.put("maxFortuneLevel", Configuration.CATEGORY_GENERAL);       configMap.put("maxFortuneLevel", 3);                            configMap.put("maxFortuneLevel", "矿石接受的最大时运等级");                                                                   configMap.put("maxFortuneLevel", 3);                     configMap.put("maxFortuneLevel", 255);
-        configMap.put("forceNatural", forceNatural);                            configMap.put("forceNatural", Configuration.CATEGORY_GENERAL);          configMap.put("forceNatural", false);                           configMap.put("forceNatural", "强制所有矿石均为自然生成类型，只有自然类型的矿石接受时运效果");
-        configMap.put("dropDistance", dropDistance);                            configMap.put("dropDistance", Configuration.CATEGORY_GENERAL);          configMap.put("dropDistance", 1.1f);                            configMap.put("dropDistance", "挖掘时掉落物距离自身的距离，距离越远掉落物越远");                                                   configMap.put("dropDistance", Float.MIN_VALUE);         configMap.put("dropDistance", Float.MAX_VALUE);
-        configMap.put("coolDown", coolDown);                                    configMap.put("coolDown", Configuration.CATEGORY_GENERAL);              configMap.put("coolDown", 30.0f);                               configMap.put("coolDown", "每次揭示时需要等待的时间，单位秒");                                                                  configMap.put("coolDown", 0.0f);                        configMap.put("coolDown", Float.MAX_VALUE);
+    public static class ConfigEntry<T> {
+        public final T field;
+        public final String category;
+        public final T defaultValue;
+        public final String desc;
+        public T minValue;
+        public T maxValue;
 
-        configMap.put("printResult", printResult);                              configMap.put("printResult", CATEGORY_CLIENT);                          configMap.put("printResult", true);                             configMap.put("printResult", "在聊天栏打印挖掘结果");
-        configMap.put("renderLineWidth", renderLineWidth);                      configMap.put("renderLineWidth", CATEGORY_CLIENT);                      configMap.put("renderLineWidth", 1.5f);                         configMap.put("renderLineWidth", "渲染线框宽度");                                                                           configMap.put("renderLineWidth", 0.1f);                   configMap.put("renderLineWidth", 10.0f);
-        configMap.put("renderFadeSpeedMultiplier", renderFadeSpeedMultiplier);  configMap.put("renderFadeSpeedMultiplier", CATEGORY_CLIENT);            configMap.put("renderFadeSpeedMultiplier", 50.0f);              configMap.put("renderFadeSpeedMultiplier", "渲染框颜色变化时间乘数，越大越慢");                                                 configMap.put("renderFadeSpeedMultiplier", 10.0f);        configMap.put("renderFadeSpeedMultiplier", Float.MAX_VALUE);
-        configMap.put("renderTime", renderTime);                                configMap.put("renderTime", CATEGORY_CLIENT);                           configMap.put("renderTime", 8f);                                configMap.put("renderTime", "每帧渲染选择结果允许的时长，过短可能会导致闪烁或者无法显示，如果需要关闭渲染功能，设置为-1即可");             configMap.put("renderTime", -1f);                          configMap.put("renderTime", 15f);
-        configMap.put("renderDistance", renderDistance);                        configMap.put("renderDistance", CATEGORY_CLIENT);                       configMap.put("renderDistance", 4.5f);                          configMap.put("renderDistance", "选择渲染框选择点最大距离");                                                                  configMap.put("renderDistance", 3f);                      configMap.put("renderDistance", 15f);
-        configMap.put("cullRender", cullRender);                                configMap.put("cullRender", CATEGORY_CLIENT);                           configMap.put("cullRender", false);                             configMap.put("cullRender", "是否剔除重合边");
-        configMap.put("showTip", showTip);                                      configMap.put("showTip", CATEGORY_CLIENT);                              configMap.put("showTip", true);                                 configMap.put("showTip", "是否显示提示信息");
-        configMap.put("useRender", useRender);                                  configMap.put("useRender", CATEGORY_CLIENT);                            configMap.put("useRender", true);                                configMap.put("useRender", "是否使用渲染功能");
+        public ConfigEntry(T fieldName, String category, T defaultValue, String desc, T minValue, T maxValue) {
+            this.field = fieldName;
+            this.category = category;
+            this.defaultValue = defaultValue;
+            this.desc = desc;
+            this.minValue = minValue;
+            this.maxValue = maxValue;
+        }
+    }
+
+    public static Map<String, ConfigEntry<?>> entryMap = new HashMap<>();
+    static {
         // 用于传递进去判断类型                                                     // 分类
+        entryMap.put("radiusLimit", new ConfigEntry<>(radiusLimit, Configuration.CATEGORY_GENERAL, 10, "最大搜索范围", 1, Integer.MAX_VALUE));
+        entryMap.put("blockLimit", new ConfigEntry<>(blockLimit, Configuration.CATEGORY_GENERAL, 1024, "连锁上限", 1, Integer.MAX_VALUE));
+        entryMap.put("perTickBlockLimit", new ConfigEntry<>(perTickBlockLimit, Configuration.CATEGORY_GENERAL, 64, "每tick挖掘限制数量", 1, Integer.MAX_VALUE));
+        entryMap.put("taskTimeLimit", new ConfigEntry<>(taskTimeLimit, Configuration.CATEGORY_GENERAL, 10, "每tick(50ms)内任务运行执行的时间 /ms", 10, Integer.MAX_VALUE));
+        entryMap.put("neighborDistance", new ConfigEntry<>(neighborDistance, Configuration.CATEGORY_GENERAL, 3, "连锁邻居探测距离", 1, Integer.MAX_VALUE));
+        entryMap.put("heartbeatTimeout", new ConfigEntry<>(heartbeatTimeout, Configuration.CATEGORY_GENERAL, 1_000, "任务心跳超时时间", 100, Integer.MAX_VALUE));
+        entryMap.put("hunger", new ConfigEntry<>(hunger, Configuration.CATEGORY_GENERAL, 0.25f, "每次挖掘消耗饱食度", 0f, Float.MAX_VALUE));
+        entryMap.put("overMiningDamage", new ConfigEntry<>(overMiningDamage, Configuration.CATEGORY_GENERAL, 0.0001f, "饱食度过低时每次挖掘消耗的生命值", 0f, Float.MAX_VALUE));
+        entryMap.put("maxFortuneLevel", new ConfigEntry<>(maxFortuneLevel, Configuration.CATEGORY_GENERAL, 3 , "矿石接受的最大时运等级", 3, 255));
+        entryMap.put("forceNatural", new ConfigEntry<>(forceNatural, Configuration.CATEGORY_GENERAL, false, "强制所有矿石为时运", null, null));
+        entryMap.put("dropDistance", new ConfigEntry<>(dropDistance, Configuration.CATEGORY_GENERAL, 1.1f, "挖掘时掉落物距离自身的距离，值越大掉落物越远", 0f, Float.MAX_VALUE));
+        entryMap.put("coolDown", new ConfigEntry<>(coolDown, Configuration.CATEGORY_GENERAL, 30.f, "每次揭示时需要等待的时间，单位秒", 0f, Float.MAX_VALUE));
+
+        entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
+        entryMap.put("renderLineWidth", new ConfigEntry<>(renderLineWidth, CATEGORY_CLIENT, 1.5f, "渲染线框宽度", 0.1f, 100f));
+        entryMap.put("renderFadeSpeedMultiplier", new ConfigEntry<>(renderFadeSpeedMultiplier, CATEGORY_CLIENT, 50.f, "渲染框颜色变化时间乘数，越大越慢", 0.f, Float.MAX_VALUE));
+        entryMap.put("renderTime", new ConfigEntry<>(renderTime, CATEGORY_CLIENT, 8f, "每帧渲染选择结果允许的时长，过短可能会导致闪烁或者无法显示", -1f, Float.MAX_VALUE));
+        entryMap.put("renderDistance", new ConfigEntry<>(renderDistance, CATEGORY_CLIENT, 4.5f, "选择渲染框选择点最大距离", 3f, Float.MAX_VALUE));
+        entryMap.put("cullRender", new ConfigEntry<>(cullRender, CATEGORY_CLIENT, false, "是否剔除重合边", null, null));
+        entryMap.put("showTip", new ConfigEntry<>(showTip, CATEGORY_CLIENT, true, "是否显示左下角提示", null, null));
+        entryMap.put("useRender", new ConfigEntry<>(useRender, CATEGORY_CLIENT, true, "是否使用渲染功能", null, null));
     }
 
     public void init(File configFile) {
@@ -85,28 +99,53 @@ public class Config {
         }
     }
 
+//    public static void walkMap(Consumer<ConfigFieldData> handler) {
+//        Iterator<String> iterator = configMap.keySet().iterator();
+//        Class<Config> clazz = Config.class;
+//        while (iterator.hasNext()) {
+//            String name = iterator.next();
+//            Collection<Object> value = configMap.get(name);
+//            List<Object> values = new ArrayList<>(value);
+//            Object staticValue = values.get(0); // 用于获取类型
+//            Field field = null;
+//            try {
+//                field = clazz.getDeclaredField(name);
+//            } catch (NoSuchFieldException e) {
+//                throw new RuntimeException(e);
+//            }
+//            String category = (String) values.get(1);
+//            Object defaultValue = values.get(2);
+//            String description = (String) values.get(3);
+//            Object minValue = new Object(), maxValue = new Object();
+//            if (values.size() > 4) {
+//                minValue = values.get(4);
+//                maxValue = values.get(5);
+//            }
+//            // 在此处可以插入自定义的函数处理上述内容
+//            ConfigFieldData fieldData = new ConfigFieldData(field, name, staticValue, category, defaultValue, description, minValue, maxValue);
+//            handler.accept(fieldData); // 回调
+//        }
+//    }
+
     public static void walkMap(Consumer<ConfigFieldData> handler) {
-        Iterator<String> iterator = configMap.keySet().iterator();
+        Iterator<String> iterator = entryMap.keySet().iterator();
         Class<Config> clazz = Config.class;
         while (iterator.hasNext()) {
             String name = iterator.next();
-            Collection<Object> value = configMap.get(name);
-            List<Object> values = new ArrayList<>(value);
-            Object staticValue = values.get(0); // 用于获取类型
-            Field field = null;
+            ConfigEntry<?> value = entryMap.get(name);
+            Object staticValue = value.field; // 用于获取类型
+            Field field;
             try {
                 field = clazz.getDeclaredField(name);
             } catch (NoSuchFieldException e) {
                 throw new RuntimeException(e);
             }
-            String category = (String) values.get(1);
-            Object defaultValue = values.get(2);
-            String description = (String) values.get(3);
+            String category = value.category;
+            Object defaultValue = value.defaultValue;
+            String description = value.desc;
             Object minValue = new Object(), maxValue = new Object();
-            if (values.size() > 4) {
-                minValue = values.get(4);
-                maxValue = values.get(5);
-            }
+            if (value.minValue != null) minValue = value.minValue;
+            if (value.maxValue != null) maxValue = value.maxValue;
             // 在此处可以插入自定义的函数处理上述内容
             ConfigFieldData fieldData = new ConfigFieldData(field, name, staticValue, category, defaultValue, description, minValue, maxValue);
             handler.accept(fieldData); // 回调

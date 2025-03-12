@@ -1,13 +1,11 @@
 package club.heiqi.qz_miner.network;
 
-import club.heiqi.qz_miner.client.lootGame.RenderMines;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
-import net.minecraft.entity.player.EntityPlayer;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
@@ -50,9 +48,8 @@ public class PacketSweepMine implements IMessage {
             Minecraft mc = ctx.getClientHandler().gameController;
             EntityClientPlayerMP player = mc.thePlayer;
             UUID uuid = player.getUniqueID();
-//            UUID uuid = player.getUniqueID();
-            RenderMines.findBombMap.get(uuid).clear();
-            RenderMines.findBombMap.get(uuid).addAll(message.mines);
+//            RenderMines.findBombMap.get(uuid).clear();
+//            RenderMines.findBombMap.get(uuid).addAll(message.mines);
             return null;
         }
     }

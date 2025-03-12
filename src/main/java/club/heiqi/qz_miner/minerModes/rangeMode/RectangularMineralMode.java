@@ -1,66 +1,67 @@
 package club.heiqi.qz_miner.minerModes.rangeMode;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.Rectangular;
+import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularFounder;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
-import net.minecraft.world.World;
+import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
 
+import java.util.List;
+
 public class RectangularMineralMode extends AbstractMode {
-    public RectangularMineralMode() {
-        super();
+
+    public RectangularMineralMode(ModeManager modeManager, Vector3i center) {
+        super(modeManager, center);
+        timer = System.currentTimeMillis();
+        positionFounder = new RectangularFounder(this, center, modeManager.player);
     }
 
+    public int failCounter = 0;
+    public long failTimer = 0;
+    public long lastTime = System.currentTimeMillis();
+    public int tickBreakCount = 0;
+    public int allBreakCount = 0;
     @Override
-    public void setup(World world, EntityPlayerMP player, Vector3i center) {
-        super.setup(world, player, center);
-        // 收集掉落物样本
-        Block block = breaker.world.getBlock(center.x, center.y, center.z);
-        int meta = breaker.world.getBlockMetadata(center.x, center.y, center.z);
-        int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
-        dropSample = block.getDrops(world, center.x, center.y, center.z, meta, fortune);
-        blockSample = block;
+    public void mainLogic() {
+        if (allBreakCount >= blockLimit) return;
+        lastTime = System.currentTimeMillis();
+        while (System.currentTimeMillis() - lastTime <= taskTimeLimit) {
+            if (tickBreakCount >= perTickBlock) break;
+            Vector3i pos = positionFounder.cache.poll();
+            if (pos == null) {
+                if (failCounter == 0) failTimer = System.currentTimeMillis();
+                if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
+                failCounter++;
+                return;
+            }
+            failCounter = 0;
+            if (checkCanBreak(pos)) {
+                breaker.tryHarvestBlock(pos);
+                tickBreakCount++;
+                allBreakCount++;
+            }
+        }
+        tickBreakCount = 0;
     }
 
+    public long timer;
     @Override
-    public boolean filter(Vector3i pos) {
-        Block block = breaker.world.getBlock(pos.x, pos.y, pos.z);
-        String blockUnLocalizedName = block.getUnlocalizedName().toLowerCase();
-        String sampleUnLocalizedName = blockSample.getUnlocalizedName().toLowerCase();
-        ItemStack sampleStack = new ItemStack(blockSample);
-        ItemStack blockStack = new ItemStack(block);
-        int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
-        int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
-        boolean is270Upper = CheckCompatibility.isHasClass_BlockOresAbstract;
-        // 粗矿逻辑直接通过
-        if (is270Upper) {
-            if (block instanceof BlockOresAbstract) {
-                return true;
-            }
-        }
-        // 连锁逻辑
-        for (int sampleOreID : sampleOreIDs) {
-            for (int blockOreID : blockOreIDs) {
-                if (sampleOreID == blockOreID) {
-                    return true;
-                }
-            }
-        }
-        // 下面这段逻辑即将废弃
-        if ((blockUnLocalizedName.startsWith("ore")
-            || blockUnLocalizedName.contains("blockore")
-            || blockUnLocalizedName.contains("rawore")
-            ) && (sampleUnLocalizedName.startsWith("ore")
-            || sampleUnLocalizedName.contains("blockore")
-            || sampleUnLocalizedName.contains("rawore"))) { // 如果样本和挖掘方块都为矿石，则认为可以连锁
-            return true;
-        }
-        return blockUnLocalizedName.equals(sampleUnLocalizedName);
+    public void unregister() {
+        super.unregister();
+        long totalTime = System.currentTimeMillis() - timer;
+        // 分割秒和毫秒
+        int seconds = (int)(totalTime / 1000);  // 秒数
+        long milliseconds = totalTime % 1000;  // 毫秒数
+        String message = "本次共挖掘: " + allBreakCount + "个方块"
+            + " 共用时: " + seconds + "秒"
+            + milliseconds + "毫秒";
+        ChatComponentText text = new ChatComponentText(message);
+        modeManager.player.addChatMessage(text);
     }
 }

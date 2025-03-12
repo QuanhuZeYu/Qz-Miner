@@ -39,7 +39,6 @@ public class PacketMainMode implements IMessage {
             UUID uuid = player.getUniqueID();
             ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
             modeManager.mainMode = ModeManager.MainMode.values()[message.mode];
-//            logger.info("主模式已切换为: {}", modeManager.mainMode.unLocalizedName);
             return null;
         }
     }

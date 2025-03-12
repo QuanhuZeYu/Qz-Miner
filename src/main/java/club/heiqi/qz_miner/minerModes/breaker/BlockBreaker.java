@@ -19,10 +19,12 @@ import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.server.S23PacketBlockChange;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
+import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 import org.joml.*;
@@ -43,27 +45,105 @@ public class BlockBreaker {
     public World world;
     public List<ItemStack> drops = new ArrayList<>();
 
-    public BlockBreaker(EntityPlayerMP player, World world) {
-        this.player = player;
+    public BlockBreaker(EntityPlayer player, World world) {
+        for (EntityPlayerMP playerMP : MinecraftServer.getServer().getConfigurationManager().playerEntityList) {
+            if (playerMP.getUniqueID() == player.getUniqueID()) {
+                this.player = playerMP;
+            }
+        }
         this.world = world;
     }
 
     public void tryHarvestBlock(Vector3i pos) {
-        ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
+        int x = pos.x; int y = pos.y; int z = pos.z;
+        BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, player.theItemInWorldManager.getGameType(), player, x, y, z);
+        if (breakEvent.isCanceled()) {
+            return;
+        }
+        // 2. 工具预检查逻辑优化
+        ItemStack heldItem = player.getHeldItem();
+        if (heldItem != null && heldItem.getItem().onBlockStartBreak(heldItem, x, y, z, player)) {
+            return;
+        }
+
+        // 3. 元数据缓存减少重复调用
+        final Block block = world.getBlock(x, y, z);
+        final int metadata = world.getBlockMetadata(x, y, z);
+        final int blockId = Block.getIdFromBlock(block);
+
+        // 4. 播放音效（使用常量代替魔法数字）
+        final int BLOCK_BREAK_SFX_ID = 2001;
+        world.playAuxSFXAtEntity(player, BLOCK_BREAK_SFX_ID, x, y, z, blockId + (metadata << 12));
+
+        // 5. 破坏逻辑重构
+        boolean isBlockRemoved;
+        if (player.capabilities.isCreativeMode) {
+            isBlockRemoved = removeBlock(x, y, z, false);
+            player.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x, y, z, world));  // 封装数据包发送
+        } else {
+            isBlockRemoved = handleSurvivalBreak(x, y, z, block, metadata, heldItem);
+        }
+        // 6. 经验掉落逻辑优化
+        if (!player.capabilities.isCreativeMode && isBlockRemoved) {
+            block.dropXpOnBlockBreak(world, x, y, z, breakEvent.getExpToDrop());
+        }
+
+        /*player.theItemInWorldManager.tryHarvestBlock(pos.x, pos.y, pos.z);*/
+
+        /*Block block = world.getBlock(pos.x, pos.y, pos.z);
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         world.playAuxSFXAtEntity(player, 2001, pos.x, pos.y, pos.z, getIdFromBlock(block) + (meta << 12)); // 播放方块破坏音效
 
-        if (itemInWorldManager.isCreative()) { // 创造模式
+        if (player.capabilities.isCreativeMode) { // 创造模式
             handleCreativeMode(pos, block, meta);
         } else { // 非创造模式
             handleSurvivalMode(pos, block, meta);
+        }*/
+    }
+
+    private boolean handleSurvivalBreak(int x, int y, int z, Block block, int metadata, ItemStack tool) {
+        boolean canHarvest = block.canHarvestBlock(player, metadata);
+        boolean isRemoved = removeBlock(x, y, z, canHarvest);
+        if (tool != null) {
+            tool.func_150999_a(world, block, x, y, z, player);  // func_150999_a = onBlockDestroyed
+            if (tool.stackSize <= 0) {
+                player.destroyCurrentEquippedItem();
+            }
         }
+        if (isRemoved && canHarvest) {
+            block.harvestBlock(world, player, x, y, z, metadata);
+        }
+        return isRemoved;
+    }
+
+    /**
+     * 尝试移除指定坐标处的方块。
+     *
+     * @param x           方块的x坐标
+     * @param y           方块的y坐标
+     * @param z           方块的z坐标
+     * @param canHarvest  是否允许收获方块的掉落物
+     * @return 如果方块成功被移除则返回true，否则返回false
+     */
+    public boolean removeBlock(int x, int y, int z, boolean canHarvest) {
+        canHarvest = false;
+        // 获取目标位置的方块及其元数据
+        Block targetBlock = world.getBlock(x, y, z);
+        int blockMetadata = world.getBlockMetadata(x, y, z);
+        // 通知方块即将被破坏（前置处理，如触发事件）
+        targetBlock.onBlockHarvested(world, x, y, z, blockMetadata, player);
+        // 尝试通过玩家移除方块，返回操作是否成功
+        boolean isBlockRemoved = targetBlock.removedByPlayer(
+            world, player, x, y, z, canHarvest
+        );
+        // 若移除成功，触发方块的销毁后处理逻辑
+        if (isBlockRemoved) {
+            targetBlock.onBlockDestroyedByPlayer(world, x, y, z, blockMetadata);
+        }
+        return isBlockRemoved;
     }
 
     public void handleCreativeMode(Vector3i pos, Block block, int meta) {
-        ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
         if (!Block.isEqualTo(block, Blocks.skull)) {
             block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
         }
@@ -75,17 +155,11 @@ public class BlockBreaker {
             );
             MinecraftForge.EVENT_BUS.post(event);
         }
-
-        // 发送方块更新包
-        itemInWorldManager.thisPlayerMP.playerNetServerHandler.sendPacket(
-            new S23PacketBlockChange(pos.x, pos.y, pos.z, world)
-        );
     }
 
     public void handleSurvivalMode(Vector3i pos, Block block, int meta) {
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
-        ItemInWorldManager itemInWorldManager = player.theItemInWorldManager;
-        ItemStack holdItem = itemInWorldManager.thisPlayerMP.getCurrentEquippedItem();
+        ItemStack holdItem = player.getCurrentEquippedItem();
 
         if (!Block.isEqualTo(block, Blocks.skull)) {
             block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
@@ -98,7 +172,7 @@ public class BlockBreaker {
                 player.addStat(StatList.objectUseStats[Item.getIdFromItem(holdItem.getItem())], 1);
             }
             if (holdItem.stackSize == 0) {
-                itemInWorldManager.thisPlayerMP.destroyCurrentEquippedItem();
+                player.destroyCurrentEquippedItem();
             }
         }
 
@@ -144,22 +218,16 @@ public class BlockBreaker {
             } else {
                 drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
             }
-//            drop.forEach(itemStack -> MY_LOG.LOG.info("未修改前: 掉落物x{}个: {}", itemStack.stackSize, itemStack.getDisplayName()));
 
             BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
                 pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(drop), player, false
             );
             MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
             drop = event.drops;
-            /*drop.forEach(itemStack -> {
-                MY_LOG.LOG.info("当前时运: {}, 掉落物x{}个: {}", fortune, itemStack.stackSize, itemStack.getDisplayName());
-            });*/
 
-            // if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, false)) { // 移除方块事件--造成复制的元凶
             world.setBlockToAir(pos.x, pos.y, pos.z);
-            drops.addAll(drop);
+//            drops.addAll(drop);
             checkFoodLevel();
-//            }
         }
         for (ItemStack drop : drops) {
             world.spawnEntityInWorld(new EntityItem(world, dropPos.x, dropPos.y, dropPos.z, drop));

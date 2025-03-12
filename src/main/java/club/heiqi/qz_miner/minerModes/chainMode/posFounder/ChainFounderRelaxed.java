@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
+import club.heiqi.qz_miner.minerModes.AbstractMode;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.EntityPlayer;
@@ -11,32 +12,31 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class ChainFounderRelaxed extends ChainFounder{
+public class ChainFounderRelaxed extends ChainFounder {
     public List<ItemStack> sampleDrops = new ArrayList<>();
 
-    /**
-     * 构造函数准备执行搜索前的准备工作
-     *
-     * @param center 被破坏方块的中心坐标
-     * @param player
-     * @param lock
-     */
-    public ChainFounderRelaxed(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-        super(center, player, lock);
-        int metaData = world.getBlockMetadata(center.x, center.y, center.z);
+
+    public ChainFounderRelaxed(AbstractMode mode, Vector3i center, EntityPlayer player) {
+        super(mode, center, player);
         int fortune = EnchantmentHelper.getFortuneModifier(player);
-        sampleDrops = sampleBlock.getDrops(world, center.x, center.y, center.z, metaData, fortune);
+        sampleDrops = mode.blockSample.getDrops(world, center.x, center.y, center.z, mode.blockSampleMeta, fortune);
     }
 
     @Override
-    public boolean filter(Block block, Vector3i pos) {
+    public void mainLogic() {
+        super.mainLogic();
+    }
+
+    @Override
+    public boolean filter(Vector3i pos) {
+        Block block = world.getBlock(pos.x, pos.y, pos.z);
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        // 完全相同
-        if (sampleBlock.equals(block)) {
+        // 物块类相同
+        if (mode.blockSample.equals(block)) {
             return true;
         }
         // 矿词相同
-        ItemStack sampleStack = new ItemStack(sampleBlock);
+        ItemStack sampleStack = new ItemStack(mode.blockSample);
         ItemStack blockStack = new ItemStack(block);
         int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
         int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
@@ -58,5 +58,13 @@ public class ChainFounderRelaxed extends ChainFounder{
             }
         }
         return false;
+    }
+
+    public long sendTime = System.nanoTime();
+    @Override
+    public void sendHeartbeat() {
+        if (System.nanoTime() - sendTime <= 5_000_000) return;
+        sendTime = System.nanoTime();
+        super.sendHeartbeat();
     }
 }

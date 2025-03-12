@@ -16,6 +16,7 @@ import org.apache.logging.log4j.Logger;
     guiFactory = MOD_INFO.GUI_FACTORY_CLASS
 )
 public class Mod_Main {
+    /**全局玩家信息类*/
     public static AllPlayer allPlayerStorage = new AllPlayer();
     public static QzMinerNetWork qzMinerNetWork;
     public static QzMinerCommand qzMinerCommand = new QzMinerCommand();

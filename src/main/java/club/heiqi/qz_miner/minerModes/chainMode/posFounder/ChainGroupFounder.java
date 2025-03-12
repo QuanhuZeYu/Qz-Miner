@@ -1,40 +1,43 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
-import club.heiqi.qz_miner.minerModes.PositionFounder;
-import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.api.metatileentity.BaseMetaTileEntity;
 import gregtech.common.blocks.TileEntityOres;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.world.World;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
-
-public class ChainFounder_Strict extends PositionFounder {
-    public Set<Vector3i> visitedChainSet = new HashSet<>();
-    public Set<Vector3i> nextChainSet = new HashSet<>();
-
-
-    public ChainFounder_Strict(AbstractMode mode, Vector3i center, EntityPlayer player) {
+public class ChainGroupFounder extends ChainFounder_Strict{
+    public Logger LOG = LogManager.getLogger();
+    public List<BlockInfo> sameList = new ArrayList<>();
+    public boolean inSame = false;
+    public ChainGroupFounder(AbstractMode mode, Vector3i center, EntityPlayer player) {
         super(mode, center, player);
-        nextChainSet.add(center);
+        readConfig();
+        String id = mode.blockSample.getUnlocalizedName();
+        for (BlockInfo i : sameList) {
+            if (i.id.equals(id)) {
+                inSame = true;
+                break;
+            }
+        }
     }
+
 
     @Override
     public void mainLogic() {
+        if (!inSame) return;
         // 1.建立当前遍历所需列表，添加已访问点
         List<Vector3i> searchList = new ArrayList<>(nextChainSet);
         nextChainSet = new HashSet<>();
@@ -52,6 +55,7 @@ public class ChainFounder_Strict extends PositionFounder {
         nextChainSet.addAll(result);
     }
 
+    @Override
     public List<Vector3i> scanBox(Vector3i pos) {
         List<Vector3i> result = new ArrayList<>();
         int minX = center.x - radiusLimit; int maxX = center.x + radiusLimit; // 设定允许搜索的边界
@@ -77,33 +81,19 @@ public class ChainFounder_Strict extends PositionFounder {
      * 严格过滤模式
      * @return 是否通过
      */
+    @Override
     public boolean filter(Vector3i pos) {
         Block block = world.getBlock(pos.x, pos.y, pos.z);
+        String id = block.getUnlocalizedName();
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        if (mode.blockSample.equals(block)) {
-            // 再检查metaID是否一致
-            try {
-                int blockMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-                int itemMeta = new ItemStack(block, 1, blockMeta).getItemDamage();
-                if (itemMeta == mode.blockSampleMeta) { // metaID一致之后继续进行校验
-                    if (!CheckCompatibility.is270Upper) return true; // 270以下版本不检查metaID
-                    TileEntity tile = world.getTileEntity(pos.x, pos.y, pos.z);
-                    // 检查选取方块和样本方块是否为格雷矿石类
-                    if (isTileEntityOreSame(tile, mode.tileSample)){
-                        return true;
-                    // 检查选取方块和样本方块是否为格雷TileEntity基类
-                    } else if (isBaseMetaTileEntitySame(tile, mode.tileSample)) {
-                        return true;
-                    // 不包含格雷矿石类和TileEntity基类 在meta一致的情况下直接返回true
-                    } else {
-                        return true;
-                    }
-                }
-            } catch (Exception e) {
-                return false;
+        boolean hasSame = false;
+        for (BlockInfo info : sameList) {
+            if (info.id.equals(id)) {
+                hasSame = true;
+                break;
             }
         }
-        return false;
+        return hasSame;
     }
 
     /**
@@ -118,6 +108,7 @@ public class ChainFounder_Strict extends PositionFounder {
      * @param sampleEntity   要比较的第二个 TileEntity 实例，作为样本
      * @return 如果两个 TileEntity 都是矿石实体并且其元数据相同，则返回 true；否则返回 false
      */
+    @Override
     public boolean isTileEntityOreSame(TileEntity tileEntity, TileEntity sampleEntity) {
         // 如果任一 TileEntity 为 null，则直接返回 false
         if (tileEntity == null || sampleEntity == null) return false;
@@ -147,6 +138,7 @@ public class ChainFounder_Strict extends PositionFounder {
      * @param sampleEntity   要比较的第二个 TileEntity 实例，作为样本
      * @return 如果两个 TileEntity 都是基元数据 TileEntity 并且其元数据标识符相同，则返回 true；否则返回 false
      */
+    @Override
     public boolean isBaseMetaTileEntitySame(TileEntity tileEntity, TileEntity sampleEntity) {
         // 如果任一 TileEntity 为 null，则直接返回 false
         if (tileEntity == null || sampleEntity == null) return false;
@@ -164,6 +156,24 @@ public class ChainFounder_Strict extends PositionFounder {
         }
         // 如果任一条件不满足，则返回 false
         return false;
+    }
+
+    public static class BlockInfo {
+        public String id;
+        public int meta;
+    }
+    @Override
+    public void readConfig() {
+        String[] sameList = Config.chainGroup;
+        Gson gson = new Gson();
+        for (String x : sameList) {
+            try {
+                BlockInfo info = gson.fromJson(x, BlockInfo.class);
+                this.sameList.add(info);
+            } catch (JsonSyntaxException e) {
+                LOG.error("解析字符串时出错: {}", x);
+            }
+        }
     }
 
     public long sendTime = System.nanoTime();

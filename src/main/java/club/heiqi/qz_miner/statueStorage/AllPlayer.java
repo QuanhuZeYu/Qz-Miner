@@ -10,21 +10,28 @@ import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import static club.heiqi.qz_miner.MY_LOG.LOG;
-
 public class AllPlayer {
+    public static Logger LOG = LogManager.getLogger();
+    /**
+     * 玩家UUID为键 - 连锁管理器
+     */
     public Map<UUID, ModeManager> playerStatueMap = new HashMap<>();
 
-    // 客户端连接服务器事件
 
+    /**
+     * 通用:
+     *  进入世界时收集信息 - 初始化连锁状态
+     * @param event
+     */
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (event.player.worldObj.isRemote) SelfStatue.modeManager = new ModeManager();
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {
@@ -32,14 +39,18 @@ public class AllPlayer {
         } else {
             LOG.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
             ModeManager modeManager = new ModeManager();
-            modeManager.playerMP = (EntityPlayerMP) player;
+            modeManager.player = player;
             playerStatueMap.put(uuid, modeManager);
+            modeManager.register();
         }
     }
 
+    /**
+     * 退出时清理 - 清空连锁状态
+     * @param event
+     */
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
-        if (event.player.worldObj.isRemote) SelfStatue.modeManager = null;
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {

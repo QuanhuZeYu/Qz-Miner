@@ -38,7 +38,6 @@ public class PacketPrintResult implements IMessage {
             UUID uuid = player.getUniqueID();
             ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
             modeManager.setPrintResult(message.printResult);
-//            LOG.info("{}已设置为：{}", player.getDisplayName(), modeManager.getPrintResult());
             return null;
         }
     }

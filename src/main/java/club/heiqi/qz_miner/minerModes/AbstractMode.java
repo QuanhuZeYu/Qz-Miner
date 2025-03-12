@@ -1,121 +1,121 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
-import club.heiqi.qz_miner.threadPool.QzMinerThreadPool;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.block.Block;
-import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.management.ItemInWorldManager;
-import net.minecraft.util.ChatComponentText;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import static club.heiqi.qz_miner.MY_LOG.LOG;
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 现在这个类会被反射多次实例化，不再是单例模式!
+ * 抽象类，实际并没有执行任何功能，功能请在实现类中完成
  */
 public abstract class AbstractMode {
-    public static int timeout = 1000;
-    public static int timeLimit = Config.taskTimeLimit;
+    public Logger LOG = LogManager.getLogger();
+    public static int heartbeatTimeout = Config.heartbeatTimeout;
+    public static int taskTimeLimit = Config.taskTimeLimit;
     public static int perTickBlock = Config.perTickBlockLimit;
     public static int blockLimit = Config.blockLimit;
-    @Nullable
+
+    public final ModeManager modeManager;
+    /**提供挖掘点坐标的类*/
     public PositionFounder positionFounder;
-    public BlockBreaker breaker;
-    // 用于控制是否结束
-    public AtomicBoolean isRunning = new AtomicBoolean(false);
-    public AtomicBoolean isWait = new AtomicBoolean(false);
-    public long timer;
-    public long getCacheFailTimeOutTimer;   // 获取cache超时会结束
-    public int getCacheFailCount = 0;       // 获取cache失败次数，用于重置超时时间
-    public int blockCount = 1;                  // 挖掘方块数量，达到挖掘数量时也会结束
-    public int perTickCounter;
+    @Nullable
+    public Thread thread;
+    public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis());
+    /**提供挖掘方法的便捷类*/
+    public final BlockBreaker breaker;
 
-    public ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    public Block blockSample;
-    public List<ItemStack> dropSample = new ArrayList<>(); // 掉落物样本数组
+    public final Vector3i center;
+    /**挖掘样本*/
+    public final Block blockSample;
+    public final TileEntity tileSample;
+    public final int blockSampleMeta;
 
-    public void updateTaskType() {
-        isWait.set(checkShouldWait());
-        isRunning.set(!checkShouldShutdown());
-    }
-
-    public void setup(World world, EntityPlayerMP player, Vector3i center) {
-        isRunning.set(true);
-        isWait.set(false);
+    public AbstractMode(ModeManager modeManager, Vector3i center) {
+        EntityPlayer player = modeManager.player;
+        this.modeManager = modeManager;
+        World world = modeManager.world;
+        this.center = center;
+        blockSample = world.getBlock(center.x, center.y, center.z);
+        tileSample = world.getTileEntity(center.x, center.y, center.z);
+        blockSampleMeta = world.getBlockMetadata(center.x, center.y, center.z);
         breaker = new BlockBreaker(player, world);
-
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
-        positionFounder = modeManager.getPositionFounder(center, player, lock);
+        readConfig();
     }
 
-    public void run() {
-        readConfig();
+    public void autoSetup() {
+        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
-        if (positionFounder != null) {
-            QzMinerThreadPool.pool.submit(positionFounder);
-        }
+        thread.start();
     }
 
     @SubscribeEvent
-    public void onTick(TickEvent.ServerTickEvent event) {
-        timer = System.currentTimeMillis();
-        updateTaskType();
-        // 每次循环只挖掘一个点
-        while (isRunning.get()) {
-            try {
-                Vector3i pos = null;
-                if (positionFounder != null) {
-                    pos = positionFounder.cache.poll(5, TimeUnit.MILLISECONDS);
-                }
-                if (pos != null && checkCanBreak(pos) && filter(pos)) {
-                    breaker.tryHarvestBlock(pos);
-                    sendHeartbeat();
-                    blockCount++;
-                    perTickCounter++;
-                }
-            } catch (InterruptedException e) {
-                LOG.warn("线程异常");
-            }
-            updateTaskType();
-            if (isWait.get()) {
-//                Mod_Main.LOG.info("正在等待");
-                break;
-            }
+    public void tick(TickEvent.ServerTickEvent event) {
+        sendHeartbeat();
+        long current = System.currentTimeMillis();
+        long heart = heartbeatTimer.get();
+        if (current -heart >= heartbeatTimeout) {
+            shutdown();
+            return;
         }
-        perTickCounter = 0;
-        updateTaskType();
-        if (!isRunning.get()) {
-            unregister();
+        if (!modeManager.getIsReady()) {
+            LOG.warn("玩家松开按键");
+            shutdown();
+            return;
         }
+        if (!modeManager.isRunning.get()) {
+            LOG.warn("已停止运行");
+            shutdown();
+            return;
+        }
+        mainLogic();
+    }
+
+    public abstract void mainLogic();
+
+
+
+
+
+
+
+
+    /**
+     * 该方法由其 PositionFounder 进行更新
+     * @param timestamp
+     */
+    public void updateHeartbeat(long timestamp) {
+        heartbeatTimer.set(timestamp);
+    }
+
+    public void sendHeartbeat() {
+        positionFounder.updateHeartbeat(System.currentTimeMillis());
     }
 
     public boolean checkCanBreak(Vector3i pos) {
         World world = breaker.world;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
-        EntityPlayerMP player = breaker.player;
-        ItemInWorldManager iwm = player.theItemInWorldManager;
-        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
+        EntityPlayer player = breaker.player;
+        ItemStack holdItem = player.getCurrentEquippedItem();
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         // 判断是否为创造模式
-        if (iwm.getGameType().isCreative()) {
+        if (player.capabilities.isCreativeMode) {
             return true;
         }
         // 判断是否为空气
@@ -136,143 +136,55 @@ public abstract class AbstractMode {
         }
         // 判断工具能否挖掘
         if (holdItem != null) {
-            // 检查工具耐久度
-            if (holdItem.getItemDamage() <= 1) {
-                return false;
-            }
             return block.canHarvestBlock(player, meta);
         }
         return true;
     }
 
+
+
+
+
+
+
     public void register() {
-        isRunning.set(true);
         // 注册监听器
         FMLCommonHandler.instance().bus().register(this);
         LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", breaker.player.getDisplayName());
     }
 
+    /**
+     * 关闭点搜寻器并且卸载任务
+     */
+    public void shutdown() {
+        modeManager.isRunning.set(false);
+        if (thread != null) {
+            thread.interrupt(); // 终止线程
+        }
+        positionFounder = null;
+        unregister();
+    }
+
+    /**
+     * 请使用 shutdownPositionFounder 方法终止任务
+     */
     public void unregister() {
-        isRunning.set(false);
         // 注销监听器
         LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
-        try {
-            ModeManager modeManager = allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID());
-            modeManager.isRunning.set(false);
-            if (positionFounder != null && modeManager.getPrintResult()) {
-                String text = "挖掘任务结束，共挖掘" + blockCount + "方块，" + positionFounder.getRadius() + "格半径";
-                sendMessage(text);
-            }
-        } catch (Exception e) {
-            Mod_Main.LOG.error("卸载监听器发送结果消息时出错: {}", e.toString());
-        } finally {
-            FMLCommonHandler.instance().bus().unregister(this);
-        }
+        FMLCommonHandler.instance().bus().unregister(this);
     }
 
-    public boolean checkTimeout() {
-        long time = System.currentTimeMillis() - timer;
-        return time > timeLimit;
-    }
 
-    /**
-     * 达到条件会跳过tick的执行，直到满足可以运行tick的条件
-     * @return
-     */
-    public boolean checkShouldWait() {
-        if (isInLag()) {
-            return true;
-        }
-        if (positionFounder != null && positionFounder.cache.isEmpty()) { // 如果缓存为空
-            return true;
-        }
-        if (perTickCounter >= perTickBlock) {
-            return true;
-        }
-        if (checkTimeout()) { // 超时
-            return true;
-        }
-        return false;
-    }
 
-    /**
-     * 该方法指示了一定会达成停止的条件
-     */
-    public boolean checkShouldShutdown() {
-        if (blockCount >= blockLimit) { // 达到限制数量
-//            Mod_Main.LOG.info("达到数量上限停止");
-            return true;
-        }
-        if (positionFounder != null
-            && positionFounder.cache.isEmpty()
-            && !positionFounder.isRunning.get()) { // 缓存为空且任务结束
-//            Mod_Main.LOG.info("缓存为空且任务结束停止");
-            return true;
-        }
-        if (breaker.player.getHealth() <= 2) { // 玩家生命值过低
-//            Mod_Main.LOG.info("玩家生命值过低");
-            return true;
-        }
-        if (positionFounder != null && positionFounder.cache.isEmpty()) { // 获取缓存失败
-            if (getCacheFailCount <= 1) {
-                getCacheFailCount++;
-                getCacheFailTimeOutTimer = System.currentTimeMillis();
-            } else {
-                if (System.currentTimeMillis() - getCacheFailTimeOutTimer > timeout) {
-//                    Mod_Main.LOG.info("获取缓存失败");
-                    return true;
-                }
-            }
-        }
-        if (!getIsReady()) {
-//            Mod_Main.LOG.info("挖掘任务未就绪");
-            return true;
-        }
-        return false;
-    }
 
-    public boolean filter(Vector3i pos) {
-        return true;
-    }
 
-    public boolean getIsReady() {
-        try {
-            if (allPlayerStorage.playerStatueMap.get(breaker.player.getUniqueID()).getIsReady()) { // 玩家未就绪
-                return true;
-            }
-        } catch (Exception e) {
-            Mod_Main.LOG.error("服务端获取就绪状态时出错: {}", e.toString());
-        }
-        return false;
-    }
 
-    /**
-     * 仅在挖掘成功时或者尝试挖掘时发送心跳
-     */
-    public void sendHeartbeat() {
-        try {
-            if (positionFounder != null) {
-                positionFounder.minerHeartbeat.set(System.currentTimeMillis());
-            } else {
-                throw new RuntimeException("positionFounder为null");
-            }
-        } catch (Exception e) {
-            Mod_Main.LOG.error("发送心跳时出错: {}", e.toString());
-        }
-    }
 
-    public void sendMessage(String message) {
-        ChatComponentText text = new ChatComponentText(message);
-        if (text == null) {
-            ChatComponentText error = new ChatComponentText("[QZ_Miner] 错误：你不应该看到这段文本，如果看到该段请上报至该模组的github仓库issue，或者在GTNH中文一群报告此信息");
-            breaker.player.addChatMessage(error);
-            return;
-        }
-        breaker.player.addChatMessage(text);
-    }
+
+
 
     public void readConfig() {
-        timeLimit = Config.taskTimeLimit;
+        heartbeatTimeout = Config.heartbeatTimeout;
         perTickBlock = Config.perTickBlockLimit;
         blockLimit = Config.blockLimit;
         if (perTickBlock <= 0) {

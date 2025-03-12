@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
+import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
@@ -17,69 +18,46 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class ChainFounder_Lumberjack extends PositionFounder {
     public static int lumberjackRange = 255;
 
+    public boolean isLog = false;
     public Block sampleBlock;
     public String sampleBlockUnLocalizedName;
     public Set<Vector3i> visitedChainSet = new HashSet<>();
     public Set<Vector3i> nextChainSet = new HashSet<>();
-    /**
-     * 构造函数准备执行搜索前的准备工作
-     *
-     * @param center 被破坏方块的中心坐标
-     * @param player
-     * @param lock
-     */
-    public ChainFounder_Lumberjack(Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-        super(center, player, lock);
+
+    public ChainFounder_Lumberjack(AbstractMode mode, Vector3i center, EntityPlayer player) {
+        super(mode, center, player);
         nextChainSet.add(center);
         visitedChainSet.add(center);
         sampleBlock = world.getBlock(center.x, center.y, center.z);
         sampleBlockUnLocalizedName = sampleBlock.getUnlocalizedName();
         int[] sampleOreIDs = OreDictionary.getOreIDs(new ItemStack(sampleBlock));
-        boolean isLog = false;
         for (int sampleOreID : sampleOreIDs) {
             if (OreDictionary.getOreName(sampleOreID).equals("logWood")
                 || OreDictionary.getOreName(sampleOreID).equals("treeLeaves")) {
                 isLog = true;
             }
         }
-        if (!isLog) {
-            isRunning.set(false);
-        }
     }
 
     @Override
-    public void loopLogic() {
-        foundChain();
-    }
-
-    public void foundChain() {
-        int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
-        Set<Vector3i> temp2 = new HashSet<>(); // 下一次存储搜索到的链路点
-        for (Vector3i pos : nextChainSet) {
-            List<Vector3i> box = scanBox(pos);
-            for (Vector3i pos2 : box) {
-                Block block = world.getBlock(pos2.x, pos2.y, pos2.z);
-                if (!visitedChainSet.contains(pos2)) {
-                    if (!filter(block, pos2)) continue;
-                    temp2.add(pos2);
-                    if (beforePutCheck()) {
-                        return;
-                    }
-                    try {
-                        cache.put(pos2);
-                    } catch (InterruptedException e) {
-//                        LOG.info("{} 在睡眠中被打断，已恢复打断标记", this.getClass().getName());
-                        Thread.currentThread().interrupt(); // 恢复中断状态
-                        return;
-                    }
-                    checkShouldShutdown();
-                }
-            }
+    public void mainLogic() {
+        if (!isLog) return;
+        // 1.建立当前遍历所需列表，添加已访问点
+        List<Vector3i> searchList = new ArrayList<>(nextChainSet);
+        nextChainSet = new HashSet<>();
+        visitedChainSet.addAll(searchList);
+        // 2.搜索连锁点
+        Set<Vector3i> result = new HashSet<>();
+        for (Vector3i pos : searchList) {
+            result.addAll(scanBox(pos));
         }
-        // 剔除已经访问过的点
-        nextChainSet = new HashSet<>(temp2);
-        // 设置已访问点
-        visitedChainSet.addAll(nextChainSet);
+        // 3.从结果中移除已访问过的点，将结果添加到cache
+        result.removeAll(visitedChainSet);
+        result.removeIf(pos -> !filter(pos)); // 筛选点
+        cache.addAll(sort(new ArrayList<>(result)));
+        sendHeartbeat(); // 发送心跳
+        // 4.将结果作为下一次遍历的点
+        nextChainSet.addAll(result);
     }
 
     public List<Vector3i> scanBox(Vector3i pos) {
@@ -88,22 +66,19 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         int minY = Math.max(0, (pos.y - lumberjackRange)); int maxY = Math.min(255, (pos.y + lumberjackRange));
         int minZ = pos.z - radiusLimit; int maxZ = pos.z + radiusLimit;
         for (int i = Math.max((pos.x - chainRange), minX); i <= Math.min((pos.x + chainRange), maxX); i++) {
-            int ir = Math.abs(i - center.x);
             for (int j = Math.max((pos.y - chainRange), minY); j <= Math.min((pos.y + chainRange), maxY); j++) {
-                int jr = Math.abs(j - center.y);
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
-                    int kr = Math.abs(k - center.z);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     result.add(new Vector3i(i, j, k));
-                    int maxRadius = Math.max(ir, Math.max(jr, kr)); // 仅用于提示搜索的最远距离到哪 - 当前最远搜索半径
-                    setRadius(maxRadius);
+                    sendHeartbeat();
                 }
             }
         }
         return result;
     }
 
-    public boolean filter(Block block, Vector3i pos) {
+    public boolean filter(Vector3i pos) {
+        Block block = world.getBlock(pos.x, pos.y, pos.z);
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
         ItemStack sampleStack = new ItemStack(sampleBlock);
         ItemStack blockStack = new ItemStack(block);
@@ -119,25 +94,11 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         return false;
     }
 
+    public long sendTime = System.nanoTime();
     @Override
-    public boolean checkShouldShutdown() {
-        if (!isRunning.get()) {
-            return true;
-        }
-        if (!getIsReady()) {
-            return true;
-        }
-        if (Thread.currentThread().isInterrupted()) { // 线程被中断
-            return true;
-        }
-        if (isHeartbeatTimeout()) {
-            return true;
-        }
-
-        // 特殊终止条件
-        if (player.getHealth() <= 2) { // 玩家血量过低
-            return true;
-        }
-        return false;
+    public void sendHeartbeat() {
+        if (System.nanoTime() - sendTime <= 5_000_000) return;
+        sendTime = System.nanoTime();
+        super.sendHeartbeat();
     }
 }

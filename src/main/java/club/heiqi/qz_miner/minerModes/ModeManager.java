@@ -1,28 +1,27 @@
 package club.heiqi.qz_miner.minerModes;
 
-import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.chainMode.*;
-import club.heiqi.qz_miner.minerModes.chainMode.posFounder.*;
+import club.heiqi.qz_miner.minerModes.chainMode.RelaxChainMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.TunnelMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.Rectangular;
-import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.Sphere;
-import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.Tunnel;
 import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.util.MessageUtil;
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
-import org.jetbrains.annotations.Nullable;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.FakePlayer;
+import net.minecraftforge.event.world.BlockEvent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
-import java.lang.reflect.Constructor;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -31,12 +30,20 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * 每个玩家都有独属于自身的管理类
  */
 public class ModeManager {
+    public Logger LOG = LogManager.getLogger();
+    /**此锁用于连锁 - 触发连锁时提交锁防止多次触发竞态*/
     public ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    public EntityPlayerMP playerMP;
+    /**缓存的玩家引用*/
+    public EntityPlayer player;
+    public World world;
 
+    /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
     public RangeMode rangeMode = RangeMode.RECTANGULAR; // 默认为矩形模式
     public ChainMode chainMode = ChainMode.BASE_CHAIN_MODE; // 默认为矩形模式
+
+    /**当前模式*/
+    public AbstractMode curMode;
 
     public volatile AtomicBoolean isRunning = new AtomicBoolean(false);
     public volatile AtomicBoolean isReady = new AtomicBoolean(false);
@@ -48,29 +55,15 @@ public class ModeManager {
      * @param center 方块所在的坐标
      */
     public void proxyMine(World world, Vector3i center, EntityPlayer player) {
-        if (isRunning.get()) {
-            MessageUtil.broadcastMessage("[" + player.getDisplayName() + "] " + "请您不要重复触发连锁");
-            return;
-        }
-        MainMode proxyMain = mainMode;
-        switch (proxyMain) {
+        this.world = world;
+        switch (mainMode) {
             case CHAIN_MODE -> {
-                AbstractMode proxyMode = ChainMode.newAbstractMode(chainMode);
-                if (proxyMode == null) {
-                    player.addChatMessage(new ChatComponentText("错误：创建模式失败"));
-                    return;
-                }
-                proxyMode.setup(world, (EntityPlayerMP) player, center);
-                proxyMode.run();
+                curMode = chainMode.newAbstractMode(this, center);
+                curMode.autoSetup();
             }
             case RANGE_MODE -> {
-                AbstractMode proxyMode = RangeMode.newAbstractMode(rangeMode);
-                if (proxyMode == null) {
-                    player.addChatMessage(new ChatComponentText("错误：创建模式失败"));
-                    return;
-                }
-                proxyMode.setup(world, (EntityPlayerMP) player, center);
-                proxyMode.run();
+                curMode = rangeMode.newAbstractMode(this, center);
+                curMode.autoSetup();
             }
         }
         isRunning.set(true);
@@ -93,25 +86,6 @@ public class ModeManager {
             }
         }
     }
-
-    /**
-     * @return 根据当前模式返回对应的模式类
-     */
-    public AbstractMode getMode() {
-        return switch (mainMode) {
-            case CHAIN_MODE -> ChainMode.newAbstractMode(chainMode);
-            case RANGE_MODE -> RangeMode.newAbstractMode(rangeMode);
-        };
-    }
-
-    @Nullable
-    public PositionFounder getPositionFounder(Vector3i pos, EntityPlayer player, ReentrantReadWriteLock lock) {
-        return switch (mainMode) {
-            case CHAIN_MODE -> ChainMode.createFounder(chainMode, pos, player, lock);
-            case RANGE_MODE -> RangeMode.createFounder(rangeMode, pos, player, lock);
-        };
-    }
-
 
     public void setIsReady(boolean isReady) {
         this.isReady.set(isReady);
@@ -144,31 +118,18 @@ public class ModeManager {
             this.modes = modes;
         }
     }
-// ========== 连锁模式
+    // ========== 连锁模式
     public enum ChainMode {
-        BASE_CHAIN_MODE("qz_miner.chainmode.base_chain", BaseChainMode.class, ChainFounder.class),
-        STRICT("qz_miner.chainmode.strict", StrictChainMode.class, ChainFounder_Strict.class),
-        CHAIN_GROUP("qz_miner.chainmode.chain_group", ChainGroupMode.class, ChainGroup.class),
-        LUMBER_JACK("qz_miner.chainmode.lumberjack", LumberJackMode.class, ChainFounder_Lumberjack.class),
-        RELAX("qz_miner.chainmode.relax", RelaxChainFounder.class, ChainFounderRelaxed.class),
+        BASE_CHAIN_MODE("qz_miner.chainmode.base_chain"),
+        STRICT("qz_miner.chainmode.strict"),
+        CHAIN_GROUP("qz_miner.chainmode.chain_group"),
+        LUMBER_JACK("qz_miner.chainmode.lumberjack"),
+        RELAX("qz_miner.chainmode.relax"),
         ;
         public final String unLocalizedName;
-        public final Class<? extends AbstractMode> mode;
-        public final Class<? extends PositionFounder> positionFounder;
-        public final List<Constructor> constructors = new ArrayList<>();
 
-        ChainMode(String unLocalizedName, Class<? extends AbstractMode> mode, Class<? extends PositionFounder> positionFounder) {
+        ChainMode(String unLocalizedName) {
             this.unLocalizedName = unLocalizedName;
-            this.mode = mode;
-            this.positionFounder = positionFounder;
-            try {
-                Constructor<? extends AbstractMode> constructor = mode.getDeclaredConstructor();
-                Constructor<? extends PositionFounder> constructor1 = positionFounder.getDeclaredConstructor(Vector3i.class, EntityPlayer.class, ReentrantReadWriteLock.class);
-                constructor.setAccessible(true); constructor1.setAccessible(true);
-                constructors.add(constructor); constructors.add(constructor1);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
         }
         public static List<String> getModes() {
             List<String> list = new ArrayList<>();
@@ -177,51 +138,40 @@ public class ModeManager {
             }
             return list;
         }
-        public static AbstractMode newAbstractMode(ChainMode chainMode) {
-            try {
-                Constructor<? extends AbstractMode> constructor = chainMode.constructors.get(0);
-                return constructor.newInstance();
-            } catch (Exception e) {
-                MY_LOG.LOG.error(e);
-                return null;
-            }
-        }
-        public static PositionFounder createFounder(ChainMode chainMode,
-                                                    Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-            try {
-                Constructor<? extends PositionFounder> positionFounder = chainMode.constructors.get(1);
-                // 获取匹配的构造函数（需要明确指定参数类型）
-                return positionFounder.newInstance(center, player, lock);
-            } catch (Exception e) {
-                MY_LOG.LOG.error(e);
-                return null;
+        public AbstractMode newAbstractMode(ModeManager manager, Vector3i center) {
+            switch (this) {
+                case BASE_CHAIN_MODE -> {
+                    return new BaseChainMode(manager, center);
+                }
+                case STRICT -> {
+                    return new StrictChainMode(manager, center);
+                }
+                case CHAIN_GROUP -> {
+                    return new ChainGroupMode(manager, center);
+                }
+                case LUMBER_JACK -> {
+                    return new LumberJackMode(manager, center);
+                }
+                case RELAX -> {
+                    return new RelaxChainMode(manager, center);
+                }
+                default -> {
+                    return new BaseChainMode(manager, center);
+                }
             }
         }
     }
     // ========== 范围模式
     public enum RangeMode {
-        RECTANGULAR("qz_miner.rangemode.rectangular", RectangularMode.class, Rectangular.class),
-        RECTANGULAR_MINERAL("qz_miner.rangemode.rectangular_mineral", RectangularMineralMode.class, Rectangular.class),
-        SPHERE("qz_miner.rangemode.sphere", SphereMode.class, Sphere.class),
-        TUNNEL("qz_miner.rangemode.tunnel", TunnelMode.class, Tunnel.class),
+        RECTANGULAR("qz_miner.rangemode.rectangular"),
+        RECTANGULAR_MINERAL("qz_miner.rangemode.rectangular_mineral"),
+        SPHERE("qz_miner.rangemode.sphere"),
+        TUNNEL("qz_miner.rangemode.tunnel"),
         ;
         public final String unLocalizedName;
-        public final Class<? extends AbstractMode> mode;
-        public final Class<? extends PositionFounder> positionFounder;
-        public final List<Constructor> constructors = new ArrayList<>();
 
-        RangeMode(String unLocalizedName, Class<? extends AbstractMode> mode, Class<? extends PositionFounder> positionFounder) {
+        RangeMode(String unLocalizedName) {
             this.unLocalizedName = unLocalizedName;
-            this.mode = mode;
-            this.positionFounder = positionFounder;
-            try {
-                Constructor<? extends AbstractMode> constructor = mode.getDeclaredConstructor();
-                Constructor<? extends PositionFounder> constructor1 = positionFounder.getDeclaredConstructor(Vector3i.class, EntityPlayer.class, ReentrantReadWriteLock.class);
-                constructor.setAccessible(true); constructor1.setAccessible(true);
-                constructors.add(constructor); constructors.add(constructor1);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
         }
         public static List<String> getModes() {
             List<String> list = new ArrayList<>();
@@ -230,25 +180,62 @@ public class ModeManager {
             }
             return list;
         }
-        public static AbstractMode newAbstractMode(RangeMode rangeMode) {
-            try {
-                Constructor<? extends AbstractMode> mode = rangeMode.constructors.get(0);
-                return mode.newInstance();
-            } catch (Exception e) {
-                MY_LOG.LOG.error(e);
-                return null;
+        public AbstractMode newAbstractMode(ModeManager manager, Vector3i center) {
+            switch (this) {
+                case RECTANGULAR -> {
+                    return new RectangularMode(manager, center);
+                }
+                case RECTANGULAR_MINERAL ->  {
+                    return new RectangularMineralMode(manager, center);
+                }
+                case SPHERE -> {
+                    return new SphereMode(manager, center);
+                }
+                case TUNNEL -> {
+                    return new TunnelMode(manager, center);
+                }
+                default -> {
+                    return new RectangularMode(manager, center);
+                }
             }
         }
-        public static PositionFounder createFounder(RangeMode rangeMode,
-                                                    Vector3i center, EntityPlayer player, ReentrantReadWriteLock lock) {
-            try {
-                Constructor<? extends PositionFounder> positionFounder = rangeMode.constructors.get(1);
-                // 获取匹配的构造函数（需要明确指定参数类型）
-                return positionFounder.newInstance(center, player, lock);
-            } catch (Exception e) {
-                MY_LOG.LOG.error(e.toString());
-                throw new RuntimeException(e);
+    }
+
+
+
+    // ==================== 事件订阅 - 监听玩家自身即可，简化触发流程
+    public void register() {
+        FMLCommonHandler.instance().bus().register(this);
+        MinecraftForge.EVENT_BUS.register(this);
+    }
+    public void unregister() {
+        FMLCommonHandler.instance().bus().unregister(this);
+        MinecraftForge.EVENT_BUS.unregister(this);
+    }
+    @SubscribeEvent
+    public void blockBreakEvent(BlockEvent.BreakEvent event) {
+        if (isRunning.get()) return;
+        LOG.info("玩家:{} 触发了挖掘事件", event.getPlayer().getDisplayName());
+        World world = event.world;
+        EntityPlayer player = event.getPlayer();
+        if (player.getUniqueID() != this.player.getUniqueID()) return;
+        if (player instanceof FakePlayer) {
+            return;
+        }
+        try {
+            if (!isReady.get()) {
+                return;
             }
+        } catch (Exception e) {
+            return;
+        }
+        // 获取破坏方块的坐标
+        Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
+        try {
+            proxyMine(world, breakBlockPos, player);
+        } catch (Exception e) {
+            LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");
+            LOG.info(e);
         }
     }
 }

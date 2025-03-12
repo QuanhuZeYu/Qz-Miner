@@ -2,7 +2,6 @@ package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.eventIn.PlayerInteractive;
 import club.heiqi.qz_miner.lootGame.FindMines;
-import club.heiqi.qz_miner.eventIn.BlockBreakEvent;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -21,7 +20,6 @@ public class CommonProxy {
         config.register();
 
         allPlayerStorage.register(); // 注册存储玩家连锁状态的容器类
-        BlockBreakEvent.register();
 
         qzMinerNetWork = new QzMinerNetWork(event); // 初始化网络通信
 

@@ -39,7 +39,6 @@ public class PacketRangeMode implements IMessage {
             UUID uuid = player.getUniqueID();
             ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
             modeManager.rangeMode = ModeManager.RangeMode.values()[message.mode];
-//            logger.info("范围模式已切换为: {}", modeManager.rangeMode.unLocalizedName);
             return null;
         }
     }

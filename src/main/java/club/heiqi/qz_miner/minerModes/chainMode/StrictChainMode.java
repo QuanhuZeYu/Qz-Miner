@@ -1,55 +1,69 @@
 package club.heiqi.qz_miner.minerModes.chainMode;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
+import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder_Strict;
 import net.minecraft.block.Block;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.management.ItemInWorldManager;
-import net.minecraft.world.World;
+import net.minecraft.util.ChatComponentText;
 import org.joml.Vector3i;
 
 public class StrictChainMode extends AbstractMode {
-    @Override
-    public void setup(World world, EntityPlayerMP player, Vector3i center) {
-        super.setup(world, player, center);
-        blockSample = world.getBlock(center.x, center.y, center.z);
-        ChainFounder_Strict founder = ((ChainFounder_Strict) positionFounder);
-        if (founder != null) {
-            founder.sampleBlock = blockSample;
-            founder.itemBlockMeta = world.getBlockMetadata(center.x, center.y, center.z);
-        }
+
+
+    public StrictChainMode(ModeManager modeManager, Vector3i center) {
+        super(modeManager, center);
+        timer = System.currentTimeMillis();
+        positionFounder = new ChainFounder_Strict(this, center, modeManager.player);
     }
 
+    public int failCounter = 0;
+    public long failTimer = 0;
+    public long lastTime = System.currentTimeMillis();
+    public int tickBreakCount = 0;
+    public int allBreakCount = 0;
     @Override
-    public boolean checkCanBreak(Vector3i pos) {
-        World world = breaker.world;
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        EntityPlayerMP player = breaker.player;
-        ItemInWorldManager iwm = player.theItemInWorldManager;
-        ItemStack holdItem = iwm.thisPlayerMP.getCurrentEquippedItem();
-        // 判断是否为创造模式
-        if (iwm.getGameType().isCreative()) {
-            return true;
+    public void mainLogic() {
+        if (allBreakCount >= blockLimit) return;
+        lastTime = System.currentTimeMillis();
+        while (System.currentTimeMillis() - lastTime <= taskTimeLimit) {
+            if (tickBreakCount >= perTickBlock) break;
+            Vector3i pos = positionFounder.cache.poll();
+            if (pos == null) {
+                if (failCounter == 0) failTimer = System.currentTimeMillis();
+                if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
+                failCounter++;
+                return;
+            }
+            failCounter = 0;
+            if (checkCanBreak(pos)) {
+                breaker.tryHarvestBlock(pos);
+                tickBreakCount++;
+                allBreakCount++;
+            }
         }
-        // 判断是否为空气
-        if (block == Blocks.air) {
-            return false;
-        }
-        // 判断是否为流体
-        if (block.getMaterial().isLiquid()) {
-            return false;
-        }
-        // 判断是否为基岩
-        if (block == Blocks.bedrock) {
-            return false;
-        }
-        // 判断工具能否挖掘
-        if (holdItem != null) {
-            return block.canHarvestBlock(player, meta);
-        }
-        return true;
+        tickBreakCount = 0;
+    }
+
+    public long timer;
+    @Override
+    public void unregister() {
+        super.unregister();
+        long totalTime = System.currentTimeMillis() - timer;
+        // 分割秒和毫秒
+        int seconds = (int)(totalTime / 1000);  // 秒数
+        long milliseconds = totalTime % 1000;  // 毫秒数
+        String message = "本次共挖掘: " + allBreakCount + "个方块"
+            + " 共用时: " + seconds + "秒"
+            + milliseconds + "毫秒";
+        ChatComponentText text = new ChatComponentText(message);
+        modeManager.player.addChatMessage(text);
+    }
+
+    public long sendTime = System.nanoTime();
+    @Override
+    public void sendHeartbeat() {
+        if (System.nanoTime() - sendTime <= 5_000_000) return;
+        sendTime = System.nanoTime();
+        super.sendHeartbeat();
     }
 }
