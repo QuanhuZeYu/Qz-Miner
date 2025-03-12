@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.mixins.early;
 
+import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.minerModes.ModeManager;
 import net.minecraft.block.Block;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
@@ -34,11 +36,15 @@ public abstract class MixinsBlock {
             EntityItem entityitem = new EntityItem(worldIn, x, y, z, itemIn);
             entityitem.delayBeforeCanPickup = 10;
             Vector3i pos = new Vector3i(x, y, z);
-            // 原子化操作：初始化队列并添加实体
-            GLOBAL_DROPS.computeIfAbsent(pos, k -> new ConcurrentLinkedQueue<>())
-                .offer(entityitem);
-            System.out.println("已缓存掉落物: " + entityitem + " 于位置 " + pos);
-            ci.cancel(); // 阻止原版实体生成
+            if (Config.dropItemToSelf) {
+                // 原子化操作：初始化队列并添加实体
+                GLOBAL_DROPS.computeIfAbsent(pos, k -> new ConcurrentLinkedQueue<>())
+                    .offer(entityitem);
+                ModeManager.lastGlobalChangeTime = System.currentTimeMillis();
+                ci.cancel(); // 阻止原版实体生成
+            } else {
+                worldIn.spawnEntityInWorld(entityitem);
+            }
         }
         ci.cancel();
     }

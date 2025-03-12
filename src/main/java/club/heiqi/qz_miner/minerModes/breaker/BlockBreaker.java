@@ -26,6 +26,8 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.ForgeDirection;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import org.joml.*;
 
@@ -65,16 +67,13 @@ public class BlockBreaker {
         if (heldItem != null && heldItem.getItem().onBlockStartBreak(heldItem, x, y, z, player)) {
             return;
         }
-
         // 3. 元数据缓存减少重复调用
         final Block block = world.getBlock(x, y, z);
         final int metadata = world.getBlockMetadata(x, y, z);
         final int blockId = Block.getIdFromBlock(block);
-
         // 4. 播放音效（使用常量代替魔法数字）
         final int BLOCK_BREAK_SFX_ID = 2001;
         world.playAuxSFXAtEntity(player, BLOCK_BREAK_SFX_ID, x, y, z, blockId + (metadata << 12));
-
         // 5. 破坏逻辑重构
         boolean isBlockRemoved;
         if (player.capabilities.isCreativeMode) {
@@ -85,20 +84,8 @@ public class BlockBreaker {
         }
         // 6. 经验掉落逻辑优化
         if (!player.capabilities.isCreativeMode && isBlockRemoved) {
-            block.dropXpOnBlockBreak(world, x, y, z, breakEvent.getExpToDrop());
+            block.dropXpOnBlockBreak(world, (int) player.posX, (int) player.posY, (int) player.posZ, breakEvent.getExpToDrop());
         }
-
-        /*player.theItemInWorldManager.tryHarvestBlock(pos.x, pos.y, pos.z);*/
-
-        /*Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        world.playAuxSFXAtEntity(player, 2001, pos.x, pos.y, pos.z, getIdFromBlock(block) + (meta << 12)); // 播放方块破坏音效
-
-        if (player.capabilities.isCreativeMode) { // 创造模式
-            handleCreativeMode(pos, block, meta);
-        } else { // 非创造模式
-            handleSurvivalMode(pos, block, meta);
-        }*/
     }
 
     private boolean handleSurvivalBreak(int x, int y, int z, Block block, int metadata, ItemStack tool) {
@@ -126,6 +113,7 @@ public class BlockBreaker {
      * @return 如果方块成功被移除则返回true，否则返回false
      */
     public boolean removeBlock(int x, int y, int z, boolean canHarvest) {
+        new PlayerInteractEvent(player, PlayerInteractEvent.Action.LEFT_CLICK_BLOCK, x, y, z, ForgeDirection.UP.flag, world);
         canHarvest = false;
         // 获取目标位置的方块及其元数据
         Block targetBlock = world.getBlock(x, y, z);

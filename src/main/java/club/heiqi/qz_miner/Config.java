@@ -36,6 +36,7 @@ public class Config {
     public static boolean forceNatural = false;
     public static float dropDistance = 1.1f;
     public static float coolDown = 30.0f;
+    public static boolean dropItemToSelf = true;
 
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
@@ -80,6 +81,7 @@ public class Config {
         entryMap.put("forceNatural", new ConfigEntry<>(forceNatural, Configuration.CATEGORY_GENERAL, false, "强制所有矿石为时运", null, null));
         entryMap.put("dropDistance", new ConfigEntry<>(dropDistance, Configuration.CATEGORY_GENERAL, 1.1f, "挖掘时掉落物距离自身的距离，值越大掉落物越远", 0f, Float.MAX_VALUE));
         entryMap.put("coolDown", new ConfigEntry<>(coolDown, Configuration.CATEGORY_GENERAL, 30.f, "每次揭示时需要等待的时间，单位秒", 0f, Float.MAX_VALUE));
+        entryMap.put("dropItemToSelf", new ConfigEntry<>(dropItemToSelf, Configuration.CATEGORY_GENERAL, true, "是否将掉落物生成在脚下", null, null));
 
         entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
         entryMap.put("renderLineWidth", new ConfigEntry<>(renderLineWidth, CATEGORY_CLIENT, 1.5f, "渲染线框宽度", 0.1f, 100f));
