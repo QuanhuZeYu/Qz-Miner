@@ -23,7 +23,10 @@ public class LumberJackMode extends AbstractMode {
     public int allBreakCount = 0;
     @Override
     public void mainLogic() {
-        if (allBreakCount >= blockLimit) return;
+        if (allBreakCount >= blockLimit - 1) {
+            shutdown();
+            return;
+        }
         lastTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - lastTime <= taskTimeLimit) {
             if (tickBreakCount >= perTickBlock) break;

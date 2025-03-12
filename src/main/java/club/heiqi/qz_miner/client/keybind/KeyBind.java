@@ -86,6 +86,7 @@ public class KeyBind {
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
         ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
+        if (modeManager == null) return;
         if (!Config.showTip) {
             int curShader = glGetInteger(GL_CURRENT_PROGRAM);
             glUseProgram(0);

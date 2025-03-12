@@ -10,29 +10,33 @@ import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
-import club.heiqi.qz_miner.util.MessageUtil;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
+import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 每个玩家都有独属于自身的管理类
  */
 public class ModeManager {
     public Logger LOG = LogManager.getLogger();
-    /**此锁用于连锁 - 触发连锁时提交锁防止多次触发竞态*/
-    public ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    /**掉落物管理*/
+    // 全局掉落物表：Key=位置，Value=该位置的实体队列（线程安全）
+    public static ConcurrentHashMap<Vector3i, ConcurrentLinkedQueue<EntityItem>> GLOBAL_DROPS = new ConcurrentHashMap<>();
+    public ConcurrentLinkedQueue<Vector3i> selfDrops = new ConcurrentLinkedQueue<>();
+
     /**缓存的玩家引用*/
     public EntityPlayer player;
     public World world;
@@ -51,11 +55,9 @@ public class ModeManager {
 
     /**
      * 由方块破坏事件触发该方法，该方法调用模式类中的run方法，完成模式运行
-     * @param world 挖掘方块所在的世界
      * @param center 方块所在的坐标
      */
-    public void proxyMine(World world, Vector3i center, EntityPlayer player) {
-        this.world = world;
+    public void proxyMine(Vector3i center) {
         switch (mainMode) {
             case CHAIN_MODE -> {
                 curMode = chainMode.newAbstractMode(this, center);
@@ -212,30 +214,54 @@ public class ModeManager {
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
     }
+
+    /**
+     * 订阅方块破坏事件
+     * @param event
+     */
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
-        if (isRunning.get()) return;
-        LOG.info("玩家:{} 触发了挖掘事件", event.getPlayer().getDisplayName());
-        World world = event.world;
         EntityPlayer player = event.getPlayer();
+        // 判断是否是自己挖的
         if (player.getUniqueID() != this.player.getUniqueID()) return;
-        if (player instanceof FakePlayer) {
-            return;
-        }
-        try {
-            if (!isReady.get()) {
-                return;
-            }
-        } catch (Exception e) {
-            return;
-        }
+        selfDrops.add(new Vector3i(event.x, event.y, event.z));
+        if (isRunning.get()) return;
+        if (!isReady.get()) return;
         // 获取破坏方块的坐标
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
-            proxyMine(world, breakBlockPos, player);
+            proxyMine(breakBlockPos);
         } catch (Exception e) {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");
             LOG.info(e);
+        }
+    }
+
+    @SubscribeEvent
+    public void onTick(TickEvent.ServerTickEvent event) {
+        if (selfDrops.isEmpty()) return;
+        final long startTime = System.currentTimeMillis();
+        Iterator<Vector3i> iterator = selfDrops.iterator();
+        while (iterator.hasNext() && System.currentTimeMillis() - startTime <= 10) {
+            Vector3i pos = iterator.next();
+            ConcurrentLinkedQueue<EntityItem> queue = GLOBAL_DROPS.get(pos);
+            if (queue == null || queue.isEmpty()) {
+                iterator.remove(); // 清理自身队列中的无效位置
+                GLOBAL_DROPS.remove(pos); // 清理全局表空队列
+                continue;
+            }
+            // 原子化取出并移除实体
+            EntityItem ei = queue.poll();
+            if (ei != null) {
+                // 生成实体到世界
+                ei.setPosition(player.posX, player.posY, player.posZ);
+                player.worldObj.spawnEntityInWorld(ei);
+                // 若队列已空，清理全局表和自身队列
+                if (queue.isEmpty()) {
+                    iterator.remove();
+                    GLOBAL_DROPS.remove(pos);
+                }
+            }
         }
     }
 }

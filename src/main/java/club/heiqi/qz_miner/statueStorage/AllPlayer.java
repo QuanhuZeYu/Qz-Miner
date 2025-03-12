@@ -40,6 +40,7 @@ public class AllPlayer {
             LOG.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
             ModeManager modeManager = new ModeManager();
             modeManager.player = player;
+            modeManager.world = player.worldObj;
             playerStatueMap.put(uuid, modeManager);
             modeManager.register();
         }
