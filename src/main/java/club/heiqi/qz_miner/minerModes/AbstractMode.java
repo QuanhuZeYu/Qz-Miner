@@ -73,8 +73,30 @@ public abstract class AbstractMode {
     }
 
     @SubscribeEvent
-    public void tick(TickEvent event) {
-        if (event.phase == TickEvent.Phase.START) {
+    public void tick(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.START && !modeManager.world.isRemote) {
+            sendHeartbeat();
+            long current = System.currentTimeMillis();
+            long heart = heartbeatTimer.get();
+            if (current - heart >= heartbeatTimeout) {
+                shutdown();
+                return;
+            }
+            if (!modeManager.getIsReady()) {
+                shutdown();
+                return;
+            }
+            if (!modeManager.isRunning.get()) {
+                shutdown();
+                return;
+            }
+            mainLogic();
+        }
+    }
+
+    @SubscribeEvent
+    public void clientTick(TickEvent event) {
+        if (event.phase == TickEvent.Phase.START && modeManager.world.isRemote) {
             sendHeartbeat();
             long current = System.currentTimeMillis();
             long heart = heartbeatTimer.get();
@@ -112,6 +134,7 @@ public abstract class AbstractMode {
     }
 
     public void sendHeartbeat() {
+        if (positionFounder == null) return;
         positionFounder.updateHeartbeat(System.currentTimeMillis());
     }
 
