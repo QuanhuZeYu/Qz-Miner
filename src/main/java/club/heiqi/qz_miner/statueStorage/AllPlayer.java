@@ -5,8 +5,10 @@ import club.heiqi.qz_miner.minerModes.ModeManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
+import cpw.mods.fml.common.network.FMLNetworkEvent;
 import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -54,7 +56,7 @@ public class AllPlayer {
      */
     @SubscribeEvent
     public void qz_onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
-        EntityPlayerMP player = (EntityPlayerMP) event.player;
+        EntityPlayer player = event.player;
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {
             LOG.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
@@ -81,6 +83,19 @@ public class AllPlayer {
                     modeManager.register();
                 }
             }
+        }
+    }
+
+    @SubscribeEvent
+    @SideOnly(Side.CLIENT)
+    public void qz_onEntityOutWorld(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        UUID playerUUID = player.getUniqueID();
+        if (playerStatueMap.containsKey(playerUUID)) {
+            LOG.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
+            playerStatueMap.remove(playerUUID);
+        } else {
+            LOG.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
         }
     }
 
