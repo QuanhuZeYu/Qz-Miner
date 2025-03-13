@@ -255,7 +255,7 @@ public class ModeManager {
             EntityItem ei = queue.poll();
             if (ei != null) {
                 // 生成实体到世界
-                ei.setPosition(player.posX, player.posY, player.posZ);
+                ei.setPosition(player.posX, player.posY + 1.5, player.posZ);
                 player.worldObj.spawnEntityInWorld(ei);
                 // 若队列已空，清理全局表和自身队列
                 if (queue.isEmpty()) {
