@@ -18,7 +18,6 @@ public class CommonProxy {
     public void preInit(FMLPreInitializationEvent event) {
         config.init(event.getSuggestedConfigurationFile());
         config.register();
-
         allPlayerStorage.register(); // 注册存储玩家连锁状态的容器类
 
         qzMinerNetWork = new QzMinerNetWork(event); // 初始化网络通信

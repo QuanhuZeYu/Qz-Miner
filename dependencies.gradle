@@ -85,6 +85,7 @@ dependencies {
     // Baubles
     implementation("com.github.GTNewHorizons:LootGames:2.1.4:dev")
     implementation("com.github.GTNewHorizons:EnderIO:2.8.24:dev")
+    implementation("com.github.GTNewHorizons:ServerUtilities:2.0.92:dev")
 
 
 
@@ -111,7 +112,7 @@ if(useMoreMod) {
         runtimeOnly("com.github.GTNewHorizons:InGame-Info-XML:2.8.19:dev")
 //        runtimeOnly("com.github.GTNewHorizons:NotEnoughCharacters:1.7.10-1.5.3-GTNH:dev")
         runtimeOnly("com.github.GTNewHorizons:NotEnoughItems:2.6.53-GTNH:dev")
-        runtimeOnly('com.github.GTNewHorizons:ServerUtilities:2.0.92:dev')
+//        runtimeOnly('com.github.GTNewHorizons:ServerUtilities:2.0.92:dev')
         runtimeOnly("com.github.GTNewHorizons:Avaritia:1.58:dev")
         runtimeOnly("com.github.GTNewHorizons:Battlegear2:1.4.2:dev")
         runtimeOnly("com.github.GTNewHorizons:Tinkers-Defense:1.2.2:dev")

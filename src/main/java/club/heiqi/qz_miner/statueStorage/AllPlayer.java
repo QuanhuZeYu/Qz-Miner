@@ -31,7 +31,7 @@ public class AllPlayer {
      * @param event
      */
     @SubscribeEvent
-    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+    public void qz_onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {
@@ -51,7 +51,7 @@ public class AllPlayer {
      * @param event
      */
     @SubscribeEvent
-    public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+    public void qz_onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {

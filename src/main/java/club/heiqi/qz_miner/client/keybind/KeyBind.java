@@ -13,6 +13,7 @@ import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.KeyBinding;
@@ -20,9 +21,12 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 import org.lwjgl.input.Keyboard;
 
+import java.lang.reflect.Method;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -33,6 +37,7 @@ import static org.lwjgl.opengl.GL20.glUseProgram;
 
 @SideOnly(Side.CLIENT)
 public class KeyBind {
+    public static Logger LOG = LogManager.getLogger();
     public static Minecraft mc = Minecraft.getMinecraft();
     public static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     public static Vector3i center = new Vector3i();
@@ -54,7 +59,10 @@ public class KeyBind {
 
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
-        ModeManager manager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        if (player == null) return;
+        UUID uuid = player.getUniqueID();
+        ModeManager manager = allPlayerStorage.playerStatueMap.get(uuid);
         if (switchMainMode.isPressed()) {
             manager.nextMainMode();
             String message = "当前主模式: " + getMainMode();
@@ -69,7 +77,10 @@ public class KeyBind {
 
     @SubscribeEvent
     public void onInputEvent(InputEvent event) {
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        if (player == null) return;
+        UUID uuid = player.getUniqueID();
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
         boolean isPressed = isPress.getIsKeyPressed();
         if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
         lastSendTime = System.currentTimeMillis();
@@ -85,7 +96,12 @@ public class KeyBind {
 
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
+        EntityClientPlayerMP player = Minecraft.getMinecraft().thePlayer;
+        if (player == null) {
+            return;
+        }
+        UUID uuid = player.getUniqueID();
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
         if (modeManager == null) return;
         if (!Config.showTip) {
             int curShader = glGetInteger(GL_CURRENT_PROGRAM);
@@ -154,14 +170,16 @@ public class KeyBind {
     }
 
     public String getMainMode() {
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        UUID uuid = player.getUniqueID();
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
         return I18n.format(modeManager.mainMode.unLocalizedName);
     }
 
     public String getSubMode() {
-        EntityPlayer player = mc.thePlayer;
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         UUID uuid = player.getUniqueID();
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(mc.thePlayer.getUniqueID());
+        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
         ModeManager.MainMode mainMode = modeManager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {
