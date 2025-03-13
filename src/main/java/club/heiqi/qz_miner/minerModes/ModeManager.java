@@ -3,10 +3,7 @@ package club.heiqi.qz_miner.minerModes;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.chainMode.*;
 import club.heiqi.qz_miner.minerModes.chainMode.RelaxChainMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.TunnelMode;
+import club.heiqi.qz_miner.minerModes.rangeMode.*;
 import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
@@ -251,7 +248,7 @@ public class ModeManager {
             if (queue == null || queue.isEmpty()) {
                 iterator.remove(); // 清理自身队列中的无效位置
                 GLOBAL_DROPS.remove(pos); // 清理全局表空队列
-                lastGlobalChangeTime = System.currentTimeMillis();
+                GlobalDropCleaner.lastGlobalChangeTime = System.currentTimeMillis();
                 continue;
             }
             // 原子化取出并移除实体
@@ -264,19 +261,18 @@ public class ModeManager {
                 if (queue.isEmpty()) {
                     iterator.remove();
                     GLOBAL_DROPS.remove(pos);
-                    lastGlobalChangeTime = System.currentTimeMillis();
+                    GlobalDropCleaner.lastGlobalChangeTime = System.currentTimeMillis();
                 }
             }
         }
     }
-    public static long lastGlobalChangeTime = 0;
-    @SubscribeEvent
-    public static void clearGlobalDrops(TickEvent.ServerTickEvent event) {
-        if (!Config.dropItemToSelf) return;
-        // 10s没有更新便清理掉所有内容物
-        if (System.currentTimeMillis() - lastGlobalChangeTime >= 10_000) {
-            if (!GLOBAL_DROPS.isEmpty())
-                GLOBAL_DROPS.clear();
-        }
-    }
+    //    @SubscribeEvent
+//    public static void clearGlobalDrops(TickEvent.ServerTickEvent event) {
+//        if (!Config.dropItemToSelf) return;
+//        // 10s没有更新便清理掉所有内容物
+//        if (System.currentTimeMillis() - lastGlobalChangeTime >= 10_000) {
+//            if (!GLOBAL_DROPS.isEmpty())
+//                GLOBAL_DROPS.clear();
+//        }
+//    }
 }

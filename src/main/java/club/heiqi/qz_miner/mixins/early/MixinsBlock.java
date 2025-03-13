@@ -1,20 +1,17 @@
 package club.heiqi.qz_miner.mixins.early;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.GlobalDropCleaner;
 import net.minecraft.block.Block;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import org.joml.Vector3i;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static club.heiqi.qz_miner.minerModes.ModeManager.GLOBAL_DROPS;
@@ -40,7 +37,7 @@ public abstract class MixinsBlock {
                 // 原子化操作：初始化队列并添加实体
                 GLOBAL_DROPS.computeIfAbsent(pos, k -> new ConcurrentLinkedQueue<>())
                     .offer(entityitem);
-                ModeManager.lastGlobalChangeTime = System.currentTimeMillis();
+                GlobalDropCleaner.lastGlobalChangeTime = System.currentTimeMillis();
                 ci.cancel(); // 阻止原版实体生成
             } else {
                 worldIn.spawnEntityInWorld(entityitem);
