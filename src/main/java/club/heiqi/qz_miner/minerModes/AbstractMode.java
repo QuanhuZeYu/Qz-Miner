@@ -38,8 +38,6 @@ public abstract class AbstractMode {
     @Nullable
     public Thread thread;
     public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis());
-    /**提供挖掘方法的便捷类*/
-    public final BlockBreaker breaker;
 
     public final Vector3i center;
     /**挖掘样本*/
@@ -55,7 +53,6 @@ public abstract class AbstractMode {
         blockSample = world.getBlock(center.x, center.y, center.z);
         tileSample = world.getTileEntity(center.x, center.y, center.z);
         blockSampleMeta = world.getBlockMetadata(center.x, center.y, center.z);
-        breaker = new BlockBreaker(player, world);
         readConfig();
     }
 
@@ -116,9 +113,9 @@ public abstract class AbstractMode {
     }
 
     public boolean checkCanBreak(Vector3i pos) {
-        World world = breaker.world;
+        World world = modeManager.world;
         Block block = world.getBlock(pos.x, pos.y, pos.z);
-        EntityPlayer player = breaker.player;
+        EntityPlayer player = modeManager.player;
         ItemStack holdItem = player.getCurrentEquippedItem();
         int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         // 判断是否为创造模式
@@ -157,7 +154,7 @@ public abstract class AbstractMode {
     public void register() {
         // 注册监听器
         FMLCommonHandler.instance().bus().register(this);
-        LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", breaker.player.getDisplayName());
+        LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", modeManager.player.getDisplayName());
     }
 
     /**
@@ -177,7 +174,7 @@ public abstract class AbstractMode {
      */
     public void unregister() {
         // 注销监听器
-        LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", breaker.player.getDisplayName());
+        LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", modeManager.player.getDisplayName());
         FMLCommonHandler.instance().bus().unregister(this);
     }
 

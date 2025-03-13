@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.minerModes.rangeMode;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularFounder;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
@@ -15,9 +16,11 @@ import org.joml.Vector3i;
 import java.util.List;
 
 public class RectangularMineralMode extends AbstractMode {
+    public final BlockBreaker breaker;
 
     public RectangularMineralMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
+        breaker = new BlockBreaker(modeManager.player, modeManager.world);
         timer = System.currentTimeMillis();
         positionFounder = new RectangularFounder(this, center, modeManager.player);
     }

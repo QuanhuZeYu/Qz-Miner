@@ -188,10 +188,17 @@ public class PlayerInput {
     public void onInteract(DrawBlockHighlightEvent event) {
         if (manager == null) return;
         if (!manager.getIsReady()) {
-            if (!renderList.isEmpty()) renderList = new ArrayList<>();
-            if (!manager.renderCache.isEmpty()) manager.renderCache = new ArrayList<>();
+            if (!renderList.isEmpty()) {
+                LOG.info("清空渲染列表（原大小{}）", renderList.size());
+                renderList = new ArrayList<>();
+            }
+            if (!manager.renderCache.isEmpty()) {
+                LOG.info("清空管理器渲染缓存（原大小{}）", manager.renderCache.size());
+                manager.renderCache = new ArrayList<>();
+            }
             return;
         }
+        LOG.info("已就绪，开始准备渲染高亮方块");
         EntityPlayer player = manager.player;
         int bx = event.target.blockX;
         int by = event.target.blockY;
@@ -199,17 +206,20 @@ public class PlayerInput {
         int dx = (int) (bx - player.posX);
         int dy = (int) (by - player.posY + player.eyeHeight);
         int dz = (int) (bz - player.posZ);
-        if ((dx*dx + dy*dy + dz*dz) > 16) return;
-        // 获取渲染点列表
+        if ((dx*dx + dy*dy + dz*dz) > 25) {
+            LOG.info("目标方块距离超过16格（坐标：{},{},{}）, 玩家坐标: ({}, {}, {})跳过渲染", bx, by, bz, player.posX, player.posY, player.posZ);
+            return;
+        }
+        // 渲染列表状态追踪
         if (renderList.isEmpty()) {
-            manager.proxyRender(new Vector3i(
-                bx,
-                by,
-                bz));
+            LOG.info("初始化渲染列表并添加初始位置（{},{},{}）", bx, by, bz);
+            manager.proxyRender(new Vector3i(bx, by, bz));
             renderList.add(new Vector3i(0));
-        } else if (!manager.renderCache.isEmpty()){
+        } else if (!manager.renderCache.isEmpty()) {
+            LOG.info("使用缓存中的渲染列表（缓存大小：{}）", manager.renderCache.size());
             renderList = new ArrayList<>(manager.renderCache);
         }
+        LOG.debug("开始绘制方块高亮（数量：{}）", renderList.size()); // 绘制开始日志
         // 绘制逻辑
         glPushAttrib(GL_ALL_ATTRIB_BITS);
         glDisable(GL_TEXTURE_2D);
@@ -253,6 +263,7 @@ public class PlayerInput {
             glPopMatrix();
         }
         glPopAttrib();
+        LOG.debug("完成方块高亮绘制"); // 绘制结束日志
     }
 
     public String getMainMode() {

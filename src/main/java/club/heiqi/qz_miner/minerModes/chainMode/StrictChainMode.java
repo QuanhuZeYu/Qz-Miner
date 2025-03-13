@@ -2,17 +2,20 @@ package club.heiqi.qz_miner.minerModes.chainMode;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder_Strict;
 import net.minecraft.block.Block;
 import net.minecraft.util.ChatComponentText;
 import org.joml.Vector3i;
 
 public class StrictChainMode extends AbstractMode {
+    public final BlockBreaker breaker;
 
 
     public StrictChainMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
         timer = System.currentTimeMillis();
+        breaker = new BlockBreaker(modeManager.player, modeManager.world);
         positionFounder = new ChainFounder_Strict(this, center, modeManager.player);
     }
 

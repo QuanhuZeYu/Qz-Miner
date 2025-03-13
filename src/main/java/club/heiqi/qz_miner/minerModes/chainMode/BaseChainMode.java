@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.minerModes.chainMode;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -19,9 +20,12 @@ import static org.lwjgl.opengl.GL11.glGetFloat;
 
 public class BaseChainMode extends AbstractMode {
     public Logger LOG = LogManager.getLogger();
+    public final BlockBreaker breaker;
+
 
     public BaseChainMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
+        breaker = new BlockBreaker(modeManager.player, modeManager.world);
         timer = System.currentTimeMillis();
         positionFounder = new ChainFounder(this, center, modeManager.player);
     }
