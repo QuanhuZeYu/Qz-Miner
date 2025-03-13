@@ -7,9 +7,11 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
+import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,6 +61,26 @@ public class AllPlayer {
             playerStatueMap.remove(playerUUID);
         } else {
             LOG.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
+        }
+    }
+
+    @SubscribeEvent
+    public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
+        if (event.world.isRemote) {
+            if (event.entity.getUniqueID() == Minecraft.getMinecraft().thePlayer.getUniqueID()) {
+                EntityPlayer player = (EntityPlayer) event.entity;
+                UUID uuid = event.entity.getUniqueID();
+                if (playerStatueMap.containsKey(uuid)) {
+                    LOG.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
+                }else {
+                    LOG.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
+                    ModeManager modeManager = new ModeManager();
+                    modeManager.player = player;
+                    modeManager.world = player.worldObj;
+                    playerStatueMap.put(uuid, modeManager);
+                    modeManager.register();
+                }
+            }
         }
     }
 

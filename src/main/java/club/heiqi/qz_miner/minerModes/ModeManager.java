@@ -11,6 +11,8 @@ import club.heiqi.qz_miner.network.QzMinerNetWork;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.world.World;
@@ -59,11 +61,26 @@ public class ModeManager {
         switch (mainMode) {
             case CHAIN_MODE -> {
                 curMode = chainMode.newAbstractMode(this, center);
-                curMode.autoSetup();
+                curMode.mineModeAutoSetup();
             }
             case RANGE_MODE -> {
                 curMode = rangeMode.newAbstractMode(this, center);
-                curMode.autoSetup();
+                curMode.mineModeAutoSetup();
+            }
+        }
+        isRunning.set(true);
+    }
+    public List<Vector3i> renderCache = new ArrayList<>();
+    @SideOnly(Side.CLIENT)
+    public void proxyRender(Vector3i center) {
+        switch (mainMode) {
+            case CHAIN_MODE -> {
+                curMode = chainMode.newAbstractMode(this, center);
+                curMode.renderModeAutoSetup();
+            }
+            case RANGE_MODE -> {
+                curMode = rangeMode.newAbstractMode(this, center);
+                curMode.renderModeAutoSetup();
             }
         }
         isRunning.set(true);

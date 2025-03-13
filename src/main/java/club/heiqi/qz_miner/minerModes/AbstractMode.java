@@ -5,6 +5,8 @@ import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
@@ -17,8 +19,6 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -59,7 +59,16 @@ public abstract class AbstractMode {
         readConfig();
     }
 
-    public void autoSetup() {
+    public void mineModeAutoSetup() {
+        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
+        register();
+        thread.start();
+    }
+
+    public boolean isRenderMode = false;
+    @SideOnly(Side.CLIENT)
+    public void renderModeAutoSetup() {
+        isRenderMode = true;
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
         thread.start();
@@ -75,12 +84,10 @@ public abstract class AbstractMode {
             return;
         }
         if (!modeManager.getIsReady()) {
-            LOG.warn("玩家松开按键");
             shutdown();
             return;
         }
         if (!modeManager.isRunning.get()) {
-            LOG.warn("已停止运行");
             shutdown();
             return;
         }
