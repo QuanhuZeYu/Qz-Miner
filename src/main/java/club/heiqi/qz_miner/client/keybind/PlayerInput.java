@@ -186,7 +186,7 @@ public class PlayerInput {
     public List<Vector3i> renderList = new ArrayList<>();
     @SubscribeEvent
     public void onInteract(DrawBlockHighlightEvent event) {
-        if (manager == null || Config.useRender) return;
+        if (manager == null || !Config.useRender) return;
         if (!manager.getIsReady()) {
             if (!renderList.isEmpty()) {
                 renderList = new ArrayList<>();
