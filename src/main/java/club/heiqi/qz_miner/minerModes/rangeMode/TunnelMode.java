@@ -35,13 +35,18 @@ public class TunnelMode extends AbstractMode {
             Vector3i pos = positionFounder.cache.poll();
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
-                if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
+                if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
+                    shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
+                }
                 failCounter++;
                 return;
             }
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                breaker.tryHarvestBlock(pos);
+                if (!isRenderMode) breaker.tryHarvestBlock(pos);
+                else {
+                    modeManager.renderCache.add(pos);
+                }
                 tickBreakCount++;
                 allBreakCount++;
             }

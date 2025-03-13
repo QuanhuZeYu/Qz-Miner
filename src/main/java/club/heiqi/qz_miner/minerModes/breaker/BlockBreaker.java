@@ -29,6 +29,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
+import org.jetbrains.annotations.Nullable;
 import org.joml.*;
 
 import java.lang.Math;
@@ -43,20 +44,18 @@ import static net.minecraft.block.Block.getIdFromBlock;
  * 仅限服务端运行!
  */
 public class BlockBreaker {
+    @Nullable
     public EntityPlayerMP player;
     public World world;
     public List<ItemStack> drops = new ArrayList<>();
 
     public BlockBreaker(EntityPlayer player, World world) {
-        for (EntityPlayerMP playerMP : MinecraftServer.getServer().getConfigurationManager().playerEntityList) {
-            if (playerMP.getUniqueID() == player.getUniqueID()) {
-                this.player = playerMP;
-            }
-        }
+        if (player instanceof EntityPlayerMP playerMP) this.player = playerMP;
         this.world = world;
     }
 
     public void tryHarvestBlock(Vector3i pos) {
+        if (player == null) return;
         int x = pos.x; int y = pos.y; int z = pos.z;
         BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, player.theItemInWorldManager.getGameType(), player, x, y, z);
         if (breakEvent.isCanceled()) {

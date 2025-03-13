@@ -14,6 +14,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
+import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -72,23 +73,25 @@ public abstract class AbstractMode {
     }
 
     @SubscribeEvent
-    public void tick(TickEvent.ServerTickEvent event) {
-        sendHeartbeat();
-        long current = System.currentTimeMillis();
-        long heart = heartbeatTimer.get();
-        if (current -heart >= heartbeatTimeout) {
-            shutdown();
-            return;
+    public void tick(TickEvent event) {
+        if (event.phase == TickEvent.Phase.START) {
+            sendHeartbeat();
+            long current = System.currentTimeMillis();
+            long heart = heartbeatTimer.get();
+            if (current - heart >= heartbeatTimeout) {
+                shutdown();
+                return;
+            }
+            if (!modeManager.getIsReady()) {
+                shutdown();
+                return;
+            }
+            if (!modeManager.isRunning.get()) {
+                shutdown();
+                return;
+            }
+            mainLogic();
         }
-        if (!modeManager.getIsReady()) {
-            shutdown();
-            return;
-        }
-        if (!modeManager.isRunning.get()) {
-            shutdown();
-            return;
-        }
-        mainLogic();
     }
 
     public abstract void mainLogic();
@@ -154,6 +157,7 @@ public abstract class AbstractMode {
     public void register() {
         // 注册监听器
         FMLCommonHandler.instance().bus().register(this);
+        MinecraftForge.EVENT_BUS.register(this);
         LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", modeManager.player.getDisplayName());
     }
 
@@ -176,6 +180,7 @@ public abstract class AbstractMode {
         // 注销监听器
         LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", modeManager.player.getDisplayName());
         FMLCommonHandler.instance().bus().unregister(this);
+        MinecraftForge.EVENT_BUS.unregister(this);
     }
 
 
