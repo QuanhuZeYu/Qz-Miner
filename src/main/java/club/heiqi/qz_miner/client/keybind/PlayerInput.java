@@ -256,7 +256,7 @@ public class PlayerInput {
             glPopMatrix();
         }
         glPopAttrib();
-        LOG.debug("完成方块高亮绘制"); // 绘制结束日志
+        /*LOG.debug("完成方块高亮绘制");*/ // 绘制结束日志
     }
 
     public String getMainMode() {

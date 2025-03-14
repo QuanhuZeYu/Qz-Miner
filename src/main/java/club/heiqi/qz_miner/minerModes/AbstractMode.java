@@ -101,14 +101,17 @@ public abstract class AbstractMode {
             long current = System.currentTimeMillis();
             long heart = heartbeatTimer.get();
             if (current - heart >= heartbeatTimeout) {
+                LOG.info("[渲染] 心跳超时");
                 shutdown();
                 return;
             }
             if (!modeManager.getIsReady()) {
+                LOG.info("[渲染] 未准备");
                 shutdown();
                 return;
             }
             if (!modeManager.isRunning.get()) {
+                LOG.info("[渲染] 未运行");
                 shutdown();
                 return;
             }

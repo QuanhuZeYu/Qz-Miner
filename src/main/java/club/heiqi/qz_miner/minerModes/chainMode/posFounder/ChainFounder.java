@@ -4,11 +4,7 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
-import net.minecraft.server.management.ItemInWorldManager;
-import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -18,8 +14,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
 
 public class ChainFounder extends PositionFounder {
     public Logger LOG = LogManager.getLogger();

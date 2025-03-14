@@ -239,12 +239,25 @@ public class ModeManager {
         EntityPlayer player = event.getPlayer();
         // 判断是否是自己挖的
         if (player.getUniqueID() != this.player.getUniqueID()) return;
+        // 判断世界是否相同，进行世界更新
+        if (player.worldObj.equals(this.player.worldObj)) {
+            this.world = player.worldObj;
+            this.player = player;
+        }
         selfDrops.add(new Vector3i(event.x, event.y, event.z));
-        if (isRunning.get()) return;
-        if (!isReady.get()) return;
+        if (isRunning.get()) {
+            /*LOG.info("已在运行，退出");*/
+            return;
+        }
+        if (!isReady.get()) {
+            /*LOG.info("为准备，退出");*/
+            return;
+        }
         // 获取破坏方块的坐标
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
+            this.world = event.world;
+            this.player = event.getPlayer();
             proxyMine(breakBlockPos);
         } catch (Exception e) {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");

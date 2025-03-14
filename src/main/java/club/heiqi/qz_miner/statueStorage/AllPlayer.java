@@ -37,17 +37,19 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         EntityPlayer player = event.player;
-        UUID uuid = player.getUniqueID();
+        UUID uuid = event.player.getUniqueID();
+        ModeManager modeManager;
         if (playerStatueMap.containsKey(uuid)) {
             LOG.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
-        } else {
+            modeManager = playerStatueMap.get(uuid);
+        }else {
             LOG.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
-            ModeManager modeManager = new ModeManager();
-            modeManager.player = player;
-            modeManager.world = player.worldObj;
-            playerStatueMap.put(uuid, modeManager);
-            modeManager.register();
+            modeManager = new ModeManager();
         }
+        modeManager.player = player;
+        modeManager.world = player.worldObj;
+        playerStatueMap.put(uuid, modeManager);
+        modeManager.register();
     }
 
     /**
@@ -72,16 +74,18 @@ public class AllPlayer {
             if (event.entity.getUniqueID() == Minecraft.getMinecraft().thePlayer.getUniqueID()) {
                 EntityPlayer player = (EntityPlayer) event.entity;
                 UUID uuid = event.entity.getUniqueID();
+                ModeManager modeManager;
                 if (playerStatueMap.containsKey(uuid)) {
                     LOG.info("玩家: {} 已在缓存连锁实例中，无需再次创建", player.getDisplayName());
+                    modeManager = playerStatueMap.get(uuid);
                 }else {
                     LOG.info("玩家: {} 已登录，缓存连锁实例中不存在，已创建", player.getDisplayName());
-                    ModeManager modeManager = new ModeManager();
-                    modeManager.player = player;
-                    modeManager.world = player.worldObj;
-                    playerStatueMap.put(uuid, modeManager);
-                    modeManager.register();
+                    modeManager = new ModeManager();
                 }
+                modeManager.player = player;
+                modeManager.world = player.worldObj;
+                playerStatueMap.put(uuid, modeManager);
+                modeManager.register();
             }
         }
     }
@@ -96,6 +100,18 @@ public class AllPlayer {
             playerStatueMap.remove(playerUUID);
         } else {
             LOG.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
+        }
+    }
+
+    @SubscribeEvent
+    public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {
+        EntityPlayer player = event.player;
+        UUID uuid = player.getUniqueID();
+        if (playerStatueMap.containsKey(uuid)) {
+            LOG.info("玩家 {} 切换世界");
+            ModeManager modeManager = playerStatueMap.get(uuid);
+            modeManager.player = player;
+            modeManager.world = player.worldObj;
         }
     }
 

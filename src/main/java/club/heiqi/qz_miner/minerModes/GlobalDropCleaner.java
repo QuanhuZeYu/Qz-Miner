@@ -48,11 +48,9 @@ public class GlobalDropCleaner {
                             }
                         }
                         // 将物品生成到这个玩家脚下 - 删除该元素
-                        try {
+                        if (select != null)
                             item.setPosition(select.posX, select.posY+select.eyeHeight, select.posZ);
-                            item.worldObj.spawnEntityInWorld(item);
-                        } finally {
-                        }
+                        item.worldObj.spawnEntityInWorld(item);
                     }
                     // 遍历完成后删除该键值
                     GLOBAL_DROPS.remove(position);
