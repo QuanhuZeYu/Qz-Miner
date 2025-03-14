@@ -7,11 +7,15 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -29,31 +33,36 @@ public class GlobalDropCleaner {
         // 10s没有更新便清理掉所有内容物
         if (System.currentTimeMillis() - lastGlobalChangeTime >= 3_000) {
             if (!GLOBAL_DROPS.isEmpty()) {
-                for (Map.Entry<Vector3i, ConcurrentLinkedQueue<EntityItem>> entry : GLOBAL_DROPS.entrySet()) {
+            Iterator<Map.Entry<Vector3i, ConcurrentLinkedQueue<EntityItem>>> it = GLOBAL_DROPS.entrySet().iterator();
+                while (it.hasNext()) {
+                    Map.Entry<Vector3i, ConcurrentLinkedQueue<EntityItem>> entry = it.next();
                     Vector3i position = entry.getKey();
                     ConcurrentLinkedQueue<EntityItem> queue = entry.getValue();
-                    // 遍历队列元素（弱一致，可能不反映后续修改）
-                    for (EntityItem item : queue) {
+                    it.remove(); // 原子移除，避免后续干扰
+                    EntityItem item;
+                    while ((item = queue.poll()) != null) {
+                        World world = item.worldObj;
                         // 寻找最近的玩家
-                        float distance2 = Float.MAX_VALUE;
-                        EntityPlayer select = null;
-                        for(EntityPlayer player : item.worldObj.playerEntities) {
-                            double px = player.posX; double py = player.posY; double pz = player.posZ;
-                            double ix = item.posX; double iy = item.posY; double iz = item.posZ;
-                            float dx = (float) (px - ix); float dy = (float) (py - iy); float dz = (float) (pz - iz);
-                            float calDis2 = dx*dx + dy*dy + dz*dz;
-                            if (calDis2 < distance2) {
-                                distance2 = calDis2;
-                                select = player;
+                        double minDistSq = Double.MAX_VALUE;
+                        EntityPlayer closest = null;
+                        List<EntityPlayer> players = new ArrayList<>(world.playerEntities);
+                        for(EntityPlayer player : players) {
+                            if (player.dimension != item.dimension) continue;
+                            double dx = player.posX - item.posX;
+                            double dy = player.posY - item.posY;
+                            double dz = player.posZ - item.posZ;
+                            double distSq = dx*dx + dy*dy + dz*dz;
+                            if (dx>16 || dz>16 || dy>16) continue;
+                            if (distSq < minDistSq) {
+                                minDistSq = distSq;
+                                closest = player;
                             }
                         }
-                        // 将物品生成到这个玩家脚下 - 删除该元素
-                        if (select != null)
-                            item.setPosition(select.posX, select.posY+select.eyeHeight, select.posZ);
-                        item.worldObj.spawnEntityInWorld(item);
+                        if (closest != null) {
+                            item.setPosition(closest.posX, closest.posY + closest.eyeHeight, closest.posZ);
+                        }
+                        world.spawnEntityInWorld(item);
                     }
-                    // 遍历完成后删除该键值
-                    GLOBAL_DROPS.remove(position);
                 }
                 LOG.info("全局表已清理");
             }
