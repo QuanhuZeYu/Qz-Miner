@@ -101,33 +101,7 @@ public abstract class PositionFounder implements Runnable {
     }
 
     public boolean checkCanBreak(Vector3i pos) {
-        World world = player.worldObj;;
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-        // 创造模式直接返回 true
-        if (player.capabilities.isCreativeMode) return true;
-        ItemStack holdItem = player.getCurrentEquippedItem();
-        // 判断工具能否挖掘
-        if (holdItem != null) {
-            return block.canHarvestBlock(player, meta);
-        }
-        // 判断是否为空气
-        if (block == Blocks.air) {
-            return false;
-        }
-        // 判断是否为流体
-        if (block.getMaterial().isLiquid()) {
-            return false;
-        }
-        // 判断是否为基岩
-        if (block == Blocks.bedrock) {
-            return false;
-        }
-        // 判断是否为非固体
-        if (!block.getMaterial().isSolid()) {
-            return false;
-        }
-        return true;
+        return mode.checkCanBreak(pos);
     }
 
     public List<Vector3i> sort(List<Vector3i> list) {

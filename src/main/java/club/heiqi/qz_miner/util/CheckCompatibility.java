@@ -8,6 +8,7 @@ public class CheckCompatibility {
     public static boolean isHasClass_TileEntityOre = false;
     public static boolean isHasClass_BWTileEntityGenOre = false;
     public static boolean isHasClass_MSMTile = false;
+    public static boolean isHasClass_AE2 = false;
 
     public static boolean is270Upper = false;
 
@@ -19,6 +20,7 @@ public class CheckCompatibility {
         MY_LOG.LOG.info("检测到所有类");
         isHaseClass_MSMTile();
         is270Upper = isHasClass_BlockOresAbstract && isHasClass_TileEntityOre && isHaseClass_BlockBaseOre && isHasClass_BWTileEntityGenOre;
+        isHasClass_AE2();
     }
 
     public static void isHasClass_BlockOresAbstract() {
@@ -68,6 +70,16 @@ public class CheckCompatibility {
         } catch (ClassNotFoundException e) {
             MY_LOG.LOG.warn("未检测到 MSMTile");
             isHasClass_MSMTile = false;
+        }
+    }
+
+    public static void isHasClass_AE2() {
+        try {
+            Class<?> clazz = Class.forName("appeng.tile.AEBaseTile");
+            isHasClass_AE2 = true;
+        } catch (ClassNotFoundException e) {
+            MY_LOG.LOG.warn("未检测到 AEBaseTile");
+            isHasClass_AE2 = false;
         }
     }
 }

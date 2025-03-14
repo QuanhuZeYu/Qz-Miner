@@ -119,5 +119,6 @@ if(useMoreMod) {
         runtimeOnly("com.github.GTNewHorizons:TinkersGregworks:GTNH-1.0.30-pre:dev")
         runtimeOnly("com.github.GTNewHorizons:IguanaTweaksTConstruct:2.5.0:dev")
         runtimeOnly("com.github.GTNewHorizons:Galacticraft:3.2.9-GTNH:dev")
+        runtimeOnly("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-551-GTNH:dev")
     }
 }

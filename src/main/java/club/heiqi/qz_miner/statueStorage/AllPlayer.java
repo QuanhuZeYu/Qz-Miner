@@ -20,13 +20,14 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AllPlayer {
     public static Logger LOG = LogManager.getLogger();
     /**
      * 玩家UUID为键 - 连锁管理器
      */
-    public Map<UUID, ModeManager> playerStatueMap = new HashMap<>();
+    public Map<UUID, ModeManager> playerStatueMap = new ConcurrentHashMap<>();
 
 
     /**

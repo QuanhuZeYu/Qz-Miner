@@ -37,6 +37,7 @@ public abstract class MixinsBlock {
             // 创建实体并加入全局队列
             EntityItem entityitem = new EntityItem(worldIn, x, y, z, itemIn);
             entityitem.delayBeforeCanPickup = 10;
+            /*LOG.info(entityitem.getEntityItem().getDisplayName());*/
             Vector3i pos = new Vector3i(x, y, z);
             if (Config.dropItemToSelf) {
                 // 原子化操作：初始化队列并添加实体
@@ -44,11 +45,7 @@ public abstract class MixinsBlock {
                     .offer(entityitem);
                 GlobalDropCleaner.lastGlobalChangeTime = System.currentTimeMillis();
                 ci.cancel(); // 阻止原版实体生成
-            } else {
-                worldIn.spawnEntityInWorld(entityitem);
-                ci.cancel(); // 阻止原版实体生成
             }
         }
-        ci.cancel();
     }
 }

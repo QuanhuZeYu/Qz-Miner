@@ -1,8 +1,10 @@
 package club.heiqi.qz_miner.minerModes.breaker;
 
+import appeng.tile.AEBaseTile;
 import bartworks.system.material.BWTileEntityMetaGeneratedOre;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MY_LOG;
+import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.mixins.GTMixin.BWTileEntityMetaGeneratedOreAccessor;
 import club.heiqi.qz_miner.mixins.GTMixin.BlockBaseOreAccessor;
 import club.heiqi.qz_miner.mixins.GTMixin.TileEntityOresAccessor;
@@ -19,8 +21,6 @@ import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.server.S23PacketBlockChange;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
@@ -29,6 +29,8 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.joml.*;
 
@@ -44,6 +46,7 @@ import static net.minecraft.block.Block.getIdFromBlock;
  * 仅限服务端运行!
  */
 public class BlockBreaker {
+    public Logger LOG = LogManager.getLogger();
     @Nullable
     public EntityPlayerMP player;
     public World world;
@@ -57,19 +60,29 @@ public class BlockBreaker {
     public void tryHarvestBlock(Vector3i pos) {
         if (player == null) return;
         int x = pos.x; int y = pos.y; int z = pos.z;
+        // 1. 元数据缓存减少重复调用
+        final Block block = world.getBlock(x, y, z);
+        final int metadata = world.getBlockMetadata(x, y, z);
+        final int blockId = Block.getIdFromBlock(block);
+        final TileEntity te = world.getTileEntity(x,y,z);
+        /*player.theItemInWorldManager.tryHarvestBlock(x,y,z);*/
+        // 2. 处理AE逻辑
+        if (CheckCompatibility.isHasClass_AE2 && te instanceof AEBaseTile aeTe) {
+            List<ItemStack> drops = new ArrayList<>();
+            aeTe.getDrops(world,x,y,z,drops);
+            Vector3f dropPos = Utils.getItemDropPos(player);
+            drops.forEach(d -> world.spawnEntityInWorld(new EntityItem(world,dropPos.x,dropPos.y,dropPos.z,d)));
+        }
+
         BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, player.theItemInWorldManager.getGameType(), player, x, y, z);
         if (breakEvent.isCanceled()) {
             return;
         }
-        // 2. 工具预检查逻辑优化
+        // 3. 工具预检查逻辑优化
         ItemStack heldItem = player.getHeldItem();
         if (heldItem != null && heldItem.getItem().onBlockStartBreak(heldItem, x, y, z, player)) {
             return;
         }
-        // 3. 元数据缓存减少重复调用
-        final Block block = world.getBlock(x, y, z);
-        final int metadata = world.getBlockMetadata(x, y, z);
-        final int blockId = Block.getIdFromBlock(block);
         // 4. 播放音效（使用常量代替魔法数字）
         final int BLOCK_BREAK_SFX_ID = 2001;
         world.playAuxSFXAtEntity(player, BLOCK_BREAK_SFX_ID, x, y, z, blockId + (metadata << 12));
@@ -112,8 +125,9 @@ public class BlockBreaker {
      * @return 如果方块成功被移除则返回true，否则返回false
      */
     public boolean removeBlock(int x, int y, int z, boolean canHarvest) {
-        new PlayerInteractEvent(player, PlayerInteractEvent.Action.LEFT_CLICK_BLOCK, x, y, z, ForgeDirection.UP.flag, world);
-        canHarvest = false;
+        PlayerInteractEvent interact = new PlayerInteractEvent(player, PlayerInteractEvent.Action.LEFT_CLICK_BLOCK, x, y, z, ForgeDirection.UP.flag, world);
+        MinecraftForge.EVENT_BUS.post(interact);
+        canHarvest = true;
         // 获取目标位置的方块及其元数据
         Block targetBlock = world.getBlock(x, y, z);
         int blockMetadata = world.getBlockMetadata(x, y, z);
@@ -175,7 +189,7 @@ public class BlockBreaker {
     public void harvestBlock(Vector3i pos, int meta) {
         int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
         // 计算掉落位置
-        Vector3f dropPos = CalculateSightFront.calculatePos(player);
+        Vector3f dropPos = Utils.getItemDropPos(player);
 
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);

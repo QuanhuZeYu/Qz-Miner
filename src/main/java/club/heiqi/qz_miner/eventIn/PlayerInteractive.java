@@ -1,7 +1,9 @@
 package club.heiqi.qz_miner.eventIn;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.util.CalculateSightFront;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -37,7 +39,7 @@ public class PlayerInteractive {
             if (event.world.getBlockMetadata(event.x, event.y, event.z) < 7) return;
             player.swingItem();
             if (event.world.isRemote) return;
-            Vector3f dropPos = CalculateSightFront.calculatePos(player);
+            Vector3f dropPos = Utils.getItemDropPos(player);
             List<Vector3i> crops = findCrops(event.world, new Vector3i(event.x, event.y, event.z));
             crops.forEach(cropPos -> {
                 int metadata = event.world.getBlockMetadata(cropPos.x, cropPos.y, cropPos.z);

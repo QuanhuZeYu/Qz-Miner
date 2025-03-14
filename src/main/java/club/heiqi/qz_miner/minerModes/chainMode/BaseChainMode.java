@@ -38,7 +38,7 @@ public class BaseChainMode extends AbstractMode {
     @Override
     public void mainLogic() {
         if (allBreakCount >= blockLimit - 1) {
-            LOG.info("[渲染] 方块数量达标");
+            /*LOG.info("[渲染] 方块数量达标");*/
             shutdown();
             return;
         }
@@ -49,7 +49,7 @@ public class BaseChainMode extends AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
-                    LOG.info("[渲染] 连续错误时间过长");
+                    /*LOG.info("[渲染] 连续错误时间过长");*/
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;

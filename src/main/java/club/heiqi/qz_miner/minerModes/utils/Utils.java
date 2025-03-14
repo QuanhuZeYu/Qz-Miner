@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes.utils;
 
+import club.heiqi.qz_miner.Config;
 import net.minecraft.entity.EntityLivingBase;
 import org.joml.Vector3f;
 
@@ -12,7 +13,19 @@ public class Utils {
         double lookX = -Math.sin(yawRad)*Math.cos(pitchRad);
         double lookY = -Math.sin(pitchRad);
         double lookZ = Math.cos(yawRad)*Math.cos(pitchRad);
-        return new Vector3f((float) lookX, (float) lookY, (float) lookZ);
+        return new Vector3f((float) lookX, (float) lookY, (float) lookZ).normalize();
+    }
+
+    public static Vector3f getItemDropPos(EntityLivingBase entity) {
+        Vector3f dir = getLookDir(entity);
+        if (Config.dropItemToSelf)
+            return dir.mul(Config.dropDistance)
+                .add(new Vector3f((float) entity.posX, (float) entity.posY, (float) entity.posZ));
+        else
+            return new Vector3f(
+                (float) entity.posX,
+                (float) (entity.posY+entity.getEyeHeight()),
+                (float) entity.posZ);
     }
 
     // 预计算采样表（静态初始化保证只计算一次）

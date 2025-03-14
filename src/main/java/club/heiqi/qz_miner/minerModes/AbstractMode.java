@@ -103,12 +103,12 @@ public abstract class AbstractMode {
         long current = System.currentTimeMillis();
         long heart = heartbeatTimer.get();
         if (current - heart >= heartbeatTimeout) {
-            LOG.info("[渲染] 心跳超时");
+            /*LOG.info("[渲染] 心跳超时");*/
             shutdown();
             return;
         }
         if (!modeManager.getIsReady()) {
-            LOG.info("[渲染] 未准备");
+            /*LOG.info("[渲染] 未准备");*/
             shutdown();
             return;
         }
@@ -139,10 +139,12 @@ public abstract class AbstractMode {
 
     public boolean checkCanBreak(Vector3i pos) {
         World world = modeManager.world;
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
         EntityPlayer player = modeManager.player;
+        int vx = pos.x; int vy = pos.y; int vz = pos.z;
+        int px = (int) Math.floor(player.posX); int py = (int) player.posY; int pz = (int) Math.floor(player.posZ);
+        Block block = world.getBlock(vx,vy,vz);
         ItemStack holdItem = player.getCurrentEquippedItem();
-        int meta = world.getBlockMetadata(pos.x, pos.y, pos.z);
+        int meta = world.getBlockMetadata(vx,vy,vz);
         // 判断是否为创造模式
         if (player.capabilities.isCreativeMode) {
             return true;
@@ -161,6 +163,13 @@ public abstract class AbstractMode {
         }
         // 判断是否为非固体
         if (!block.getMaterial().isSolid()) {
+            return false;
+        }
+        boolean b = vx == px && vy == (py-1) && vz == pz;
+        /*LOG.info("[挖掘检查] 脚下:({}, {}, {}) - ({}, {}, {}) - 结果:{}",
+            px,py-1,pz,vx,vy,vz, b);*/
+        if (b) {
+            /*LOG.info("已排除点:({}, {}, {})",vx,vy,vz);*/
             return false;
         }
         // 判断工具能否挖掘

@@ -16,7 +16,6 @@ public class CalculateSightFront {
         float vz = (float) (Math.cos(pitch) * Math.sin(yaw));
         // 视线方向的单位向量
         Vector3f direction = new Vector3f(vx, vy, vz).normalize();
-        Vector3f dropPos = new Vector3f(direction).mul(Config.dropDistance).add(playerPos);
-        return dropPos;
+        return new Vector3f(direction).mul(Config.dropDistance).add(playerPos);
     }
 }
