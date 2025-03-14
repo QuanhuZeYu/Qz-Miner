@@ -27,7 +27,7 @@ public class GlobalDropCleaner {
     public void globalCleaner(TickEvent.ServerTickEvent event) {
         if (!Config.dropItemToSelf) return;
         // 10s没有更新便清理掉所有内容物
-        if (System.currentTimeMillis() - lastGlobalChangeTime >= 10_000) {
+        if (System.currentTimeMillis() - lastGlobalChangeTime >= 3_000) {
             if (!GLOBAL_DROPS.isEmpty()) {
                 for (Map.Entry<Vector3i, ConcurrentLinkedQueue<EntityItem>> entry : GLOBAL_DROPS.entrySet()) {
                     Vector3i position = entry.getKey();
