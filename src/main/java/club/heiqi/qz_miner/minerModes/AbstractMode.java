@@ -21,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -63,16 +64,17 @@ public abstract class AbstractMode {
         thread.start();
     }
 
-    public boolean isRenderMode = false;
+    public AtomicBoolean isRenderMode = new AtomicBoolean(false);
     @SideOnly(Side.CLIENT)
     public void renderModeAutoSetup() {
-        isRenderMode = true;
+        isRenderMode.set(true);
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
         thread.start();
     }
 
     @SubscribeEvent
+    @SideOnly(Side.SERVER)
     public void tick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.START && !modeManager.world.isRemote) {
             sendHeartbeat();
@@ -95,28 +97,22 @@ public abstract class AbstractMode {
     }
 
     @SubscribeEvent
-    public void clientTick(TickEvent event) {
-        if (event.phase == TickEvent.Phase.START && modeManager.world.isRemote) {
-            sendHeartbeat();
-            long current = System.currentTimeMillis();
-            long heart = heartbeatTimer.get();
-            if (current - heart >= heartbeatTimeout) {
-                LOG.info("[渲染] 心跳超时");
-                shutdown();
-                return;
-            }
-            if (!modeManager.getIsReady()) {
-                LOG.info("[渲染] 未准备");
-                shutdown();
-                return;
-            }
-            if (!modeManager.isRunning.get()) {
-                LOG.info("[渲染] 未运行");
-                shutdown();
-                return;
-            }
-            mainLogic();
+    @SideOnly(Side.CLIENT)
+    public void clientTick(TickEvent.ClientTickEvent event) {
+        sendHeartbeat();
+        long current = System.currentTimeMillis();
+        long heart = heartbeatTimer.get();
+        if (current - heart >= heartbeatTimeout) {
+            LOG.info("[渲染] 心跳超时");
+            shutdown();
+            return;
         }
+        if (!modeManager.getIsReady()) {
+            LOG.info("[渲染] 未准备");
+            shutdown();
+            return;
+        }
+        mainLogic();
     }
 
     public abstract void mainLogic();

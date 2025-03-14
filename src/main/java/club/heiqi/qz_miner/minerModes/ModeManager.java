@@ -68,6 +68,7 @@ public class ModeManager {
                 curMode.mineModeAutoSetup();
             }
         }
+        LOG.info("[挖掘] 执行挖掘任务");
         isRunning.set(true);
     }
     public List<Vector3i> renderCache = new ArrayList<>();
@@ -83,7 +84,6 @@ public class ModeManager {
                 curMode.renderModeAutoSetup();
             }
         }
-        isRunning.set(true);
     }
 
     public void nextMainMode() {
@@ -238,24 +238,29 @@ public class ModeManager {
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
         EntityPlayer player = event.getPlayer();
         // 判断是否是自己挖的
-        if (player.getUniqueID() != this.player.getUniqueID()) return;
+        if (!player.getUniqueID().equals(this.player.getUniqueID())) {
+            LOG.info("[挖掘] 触发者不是自身:{} 触发者:{}", this.player.getUniqueID(), player.getUniqueID());
+            return;
+        }
         // 判断世界是否相同，进行世界更新
-        if (player.worldObj.equals(this.player.worldObj)) {
+        if (!player.worldObj.equals(this.player.worldObj)) {
+            LOG.info("[挖掘] 世界不同触发更新");
             this.world = player.worldObj;
             this.player = player;
         }
         selfDrops.add(new Vector3i(event.x, event.y, event.z));
         if (isRunning.get()) {
-            /*LOG.info("已在运行，退出");*/
+            LOG.info("[挖掘] 已在运行，退出");
             return;
         }
         if (!isReady.get()) {
-            /*LOG.info("为准备，退出");*/
+            LOG.info("[挖掘] 未准备，退出");
             return;
         }
         // 获取破坏方块的坐标
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
+            LOG.info("[挖掘] 设置代理挖掘任务");
             this.world = event.world;
             this.player = event.getPlayer();
             proxyMine(breakBlockPos);

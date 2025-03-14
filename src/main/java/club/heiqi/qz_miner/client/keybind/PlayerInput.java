@@ -208,6 +208,7 @@ public class PlayerInput {
         }
         // 渲染列表状态追踪
         if (renderList.isEmpty()) {
+            LOG.info("[渲染] 正在触发渲染模式");
             manager.proxyRender(new Vector3i(bx, by, bz));
             renderList.add(new Vector3i(0));
         } else if (!manager.renderCache.isEmpty()) {

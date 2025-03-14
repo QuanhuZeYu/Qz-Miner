@@ -33,6 +33,7 @@ public class RectangularMineralMode extends AbstractMode {
     @Override
     public void mainLogic() {
         if (allBreakCount >= blockLimit - 1) {
+            LOG.info("[渲染] 方块数量达标");
             shutdown();
             return;
         }
@@ -43,6 +44,7 @@ public class RectangularMineralMode extends AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
+                    LOG.info("[渲染] 连续错误时间过长");
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
@@ -50,7 +52,7 @@ public class RectangularMineralMode extends AbstractMode {
             }
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (!isRenderMode) breaker.tryHarvestBlock(pos);
+                if (!isRenderMode.get()) breaker.tryHarvestBlock(pos);
                 else {
                     modeManager.renderCache.add(pos);
                 }
@@ -65,6 +67,7 @@ public class RectangularMineralMode extends AbstractMode {
     @Override
     public void unregister() {
         super.unregister();
+        if (isRenderMode.get()) return;
         long totalTime = System.currentTimeMillis() - timer;
         // 分割秒和毫秒
         int seconds = (int)(totalTime / 1000);  // 秒数
@@ -74,5 +77,13 @@ public class RectangularMineralMode extends AbstractMode {
             + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
         modeManager.player.addChatMessage(text);
+    }
+
+    public long sendTime = System.nanoTime();
+    @Override
+    public void sendHeartbeat() {
+        if (System.nanoTime() - sendTime <= 5_000_000) return;
+        sendTime = System.nanoTime();
+        super.sendHeartbeat();
     }
 }
