@@ -9,6 +9,7 @@
     "enderio.MixinRightClickCrop",
     "GTMixin.BlockBaseOreAccessor",
     "GTMixin.BWTileEntityMetaGeneratedOreAccessor",
+    "GTMixin.CoverableTileEntityAccessor",
     "GTMixin.MixinsBWTileEntityMetaGenOre",
     "GTMixin.MixinsTileEntityOres",
     "GTMixin.TileEntityOresAccessor"
