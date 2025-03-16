@@ -12,7 +12,9 @@ import org.joml.Vector3i;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Constant;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -47,5 +49,13 @@ public abstract class MixinsBlock {
                 ci.cancel(); // 阻止原版实体生成
             }
         }
+    }
+
+    @ModifyConstant(
+        method = "harvestBlock",
+        constant = @Constant(floatValue = 0.025F)
+    )
+    public float qz_miner$modifyExhaustion$harvestBlock(float original) {
+        return Config.exhaustion;
     }
 }
