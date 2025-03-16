@@ -1,10 +1,8 @@
 package club.heiqi.qz_miner.eventIn;
 
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MY_LOG;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.utils.Utils;
-import club.heiqi.qz_miner.util.CalculateSightFront;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.block.Block;
