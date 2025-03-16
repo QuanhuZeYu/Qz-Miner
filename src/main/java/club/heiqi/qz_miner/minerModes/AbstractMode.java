@@ -112,6 +112,10 @@ public abstract class AbstractMode {
             shutdown();
             return;
         }
+        // 如果卡顿就不执行mainLogic
+        if (isInLag()) {
+            return;
+        }
         mainLogic();
     }
 

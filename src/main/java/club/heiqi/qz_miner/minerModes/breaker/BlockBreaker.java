@@ -8,7 +8,6 @@ import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.mixins.GTMixin.BWTileEntityMetaGeneratedOreAccessor;
 import club.heiqi.qz_miner.mixins.GTMixin.BlockBaseOreAccessor;
 import club.heiqi.qz_miner.mixins.GTMixin.TileEntityOresAccessor;
-import club.heiqi.qz_miner.util.CalculateSightFront;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.TileEntityOres;
 import gtPlusPlus.core.block.base.BlockBaseOre;
