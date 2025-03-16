@@ -20,11 +20,11 @@ public class Utils {
         Vector3f dir = getLookDir(entity);
         if (Config.dropItemToSelf)
             return dir.mul(Config.dropDistance)
-                .add(new Vector3f((float) entity.posX, (float) entity.posY, (float) entity.posZ));
+                .add(new Vector3f((float) entity.posX, (float) entity.posY+entity.getEyeHeight(), (float) entity.posZ));
         else
             return new Vector3f(
                 (float) entity.posX,
-                (float) (entity.posY+entity.getEyeHeight()),
+                (float) (entity.posY+0.25),
                 (float) entity.posZ);
     }
 

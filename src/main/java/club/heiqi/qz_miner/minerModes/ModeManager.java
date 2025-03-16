@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.chainMode.*;
 import club.heiqi.qz_miner.minerModes.chainMode.RelaxChainMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.*;
+import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
@@ -21,6 +22,7 @@ import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3f;
 import org.joml.Vector3i;
 
 import java.util.*;
@@ -291,7 +293,8 @@ public class ModeManager {
             EntityItem ei = queue.poll();
             if (ei != null) {
                 // 生成实体到世界
-                ei.setPosition(player.posX, player.posY + 1.5, player.posZ);
+                Vector3f dropPos = Utils.getItemDropPos(player);
+                ei.setPosition(dropPos.x, dropPos.y, dropPos.z);
                 player.worldObj.spawnEntityInWorld(ei);
                 // 若队列已空，清理全局表和自身队列
                 if (queue.isEmpty()) {
