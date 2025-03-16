@@ -63,6 +63,7 @@ public class AllPlayer {
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {
             LOG.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
+            playerStatueMap.get(playerUUID).unregister();
             playerStatueMap.remove(playerUUID);
         } else {
             LOG.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
@@ -98,6 +99,7 @@ public class AllPlayer {
         UUID playerUUID = player.getUniqueID();
         if (playerStatueMap.containsKey(playerUUID)) {
             LOG.info("玩家: {} 已登出，连锁实例中已删除", player.getDisplayName());
+            playerStatueMap.get(playerUUID).unregister();
             playerStatueMap.remove(playerUUID);
         } else {
             LOG.info("玩家: {} 已登出，连锁实例中不存在，无需删除", player.getDisplayName());
@@ -122,6 +124,18 @@ public class AllPlayer {
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {
             LOG.info("玩家 {} 复活", player.getDisplayName());
+            ModeManager modeManager = playerStatueMap.get(uuid);
+            modeManager.player = player;
+            modeManager.world = player.worldObj;
+        }
+    }
+
+    @SubscribeEvent
+    public void qz_onPlayerClone(net.minecraftforge.event.entity.player.PlayerEvent.Clone event) {
+        EntityPlayer player = event.entityPlayer;
+        UUID uuid = player.getUniqueID();
+        if (playerStatueMap.containsKey(uuid)) {
+            LOG.info("玩家 {} 克隆", player.getDisplayName());
             ModeManager modeManager = playerStatueMap.get(uuid);
             modeManager.player = player;
             modeManager.world = player.worldObj;
