@@ -237,6 +237,7 @@ public abstract class AbstractMode {
     }
 
     public boolean isInLag() {
+        if (modeManager.world.isRemote) return false;
         MinecraftServer server = MinecraftServer.getServer();
         int tickCounter = server.getTickCounter();
         long[] ticks = server.tickTimeArray;
