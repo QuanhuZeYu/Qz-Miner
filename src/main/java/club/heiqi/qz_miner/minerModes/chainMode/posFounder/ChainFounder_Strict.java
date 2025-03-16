@@ -1,36 +1,32 @@
 package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
+import bartworks.system.material.TileEntityMetaGeneratedBlock;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.api.metatileentity.BaseMetaTileEntity;
+import gregtech.api.metatileentity.CoverableTileEntity;
 import gregtech.common.blocks.TileEntityOres;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.management.ItemInWorldManager;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.world.World;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import java.util.*;
 
 public class ChainFounder_Strict extends PositionFounder {
     public Set<Vector3i> visitedChainSet = new HashSet<>();
     public Set<Vector3i> nextChainSet = new HashSet<>();
-
+    public boolean isGTTile = false;
+    public boolean isGTBlockOre = false;
+    public boolean isBW = false;
 
     public ChainFounder_Strict(AbstractMode mode, Vector3i center, EntityPlayer player) {
         super(mode, center, player);
         nextChainSet.add(center);
+        if (CheckCompatibility.isHasClass_MetaTileEntity && mode.tileSample instanceof CoverableTileEntity) isGTTile = true;
+        if (CheckCompatibility.isHasClass_TileEntityOre && mode.tileSample instanceof TileEntityOres) isGTBlockOre = true;
+        if (CheckCompatibility.isHasClass_TileEntityMetaGeneratedBlock && mode.tileSample instanceof TileEntityMetaGeneratedBlock) isBW = true;
     }
 
     @Override
@@ -80,91 +76,48 @@ public class ChainFounder_Strict extends PositionFounder {
     public boolean filter(Vector3i pos) {
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        if (mode.blockSample.equals(block)) {
-            // 再检查metaID是否一致
-            try {
-                int blockMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
-                int itemMeta = new ItemStack(block, 1, blockMeta).getItemDamage();
-                if (itemMeta == mode.blockSampleMeta) { // metaID一致之后继续进行校验
-                    if (!CheckCompatibility.is270Upper) return true; // 270以下版本不检查metaID
-                    TileEntity tile = world.getTileEntity(pos.x, pos.y, pos.z);
-                    // 检查选取方块和样本方块是否为格雷矿石类
-                    if (isTileEntityOreSame(tile, mode.tileSample)){
-                        return true;
-                    // 检查选取方块和样本方块是否为格雷TileEntity基类
-                    } else if (isBaseMetaTileEntitySame(tile, mode.tileSample)) {
-                        return true;
-                    // 不包含格雷矿石类和TileEntity基类 在meta一致的情况下直接返回true
-                    } else {
-                        return true;
-                    }
-                }
-            } catch (Exception e) {
+        TileEntity te = world.getTileEntity(pos.x,pos.y,pos.z);
+        if (world.getBlockMetadata(pos.x, pos.y, pos.z) != mode.blockSampleMeta) return false;
+        // 判断瓷砖是否相同
+        if (te != null) {
+            // 判断格雷Tile meta是否相同
+            if (isGTTile
+                && (te instanceof BaseMetaTileEntity gtTe)
+            ) {
+                int sMID = ((BaseMetaTileEntity) mode.tileSample).getMetaTileID();
+                int tMID = gtTe.getMetaTileID();
+                return sMID == tMID; // meta不同会拒绝
+            } else if (!isGTTile) {
+                return false;
+            }
+            // 判断矿物Meta
+            if (isGTBlockOre
+                && (te instanceof TileEntityOres bTe)
+            ) {
+                int sMID = ((TileEntityOres)mode.tileSample).mMetaData;
+                int tMID = bTe.mMetaData;
+                return sMID == tMID; // meta不同会拒绝
+            } else if (!isGTBlockOre) {
+                return false;
+            }
+            // 判断bart-work
+            if (isBW
+                && (te instanceof TileEntityMetaGeneratedBlock bTe)
+            ) {
+                int tMeta = bTe.mMetaData;
+                int sMeta = ((TileEntityMetaGeneratedBlock) mode.tileSample).mMetaData;
+                return tMeta == sMeta;
+            } else if (!isBW) {
                 return false;
             }
         }
-        return false;
+        String sampleULName = mode.blockSample.getUnlocalizedName();
+        String tULName = block.getUnlocalizedName();
+        return Objects.equals(sampleULName, tULName);
     }
 
-    /**
-     * 比较两个 TileEntity 是否为相同的矿石实体。
-     * <p>
-     * 该方法用于判断两个传入的 TileEntity 对象是否都是矿石实体（TileEntityOres），
-     * 并且它们的内部元数据（mMetaData）是否相同。
-     * 如果任一 TileEntity 为 null 或者两者都不是矿石实体，则返回 false。
-     * 如果两者都是矿石实体且元数据相同，则返回 true。
-     *
-     * @param tileEntity     要比较的第一个 TileEntity 实例
-     * @param sampleEntity   要比较的第二个 TileEntity 实例，作为样本
-     * @return 如果两个 TileEntity 都是矿石实体并且其元数据相同，则返回 true；否则返回 false
-     */
-    public boolean isTileEntityOreSame(TileEntity tileEntity, TileEntity sampleEntity) {
-        // 如果任一 TileEntity 为 null，则直接返回 false
-        if (tileEntity == null || sampleEntity == null) return false;
 
-        // 检查两个 TileEntity 是否都是矿石实体（TileEntityOres）
-        if ((tileEntity instanceof TileEntityOres tileEntityOre) && (sampleEntity instanceof TileEntityOres sampleEntityOre)) {
-            // 获取样本矿石实体的元数据
-            int sampleMMeta = sampleEntityOre.mMetaData;
-            // 获取待比较矿石实体的元数据
-            int blockMMeta = tileEntityOre.mMetaData;
-            // 比较两个矿石实体的元数据是否相同
-            return sampleMMeta == blockMMeta; // 如果元数据相同，则返回 true
-        }
-        // 如果任一条件不满足，则返回 false
-        return false;
-    }
 
-    /**
-     * 比较两个 TileEntity 是否为相同的基元数据 TileEntity。
-     * <p>
-     * 该方法用于判断两个传入的 TileEntity 对象是否都是基元数据 TileEntity（BaseMetaTileEntity），
-     * 并且它们的元数据标识符（MetaTileID）是否相同。
-     * 如果任一 TileEntity 为 null 或者两者都不是基元数据 TileEntity，则返回 false。
-     * 如果两者都是基元数据 TileEntity 且元数据标识符相同，则返回 true。
-     *
-     * @param tileEntity     要比较的第一个 TileEntity 实例
-     * @param sampleEntity   要比较的第二个 TileEntity 实例，作为样本
-     * @return 如果两个 TileEntity 都是基元数据 TileEntity 并且其元数据标识符相同，则返回 true；否则返回 false
-     */
-    public boolean isBaseMetaTileEntitySame(TileEntity tileEntity, TileEntity sampleEntity) {
-        // 如果任一 TileEntity 为 null，则直接返回 false
-        if (tileEntity == null || sampleEntity == null) return false;
-        // 检查两个 TileEntity 是否都是基元数据 TileEntity（BaseMetaTileEntity）
-        if ((tileEntity instanceof BaseMetaTileEntity baseTile) && (sampleEntity instanceof BaseMetaTileEntity sample)) {
-            // 获取第一个基元数据 TileEntity 的元数据标识符
-            int baseMID = baseTile.getMetaTileID();
-            // 获取样本基元数据 TileEntity 的元数据标识符
-            int sampleMID = sample.getMetaTileID();
-
-            // 比较两个基元数据 TileEntity 的元数据标识符是否相同
-            if (baseMID == sampleMID) {
-                return true; // 如果元数据标识符相同，则返回 true
-            }
-        }
-        // 如果任一条件不满足，则返回 false
-        return false;
-    }
 
     public long sendTime = System.nanoTime();
     @Override

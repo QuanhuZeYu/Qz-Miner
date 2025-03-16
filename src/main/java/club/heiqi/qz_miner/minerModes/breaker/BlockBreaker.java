@@ -24,6 +24,7 @@ import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldSettings;
 import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.ForgeDirection;
@@ -74,7 +75,7 @@ public class BlockBreaker {
             drops.forEach(d -> world.spawnEntityInWorld(new EntityItem(world,dropPos.x,dropPos.y,dropPos.z,d)));
         }
 
-        BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, player.theItemInWorldManager.getGameType(), player, x, y, z);
+        BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
         if (breakEvent.isCanceled()) {
             return;
         }
@@ -89,7 +90,7 @@ public class BlockBreaker {
         // 5. 破坏逻辑重构
         boolean isBlockRemoved;
         if (player.capabilities.isCreativeMode) {
-            isBlockRemoved = removeBlock(x, y, z, false);
+            isBlockRemoved = removeBlock(x, y, z, true);
             player.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x, y, z, world));  // 封装数据包发送
         } else {
             isBlockRemoved = handleSurvivalBreak(x, y, z, block, metadata, heldItem);
@@ -143,6 +144,62 @@ public class BlockBreaker {
         }
         return isBlockRemoved;
     }
+
+    public boolean checkCanBreak(Vector3i pos) {
+        World world = this.world;
+        EntityPlayer player = this.player;
+        int vx = pos.x; int vy = pos.y; int vz = pos.z;
+        int px = (int) Math.floor(player.posX); int py = (int) Math.floor(player.posY); int pz = (int) Math.floor(player.posZ);
+        Block block = world.getBlock(vx,vy,vz);
+        ItemStack holdItem = player.getCurrentEquippedItem();
+        int meta = world.getBlockMetadata(vx,vy,vz);
+        // 判断是否为创造模式
+        if (player.capabilities.isCreativeMode) {
+            return true;
+        }
+        // 判断是否为空气
+        if (block == Blocks.air) {
+            return false;
+        }
+        // 判断是否为流体
+        if (block.getMaterial().isLiquid()) {
+            return false;
+        }
+        // 判断是否为基岩
+        if (block == Blocks.bedrock) {
+            return false;
+        }
+        // 判断是否为非固体
+        if (!block.getMaterial().isSolid()) {
+            return false;
+        }
+        boolean b = vx == px && vy == (py-1) && vz == pz;
+        /*LOG.info("[挖掘检查] 脚下:({}, {}, {}) - ({}, {}, {}) - 结果:{}",
+            px,py-1,pz,vx,vy,vz, b);*/
+        if (b) {
+            /*LOG.info("已排除点:({}, {}, {})",vx,vy,vz);*/
+            return false;
+        }
+        // 判断工具能否挖掘
+        if (holdItem != null) {
+            return block.canHarvestBlock(player, meta);
+        }
+        return true;
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     public void handleCreativeMode(Vector3i pos, Block block, int meta) {
         if (!Block.isEqualTo(block, Blocks.skull)) {
@@ -214,7 +271,7 @@ public class BlockBreaker {
         } else { // 否则进行普通采集
             // 后续可在此处添加事件触发功能
             ArrayList<ItemStack> drop;
-            if (CheckCompatibility.is270Upper && tileEntity instanceof TileEntityOres) {
+            if (CheckCompatibility.isHasClass_TileEntityOre && tileEntity instanceof TileEntityOres) {
                 drop = ((TileEntityOres) tileEntity).getDrops(block, fortune);
             } else {
                 drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
@@ -238,7 +295,7 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockBefore(TileEntity tileEntity, Block block, EntityPlayer player) {
-        if (!CheckCompatibility.is270Upper){
+        if (!CheckCompatibility.isHasClass_TileEntityOre){
             return;
         }
         tryCatch(() -> {
@@ -273,7 +330,7 @@ public class BlockBreaker {
     }
 
     private void gtOreHarvestBlockAfter(TileEntity tileEntity, Block block) {
-        if (!CheckCompatibility.is270Upper){
+        if (!CheckCompatibility.isHasClass_TileEntityOre){
             return;
         }
 
@@ -323,6 +380,14 @@ public class BlockBreaker {
     public void checkFoodLevel() {
         if (player.getFoodStats().getFoodLevel() <= 3) {
             player.setHealth(Math.max(0, player.getHealth() - Config.overMiningDamage));
+        }
+    }
+
+    public WorldSettings.GameType selectType() {
+        if (player.capabilities.isCreativeMode) {
+            return WorldSettings.GameType.CREATIVE;
+        } else {
+            return WorldSettings.GameType.SURVIVAL;
         }
     }
 }
