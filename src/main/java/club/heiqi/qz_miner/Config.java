@@ -1,7 +1,5 @@
 package club.heiqi.qz_miner;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Multimap;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -29,7 +27,7 @@ public class Config {
     public static int taskTimeLimit = 16;
     public static int neighborDistance = 4;
     public static int heartbeatTimeout = 5_000; // 5s
-    public static float hunger = 1f;
+    public static float exhaustion = 1f;
     public static float overMiningDamage = 0.0003f;
     public static String[] chainGroup = new String[]{"{\"id\":\"minecraft:stone\", \"meta\":0}", "{\"id\":\"minecraft:dirt\"}"};
     public static int maxFortuneLevel = 3;
@@ -75,7 +73,7 @@ public class Config {
         entryMap.put("taskTimeLimit", new ConfigEntry<>(taskTimeLimit, Configuration.CATEGORY_GENERAL, 10, "每tick(50ms)内任务运行执行的时间 /ms", 10, Integer.MAX_VALUE));
         entryMap.put("neighborDistance", new ConfigEntry<>(neighborDistance, Configuration.CATEGORY_GENERAL, 3, "连锁邻居探测距离", 1, Integer.MAX_VALUE));
         entryMap.put("heartbeatTimeout", new ConfigEntry<>(heartbeatTimeout, Configuration.CATEGORY_GENERAL, 1_000, "任务心跳超时时间", 100, Integer.MAX_VALUE));
-        entryMap.put("hunger", new ConfigEntry<>(hunger, Configuration.CATEGORY_GENERAL, 0.25f, "每次挖掘消耗饱食度", 0f, Float.MAX_VALUE));
+        entryMap.put("exhaustion", new ConfigEntry<>(exhaustion, Configuration.CATEGORY_GENERAL, 0.25f, "每次挖掘消耗饱食度", 0f, Float.MAX_VALUE));
         entryMap.put("overMiningDamage", new ConfigEntry<>(overMiningDamage, Configuration.CATEGORY_GENERAL, 0.0001f, "饱食度过低时每次挖掘消耗的生命值", 0f, Float.MAX_VALUE));
         entryMap.put("maxFortuneLevel", new ConfigEntry<>(maxFortuneLevel, Configuration.CATEGORY_GENERAL, 3 , "矿石接受的最大时运等级", 3, 255));
         entryMap.put("forceNatural", new ConfigEntry<>(forceNatural, Configuration.CATEGORY_GENERAL, false, "强制所有矿石为时运", null, null));

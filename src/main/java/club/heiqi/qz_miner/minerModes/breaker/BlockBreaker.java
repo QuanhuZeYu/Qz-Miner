@@ -251,7 +251,7 @@ public class BlockBreaker {
         TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
 
         player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
-        player.addExhaustion(Config.hunger);
+        player.addExhaustion(Config.exhaustion);
 
         if (block.canSilkHarvest(world, player, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z))
             && EnchantmentHelper.getSilkTouchModifier(player)) { // 判断是否可以进行精准采集
