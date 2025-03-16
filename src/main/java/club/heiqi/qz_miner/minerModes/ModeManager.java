@@ -45,7 +45,7 @@ public class ModeManager {
     /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
     public RangeMode rangeMode = RangeMode.RECTANGULAR; // 默认为矩形模式
-    public ChainMode chainMode = ChainMode.BASE_CHAIN_MODE; // 默认为矩形模式
+    public ChainMode chainMode = ChainMode.STRICT; // 默认为严格模式
 
     /**当前模式*/
     public AbstractMode curMode;

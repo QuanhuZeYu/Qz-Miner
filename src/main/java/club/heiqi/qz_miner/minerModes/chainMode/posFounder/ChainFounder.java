@@ -2,9 +2,13 @@ package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
+import club.heiqi.qz_miner.mixins.GTMixin.CoverableTileEntityAccessor;
+import club.heiqi.qz_miner.util.CheckCompatibility;
+import gregtech.api.metatileentity.CoverableTileEntity;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.oredict.OreDictionary;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -19,6 +23,7 @@ public class ChainFounder extends PositionFounder {
     public Logger LOG = LogManager.getLogger();
     public Set<Vector3i> visitedChainSet = new HashSet<>();
     public Set<Vector3i> nextChainSet = new HashSet<>();
+    public boolean isGTTile = false;
     /**
      * 构造函数准备执行搜索前的准备工作
      *
@@ -28,6 +33,9 @@ public class ChainFounder extends PositionFounder {
     public ChainFounder(AbstractMode mode, Vector3i center, EntityPlayer player) {
         super(mode, center, player);
         nextChainSet.add(center);
+        if (CheckCompatibility.isHasClass_MetaTileEntity
+            && (mode.tileSample instanceof CoverableTileEntity)
+        ) isGTTile = true;
     }
 
     @Override
@@ -73,8 +81,18 @@ public class ChainFounder extends PositionFounder {
     public boolean filter(Vector3i pos) {
         Block block = world.getBlock(pos.x, pos.y, pos.z);
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        if (Block.isEqualTo(mode.blockSample, block)) { // 如果正在挖掘的方块和样本 equals 则通过
-            return true;
+        TileEntity te = world.getTileEntity(pos.x,pos.y,pos.z);
+        if (world.getBlockMetadata(pos.x, pos.y, pos.z) != mode.blockSampleMeta) return false;
+        // 判断瓷砖是否相同
+        if (te != null) {
+            if (isGTTile
+                && (te instanceof CoverableTileEntity gtTe)
+            ) {
+                CoverableTileEntity sTe = (CoverableTileEntity) mode.tileSample;
+                int sMID = ((CoverableTileEntityAccessor) sTe).getMID();
+                int tMID = ((CoverableTileEntityAccessor)gtTe).getMID();
+                if (sMID == tMID) return true;
+            } else if (!isGTTile) return true;
         }
         ItemStack sampleStack = new ItemStack(mode.blockSample); // 样本方块物品
         ItemStack blockStack = new ItemStack(block); // 当前方块物品
@@ -89,7 +107,8 @@ public class ChainFounder extends PositionFounder {
                 }
             }
         }
-        return false;
+        // 未本地化名称完全相同
+        return block.getUnlocalizedName().equals(mode.blockSample.getUnlocalizedName());
     }
 
     public long sendTime = System.nanoTime();

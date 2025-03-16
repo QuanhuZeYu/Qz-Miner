@@ -141,7 +141,7 @@ public abstract class AbstractMode {
         World world = modeManager.world;
         EntityPlayer player = modeManager.player;
         int vx = pos.x; int vy = pos.y; int vz = pos.z;
-        int px = (int) Math.floor(player.posX); int py = (int) player.posY; int pz = (int) Math.floor(player.posZ);
+        int px = (int) Math.floor(player.posX); int py = (int) Math.floor(player.posY); int pz = (int) Math.floor(player.posZ);
         Block block = world.getBlock(vx,vy,vz);
         ItemStack holdItem = player.getCurrentEquippedItem();
         int meta = world.getBlockMetadata(vx,vy,vz);

@@ -96,68 +96,6 @@ public class ChainGroupFounder extends ChainFounder_Strict{
         return hasSame;
     }
 
-    /**
-     * 比较两个 TileEntity 是否为相同的矿石实体。
-     * <p>
-     * 该方法用于判断两个传入的 TileEntity 对象是否都是矿石实体（TileEntityOres），
-     * 并且它们的内部元数据（mMetaData）是否相同。
-     * 如果任一 TileEntity 为 null 或者两者都不是矿石实体，则返回 false。
-     * 如果两者都是矿石实体且元数据相同，则返回 true。
-     *
-     * @param tileEntity     要比较的第一个 TileEntity 实例
-     * @param sampleEntity   要比较的第二个 TileEntity 实例，作为样本
-     * @return 如果两个 TileEntity 都是矿石实体并且其元数据相同，则返回 true；否则返回 false
-     */
-    @Override
-    public boolean isTileEntityOreSame(TileEntity tileEntity, TileEntity sampleEntity) {
-        // 如果任一 TileEntity 为 null，则直接返回 false
-        if (tileEntity == null || sampleEntity == null) return false;
-
-        // 检查两个 TileEntity 是否都是矿石实体（TileEntityOres）
-        if ((tileEntity instanceof TileEntityOres tileEntityOre) && (sampleEntity instanceof TileEntityOres sampleEntityOre)) {
-            // 获取样本矿石实体的元数据
-            int sampleMMeta = sampleEntityOre.mMetaData;
-            // 获取待比较矿石实体的元数据
-            int blockMMeta = tileEntityOre.mMetaData;
-            // 比较两个矿石实体的元数据是否相同
-            return sampleMMeta == blockMMeta; // 如果元数据相同，则返回 true
-        }
-        // 如果任一条件不满足，则返回 false
-        return false;
-    }
-
-    /**
-     * 比较两个 TileEntity 是否为相同的基元数据 TileEntity。
-     * <p>
-     * 该方法用于判断两个传入的 TileEntity 对象是否都是基元数据 TileEntity（BaseMetaTileEntity），
-     * 并且它们的元数据标识符（MetaTileID）是否相同。
-     * 如果任一 TileEntity 为 null 或者两者都不是基元数据 TileEntity，则返回 false。
-     * 如果两者都是基元数据 TileEntity 且元数据标识符相同，则返回 true。
-     *
-     * @param tileEntity     要比较的第一个 TileEntity 实例
-     * @param sampleEntity   要比较的第二个 TileEntity 实例，作为样本
-     * @return 如果两个 TileEntity 都是基元数据 TileEntity 并且其元数据标识符相同，则返回 true；否则返回 false
-     */
-    @Override
-    public boolean isBaseMetaTileEntitySame(TileEntity tileEntity, TileEntity sampleEntity) {
-        // 如果任一 TileEntity 为 null，则直接返回 false
-        if (tileEntity == null || sampleEntity == null) return false;
-        // 检查两个 TileEntity 是否都是基元数据 TileEntity（BaseMetaTileEntity）
-        if ((tileEntity instanceof BaseMetaTileEntity baseTile) && (sampleEntity instanceof BaseMetaTileEntity sample)) {
-            // 获取第一个基元数据 TileEntity 的元数据标识符
-            int baseMID = baseTile.getMetaTileID();
-            // 获取样本基元数据 TileEntity 的元数据标识符
-            int sampleMID = sample.getMetaTileID();
-
-            // 比较两个基元数据 TileEntity 的元数据标识符是否相同
-            if (baseMID == sampleMID) {
-                return true; // 如果元数据标识符相同，则返回 true
-            }
-        }
-        // 如果任一条件不满足，则返回 false
-        return false;
-    }
-
     public static class BlockInfo {
         public String id;
         public int meta;
