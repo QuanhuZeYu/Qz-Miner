@@ -5,7 +5,7 @@ import org.apache.logging.log4j.Logger;
 
 public class CheckCompatibility {
     public static Logger LOG = LogManager.getLogger();
-    public static boolean isHaseClass_BlockBaseOre = false;
+    public static boolean isHasClass_BlockBaseOre = false;
     public static boolean isHasClass_BlockOresAbstract = false;
     public static boolean isHasClass_TileEntityOre = false;
     public static boolean isHasClass_BWTileEntityGenOre = false;
@@ -54,10 +54,10 @@ public class CheckCompatibility {
     public static void isHaseClass_BlockBaseOre() {
         try {
             Class<?> clazz = Class.forName("gtPlusPlus.core.block.base.BlockBaseOre");
-            isHaseClass_BlockBaseOre = true;
+            isHasClass_BlockBaseOre = true;
         } catch (ClassNotFoundException e) {
             LOG.warn("未检测到 粗矿类");
-            isHaseClass_BlockBaseOre = false;
+            isHasClass_BlockBaseOre = false;
         }
     }
 

@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularFounder;
+import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularMineralFounder;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
@@ -22,7 +23,7 @@ public class RectangularMineralMode extends AbstractMode {
         super(modeManager, center);
         breaker = new BlockBreaker(modeManager.player, modeManager.world);
         timer = System.currentTimeMillis();
-        positionFounder = new RectangularFounder(this, center, modeManager.player);
+        positionFounder = new RectangularMineralFounder(this, center, modeManager.player);
     }
 
     public int failCounter = 0;
@@ -33,7 +34,6 @@ public class RectangularMineralMode extends AbstractMode {
     @Override
     public void mainLogic() {
         if (allBreakCount >= blockLimit - 1) {
-            LOG.info("[渲染] 方块数量达标");
             shutdown();
             return;
         }
@@ -44,7 +44,6 @@ public class RectangularMineralMode extends AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
-                    LOG.info("[渲染] 连续错误时间过长");
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
