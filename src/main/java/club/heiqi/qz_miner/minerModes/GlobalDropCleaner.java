@@ -1,16 +1,17 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.minerModes.utils.Utils;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joml.Vector3f;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ public class GlobalDropCleaner {
 
     @SubscribeEvent
     public void globalCleaner(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) return;
         if (!Config.dropItemToSelf) return;
         // 10s没有更新便清理掉所有内容物
         if (System.currentTimeMillis() - lastGlobalChangeTime >= 3_000) {
@@ -59,7 +61,8 @@ public class GlobalDropCleaner {
                             }
                         }
                         if (closest != null) {
-                            item.setPosition(closest.posX, closest.posY + closest.eyeHeight, closest.posZ);
+                            Vector3f dropPos = Utils.getItemDropPos(closest);
+                            item.setPosition(dropPos.x, dropPos.y, dropPos.z);
                         }
                         world.spawnEntityInWorld(item);
                     }
