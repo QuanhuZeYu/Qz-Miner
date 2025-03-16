@@ -29,20 +29,21 @@ public class Config {
     public static int heartbeatTimeout = 5_000; // 5s
     public static float exhaustion = 1f;
     public static float overMiningDamage = 0.0003f;
-    public static String[] chainGroup = new String[]{"{\"id\":\"minecraft:stone\", \"meta\":0}", "{\"id\":\"minecraft:dirt\"}"};
     public static int maxFortuneLevel = 3;
-    public static boolean forceNatural = false;
     public static float dropDistance = 1.1f;
     public static float coolDown = 30.0f;
+    public static String[] chainGroup = new String[]{"{\"id\":\"minecraft:stone\", \"meta\":0}", "{\"id\":\"minecraft:dirt\"}"};
+    public static boolean forceNatural = false;
     public static boolean dropItemToSelf = true;
+    public static boolean unknownDropToPlayer = true;
 
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
     public static float renderFadeSpeedMultiplier = 1000.0f;
-    public static boolean printResult = true;
     public static float renderTime = 8f;
     public static float renderDistance = 4.5f;
     public static boolean cullRender = false;
+    public static boolean printResult = true;
     public static boolean showTip = true;
     public static boolean useRender = true;
 
@@ -76,16 +77,17 @@ public class Config {
         entryMap.put("exhaustion", new ConfigEntry<>(exhaustion, Configuration.CATEGORY_GENERAL, 0.25f, "每次挖掘消耗饱食度", 0f, Float.MAX_VALUE));
         entryMap.put("overMiningDamage", new ConfigEntry<>(overMiningDamage, Configuration.CATEGORY_GENERAL, 0.0001f, "饱食度过低时每次挖掘消耗的生命值", 0f, Float.MAX_VALUE));
         entryMap.put("maxFortuneLevel", new ConfigEntry<>(maxFortuneLevel, Configuration.CATEGORY_GENERAL, 3 , "矿石接受的最大时运等级", 3, 255));
-        entryMap.put("forceNatural", new ConfigEntry<>(forceNatural, Configuration.CATEGORY_GENERAL, false, "强制所有矿石为时运", null, null));
         entryMap.put("dropDistance", new ConfigEntry<>(dropDistance, Configuration.CATEGORY_GENERAL, 1.1f, "挖掘时掉落物距离自身的距离，值越大掉落物越远", 0f, Float.MAX_VALUE));
         entryMap.put("coolDown", new ConfigEntry<>(coolDown, Configuration.CATEGORY_GENERAL, 30.f, "每次揭示时需要等待的时间，单位秒", 0f, Float.MAX_VALUE));
+        entryMap.put("forceNatural", new ConfigEntry<>(forceNatural, Configuration.CATEGORY_GENERAL, false, "强制所有矿石为时运", null, null));
         entryMap.put("dropItemToSelf", new ConfigEntry<>(dropItemToSelf, Configuration.CATEGORY_GENERAL, true, "是否将掉落物生成在脚下", null, null));
+        entryMap.put("unknownDropToPlayer", new ConfigEntry<>(unknownDropToPlayer, Configuration.CATEGORY_GENERAL, true, "非连锁物也生成在玩家附近", null, null));
 
-        entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
         entryMap.put("renderLineWidth", new ConfigEntry<>(renderLineWidth, CATEGORY_CLIENT, 1.5f, "渲染线框宽度", 0.1f, 100f));
         entryMap.put("renderFadeSpeedMultiplier", new ConfigEntry<>(renderFadeSpeedMultiplier, CATEGORY_CLIENT, 50.f, "渲染框颜色变化时间乘数，越大越慢", 0.f, Float.MAX_VALUE));
         entryMap.put("renderTime", new ConfigEntry<>(renderTime, CATEGORY_CLIENT, 8f, "每帧渲染选择结果允许的时长，过短可能会导致闪烁或者无法显示", -1f, Float.MAX_VALUE));
         entryMap.put("renderDistance", new ConfigEntry<>(renderDistance, CATEGORY_CLIENT, 4.5f, "选择渲染框选择点最大距离", 3f, Float.MAX_VALUE));
+        entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
         entryMap.put("cullRender", new ConfigEntry<>(cullRender, CATEGORY_CLIENT, false, "是否剔除重合边", null, null));
         entryMap.put("showTip", new ConfigEntry<>(showTip, CATEGORY_CLIENT, true, "是否显示左下角提示", null, null));
         entryMap.put("useRender", new ConfigEntry<>(useRender, CATEGORY_CLIENT, true, "是否使用渲染功能", null, null));

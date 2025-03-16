@@ -300,13 +300,4 @@ public class ModeManager {
             }
         }
     }
-    //    @SubscribeEvent
-//    public static void clearGlobalDrops(TickEvent.ServerTickEvent event) {
-//        if (!Config.dropItemToSelf) return;
-//        // 10s没有更新便清理掉所有内容物
-//        if (System.currentTimeMillis() - lastGlobalChangeTime >= 10_000) {
-//            if (!GLOBAL_DROPS.isEmpty())
-//                GLOBAL_DROPS.clear();
-//        }
-//    }
 }
