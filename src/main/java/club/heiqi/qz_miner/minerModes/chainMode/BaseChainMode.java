@@ -4,19 +4,10 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder;
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.util.ChatComponentText;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
-
-import java.nio.FloatBuffer;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.lwjgl.opengl.GL11.GL_MODELVIEW_MATRIX;
-import static org.lwjgl.opengl.GL11.glGetFloat;
 
 public class BaseChainMode extends AbstractMode {
     public Logger LOG = LogManager.getLogger();
@@ -57,8 +48,9 @@ public class BaseChainMode extends AbstractMode {
             }
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (!isRenderMode.get()) breaker.tryHarvestBlock(pos);
-                else {
+                if (!isRenderMode.get()) {
+                    breaker.tryHarvestBlock(pos);
+                } else {
                     modeManager.renderCache.add(pos);
                 }
                 tickBreakCount++;
