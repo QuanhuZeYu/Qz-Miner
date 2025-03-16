@@ -44,7 +44,7 @@ public class RenderUtils {
         double lookX = -Math.sin(yawRad)*Math.cos(pitchRad);
         double lookY = -Math.sin(pitchRad);
         double lookZ = Math.cos(yawRad)*Math.cos(pitchRad);
-        return new Vector3f((float) lookX, (float) lookY, (float) lookZ);
+        return new Vector3f((float) lookX, (float) lookY, (float) lookZ).normalize();
     }
 
     public static final FloatBuffer MATRIX_BUFFER = BufferUtils.createFloatBuffer(16);
