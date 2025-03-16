@@ -45,29 +45,33 @@ public class GlobalDropCleaner {
                     while ((item = queue.poll()) != null) {
                         World world = item.worldObj;
                         // 寻找最近的玩家
-                        double minDistSq = Double.MAX_VALUE;
-                        EntityPlayer closest = null;
-                        List<EntityPlayer> players = new ArrayList<>(world.playerEntities);
-                        for(EntityPlayer player : players) {
-                            if (player.dimension != item.dimension) continue;
-                            double dx = player.posX - item.posX;
-                            double dy = player.posY - item.posY;
-                            double dz = player.posZ - item.posZ;
-                            double distSq = dx*dx + dy*dy + dz*dz;
-                            if (dx>16 || dz>16 || dy>16) continue;
-                            if (distSq < minDistSq) {
-                                minDistSq = distSq;
-                                closest = player;
+                        if (Config.unknownDropToPlayer) {
+                            double minDistSq = Double.MAX_VALUE;
+                            EntityPlayer closest = null;
+                            List<EntityPlayer> players = new ArrayList<>(world.playerEntities);
+                            for (EntityPlayer player : players) {
+                                if (player.dimension != item.dimension) continue;
+                                double dx = player.posX - item.posX;
+                                double dy = player.posY - item.posY;
+                                double dz = player.posZ - item.posZ;
+                                double distSq = dx * dx + dy * dy + dz * dz;
+                                if (dx > 16 || dz > 16 || dy > 16) continue;
+                                if (distSq < minDistSq) {
+                                    minDistSq = distSq;
+                                    closest = player;
+                                }
                             }
+                            if (closest != null) {
+                                Vector3f dropPos = Utils.getItemDropPos(closest);
+                                item.setPosition(dropPos.x, dropPos.y, dropPos.z);
+                            }
+                            world.spawnEntityInWorld(item);
+                        } else {
+                            // 否则直接生成在本来的位置
+                            world.spawnEntityInWorld(item);
                         }
-                        if (closest != null) {
-                            Vector3f dropPos = Utils.getItemDropPos(closest);
-                            item.setPosition(dropPos.x, dropPos.y, dropPos.z);
-                        }
-                        world.spawnEntityInWorld(item);
                     }
                 }
-                LOG.info("全局表已清理");
             }
         }
     }

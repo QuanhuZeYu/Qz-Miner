@@ -61,6 +61,7 @@ public class ChainGroupMode extends AbstractMode {
     public void unregister() {
         super.unregister();
         if (isRenderMode.get()) return;
+        if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;
         // 分割秒和毫秒
         int seconds = (int)(totalTime / 1000);  // 秒数

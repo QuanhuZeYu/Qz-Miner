@@ -48,7 +48,6 @@ public abstract class AbstractMode {
     public final int blockSampleMeta;
 
     public AbstractMode(ModeManager modeManager, Vector3i center) {
-        EntityPlayer player = modeManager.player;
         this.modeManager = modeManager;
         World world = modeManager.world;
         this.center = center;
