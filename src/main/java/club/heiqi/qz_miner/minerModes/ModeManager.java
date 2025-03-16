@@ -245,12 +245,6 @@ public class ModeManager {
             /*LOG.info("[挖掘] 触发者不是自身:{} 触发者:{}", this.player.getUniqueID(), player.getUniqueID());*/
             return;
         }
-        // 判断世界是否相同，进行世界更新
-        if (!player.worldObj.equals(this.player.worldObj)) {
-            /*LOG.info("[挖掘] 世界不同触发更新");*/
-            this.world = player.worldObj;
-            this.player = player;
-        }
         selfDrops.add(new Vector3i(event.x, event.y, event.z));
         if (isRunning.get()) {
             /*LOG.info("[挖掘] 已在运行，退出");*/
@@ -260,12 +254,13 @@ public class ModeManager {
             /*LOG.info("[挖掘] 未准备，退出");*/
             return;
         }
+        // 刷新存储状态
+        this.world = event.world;
+        this.player = player;
         // 获取破坏方块的坐标
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
             /*LOG.info("[挖掘] 设置代理挖掘任务");*/
-            this.world = event.world;
-            this.player = event.getPlayer();
             proxyMine(breakBlockPos);
         } catch (Exception e) {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");

@@ -109,7 +109,19 @@ public class AllPlayer {
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         if (playerStatueMap.containsKey(uuid)) {
-            LOG.info("玩家 {} 切换世界");
+            LOG.info("玩家 {} 切换世界", player.getDisplayName());
+            ModeManager modeManager = playerStatueMap.get(uuid);
+            modeManager.player = player;
+            modeManager.world = player.worldObj;
+        }
+    }
+
+    @SubscribeEvent
+    public void qz_onPlayerReSpawn(PlayerEvent.PlayerRespawnEvent event) {
+        EntityPlayer player = event.player;
+        UUID uuid = player.getUniqueID();
+        if (playerStatueMap.containsKey(uuid)) {
+            LOG.info("玩家 {} 复活", player.getDisplayName());
             ModeManager modeManager = playerStatueMap.get(uuid);
             modeManager.player = player;
             modeManager.world = player.worldObj;
