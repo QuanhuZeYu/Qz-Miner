@@ -27,7 +27,7 @@ public class Config {
     public static int taskTimeLimit = 16;
     public static int neighborDistance = 4;
     public static int heartbeatTimeout = 5_000; // 5s
-    public static float exhaustion = 1f;
+    public static float exhaustion = 0.025f;
     public static float overMiningDamage = 0.0003f;
     public static int maxFortuneLevel = 3;
     public static float dropDistance = 1.1f;
