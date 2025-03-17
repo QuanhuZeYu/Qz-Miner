@@ -210,7 +210,7 @@ public class PlayerInput {
         if (renderList.isEmpty()) {
             /*LOG.info("[渲染] 正在触发渲染模式");*/
             manager.proxyRender(new Vector3i(bx, by, bz));
-            renderList.add(new Vector3i(0));
+            renderList.add(new Vector3i(0, -Integer.MAX_VALUE, 0));
         } else if (!manager.renderCache.isEmpty()) {
             renderList = new ArrayList<>(manager.renderCache);
         }
