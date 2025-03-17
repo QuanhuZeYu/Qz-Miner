@@ -1,12 +1,14 @@
 package club.heiqi.qz_miner.client.keybind;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.client.RenderUtils;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.statueStorage.AllPlayer;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -25,6 +27,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -74,8 +77,11 @@ public class PlayerInput {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        UUID uuid = player.getUniqueID();
-        manager = allPlayerStorage.playerStatueMap.get(uuid);
+        manager = AllPlayer.clientManager;
+        if (manager == null) {
+            allPlayerStorage.clientRegister(player);
+            return;
+        }
         if (switchMainMode.isPressed()) {
             manager.nextMainMode();
             String message = "当前主模式: " + getMainMode();
@@ -92,9 +98,11 @@ public class PlayerInput {
     public void onInputEvent(InputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        UUID uuid = player.getUniqueID();
-        manager = allPlayerStorage.playerStatueMap.get(uuid);
-        if (manager == null) return;
+        manager = AllPlayer.clientManager;
+        if (manager == null) {
+            allPlayerStorage.clientRegister(player);
+            return;
+        }
         boolean isPressed = isPress.getIsKeyPressed();
         if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
         lastSendTime = System.currentTimeMillis();
@@ -114,9 +122,11 @@ public class PlayerInput {
         if (player == null) {
             return;
         }
-        UUID uuid = player.getUniqueID();
-        manager = allPlayerStorage.playerStatueMap.get(uuid);
-        if (manager == null) return;
+        manager = AllPlayer.clientManager;
+        if (manager == null) {
+            allPlayerStorage.clientRegister(player);
+            return;
+        }
         if (!Config.showTip) {
             int curShader = glGetInteger(GL_CURRENT_PROGRAM);
             glUseProgram(0);
@@ -186,17 +196,22 @@ public class PlayerInput {
     public List<Vector3i> renderList = new ArrayList<>();
     @SubscribeEvent
     public void onInteract(DrawBlockHighlightEvent event) {
-        if (manager == null || !Config.useRender) return;
+        manager = AllPlayer.clientManager;
+        if (manager == null) {
+            allPlayerStorage.clientRegister(event.player);
+            return;
+        }
+        if (!Config.useRender) return;
         if (!manager.getIsReady()) {
             if (!renderList.isEmpty()) {
-                renderList = new ArrayList<>();
+                renderList.clear();
             }
             if (!manager.renderCache.isEmpty()) {
-                manager.renderCache = new ArrayList<>();
+                manager.renderCache.clear();
             }
             return;
         }
-        EntityPlayer player = manager.player;
+        EntityPlayer player = event.player;
         int bx = event.target.blockX;
         int by = event.target.blockY;
         int bz = event.target.blockZ;
@@ -226,17 +241,20 @@ public class PlayerInput {
             float x = pos.x + 0.5f;
             float y = pos.y + 0.5f;
             float z = pos.z + 0.5f;
-            float ex = (float) player.posX;
-            float ey = (float) player.posY + player.eyeHeight;
-            float ez = (float) player.posZ;
+            float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
+            float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
+            float ez = (float) (player.prevPosZ + (player.posZ - player.prevPosZ) * event.partialTicks);
             glPushMatrix();
+
             // 通过计算偏移
             glTranslatef(x-ex,y-ey,z-ez);
+
             // 直接通过构造模型视图矩阵方式渲染
-//            Matrix4f model = new Matrix4f().identity().translate(x, y, z);
-//            Matrix4f view = RenderUtils.getViewMatrix();
-//            glMatrixMode(GL_MODELVIEW);
-//            RenderUtils.uploadModelView(view.mul(model, new Matrix4f()));
+            /*Matrix4f model = new Matrix4f().identity().translate(x, y, z);
+            Matrix4f view = RenderUtils.getViewMatrix(event.partialTicks);
+            glMatrixMode(GL_MODELVIEW);
+            RenderUtils.uploadModelView(view.mul(model, new Matrix4f()));*/
+
             glBegin(GL_LINES);
             // 前面
             glVertex3f(0.5f, 0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
@@ -266,8 +284,7 @@ public class PlayerInput {
 
     public String getSubMode() {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        UUID uuid = player.getUniqueID();
-        manager = allPlayerStorage.playerStatueMap.get(uuid);
+        manager = AllPlayer.clientManager;
         ModeManager.MainMode mainMode = manager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {
