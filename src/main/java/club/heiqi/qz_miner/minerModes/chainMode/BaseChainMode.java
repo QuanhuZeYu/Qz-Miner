@@ -4,7 +4,9 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.world.World;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
@@ -16,9 +18,9 @@ public class BaseChainMode extends AbstractMode {
 
     public BaseChainMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
-        breaker = new BlockBreaker(modeManager.player, modeManager.world);
+        breaker = new BlockBreaker(player, world);
         timer = System.currentTimeMillis();
-        positionFounder = new ChainFounder(this, center, modeManager.player);
+        positionFounder = new ChainFounder(this, center, player);
     }
 
     public int failCounter = 0;
@@ -74,7 +76,7 @@ public class BaseChainMode extends AbstractMode {
             + " 共用时: " + seconds + "秒"
             + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
-        modeManager.player.addChatMessage(text);
+        player.addChatMessage(text);
     }
 
     public long sendTime = System.nanoTime();

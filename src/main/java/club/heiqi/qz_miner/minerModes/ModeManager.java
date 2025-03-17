@@ -21,10 +21,10 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class ModeManager {
     public Logger LOG = LogManager.getLogger();
+    public UUID registryInfo = UUID.randomUUID();
     /**掉落物管理*/
     // 全局掉落物表：Key=位置，Value=该位置的实体队列（线程安全）
     public static ConcurrentHashMap<Vector3i, ConcurrentLinkedQueue<EntityItem>> GLOBAL_DROPS = new ConcurrentHashMap<>();
@@ -43,6 +44,8 @@ public class ModeManager {
     /**缓存的玩家引用*/
     public EntityPlayer player;
     public World world;
+    public EntityPlayer clientPlayer;
+    public World clientWorld;
 
     /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
@@ -71,7 +74,7 @@ public class ModeManager {
                 curMode.mineModeAutoSetup();
             }
         }
-        /*LOG.info("[挖掘] 执行挖掘任务");*/
+        LOG.info("[挖掘] 执行挖掘任务");
         isRunning.set(true);
     }
     public List<Vector3i> renderCache = new ArrayList<>();
@@ -223,10 +226,60 @@ public class ModeManager {
     public void register() {
         FMLCommonHandler.instance().bus().register(this);
         MinecraftForge.EVENT_BUS.register(this);
+        EntityPlayer player = getPlayer();
+        LOG.info("{} 管理器:{} 注册完成", player.getDisplayName(), registryInfo);
     }
     public void unregister() {
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
+        EntityPlayer player = getPlayer();
+        LOG.info("{} 管理器:{} 卸载完毕", player.getDisplayName(), registryInfo);
+    }
+
+    public EntityPlayer getPlayer() {
+        Class<?> clazz = ModeManager.class;
+        Field playerField = null;
+        EntityPlayer player = null;
+        try {
+            playerField = clazz.getField("player");
+            EntityPlayer player1 = (EntityPlayer) playerField.get(this);
+            if (player1 == null) throw new NoSuchFieldException("player");
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            try {
+                playerField = clazz.getField("clientPlayer");
+            } catch (NoSuchFieldException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+        try {
+            player = (EntityPlayer) playerField.get(this);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+        return player;
+    }
+
+    public World getWorld() {
+        Class<?> clazz = ModeManager.class;
+        Field worldField = null;
+        World world = null;
+        try {
+            worldField = clazz.getField("world");
+            World world1 = (World) worldField.get(this);
+            if (world1 == null) throw new NoSuchFieldException("world");
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            try {
+                worldField = clazz.getField("clientWorld");
+            } catch (NoSuchFieldException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+        try {
+            world = (World) worldField.get(this);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+        return world;
     }
 
     /**
@@ -235,15 +288,19 @@ public class ModeManager {
      */
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
+        if (event.world.isRemote) return;
         EntityPlayer player = event.getPlayer();
+        EntityPlayer thisPlayer = getPlayer();
         // 判断是否是自己挖的
-        if (!player.getUniqueID().equals(this.player.getUniqueID())) {
+        if (!player.getUniqueID().equals(thisPlayer.getUniqueID())) {
             /*LOG.info("[挖掘] 触发者不是自身:{} 触发者:{}", this.player.getUniqueID(), player.getUniqueID());*/
             return;
         }
-        LOG.info("事件中位置:({}, {}, {}), 实例中位置: ({}, {}, {})",
+
+        /*LOG.info("事件中位置:({}, {}, {}), 实例中位置: ({}, {}, {})",
             player.posX, player.posY, player.posZ,
-            this.player.posX, this.player.posY, this.player.posZ);
+            this.player.posX, this.player.posY, this.player.posZ);*/
+
         selfDrops.add(new Vector3i(event.x, event.y, event.z));
         if (isRunning.get()) {
             /*LOG.info("[挖掘] 已在运行，退出");*/
@@ -256,7 +313,7 @@ public class ModeManager {
         // 刷新存储状态
         this.world = event.world;
         this.player = player;
-        // 获取破坏方块的坐标
+        // 连锁触发
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
             /*LOG.info("[挖掘] 设置代理挖掘任务");*/
@@ -268,6 +325,7 @@ public class ModeManager {
     }
 
     @SubscribeEvent
+    @SideOnly(Side.SERVER)
     public void onTick(TickEvent.ServerTickEvent event) {
         // 没有启用则不进行遍历等操作
         if (!Config.dropItemToSelf) return;

@@ -5,7 +5,9 @@ import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.TunnelFounder;
 import net.minecraft.block.Block;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.world.World;
 import org.joml.Vector3i;
 
 public class TunnelMode extends AbstractMode {
@@ -13,9 +15,9 @@ public class TunnelMode extends AbstractMode {
 
     public TunnelMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
-        breaker = new BlockBreaker(modeManager.player, modeManager.world);
+        breaker = new BlockBreaker(player, world);
         timer = System.currentTimeMillis();
-        positionFounder = new TunnelFounder(this, center, modeManager.player);
+        positionFounder = new TunnelFounder(this, center, player);
     }
 
     public int failCounter = 0;

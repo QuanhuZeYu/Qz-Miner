@@ -9,8 +9,10 @@ import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
 
@@ -21,9 +23,9 @@ public class RectangularMineralMode extends AbstractMode {
 
     public RectangularMineralMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
-        breaker = new BlockBreaker(modeManager.player, modeManager.world);
+        breaker = new BlockBreaker(player, world);
         timer = System.currentTimeMillis();
-        positionFounder = new RectangularMineralFounder(this, center, modeManager.player);
+        positionFounder = new RectangularMineralFounder(this, center, player);
     }
 
     public int failCounter = 0;
@@ -76,7 +78,7 @@ public class RectangularMineralMode extends AbstractMode {
             + " 共用时: " + seconds + "秒"
             + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
-        modeManager.player.addChatMessage(text);
+        player.addChatMessage(text);
     }
 
     public long sendTime = System.nanoTime();

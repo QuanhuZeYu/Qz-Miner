@@ -5,18 +5,19 @@ import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder_Lumberjack;
 import net.minecraft.block.Block;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.world.World;
 import org.joml.Vector3i;
 
 public class LumberJackMode extends AbstractMode {
     public final BlockBreaker breaker;
 
-
     public LumberJackMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
-        breaker = new BlockBreaker(modeManager.player, modeManager.world);
+        breaker = new BlockBreaker(player, world);
         timer = System.currentTimeMillis();
-        positionFounder = new ChainFounder_Lumberjack(this, center, modeManager.player);
+        positionFounder = new ChainFounder_Lumberjack(this, center, player);
     }
 
     public int failCounter = 0;
@@ -71,7 +72,7 @@ public class LumberJackMode extends AbstractMode {
             + " 共用时: " + seconds + "秒"
             + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
-        modeManager.player.addChatMessage(text);
+        player.addChatMessage(text);
     }
 
     public long sendTime = System.nanoTime();
