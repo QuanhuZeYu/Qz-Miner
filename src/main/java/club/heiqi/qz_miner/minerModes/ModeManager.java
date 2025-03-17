@@ -248,8 +248,9 @@ public class ModeManager {
         LOG.info("事件中位置:({}, {}, {}), 实例中位置: ({}, {}, {})",
             player.posX, player.posY, player.posZ,
             this.player.posX, this.player.posY, this.player.posZ);
-        selfDrops.add(new Vector3i(event.x, event.y, event.z));
         if (isRunning.get()) {
+            // 开始连锁之后才收集掉落物
+            selfDrops.add(new Vector3i(event.x, event.y, event.z));
             /*LOG.info("[挖掘] 已在运行，退出");*/
             return;
         }
