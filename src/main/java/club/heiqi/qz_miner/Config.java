@@ -1,13 +1,8 @@
 package club.heiqi.qz_miner;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import cpw.mods.fml.client.event.ConfigChangedEvent;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import net.minecraft.block.Block;
-import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
 
@@ -32,7 +27,6 @@ public class Config {
     public static int maxFortuneLevel = 3;
     public static float dropDistance = 1.1f;
     public static float coolDown = 30.0f;
-    public static String[] chainGroup = new String[]{"{\"id\":\"minecraft:stone\", \"meta\":0}", "{\"id\":\"minecraft:dirt\"}"};
     public static boolean forceNatural = false;
     public static boolean dropItemToSelf = true;
     public static boolean unknownDropToPlayer = true;
@@ -171,7 +165,6 @@ public class Config {
                 throw new RuntimeException(e);
             }
         });
-        config.getStringList("chainGroup", Configuration.CATEGORY_GENERAL, chainGroup, "连锁组，连锁时该组内的方块会被视为相同方块进行连锁");
         config.save();
         printConfig();
     }
@@ -212,24 +205,6 @@ public class Config {
                 throw new RuntimeException(e);
             }
         });
-    }
-
-    public static List<ItemStack> getChainGroup() {
-        List<ItemStack> list = new ArrayList<>();
-        for (String s : chainGroup) {
-            JsonElement jsonElement = new JsonParser().parse(s);
-            if (jsonElement.isJsonObject()) {
-                JsonObject jsonObject = jsonElement.getAsJsonObject();
-                String id = jsonObject.get("id").getAsString();
-                int meta = 0;
-                try {
-                    meta = jsonObject.get("meta").getAsInt();
-                } catch (Exception ignored) {
-                }
-                list.add(new ItemStack(Block.getBlockFromName(id), 1, meta));
-            }
-        }
-        return list;
     }
 
     public void register() {

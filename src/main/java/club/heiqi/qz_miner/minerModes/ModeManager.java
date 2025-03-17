@@ -142,7 +142,6 @@ public class ModeManager {
     public enum ChainMode {
         BASE_CHAIN_MODE("qz_miner.chainmode.base_chain"),
         STRICT("qz_miner.chainmode.strict"),
-        CHAIN_GROUP("qz_miner.chainmode.chain_group"),
         LUMBER_JACK("qz_miner.chainmode.lumberjack"),
         RELAX("qz_miner.chainmode.relax"),
         ;
@@ -165,9 +164,6 @@ public class ModeManager {
                 }
                 case STRICT -> {
                     return new StrictChainMode(manager, center);
-                }
-                case CHAIN_GROUP -> {
-                    return new ChainGroupMode(manager, center);
                 }
                 case LUMBER_JACK -> {
                     return new LumberJackMode(manager, center);
