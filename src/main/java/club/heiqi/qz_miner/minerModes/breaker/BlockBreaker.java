@@ -74,7 +74,7 @@ public class BlockBreaker {
             drops.forEach(d -> world.spawnEntityInWorld(new EntityItem(world,dropPos.x,dropPos.y,dropPos.z,d)));
         }
 
-        BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
+        BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, player.theItemInWorldManager.getGameType(), player, x, y, z);
         if (breakEvent.isCanceled()) {
             return;
         }

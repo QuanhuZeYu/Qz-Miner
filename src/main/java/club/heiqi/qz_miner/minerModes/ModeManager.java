@@ -245,9 +245,11 @@ public class ModeManager {
             /*LOG.info("[挖掘] 触发者不是自身:{} 触发者:{}", this.player.getUniqueID(), player.getUniqueID());*/
             return;
         }
-        LOG.info("事件中位置:({}, {}, {}), 实例中位置: ({}, {}, {})",
+
+        /*LOG.info("事件中位置:({}, {}, {}), 实例中位置: ({}, {}, {})",
             player.posX, player.posY, player.posZ,
-            this.player.posX, this.player.posY, this.player.posZ);
+            this.player.posX, this.player.posY, this.player.posZ);*/
+
         if (isRunning.get()) {
             // 开始连锁之后才收集掉落物
             selfDrops.add(new Vector3i(event.x, event.y, event.z));
@@ -273,13 +275,14 @@ public class ModeManager {
     }
 
     @SubscribeEvent
+    @SideOnly(Side.SERVER)
     public void onTick(TickEvent.ServerTickEvent event) {
         // 没有启用则不进行遍历等操作
         if (!Config.dropItemToSelf) return;
         if (selfDrops.isEmpty()) return;
         final long startTime = System.currentTimeMillis();
         Iterator<Vector3i> iterator = selfDrops.iterator();
-        while (iterator.hasNext() && System.currentTimeMillis() - startTime <= 10) {
+        while (iterator.hasNext() && System.currentTimeMillis() - startTime <= 25) {
             Vector3i pos = iterator.next();
             ConcurrentLinkedQueue<EntityItem> queue = GLOBAL_DROPS.get(pos);
             if (queue == null || queue.isEmpty()) {
