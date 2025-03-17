@@ -9,37 +9,23 @@ import cpw.mods.fml.common.network.FMLNetworkEvent;
 import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
-import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AllPlayer {
     public static Logger LOG = LogManager.getLogger();
-    public static boolean isRemote = false;
-    static {
-        try {
-            Class<?> clazz = Class.forName("net.minecraft.client.Minecraft");
-            isRemote = true;
-        } catch (ClassNotFoundException e) {
-            LOG.warn("当前是服务端环境");
-            isRemote = false;
-        }
-    }
     /**
      * 玩家UUID为键 - 连锁管理器
      */
     public Map<UUID, ModeManager> playerStatueMap = new ConcurrentHashMap<>();
-    @SideOnly(Side.CLIENT)
-    public static ModeManager clientManager = null;
+    public ModeManager clientManager;
 
     public void clientRegister(EntityPlayer player) {
         if (player == null) {
@@ -100,7 +86,6 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         EntityPlayer player = event.player;
-        UUID uuid = event.player.getUniqueID();
         if (event.player.worldObj.isRemote) {
             clientRegister(player);
         } else {
@@ -134,16 +119,6 @@ public class AllPlayer {
             clientRegister(player);
         } else {
             serverRegister(player);
-        }
-    }
-
-    @SubscribeEvent
-    public void qz_onEntityOutWorld(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        if (player.worldObj.isRemote) {
-            clientUnRegister(player);
-        } else {
-            serverUnRegister(player);
         }
     }
 

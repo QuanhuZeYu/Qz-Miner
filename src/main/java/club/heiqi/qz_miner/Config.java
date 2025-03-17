@@ -8,7 +8,9 @@ import net.minecraftforge.common.config.Configuration;
 
 import java.io.File;
 import java.lang.reflect.Field;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.function.Consumer;
 
 import static club.heiqi.qz_miner.MY_LOG.LOG;

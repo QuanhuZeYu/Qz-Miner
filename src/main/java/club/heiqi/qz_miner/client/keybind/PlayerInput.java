@@ -1,10 +1,8 @@
 package club.heiqi.qz_miner.client.keybind;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.Mod_Main;
-import club.heiqi.qz_miner.client.RenderUtils;
+import club.heiqi.qz_miner.client.RenderCube;
 import club.heiqi.qz_miner.minerModes.ModeManager;
-import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
@@ -13,13 +11,10 @@ import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
-import cpw.mods.fml.common.gameevent.PlayerEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.common.network.FMLNetworkEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.KeyBinding;
@@ -27,20 +22,14 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
-import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joml.Matrix4f;
-import org.joml.Vector3f;
 import org.joml.Vector3i;
-import org.lwjgl.BufferUtils;
 import org.lwjgl.input.Keyboard;
 
-import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
@@ -77,7 +66,7 @@ public class PlayerInput {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        manager = AllPlayer.clientManager;
+        manager = allPlayerStorage.clientManager;
         if (manager == null) {
             allPlayerStorage.clientRegister(player);
             return;
@@ -98,7 +87,7 @@ public class PlayerInput {
     public void onInputEvent(InputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        manager = AllPlayer.clientManager;
+        manager = allPlayerStorage.clientManager;
         if (manager == null) {
             allPlayerStorage.clientRegister(player);
             return;
@@ -118,11 +107,11 @@ public class PlayerInput {
 
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
-        EntityClientPlayerMP player = Minecraft.getMinecraft().thePlayer;
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) {
             return;
         }
-        manager = AllPlayer.clientManager;
+        manager = allPlayerStorage.clientManager;
         if (manager == null) {
             allPlayerStorage.clientRegister(player);
             return;
@@ -196,7 +185,7 @@ public class PlayerInput {
     public List<Vector3i> renderList = new ArrayList<>();
     @SubscribeEvent
     public void onInteract(DrawBlockHighlightEvent event) {
-        manager = AllPlayer.clientManager;
+        manager = allPlayerStorage.clientManager;
         if (manager == null) {
             allPlayerStorage.clientRegister(event.player);
             return;
@@ -256,21 +245,7 @@ public class PlayerInput {
             RenderUtils.uploadModelView(view.mul(model, new Matrix4f()));*/
 
             glBegin(GL_LINES);
-            // 前面
-            glVertex3f(0.5f, 0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
-            glVertex3f(-0.5f, 0.5f, 0.5f); glVertex3f(-0.5f, -0.5f, 0.5f);
-            glVertex3f(-0.5f, -0.5f, 0.5f); glVertex3f(0.5f, -0.5f, 0.5f);
-            glVertex3f(0.5f, -0.5f, 0.5f); glVertex3f(0.5f, 0.5f, 0.5f);
-            // 后面
-            glVertex3f(0.5f, 0.5f, -0.5f); glVertex3f(-0.5f, 0.5f, -0.5f);
-            glVertex3f(-0.5f, 0.5f, -0.5f); glVertex3f(-0.5f, -0.5f, -0.5f);
-            glVertex3f(-0.5f, -0.5f, -0.5f); glVertex3f(0.5f, -0.5f, -0.5f);
-            glVertex3f(0.5f, -0.5f, -0.5f); glVertex3f(0.5f, 0.5f, -0.5f);
-            // 链接前后
-            glVertex3f(0.5f, 0.5f, 0.5f); glVertex3f(0.5f, 0.5f, -0.5f);
-            glVertex3f(-0.5f, 0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, -0.5f);
-            glVertex3f(-0.5f, -0.5f, 0.5f); glVertex3f(-0.5f, -0.5f, -0.5f);
-            glVertex3f(0.5f, -0.5f, 0.5f); glVertex3f(0.5f, -0.5f, -0.5f);
+            RenderCube.renderFullCube();
             glEnd();
             glPopMatrix();
         }
@@ -284,7 +259,7 @@ public class PlayerInput {
 
     public String getSubMode() {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        manager = AllPlayer.clientManager;
+        manager = allPlayerStorage.clientManager;
         ModeManager.MainMode mainMode = manager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {
