@@ -1,12 +1,13 @@
 package club.heiqi.qz_miner.client.keybind;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.client.RenderCube;
+import club.heiqi.qz_miner.client.AnimateMessages;
+import club.heiqi.qz_miner.client.cubeRender.RenderCube;
+import club.heiqi.qz_miner.client.cubeRender.SpaceCalculator;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
-import club.heiqi.qz_miner.statueStorage.AllPlayer;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -25,11 +26,14 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joml.Vector2d;
 import org.joml.Vector3i;
 import org.lwjgl.input.Keyboard;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
@@ -105,6 +109,7 @@ public class PlayerInput {
         }
     }
 
+    public boolean overlay1 = false;
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
@@ -145,6 +150,7 @@ public class PlayerInput {
         }
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过
         boolean isReady = manager.getIsReady();
+        if (!isReady) overlay1 = false;
 
         FontRenderer fr = mc.fontRenderer;
         int screenWidth = mc.displayWidth;
@@ -155,18 +161,30 @@ public class PlayerInput {
 
         int x = (int) (screenWidth * 0.01);
         int y = (int) (screenHeight * 0.99);
-        x = x / scale;
-        y = y / scale;
-        int fontWidth = fr.getStringWidth(tip);
+        double stringW = (double) (fr.getStringWidth(tip) * scale) /screenWidth;
         int fontHeight = fr.FONT_HEIGHT;
         int heightHalf = (int) Math.ceil(fontHeight / 2d);
-        fr.drawString(tip, x, y - heightHalf, 0xFFFFFF);
+        y = y -heightHalf;
+        double endX = 0.01; double endY = (double) (y-fontHeight*scale) / screenHeight;
+        double startX = endX; double startY = 1.1;
+        if (isReady && !overlay1) {
+            Vector2d start1 = new Vector2d(startX, startY);
+            Vector2d start2 = new Vector2d(startX+stringW, startY);
+            Vector2d end1 = new Vector2d(endX, endY);
+            Vector2d end2 = new Vector2d(endX + stringW, endY);
+            List<Vector2d> paths1 = Arrays.asList(start1, end1, end1,start1);
+            List<Vector2d> paths2 = Arrays.asList(start2, end2, end2,start2);
+            List<Long> duration = Arrays.asList(1_000L, 3_000L,1_000L);
+            AnimateMessages amTip = new AnimateMessages().register(tip, 0xFFFFFF, paths1, duration);
+            AnimateMessages rdyAm = new AnimateMessages().register(ready, 0x1eff00, paths2, duration);
+            overlay1 = true;
+        /*fr.drawString(tip, x, y - heightHalf, 0xFFFFFF);
         if (isReady) {
             fr.drawString(ready, x + fontWidth + 1, y - heightHalf, 0x1eff00);
         } else {
             fr.drawString(ready, x + fontWidth + 1, y - heightHalf, 0xff7500);
+        }*/
         }
-        mc.mcProfiler.endSection();
     }
 
     @SubscribeEvent
@@ -182,7 +200,8 @@ public class PlayerInput {
         }).start();
     }
 
-    public List<Vector3i> renderList = new ArrayList<>();
+    public static SpaceCalculator calculator = new SpaceCalculator(new ArrayList<>());
+    public boolean inRender = false;
     @SubscribeEvent
     public void onInteract(DrawBlockHighlightEvent event) {
         manager = allPlayerStorage.clientManager;
@@ -191,48 +210,65 @@ public class PlayerInput {
             return;
         }
         if (!Config.useRender) return;
+        // 清空缓存
         if (!manager.getIsReady()) {
-            if (!renderList.isEmpty()) {
-                renderList.clear();
+            // 清空计算器
+            if (!calculator.points.isEmpty()) {
+                calculator.clear();
+                LOG.info("已清空计算器中缓存");
             }
+            // 清空管理器
             if (!manager.renderCache.isEmpty()) {
                 manager.renderCache.clear();
             }
+            inRender = false;
             return;
         }
         EntityPlayer player = event.player;
+        // 方块位置
         int bx = event.target.blockX;
         int by = event.target.blockY;
         int bz = event.target.blockZ;
+        // 计算距离
         int dx = (int) (bx - player.posX);
         int dy = (int) (by - player.posY + player.eyeHeight);
         int dz = (int) (bz - player.posZ);
-        if ((dx*dx + dy*dy + dz*dz) > 25) {
-            return;
-        }
+
         // 渲染列表状态追踪
-        if (renderList.isEmpty()) {
+        if (!inRender) {
+            if ((dx * dx + dy * dy + dz * dz) > 25) {
+                return;
+            }
             /*LOG.info("[渲染] 正在触发渲染模式");*/
             manager.proxyRender(new Vector3i(bx, by, bz));
-            renderList.add(new Vector3i(0));
-        } else if (!manager.renderCache.isEmpty()) {
-            renderList = new ArrayList<>(manager.renderCache);
+            inRender = true;
         }
+        calculator.addPoints(manager.renderCache);
         // 绘制逻辑
+        int curProgram = glGetInteger(GL_CURRENT_PROGRAM);
+        glUseProgram(0);
         glPushAttrib(GL_ALL_ATTRIB_BITS);
+        glPushClientAttrib(GL_VERTEX_ARRAY);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glLineWidth(1f);
         glDisable(GL_TEXTURE_2D);
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND); // 确保混合已启用
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         glColor4d(1,0,0,0.3);
-        for (Vector3i pos : new ArrayList<>(renderList)) {
-            // 推入栈
+        // 计算玩家视角偏移（同原逻辑）
+        float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
+        float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
+        float ez = (float) (player.prevPosZ + (player.posZ - player.prevPosZ) * event.partialTicks);
+        for (Map.Entry<Vector3i, SpaceCalculator.Point> vP : calculator.points.entrySet()) {
+            Vector3i pos = vP.getKey();
+            SpaceCalculator.Point point = vP.getValue();
+            RenderCube.DefaceList dfList = new RenderCube.DefaceList(point.deFaces);
+            RenderCube cube = RenderCube.connect.get(dfList);
+            if (cube != null && cube.indexes.length == 0) continue; // 跳过0顶点加速
             float x = pos.x + 0.5f;
             float y = pos.y + 0.5f;
             float z = pos.z + 0.5f;
-            float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
-            float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
-            float ez = (float) (player.prevPosZ + (player.posZ - player.prevPosZ) * event.partialTicks);
             glPushMatrix();
 
             // 通过计算偏移
@@ -243,13 +279,17 @@ public class PlayerInput {
             Matrix4f view = RenderUtils.getViewMatrix(event.partialTicks);
             glMatrixMode(GL_MODELVIEW);
             RenderUtils.uploadModelView(view.mul(model, new Matrix4f()));*/
+            RenderCube.render(new RenderCube.DefaceList(point.deFaces));
 
-            glBegin(GL_LINES);
+            /*glBegin(GL_LINES);
             RenderCube.renderFullCube();
-            glEnd();
+            glEnd();*/
+
             glPopMatrix();
         }
+        glPopClientAttrib();
         glPopAttrib();
+        glUseProgram(curProgram);
         /*LOG.debug("完成方块高亮绘制");*/ // 绘制结束日志
     }
 
