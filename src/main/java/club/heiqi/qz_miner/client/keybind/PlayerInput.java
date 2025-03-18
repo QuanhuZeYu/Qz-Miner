@@ -150,13 +150,16 @@ public class PlayerInput {
         }
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过
         boolean isReady = manager.getIsReady();
-        if (!isReady) overlay1 = false;
+        if (!isReady) {
+            overlay1 = false;
+            return;
+        }
 
         FontRenderer fr = mc.fontRenderer;
         int screenWidth = mc.displayWidth;
         int screenHeight = mc.displayHeight;
         int scale = event.resolution.getScaleFactor();
-        String ready = isReady ? I18n.format("key.qz_miner.isReady") : I18n.format("key.qz_miner.notReady");
+        String ready = I18n.format("key.qz_miner.isReady");
         String tip = I18n.format("key.qz_miner.tip", ready);
 
         int x = (int) (screenWidth * 0.01);
@@ -167,6 +170,11 @@ public class PlayerInput {
         y = y -heightHalf;
         double endX = 0.01; double endY = (double) (y-fontHeight*scale) / screenHeight;
         double startX = endX; double startY = 1.1;
+        if (isReady && count > 0) {
+            int width = fr.getStringWidth(String.valueOf(count));
+            width /= 2;
+            fr.drawString("( "+count+" )", (screenWidth/scale)/2-width, (screenHeight/scale)/2-fontHeight+5, 0xCC6622);
+        }
         if (isReady && !overlay1) {
             Vector2d start1 = new Vector2d(startX, startY);
             Vector2d start2 = new Vector2d(startX+stringW, startY);
@@ -200,16 +208,17 @@ public class PlayerInput {
         }).start();
     }
 
+    public int count = 0;
     public static SpaceCalculator calculator = new SpaceCalculator(new ArrayList<>());
     public boolean inRender = false;
     @SubscribeEvent
     public void onInteract(DrawBlockHighlightEvent event) {
+        if (!Config.useRender) return;
         manager = allPlayerStorage.clientManager;
         if (manager == null) {
             allPlayerStorage.clientRegister(event.player);
             return;
         }
-        if (!Config.useRender) return;
         // 清空缓存
         if (!manager.getIsReady()) {
             // 清空计算器
@@ -221,6 +230,7 @@ public class PlayerInput {
             if (!manager.renderCache.isEmpty()) {
                 manager.renderCache.clear();
             }
+            count = 0;
             inRender = false;
             return;
         }
@@ -244,6 +254,7 @@ public class PlayerInput {
             inRender = true;
         }
         calculator.addPoints(manager.renderCache);
+        count = calculator.points.size();
         // 绘制逻辑
         int curProgram = glGetInteger(GL_CURRENT_PROGRAM);
         glUseProgram(0);
