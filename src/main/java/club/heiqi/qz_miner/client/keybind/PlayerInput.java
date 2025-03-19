@@ -164,27 +164,35 @@ public class PlayerInput {
 
         int x = (int) (screenWidth * 0.01);
         int y = (int) (screenHeight * 0.99);
-        double stringW = (double) (fr.getStringWidth(tip) * scale) /screenWidth;
+
         int fontHeight = fr.FONT_HEIGHT;
         int heightHalf = (int) Math.ceil(fontHeight / 2d);
         y = y -heightHalf;
         double endX = 0.01; double endY = (double) (y-fontHeight*scale) / screenHeight;
         double startX = endX; double startY = 1.1;
         if (isReady && count > 0) {
-            int width = fr.getStringWidth(String.valueOf(count));
+            String counts = "( "+ count+" )";
+            int width = fr.getStringWidth(counts);
             width /= 2;
-            fr.drawString("( "+count+" )", (screenWidth/scale)/2-width, (screenHeight/scale)/2-fontHeight+5, 0xCC6622);
+            fr.drawString(counts, (screenWidth/scale)/2-width, (screenHeight/scale)/2-fontHeight-5, 0xCC6622);
         }
         if (isReady && !overlay1) {
+            int tipW = fr.getStringWidth(tip);
+            double stringWD = (double) (tipW * scale) /screenWidth;
             Vector2d start1 = new Vector2d(startX, startY);
-            Vector2d start2 = new Vector2d(startX+stringW, startY);
+            Vector2d start2 = new Vector2d(startX+stringWD, startY);
             Vector2d end1 = new Vector2d(endX, endY);
-            Vector2d end2 = new Vector2d(endX + stringW, endY);
+            Vector2d end2 = new Vector2d(endX + stringWD, endY);
             List<Vector2d> paths1 = Arrays.asList(start1, end1, end1,start1);
             List<Vector2d> paths2 = Arrays.asList(start2, end2, end2,start2);
             List<Long> duration = Arrays.asList(1_000L, 3_000L,1_000L);
-            AnimateMessages amTip = new AnimateMessages().register(tip, 0xFFFFFF, paths1, duration);
-            AnimateMessages rdyAm = new AnimateMessages().register(ready, 0x1eff00, paths2, duration);
+            /*AnimateMessages amTip = new AnimateMessages().register(tip, 0xFFFFFF, paths1, duration);
+            AnimateMessages rdyAm = new AnimateMessages().register(ready, 0x1eff00, paths2, duration);*/
+            AnimateMessages amTip = new AnimateMessages().useFunc((vec)->{
+                int xi = vec.x; int yi = vec.y-fontHeight;
+                fr.drawString(tip, xi, yi, 0xFFFFFF);
+                fr.drawString(ready, xi+tipW, yi, 0x1eff00);
+            }).register(paths1, duration);
             overlay1 = true;
         /*fr.drawString(tip, x, y - heightHalf, 0xFFFFFF);
         if (isReady) {

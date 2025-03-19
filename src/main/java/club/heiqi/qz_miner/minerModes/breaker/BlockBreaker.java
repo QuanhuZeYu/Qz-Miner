@@ -11,7 +11,7 @@ import club.heiqi.qz_miner.mixins.GTMixin.TileEntityOresAccessor;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.TileEntityOres;
 import gtPlusPlus.core.block.base.BlockBaseOre;
-import net.minecraft.block.Block;
+import net.minecraft.block.*;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
@@ -27,6 +27,7 @@ import net.minecraft.world.WorldSettings;
 import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.ForgeDirection;
+import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
@@ -110,9 +111,70 @@ public class BlockBreaker {
             }
         }
         if (isRemoved && canHarvest) {
-            block.harvestBlock(world, player, x, y, z, metadata);
+            harvestBlock(block, x, y, z, metadata);
         }
         return isRemoved;
+    }
+
+    public void harvestBlock(Block block, int x, int y, int z, int meta) {
+        // 重写了harvestBlock的
+        if (block instanceof BlockDeadBush || block instanceof BlockDoublePlant
+            || block instanceof BlockFlower || block instanceof BlockIce
+            || block instanceof BlockLeaves || block instanceof BlockSnow
+            || block instanceof BlockTallGrass || block instanceof  BlockVine) {
+            block.harvestBlock(world, player, x, y, z, meta);
+            return;
+        }
+        player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
+        player.addExhaustion(0.025F);
+
+        if (block.renderAsNormalBlock() && !block.hasTileEntity(meta) && EnchantmentHelper.getSilkTouchModifier(player)) {
+            ArrayList<ItemStack> items = new ArrayList<>();
+
+            Item item = Item.getItemFromBlock(block);
+            if (item == null || !item.getHasSubtypes()) {
+                meta = 0;
+            }
+            ItemStack itemstack = new ItemStack(item, 1, meta);
+
+            items.add(itemstack);
+
+            ForgeEventFactory.fireBlockHarvesting(items, world, block, x, y, z, meta, 0, 1.0f, true, player);
+            for (ItemStack is : items) {
+                dropBlockAsItem(x, y, z, is);
+            }
+        }
+        else {
+            int fortune = EnchantmentHelper.getFortuneModifier(player);
+            int i1 = EnchantmentHelper.getFortuneModifier(player);
+            ArrayList<ItemStack> items = block.getDrops(world, x, y, z, meta, fortune);
+            float chance = ForgeEventFactory.fireBlockHarvesting(items, world, block, x, y, z, meta, fortune, 1, false, player);
+            for (ItemStack item : items)
+            {
+                if (world.rand.nextFloat() <= chance)
+                {
+                    this.dropBlockAsItem(x, y, z, item);
+                }
+            }
+        }
+    }
+
+    public void dropBlockAsItem(int x, int y, int z, ItemStack itemIn) {
+        if (!world.isRemote && world.getGameRules().getGameRuleBooleanValue("doTileDrops") && !world.restoringBlockSnapshots) {
+            float f = 0.7F;
+            double d0 = (double)(world.rand.nextFloat() * f) + (double)(1.0F - f) * 0.5D;
+            double d1 = (double)(world.rand.nextFloat() * f) + (double)(1.0F - f) * 0.5D;
+            double d2 = (double)(world.rand.nextFloat() * f) + (double)(1.0F - f) * 0.5D;
+            if (Config.dropItemToSelf) {
+                Vector3f dropPos = Utils.getItemDropPos(player);
+                x = (int) Math.floor(dropPos.x);
+                y = (int) Math.floor(dropPos.y);
+                z = (int) Math.floor(dropPos.z);
+            }
+            EntityItem entityitem = new EntityItem(world, (double)x + d0, (double)y + d1, (double)z + d2, itemIn);
+            entityitem.delayBeforeCanPickup = 10;
+            world.spawnEntityInWorld(entityitem);
+        }
     }
 
     /**
@@ -142,48 +204,6 @@ public class BlockBreaker {
             targetBlock.onBlockDestroyedByPlayer(world, x, y, z, blockMetadata);
         }
         return isBlockRemoved;
-    }
-
-    public boolean checkCanBreak(Vector3i pos) {
-        World world = this.world;
-        EntityPlayer player = this.player;
-        int vx = pos.x; int vy = pos.y; int vz = pos.z;
-        int px = (int) Math.floor(player.posX); int py = (int) Math.floor(player.posY); int pz = (int) Math.floor(player.posZ);
-        Block block = world.getBlock(vx,vy,vz);
-        ItemStack holdItem = player.getCurrentEquippedItem();
-        int meta = world.getBlockMetadata(vx,vy,vz);
-        // 判断是否为创造模式
-        if (player.capabilities.isCreativeMode) {
-            return true;
-        }
-        // 判断是否为空气
-        if (block == Blocks.air) {
-            return false;
-        }
-        // 判断是否为流体
-        if (block.getMaterial().isLiquid()) {
-            return false;
-        }
-        // 判断是否为基岩
-        if (block == Blocks.bedrock) {
-            return false;
-        }
-        // 判断是否为非固体
-        if (!block.getMaterial().isSolid()) {
-            return false;
-        }
-        boolean b = vx == px && vy == (py-1) && vz == pz;
-        /*LOG.info("[挖掘检查] 脚下:({}, {}, {}) - ({}, {}, {}) - 结果:{}",
-            px,py-1,pz,vx,vy,vz, b);*/
-        if (b) {
-            /*LOG.info("已排除点:({}, {}, {})",vx,vy,vz);*/
-            return false;
-        }
-        // 判断工具能否挖掘
-        if (holdItem != null) {
-            return block.canHarvestBlock(player, meta);
-        }
-        return true;
     }
 
 

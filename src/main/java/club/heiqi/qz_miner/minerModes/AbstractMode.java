@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -78,7 +77,7 @@ public abstract class AbstractMode {
     @SubscribeEvent
     @SideOnly(Side.SERVER)
     public void tick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.START && !world.isRemote) {
+        if (event.phase == TickEvent.Phase.END && !world.isRemote) {
             sendHeartbeat();
             long current = System.currentTimeMillis();
             long heart = heartbeatTimer.get();

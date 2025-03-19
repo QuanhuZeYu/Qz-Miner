@@ -5,10 +5,8 @@ import club.heiqi.qz_miner.minerModes.ModeManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
-import cpw.mods.fml.common.network.FMLNetworkEvent;
 import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
@@ -46,7 +44,6 @@ public class AllPlayer {
         clientManager.unregister();
         clientManager = null;
     }
-
     public void serverRegister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
         // 服务端逻辑
@@ -86,7 +83,7 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         EntityPlayer player = event.player;
-        if (event.player.worldObj.isRemote) {
+        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
             clientRegister(player);
         } else {
             // 服务端逻辑
@@ -102,7 +99,7 @@ public class AllPlayer {
     public void qz_onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         EntityPlayer player = event.player;
         UUID playerUUID = player.getUniqueID();
-        if (player.worldObj.isRemote) {
+        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
             // 客户端逻辑
             clientUnRegister(player);
         }
@@ -115,7 +112,7 @@ public class AllPlayer {
     public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
         if (!(event.entity instanceof EntityPlayer)) return;
         EntityPlayer player = (EntityPlayer) event.entity;
-        if (event.world.isRemote) {
+        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
             clientRegister(player);
         } else {
             serverRegister(player);
@@ -125,7 +122,7 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {
         EntityPlayer player = event.player;
-        if (player.worldObj.isRemote) {
+        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
             clientRegister(player);
         } else {
             serverRegister(player);
@@ -135,7 +132,7 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onPlayerReSpawn(PlayerEvent.PlayerRespawnEvent event) {
         EntityPlayer player = event.player;
-        if (player.worldObj.isRemote) {
+        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
             clientRegister(player);
         } else {
             serverRegister(player);
@@ -145,7 +142,7 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onPlayerClone(net.minecraftforge.event.entity.player.PlayerEvent.Clone event) {
         EntityPlayer player = event.entityPlayer;
-        if (player.worldObj.isRemote) {
+        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
             clientRegister(player);
         } else {
             serverRegister(player);

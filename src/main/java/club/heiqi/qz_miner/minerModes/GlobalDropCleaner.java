@@ -1,29 +1,7 @@
 package club.heiqi.qz_miner.minerModes;
 
-import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.minerModes.utils.Utils;
-import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
-import net.minecraft.entity.item.EntityItem;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.world.World;
-import net.minecraftforge.common.MinecraftForge;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.joml.Vector3f;
-import org.joml.Vector3i;
-
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentLinkedQueue;
-
-import static club.heiqi.qz_miner.minerModes.ModeManager.GLOBAL_DROPS;
-
 public class GlobalDropCleaner {
-    public static Logger LOG = LogManager.getLogger();
+    /*public static Logger LOG = LogManager.getLogger();
     public static long lastGlobalChangeTime = 0;
 
     private GlobalDropCleaner() {}
@@ -79,5 +57,5 @@ public class GlobalDropCleaner {
         GlobalDropCleaner cleaner = new GlobalDropCleaner();
         FMLCommonHandler.instance().bus().register(cleaner);
         MinecraftForge.EVENT_BUS.register(cleaner);
-    }
+    }*/
 }

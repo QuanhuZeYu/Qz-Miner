@@ -1,17 +1,19 @@
 package club.heiqi.qz_miner.minerModes;
 
-import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.minerModes.chainMode.*;
+import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
+import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerModes.chainMode.RelaxChainMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.*;
-import club.heiqi.qz_miner.minerModes.utils.Utils;
+import club.heiqi.qz_miner.minerModes.chainMode.StrictChainMode;
+import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
+import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
+import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
+import club.heiqi.qz_miner.minerModes.rangeMode.TunnelMode;
 import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.entity.item.EntityItem;
@@ -21,11 +23,11 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joml.Vector3f;
 import org.joml.Vector3i;
 
-import java.lang.reflect.Field;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -237,49 +239,13 @@ public class ModeManager {
     }
 
     public EntityPlayer getPlayer() {
-        Class<?> clazz = ModeManager.class;
-        Field playerField = null;
-        EntityPlayer player = null;
-        try {
-            playerField = clazz.getField("player");
-            EntityPlayer player1 = (EntityPlayer) playerField.get(this);
-            if (player1 == null) throw new NoSuchFieldException("player");
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            try {
-                playerField = clazz.getField("clientPlayer");
-            } catch (NoSuchFieldException ex) {
-                throw new RuntimeException(ex);
-            }
-        }
-        try {
-            player = (EntityPlayer) playerField.get(this);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
-        }
-        return player;
+        if (player != null) return player;
+        else return clientPlayer;
     }
 
     public World getWorld() {
-        Class<?> clazz = ModeManager.class;
-        Field worldField = null;
-        World world = null;
-        try {
-            worldField = clazz.getField("world");
-            World world1 = (World) worldField.get(this);
-            if (world1 == null) throw new NoSuchFieldException("world");
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            try {
-                worldField = clazz.getField("clientWorld");
-            } catch (NoSuchFieldException ex) {
-                throw new RuntimeException(ex);
-            }
-        }
-        try {
-            world = (World) worldField.get(this);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
-        }
-        return world;
+        if (world != null) return world;
+        else return clientWorld;
     }
 
     /**
@@ -324,7 +290,7 @@ public class ModeManager {
         }
     }
 
-    @SubscribeEvent
+    /*@SubscribeEvent
     @SideOnly(Side.SERVER)
     public void onTick(TickEvent.ServerTickEvent event) {
         // 没有启用则不进行遍历等操作
@@ -356,5 +322,11 @@ public class ModeManager {
                 }
             }
         }
+    }*/
+
+
+    public enum SideEnum {
+        SERVER,
+        CLIENT;
     }
 }

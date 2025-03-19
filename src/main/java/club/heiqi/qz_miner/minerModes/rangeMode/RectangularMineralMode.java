@@ -3,20 +3,9 @@ package club.heiqi.qz_miner.minerModes.rangeMode;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
-import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularFounder;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularMineralFounder;
-import club.heiqi.qz_miner.util.CheckCompatibility;
-import gregtech.common.blocks.BlockOresAbstract;
-import net.minecraft.block.Block;
-import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
-import net.minecraft.world.World;
-import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
-
-import java.util.List;
 
 public class RectangularMineralMode extends AbstractMode {
     public final BlockBreaker breaker;
