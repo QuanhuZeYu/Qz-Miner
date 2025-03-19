@@ -1,8 +1,9 @@
-package club.heiqi.qz_miner.client.keybind;
+package club.heiqi.qz_miner.client.playerInput;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.client.AnimateMessages;
 import club.heiqi.qz_miner.client.cubeRender.RenderCube;
+import club.heiqi.qz_miner.client.cubeRender.RenderRegion;
 import club.heiqi.qz_miner.client.cubeRender.SpaceCalculator;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.network.PacketIsReady;
@@ -70,7 +71,7 @@ public class PlayerInput {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        manager = allPlayerStorage.clientManager;
+        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) {
             allPlayerStorage.clientRegister(player);
             return;
@@ -91,7 +92,7 @@ public class PlayerInput {
     public void onInputEvent(InputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        manager = allPlayerStorage.clientManager;
+        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) {
             allPlayerStorage.clientRegister(player);
             return;
@@ -116,7 +117,7 @@ public class PlayerInput {
         if (player == null) {
             return;
         }
-        manager = allPlayerStorage.clientManager;
+        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) {
             allPlayerStorage.clientRegister(player);
             return;
@@ -216,17 +217,18 @@ public class PlayerInput {
         }).start();
     }
 
+    RenderRegion regionRender;
     public int count = 0;
     public static SpaceCalculator calculator = new SpaceCalculator(new ArrayList<>());
     public boolean inRender = false;
     @SubscribeEvent
     public void onInteract(DrawBlockHighlightEvent event) {
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (!Config.useRender) return;
-        manager = allPlayerStorage.clientManager;
-        if (manager == null) {
-            allPlayerStorage.clientRegister(event.player);
-            return;
-        }
+        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        if (manager == null) return;
+        if (regionRender == null) regionRender = new RenderRegion();
+        if (!RenderCube.isInit) RenderCube.init();
         // 清空缓存
         if (!manager.getIsReady()) {
             // 清空计算器
@@ -242,7 +244,6 @@ public class PlayerInput {
             inRender = false;
             return;
         }
-        EntityPlayer player = event.player;
         // 方块位置
         int bx = event.target.blockX;
         int by = event.target.blockY;
@@ -318,7 +319,7 @@ public class PlayerInput {
 
     public String getSubMode() {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        manager = allPlayerStorage.clientManager;
+        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         ModeManager.MainMode mainMode = manager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {

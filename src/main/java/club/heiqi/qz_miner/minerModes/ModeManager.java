@@ -46,8 +46,6 @@ public class ModeManager {
     /**缓存的玩家引用*/
     public EntityPlayer player;
     public World world;
-    public EntityPlayer clientPlayer;
-    public World clientWorld;
 
     /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
@@ -239,13 +237,11 @@ public class ModeManager {
     }
 
     public EntityPlayer getPlayer() {
-        if (player != null) return player;
-        else return clientPlayer;
+        return player;
     }
 
     public World getWorld() {
-        if (world != null) return world;
-        else return clientWorld;
+        return world;
     }
 
     /**

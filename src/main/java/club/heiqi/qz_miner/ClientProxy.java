@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.client.RenderUtils;
-import club.heiqi.qz_miner.client.keybind.PlayerInput;
+import club.heiqi.qz_miner.client.playerInput.PlayerInput;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;

@@ -9,6 +9,7 @@ import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,28 +24,44 @@ public class AllPlayer {
      * 玩家UUID为键 - 连锁管理器
      */
     public Map<UUID, ModeManager> playerStatueMap = new ConcurrentHashMap<>();
-    public ModeManager clientManager;
 
     public void clientRegister(EntityPlayer player) {
         if (player == null) {
-            LOG.warn("player为null拒绝注册实例");
+            LOG.warn("player为null拒绝注册连锁实例");
             return;
         }
-        if (clientManager == null) {
-            clientManager = new ModeManager();
+        if (player instanceof FakePlayer) {
+            LOG.warn("假人拒绝注册连锁实例");
+            return;
+        }
+        UUID uuid = player.getUniqueID();
+        ModeManager modeManager = playerStatueMap.get(uuid);
+        if (!playerStatueMap.containsKey(uuid)) {
+            modeManager = new ModeManager();
             LOG.info("创建客户端管理器实例");
         }
         // 无论是否存在都进行覆盖逻辑
-        clientManager.clientPlayer = player;
-        clientManager.clientWorld = player.worldObj;
-        clientManager.register();
+        modeManager.player = player;
+        modeManager.world = player.worldObj;
+        modeManager.register();
+        playerStatueMap.put(uuid, modeManager);
     }
     public void clientUnRegister(EntityPlayer player) {
-        if (clientManager == null) return;
-        clientManager.unregister();
-        clientManager = null;
+        UUID uuid = player.getUniqueID();
+        if (!playerStatueMap.containsKey(uuid)) return;
+        ModeManager modeManager = playerStatueMap.get(uuid);
+        modeManager.unregister();
+        playerStatueMap.remove(uuid);
     }
     public void serverRegister(EntityPlayer player) {
+        if (player == null) {
+            LOG.warn("player为null拒绝注册连锁实例");
+            return;
+        }
+        if (player instanceof FakePlayer) {
+            LOG.warn("假人拒绝注册连锁实例");
+            return;
+        }
         UUID uuid = player.getUniqueID();
         // 服务端逻辑
         ModeManager modeManager;
