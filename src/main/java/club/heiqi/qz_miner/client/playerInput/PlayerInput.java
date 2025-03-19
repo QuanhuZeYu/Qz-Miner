@@ -160,8 +160,7 @@ public class PlayerInput {
         int screenWidth = mc.displayWidth;
         int screenHeight = mc.displayHeight;
         int scale = event.resolution.getScaleFactor();
-        String ready = I18n.format("key.qz_miner.isReady");
-        String tip = I18n.format("key.qz_miner.tip", ready);
+        String tip = I18n.format("key.qz_miner.tip");
 
         int x = (int) (screenWidth * 0.01);
         int y = (int) (screenHeight * 0.99);
@@ -172,7 +171,7 @@ public class PlayerInput {
         double endX = 0.01; double endY = (double) (y-fontHeight*scale) / screenHeight;
         double startX = endX; double startY = 1.1;
         if (isReady && count > 0) {
-            String counts = "( "+ count+" )";
+            String counts = "["+ count+"]";
             int width = fr.getStringWidth(counts);
             width /= 2;
             fr.drawString(counts, (screenWidth/scale)/2-width, (screenHeight/scale)/2-fontHeight-5, 0xCC6622);
@@ -190,9 +189,11 @@ public class PlayerInput {
             /*AnimateMessages amTip = new AnimateMessages().register(tip, 0xFFFFFF, paths1, duration);
             AnimateMessages rdyAm = new AnimateMessages().register(ready, 0x1eff00, paths2, duration);*/
             AnimateMessages amTip = new AnimateMessages().useFunc((vec)->{
+                String ready = manager.getIsReady() ? I18n.format("key.qz_miner.isReady") : I18n.format("key.qz_miner.notReady");
+                int readyColor = manager.getIsReady() ? 0x1eff00 : 0xff7500;
                 int xi = vec.x; int yi = vec.y-fontHeight;
                 fr.drawString(tip, xi, yi, 0xFFFFFF);
-                fr.drawString(ready, xi+tipW, yi, 0x1eff00);
+                fr.drawString(ready, xi+tipW, yi, readyColor);
             }).register(paths1, duration);
             overlay1 = true;
         /*fr.drawString(tip, x, y - heightHalf, 0xFFFFFF);
@@ -326,7 +327,7 @@ public class PlayerInput {
 
             cubeCount++;
         }
-
+        // 获取数组
         float[] verticesArray = new float[vertices.size()];
         int[] indicesArray = new int[indices.size()];
         for (int i = 0; i < vertices.size(); i++) {
@@ -335,7 +336,7 @@ public class PlayerInput {
         for (int i = 0; i < indices.size(); i++) {
             indicesArray[i] = indices.get(i);
         }
-
+        // 渲染
         glPushMatrix();
         glTranslatef(-ex, -ey, -ez);
         regionRender.render(verticesArray, indicesArray);

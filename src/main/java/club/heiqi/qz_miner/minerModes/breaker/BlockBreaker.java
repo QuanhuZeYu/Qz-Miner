@@ -20,18 +20,15 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ReportedException;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldSettings;
-import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -59,8 +56,8 @@ public class BlockBreaker {
         this.world = world;
     }
 
-    public boolean tryHarvestBlock(Vector3i pos) {
-        if (player == null || player.worldObj.isRemote) return false;
+    public void tryHarvestBlock(Vector3i pos) {
+        if (player == null || player.worldObj.isRemote) return;
         int x = pos.x; int y = pos.y; int z = pos.z;
         // 1. 元数据缓存减少重复调用
         final Block block = world.getBlock(x, y, z);
@@ -75,8 +72,8 @@ public class BlockBreaker {
             Vector3f dropPos = Utils.getItemDropPos(player);
             drops.forEach(d -> world.spawnEntityInWorld(new EntityItem(world,dropPos.x,dropPos.y,dropPos.z,d)));
         }
-
-        BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
+        player.theItemInWorldManager.tryHarvestBlock(x,y,z);
+        /*BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
         if (breakEvent.isCanceled()) {
             return false;
         }
@@ -101,7 +98,7 @@ public class BlockBreaker {
         if (!player.capabilities.isCreativeMode && isBlockRemoved) {
             block.dropXpOnBlockBreak(world, (int) player.posX, (int) player.posY, (int) player.posZ, breakEvent.getExpToDrop());
         }
-        return isBlockRemoved;
+        return isBlockRemoved;*/
     }
 
     private boolean handleSurvivalBreak(int x, int y, int z, Block block, int metadata, ItemStack tool) {

@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
 import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerModes.chainMode.RelaxChainMode;
@@ -8,21 +9,25 @@ import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.TunnelMode;
+import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joml.Vector3f;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
@@ -230,6 +235,7 @@ public class ModeManager {
         LOG.info("{} 管理器:{} 注册完成", player.getDisplayName(), registryInfo);
     }
     public void unregister() {
+        if (!captureDrops.isEmpty()) dropCapture();
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
         EntityPlayer player = getPlayer();
@@ -284,6 +290,71 @@ public class ModeManager {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");
             LOG.info(e);
         }
+    }
+
+    List<ItemStack> captureDrops = new ArrayList<>();
+    @SubscribeEvent
+    public void onHarvestDrops(BlockEvent.HarvestDropsEvent event) {
+        EntityPlayer harvester = event.harvester;
+        if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
+        if (!getIsReady()) return;
+        if (Config.dropItemToSelf) {
+            for (ItemStack drop : event.drops) {
+                if (!harvester.inventory.addItemStackToInventory(drop)) {
+                    captureDrops.add(drop);
+                }
+            }
+            event.drops.clear();
+        }
+    }
+
+    @SubscribeEvent
+    public void onTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || getIsReady()) return;
+        if (!captureDrops.isEmpty()) {
+            dropCapture();
+        }
+    }
+
+    public void dropCapture() {
+        List<ItemStack> mergedDrops = new ArrayList<>();
+        // 遍历所有待合并的掉落物
+        for (ItemStack stack : captureDrops) {
+            boolean isMerged = false;
+            // 检查已合并列表中是否存在同类可合并的堆叠
+            for (ItemStack merged : mergedDrops) {
+                if (areStacksMergeable(stack, merged)) {
+                    merged.stackSize += stack.stackSize;
+                    isMerged = true;
+                    break;
+                }
+            }
+            // 若未合并，则添加新堆叠到列表
+            if (!isMerged) {
+                mergedDrops.add(stack.copy()); // 必须复制原堆叠
+            }
+        }
+        // 清空原始掉落物列表
+        captureDrops.clear();
+        // 生成合并后的实体
+        Vector3f dropPos = Utils.getItemDropPos(player);
+        for (ItemStack drop : mergedDrops) {
+            EntityItem entityDrop = new EntityItem(
+                world,
+                dropPos.x,
+                dropPos.y,
+                dropPos.z,
+                drop
+            );
+            world.spawnEntityInWorld(entityDrop);
+        }
+    }
+
+    // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
+    private boolean areStacksMergeable(ItemStack a, ItemStack b) {
+        return a.getItem() == b.getItem()
+            && a.getItemDamage() == b.getItemDamage()
+            && ItemStack.areItemStackTagsEqual(a, b);
     }
 
     /*@SubscribeEvent
