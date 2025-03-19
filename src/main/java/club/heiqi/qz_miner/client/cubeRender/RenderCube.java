@@ -22,6 +22,7 @@ public class RenderCube {
     public static boolean isInit = false;
     public int eboID; // 每个实例有自己的EBO
     public DefaceList defaces;
+    public static boolean genDone = false;
 
 
     public static float[] vertices = new float[] {
@@ -66,7 +67,7 @@ public class RenderCube {
      */
     public static Map<DefaceList, RenderCube> connect = new HashMap<>();
 
-    public RenderCube(DefaceList defaces) {
+    private RenderCube(DefaceList defaces) {
         this.defaces = defaces;
         calculateIndex(defaces);
         setupEBO(); // 初始化EBO
@@ -159,6 +160,19 @@ public class RenderCube {
         LOG.info("indexSize:{}",indexes.length);
     }
 
+    public static void init() {
+        if (genDone) return;
+        Set<List<Face>> allCombinations = Face.generateAllCombinations();
+        allCombinations.add(null);
+        for (List<Face> combination : allCombinations) {
+            Set<Face> setFace = new HashSet<>();
+            if (combination != null) setFace.addAll(combination);
+            DefaceList deface = new DefaceList(setFace);
+            new RenderCube(deface);
+        }
+        genDone = true;
+    }
+
     public static void render(DefaceList defaces) {
         RenderCube cube;
         if (connect.containsKey(defaces)) {
@@ -206,6 +220,32 @@ public class RenderCube {
         }
         public Face getOppositeFace() {
             return Face.values()[Face.values()[index].opposite];
+        }
+
+        public static Set<List<Face>> generateAllCombinations() {
+            Set<List<Face>> result = new HashSet<>();
+            for (int k = 1; k <= 6; k++) {
+                generateCombinationsOfLength(k, result);
+            }
+            return result;
+        }
+
+        private static void generateCombinationsOfLength(int k, Set<List<Face>> result) {
+            List<Face> current = new ArrayList<>();
+            backtrack(0, current, k, result);
+        }
+
+        private static void backtrack(int start, List<Face> current, int k, Set<List<Face>> result) {
+            if (current.size() == k) {
+                result.add(new ArrayList<>(current));  // 直接添加有序组合
+                return;
+            }
+            for (int i = start; i < Face.values().length; i++) {
+                Face face = Face.values()[i];
+                current.add(face);
+                backtrack(i + 1, current, k, result);  // 确保后续元素索引递增
+                current.remove(current.size() - 1);
+            }
         }
     }
 
@@ -256,4 +296,12 @@ public class RenderCube {
         glVertex3f(-0.5f, -0.5f, 0.5f); glVertex3f(-0.5f, -0.5f, -0.5f);
         glVertex3f(0.5f, -0.5f, 0.5f); glVertex3f(0.5f, -0.5f, -0.5f);
     }
+
+    /*public static void main(String[] args) {
+        Set<List<Face>> allCombinations = Face.generateAllCombinations();
+        for (List<Face> e : allCombinations) {
+            LOG.info(e);
+        }
+        // 输出: Total unique combinations: 63 - 1 (空集) = 62
+    }*/
 }

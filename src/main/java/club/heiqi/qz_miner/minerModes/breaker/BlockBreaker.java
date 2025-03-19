@@ -12,16 +12,18 @@ import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.TileEntityOres;
 import gtPlusPlus.core.block.base.BlockBaseOre;
 import net.minecraft.block.*;
+import net.minecraft.crash.CrashReport;
+import net.minecraft.crash.CrashReportCategory;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.stats.StatList;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.ReportedException;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldSettings;
 import net.minecraftforge.common.ForgeHooks;
@@ -33,11 +35,10 @@ import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.joml.*;
+import org.joml.Vector3f;
+import org.joml.Vector3i;
 
-import java.lang.Math;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import static net.minecraft.block.Block.getIdFromBlock;
@@ -58,8 +59,8 @@ public class BlockBreaker {
         this.world = world;
     }
 
-    public void tryHarvestBlock(Vector3i pos) {
-        if (player == null) return;
+    public boolean tryHarvestBlock(Vector3i pos) {
+        if (player == null || player.worldObj.isRemote) return false;
         int x = pos.x; int y = pos.y; int z = pos.z;
         // 1. 元数据缓存减少重复调用
         final Block block = world.getBlock(x, y, z);
@@ -77,12 +78,13 @@ public class BlockBreaker {
 
         BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
         if (breakEvent.isCanceled()) {
-            return;
+            return false;
         }
         // 3. 工具预检查逻辑优化
         ItemStack heldItem = player.getHeldItem();
         if (heldItem != null && heldItem.getItem().onBlockStartBreak(heldItem, x, y, z, player)) {
-            return;
+            // 事件被 onBlockStartBreak 阻止
+            return false;
         }
         // 4. 播放音效（使用常量代替魔法数字）
         final int BLOCK_BREAK_SFX_ID = 2001;
@@ -99,6 +101,7 @@ public class BlockBreaker {
         if (!player.capabilities.isCreativeMode && isBlockRemoved) {
             block.dropXpOnBlockBreak(world, (int) player.posX, (int) player.posY, (int) player.posZ, breakEvent.getExpToDrop());
         }
+        return isBlockRemoved;
     }
 
     private boolean handleSurvivalBreak(int x, int y, int z, Block block, int metadata, ItemStack tool) {
@@ -173,7 +176,9 @@ public class BlockBreaker {
             }
             EntityItem entityitem = new EntityItem(world, (double)x + d0, (double)y + d1, (double)z + d2, itemIn);
             entityitem.delayBeforeCanPickup = 10;
-            world.spawnEntityInWorld(entityitem);
+
+            if (!addItemStackToInventory(itemIn))
+                world.spawnEntityInWorld(entityitem);
         }
     }
 
@@ -208,110 +213,118 @@ public class BlockBreaker {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-    public void handleCreativeMode(Vector3i pos, Block block, int meta) {
-        if (!Block.isEqualTo(block, Blocks.skull)) {
-            block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
+    public boolean addItemStackToInventory(ItemStack itemStack) {
+        if (itemStack == null || itemStack.stackSize == 0 || itemStack.getItem() == null) {
+            return false;
         }
 
-        if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z, false)) {
-            BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
-                pos.x, pos.y, pos.z, world, block, meta,
-                EnchantmentHelper.getFortuneModifier(player), 1.0f, new ArrayList<>(drops), player, false
-            );
-            MinecraftForge.EVENT_BUS.post(event);
+        ItemStack[] mainInventory = player.inventory.mainInventory;
+        boolean isCreativeMode = player.capabilities.isCreativeMode;
+
+        try {
+            if (itemStack.isItemDamaged()) {
+                return handleDamagedItem(itemStack, mainInventory, isCreativeMode);
+            } else {
+                return handleUndamagedItem(itemStack, mainInventory, isCreativeMode);
+            }
+        } catch (Throwable throwable) {
+            CrashReport crashreport = CrashReport.makeCrashReport(throwable, "Adding item to inventory");
+            CrashReportCategory crashreportcategory = crashreport.makeCategory("Item being added");
+            crashreportcategory.addCrashSection("Item ID", Item.getIdFromItem(itemStack.getItem()));
+            crashreportcategory.addCrashSection("Item data", itemStack.getItemDamage());
+            crashreportcategory.addCrashSectionCallable("Item name", itemStack::getDisplayName);
+            throw new ReportedException(crashreport);
         }
     }
 
-    public void handleSurvivalMode(Vector3i pos, Block block, int meta) {
-        TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
-        ItemStack holdItem = player.getCurrentEquippedItem();
-
-        if (!Block.isEqualTo(block, Blocks.skull)) {
-            block.onBlockHarvested(world, pos.x, pos.y, pos.z, meta, player);
-        }
-
-        if (holdItem != null && holdItem.getItem() != null) {
-            // holdItem.func_150999_a(world, block, pos.x, pos.y, pos.z, player); // 拆解出来为以下步骤
-            holdItem.getItem().onBlockStartBreak(holdItem, pos.x, pos.y, pos.z, player);
-            if (holdItem.getItem().onBlockDestroyed(holdItem, world, block, pos.x, pos.y, pos.z, player)) {
-                player.addStat(StatList.objectUseStats[Item.getIdFromItem(holdItem.getItem())], 1);
-            }
-            if (holdItem.stackSize == 0) {
-                player.destroyCurrentEquippedItem();
-            }
-        }
-
-        if (block.canHarvestBlock(player, meta)) {
-
-            block.onBlockDestroyedByPlayer(world, pos.x, pos.y, pos.z, meta);
-            gtOreHarvestBlockBefore(tileEntity, block, player);
-            harvestBlock(pos, meta);
-            gtOreHarvestBlockAfter(tileEntity, block);
+    private static boolean handleDamagedItem(ItemStack itemStack, ItemStack[] mainInventory, boolean isCreativeMode) {
+        int slot = findFirstEmptySlot(mainInventory);
+        if (slot >= 0) {
+            mainInventory[slot] = ItemStack.copyItemStack(itemStack);
+            mainInventory[slot].animationsToGo = 5;
+            itemStack.stackSize = 0;
+            return true;
+        } else if (isCreativeMode) {
+            itemStack.stackSize = 0;
+            return true;
+        } else {
+            return false;
         }
     }
 
-    public void harvestBlock(Vector3i pos, int meta) {
-        int fortune = EnchantmentHelper.getFortuneModifier(player); // 获取附魔附魔等级
-        // 计算掉落位置
-        Vector3f dropPos = Utils.getItemDropPos(player);
+    private static int findFirstEmptySlot(ItemStack[] mainInventory) {
+        for (int i = 0; i < mainInventory.length; i++) {
+            if (mainInventory[i] == null) {
+                return i;
+            }
+        }
+        return -1;
+    }
 
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        TileEntity tileEntity = world.getTileEntity(pos.x, pos.y, pos.z);
+    private static boolean handleUndamagedItem(ItemStack itemStack, ItemStack[] mainInventory, boolean isCreativeMode) {
+        int originalSize = itemStack.stackSize;
+        int currentSize;
+        do {
+            currentSize = itemStack.stackSize;
+            itemStack.stackSize = storePartialItemStack(itemStack, mainInventory);
+        } while (itemStack.stackSize > 0 && itemStack.stackSize < currentSize);
 
-        player.addStat(StatList.mineBlockStatArray[getIdFromBlock(block)], 1);
-        player.addExhaustion(Config.exhaustion);
+        if (itemStack.stackSize == originalSize && isCreativeMode) {
+            itemStack.stackSize = 0;
+            return true;
+        } else {
+            return itemStack.stackSize < originalSize;
+        }
+    }
 
-        if (block.canSilkHarvest(world, player, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z))
-            && EnchantmentHelper.getSilkTouchModifier(player)) { // 判断是否可以进行精准采集
-            Item blockItem = Item.getItemFromBlock(block);
-            if (blockItem != null) {
-                int itemMeta = blockItem.getHasSubtypes() ? meta : 0;
-                ItemStack itemStack = new ItemStack(blockItem, 1, itemMeta);
-                BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
-                    pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(Arrays.asList(itemStack)), player, true);
-                MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
-                if (block.removedByPlayer(world, player, pos.x, pos.y, pos.z)) {
-                    drops.addAll(event.drops);
-                    checkFoodLevel();
+    private static int storePartialItemStack(ItemStack itemStack, ItemStack[] mainInventory) {
+        int remaining = itemStack.stackSize;
+        int maxStackSize = itemStack.getMaxStackSize();
+
+        // 尝试合并到现有堆栈
+        for (int i = 0; i < mainInventory.length && remaining > 0; i++) {
+            ItemStack slotStack = mainInventory[i];
+            if (slotStack != null && canStackAdd(slotStack, itemStack)) {
+                int space = maxStackSize - slotStack.stackSize;
+                int transfer = Math.min(space, remaining);
+                if (transfer > 0) {
+                    slotStack.stackSize += transfer;
+                    remaining -= transfer;
                 }
             }
-        } else { // 否则进行普通采集
-            // 后续可在此处添加事件触发功能
-            ArrayList<ItemStack> drop;
-            if (CheckCompatibility.isHasClass_TileEntityOre && tileEntity instanceof TileEntityOres) {
-                drop = ((TileEntityOres) tileEntity).getDrops(block, fortune);
-            } else {
-                drop = block.getDrops(world, pos.x, pos.y, pos.z, meta, fortune);
+        }
+
+        // 存入空槽
+        if (remaining > 0) {
+            int emptySlot = findFirstEmptySlot(mainInventory);
+            if (emptySlot >= 0) {
+                ItemStack newStack = ItemStack.copyItemStack(itemStack);
+                newStack.stackSize = remaining;
+                mainInventory[emptySlot] = newStack;
+                remaining = 0;
             }
-
-            BlockEvent.HarvestDropsEvent event = new BlockEvent.HarvestDropsEvent(
-                pos.x, pos.y, pos.z, world, block, meta, fortune, 1.0f, new ArrayList<>(drop), player, false
-            );
-            MinecraftForge.EVENT_BUS.post(event); // 发送收获方块事件
-            drop = event.drops;
-
-            world.setBlockToAir(pos.x, pos.y, pos.z);
-//            drops.addAll(drop);
-            checkFoodLevel();
         }
-        for (ItemStack drop : drops) {
-            world.spawnEntityInWorld(new EntityItem(world, dropPos.x, dropPos.y, dropPos.z, drop));
-        }
-        block.dropXpOnBlockBreak(world, pos.x, pos.y, pos.z, block.getExpDrop(world, meta, fortune));
-        drops.clear();
+
+        return remaining;
     }
+
+    private static boolean canStackAdd(ItemStack existing, ItemStack addition) {
+        return existing.getItem() == addition.getItem()
+            && existing.isStackable()
+            && existing.getItemDamage() == addition.getItemDamage()
+            && ItemStack.areItemStackTagsEqual(existing, addition)
+            && existing.stackSize < existing.getMaxStackSize();
+    }
+
+
+
+
+
+
+
+
+
+
 
     private void gtOreHarvestBlockBefore(TileEntity tileEntity, Block block, EntityPlayer player) {
         if (!CheckCompatibility.isHasClass_TileEntityOre){

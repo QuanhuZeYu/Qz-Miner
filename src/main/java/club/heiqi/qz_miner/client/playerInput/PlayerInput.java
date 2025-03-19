@@ -280,33 +280,65 @@ public class PlayerInput {
         float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
         float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
         float ez = (float) (player.prevPosZ + (player.posZ - player.prevPosZ) * event.partialTicks);
+        List<Float> vertices = new ArrayList<>();
+        List<Integer> indices = new ArrayList<>();
+        int cubeCount = 0;
         for (Map.Entry<Vector3i, SpaceCalculator.Point> vP : calculator.points.entrySet()) {
-            Vector3i pos = vP.getKey();
+            Vector3i blockPos = vP.getKey();
             SpaceCalculator.Point point = vP.getValue();
             RenderCube.DefaceList dfList = new RenderCube.DefaceList(point.deFaces);
             RenderCube cube = RenderCube.connect.get(dfList);
-            if (cube != null && cube.indexes.length == 0) continue; // 跳过0顶点加速
-            float x = pos.x + 0.5f;
-            float y = pos.y + 0.5f;
-            float z = pos.z + 0.5f;
-            glPushMatrix();
+            if (cube == null) continue;
+            if (cube.indexes.length == 0) continue; // 跳过0顶点加速
+            float x = blockPos.x + 0.5f;
+            float y = blockPos.y + 0.5f;
+            float z = blockPos.z + 0.5f;
+            // 处理顶点
+            for (int i = 0; i < RenderCube.vertices.length; i+=3) {
+                float a = RenderCube.vertices[i]; a += x;
+                float b = RenderCube.vertices[i+1]; b += y;
+                float c = RenderCube.vertices[i+2]; c += z;
+                vertices.add(a); vertices.add(b); vertices.add(c);
+            }
+            // 处理索引
+            int indexStep = cubeCount*8;
+            for (int i = 0; i < cube.indexes.length; i++) {
+                int index = cube.indexes[i]; index += indexStep;
+                indices.add(index);
+            }
+
+            /*glPushMatrix();
 
             // 通过计算偏移
-            glTranslatef(x-ex,y-ey,z-ez);
+            glTranslatef(x-ex,y-ey,z-ez);*/
 
             // 直接通过构造模型视图矩阵方式渲染
             /*Matrix4f model = new Matrix4f().identity().translate(x, y, z);
             Matrix4f view = RenderUtils.getViewMatrix(event.partialTicks);
             glMatrixMode(GL_MODELVIEW);
-            RenderUtils.uploadModelView(view.mul(model, new Matrix4f()));*/
+            RenderUtils.uploadModelView(view.mul(model, new Matrix4f()));*//*
             RenderCube.render(new RenderCube.DefaceList(point.deFaces));
 
-            /*glBegin(GL_LINES);
-            RenderCube.renderFullCube();
-            glEnd();*/
+            glPopMatrix();*/
 
-            glPopMatrix();
+            cubeCount++;
         }
+
+        float[] verticesArray = new float[vertices.size()];
+        int[] indicesArray = new int[indices.size()];
+        for (int i = 0; i < vertices.size(); i++) {
+            verticesArray[i] = vertices.get(i);
+        }
+        for (int i = 0; i < indices.size(); i++) {
+            indicesArray[i] = indices.get(i);
+        }
+
+        glPushMatrix();
+        glTranslatef(-ex, -ey, -ez);
+        regionRender.render(verticesArray, indicesArray);
+
+        glPopMatrix();
+
         glPopClientAttrib();
         glPopAttrib();
         glUseProgram(curProgram);
