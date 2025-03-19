@@ -262,8 +262,11 @@ public class PlayerInput {
             manager.proxyRender(new Vector3i(bx, by, bz));
             inRender = true;
         }
-        calculator.addPoints(manager.renderCache);
-        count = calculator.points.size();
+        for (Vector3i vector3i : manager.renderCache) {
+            if (count >= Config.renderCount) break;
+            calculator.addPoint(vector3i);
+            count = calculator.points.size();
+        }
         // 绘制逻辑
         int curProgram = glGetInteger(GL_CURRENT_PROGRAM);
         glUseProgram(0);

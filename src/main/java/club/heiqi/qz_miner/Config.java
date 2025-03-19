@@ -37,9 +37,7 @@ public class Config {
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
     public static float renderFadeSpeedMultiplier = 1000.0f;
-    public static float renderTime = 8f;
-    public static float renderDistance = 4.5f;
-    public static boolean cullRender = false;
+    public static int renderCount = 10240;
     public static boolean printResult = true;
     public static boolean showTip = true;
     public static boolean useRender = true;
@@ -83,10 +81,8 @@ public class Config {
 
         entryMap.put("renderLineWidth", new ConfigEntry<>(renderLineWidth, CATEGORY_CLIENT, 1.5f, "渲染线框宽度", 0.1f, 100f));
         entryMap.put("renderFadeSpeedMultiplier", new ConfigEntry<>(renderFadeSpeedMultiplier, CATEGORY_CLIENT, 50.f, "渲染框颜色变化时间乘数，越大越慢", 0.f, Float.MAX_VALUE));
-        entryMap.put("renderTime", new ConfigEntry<>(renderTime, CATEGORY_CLIENT, 8f, "每帧渲染选择结果允许的时长，过短可能会导致闪烁或者无法显示", -1f, Float.MAX_VALUE));
-        entryMap.put("renderDistance", new ConfigEntry<>(renderDistance, CATEGORY_CLIENT, 4.5f, "选择渲染框选择点最大距离", 3f, Float.MAX_VALUE));
+        entryMap.put("renderCount", new ConfigEntry<>(renderCount, CATEGORY_CLIENT, 10240, "渲染数量上限", -1, Integer.MAX_VALUE));
         entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
-        entryMap.put("cullRender", new ConfigEntry<>(cullRender, CATEGORY_CLIENT, false, "是否剔除重合边", null, null));
         entryMap.put("showTip", new ConfigEntry<>(showTip, CATEGORY_CLIENT, true, "是否显示左下角提示", null, null));
         entryMap.put("useRender", new ConfigEntry<>(useRender, CATEGORY_CLIENT, true, "是否使用渲染功能", null, null));
     }
