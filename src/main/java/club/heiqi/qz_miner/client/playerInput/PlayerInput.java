@@ -379,5 +379,6 @@ public class PlayerInput {
         ClientRegistry.registerKeyBinding(isPress);
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
+        return this;
     }
 }
