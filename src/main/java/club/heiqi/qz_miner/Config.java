@@ -36,7 +36,7 @@ public class Config {
 
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
-    public static float renderFadeSpeedMultiplier = 1000.0f;
+    public static float renderFadeSpeedMultiplier = 0.5f;
     public static int renderCount = 10240;
     public static boolean printResult = true;
     public static boolean showTip = true;
@@ -80,7 +80,7 @@ public class Config {
         entryMap.put("unknownDropToPlayer", new ConfigEntry<>(unknownDropToPlayer, Configuration.CATEGORY_GENERAL, true, "非连锁物也生成在玩家附近", null, null));
 
         entryMap.put("renderLineWidth", new ConfigEntry<>(renderLineWidth, CATEGORY_CLIENT, 1.5f, "渲染线框宽度", 0.1f, 100f));
-        entryMap.put("renderFadeSpeedMultiplier", new ConfigEntry<>(renderFadeSpeedMultiplier, CATEGORY_CLIENT, 50.f, "渲染框颜色变化时间乘数，越大越慢", 0.f, Float.MAX_VALUE));
+        entryMap.put("renderFadeSpeedMultiplier", new ConfigEntry<>(renderFadeSpeedMultiplier, CATEGORY_CLIENT, 0.5f, "渲染变化参数种子", 0.f, Float.MAX_VALUE));
         entryMap.put("renderCount", new ConfigEntry<>(renderCount, CATEGORY_CLIENT, 10240, "渲染数量上限", -1, Integer.MAX_VALUE));
         entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
         entryMap.put("showTip", new ConfigEntry<>(showTip, CATEGORY_CLIENT, true, "是否显示左下角提示", null, null));

@@ -34,13 +34,15 @@ public class Utils {
     static {
         // 初始化阶段预计算正弦平方值
         for (int i = 0; i < TABLE_SIZE; i++) {
-            double phase = (double)i / TABLE_SIZE;
+            double phase = (double) i / TABLE_SIZE;
             SAMPLE_TABLE[i] = Math.pow(Math.sin(Math.PI * phase), 2);
         }
     }
-    public static double optimizedOscillation(long millis, double cyclesPerSecond) {
-        // 计算总相位（范围：0~∞）
-        double totalPhase = (millis / 1000.0) * cyclesPerSecond;
+
+    public static double optimizedOscillation(double cyclesPerSecond, double phaseOffset) {
+        long millis = System.currentTimeMillis();
+        // 计算总相位（添加相位偏移）
+        double totalPhase = (millis / 1000.0) * cyclesPerSecond + phaseOffset;
         // 提取小数部分获得周期相位（范围：0~1）
         double phase = totalPhase - Math.floor(totalPhase);
         // 计算查表位置（带小数用于插值）
@@ -52,5 +54,10 @@ public class Utils {
         int nextIndex = (index + 1) % TABLE_SIZE;
         // 线性插值提升平滑度
         return SAMPLE_TABLE[index] * (1 - fraction) + SAMPLE_TABLE[nextIndex] * fraction;
+    }
+
+    // 重载方法保持向后兼容性
+    public static double optimizedOscillation(double cyclesPerSecond) {
+        return optimizedOscillation(cyclesPerSecond, 0.0);
     }
 }

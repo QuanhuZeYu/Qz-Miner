@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.client.cubeRender.RenderCube;
 import club.heiqi.qz_miner.client.cubeRender.RenderRegion;
 import club.heiqi.qz_miner.client.cubeRender.SpaceCalculator;
 import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
@@ -228,6 +229,8 @@ public class PlayerInput {
         if (!Config.useRender) return;
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) return;
+        manager.player = player;
+        manager.world = player.worldObj;
         if (regionRender == null) regionRender = new RenderRegion();
         if (!RenderCube.isInit) RenderCube.init();
         // 清空缓存
@@ -279,7 +282,7 @@ public class PlayerInput {
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND); // 确保混合已启用
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        glColor4d(1,0,0,0.3);
+        glColor4d(Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.3),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.5),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier),0.3);
         // 计算玩家视角偏移（同原逻辑）
         float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
         float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
