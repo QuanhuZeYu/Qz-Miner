@@ -34,8 +34,6 @@ public abstract class AbstractMode {
     public static int blockLimit = Config.blockLimit;
 
     public final ModeManager modeManager;
-    public final World world;
-    public final EntityPlayer player;
     /**提供挖掘点坐标的类*/
     public PositionFounder positionFounder;
     @Nullable
@@ -50,9 +48,8 @@ public abstract class AbstractMode {
 
     public AbstractMode(ModeManager modeManager, Vector3i center) {
         this.modeManager = modeManager;
-        world = modeManager.getWorld();
-        player = modeManager.getPlayer();
         this.center = center;
+        World world = modeManager.world;
         blockSample = world.getBlock(center.x, center.y, center.z);
         tileSample = world.getTileEntity(center.x, center.y, center.z);
         blockSampleMeta = world.getBlockMetadata(center.x, center.y, center.z);
@@ -77,7 +74,7 @@ public abstract class AbstractMode {
     @SubscribeEvent
     @SideOnly(Side.SERVER)
     public void tick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && !world.isRemote) {
+        if (event.phase == TickEvent.Phase.END) {
             sendHeartbeat();
             long current = System.currentTimeMillis();
             long heart = heartbeatTimer.get();
@@ -143,6 +140,8 @@ public abstract class AbstractMode {
     }
 
     public boolean checkCanBreak(Vector3i pos) {
+        World world = modeManager.world;
+        EntityPlayer player = modeManager.player;
         int vx = pos.x; int vy = pos.y; int vz = pos.z;
         int px = (int) Math.floor(player.posX); int py = (int) Math.floor(player.posY); int pz = (int) Math.floor(player.posZ);
         Block block = world.getBlock(vx,vy,vz);
@@ -190,6 +189,7 @@ public abstract class AbstractMode {
 
     public void register() {
         // 注册监听器
+        EntityPlayer player = modeManager.player;
         FMLCommonHandler.instance().bus().register(this);
         MinecraftForge.EVENT_BUS.register(this);
         LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", player.getDisplayName());
@@ -211,6 +211,7 @@ public abstract class AbstractMode {
      * 请使用 shutdownPositionFounder 方法终止任务
      */
     public void unregister() {
+        EntityPlayer player = modeManager.player;
         // 注销监听器
         LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", player.getDisplayName());
         FMLCommonHandler.instance().bus().unregister(this);
@@ -236,6 +237,7 @@ public abstract class AbstractMode {
     }
 
     public boolean isInLag() {
+        World world = modeManager.world;
         if (world.isRemote) return false;
         MinecraftServer server = MinecraftServer.getServer();
         int tickCounter = server.getTickCounter();
