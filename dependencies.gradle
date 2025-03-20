@@ -109,7 +109,7 @@ if(useMoreMod) {
     dependencies {
         runtimeOnly("com.github.GTNewHorizons:Railcraft:9.15.16:dev")
         runtimeOnly("com.github.GTNewHorizons:waila:1.8.2:dev")
-        runtimeOnly("com.github.GTNewHorizons:InGame-Info-XML:2.8.19:dev")
+        /*runtimeOnly("com.github.GTNewHorizons:InGame-Info-XML:2.8.19:dev")*/
 //        runtimeOnly("com.github.GTNewHorizons:NotEnoughCharacters:1.7.10-1.5.3-GTNH:dev")
         runtimeOnly("com.github.GTNewHorizons:NotEnoughItems:2.6.53-GTNH:dev")
 //        runtimeOnly('com.github.GTNewHorizons:ServerUtilities:2.0.92:dev')

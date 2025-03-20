@@ -58,7 +58,6 @@ public class TunnelMode extends AbstractMode {
     public long timer;
     @Override
     public void unregister() {
-        super.unregister();
         if (isRenderMode.get()) return;
         if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;
@@ -69,7 +68,8 @@ public class TunnelMode extends AbstractMode {
             + " 共用时: " + seconds + "秒"
             + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
-        modeManager.player.addChatMessage(text);
+        player.addChatMessage(text);
+        super.unregister();
     }
 
     public long sendTime = System.nanoTime();

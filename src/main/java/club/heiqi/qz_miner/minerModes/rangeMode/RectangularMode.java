@@ -61,7 +61,6 @@ public class RectangularMode extends AbstractMode {
     public long timer;
     @Override
     public void unregister() {
-        super.unregister();
         if (isRenderMode.get()) return;
         if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;
@@ -73,6 +72,7 @@ public class RectangularMode extends AbstractMode {
             + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
         player.addChatMessage(text);
+        super.unregister();
     }
 
     public long sendTime = System.nanoTime();

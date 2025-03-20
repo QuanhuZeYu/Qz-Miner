@@ -260,14 +260,11 @@ public class ModeManager {
         EntityPlayer player = event.getPlayer();
         EntityPlayer thisPlayer = getPlayer();
         // 判断是否是自己挖的
-        if (!player.getUniqueID().equals(thisPlayer.getUniqueID())) {
-            /*LOG.info("[挖掘] 触发者不是自身:{} 触发者:{}", this.player.getUniqueID(), player.getUniqueID());*/
-            return;
-        }
-
-        /*LOG.info("事件中位置:({}, {}, {}), 实例中位置: ({}, {}, {})",
-            player.posX, player.posY, player.posZ,
-            this.player.posX, this.player.posY, this.player.posZ);*/
+        if (!player.getUniqueID().equals(thisPlayer.getUniqueID())) return;
+        // 是自己的挖掘事件
+        // 刷新存储状态
+        this.world = event.world;
+        this.player = player;
 
         selfDrops.add(new Vector3i(event.x, event.y, event.z));
         if (isRunning.get()) {
@@ -278,9 +275,7 @@ public class ModeManager {
             /*LOG.info("[挖掘] 未准备，退出");*/
             return;
         }
-        // 刷新存储状态
-        this.world = event.world;
-        this.player = player;
+
         // 连锁触发
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
@@ -351,7 +346,7 @@ public class ModeManager {
     }
 
     // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
-    private boolean areStacksMergeable(ItemStack a, ItemStack b) {
+    public boolean areStacksMergeable(ItemStack a, ItemStack b) {
         return a.getItem() == b.getItem()
             && a.getItemDamage() == b.getItemDamage()
             && ItemStack.areItemStackTagsEqual(a, b);

@@ -302,6 +302,6 @@ public class RenderCube {
         for (List<Face> e : allCombinations) {
             LOG.info(e);
         }
-        // 输出: Total unique combinations: 63 - 1 (空集) = 62
+        LOG.info(allCombinations.size());
     }*/
 }

@@ -14,10 +14,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class ChainFounder extends PositionFounder {
     public Logger LOG = LogManager.getLogger();
@@ -79,36 +77,47 @@ public class ChainFounder extends PositionFounder {
     }
 
     public boolean filter(Vector3i pos) {
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        TileEntity te = world.getTileEntity(pos.x,pos.y,pos.z);
-        if (world.getBlockMetadata(pos.x, pos.y, pos.z) != mode.blockSampleMeta) return false;
-        // 判断瓷砖是否相同
+        int x = pos.x; int y = pos.y; int z = pos.z;
+        Block block = world.getBlock(x, y, z);
+        // 快速失败：空气或液体直接返回
+        if (block.isAir(world, x, y, z) || block.getMaterial().isLiquid()) return false;
+
+        // 元数据不匹配直接返回
+        if (world.getBlockMetadata(x, y, z) != mode.blockSampleMeta) return false;
+
+        // 处理 TileEntity 匹配逻辑
+        TileEntity te = world.getTileEntity(x, y, z);
         if (te != null) {
-            if (isGTTile
-                && (te instanceof CoverableTileEntity gtTe)
-            ) {
-                CoverableTileEntity sTe = (CoverableTileEntity) mode.tileSample;
-                int sMID = ((CoverableTileEntityAccessor) sTe).getMID();
-                int tMID = ((CoverableTileEntityAccessor)gtTe).getMID();
-                if (sMID == tMID) return true;
-            } else if (!isGTTile) return true;
-        }
-        ItemStack sampleStack = new ItemStack(mode.blockSample); // 样本方块物品
-        ItemStack blockStack = new ItemStack(block); // 当前方块物品
-        // 1.获取矿词
-        int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
-        int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
-        // 2.对比是否有相同的矿词
-        for (int sampleOreID : sampleOreIDs) {
-            for (int blockOreID : blockOreIDs) {
-                if (sampleOreID == blockOreID) {
-                    return true;
+            if (isGTTile) {
+                if (te instanceof CoverableTileEntity gtTe) {
+                    CoverableTileEntity sampleTe = (CoverableTileEntity) mode.tileSample;
+                    int sampleMID = ((CoverableTileEntityAccessor) sampleTe).getMID();
+                    int targetMID = ((CoverableTileEntityAccessor) gtTe).getMID();
+                    if (sampleMID == targetMID) {
+                        return true;
+                    }
                 }
+            } else {
+                // 非 GTTile 类型直接通过
+                return true;
             }
         }
-        // 未本地化名称完全相同
-        return block.getUnlocalizedName().equals(mode.blockSample.getUnlocalizedName());
+        // 准备比较对象
+        Block sampleBlock = mode.blockSample;
+        ItemStack sampleStack = new ItemStack(sampleBlock);
+        ItemStack blockStack = new ItemStack(block);
+        // 矿词匹配优化（使用 HashSet 加速查找）
+        int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
+        int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
+        Set<Integer> blockOreSet = Arrays.stream(blockOreIDs).boxed().collect(Collectors.toSet());
+
+        for (int oreId : sampleOreIDs) {
+            if (blockOreSet.contains(oreId)) {
+                return true;
+            }
+        }
+        // 最终回退到未本地化名称匹配
+        return block.getUnlocalizedName().equals(sampleBlock.getUnlocalizedName());
     }
 
     public long sendTime = System.nanoTime();
