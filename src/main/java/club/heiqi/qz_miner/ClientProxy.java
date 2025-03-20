@@ -15,8 +15,7 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         super.preInit(event);
-        playerInput = new PlayerInput();
-        playerInput.register();
+        playerInput = new PlayerInput().register();
         RenderUtils.register();
     }
 

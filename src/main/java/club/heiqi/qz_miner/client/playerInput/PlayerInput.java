@@ -373,7 +373,7 @@ public class PlayerInput {
         mc.thePlayer.addChatMessage(text);
     }
 
-    public void register() {
+    public PlayerInput register() {
         ClientRegistry.registerKeyBinding(switchMainMode);
         ClientRegistry.registerKeyBinding(switchMode);
         ClientRegistry.registerKeyBinding(isPress);
