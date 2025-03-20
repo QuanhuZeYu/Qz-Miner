@@ -1,14 +1,20 @@
 package club.heiqi.qz_miner.mixins.early;
 
+import club.heiqi.qz_miner.Config;
 import net.minecraft.block.Block;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.Constant;
+import org.spongepowered.asm.mixin.injection.ModifyConstant;
 
 @Mixin(Block.class)
 public abstract class MixinsBlock {
-    /*@Unique
+    @Unique
     public Logger LOG = LogManager.getLogger();
 
-    @Inject(
+    /*@Inject(
         method = "dropBlockAsItem(Lnet/minecraft/world/World;IIILnet/minecraft/item/ItemStack;)V",
         at = @At("HEAD"),
         cancellable = true,
@@ -21,7 +27,7 @@ public abstract class MixinsBlock {
 
             EntityItem entityitem = new EntityItem(worldIn, x, y, z, itemIn);
             entityitem.delayBeforeCanPickup = 10;
-            *//*LOG.info(entityitem.getEntityItem().getDisplayName());*//*
+            LOG.info(entityitem.getEntityItem().getDisplayName());
             Vector3i pos = new Vector3i(x, y, z);
             if (Config.dropItemToSelf) {
                 // 原子化操作：初始化队列并添加实体
@@ -31,7 +37,7 @@ public abstract class MixinsBlock {
                 ci.cancel(); // 阻止原版实体生成
             }
         }
-    }
+    }*/
 
     @ModifyConstant(
         method = "harvestBlock",
@@ -39,5 +45,5 @@ public abstract class MixinsBlock {
     )
     public float qz_miner$modifyExhaustion$harvestBlock(float original) {
         return Config.exhaustion;
-    }*/
+    }
 }
