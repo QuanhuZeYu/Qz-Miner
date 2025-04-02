@@ -73,10 +73,8 @@ public class PlayerInput {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
-        if (manager == null) {
-            allPlayerStorage.clientRegister(player);
-            return;
-        }
+        if (manager == null) return;
+
         if (switchMainMode.isPressed()) {
             manager.nextMainMode();
             String message = "当前主模式: " + getMainMode();
@@ -94,10 +92,8 @@ public class PlayerInput {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
-        if (manager == null) {
-            allPlayerStorage.clientRegister(player);
-            return;
-        }
+        if (manager == null) return;
+
         boolean isPressed = isPress.getIsKeyPressed();
         if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
         lastSendTime = System.currentTimeMillis();
@@ -210,7 +206,7 @@ public class PlayerInput {
     public void onLoginClient(FMLNetworkEvent.ClientConnectedToServerEvent event) {
         new Thread(() -> {
             try {
-                Thread.sleep(5000);
+                Thread.sleep(2000);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             } finally {
@@ -229,8 +225,7 @@ public class PlayerInput {
         if (!Config.useRender) return;
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) return;
-        manager.player = player;
-        manager.world = player.worldObj;
+
         if (regionRender == null) regionRender = new RenderRegion();
         if (!RenderCube.isInit) RenderCube.init();
         // 清空缓存
