@@ -72,7 +72,7 @@ public class PlayerInput {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
         if (manager == null) return;
 
         if (switchMainMode.isPressed()) {
@@ -91,7 +91,7 @@ public class PlayerInput {
     public void onInputEvent(InputEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return;
-        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
         if (manager == null) return;
         setManager(player);
 
@@ -115,8 +115,11 @@ public class PlayerInput {
         if (player == null) {
             return;
         }
-        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
-        if (manager == null) return;
+        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        if (manager == null) {
+            allPlayerStorage.clientRegister(player);
+            return;
+        }
         setManager(player);
 
         if (!Config.showTip) {
@@ -223,7 +226,7 @@ public class PlayerInput {
     public void onInteract(DrawBlockHighlightEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (!Config.useRender) return;
-        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
         if (manager == null) return;
         setManager(player);
 
@@ -354,7 +357,7 @@ public class PlayerInput {
 
     public String getSubMode() {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
         ModeManager.MainMode mainMode = manager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {
@@ -382,7 +385,7 @@ public class PlayerInput {
     }
 
     public void setManager(EntityPlayer player) {
-        manager.setWorld(player.worldObj);
-        manager.setPlayer(player);
+        if (!player.worldObj.equals(manager.world)) manager.setWorld(player.worldObj);
+        if (!player.equals(manager.player)) manager.setPlayer(player);
     }
 }

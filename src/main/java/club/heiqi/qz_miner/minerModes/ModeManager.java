@@ -356,20 +356,12 @@ public class ModeManager {
     }
 
     public void setWorld(World world) {
-        if (this.world.isRemote)
-            this.world = world;
-        else {
-            if (world.isRemote) return;
-            else this.world = world;
-        }
+        if (!world.isRemote)
+                this.world = world;
     }
 
     public void setPlayer(EntityPlayer player) {
-        if (this.player.worldObj.isRemote)
-            this.player = player;
-        else {
-            if (player.worldObj.isRemote) return;
-            else this.player = player;
-        }
+        if (!player.worldObj.isRemote)
+                this.player = player;
     }
 }

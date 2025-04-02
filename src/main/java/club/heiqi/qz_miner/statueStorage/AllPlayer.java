@@ -22,7 +22,7 @@ public class AllPlayer {
     /**
      * 玩家UUID为键 - 连锁管理器
      */
-    public Map<UUID, ModeManager> playerStatueMap = new ConcurrentHashMap<>();
+    public Map<UUID, ModeManager> allPlayer = new ConcurrentHashMap<>();
 
     public void clientRegister(EntityPlayer player) {
         if (player == null) {
@@ -34,22 +34,23 @@ public class AllPlayer {
             return;
         }
         UUID uuid = player.getUniqueID();
-        ModeManager modeManager = playerStatueMap.get(uuid);
-        if (!playerStatueMap.containsKey(uuid)) {
+        ModeManager modeManager = allPlayer.get(uuid);
+        if (!allPlayer.containsKey(uuid)) {
             modeManager = new ModeManager();
             LOG.info("创建客户端管理器实例");
         }
         // 无论是否存在都进行覆盖逻辑
         modeManager.player = player;
+        modeManager.world = player.worldObj;
         modeManager.register();
-        playerStatueMap.put(uuid, modeManager);
+        allPlayer.put(uuid, modeManager);
     }
     public void clientUnRegister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
-        if (!playerStatueMap.containsKey(uuid)) return;
-        ModeManager modeManager = playerStatueMap.get(uuid);
+        if (!allPlayer.containsKey(uuid)) return;
+        ModeManager modeManager = allPlayer.get(uuid);
         modeManager.unregister();
-        playerStatueMap.remove(uuid);
+        allPlayer.remove(uuid);
     }
     public void serverRegister(EntityPlayer player) {
         if (player == null) {
@@ -63,9 +64,9 @@ public class AllPlayer {
         UUID uuid = player.getUniqueID();
         // 服务端逻辑
         ModeManager modeManager;
-        if (playerStatueMap.containsKey(uuid)) {
+        if (allPlayer.containsKey(uuid)) {
             LOG.info("玩家: {} 已在缓存中，无需再次创建", player.getDisplayName());
-            modeManager = playerStatueMap.get(uuid);
+            modeManager = allPlayer.get(uuid);
             modeManager.player = player;
             modeManager.world = player.worldObj;
         } else {
@@ -73,19 +74,19 @@ public class AllPlayer {
             modeManager = new ModeManager();
             modeManager.player = player;
             modeManager.world = player.worldObj;
-            playerStatueMap.put(uuid, modeManager);
+            allPlayer.put(uuid, modeManager);
             modeManager.register();
         }
     }
     public void serverUnRegister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
-        if (!playerStatueMap.containsKey(uuid)) {
+        if (!allPlayer.containsKey(uuid)) {
             LOG.info("玩家: {} 不存在连锁缓存中，无需卸载", player.getDisplayName());
             return;
         } else {
-            ModeManager modeManager = playerStatueMap.get(uuid);
+            ModeManager modeManager = allPlayer.get(uuid);
             modeManager.unregister();
-            playerStatueMap.remove(uuid);
+            allPlayer.remove(uuid);
             LOG.info("玩家: {} 已从连锁缓存中移除", player.getDisplayName());
         }
     }
@@ -118,7 +119,7 @@ public class AllPlayer {
             // 客户端逻辑
             clientUnRegister(player);
         }
-        if (playerStatueMap.containsKey(playerUUID)) {
+        if (allPlayer.containsKey(playerUUID)) {
             serverUnRegister(player);
         }
     }
@@ -132,9 +133,9 @@ public class AllPlayer {
         } else {
             serverRegister(player);
         }
-    }
+    }*/
 
-    @SubscribeEvent
+    /*@SubscribeEvent
     public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {
         EntityPlayer player = event.player;
         if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {

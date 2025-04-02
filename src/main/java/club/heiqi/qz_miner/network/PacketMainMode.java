@@ -37,7 +37,7 @@ public class PacketMainMode implements IMessage {
         public IMessage onMessage(PacketMainMode message, MessageContext ctx) {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
-            ModeManager modeManager = allPlayerStorage.playerStatueMap.get(uuid);
+            ModeManager modeManager = allPlayerStorage.allPlayer.get(uuid);
             modeManager.mainMode = ModeManager.MainMode.values()[message.mode];
             return null;
         }

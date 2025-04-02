@@ -78,6 +78,10 @@ public class ChainFounder_Strict extends PositionFounder {
      */
     public boolean filter(Vector3i pos) {
         Block block = world.getBlock(pos.x, pos.y, pos.z);
+        int blockID = Block.getIdFromBlock(block);
+        int sampleBlockID = Block.getIdFromBlock(mode.blockSample);
+        // 方块ID不同直接返回false
+        if (blockID != sampleBlockID) return false;
         int thisMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
         // 空气和水直接拒绝
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
@@ -115,7 +119,7 @@ public class ChainFounder_Strict extends PositionFounder {
             return true;
         }
         // 判断方块是否相同
-        return Block.getIdFromBlock(block) == Block.getIdFromBlock(mode.blockSample);
+        return true;
     }
 
 

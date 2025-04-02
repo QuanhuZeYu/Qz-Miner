@@ -44,7 +44,7 @@ public class FindMines {
         }
         if (event.side.isClient()) return;
         EntityPlayer player = event.player;
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        ModeManager modeManager = allPlayerStorage.allPlayer.get(player.getUniqueID());
         if (modeManager == null) return;
         if (modeManager.getIsReady()) {
             if (!inReady) { // 首次进入设置状态

@@ -27,7 +27,7 @@ public class PlayerInteractive {
     public void onPlayerInteractEvent(PlayerInteractEvent event) {
         EntityPlayer player = event.entityPlayer;
         // ModeManager的空值处理
-        ModeManager modeManager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
+        ModeManager modeManager = allPlayerStorage.allPlayer.get(player.getUniqueID());
         if (modeManager == null) return;
         if (!modeManager.getIsReady()) return;
         if (event.action == PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK && !player.isSneaking()) {
