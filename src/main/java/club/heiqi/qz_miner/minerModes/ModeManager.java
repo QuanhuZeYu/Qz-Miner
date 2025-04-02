@@ -266,7 +266,7 @@ public class ModeManager {
         if (!player.getUniqueID().equals(thisPlayer.getUniqueID())) return;
         // 是自己的挖掘事件
         // 刷新存储状态
-        this.world = event.world;
+        if (!event.world.isRemote) this.world = event.world;
         this.player = player;
 
         selfDrops.add(new Vector3i(event.x, event.y, event.z));
@@ -295,7 +295,7 @@ public class ModeManager {
     public void onHarvestDrops(BlockEvent.HarvestDropsEvent event) {
         EntityPlayer harvester = event.harvester;
         if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
-        world = event.world;
+        if (!world.isRemote) world = event.world;
         if (!getIsReady()) return;
         if (Config.dropItemToSelf) {
             captureDrops.addAll(event.drops);
@@ -342,6 +342,8 @@ public class ModeManager {
                 dropPos.z,
                 drop
             );
+            entityDrop.delayBeforeCanPickup = 0;
+            entityDrop.age = 0;
             world.spawnEntityInWorld(entityDrop);
         }
     }

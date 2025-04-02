@@ -10,6 +10,9 @@ import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL30.glBindVertexArray;
 import static org.lwjgl.opengl.GL30.glGenVertexArrays;
 
+/**
+ * 用于单次drawCall所有渲染的立方体
+ */
 public class RenderRegion {
     public int vao, vbo, ebo;
 

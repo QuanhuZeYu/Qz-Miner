@@ -39,6 +39,7 @@ public abstract class AbstractMode {
     @Nullable
     public Thread thread;
     public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis());
+    public boolean isShut = false;
 
     public final Vector3i center;
     /**挖掘样本*/
@@ -90,7 +91,7 @@ public abstract class AbstractMode {
                 shutdown();
                 return;
             }
-            mainLogic();
+            if (!isShut) mainLogic();
         }
     }
 
@@ -114,7 +115,7 @@ public abstract class AbstractMode {
         if (isInLag()) {
             return;
         }
-        mainLogic();
+        if (!isShut) mainLogic();
     }
 
     public abstract void mainLogic();
@@ -214,6 +215,7 @@ public abstract class AbstractMode {
         LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", player.getDisplayName());
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
+        isShut = true;
     }
 
 

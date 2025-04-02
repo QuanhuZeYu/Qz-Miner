@@ -118,8 +118,8 @@ public class ChainFounder extends PositionFounder {
                 return true;
             }
         }
-        // 最终回退到未本地化名称匹配
-        return block.getUnlocalizedName().equals(sampleBlock.getUnlocalizedName());
+        // 判断方块是否相同
+        return Block.getIdFromBlock(block) == Block.getIdFromBlock(mode.blockSample);
     }
 
     public long sendTime = System.nanoTime();
