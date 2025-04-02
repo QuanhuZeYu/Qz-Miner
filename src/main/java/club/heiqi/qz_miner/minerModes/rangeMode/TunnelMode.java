@@ -62,7 +62,11 @@ public class TunnelMode extends AbstractMode {
     public long timer;
     @Override
     public void unregister() {
+        sendMessage();
         super.unregister();
+    }
+
+    public void sendMessage() {
         if (isRenderMode.get()) return;
         if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;
@@ -70,8 +74,8 @@ public class TunnelMode extends AbstractMode {
         int seconds = (int)(totalTime / 1000);  // 秒数
         long milliseconds = totalTime % 1000;  // 毫秒数
         String message = "本次共挖掘: " + allBreakCount + "个方块"
-            + " 共用时: " + seconds + "秒"
-            + milliseconds + "毫秒";
+                + " 共用时: " + seconds + "秒"
+                + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);
         EntityPlayer player = modeManager.player;
         try {

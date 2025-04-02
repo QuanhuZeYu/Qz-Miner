@@ -167,11 +167,9 @@ public abstract class AbstractMode {
         if (!block.getMaterial().isSolid()) {
             return false;
         }
-        boolean b = vx == px && vy == (py-1) && vz == pz;
-        /*LOG.info("[挖掘检查] 脚下:({}, {}, {}) - ({}, {}, {}) - 结果:{}",
-            px,py-1,pz,vx,vy,vz, b);*/
-        if (b) {
-            /*LOG.info("已排除点:({}, {}, {})",vx,vy,vz);*/
+        // 排除脚下方块
+        boolean isUnder = vx == px && vy == (py-1) && vz == pz;
+        if (isUnder) {
             return false;
         }
         // 判断工具能否挖掘

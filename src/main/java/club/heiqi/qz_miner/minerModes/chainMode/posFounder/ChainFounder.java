@@ -83,7 +83,9 @@ public class ChainFounder extends PositionFounder {
         if (block.isAir(world, x, y, z) || block.getMaterial().isLiquid()) return false;
 
         // 元数据不匹配直接返回
-        if (world.getBlockMetadata(x, y, z) != mode.blockSampleMeta) return false;
+        if (world.getBlockMetadata(x, y, z) != mode.blockSampleMeta) {
+            return false;
+        }
 
         // 处理 TileEntity 匹配逻辑
         TileEntity te = world.getTileEntity(x, y, z);

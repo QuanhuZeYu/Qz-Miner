@@ -96,6 +96,9 @@ public class ModeManager {
             }
         }
     }
+    public void proxyHarvestCrop(Vector3i center) {
+
+    }
 
     public void nextMainMode() {
         mainMode = MainMode.values()[(mainMode.ordinal() + 1) % MainMode.values().length];
@@ -308,6 +311,7 @@ public class ModeManager {
     }
 
     public void dropCapture() {
+        LOG.info("释放掉落物");
         List<ItemStack> mergedDrops = new ArrayList<>();
         // 遍历所有待合并的掉落物
         for (ItemStack stack : captureDrops) {
