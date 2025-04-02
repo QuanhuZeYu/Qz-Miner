@@ -294,11 +294,7 @@ public class ModeManager {
         if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
         if (!getIsReady()) return;
         if (Config.dropItemToSelf) {
-            for (ItemStack drop : event.drops) {
-                if (!harvester.inventory.addItemStackToInventory(drop)) {
-                    captureDrops.add(drop);
-                }
-            }
+            captureDrops.addAll(event.drops);
             event.drops.clear();
         }
     }
@@ -385,10 +381,4 @@ public class ModeManager {
             }
         }
     }*/
-
-
-    public enum SideEnum {
-        SERVER,
-        CLIENT;
-    }
 }
