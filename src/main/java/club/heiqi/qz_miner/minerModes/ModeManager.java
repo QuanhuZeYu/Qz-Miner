@@ -355,37 +355,21 @@ public class ModeManager {
             && ItemStack.areItemStackTagsEqual(a, b);
     }
 
-    /*@SubscribeEvent
-    @SideOnly(Side.SERVER)
-    public void onTick(TickEvent.ServerTickEvent event) {
-        // 没有启用则不进行遍历等操作
-        if (!Config.dropItemToSelf) return;
-        if (selfDrops.isEmpty()) return;
-        final long startTime = System.currentTimeMillis();
-        Iterator<Vector3i> iterator = selfDrops.iterator();
-        while (iterator.hasNext() && System.currentTimeMillis() - startTime <= 10) {
-            Vector3i pos = iterator.next();
-            ConcurrentLinkedQueue<EntityItem> queue = GLOBAL_DROPS.get(pos);
-            if (queue == null || queue.isEmpty()) {
-                iterator.remove(); // 清理自身队列中的无效位置
-                GLOBAL_DROPS.remove(pos); // 清理全局表空队列
-                GlobalDropCleaner.lastGlobalChangeTime = System.currentTimeMillis();
-                continue;
-            }
-            // 原子化取出并移除实体
-            EntityItem ei = queue.poll();
-            if (ei != null) {
-                // 生成实体到世界
-                Vector3f dropPos = Utils.getItemDropPos(player);
-                ei.setPosition(dropPos.x, dropPos.y, dropPos.z);
-                player.worldObj.spawnEntityInWorld(ei);
-                // 若队列已空，清理全局表和自身队列
-                if (queue.isEmpty()) {
-                    iterator.remove();
-                    GLOBAL_DROPS.remove(pos);
-                    GlobalDropCleaner.lastGlobalChangeTime = System.currentTimeMillis();
-                }
-            }
+    public void setWorld(World world) {
+        if (this.world.isRemote)
+            this.world = world;
+        else {
+            if (world.isRemote) return;
+            else this.world = world;
         }
-    }*/
+    }
+
+    public void setPlayer(EntityPlayer player) {
+        if (this.player.worldObj.isRemote)
+            this.player = player;
+        else {
+            if (player.worldObj.isRemote) return;
+            else this.player = player;
+        }
+    }
 }

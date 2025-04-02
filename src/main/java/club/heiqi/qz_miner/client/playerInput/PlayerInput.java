@@ -93,6 +93,7 @@ public class PlayerInput {
         if (player == null) return;
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) return;
+        setManager(player);
 
         boolean isPressed = isPress.getIsKeyPressed();
         if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
@@ -115,10 +116,9 @@ public class PlayerInput {
             return;
         }
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
-        if (manager == null) {
-            allPlayerStorage.clientRegister(player);
-            return;
-        }
+        if (manager == null) return;
+        setManager(player);
+
         if (!Config.showTip) {
             int curShader = glGetInteger(GL_CURRENT_PROGRAM);
             glUseProgram(0);
@@ -225,6 +225,7 @@ public class PlayerInput {
         if (!Config.useRender) return;
         manager = allPlayerStorage.playerStatueMap.get(player.getUniqueID());
         if (manager == null) return;
+        setManager(player);
 
         if (regionRender == null) regionRender = new RenderRegion();
         if (!RenderCube.isInit) RenderCube.init();
@@ -378,5 +379,10 @@ public class PlayerInput {
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
         return this;
+    }
+
+    public void setManager(EntityPlayer player) {
+        manager.setWorld(player.worldObj);
+        manager.setPlayer(player);
     }
 }
