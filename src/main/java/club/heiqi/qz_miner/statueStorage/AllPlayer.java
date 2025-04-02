@@ -41,7 +41,6 @@ public class AllPlayer {
         }
         // 无论是否存在都进行覆盖逻辑
         modeManager.player = player;
-        modeManager.world = player.worldObj;
         modeManager.register();
         playerStatueMap.put(uuid, modeManager);
     }
