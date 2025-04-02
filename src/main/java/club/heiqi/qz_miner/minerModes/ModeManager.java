@@ -295,6 +295,7 @@ public class ModeManager {
     public void onHarvestDrops(BlockEvent.HarvestDropsEvent event) {
         EntityPlayer harvester = event.harvester;
         if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
+        world = event.world;
         if (!getIsReady()) return;
         if (Config.dropItemToSelf) {
             captureDrops.addAll(event.drops);
@@ -304,7 +305,7 @@ public class ModeManager {
 
     @SubscribeEvent
     public void onTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END || getIsReady()) return;
+        if (getIsReady()) return;
         if (!captureDrops.isEmpty()) {
             dropCapture();
         }
@@ -347,7 +348,7 @@ public class ModeManager {
 
     // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
     public boolean areStacksMergeable(ItemStack a, ItemStack b) {
-        return a.getItem() == b.getItem()
+        return a.isItemEqual(b)
             && a.getItemDamage() == b.getItemDamage()
             && ItemStack.areItemStackTagsEqual(a, b);
     }
