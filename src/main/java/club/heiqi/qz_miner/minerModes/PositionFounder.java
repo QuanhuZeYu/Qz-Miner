@@ -1,17 +1,12 @@
 package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
-import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.init.Blocks;
-import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -81,6 +76,7 @@ public abstract class PositionFounder implements Runnable {
                 Thread.currentThread().interrupt(); // 终止线程
             }
         }
+        LOG.info("搜索线程结束");
     }
 
     public abstract void mainLogic();
@@ -102,6 +98,22 @@ public abstract class PositionFounder implements Runnable {
 
     public boolean checkCanBreak(Vector3i pos) {
         return mode.checkCanBreak(pos);
+    }
+
+    /**
+     * 多线程内部用法，会阻塞线程
+     */
+    public void waitSafeTick() {
+        do {
+            if (ModeManager.isSafeTick.get()) return;
+            else if (Thread.currentThread().isInterrupted()) return;
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        while (true);
     }
 
     public List<Vector3i> sort(List<Vector3i> list) {

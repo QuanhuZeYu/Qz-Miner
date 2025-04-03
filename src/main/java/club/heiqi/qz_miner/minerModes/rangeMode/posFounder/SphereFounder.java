@@ -23,6 +23,7 @@ public class SphereFounder extends PositionFounder {
             int dx = dxSign * radius * center.x;
             for (int dy = center.y-radius; dy <= center.y+radius; dy++) {
                 for (int dz = center.z-radius; dz <= center.z+radius; dz++) {
+                    if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                     putPoint(dx, dy, dz);
                 }
             }
@@ -31,6 +32,7 @@ public class SphereFounder extends PositionFounder {
             int dy = dySign * radius * center.y;
             for (int dx = center.x-radius; dx <= center.x+radius; dx++) {
                 for (int dz = center.z-radius; dz <= center.z+radius; dz++) {
+                    if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                     putPoint(dx, dy, dz);
                 }
             }
@@ -39,6 +41,7 @@ public class SphereFounder extends PositionFounder {
             int dz = dzSign * radius * center.z;
             for (int dy = center.y-radius; dy <= center.y+radius; dy++) {
                 for (int dx = center.x-radius; dz <= center.x+radius; dz++) {
+                    if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                     putPoint(dx, dy, dz);
                 }
             }

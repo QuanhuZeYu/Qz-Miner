@@ -36,6 +36,7 @@ public class TunnelFounder extends PositionFounder {
         );
         for (int i = -width; i <= width; i++) {
             for (int j = -width; j <= width; j++) {
+                if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                 Vector3i pos = new Vector3i(
                     cCenter.x + i * vertical2.x + j * vertical1.x,
                     cCenter.y + i * vertical2.y + j * vertical1.y,

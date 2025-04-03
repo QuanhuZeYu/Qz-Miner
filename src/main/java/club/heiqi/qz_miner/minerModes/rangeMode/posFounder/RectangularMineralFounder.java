@@ -38,6 +38,7 @@ public class RectangularMineralFounder extends PositionFounder {
             int x = center.x + xSign * rad; // ✅ 正确计算偏移
             for (int y = center.y - rad; y <= center.y + rad; y++) {
                 for (int z = center.z - rad; z <= center.z + rad; z++) {
+                    if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                     if (!filter(x,y,z)) continue;
                     result.add(new Vector3i(x, y, z));
                     sendHeartbeat();
@@ -49,6 +50,7 @@ public class RectangularMineralFounder extends PositionFounder {
             int y = center.y + ySign * rad; // ✅ 正确计算偏移
             for (int x = center.x - rad; x <= center.x + rad; x++) {
                 for (int z = center.z - rad; z <= center.z + rad; z++) {
+                    if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                     if (!filter(x,y,z)) continue;
                     result.add(new Vector3i(x, y, z));
                     sendHeartbeat();
@@ -59,6 +61,7 @@ public class RectangularMineralFounder extends PositionFounder {
             int z = center.z + zSign * rad; // ✅ 正确计算偏移
             for (int x = center.x - rad; x <= center.x + rad; x++) {
                 for (int y = center.y - rad; y <= center.y + rad; y++) { // ✅ 修复循环变量为 y
+                    if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
                     if (!filter(x,y,z)) continue;
                     result.add(new Vector3i(x, y, z));
                     sendHeartbeat();

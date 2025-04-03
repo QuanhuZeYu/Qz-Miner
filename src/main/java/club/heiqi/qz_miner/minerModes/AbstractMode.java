@@ -72,6 +72,14 @@ public abstract class AbstractMode {
         thread.start();
     }
 
+    public AtomicBoolean isInteractMode = new AtomicBoolean(false);
+    public void interactModeAutoSetup() {
+        isInteractMode.set(true);
+        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
+        register();
+        thread.start();
+    }
+
     @SubscribeEvent
     @SideOnly(Side.SERVER)
     public void tick(TickEvent.ServerTickEvent event) {
@@ -164,10 +172,6 @@ public abstract class AbstractMode {
         if (block == Blocks.bedrock) {
             return false;
         }
-        // 判断是否为非固体
-        if (!block.getMaterial().isSolid()) {
-            return false;
-        }
         // 排除脚下方块
         boolean isUnder = vx == px && vy == (py-1) && vz == pz;
         if (isUnder) {
@@ -206,9 +210,6 @@ public abstract class AbstractMode {
         unregister();
     }
 
-    /**
-     * 请使用 shutdownPositionFounder 方法终止任务
-     */
     public void unregister() {
         EntityPlayer player = modeManager.player;
         // 注销监听器

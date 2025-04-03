@@ -46,6 +46,7 @@ public class ChainFounder extends PositionFounder {
         Set<Vector3i> result = new HashSet<>();
         for (Vector3i pos : searchList) {
             result.addAll(scanBox(pos));
+            if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
         }
         // 3.从结果中移除已访问过的点，将结果添加到cache
         result.removeAll(visitedChainSet);
@@ -64,6 +65,7 @@ public class ChainFounder extends PositionFounder {
         for (int i = Math.max((pos.x - chainRange), minX); i <= Math.min((pos.x + chainRange), maxX); i++) {
             for (int j = Math.max((pos.y - chainRange), minY); j <= Math.min((pos.y + chainRange), maxY); j++) {
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
+                    if (Thread.currentThread().isInterrupted()) return result; // 线程中断提前返回
                     Vector3i thisPos = new Vector3i(i, j, k);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     if (!checkCanBreak(thisPos)) continue; // 排除不可挖掘方块

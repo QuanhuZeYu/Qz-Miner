@@ -3,7 +3,6 @@ package club.heiqi.qz_miner.minerModes.chainMode.posFounder;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import net.minecraft.block.Block;
-import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
@@ -13,7 +12,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ChainFounder_Lumberjack extends PositionFounder {
     public static int lumberjackRange = 255;
@@ -50,6 +48,7 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         Set<Vector3i> result = new HashSet<>();
         for (Vector3i pos : searchList) {
             result.addAll(scanBox(pos));
+            if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
         }
         // 3.从结果中移除已访问过的点，将结果添加到cache
         result.removeAll(visitedChainSet);
@@ -68,6 +67,7 @@ public class ChainFounder_Lumberjack extends PositionFounder {
         for (int i = Math.max((pos.x - chainRange), minX); i <= Math.min((pos.x + chainRange), maxX); i++) {
             for (int j = Math.max((pos.y - chainRange), minY); j <= Math.min((pos.y + chainRange), maxY); j++) {
                 for (int k = Math.max((pos.z - chainRange), minZ); k <= Math.min((pos.z + chainRange), maxZ); k++) {
+                    if (Thread.currentThread().isInterrupted()) return result; // 线程中断提前返回
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     result.add(new Vector3i(i, j, k));
                     sendHeartbeat();

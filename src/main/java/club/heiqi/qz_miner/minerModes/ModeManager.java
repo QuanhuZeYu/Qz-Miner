@@ -96,8 +96,17 @@ public class ModeManager {
             }
         }
     }
-    public void proxyHarvestCrop(Vector3i center) {
-
+    public void proxyInteract(Vector3i center) {
+        switch (mainMode) {
+            case CHAIN_MODE -> {
+                curMode = chainMode.newAbstractMode(this, center);
+                curMode.interactModeAutoSetup();
+            }
+            case RANGE_MODE -> {
+                curMode = rangeMode.newAbstractMode(this, center);
+                curMode.interactModeAutoSetup();
+            }
+        }
     }
 
     public void nextMainMode() {
@@ -254,8 +263,7 @@ public class ModeManager {
     }
 
     /**
-     * 订阅方块破坏事件
-     * @param event
+     * 连锁破坏事件入口
      */
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
@@ -290,24 +298,59 @@ public class ModeManager {
         }
     }
 
+    /**
+     * 掉落容器
+     */
     List<ItemStack> captureDrops = new ArrayList<>();
     @SubscribeEvent
     public void onHarvestDrops(BlockEvent.HarvestDropsEvent event) {
         EntityPlayer harvester = event.harvester;
+        // 确保采集者是管理器管理的玩家
         if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
-        if (!world.isRemote) world = event.world;
+        if (!world.isRemote) world = event.world; // 更新世界
         if (!getIsReady()) return;
-        if (Config.dropItemToSelf) {
-            captureDrops.addAll(event.drops);
+        if (Config.dropItemToSelf) { // 如果配置打开了掉落到自己附近
+            if (captureDrops.isEmpty()) captureDrops.addAll(event.drops);
+            for (ItemStack captureDrop : captureDrops) {
+                for (ItemStack drop : new ArrayList<>(event.drops)) {
+                    if (areStacksMergeable(captureDrop, drop)) { // 如果遇到可以合并的
+                        captureDrop.stackSize += drop.stackSize; // 增加堆叠数量
+                        event.drops.remove(drop); // 从掉落事件列表中移除添加过的
+                    }
+                }
+            }
+            // 如果经过合并后依然还有，直接添加到捕获列表中
+            if (!event.drops.isEmpty()) captureDrops.addAll(event.drops);
             event.drops.clear();
         }
+    }
+
+    // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
+    public boolean areStacksMergeable(ItemStack a, ItemStack b) {
+        return a.isItemEqual(b)
+                && a.getItemDamage() == b.getItemDamage()
+                && ItemStack.areItemStackTagsEqual(a, b);
     }
 
     @SubscribeEvent
     public void onTick(TickEvent.ServerTickEvent event) {
         if (getIsReady()) return;
+
         if (!captureDrops.isEmpty()) {
-            dropCapture();
+            Vector3f dropPos = Utils.getItemDropPos(player);
+            for (ItemStack drop : captureDrops) {
+                EntityItem entityDrop = new EntityItem(
+                        world,
+                        dropPos.x,
+                        dropPos.y,
+                        dropPos.z,
+                        drop
+                );
+                entityDrop.delayBeforeCanPickup = 0;
+                entityDrop.age = 0;
+                world.spawnEntityInWorld(entityDrop);
+            }
+            captureDrops.clear();
         }
     }
 
@@ -346,13 +389,6 @@ public class ModeManager {
             entityDrop.age = 0;
             world.spawnEntityInWorld(entityDrop);
         }
-    }
-
-    // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
-    public boolean areStacksMergeable(ItemStack a, ItemStack b) {
-        return a.isItemEqual(b)
-            && a.getItemDamage() == b.getItemDamage()
-            && ItemStack.areItemStackTagsEqual(a, b);
     }
 
     public void setWorld(World world) {
