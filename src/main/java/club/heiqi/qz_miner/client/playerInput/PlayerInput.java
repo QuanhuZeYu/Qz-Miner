@@ -385,7 +385,7 @@ public class PlayerInput {
     }
 
     public void setManager(EntityPlayer player) {
-        if (!player.worldObj.equals(manager.world)) manager.setWorld(player.worldObj);
-        if (!player.equals(manager.player)) manager.setPlayer(player);
+        manager.setWorld(player.worldObj);
+        manager.setPlayer(player);
     }
 }
