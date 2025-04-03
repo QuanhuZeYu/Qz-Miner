@@ -100,22 +100,6 @@ public abstract class PositionFounder implements Runnable {
         return mode.checkCanBreak(pos);
     }
 
-    /**
-     * 多线程内部用法，会阻塞线程
-     */
-    public void waitSafeTick() {
-        do {
-            if (ModeManager.isSafeTick.get()) return;
-            else if (Thread.currentThread().isInterrupted()) return;
-            try {
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        while (true);
-    }
-
     public List<Vector3i> sort(List<Vector3i> list) {
         // 根据到center的距离进行排序
         list.sort((o1, o2) -> {
