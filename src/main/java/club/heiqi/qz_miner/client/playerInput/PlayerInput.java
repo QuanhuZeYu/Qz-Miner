@@ -385,7 +385,7 @@ public class PlayerInput {
     }
 
     public void setManager(EntityPlayer player) {
-        manager.setWorld(player.worldObj);
-        manager.setPlayer(player);
+        manager.world = player.worldObj;
+        manager.player = player;
     }
 }

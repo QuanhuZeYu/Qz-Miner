@@ -390,14 +390,4 @@ public class ModeManager {
             world.spawnEntityInWorld(entityDrop);
         }
     }
-
-    public void setWorld(World world) {
-        if (!world.isRemote)
-                this.world = world;
-    }
-
-    public void setPlayer(EntityPlayer player) {
-        if (!player.worldObj.isRemote)
-                this.player = player;
-    }
 }
