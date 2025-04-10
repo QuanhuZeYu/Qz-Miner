@@ -284,6 +284,7 @@ public class ModeManager {
         try {
             /*LOG.info("[挖掘] 设置代理挖掘任务");*/
             proxyMine(breakBlockPos);
+            event.setCanceled(true);
         } catch (Exception e) {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");
             LOG.info(e);
