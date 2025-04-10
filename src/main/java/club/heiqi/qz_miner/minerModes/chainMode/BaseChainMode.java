@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder;
+import club.heiqi.qz_miner.minerModes.rightClicker.RightClicker;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
@@ -14,6 +15,7 @@ import org.joml.Vector3i;
 public class BaseChainMode extends AbstractMode {
     public Logger LOG = LogManager.getLogger();
     public final BlockBreaker breaker;
+    public final RightClicker rightClicker;
 
 
     public BaseChainMode(ModeManager modeManager, Vector3i center) {
@@ -21,6 +23,7 @@ public class BaseChainMode extends AbstractMode {
         World world = modeManager.world;
         EntityPlayer player = modeManager.player;
         breaker = new BlockBreaker(player, world);
+        rightClicker = new RightClicker(player, world);
         timer = System.currentTimeMillis();
         positionFounder = new ChainFounder(this, center, player);
     }
@@ -33,7 +36,6 @@ public class BaseChainMode extends AbstractMode {
     @Override
     public void mainLogic() {
         if (allBreakCount >= blockLimit - 1) {
-            /*LOG.info("[渲染] 方块数量达标");*/
             shutdown();
             return;
         }
@@ -44,7 +46,6 @@ public class BaseChainMode extends AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
-                    /*LOG.info("[渲染] 连续错误时间过长");*/
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
@@ -52,13 +53,16 @@ public class BaseChainMode extends AbstractMode {
             }
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (!isRenderMode.get()) {
-                    breaker.tryHarvestBlock(pos);
+                if (isRenderMode.get()) modeManager.renderCache.add(pos);
+                else if (isInteractMode.get()) {
+                    rightClicker.rightClick(pos);
+                    tickBreakCount++;
+                    allBreakCount++;
                 } else {
-                    modeManager.renderCache.add(pos);
+                    breaker.tryHarvestBlock(pos);
+                    tickBreakCount++;
+                    allBreakCount++;
                 }
-                tickBreakCount++;
-                allBreakCount++;
             }
         }
         tickBreakCount = 0;
@@ -68,11 +72,12 @@ public class BaseChainMode extends AbstractMode {
     @Override
     public void unregister() {
         sendMessage();
+        rightClicker.dropCapture();
         super.unregister();
     }
 
     public void sendMessage() {
-        if (isRenderMode.get()) return;
+        if (isRenderMode.get() || isInteractMode.get()) return;
         if (isShut) return;
         if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;
