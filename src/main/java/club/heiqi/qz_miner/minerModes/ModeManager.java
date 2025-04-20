@@ -329,12 +329,19 @@ public class ModeManager {
         if (!world.isRemote) world = event.world; // 更新世界
         if (!getIsReady()) return;
         if (Config.dropItemToSelf) { // 如果配置打开了掉落到自己附近
-            if (captureDrops.isEmpty()) captureDrops.addAll(event.drops);
-            for (ItemStack captureDrop : captureDrops) {
-                for (ItemStack drop : new ArrayList<>(event.drops)) {
-                    if (Utils.areStacksMergeable(captureDrop, drop)) { // 如果遇到可以合并的
-                        captureDrop.stackSize += drop.stackSize; // 增加堆叠数量
-                        event.drops.remove(drop); // 从掉落事件列表中移除添加过的
+            {
+                if (captureDrops.isEmpty()) {
+                    captureDrops.addAll(event.drops);
+                    event.drops.clear();
+                }
+                else {
+                    for (ItemStack captureDrop : captureDrops) { // 遍历捕捉容器
+                        for (ItemStack drop : new ArrayList<>(event.drops)) { // 遍历凋落物
+                            if (Utils.areStacksMergeable(captureDrop, drop)) { // 如果遇到可以合并的
+                                captureDrop.stackSize += drop.stackSize; // 增加堆叠数量
+                                event.drops.remove(drop); // 从掉落事件列表中移除添加过的
+                            }
+                        }
                     }
                 }
             }
