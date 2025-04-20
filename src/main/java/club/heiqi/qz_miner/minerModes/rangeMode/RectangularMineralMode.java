@@ -4,6 +4,8 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularMineralFounder;
+import club.heiqi.qz_miner.minerModes.rightClicker.RightClicker;
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
@@ -11,12 +13,14 @@ import org.joml.Vector3i;
 
 public class RectangularMineralMode extends AbstractMode {
     public final BlockBreaker breaker;
+    public final RightClicker rightClicker;
 
     public RectangularMineralMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
         World world = modeManager.world;
         EntityPlayer player = modeManager.player;
         breaker = new BlockBreaker(player, world);
+        rightClicker = new RightClicker(player, world);
         timer = System.currentTimeMillis();
         positionFounder = new RectangularMineralFounder(this, center, player);
     }
@@ -44,14 +48,19 @@ public class RectangularMineralMode extends AbstractMode {
                 failCounter++;
                 return;
             }
+            Block block = modeManager.world.getBlock(pos.x, pos.y, pos.z);
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (!isRenderMode.get()) breaker.tryHarvestBlock(pos);
-                else {
-                    modeManager.renderCache.add(pos);
+                if (isRenderMode.get()) modeManager.renderCache.add(pos);
+                else if (isInteractMode.get()) {
+                    rightClicker.rightClick(pos);
+                    tickBreakCount++;
+                    allBreakCount++;
+                } else {
+                    breaker.tryHarvestBlock(pos);
+                    tickBreakCount++;
+                    allBreakCount++;
                 }
-                tickBreakCount++;
-                allBreakCount++;
             }
         }
         tickBreakCount = 0;
@@ -61,11 +70,12 @@ public class RectangularMineralMode extends AbstractMode {
     @Override
     public void unregister() {
         sendMessage();
+        rightClicker.dropCapture();
         super.unregister();
     }
 
     public void sendMessage() {
-        if (isRenderMode.get()) return;
+        if (isRenderMode.get() || isInteractMode.get()) return;
         if (isShut) return;
         if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;

@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.chainMode.posFounder.ChainFounder_Strict;
+import club.heiqi.qz_miner.minerModes.rightClicker.RightClicker;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
@@ -11,6 +12,7 @@ import org.joml.Vector3i;
 
 public class StrictChainMode extends AbstractMode {
     public final BlockBreaker breaker;
+    public final RightClicker rightClicker;
 
     public StrictChainMode(ModeManager modeManager, Vector3i center) {
         super(modeManager, center);
@@ -18,6 +20,7 @@ public class StrictChainMode extends AbstractMode {
         EntityPlayer player = modeManager.player;
         timer = System.currentTimeMillis();
         breaker = new BlockBreaker(player, world);
+        rightClicker = new RightClicker(player, world);
         positionFounder = new ChainFounder_Strict(this, center, player);
     }
 
@@ -29,7 +32,6 @@ public class StrictChainMode extends AbstractMode {
     @Override
     public void mainLogic() {
         if (allBreakCount >= blockLimit - 1) {
-            LOG.info("[渲染] 方块数量达标");
             shutdown();
             return;
         }
@@ -40,7 +42,6 @@ public class StrictChainMode extends AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
-                    LOG.info("[渲染] 连续错误时间过长");
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
@@ -48,12 +49,16 @@ public class StrictChainMode extends AbstractMode {
             }
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (!isRenderMode.get()) breaker.tryHarvestBlock(pos);
-                else {
-                    modeManager.renderCache.add(pos);
+                if (isRenderMode.get()) modeManager.renderCache.add(pos);
+                else if (isInteractMode.get()) {
+                    rightClicker.rightClick(pos);
+                    tickBreakCount++;
+                    allBreakCount++;
+                } else {
+                    breaker.tryHarvestBlock(pos);
+                    tickBreakCount++;
+                    allBreakCount++;
                 }
-                tickBreakCount++;
-                allBreakCount++;
             }
         }
         tickBreakCount = 0;
@@ -63,6 +68,7 @@ public class StrictChainMode extends AbstractMode {
     @Override
     public void unregister() {
         sendMessage();
+        rightClicker.dropCapture();
         super.unregister();
     }
 
@@ -74,7 +80,7 @@ public class StrictChainMode extends AbstractMode {
         // 分割秒和毫秒
         int seconds = (int)(totalTime / 1000);  // 秒数
         long milliseconds = totalTime % 1000;  // 毫秒数
-        String message = "本次共挖掘: " + allBreakCount + "个方块"
+        String message = "本次共处理: " + allBreakCount + "个方块"
                 + " 共用时: " + seconds + "秒"
                 + milliseconds + "毫秒";
         ChatComponentText text = new ChatComponentText(message);

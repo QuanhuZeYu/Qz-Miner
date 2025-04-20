@@ -1,27 +1,7 @@
 package club.heiqi.qz_miner.eventIn;
 
-import club.heiqi.qz_miner.MY_LOG;
-import club.heiqi.qz_miner.minerModes.ModeManager;
-import club.heiqi.qz_miner.minerModes.utils.Utils;
-import cpw.mods.fml.common.event.FMLPreInitializationEvent;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockCrops;
-import net.minecraft.entity.item.EntityItem;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.ItemStack;
-import net.minecraft.world.World;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import org.joml.Vector3f;
-import org.joml.Vector3i;
-
-import java.util.*;
-
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
-
 public class PlayerInteractive {
-    public static PlayerInteractive INSTANCE = new PlayerInteractive();
+    /*public static PlayerInteractive INSTANCE = new PlayerInteractive();
 
     @SubscribeEvent
     public void onPlayerInteractEvent(PlayerInteractEvent event) {
@@ -77,7 +57,7 @@ public class PlayerInteractive {
      * @param pos 当前位置
      * @return 所有农作物的位置
      */
-    public List<Vector3i> findCrops(World world, Vector3i pos) {
+    /*public List<Vector3i> findCrops(World world, Vector3i pos) {
         if (world == null) {
             throw new IllegalArgumentException("World cannot be null");
         }
@@ -136,5 +116,5 @@ public class PlayerInteractive {
 
     public void register(FMLPreInitializationEvent event) {
         MinecraftForge.EVENT_BUS.register(PlayerInteractive.INSTANCE);
-    }
+    }*/
 }

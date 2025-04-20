@@ -3,11 +3,9 @@ package club.heiqi.qz_miner.minerModes;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
 import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
-import club.heiqi.qz_miner.minerModes.chainMode.RelaxChainMode;
 import club.heiqi.qz_miner.minerModes.chainMode.StrictChainMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMode;
-import club.heiqi.qz_miner.minerModes.rangeMode.SphereMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.TunnelMode;
 import club.heiqi.qz_miner.minerModes.utils.Utils;
 import club.heiqi.qz_miner.network.PacketChainMode;
@@ -24,6 +22,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -107,6 +106,8 @@ public class ModeManager {
                 curMode.interactModeAutoSetup();
             }
         }
+        LOG.info("[交互] 执行交互任务");
+        isRunning.set(true);
     }
 
     public void nextMainMode() {
@@ -163,7 +164,6 @@ public class ModeManager {
         BASE_CHAIN_MODE("qz_miner.chainmode.base_chain"),
         STRICT("qz_miner.chainmode.strict"),
         LUMBER_JACK("qz_miner.chainmode.lumberjack"),
-        RELAX("qz_miner.chainmode.relax"),
         ;
         public final String unLocalizedName;
 
@@ -188,9 +188,6 @@ public class ModeManager {
                 case LUMBER_JACK -> {
                     return new LumberJackMode(manager, center);
                 }
-                case RELAX -> {
-                    return new RelaxChainMode(manager, center);
-                }
                 default -> {
                     return new BaseChainMode(manager, center);
                 }
@@ -201,7 +198,6 @@ public class ModeManager {
     public enum RangeMode {
         RECTANGULAR("qz_miner.rangemode.rectangular"),
         RECTANGULAR_MINERAL("qz_miner.rangemode.rectangular_mineral"),
-        SPHERE("qz_miner.rangemode.sphere"),
         TUNNEL("qz_miner.rangemode.tunnel"),
         ;
         public final String unLocalizedName;
@@ -223,9 +219,6 @@ public class ModeManager {
                 }
                 case RECTANGULAR_MINERAL ->  {
                     return new RectangularMineralMode(manager, center);
-                }
-                case SPHERE -> {
-                    return new SphereMode(manager, center);
                 }
                 case TUNNEL -> {
                     return new TunnelMode(manager, center);
@@ -272,7 +265,6 @@ public class ModeManager {
         EntityPlayer thisPlayer = getPlayer();
         // 判断是否是自己挖的
         if (!player.getUniqueID().equals(thisPlayer.getUniqueID())) return;
-        // 是自己的挖掘事件
         // 刷新存储状态
         if (!event.world.isRemote) this.world = event.world;
         this.player = player;
@@ -292,8 +284,35 @@ public class ModeManager {
         try {
             /*LOG.info("[挖掘] 设置代理挖掘任务");*/
             proxyMine(breakBlockPos);
+            event.setCanceled(true);
         } catch (Exception e) {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");
+            LOG.info(e);
+        }
+    }
+
+    /**
+     * 连锁右键事件入口
+     */
+    @SubscribeEvent
+    public void interactEvent(PlayerInteractEvent event) {
+        EntityPlayer player = event.entityPlayer;
+        // 确保触发者是管理器玩
+        if (!player.getUniqueID().equals(this.player.getUniqueID()) || event.world.isRemote) return;
+        // 刷新存储状态
+        this.world = event.world;
+        this.player = player;
+
+        if (event.action != PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) return;
+        if (!getIsReady()) return;
+        if (isRunning.get()) return;
+
+        Vector3i interactPos = new Vector3i(event.x, event.y, event.z);
+        try {
+            proxyInteract(interactPos);
+        }
+        catch (Exception e) {
+            LOG.info("代理交互时发生错误!");
             LOG.info(e);
         }
     }
@@ -313,7 +332,7 @@ public class ModeManager {
             if (captureDrops.isEmpty()) captureDrops.addAll(event.drops);
             for (ItemStack captureDrop : captureDrops) {
                 for (ItemStack drop : new ArrayList<>(event.drops)) {
-                    if (areStacksMergeable(captureDrop, drop)) { // 如果遇到可以合并的
+                    if (Utils.areStacksMergeable(captureDrop, drop)) { // 如果遇到可以合并的
                         captureDrop.stackSize += drop.stackSize; // 增加堆叠数量
                         event.drops.remove(drop); // 从掉落事件列表中移除添加过的
                     }
@@ -323,13 +342,6 @@ public class ModeManager {
             if (!event.drops.isEmpty()) captureDrops.addAll(event.drops);
             event.drops.clear();
         }
-    }
-
-    // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
-    public boolean areStacksMergeable(ItemStack a, ItemStack b) {
-        return a.isItemEqual(b)
-                && a.getItemDamage() == b.getItemDamage()
-                && ItemStack.areItemStackTagsEqual(a, b);
     }
 
     @SubscribeEvent
@@ -362,7 +374,7 @@ public class ModeManager {
             boolean isMerged = false;
             // 检查已合并列表中是否存在同类可合并的堆叠
             for (ItemStack merged : mergedDrops) {
-                if (areStacksMergeable(stack, merged)) {
+                if (Utils.areStacksMergeable(stack, merged)) {
                     merged.stackSize += stack.stackSize;
                     isMerged = true;
                     break;

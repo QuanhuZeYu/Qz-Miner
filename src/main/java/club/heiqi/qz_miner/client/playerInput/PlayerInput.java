@@ -223,7 +223,7 @@ public class PlayerInput {
     public static SpaceCalculator calculator = new SpaceCalculator(new ArrayList<>());
     public boolean inRender = false;
     @SubscribeEvent
-    public void onInteract(DrawBlockHighlightEvent event) {
+    public void drawHighLight(DrawBlockHighlightEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (!Config.useRender) return;
         manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
@@ -385,7 +385,7 @@ public class PlayerInput {
     }
 
     public void setManager(EntityPlayer player) {
-        manager.world = player.worldObj;
+        if (manager.world.isRemote) manager.world = player.worldObj;
         manager.player = player;
     }
 }

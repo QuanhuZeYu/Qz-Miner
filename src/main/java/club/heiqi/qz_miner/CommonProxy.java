@@ -20,7 +20,7 @@ public class CommonProxy {
         config.register();
         allPlayerStorage.register(); // 注册存储玩家连锁状态的容器类
         qzMinerNetWork = new QzMinerNetWork(event); // 初始化网络通信
-        PlayerInteractive.INSTANCE.register(event); // 注册玩家交互事件监听器
+        /*PlayerInteractive.INSTANCE.register(event); // 注册玩家交互事件监听器*/
         /*GlobalDropCleaner.register(); // 注册Qz掉落物清理监听器*/
         CheckCompatibility.checkAll();
     }

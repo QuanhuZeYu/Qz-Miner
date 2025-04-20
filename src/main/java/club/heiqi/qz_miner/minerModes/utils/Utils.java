@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.minerModes.utils;
 
 import club.heiqi.qz_miner.Config;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.item.ItemStack;
 import org.joml.Vector3f;
 
 public class Utils {
@@ -59,5 +60,12 @@ public class Utils {
     // 重载方法保持向后兼容性
     public static double optimizedOscillation(double cyclesPerSecond) {
         return optimizedOscillation(cyclesPerSecond, 0.0);
+    }
+
+    // 自定义合并条件（示例：匹配 Item、元数据和 NBT）
+    public static boolean areStacksMergeable(ItemStack a, ItemStack b) {
+        return a.isItemEqual(b)
+                && a.getItemDamage() == b.getItemDamage()
+                && ItemStack.areItemStackTagsEqual(a, b);
     }
 }
