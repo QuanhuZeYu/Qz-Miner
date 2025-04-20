@@ -77,7 +77,7 @@ public class BaseChainMode extends AbstractMode {
     }
 
     public void sendMessage() {
-        if (isRenderMode.get()) return;
+        if (isRenderMode.get() || isInteractMode.get()) return;
         if (isShut) return;
         if (!modeManager.getPrintResult()) return;
         long totalTime = System.currentTimeMillis() - timer;
