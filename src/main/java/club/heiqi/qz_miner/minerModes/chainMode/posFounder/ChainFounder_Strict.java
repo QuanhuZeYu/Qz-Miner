@@ -4,7 +4,7 @@ import bartworks.system.material.TileEntityMetaGeneratedBlock;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.PositionFounder;
 import club.heiqi.qz_miner.util.CheckCompatibility;
-import gregtech.api.metatileentity.BaseMetaTileEntity;
+import gregtech.api.metatileentity.CommonMetaTileEntity;
 import gregtech.api.metatileentity.CoverableTileEntity;
 import gregtech.common.blocks.TileEntityOres;
 import net.minecraft.block.Block;
@@ -79,28 +79,28 @@ public class ChainFounder_Strict extends PositionFounder {
      * @return 是否通过
      */
     public boolean filter(Vector3i pos) {
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        int blockID = Block.getIdFromBlock(block);
-        int sampleBlockID = Block.getIdFromBlock(mode.blockSample);
-        // 方块ID不同直接返回false
+        final Block block = world.getBlock(pos.x, pos.y, pos.z);
+        final int blockID = Block.getIdFromBlock(block); // 此方块ID
+        final int sampleBlockID = Block.getIdFromBlock(mode.blockSample); // 样本ID
+        // 1.筛选方块ID
         if (blockID != sampleBlockID) return false;
-        int thisMeta = world.getBlockMetadata(pos.x, pos.y, pos.z);
+        final int thisMeta = world.getBlockMetadata(pos.x, pos.y, pos.z); // 此方块Meta
         // 空气和水直接拒绝
         if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
         TileEntity te = world.getTileEntity(pos.x,pos.y,pos.z);
-        // 元数据不同直接拒绝
+        // 2.筛选Meta值
         if (thisMeta != mode.blockSampleMeta) return false;
-        // 判断瓷砖是否相同
+        // 3.筛选Tile
         if (te != null || mode.tileSample != null) {
-            // 判断格雷Tile meta是否相同
+            // 3.1筛选格雷Tile
             if (isGTTile
-                && (te instanceof BaseMetaTileEntity gtTe)
+                && (te instanceof CommonMetaTileEntity gtTe)
             ) {
-                int sMID = ((BaseMetaTileEntity) mode.tileSample).getMetaTileID();
+                int sMID = ((CommonMetaTileEntity) mode.tileSample).getMetaTileID();
                 int tMID = gtTe.getMetaTileID();
                 return sMID == tMID; // meta不同会拒绝
             }
-            // 判断矿物Meta
+            // 3.2矿物Meta
             else if (isGTBlockOre
                 && (te instanceof TileEntityOres bTe)
             ) {
@@ -110,7 +110,7 @@ public class ChainFounder_Strict extends PositionFounder {
             } else if (!isGTBlockOre) {
                 return true;
             }
-            // 判断bart-work
+            // 3.3bart-work
             else if (isBW
                 && (te instanceof TileEntityMetaGeneratedBlock bTe)
             ) {
@@ -118,6 +118,7 @@ public class ChainFounder_Strict extends PositionFounder {
                 int sMeta = ((TileEntityMetaGeneratedBlock) mode.tileSample).mMetaData;
                 return tMeta == sMeta;
             }
+            // 3.4非以上情况Tile相同
             return true;
         }
         // 判断方块是否相同

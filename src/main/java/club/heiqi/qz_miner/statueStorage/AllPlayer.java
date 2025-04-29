@@ -10,6 +10,7 @@ import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
+import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -124,7 +125,7 @@ public class AllPlayer {
         }
     }
 
-    /*@SubscribeEvent
+    @SubscribeEvent
     public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
         if (!(event.entity instanceof EntityPlayer)) return;
         EntityPlayer player = (EntityPlayer) event.entity;
@@ -133,7 +134,7 @@ public class AllPlayer {
         } else {
             serverRegister(player);
         }
-    }*/
+    }
 
     /*@SubscribeEvent
     public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {

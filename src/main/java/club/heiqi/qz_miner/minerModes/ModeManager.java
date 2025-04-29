@@ -260,12 +260,13 @@ public class ModeManager {
      */
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
+        // 排除客户端的事件
         if (event.world.isRemote) return;
         EntityPlayer player = event.getPlayer();
         EntityPlayer thisPlayer = getPlayer();
         // 判断是否是自己挖的
         if (!player.getUniqueID().equals(thisPlayer.getUniqueID())) return;
-        // 刷新存储状态
+        // 刷新世界引用
         if (!event.world.isRemote) this.world = event.world;
         this.player = player;
 
@@ -283,8 +284,8 @@ public class ModeManager {
         Vector3i breakBlockPos = new Vector3i(event.x, event.y, event.z);
         try {
             /*LOG.info("[挖掘] 设置代理挖掘任务");*/
-            proxyMine(breakBlockPos);
             event.setCanceled(true);
+            proxyMine(breakBlockPos);
         } catch (Exception e) {
             LOG.info("代理挖掘时发生错误![An error occurred while proxy mining]");
             LOG.info(e);
@@ -297,7 +298,7 @@ public class ModeManager {
     @SubscribeEvent
     public void interactEvent(PlayerInteractEvent event) {
         EntityPlayer player = event.entityPlayer;
-        // 确保触发者是管理器玩
+        // 确保触发者是管理器玩 触发在服务端
         if (!player.getUniqueID().equals(this.player.getUniqueID()) || event.world.isRemote) return;
         // 刷新存储状态
         this.world = event.world;
@@ -326,7 +327,8 @@ public class ModeManager {
         EntityPlayer harvester = event.harvester;
         // 确保采集者是管理器管理的玩家
         if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
-        if (!world.isRemote) world = event.world; // 更新世界
+        // 更新世界
+        if (!world.isRemote) world = event.world;
         if (!getIsReady()) return;
         if (Config.dropItemToSelf) { // 如果配置打开了掉落到自己附近
             {

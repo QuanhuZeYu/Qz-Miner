@@ -10,7 +10,6 @@ import org.joml.Vector3i;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ChainFounderRelaxed extends ChainFounder {
     public List<ItemStack> sampleDrops = new ArrayList<>();
@@ -29,15 +28,16 @@ public class ChainFounderRelaxed extends ChainFounder {
 
     @Override
     public boolean filter(Vector3i pos) {
-        Block block = world.getBlock(pos.x, pos.y, pos.z);
-        if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) return false;
-        // 物块类相同
-        if (mode.blockSample.equals(block)) {
+        final Block thisBlock = world.getBlock(pos.x, pos.y, pos.z);
+        if (thisBlock.isAir(world, pos.x, pos.y, pos.z) || thisBlock.getMaterial().isLiquid()) return false;
+        // 1.方块ID相同
+        final int thisBID = Block.getIdFromBlock(thisBlock);
+        if (thisBID == Block.getIdFromBlock(mode.blockSample)) {
             return true;
         }
-        // 矿词相同
+        // 2.矿词相同
         ItemStack sampleStack = new ItemStack(mode.blockSample);
-        ItemStack blockStack = new ItemStack(block);
+        ItemStack blockStack = new ItemStack(thisBlock);
         int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
         int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
         for (int sampleOreID : sampleOreIDs) {
@@ -47,9 +47,9 @@ public class ChainFounderRelaxed extends ChainFounder {
                 }
             }
         }
-        // 掉落物相同
+        // 3.掉落物相同
         int fortune = EnchantmentHelper.getFortuneModifier(player);
-        List<ItemStack> blockDrops = block.getDrops(world, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z), fortune);
+        List<ItemStack> blockDrops = thisBlock.getDrops(world, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z), fortune);
         for (ItemStack drop : blockDrops) {
             for (ItemStack sampleDrop : sampleDrops) {
                 if (drop.isItemEqual(sampleDrop)) {

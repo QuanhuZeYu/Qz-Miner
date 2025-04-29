@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.client.RenderUtils;
-import club.heiqi.qz_miner.client.cubeRender.RenderCube;
 import club.heiqi.qz_miner.client.playerInput.PlayerInput;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -18,8 +17,8 @@ public class ClientProxy extends CommonProxy {
         super.preInit(event);
         playerInput = new PlayerInput().register();
         RenderUtils.register();
-        // 计算渲染方块枚举
-        if (!RenderCube.isInit) RenderCube.init();
+        // 计算渲染方块枚举 - 为mac兼容不再在初始化时预渲染
+        // if (!RenderCube.isInit) RenderCube.init();
     }
 
     @Override
@@ -33,6 +32,5 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void postInit(FMLPostInitializationEvent event) {
         super.postInit(event);
-
     }
 }

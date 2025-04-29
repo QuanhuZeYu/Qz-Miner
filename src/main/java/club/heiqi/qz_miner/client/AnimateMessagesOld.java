@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 @SideOnly(Side.CLIENT)
-public class AnimateMessages {
+public class AnimateMessagesOld {
     public static Logger LOG = LogManager.getLogger();
     /**消息需要经过的屏幕坐标百分比，包括起点终点，只包含关键帧*/
     public List<Vector2d> path = new ArrayList<>();
@@ -43,13 +43,13 @@ public class AnimateMessages {
     public boolean inAnimating = false;
     public boolean useFuncDraw = false;
 
-    public AnimateMessages useFunc(Consumer<Vector2i> consumer) {
+    public AnimateMessagesOld useFunc(Consumer<Vector2i> consumer) {
         drawFunc = consumer;
         useFuncDraw = true;
         return this;
     }
 
-    public AnimateMessages register(List<Vector2d> paths, List<Long> durations) {
+    public AnimateMessagesOld register(List<Vector2d> paths, List<Long> durations) {
         if (paths.size() < 2) {
             LOG.warn("注册参数 path 不合法, 参数最少需要包含起点终点");
             return null;
@@ -80,7 +80,7 @@ public class AnimateMessages {
         return this;
     }
 
-    public AnimateMessages register(String text, int color, List<Vector2d> paths, List<Long> durations) {
+    public AnimateMessagesOld register(String text, int color, List<Vector2d> paths, List<Long> durations) {
         if (paths.size() < 2) {
             LOG.warn("注册参数 path 不合法, 参数最少需要包含起点终点");
             return null;

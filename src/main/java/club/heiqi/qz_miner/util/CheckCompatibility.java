@@ -93,10 +93,10 @@ public class CheckCompatibility {
 
     public static void isHasClass_MetaTileEntity() {
         try {
-            Class<?> clazz = Class.forName("gregtech.api.metatileentity.MetaTileEntity");
+            Class<?> clazz = Class.forName("gregtech.api.metatileentity.CoverableTileEntity");
             isHasClass_MetaTileEntity = true;
         } catch (ClassNotFoundException e) {
-            LOG.warn("未检测到 MetaTileEntity");
+            LOG.warn("未检测到 CoverableTileEntity");
             isHasClass_MetaTileEntity = false;
         }
     }

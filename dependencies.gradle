@@ -34,7 +34,7 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 ext {
-    useMoreMod = project.hasProperty('useMoreMod') ? project.property("useMoreMod") : false
+    useMoreMod = project.hasProperty(' ') ? project.property("useMoreMod") : false
     lwjglVersion = "3.3.4"
 
     natives = "natives-windows"

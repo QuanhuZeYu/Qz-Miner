@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner.client.playerInput;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.client.AnimateMessages;
+import club.heiqi.qz_miner.client.AnimateMessagesOld;
 import club.heiqi.qz_miner.client.cubeRender.RenderCube;
 import club.heiqi.qz_miner.client.cubeRender.RenderRegion;
 import club.heiqi.qz_miner.client.cubeRender.SpaceCalculator;
@@ -109,6 +109,11 @@ public class PlayerInput {
     }
 
     public boolean overlay1 = false;
+
+    /**
+     * 用于渲染左下角的准备状态
+     * @param event
+     */
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
@@ -188,7 +193,7 @@ public class PlayerInput {
             List<Long> duration = Arrays.asList(1_000L, 3_000L,1_000L);
             /*AnimateMessages amTip = new AnimateMessages().register(tip, 0xFFFFFF, paths1, duration);
             AnimateMessages rdyAm = new AnimateMessages().register(ready, 0x1eff00, paths2, duration);*/
-            AnimateMessages amTip = new AnimateMessages().useFunc((vec)->{
+            AnimateMessagesOld amTip = new AnimateMessagesOld().useFunc((vec)->{
                 String ready = manager.getIsReady() ? I18n.format("key.qz_miner.isReady") : I18n.format("key.qz_miner.notReady");
                 int readyColor = manager.getIsReady() ? 0x1eff00 : 0xff7500;
                 int xi = vec.x; int yi = vec.y-fontHeight;
@@ -222,6 +227,11 @@ public class PlayerInput {
     public int count = 0;
     public static SpaceCalculator calculator = new SpaceCalculator(new ArrayList<>());
     public boolean inRender = false;
+
+    /**
+     * 渲染预览范围
+     * @param event
+     */
     @SubscribeEvent
     public void drawHighLight(DrawBlockHighlightEvent event) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
@@ -385,7 +395,12 @@ public class PlayerInput {
     }
 
     public void setManager(EntityPlayer player) {
-        if (manager.world.isRemote) manager.world = player.worldObj;
+        if (manager.world.isRemote) {
+            manager.world = player.worldObj;
+        }
+        else if (!player.worldObj.isRemote) {
+            manager.world = player.worldObj;
+        }
         manager.player = player;
     }
 }
