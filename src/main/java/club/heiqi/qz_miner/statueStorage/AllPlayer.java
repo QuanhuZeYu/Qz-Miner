@@ -35,23 +35,33 @@ public class AllPlayer {
             return;
         }
         UUID uuid = player.getUniqueID();
-        ModeManager modeManager = allPlayer.get(uuid);
-        if (!allPlayer.containsKey(uuid)) {
+        // 服务端逻辑
+        ModeManager modeManager;
+        if (allPlayer.containsKey(uuid)) {
+            LOG.info("玩家: {} 已在缓存中，无需再次创建", player.getDisplayName());
+            modeManager = allPlayer.get(uuid);
+            modeManager.player = player;
+            modeManager.world = player.worldObj;
+        } else {
+            LOG.info("玩家: {} 不在连锁缓存，已创建新管理器", player.getDisplayName());
             modeManager = new ModeManager();
-            LOG.info("创建客户端管理器实例");
+            modeManager.player = player;
+            modeManager.world = player.worldObj;
+            modeManager.register();
+            allPlayer.put(uuid, modeManager);
         }
-        // 无论是否存在都进行覆盖逻辑
-        modeManager.player = player;
-        modeManager.world = player.worldObj;
-        modeManager.register();
-        allPlayer.put(uuid, modeManager);
     }
     public void clientUnRegister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
-        if (!allPlayer.containsKey(uuid)) return;
-        ModeManager modeManager = allPlayer.get(uuid);
-        modeManager.unregister();
-        allPlayer.remove(uuid);
+        if (!allPlayer.containsKey(uuid)) {
+            LOG.info("玩家: {} 不存在连锁缓存中，无需卸载", player.getDisplayName());
+            return;
+        } else {
+            ModeManager modeManager = allPlayer.get(uuid);
+            modeManager.unregister();
+            allPlayer.remove(uuid);
+            LOG.info("玩家: {} 已从连锁缓存中移除", player.getDisplayName());
+        }
     }
     public void serverRegister(EntityPlayer player) {
         if (player == null) {
@@ -75,8 +85,8 @@ public class AllPlayer {
             modeManager = new ModeManager();
             modeManager.player = player;
             modeManager.world = player.worldObj;
-            allPlayer.put(uuid, modeManager);
             modeManager.register();
+            allPlayer.put(uuid, modeManager);
         }
     }
     public void serverUnRegister(EntityPlayer player) {

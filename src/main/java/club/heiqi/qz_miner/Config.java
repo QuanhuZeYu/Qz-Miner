@@ -5,15 +5,12 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
+import net.minecraftforge.common.config.Property;
 
 import java.io.File;
 import java.lang.reflect.Field;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
-
-import static club.heiqi.qz_miner.MY_LOG.LOG;
 
 public class Config {
     public static String configPath;
@@ -24,8 +21,7 @@ public class Config {
     public static int taskTimeLimit = 16;
     public static int neighborDistance = 4;
     public static int heartbeatTimeout = 5_000; // 5s
-    public static int dropDelay = 250;
-    public static float exhaustion = 1f;
+    public static float exhaustion = 0.025f;
     public static float overMiningDamage = 0.0003f;
     public static int maxFortuneLevel = 3;
     public static float dropDistance = 1.1f;
@@ -42,51 +38,6 @@ public class Config {
     public static boolean showTip = true;
     public static boolean useRender = true;
 
-    public static class ConfigEntry<T> {
-        public final T field;
-        public final String category;
-        public final T defaultValue;
-        public final String desc;
-        public T minValue;
-        public T maxValue;
-
-        public ConfigEntry(T fieldName, String category, T defaultValue, String desc, T minValue, T maxValue) {
-            this.field = fieldName;
-            this.category = category;
-            this.defaultValue = defaultValue;
-            this.desc = desc;
-            this.minValue = minValue;
-            this.maxValue = maxValue;
-        }
-    }
-
-    public static Map<String, ConfigEntry<?>> entryMap = new HashMap<>();
-    static {
-        // 用于传递进去判断类型                                                     // 分类
-        entryMap.put("radiusLimit", new ConfigEntry<>(radiusLimit, Configuration.CATEGORY_GENERAL, 10, "最大搜索范围", 1, Integer.MAX_VALUE));
-        entryMap.put("blockLimit", new ConfigEntry<>(blockLimit, Configuration.CATEGORY_GENERAL, 1024, "连锁上限", 1, Integer.MAX_VALUE));
-        entryMap.put("perTickBlockLimit", new ConfigEntry<>(perTickBlockLimit, Configuration.CATEGORY_GENERAL, 64, "每tick挖掘限制数量", 1, Integer.MAX_VALUE));
-        entryMap.put("taskTimeLimit", new ConfigEntry<>(taskTimeLimit, Configuration.CATEGORY_GENERAL, 10, "每tick(50ms)内任务运行执行的时间 /ms", 10, Integer.MAX_VALUE));
-        entryMap.put("neighborDistance", new ConfigEntry<>(neighborDistance, Configuration.CATEGORY_GENERAL, 3, "连锁邻居探测距离", 1, Integer.MAX_VALUE));
-        entryMap.put("heartbeatTimeout", new ConfigEntry<>(heartbeatTimeout, Configuration.CATEGORY_GENERAL, 1_000, "任务心跳超时时间", 100, Integer.MAX_VALUE));
-        entryMap.put("dropDelay", new ConfigEntry<>(dropDelay, Configuration.CATEGORY_GENERAL, 250, "掉落物延迟时间", 100, Integer.MAX_VALUE));
-        entryMap.put("exhaustion", new ConfigEntry<>(exhaustion, Configuration.CATEGORY_GENERAL, 0.25f, "每次挖掘消耗饱食度", 0f, Float.MAX_VALUE));
-        entryMap.put("overMiningDamage", new ConfigEntry<>(overMiningDamage, Configuration.CATEGORY_GENERAL, 0.0001f, "饱食度过低时每次挖掘消耗的生命值", 0f, Float.MAX_VALUE));
-        entryMap.put("maxFortuneLevel", new ConfigEntry<>(maxFortuneLevel, Configuration.CATEGORY_GENERAL, 3 , "矿石接受的最大时运等级", 3, 255));
-        entryMap.put("dropDistance", new ConfigEntry<>(dropDistance, Configuration.CATEGORY_GENERAL, 1.1f, "挖掘时掉落物距离自身的距离，值越大掉落物越远", 0f, Float.MAX_VALUE));
-        entryMap.put("coolDown", new ConfigEntry<>(coolDown, Configuration.CATEGORY_GENERAL, 30.f, "每次揭示时需要等待的时间，单位秒", 0f, Float.MAX_VALUE));
-        entryMap.put("forceNatural", new ConfigEntry<>(forceNatural, Configuration.CATEGORY_GENERAL, false, "强制所有矿石为时运", null, null));
-        entryMap.put("dropItemToSelf", new ConfigEntry<>(dropItemToSelf, Configuration.CATEGORY_GENERAL, true, "是否将掉落物生成在脚下", null, null));
-        entryMap.put("unknownDropToPlayer", new ConfigEntry<>(unknownDropToPlayer, Configuration.CATEGORY_GENERAL, true, "非连锁物也生成在玩家附近", null, null));
-
-        entryMap.put("renderLineWidth", new ConfigEntry<>(renderLineWidth, CATEGORY_CLIENT, 1.5f, "渲染线框宽度", 0.1f, 100f));
-        entryMap.put("renderFadeSpeedMultiplier", new ConfigEntry<>(renderFadeSpeedMultiplier, CATEGORY_CLIENT, 0.5f, "渲染变化参数种子", 0.f, Float.MAX_VALUE));
-        entryMap.put("renderCount", new ConfigEntry<>(renderCount, CATEGORY_CLIENT, 10240, "渲染数量上限", -1, Integer.MAX_VALUE));
-        entryMap.put("printResult", new ConfigEntry<>(printResult, CATEGORY_CLIENT, true, "在聊天栏打印挖掘结果", null, null));
-        entryMap.put("showTip", new ConfigEntry<>(showTip, CATEGORY_CLIENT, true, "是否显示左下角提示", null, null));
-        entryMap.put("useRender", new ConfigEntry<>(useRender, CATEGORY_CLIENT, true, "是否使用渲染功能", null, null));
-    }
-
     public void init(File configFile) {
         if (config == null) {
             configPath = configFile.getAbsolutePath();
@@ -95,78 +46,78 @@ public class Config {
         }
     }
 
-//    public static void walkMap(Consumer<ConfigFieldData> handler) {
-//        Iterator<String> iterator = configMap.keySet().iterator();
-//        Class<Config> clazz = Config.class;
-//        while (iterator.hasNext()) {
-//            String name = iterator.next();
-//            Collection<Object> value = configMap.get(name);
-//            List<Object> values = new ArrayList<>(value);
-//            Object staticValue = values.get(0); // 用于获取类型
-//            Field field = null;
-//            try {
-//                field = clazz.getDeclaredField(name);
-//            } catch (NoSuchFieldException e) {
-//                throw new RuntimeException(e);
-//            }
-//            String category = (String) values.get(1);
-//            Object defaultValue = values.get(2);
-//            String description = (String) values.get(3);
-//            Object minValue = new Object(), maxValue = new Object();
-//            if (values.size() > 4) {
-//                minValue = values.get(4);
-//                maxValue = values.get(5);
-//            }
-//            // 在此处可以插入自定义的函数处理上述内容
-//            ConfigFieldData fieldData = new ConfigFieldData(field, name, staticValue, category, defaultValue, description, minValue, maxValue);
-//            handler.accept(fieldData); // 回调
-//        }
-//    }
+    public static void walkMap(Consumer<Property> handler) {
+        Property radiusLimit = config.get(Configuration.CATEGORY_GENERAL,"radiusLimit",10,"最大搜索范围", 1, Integer.MAX_VALUE);
+        Property blockLimit = config.get(Configuration.CATEGORY_GENERAL,"blockLimit",1024,"连锁上限", 1, Integer.MAX_VALUE);
+        Property perTickBlockLimit = config.get(Configuration.CATEGORY_GENERAL,"perTickBlockLimit",64,"每tick挖掘限制数量",1,Integer.MAX_VALUE);
+        Property taskTimeLimit = config.get(Configuration.CATEGORY_GENERAL,"taskTimeLimit",10, "每tick(50ms)内任务运行执行的时间 /ms", 10, Integer.MAX_VALUE);
+        Property neighborDistance = config.get(Configuration.CATEGORY_GENERAL,"neighborDistance",3, "连锁邻居探测距离", 1, Integer.MAX_VALUE);
+        Property heartbeatTimeout = config.get(Configuration.CATEGORY_GENERAL,"heartbeatTimeout",1_000, "任务心跳超时时间", 100, Integer.MAX_VALUE);
+        Property exhaustion = config.get(Configuration.CATEGORY_GENERAL,"exhaustion",0.025f, "每次挖掘消耗饱食度", 0f, Float.MAX_VALUE);
+        Property overMiningDamage = config.get(Configuration.CATEGORY_GENERAL,"overMiningDamage",0.0001f, "饱食度过低时每次挖掘消耗的生命值", 0f, Float.MAX_VALUE);
+        Property maxFortuneLevel = config.get(Configuration.CATEGORY_GENERAL,"maxFortuneLevel",3 , "矿石接受的最大时运等级", 3, 255);
+        Property dropDistance = config.get(Configuration.CATEGORY_GENERAL,"dropDistance",1.1f, "挖掘时掉落物距离自身的距离，值越大掉落物越远", 0f, Float.MAX_VALUE);
+        Property coolDown = config.get(Configuration.CATEGORY_GENERAL,"coolDown",30.f, "每次揭示时需要等待的时间，单位秒", 0f, Float.MAX_VALUE);
+        Property forceNatural = config.get(Configuration.CATEGORY_GENERAL,"forceNatural",false, "强制所有矿石为时运");
+        Property dropItemToSelf = config.get(Configuration.CATEGORY_GENERAL,"dropItemToSelf",true, "是否将掉落物生成在脚下");
 
-    public static void walkMap(Consumer<ConfigFieldData> handler) {
-        Iterator<String> iterator = entryMap.keySet().iterator();
-        Class<Config> clazz = Config.class;
-        while (iterator.hasNext()) {
-            String name = iterator.next();
-            ConfigEntry<?> value = entryMap.get(name);
-            Object staticValue = value.field; // 用于获取类型
-            Field field;
-            try {
-                field = clazz.getDeclaredField(name);
-            } catch (NoSuchFieldException e) {
-                throw new RuntimeException(e);
-            }
-            String category = value.category;
-            Object defaultValue = value.defaultValue;
-            String description = value.desc;
-            Object minValue = new Object(), maxValue = new Object();
-            if (value.minValue != null) minValue = value.minValue;
-            if (value.maxValue != null) maxValue = value.maxValue;
-            // 在此处可以插入自定义的函数处理上述内容
-            ConfigFieldData fieldData = new ConfigFieldData(field, name, staticValue, category, defaultValue, description, minValue, maxValue);
-            handler.accept(fieldData); // 回调
-        }
+        Property renderLineWidth = config.get(Config.CATEGORY_CLIENT,"renderLineWidth",1.5f, "渲染线框宽度", 0.1f, 100f);
+        Property renderFadeSpeedMultiplier = config.get(Config.CATEGORY_CLIENT,"renderFadeSpeedMultiplier",0.5f, "渲染变化参数种子", 0.f, Float.MAX_VALUE);
+        Property renderCount = config.get(Config.CATEGORY_CLIENT,"renderCount",64, "渲染数量上限", -1, Integer.MAX_VALUE);
+        Property printResult = config.get(Config.CATEGORY_CLIENT,"printResult",true, "在聊天栏打印挖掘结果");
+        Property showTip = config.get(Config.CATEGORY_CLIENT,"showTip",true, "是否显示左下角提示");
+        Property useRender = config.get(Config.CATEGORY_CLIENT,"useRender",true, "是否使用渲染功能");
+
+        List<Property> properties = new ArrayList<>();
+        properties.add(radiusLimit);
+        properties.add(blockLimit);
+        properties.add(perTickBlockLimit);
+        properties.add(taskTimeLimit);
+        properties.add(neighborDistance);
+        properties.add(heartbeatTimeout);
+        properties.add(exhaustion);
+        properties.add(overMiningDamage);
+        properties.add(maxFortuneLevel);
+        properties.add(dropDistance);
+        properties.add(coolDown);
+        properties.add(forceNatural);
+        properties.add(dropItemToSelf);
+        properties.add(renderLineWidth);
+        properties.add(renderFadeSpeedMultiplier);
+        properties.add(renderCount);
+        properties.add(printResult);
+        properties.add(showTip);
+        properties.add(useRender);
+
+        for (Property property : properties)
+            handler.accept(property);
     }
 
     /**
      * 读取配置文件 - 写入到全局变量
      */
     public static void sync() {
-        walkMap(f -> {
+        walkMap(property -> {
+            String filedName = property.getName();
             try {
-                if (f.staticValue instanceof Integer) {
-                    f.field.set(null, config.getInt(f.name, f.category, (Integer) f.defaultValue, (Integer) f.minValue, (Integer) f.maxValue, f.description));
-                } else if (f.staticValue instanceof Float) {
-                    f.field.set(null, config.getFloat(f.name, f.category, (Float) f.defaultValue, (Float) f.minValue, (Float) f.maxValue, f.description));
-                } else if (f.staticValue instanceof Boolean) {
-                    f.field.set(null, config.getBoolean(f.name, f.category, (Boolean) f.defaultValue, f.description));
+                Field field = Config.class.getField(filedName);
+                Object value = field.get(null);
+                if (Objects.equals(property.getName(), filedName)) {
+                    if (value instanceof Integer) field.setInt(null,property.getInt());
+                    else if (value instanceof Double) field.setDouble(null,property.getDouble());
+                    else if (value instanceof Float) field.setFloat(null, (float) property.getDouble());
+                    else if (value instanceof String) field.set(null,property.getString());
                 }
-            } catch (Exception e) {
+            } catch (NoSuchFieldException | IllegalAccessException e) {
                 throw new RuntimeException(e);
             }
         });
+
         config.save();
-        printConfig();
+    }
+
+    public static void save() {
+        config.save();
     }
 
     @SubscribeEvent
@@ -174,37 +125,6 @@ public class Config {
         if (event.modID.equalsIgnoreCase(MOD_INFO.MODID)) {
             sync();
         }
-    }
-
-    /**
-     * 将全局变量写入到配置文件
-     */
-    public static void globalVarToSave() {
-        walkMap(f -> {
-            try {
-                if (f.staticValue instanceof Integer) {
-                    config.get(f.category, f.name, (Integer) f.defaultValue, f.description).set((Integer) f.field.get(null));
-                } else if (f.staticValue instanceof Float) {
-                    config.get(f.category, f.name, (Float) f.defaultValue, f.description).set((Float) f.field.get(null));
-                } else if (f.staticValue instanceof Boolean) {
-                    config.get(f.category, f.name, (Boolean) f.defaultValue, f.description).set((Boolean) f.field.get(null));
-                }
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            }
-        });
-        config.save();
-        sync();
-    }
-
-    public static void printConfig() {
-        walkMap(f -> {
-            try {
-                LOG.info("{}: {}", f.name, f.field.get(null));
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            }
-        });
     }
 
     public void register() {

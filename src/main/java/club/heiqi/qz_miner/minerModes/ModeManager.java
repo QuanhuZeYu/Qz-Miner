@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 每个玩家都有独属于自身的管理类
  */
 public class ModeManager {
+    public static List<ModeManager> MANAGERS = new ArrayList<>();
+
     public Logger LOG = LogManager.getLogger();
     public UUID registryInfo = UUID.randomUUID();
     /**掉落物管理*/
@@ -59,8 +61,8 @@ public class ModeManager {
     /**当前模式*/
     public AbstractMode curMode;
 
-    public volatile AtomicBoolean isRunning = new AtomicBoolean(false);
     public volatile AtomicBoolean isReady = new AtomicBoolean(false);
+    public volatile AtomicBoolean isRunning = new AtomicBoolean(false);
     public volatile AtomicBoolean printResult = new AtomicBoolean(true);
 
     /**
@@ -233,11 +235,19 @@ public class ModeManager {
 
 
     // ==================== 事件订阅 - 监听玩家自身即可，简化触发流程
-    public void register() {
+    public boolean register() {
+        // 1.检查全局中是否有相同玩家的管理器
+        for (ModeManager manager : MANAGERS) {
+            if (manager.player.getUniqueID().equals(getPlayer().getUniqueID())) {
+                return false;
+            }
+        }
         FMLCommonHandler.instance().bus().register(this);
         MinecraftForge.EVENT_BUS.register(this);
         EntityPlayer player = getPlayer();
         LOG.info("{} 管理器:{} 注册完成", player.getDisplayName(), registryInfo);
+        MANAGERS.add(this);
+        return true;
     }
     public void unregister() {
         if (!captureDrops.isEmpty()) dropCapture();
@@ -245,6 +255,7 @@ public class ModeManager {
         MinecraftForge.EVENT_BUS.unregister(this);
         EntityPlayer player = getPlayer();
         LOG.info("{} 管理器:{} 卸载完毕", player.getDisplayName(), registryInfo);
+        MANAGERS.remove(this);
     }
 
     public EntityPlayer getPlayer() {
@@ -260,6 +271,9 @@ public class ModeManager {
      */
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
+        // 1.获取当前线程名称 如果包含client则不进行任何操作
+        String threadName = Thread.currentThread().getName();
+        // if (threadName.toLowerCase().contains("client")) return;
         // 排除客户端的事件
         if (event.world.isRemote) return;
         EntityPlayer player = event.getPlayer();

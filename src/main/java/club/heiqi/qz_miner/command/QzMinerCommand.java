@@ -2,18 +2,19 @@ package club.heiqi.qz_miner.command;
 
 import club.heiqi.qz_miner.Config;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
-import net.minecraft.command.ICommand;
+import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class QzMinerCommand implements ICommand {
+public class QzMinerCommand extends CommandBase {
     public void register(FMLServerStartingEvent event) {
         event.registerServerCommand(this);
     }
@@ -25,20 +26,20 @@ public class QzMinerCommand implements ICommand {
     @Override
     public String getCommandUsage(ICommandSender sender) {
         AtomicReference<String> usageList = new AtomicReference<>("");
-        Config.walkMap(f -> {
+        Config.walkMap(property -> {
             String origin = usageList.get();
             String result;
             if (origin.isEmpty()) {
-                result = f.name + "(" + f.description + ") " +
-                    "min:" + (f.minValue == null ? "" : f.minValue) + ", " +
-                    "max:" + (f.maxValue == null ? "" : f.maxValue) + ", " +
-                    "default:" + f.defaultValue;
+                result = property.getName() + "(" + property.comment + ") " +
+                    "min:" + (property.getMinValue() == null ? "" : property.getMinValue()) + ", " +
+                    "max:" + (property.getMaxValue() == null ? "" : property.getMaxValue()) + ", " +
+                    "default:" + property.getDefault();
                 sender.addChatMessage(new ChatComponentText(result));
             } else {
-                String temp = " | " + f.name + "(" + f.description + ") " +
-                    "min:" + (f.minValue == null ? "" : f.minValue) + ", " +
-                    "max:" + (f.maxValue == null ? "" : f.maxValue) + ", " +
-                    "default:" + f.defaultValue;
+                String temp = " | " + property.getName() + "(" + property.comment + ") " +
+                    "min:" + (property.getMinValue() == null ? "" : property.getMinValue()) + ", " +
+                    "max:" + (property.getMaxValue() == null ? "" : property.getMaxValue()) + ", " +
+                    "default:" + property.getDefault();
                 result = origin + temp;
                 sender.addChatMessage(new ChatComponentText(temp));
             }
@@ -60,12 +61,19 @@ public class QzMinerCommand implements ICommand {
         }
         String subCommand = args[0];
         if (Objects.equals(subCommand, "check")) {
-            Config.walkMap(f -> {
+            Config.walkMap(property -> {
+                String propertyName = property.getName();
+                Field field;
+                String value = null;
                 try {
-                    sender.addChatMessage(new ChatComponentText(f.name + ": " + f.field.get(null)));
+                    field = Config.class.getField(propertyName);
+                    value = field.get(null).toString();
+                } catch (NoSuchFieldException e) {
+                    sender.addChatMessage(new ChatComponentText("无法获取字段:" + propertyName));
                 } catch (IllegalAccessException e) {
-                    throw new RuntimeException(e);
+                    sender.addChatMessage(new ChatComponentText("无法获取字段值:" + propertyName));
                 }
+                sender.addChatMessage(new ChatComponentText(property.getName() + ": " + value));
             });
             return;
         }
@@ -87,37 +95,46 @@ public class QzMinerCommand implements ICommand {
             return;
         }
         Object finalValue = value;
-        Config.walkMap(f -> {
-            if (Objects.equals(f.name, subCommand)) {
+        Config.walkMap(property -> {
+            if (Objects.equals(property.getName(), subCommand)) {
                 try {
-                    Class<?> fieldType = f.field.getType();
-
-                    if (fieldType.equals(int.class)) {
-                        f.field.set(null, Integer.parseInt(finalValue.toString()));
-                    } else if (fieldType.equals(double.class)) {
-                        f.field.set(null, Double.parseDouble(finalValue.toString()));
-                    } else if (fieldType.equals(float.class)) {
-                        f.field.set(null, Float.parseFloat(finalValue.toString()));
-                    } else if (fieldType.equals(boolean.class)) {
+                    Field field = Config.class.getField(property.getName());
+                    if (property.isIntValue()) {
+                        int intValue = Integer.parseInt(finalValue.toString());
+                        property.set(intValue);
+                        field.setInt(null,intValue);
+                    } else if (property.isDoubleValue()) {
+                        double doubleValue = Double.parseDouble(finalValue.toString());
+                        float floatValue = Float.parseFloat(finalValue.toString());
+                        property.set(doubleValue);
+                        if (field.getType() == double.class) {
+                            field.setDouble(null,doubleValue);
+                        }
+                        else if (field.getType() == float.class) {
+                            field.setFloat(null,floatValue);
+                        }
+                    } else if (property.isBooleanValue()) {
                         boolean parsedValue;
-                        if (finalValue instanceof Boolean) {
-                            parsedValue = (boolean) finalValue;
-                        } else if (finalValue instanceof Number) {
+                        if (finalValue instanceof Number) {
                             parsedValue = ((Number) finalValue).intValue() > 0;
                         } else {
                             parsedValue = Boolean.parseBoolean(finalValue.toString());
                         }
-                        f.field.set(null, parsedValue);
+                        property.set(parsedValue);
+                        field.setBoolean(null,parsedValue);
                     } else {
-                        sender.addChatMessage(new ChatComponentText("不支持的字段类型: " + fieldType.getName()));
+                        sender.addChatMessage(new ChatComponentText("不支持的字段类型"));
                         return;
                     }
 
-                    sender.addChatMessage(new ChatComponentText(f.name + " 已设置为: " + f.field.get(null)));
-                    Config.globalVarToSave();
-                } catch (IllegalAccessException | NumberFormatException e) {
+                    sender.addChatMessage(new ChatComponentText(property.getName() + " 已设置为: " + property.getString()));
+                    Config.save();
+                } catch (NumberFormatException e) {
                     sender.addChatMessage(new ChatComponentText("无法设置字段值: " + e.getMessage()));
-                    throw new RuntimeException(e);
+                } catch (NoSuchFieldException e) {
+                    sender.addChatMessage(new ChatComponentText("配置中不存在此字段: " + e.getMessage()));
+                } catch (IllegalAccessException e) {
+                    sender.addChatMessage(new ChatComponentText("无法设置字段: " + e.getMessage()));
                 }
             }
         });
@@ -132,10 +149,10 @@ public class QzMinerCommand implements ICommand {
     public List<String> addTabCompletionOptions(ICommandSender sender, String[] args) {
         if (args.length == 1) {
             List<String> result = new ArrayList<>();
-            Config.walkMap(f -> result.add(f.name));
+            Config.walkMap(f -> result.add(f.getName()));
             result.add("check");
             result.add("help");
-            return result;
+            return getListOfStringsFromIterableMatchingLastWord(args,result);
         }
         return null;
     }
