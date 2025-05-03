@@ -126,32 +126,8 @@ public class PlayerInput {
             return;
         }
         setManager(player);
-
+        // 配置关闭渲染提示后不进行渲染
         if (!Config.showTip) {
-            int curShader = glGetInteger(GL_CURRENT_PROGRAM);
-            glUseProgram(0);
-            glPushAttrib(GL_ALL_ATTRIB_BITS);
-            boolean isReady = manager.getIsReady();
-            if (!isReady) {
-                glColor4f(0.823f, 0.411f, 0.117f, 0.3f);
-            } else {
-                glColor4f(0.678f, 1.0f, 0.184f, 1.0f);
-            }
-            glDisable(GL_DEPTH_TEST);
-            glDisable(GL_TEXTURE_2D);
-            glDisable(GL_LIGHTING);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glPushMatrix();
-            glBegin(GL_TRIANGLES);
-            glVertex2i(3, event.resolution.getScaledHeight());
-            glVertex2i(0, event.resolution.getScaledHeight() - 3);
-            glVertex2i(0, event.resolution.getScaledHeight());
-            glEnd();
-            glPopMatrix();
-//            glColor3f(1.0f, 1.0f, 1.0f);
-            glPopAttrib();
-            glUseProgram(curShader);
             return;
         }
         if (!(event.type == RenderGameOverlayEvent.ElementType.TEXT)) return; // 如果不是字体渲染阶段则跳过
