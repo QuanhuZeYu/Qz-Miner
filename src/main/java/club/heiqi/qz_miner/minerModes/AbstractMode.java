@@ -8,17 +8,22 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.management.PlayerManager;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.LongHashMap;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3i;
 
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -152,9 +157,21 @@ public abstract class AbstractMode {
         positionFounder.updateHeartbeat(System.currentTimeMillis());
     }
 
+    Field playerInstances;
     public boolean checkCanBreak(Vector3i pos) {
         World world = modeManager.world;
         EntityPlayer player = modeManager.player;
+        if (player instanceof EntityPlayerMP playerMP) {
+            if (playerMP.playerNetServerHandler == null) return false;
+        }
+        if (world instanceof WorldServer worldServer) {
+            PlayerManager playerManager = worldServer.getPlayerManager();
+            LongHashMap instances = playerManager.playerInstances;
+            if (instances == null) {
+                LOG.error("playerInstances 为 null 异常");
+                return false;
+            }
+        }
         int vx = pos.x; int vy = pos.y; int vz = pos.z;
         int px = (int) Math.floor(player.posX); int py = (int) Math.floor(player.posY); int pz = (int) Math.floor(player.posZ);
         Block block = world.getBlock(vx,vy,vz);

@@ -8,7 +8,7 @@ import java.util.*;
 
 public class SpaceCalculator {
     public static Logger LOG = LogManager.getLogger();
-    public Map<Vector3i, Point> points = new HashMap<>();
+    public Map<Vector3i, SpacePoint> points = new HashMap<>();
 
     /**
      * 一次性计算方案
@@ -16,20 +16,20 @@ public class SpaceCalculator {
      */
     public SpaceCalculator(List<Vector3i> points) {
         for (Vector3i v : points) {
-            Point p = new Point(v, this);
+            SpacePoint p = new SpacePoint(v, this);
             this.points.put(v, p);
         }
         // 放置完成后开始计算邻面
-        for (Map.Entry<Vector3i, Point> vector3iPointEntry : this.points.entrySet()) {
-            Point p = vector3iPointEntry.getValue();
+        for (Map.Entry<Vector3i, SpacePoint> vector3iPointEntry : this.points.entrySet()) {
+            SpacePoint p = vector3iPointEntry.getValue();
             p.checkNeighbor();
         }
     }
 
     public void addPoint(Vector3i p) {
-        Point point = new Point(p, this);
-        points.put(p, point);
-        point.checkNeighbor();
+        SpacePoint spacePoint = new SpacePoint(p, this);
+        points.put(p, spacePoint);
+        spacePoint.checkNeighbor();
     }
 
     public void addPoints(List<Vector3i> points) {
@@ -49,13 +49,13 @@ public class SpaceCalculator {
         points = new HashMap<>();
     }
 
-    public static class Point {
+    public static class SpacePoint {
         public SpaceCalculator papa;
         public List<Integer> faces = Arrays.asList(0,1,2,3,4,5); // 无邻居面数组
         public final Vector3i self;
         public Set<RenderCube.Face> deFaces = new HashSet<>(); // 有邻居数组
 
-        public Point(Vector3i point, SpaceCalculator parent) {
+        public SpacePoint(Vector3i point, SpaceCalculator parent) {
             self = point; papa = parent;
         }
 
@@ -65,7 +65,7 @@ public class SpaceCalculator {
                 if (deFaces.contains(RenderCube.Face.values()[i])) {
                     RenderCube.Face face = RenderCube.Face.values()[i]; // 当前面
                     Vector3i ne = new Vector3i(self).add(face.faceVec); // 获取邻居坐标
-                    Point neP = papa.points.get(ne); // 获取邻居对象
+                    SpacePoint neP = papa.points.get(ne); // 获取邻居对象
                     neP.deFaces.add(face.getOppositeFace()); // 邻居减面数据添加
                 }
                 // 如果没有邻居
@@ -75,7 +75,7 @@ public class SpaceCalculator {
                     if (papa.points.containsKey(ne)) {
                         //如果有邻居
                         deFaces.add(face);
-                        Point neP = papa.points.get(ne); // 获取邻居对象
+                        SpacePoint neP = papa.points.get(ne); // 获取邻居对象
                         neP.deFaces.add(face.getOppositeFace()); // 邻居减面数据添加
                     }
                 }

@@ -249,6 +249,9 @@ public class RenderCube {
         }
     }
 
+    /**
+     * 减面状态机
+     */
     public static class DefaceList {
         public final Set<Face> elements;
         public DefaceList(Set<Face> elements) {

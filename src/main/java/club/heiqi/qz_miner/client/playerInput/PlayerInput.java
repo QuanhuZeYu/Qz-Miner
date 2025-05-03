@@ -283,9 +283,6 @@ public class PlayerInput {
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND); // 确保混合已启用
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        if (Config.renderFadeSpeedMultiplier >0)
-            glColor4d(Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.3),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.5),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier),0.3);
-        else glColor4d(1,1,1,1);
         // 计算玩家视角偏移（同原逻辑）
         float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
         float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
@@ -293,22 +290,34 @@ public class PlayerInput {
         List<Float> vertices = new ArrayList<>();
         List<Integer> indices = new ArrayList<>();
         int cubeCount = 0;
-        for (Map.Entry<Vector3i, SpaceCalculator.Point> vP : calculator.points.entrySet()) {
+        for (Map.Entry<Vector3i, SpaceCalculator.SpacePoint> vP : calculator.points.entrySet()) {
             Vector3i blockPos = vP.getKey();
-            SpaceCalculator.Point point = vP.getValue();
-            RenderCube.DefaceList dfList = new RenderCube.DefaceList(point.deFaces);
+            SpaceCalculator.SpacePoint spacePoint = vP.getValue();
+            RenderCube.DefaceList dfList = new RenderCube.DefaceList(spacePoint.deFaces);
             RenderCube cube = RenderCube.connect.get(dfList);
             if (cube == null) continue;
             if (cube.indexes.length == 0) continue; // 跳过0顶点加速
             float x = blockPos.x + 0.5f;
             float y = blockPos.y + 0.5f;
             float z = blockPos.z + 0.5f;
+            float dx1 = (float) ((player.posX - blockPos.x)*(player.posX - blockPos.x));
+            float dy1 = (float) ((player.posY - blockPos.y)*(player.posY - blockPos.y));
+            float dz1 = (float) ((player.posZ - blockPos.z)*(player.posZ - blockPos.z));
             // 处理顶点
             for (int i = 0; i < RenderCube.vertices.length; i+=3) {
                 float a = RenderCube.vertices[i]; a += x;
                 float b = RenderCube.vertices[i+1]; b += y;
                 float c = RenderCube.vertices[i+2]; c += z;
                 vertices.add(a); vertices.add(b); vertices.add(c);
+                // 添加顶点颜色
+                float cr = Config.renderFadeSpeedMultiplier <= 0 ? 1 : (float) Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.3);
+                float cg = Config.renderFadeSpeedMultiplier <= 0 ? 1 : (float) Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.5);
+                float cb = Config.renderFadeSpeedMultiplier <= 0 ? 1 : (float) Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier);
+                float ca = 1;
+                if (dx1+dy1+dz1 <= 9) ca = 0.8f;
+                else if (dx1+dy1+dz1 <= 256) ca = 0.4f;
+                else ca = 0.1f;
+                vertices.add(cr);vertices.add(cg);vertices.add(cb);vertices.add(ca);
             }
             // 处理索引
             int indexStep = cubeCount*8;
@@ -333,7 +342,7 @@ public class PlayerInput {
 
             cubeCount++;
         }
-        // 获取数组
+        // List转为[]
         float[] verticesArray = new float[vertices.size()];
         int[] indicesArray = new int[indices.size()];
         for (int i = 0; i < vertices.size(); i++) {
