@@ -137,7 +137,7 @@ public class GroupMode extends AbstractMode {
 
             for (String component : parsed) {
                 component = component.trim(); // 去除前后空格
-                String[] s = component.split(":", 2); // 限制分割次数为2
+                String[] s = component.split(":", 2); // 限制分割元素为2
                 if (s.length != 2) {
                     throw new IllegalArgumentException("Invalid component format: " + component);
                 }

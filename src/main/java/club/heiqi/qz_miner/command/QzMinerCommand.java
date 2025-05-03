@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.command;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.util.RayTrace;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.registry.GameRegistry;
 import gregtech.api.metatileentity.CoverableTileEntity;
@@ -10,9 +11,6 @@ import net.minecraft.command.ICommandSender;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentText;
-import net.minecraft.util.MathHelper;
-import net.minecraft.util.MovingObjectPosition;
-import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.common.config.Property;
@@ -21,10 +19,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class QzMinerCommand extends CommandBase {
@@ -91,26 +86,23 @@ public class QzMinerCommand extends CommandBase {
             });
             return;
         }
-        if (Objects.equals(subCommand, "help")) {
+        else if (Objects.equals(subCommand, "help")) {
             getCommandUsage(sender);
             return;
         }
-        if (Objects.equals(subCommand, "addWhite")) {
+        else if (Objects.equals(subCommand, "addWhite")) {
             String name = sender.getCommandSenderName();
             World world = sender.getEntityWorld();
             EntityPlayer player = world.getPlayerEntityByName(name);
-            Vec3 vec3 = Vec3.createVectorHelper(player.posX,player.posY,player.posZ);
-            float f1 = MathHelper.cos(-player.rotationYaw * 0.017453292F - (float)Math.PI);
-            float f2 = MathHelper.sin(-player.rotationYaw * 0.017453292F - (float)Math.PI);
-            float f3 = -MathHelper.cos(-player.rotationPitch * 0.017453292F);
-            float f4 = MathHelper.sin(-player.rotationPitch * 0.017453292F);
-            Vec3 vec31 = Vec3.createVectorHelper((double)(f2 * f3), (double)f4, (double)(f1 * f3));
-            Vec3 vec32 = vec3.addVector(vec31.xCoord, vec31.yCoord, vec31.zCoord);
-            MovingObjectPosition mop = player.worldObj.func_147447_a(vec3, vec32, false, false, true);
-            Block block = world.getBlock(mop.blockX,mop.blockY,mop.blockZ);
-            int meta = world.getBlockMetadata(mop.blockX,mop.blockY,mop.blockZ);
+            RayTrace.CapTrace trace = RayTrace.rayTraceBlock(player);
+            if (trace == null) {
+                sender.addChatMessage(new ChatComponentText("未捕捉到视线前的方块"));
+                return;
+            }
+            Block block = trace.block;
+            int meta = world.getBlockMetadata(trace.x, trace.y, trace.z);
             int mID = 0;
-            TileEntity tile = world.getTileEntity(mop.blockX,mop.blockY,mop.blockZ);
+            TileEntity tile = world.getTileEntity(trace.x, trace.y, trace.z);
             if (tile instanceof CoverableTileEntity cT) {
                 Field f = null;
                 try {
@@ -123,16 +115,21 @@ public class QzMinerCommand extends CommandBase {
                     return;
                 }
             }
-            // 设置配置
-            List<String> c = new ArrayList<>();
+            // 设置配置 将[]内容装填到 Set
+            Set<String> c = new HashSet<>();
             for (String s : Config.whiteList) c.add(s);
+            // 构造新项 添加到List
             String toAdd = "stringID:" + GameRegistry.findUniqueIdentifierFor(block) + ",blockMeta:" + meta + ",mID:" + mID;
             c.add(toAdd);
+            // 将Set转为[]
             String[] n = new String[c.size()];
-            c.forEach(component -> n[c.indexOf(component)]=component);
+            List<String> cl = new ArrayList<>(c);
+            cl.forEach(component -> n[cl.indexOf(component)]=component);
+            // 将新的配置赋值到property和Config值中
             Property whiteList = Config.config.get(Configuration.CATEGORY_GENERAL,"whiteList",Config.whiteList,"连锁组白名单列表");
             Config.whiteList = n;
             whiteList.set(n);
+            // 保存到本地文件中
             Config.save();
             return;
         }
@@ -141,9 +138,12 @@ public class QzMinerCommand extends CommandBase {
         // 匹配小数的正则表达式：正负小数（含小数点）
         String decimalRegex = "^-?\\d+\\.\\d+$";
         Object value;
+        // 第三项搜索到整数
         if (args[1].matches(integerRegex)) {
             value = Integer.parseInt(args[1]);
-        } else if (args[1].matches(decimalRegex)) {
+        }
+        // 第三项搜索到小数
+        else if (args[1].matches(decimalRegex)) {
             value = Double.parseDouble(args[1]);
         } else {
             sender.addChatMessage(new ChatComponentText("请输入一个有效数值！"));
