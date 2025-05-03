@@ -19,7 +19,8 @@ public class MyEarlyMixin implements IEarlyMixinLoader, IFMLLoadingPlugin {
     public List<String> getMixins(Set<String> loadedCoreMods) {
         return Arrays.asList(
             "MixinsBlock",
-            "MixinsEntityTracker_Fix"
+            "MixinsEntityTracker_Fix",
+            "MixinsWorldClient"
         );
     }
 

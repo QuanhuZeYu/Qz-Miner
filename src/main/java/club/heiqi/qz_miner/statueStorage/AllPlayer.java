@@ -35,34 +35,39 @@ public class AllPlayer {
             return;
         }
         UUID uuid = player.getUniqueID();
-        // 服务端逻辑
         ModeManager modeManager;
+        // 1.缓存已有管理器
         if (allPlayer.containsKey(uuid)) {
-            LOG.info("玩家: {} 已在缓存中，无需再次创建", player.getDisplayName());
             modeManager = allPlayer.get(uuid);
             modeManager.player = player;
             modeManager.world = player.worldObj;
-        } else {
-            LOG.info("玩家: {} 不在连锁缓存，已创建新管理器", player.getDisplayName());
+            LOG.info("[{}: {}] 管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
+        }
+        // 2.不存在缓存的管理器
+        else {
             modeManager = new ModeManager();
             modeManager.player = player;
             modeManager.world = player.worldObj;
             modeManager.register();
             allPlayer.put(uuid, modeManager);
+            LOG.info("[{}: {}] 管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
     }
     public void clientUnRegister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
         if (!allPlayer.containsKey(uuid)) {
-            LOG.info("玩家: {} 不存在连锁缓存中，无需卸载", player.getDisplayName());
             return;
         } else {
             ModeManager modeManager = allPlayer.get(uuid);
             modeManager.unregister();
             allPlayer.remove(uuid);
-            LOG.info("玩家: {} 已从连锁缓存中移除", player.getDisplayName());
         }
     }
+
+    /**
+     * 无论是否存在管理器实例都会重新赋值player world
+     * @param player
+     */
     public void serverRegister(EntityPlayer player) {
         if (player == null) {
             LOG.warn("player为null拒绝注册连锁实例");
@@ -75,18 +80,21 @@ public class AllPlayer {
         UUID uuid = player.getUniqueID();
         // 服务端逻辑
         ModeManager modeManager;
+        // 1.缓存已有管理器
         if (allPlayer.containsKey(uuid)) {
-            LOG.info("玩家: {} 已在缓存中，无需再次创建", player.getDisplayName());
             modeManager = allPlayer.get(uuid);
             modeManager.player = player;
             modeManager.world = player.worldObj;
-        } else {
-            LOG.info("玩家: {} 不在连锁缓存，已创建新管理器", player.getDisplayName());
+            LOG.info("[{}: {}] 管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
+        }
+        // 2.不存在缓存的管理器
+        else {
             modeManager = new ModeManager();
             modeManager.player = player;
             modeManager.world = player.worldObj;
             modeManager.register();
             allPlayer.put(uuid, modeManager);
+            LOG.info("[{}: {}] 管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
     }
     public void serverUnRegister(EntityPlayer player) {
@@ -102,6 +110,19 @@ public class AllPlayer {
         }
     }
 
+    public void proxyRegister(EntityPlayer player) {
+        Thread thread = Thread.currentThread();
+        if (thread.getName().toLowerCase().contains("server")) {
+            serverRegister(player);
+        }
+        else if (thread.getName().toLowerCase().contains("client")) {
+            clientRegister(player);
+        }
+        else {
+            clientRegister(player);
+        }
+    }
+
     /**
      * 通用:
      *  进入世界时收集信息 - 初始化连锁状态
@@ -110,12 +131,7 @@ public class AllPlayer {
     @SubscribeEvent
     public void qz_onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         EntityPlayer player = event.player;
-        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
-            clientRegister(player);
-        } else {
-            // 服务端逻辑
-            serverRegister(player);
-        }
+        proxyRegister(player);
     }
 
     /**
@@ -139,11 +155,7 @@ public class AllPlayer {
     public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
         if (!(event.entity instanceof EntityPlayer)) return;
         EntityPlayer player = (EntityPlayer) event.entity;
-        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
-            clientRegister(player);
-        } else {
-            serverRegister(player);
-        }
+        proxyRegister(player);
     }
 
     /*@SubscribeEvent

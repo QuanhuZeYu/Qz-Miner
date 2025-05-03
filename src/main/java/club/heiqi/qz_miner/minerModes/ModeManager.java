@@ -344,8 +344,10 @@ public class ModeManager {
     @SubscribeEvent
     public void onHarvestDrops(BlockEvent.HarvestDropsEvent event) {
         EntityPlayer harvester = event.harvester;
-        // 确保采集者是管理器管理的玩家
+        // 确保采集者是管理器管理的玩家 - 通过UUID判断
         if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
+        // 更新玩家
+        player = harvester;
         // 更新世界
         if (!world.isRemote) world = event.world;
         if (!getIsReady()) return;
@@ -386,8 +388,7 @@ public class ModeManager {
                         dropPos.z,
                         drop
                 );
-                entityDrop.delayBeforeCanPickup = 0;
-                entityDrop.age = 0;
+                entityDrop.delayBeforeCanPickup = 5;
                 world.spawnEntityInWorld(entityDrop);
             }
             captureDrops.clear();
@@ -395,29 +396,10 @@ public class ModeManager {
     }
 
     public void dropCapture() {
-        LOG.info("释放掉落物");
-        List<ItemStack> mergedDrops = new ArrayList<>();
-        // 遍历所有待合并的掉落物
-        for (ItemStack stack : captureDrops) {
-            boolean isMerged = false;
-            // 检查已合并列表中是否存在同类可合并的堆叠
-            for (ItemStack merged : mergedDrops) {
-                if (Utils.areStacksMergeable(stack, merged)) {
-                    merged.stackSize += stack.stackSize;
-                    isMerged = true;
-                    break;
-                }
-            }
-            // 若未合并，则添加新堆叠到列表
-            if (!isMerged) {
-                mergedDrops.add(stack.copy()); // 必须复制原堆叠
-            }
-        }
-        // 清空原始掉落物列表
+        List<ItemStack> drops = new ArrayList<>(captureDrops);
         captureDrops.clear();
-        // 生成合并后的实体
         Vector3f dropPos = Utils.getItemDropPos(player);
-        for (ItemStack drop : mergedDrops) {
+        drops.forEach(drop -> {
             EntityItem entityDrop = new EntityItem(
                 world,
                 dropPos.x,
@@ -425,9 +407,8 @@ public class ModeManager {
                 dropPos.z,
                 drop
             );
-            entityDrop.delayBeforeCanPickup = 0;
-            entityDrop.age = 0;
+            entityDrop.delayBeforeCanPickup = 5;
             world.spawnEntityInWorld(entityDrop);
-        }
+        });
     }
 }

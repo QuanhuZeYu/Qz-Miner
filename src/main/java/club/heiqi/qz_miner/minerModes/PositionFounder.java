@@ -70,11 +70,9 @@ public abstract class PositionFounder implements Runnable {
             try {
                 Thread.sleep(0);
             } catch (InterruptedException e) {
-                LOG.error("休眠时中断线程");
                 Thread.currentThread().interrupt(); // 终止线程
             }
         }
-        LOG.info("搜索线程结束");
     }
 
     public abstract void mainLogic();

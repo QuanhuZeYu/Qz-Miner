@@ -224,7 +224,6 @@ public class PlayerInput {
             // 清空计算器
             if (!calculator.points.isEmpty()) {
                 calculator.clear();
-                LOG.info("已清空计算器中缓存");
             }
             // 清空管理器
             if (!manager.renderCache.isEmpty()) {
@@ -245,10 +244,10 @@ public class PlayerInput {
             blockPos = null;
             count = 0;
             // 重置搜索线程
-            if (manager.curMode.thread != null) {
-                manager.curMode.thread.interrupt();
+            if (manager.curMode != null && manager.curMode.renderThread != null) {
+                manager.curMode.renderThread.interrupt();
+                manager.curMode.unregister();
             }
-            manager.curMode.unregister();
             manager.renderCache.clear();
             return;
         }

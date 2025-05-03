@@ -43,7 +43,7 @@ public abstract class AbstractMode {
     @Nullable
     public PositionFounder positionFounder;
     @Nullable
-    public Thread thread;
+    public Thread thread,renderThread;
     public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis());
     public boolean isShut = false;
 
@@ -75,9 +75,9 @@ public abstract class AbstractMode {
     public void renderModeAutoSetup() {
         if (positionFounder == null) return;
         isRenderMode.set(true);
-        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
+        renderThread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
-        thread.start();
+        renderThread.start();
     }
 
     public AtomicBoolean isInteractMode = new AtomicBoolean(false);
@@ -97,14 +97,17 @@ public abstract class AbstractMode {
             long current = System.currentTimeMillis();
             long heart = heartbeatTimer.get();
             if (current - heart >= heartbeatTimeout) {
+                LOG.info("心跳超时结束");
                 shutdown();
                 return;
             }
             if (!modeManager.getIsReady()) {
+                LOG.info("连锁按键已松开");
                 shutdown();
                 return;
             }
             if (!modeManager.isRunning.get()) {
+                LOG.info("已停止运行 - 结束");
                 shutdown();
                 return;
             }
@@ -216,7 +219,6 @@ public abstract class AbstractMode {
         EntityPlayer player = modeManager.player;
         FMLCommonHandler.instance().bus().register(this);
         MinecraftForge.EVENT_BUS.register(this);
-        LOG.info("玩家: {} 的挖掘任务已启动，注册监听器", player.getDisplayName());
     }
 
     /**
@@ -226,6 +228,11 @@ public abstract class AbstractMode {
         modeManager.isRunning.set(false);
         if (thread != null) {
             thread.interrupt(); // 终止线程
+            thread = null;
+        }
+        if (renderThread != null) {
+            renderThread.interrupt();
+            renderThread = null;
         }
         positionFounder = null;
         unregister();
@@ -233,8 +240,6 @@ public abstract class AbstractMode {
 
     public void unregister() {
         EntityPlayer player = modeManager.player;
-        // 注销监听器
-        LOG.info("玩家: {} 的挖掘任务已结束，卸载监听器", player.getDisplayName());
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
         isShut = true;

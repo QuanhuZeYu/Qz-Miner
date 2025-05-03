@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.minerModes.rangeMode;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
@@ -31,17 +32,13 @@ public class TunnelMode extends AbstractMode {
     public int allBreakCount = 0;
     @Override
     public void mainLogic() {
-        if (allBreakCount >= blockLimit - 1) {
-            shutdown();
-            return;
-        }
         lastTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - lastTime <= taskTimeLimit) {
-            if (tickBreakCount >= perTickBlock) break;
             Vector3i pos = positionFounder.cache.poll();
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= heartbeatTimeout) {
+                    LOG.info("心跳超时结束");
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
@@ -59,6 +56,13 @@ public class TunnelMode extends AbstractMode {
                     tickBreakCount++;
                     allBreakCount++;
                 }
+                // 判断挖掘数量是否终止
+                if (allBreakCount >= Config.blockLimit) {
+                    LOG.info("数量达到终止");
+                    shutdown();
+                    return;
+                }
+                if (tickBreakCount >= perTickBlock) break;
             }
         }
         tickBreakCount = 0;
