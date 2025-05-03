@@ -75,7 +75,7 @@ public class Config {
         Property whiteList = config.get(Configuration.CATEGORY_GENERAL,"whiteList",Config.whiteList,"连锁组白名单列表");
 
         Property renderLineWidth = config.get(Config.CATEGORY_CLIENT,"renderLineWidth",1.5f, "渲染线框宽度", 0.1f, 100f);
-        Property renderFadeSpeedMultiplier = config.get(Config.CATEGORY_CLIENT,"renderFadeSpeedMultiplier",0.5f, "渲染变化参数种子", 0.f, Float.MAX_VALUE);
+        Property renderFadeSpeedMultiplier = config.get(Config.CATEGORY_CLIENT,"renderFadeSpeedMultiplier",0.5f, "渲染变化参数种子，改为0或负数即可显示为白色", 0.f, Float.MAX_VALUE);
         Property renderCount = config.get(Config.CATEGORY_CLIENT,"renderCount",64, "渲染数量上限", -1, Integer.MAX_VALUE);
         Property printResult = config.get(Config.CATEGORY_CLIENT,"printResult",true, "在聊天栏打印挖掘结果");
         Property showTip = config.get(Config.CATEGORY_CLIENT,"showTip",true, "是否显示左下角提示");
@@ -121,6 +121,7 @@ public class Config {
                     if (field.getType() == int.class) field.setInt(null,property.getInt());
                     else if (field.getType() == double.class) field.setDouble(null,property.getDouble());
                     else if (field.getType() == float.class) field.setFloat(null, (float) property.getDouble());
+                    else if (field.getType() == boolean.class) field.setBoolean(null,property.getBoolean());
                     else if (field.getType() == String.class) field.set(null,property.getString());
                     else if (field.getType() == String[].class) field.set(null,property.getStringList());
                 }

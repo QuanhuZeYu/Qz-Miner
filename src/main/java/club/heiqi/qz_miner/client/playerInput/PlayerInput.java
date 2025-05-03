@@ -200,6 +200,7 @@ public class PlayerInput {
     }
 
     RenderRegion regionRender;
+    public Vector3i blockPos;
     public int count = 0;
     public static SpaceCalculator calculator = new SpaceCalculator(new ArrayList<>());
     public boolean inRender = false;
@@ -218,7 +219,7 @@ public class PlayerInput {
 
         if (regionRender == null) regionRender = new RenderRegion();
         if (!RenderCube.isInit) RenderCube.init();
-        // 清空缓存
+        // 清空缓存 - 1.未按下连锁键时
         if (!manager.getIsReady()) {
             // 清空计算器
             if (!calculator.points.isEmpty()) {
@@ -237,18 +238,33 @@ public class PlayerInput {
         int bx = event.target.blockX;
         int by = event.target.blockY;
         int bz = event.target.blockZ;
+        // 由于选择点变更导致的渲染切换逻辑
+        if (blockPos != null && (bx != blockPos.x || by != blockPos.y || bz != blockPos.z)) {
+            inRender = false;
+            calculator.clear();
+            blockPos = null;
+            count = 0;
+            // 重置搜索线程
+            if (manager.curMode.thread != null) {
+                manager.curMode.thread.interrupt();
+            }
+            manager.curMode.unregister();
+            manager.renderCache.clear();
+            return;
+        }
         // 计算距离
         int dx = (int) (bx - player.posX);
         int dy = (int) (by - player.posY + player.eyeHeight);
         int dz = (int) (bz - player.posZ);
 
-        // 渲染列表状态追踪
+        // 渲染列表状态追踪 - 未在渲染时进入渲染
         if (!inRender) {
             if ((dx * dx + dy * dy + dz * dz) > 25) {
                 return;
             }
-            /*LOG.info("[渲染] 正在触发渲染模式");*/
+            // 触发渲染预览
             manager.proxyRender(new Vector3i(bx, by, bz));
+            blockPos = new Vector3i(bx,by,bz);
             inRender = true;
         }
         for (Vector3i vector3i : manager.renderCache) {
@@ -267,7 +283,9 @@ public class PlayerInput {
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND); // 确保混合已启用
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        glColor4d(Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.3),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.5),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier),0.3);
+        if (Config.renderFadeSpeedMultiplier >0)
+            glColor4d(Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.3),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier, 0.5),Utils.optimizedOscillation(Config.renderFadeSpeedMultiplier),0.3);
+        else glColor4d(1,1,1,1);
         // 计算玩家视角偏移（同原逻辑）
         float ex = (float) (player.prevPosX + (player.posX - player.prevPosX) * event.partialTicks);
         float ey = (float) (player.prevPosY + (player.posY - player.prevPosY) * event.partialTicks);
