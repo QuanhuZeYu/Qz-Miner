@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.minerModes;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.chainMode.BaseChainMode;
+import club.heiqi.qz_miner.minerModes.chainMode.GroupMode;
 import club.heiqi.qz_miner.minerModes.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerModes.chainMode.StrictChainMode;
 import club.heiqi.qz_miner.minerModes.rangeMode.RectangularMineralMode;
@@ -166,6 +167,7 @@ public class ModeManager {
         BASE_CHAIN_MODE("qz_miner.chainmode.base_chain"),
         STRICT("qz_miner.chainmode.strict"),
         LUMBER_JACK("qz_miner.chainmode.lumberjack"),
+        GROUP("qz_miner.chainmode.group")
         ;
         public final String unLocalizedName;
 
@@ -189,6 +191,9 @@ public class ModeManager {
                 }
                 case LUMBER_JACK -> {
                     return new LumberJackMode(manager, center);
+                }
+                case GROUP -> {
+                    return new GroupMode(manager,center);
                 }
                 default -> {
                     return new BaseChainMode(manager, center);

@@ -10,7 +10,6 @@ import org.joml.Vector3i;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 继承类只需处理好搜点工作即可
@@ -27,7 +26,6 @@ public abstract class PositionFounder implements Runnable {
     public final Vector3i center;
     public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis()+10_000);
     public final AbstractMode mode;
-    public final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     /**获取到的点列表*/
     public volatile ConcurrentLinkedQueue<Vector3i> cache = new ConcurrentLinkedQueue<>();

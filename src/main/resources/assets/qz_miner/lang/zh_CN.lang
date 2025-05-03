@@ -15,9 +15,9 @@ qz_miner.chainmode.rectangular=连锁模式-矩形--(以挖掘点为中心收集
 qz_miner.chainmode.lumberjack=连锁模式-伐木--(解除高度限制仅砍伐木头)
 qz_miner.chainmode.strict=连锁模式-严格--(只有完全相同的方块才会被连锁)
 qz_miner.chainmode.relax=连锁模式-放宽--(只要掉落物是相同的也会被连锁)
-qz_miner.chainmode.chain_group=连锁模式-连锁组--(连锁组内和选择的方块)
+qz_miner.chainmode.group=连锁模式-连锁组--(白名单连锁)
 
-qz_miner.rangemode.rectangular_mineral=爆破模式-矩形矿脉  (以挖掘点为中心收集半径内所有矿石)
+qz_miner.rangemode.rectangular_mineral=爆破模式-矩形矿脉(以挖掘点为中心收集半径内所有矿石)
 qz_miner.rangemode.rectangular=爆破模式-矩形--(以挖掘点为中心破坏半径内所有可挖掘方块)
 qz_miner.rangemode.sphere=爆破模式-球体--(以挖掘点为中心破坏半径内的所有可挖掘方块)
 qz_miner.rangemode.tunnel=爆破模式-隧道--(从挖掘点开始向面朝向挖掘)

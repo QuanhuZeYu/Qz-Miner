@@ -28,7 +28,19 @@ public class Config {
     public static float coolDown = 30.0f;
     public static boolean forceNatural = false;
     public static boolean dropItemToSelf = true;
-    public static boolean unknownDropToPlayer = true;
+    /**
+     * 存放格式: {
+     *     {
+     *          stringID: minecraft:dirt,
+     *          blockMeta: 0,
+     *          mID: 0 {@code 可指代greg的mID或者bart-work的mID等Tile内存放的meta值}
+     *     },
+     * }
+     */
+    public static String[] whiteList = {
+        "stringID:minecraft:dirt,blockMeta:0,mID:0",
+        "stringID:minecraft:stone,blockMeta:0,mID:0"
+    };
 
     public static final String CATEGORY_CLIENT = "client";
     public static float renderLineWidth = 1.5f;
@@ -60,6 +72,7 @@ public class Config {
         Property coolDown = config.get(Configuration.CATEGORY_GENERAL,"coolDown",30.f, "每次揭示时需要等待的时间，单位秒", 0f, Float.MAX_VALUE);
         Property forceNatural = config.get(Configuration.CATEGORY_GENERAL,"forceNatural",false, "强制所有矿石为时运");
         Property dropItemToSelf = config.get(Configuration.CATEGORY_GENERAL,"dropItemToSelf",true, "是否将掉落物生成在脚下");
+        Property whiteList = config.get(Configuration.CATEGORY_GENERAL,"whiteList",Config.whiteList,"连锁组白名单列表");
 
         Property renderLineWidth = config.get(Config.CATEGORY_CLIENT,"renderLineWidth",1.5f, "渲染线框宽度", 0.1f, 100f);
         Property renderFadeSpeedMultiplier = config.get(Config.CATEGORY_CLIENT,"renderFadeSpeedMultiplier",0.5f, "渲染变化参数种子", 0.f, Float.MAX_VALUE);
@@ -82,6 +95,8 @@ public class Config {
         properties.add(coolDown);
         properties.add(forceNatural);
         properties.add(dropItemToSelf);
+        properties.add(whiteList);
+
         properties.add(renderLineWidth);
         properties.add(renderFadeSpeedMultiplier);
         properties.add(renderCount);
@@ -103,10 +118,11 @@ public class Config {
                 Field field = Config.class.getField(filedName);
                 Object value = field.get(null);
                 if (Objects.equals(property.getName(), filedName)) {
-                    if (value instanceof Integer) field.setInt(null,property.getInt());
-                    else if (value instanceof Double) field.setDouble(null,property.getDouble());
-                    else if (value instanceof Float) field.setFloat(null, (float) property.getDouble());
-                    else if (value instanceof String) field.set(null,property.getString());
+                    if (field.getType() == int.class) field.setInt(null,property.getInt());
+                    else if (field.getType() == double.class) field.setDouble(null,property.getDouble());
+                    else if (field.getType() == float.class) field.setFloat(null, (float) property.getDouble());
+                    else if (field.getType() == String.class) field.set(null,property.getString());
+                    else if (field.getType() == String[].class) field.set(null,property.getStringList());
                 }
             } catch (NoSuchFieldException | IllegalAccessException e) {
                 throw new RuntimeException(e);

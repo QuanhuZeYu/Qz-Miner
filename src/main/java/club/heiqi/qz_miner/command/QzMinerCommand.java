@@ -2,9 +2,22 @@ package club.heiqi.qz_miner.command;
 
 import club.heiqi.qz_miner.Config;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.registry.GameRegistry;
+import gregtech.api.metatileentity.CoverableTileEntity;
+import net.minecraft.block.Block;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.MathHelper;
+import net.minecraft.util.MovingObjectPosition;
+import net.minecraft.util.Vec3;
+import net.minecraft.world.World;
+import net.minecraftforge.common.config.Configuration;
+import net.minecraftforge.common.config.Property;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Field;
@@ -15,6 +28,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class QzMinerCommand extends CommandBase {
+    public static Logger LOG = LogManager.getLogger();
     public void register(FMLServerStartingEvent event) {
         event.registerServerCommand(this);
     }
@@ -79,6 +93,47 @@ public class QzMinerCommand extends CommandBase {
         }
         if (Objects.equals(subCommand, "help")) {
             getCommandUsage(sender);
+            return;
+        }
+        if (Objects.equals(subCommand, "addWhite")) {
+            String name = sender.getCommandSenderName();
+            World world = sender.getEntityWorld();
+            EntityPlayer player = world.getPlayerEntityByName(name);
+            Vec3 vec3 = Vec3.createVectorHelper(player.posX,player.posY,player.posZ);
+            float f1 = MathHelper.cos(-player.rotationYaw * 0.017453292F - (float)Math.PI);
+            float f2 = MathHelper.sin(-player.rotationYaw * 0.017453292F - (float)Math.PI);
+            float f3 = -MathHelper.cos(-player.rotationPitch * 0.017453292F);
+            float f4 = MathHelper.sin(-player.rotationPitch * 0.017453292F);
+            Vec3 vec31 = Vec3.createVectorHelper((double)(f2 * f3), (double)f4, (double)(f1 * f3));
+            Vec3 vec32 = vec3.addVector(vec31.xCoord, vec31.yCoord, vec31.zCoord);
+            MovingObjectPosition mop = player.worldObj.func_147447_a(vec3, vec32, false, false, true);
+            Block block = world.getBlock(mop.blockX,mop.blockY,mop.blockZ);
+            int meta = world.getBlockMetadata(mop.blockX,mop.blockY,mop.blockZ);
+            int mID = 0;
+            TileEntity tile = world.getTileEntity(mop.blockX,mop.blockY,mop.blockZ);
+            if (tile instanceof CoverableTileEntity cT) {
+                Field f = null;
+                try {
+                    f = cT.getClass().getField("mID");
+                    f.setAccessible(true);
+                    mID = f.getInt(cT);
+                } catch (NoSuchFieldException | IllegalAccessException e) {
+                    LOG.error("反射获取mID出现异常");
+                    sender.addChatMessage(new ChatComponentText("反射获取mID出现异常"));
+                    return;
+                }
+            }
+            // 设置配置
+            List<String> c = new ArrayList<>();
+            for (String s : Config.whiteList) c.add(s);
+            String toAdd = "stringID:" + GameRegistry.findUniqueIdentifierFor(block) + ",blockMeta:" + meta + ",mID:" + mID;
+            c.add(toAdd);
+            String[] n = new String[c.size()];
+            c.forEach(component -> n[c.indexOf(component)]=component);
+            Property whiteList = Config.config.get(Configuration.CATEGORY_GENERAL,"whiteList",Config.whiteList,"连锁组白名单列表");
+            Config.whiteList = n;
+            whiteList.set(n);
+            Config.save();
             return;
         }
         // 匹配整数的正则表达式：正负整数
@@ -152,6 +207,7 @@ public class QzMinerCommand extends CommandBase {
             Config.walkMap(f -> result.add(f.getName()));
             result.add("check");
             result.add("help");
+            result.add("addWhite");
             return getListOfStringsFromIterableMatchingLastWord(args,result);
         }
         return null;

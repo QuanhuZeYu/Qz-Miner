@@ -35,6 +35,7 @@ public abstract class AbstractMode {
 
     public final ModeManager modeManager;
     /**提供挖掘点坐标的类*/
+    @Nullable
     public PositionFounder positionFounder;
     @Nullable
     public Thread thread;
@@ -58,6 +59,7 @@ public abstract class AbstractMode {
     }
 
     public void mineModeAutoSetup() {
+        if (positionFounder == null) return;
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
         thread.start();
@@ -66,6 +68,7 @@ public abstract class AbstractMode {
     public AtomicBoolean isRenderMode = new AtomicBoolean(false);
     @SideOnly(Side.CLIENT)
     public void renderModeAutoSetup() {
+        if (positionFounder == null) return;
         isRenderMode.set(true);
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
@@ -74,6 +77,7 @@ public abstract class AbstractMode {
 
     public AtomicBoolean isInteractMode = new AtomicBoolean(false);
     public void interactModeAutoSetup() {
+        if (positionFounder == null) return;
         isInteractMode.set(true);
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
         register();
