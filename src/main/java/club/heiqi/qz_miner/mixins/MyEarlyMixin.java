@@ -20,7 +20,9 @@ public class MyEarlyMixin implements IEarlyMixinLoader, IFMLLoadingPlugin {
         return Arrays.asList(
             "MixinsBlock",
             "MixinsEntityTracker_Fix",
-            "MixinsWorldClient"
+            "MixinsWorldClient",
+            "MixinsWorldServer",
+            "MixinsPlayerManager"
         );
     }
 
