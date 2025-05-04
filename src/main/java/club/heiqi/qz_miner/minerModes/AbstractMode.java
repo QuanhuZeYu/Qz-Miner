@@ -12,11 +12,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.management.PlayerManager;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.util.LongHashMap;
 import net.minecraft.world.World;
-import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,7 +88,7 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     @SideOnly(Side.SERVER)
-    public void tick(TickEvent.ServerTickEvent event) {
+    public void minerTick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
             sendHeartbeat();
             long current = System.currentTimeMillis();
@@ -117,17 +114,15 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     @SideOnly(Side.CLIENT)
-    public void clientTick(TickEvent.ClientTickEvent event) {
+    public void renderTick(TickEvent.ClientTickEvent event) {
         sendHeartbeat();
         long current = System.currentTimeMillis();
         long heart = heartbeatTimer.get();
         if (current - heart >= heartbeatTimeout) {
-            /*LOG.info("[渲染] 心跳超时");*/
             shutdown();
             return;
         }
         if (!modeManager.getIsReady()) {
-            /*LOG.info("[渲染] 未准备");*/
             shutdown();
             return;
         }
@@ -166,14 +161,6 @@ public abstract class AbstractMode {
         EntityPlayer player = modeManager.player;
         if (player instanceof EntityPlayerMP playerMP) {
             if (playerMP.playerNetServerHandler == null) return false;
-        }
-        if (world instanceof WorldServer worldServer) {
-            PlayerManager playerManager = worldServer.getPlayerManager();
-            LongHashMap instances = playerManager.playerInstances;
-            if (instances == null) {
-                LOG.error("playerInstances 为 null 异常");
-                return false;
-            }
         }
         int vx = pos.x; int vy = pos.y; int vz = pos.z;
         int px = (int) Math.floor(player.posX); int py = (int) Math.floor(player.posY); int pz = (int) Math.floor(player.posZ);
