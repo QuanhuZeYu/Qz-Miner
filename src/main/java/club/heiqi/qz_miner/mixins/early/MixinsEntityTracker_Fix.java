@@ -21,9 +21,6 @@ public abstract class MixinsEntityTracker_Fix {
     @Unique
     private final Object lock = new Object();
 
-    /*
-     * 将 trackedEntities 替换为线程安全的 ConcurrentHashMap KeySet
-     */
     @Inject(
         method = "<init>", // 构造方法的注入点
         at = @At("RETURN")  // 在构造方法执行后执行
