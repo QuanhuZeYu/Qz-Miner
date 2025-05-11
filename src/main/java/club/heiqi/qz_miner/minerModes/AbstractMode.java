@@ -94,21 +94,18 @@ public abstract class AbstractMode {
             long current = System.currentTimeMillis();
             long heart = heartbeatTimer.get();
             if (current - heart >= heartbeatTimeout) {
-                LOG.info("心跳超时结束");
                 shutdown();
                 return;
             }
             if (!modeManager.getIsReady()) {
-                LOG.info("连锁按键已松开");
                 shutdown();
                 return;
             }
             if (!modeManager.isRunning.get()) {
-                LOG.info("已停止运行 - 结束");
                 shutdown();
                 return;
             }
-            if (!isShut) mainLogic();
+            if (!isShut) mainLogic(LogicMode.SERVER);
         }
     }
 
@@ -130,10 +127,10 @@ public abstract class AbstractMode {
         if (isInLag()) {
             return;
         }
-        if (!isShut) mainLogic();
+        if (!isShut) mainLogic(LogicMode.CLIENT);
     }
 
-    public abstract void mainLogic();
+    public abstract void mainLogic(LogicMode logicMode);
 
 
 

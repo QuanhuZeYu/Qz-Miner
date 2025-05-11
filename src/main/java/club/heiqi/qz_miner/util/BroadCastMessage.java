@@ -17,4 +17,15 @@ public class BroadCastMessage {
             playerMP.addChatMessage(CCT);
         }
     }
+
+    public static void sendToPlayer(String displayName, String text) {
+        List<EntityPlayerMP> allPlayers = FMLCommonHandler.instance().getMinecraftServerInstance().getConfigurationManager().playerEntityList;
+        ChatComponentText CCT = new ChatComponentText(text);
+        for (EntityPlayerMP playerMP : allPlayers) {
+            if (playerMP.getDisplayName().equals(displayName)) {
+                playerMP.addChatMessage(CCT);
+                return;
+            }
+        }
+    }
 }

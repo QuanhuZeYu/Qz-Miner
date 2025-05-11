@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.minerModes.rangeMode;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerModes.AbstractMode;
+import club.heiqi.qz_miner.minerModes.LogicMode;
 import club.heiqi.qz_miner.minerModes.ModeManager;
 import club.heiqi.qz_miner.minerModes.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerModes.rangeMode.posFounder.RectangularFounder;
@@ -34,7 +35,7 @@ public class RectangularMode extends AbstractMode {
     public int tickBreakCount = 0;
     public int allBreakCount = 0;
     @Override
-    public void mainLogic() {
+    public void mainLogic(LogicMode logicMode) {
         lastTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - lastTime <= taskTimeLimit) {
             Vector3i pos = positionFounder.cache.poll();
@@ -49,12 +50,12 @@ public class RectangularMode extends AbstractMode {
             }
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (isRenderMode.get()) modeManager.renderCache.add(pos);
-                else if (isInteractMode.get()) {
+                if (logicMode == LogicMode.CLIENT && isRenderMode.get()) modeManager.renderCache.add(pos);
+                else if (logicMode == LogicMode.SERVER && isInteractMode.get()) {
                     rightClicker.rightClick(pos);
                     tickBreakCount++;
                     allBreakCount++;
-                } else {
+                } else if (logicMode == LogicMode.SERVER) {
                     breaker.tryHarvestBlock(pos);
                     tickBreakCount++;
                     allBreakCount++;
