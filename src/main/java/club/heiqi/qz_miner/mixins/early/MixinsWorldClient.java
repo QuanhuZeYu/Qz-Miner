@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner.mixins.early;
 
 import club.heiqi.qz_miner.Mod_Main;
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerMode.ModeManager;
 import club.heiqi.qz_miner.statueStorage.AllPlayer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.WorldClient;

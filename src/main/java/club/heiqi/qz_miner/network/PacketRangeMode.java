@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.network;
 
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerMode.ModeManager;
+import club.heiqi.qz_miner.minerMode.enums.RangeMode;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -18,7 +19,7 @@ public class PacketRangeMode implements IMessage {
         mode = 0;
     }
 
-    public PacketRangeMode(ModeManager.RangeMode mode) {
+    public PacketRangeMode(RangeMode mode) {
         this.mode = mode.ordinal();
     }
 
@@ -38,7 +39,7 @@ public class PacketRangeMode implements IMessage {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
             ModeManager modeManager = allPlayerStorage.allPlayer.get(uuid);
-            modeManager.rangeMode = ModeManager.RangeMode.values()[message.mode];
+            modeManager.rangeMode = RangeMode.values()[message.mode];
             return null;
         }
     }

@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner.network;
 
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerMode.ModeManager;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;

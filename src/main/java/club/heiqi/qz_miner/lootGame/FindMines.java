@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.lootGame;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MY_LOG;
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerMode.ModeManager;
 import club.heiqi.qz_miner.network.PacketSweepMine;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.util.CheckCompatibility;

@@ -5,8 +5,9 @@ import club.heiqi.qz_miner.client.AnimateMessagesOld;
 import club.heiqi.qz_miner.client.cubeRender.RenderCube;
 import club.heiqi.qz_miner.client.cubeRender.RenderRegion;
 import club.heiqi.qz_miner.client.cubeRender.SpaceCalculator;
-import club.heiqi.qz_miner.minerModes.ModeManager;
-import club.heiqi.qz_miner.minerModes.utils.Utils;
+import club.heiqi.qz_miner.minerMode.enums.MainMode;
+import club.heiqi.qz_miner.minerMode.ModeManager;
+import club.heiqi.qz_miner.minerMode.utils.Utils;
 import club.heiqi.qz_miner.network.PacketIsReady;
 import club.heiqi.qz_miner.network.PacketPrintResult;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
@@ -28,6 +29,7 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Vector2d;
 import org.joml.Vector3i;
 import org.lwjgl.input.Keyboard;
@@ -50,8 +52,7 @@ public class PlayerInput {
     public static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     public static Vector3i center = new Vector3i();
 
-    public static int intervalTime = 25; // 最小发包间隔50ms
-    public static int renderInterval = 500;
+    public static int intervalTime = 25; // 最小发包间隔25ms
     public static long lastSendTime;
     public static String category = "key.categories.qz_miner";
 
@@ -65,14 +66,9 @@ public class PlayerInput {
         I18n.format("key.qz_miner.isPress"), Keyboard.KEY_GRAVE, category
     );
 
-
-    public static ModeManager manager;
-
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        if (player == null) return;
-        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        ModeManager manager = tryGetManager();
         if (manager == null) return;
 
         if (switchMainMode.isPressed()) {
@@ -89,15 +85,13 @@ public class PlayerInput {
 
     @SubscribeEvent
     public void onInputEvent(InputEvent event) {
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        if (player == null) return;
-        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        ModeManager manager = tryGetManager();
         if (manager == null) return;
-        setManager(player);
 
         boolean isPressed = isPress.getIsKeyPressed();
         if (System.currentTimeMillis() - lastSendTime < intervalTime) return;
         lastSendTime = System.currentTimeMillis();
+
         if (!isPressed && manager.getIsReady()) { // 如果未按下，且玩家状态为连锁就绪，关闭就绪状态
             manager.setIsReady(false);
             QzMinerNetWork.sendMessageToServer(new PacketIsReady(false));
@@ -116,16 +110,13 @@ public class PlayerInput {
      */
     @SubscribeEvent
     public void OnRenderGameOverlay(RenderGameOverlayEvent.Post event) {
+        ModeManager manager = tryGetManager();
+        if (manager == null) return;
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) {
             return;
         }
-        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
-        if (manager == null) {
-            allPlayerStorage.clientRegister(player);
-            return;
-        }
-        setManager(player);
+
         // 配置关闭渲染提示后不进行渲染
         if (!Config.showTip) {
             return;
@@ -211,11 +202,9 @@ public class PlayerInput {
      */
     @SubscribeEvent
     public void drawHighLight(DrawBlockHighlightEvent event) {
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (!Config.useRender) return;
-        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        ModeManager manager = tryGetManager();
         if (manager == null) return;
-        setManager(player);
 
         if (regionRender == null) regionRender = new RenderRegion();
         if (!RenderCube.isInit) RenderCube.init();
@@ -244,13 +233,14 @@ public class PlayerInput {
             blockPos = null;
             count = 0;
             // 重置搜索线程
-            if (manager.curMode != null && manager.curMode.renderThread != null) {
-                manager.curMode.renderThread.interrupt();
-                manager.curMode.unregister();
+            if (manager.clientMode != null && manager.clientMode.thread != null) {
+                manager.clientMode.thread.interrupt();
+                manager.clientMode.unregister();
             }
             manager.renderCache.clear();
             return;
         }
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         // 计算距离
         int dx = (int) (bx - player.posX);
         int dy = (int) (by - player.posY + player.eyeHeight);
@@ -364,13 +354,14 @@ public class PlayerInput {
     }
 
     public String getMainMode() {
+        ModeManager manager = tryGetManager();
         return I18n.format(manager.mainMode.unLocalizedName);
     }
 
     public String getSubMode() {
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
-        ModeManager.MainMode mainMode = manager.mainMode;
+        ModeManager manager = tryGetManager();
+        if (manager == null) return "";
+        MainMode mainMode = manager.mainMode;
         switch (mainMode) {
             case RANGE_MODE -> {
                 return I18n.format(manager.rangeMode.unLocalizedName);
@@ -396,11 +387,23 @@ public class PlayerInput {
         return this;
     }
 
-    public void setManager(EntityPlayer player) {
+
+
+    public ModeManager tryGetManager() {
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        if (player == null) return null;
+        ModeManager manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        trySetManager(manager);
+        return manager;
+    }
+
+    public void trySetManager(ModeManager manager) {
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+        if (player == null) return;
+        // 如果管理器中的是服务端世界可以不用设置
         if (manager.world.isRemote) {
             manager.world = player.worldObj;
-        }
-        else if (!player.worldObj.isRemote) {
+        } else if (!player.worldObj.isRemote) {
             manager.world = player.worldObj;
         }
         manager.player = player;

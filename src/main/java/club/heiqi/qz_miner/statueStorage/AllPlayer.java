@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner.statueStorage;
 
 import club.heiqi.qz_miner.MOD_INFO;
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerMode.ModeManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;

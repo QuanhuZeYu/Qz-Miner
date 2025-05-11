@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.network;
 
-import club.heiqi.qz_miner.minerModes.ModeManager;
+import club.heiqi.qz_miner.minerMode.enums.ChainMode;
+import club.heiqi.qz_miner.minerMode.ModeManager;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -18,7 +19,7 @@ public class PacketChainMode implements IMessage {
         mode = 0;
     }
 
-    public PacketChainMode(ModeManager.ChainMode mode) {
+    public PacketChainMode(ChainMode mode) {
         this.mode = mode.ordinal();
     }
 
@@ -38,7 +39,7 @@ public class PacketChainMode implements IMessage {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
             ModeManager modeManager = allPlayerStorage.allPlayer.get(uuid);
-            modeManager.chainMode = ModeManager.ChainMode.values()[message.mode];
+            modeManager.chainMode = ChainMode.values()[message.mode];
 //            logger.info("链模式已切换到: {}", modeManager.chainMode.unLocalizedName);
             return null;
         }
