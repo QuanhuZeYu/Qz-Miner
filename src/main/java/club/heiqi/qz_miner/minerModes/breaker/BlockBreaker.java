@@ -17,12 +17,16 @@ import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.ItemSword;
+import net.minecraft.network.Packet;
 import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldSettings;
 import net.minecraftforge.common.ForgeHooks;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -99,7 +103,7 @@ public class BlockBreaker {
             if (playerMP.theItemInWorldManager.isCreative()) {
                 gameType = WorldSettings.GameType.CREATIVE;
             }
-            BlockEvent.BreakEvent event = ForgeHooks.onBlockBreakEvent(world, gameType, playerMP, x, y, z);
+            BlockEvent.BreakEvent event = copyOnBlockBreakEvent(gameType,pos);
             if (event.isCanceled()) {
                 return;
             }
@@ -142,6 +146,46 @@ public class BlockBreaker {
             return true;
         }
         return false;
+    }
+
+    public BlockEvent.BreakEvent copyOnBlockBreakEvent(WorldSettings.GameType type,Vector3i pos) {
+        boolean preCancelEvent = false;
+        int x = pos.x;int y = pos.y;int z = pos.z;
+        if (type.isAdventure() && !player.isCurrentToolAdventureModeExempt(x,y,z)) {
+            preCancelEvent = true;
+        }
+        else if (type.isCreative() && player.getHeldItem() != null && player.getHeldItem().getItem() instanceof ItemSword) {
+            preCancelEvent = true;
+        }
+
+        if (world.getTileEntity(x,y,z) == null) {
+            S23PacketBlockChange packet = new S23PacketBlockChange(x,y,z,world);
+            packet.field_148883_d = Blocks.air;
+            packet.field_148884_e = 0;
+            if (player instanceof EntityPlayerMP playerMP) {
+                playerMP.playerNetServerHandler.sendPacket(packet);
+            }
+        }
+
+        Block block = world.getBlock(x,y,z);
+        int meta = world.getBlockMetadata(x,y,z);
+        BlockEvent.BreakEvent event = new BlockEvent.BreakEvent(x,y,z,world,block,meta,player);
+        event.setCanceled(preCancelEvent);
+        MinecraftForge.EVENT_BUS.post(event);
+
+        if (event.isCanceled()) {
+            if (player instanceof EntityPlayerMP playerMP) {
+                playerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x,y,z,world));
+                TileEntity tileEntity = world.getTileEntity(x,y,z);
+                if (tileEntity != null) {
+                    Packet packet = tileEntity.getDescriptionPacket();
+                    if (packet != null) {
+                        playerMP.playerNetServerHandler.sendPacket(packet);
+                    }
+                }
+            }
+        }
+        return event;
     }
 
 
