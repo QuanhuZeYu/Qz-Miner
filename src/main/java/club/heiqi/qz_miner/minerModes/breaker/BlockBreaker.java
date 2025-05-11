@@ -162,9 +162,7 @@ public class BlockBreaker {
             S23PacketBlockChange packet = new S23PacketBlockChange(x,y,z,world);
             packet.field_148883_d = Blocks.air;
             packet.field_148884_e = 0;
-            if (player instanceof EntityPlayerMP playerMP) {
-                playerMP.playerNetServerHandler.sendPacket(packet);
-            }
+            wrapSendPacket(packet);
         }
 
         Block block = world.getBlock(x,y,z);
@@ -174,18 +172,24 @@ public class BlockBreaker {
         MinecraftForge.EVENT_BUS.post(event);
 
         if (event.isCanceled()) {
-            if (player instanceof EntityPlayerMP playerMP) {
-                playerMP.playerNetServerHandler.sendPacket(new S23PacketBlockChange(x,y,z,world));
-                TileEntity tileEntity = world.getTileEntity(x,y,z);
-                if (tileEntity != null) {
-                    Packet packet = tileEntity.getDescriptionPacket();
-                    if (packet != null) {
-                        playerMP.playerNetServerHandler.sendPacket(packet);
-                    }
+            wrapSendPacket(new S23PacketBlockChange(x,y,z,world));
+            TileEntity tileEntity = world.getTileEntity(x,y,z);
+            if (tileEntity != null) {
+                Packet packet = tileEntity.getDescriptionPacket();
+                if (packet != null) {
+                    wrapSendPacket(packet);
                 }
             }
         }
         return event;
+    }
+
+    public void wrapSendPacket(Packet packet) {
+        if (player instanceof EntityPlayerMP playerMP) {
+            if (playerMP.playerNetServerHandler != null) {
+                playerMP.playerNetServerHandler.sendPacket(packet);
+            }
+        }
     }
 
 
