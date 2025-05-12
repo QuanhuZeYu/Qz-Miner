@@ -10,7 +10,6 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
-import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
@@ -82,10 +81,6 @@ public abstract class AbstractMode {
         this.side = sides;
         World world = modeManager.world;
         EntityPlayer player = modeManager.player;
-        if (sides == Sides.CLIENT) {
-            player = Minecraft.getMinecraft().thePlayer;
-            world = Minecraft.getMinecraft().theWorld;
-        }
         blockSample = world.getBlock(center.x, center.y, center.z);
         tileSample = world.getTileEntity(center.x, center.y, center.z);
         blockSampleMeta = world.getBlockMetadata(center.x, center.y, center.z);
