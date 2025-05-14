@@ -125,7 +125,9 @@ public class BlockBreaker {
             if (stack != null) {
                 stack.func_150999_a(world,block,x,y,z,player);
                 if (stack.stackSize == 0) {
-                    player.destroyCurrentEquippedItem();
+                    try {
+                        player.destroyCurrentEquippedItem();
+                    } catch (Throwable ignore) {/*无视风险继续运行*/}
                 }
             }
             if (canHarvest) {
