@@ -311,7 +311,7 @@ public abstract class AbstractMode {
         }
         // 排除脚下方块
         boolean isUnder = vx == px && vy == (py-1) && vz == pz;
-        if (isUnder) {
+        if (isUnder && Config.posFounderSaveUnder) {
             return false;
         }
         // 判断工具能否挖掘
