@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.mixins.early;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.util.BroadCastMessage;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
@@ -32,15 +33,18 @@ public class MixinsWorldServer {
         ci.cancel();
         int i = ((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.size();
         boolean clearAllNextTick = false;
-        if (i != ((WorldServer)((Object)this)).pendingTickListEntriesHashSet.size())
-        {
-            BroadCastMessage.broadCastMessage("qz_Miner已阻止计划刻不同步导致的崩溃；须知：可能会产生其他难以排查的问题；单人模式建议重进存档，服务端建议重启");
+        if (i != ((WorldServer)((Object)this)).pendingTickListEntriesHashSet.size()) {
+            if (Config.tickOutSyncCrash) {
+                throw new IllegalStateException("TickNextTick list out of synch");
+            }
+            BroadCastMessage.broadCastMessage("qz_Miner已阻止计划刻不同步导致的崩溃；可在配置中关闭此功能[tickOutSyncCrash]");
             clearAllNextTick = true;
         }
         {
             ((WorldServer)((Object)this)).theProfiler.startSection("cleaning");
             NextTickListEntry nextticklistentry;
-
+            // 限制更新次数 - 使用配置来控制
+            if (i > Config.tickUpdateCount) i = Config.tickUpdateCount;
             for (int j = 0; j < i; ++j)
             {
                 nextticklistentry = (NextTickListEntry)((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.first();
@@ -59,8 +63,7 @@ public class MixinsWorldServer {
             ((WorldServer)((Object)this)).theProfiler.startSection("ticking");
             Iterator iterator = ((WorldServer)((Object)this)).pendingTickListEntriesThisTick.iterator();
 
-            while (iterator.hasNext())
-            {
+            while (iterator.hasNext()) {
                 nextticklistentry = (NextTickListEntry)iterator.next();
                 iterator.remove();
                 //Keeping here as a note for future when it may be restored.

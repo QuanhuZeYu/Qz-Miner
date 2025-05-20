@@ -28,6 +28,8 @@ public class Config {
     public static float coolDown = 30.0f;
     public static boolean forceNatural = false;
     public static boolean dropItemToSelf = true;
+    public static int tickUpdateCount = 1000;
+    public static boolean tickOutSyncCrash = false;
     /**
      * 存放格式: {
      *     {
@@ -73,6 +75,8 @@ public class Config {
         Property forceNatural = config.get(Configuration.CATEGORY_GENERAL,"forceNatural",false, "强制所有矿石为时运");
         Property dropItemToSelf = config.get(Configuration.CATEGORY_GENERAL,"dropItemToSelf",true, "是否将掉落物生成在脚下");
         Property whiteList = config.get(Configuration.CATEGORY_GENERAL,"whiteList",Config.whiteList,"连锁组白名单列表");
+        Property tickUpdateCount = config.get(Configuration.CATEGORY_GENERAL,"tickUpdateCount",1000,"每个时间刻的计划刻更新次数，默认为1000次",1,Integer.MAX_VALUE);
+        Property tickOutSyncCrash = config.get(Configuration.CATEGORY_GENERAL,"tickOutSyncCrash",false,"是否让游戏在计划刻不同步时崩溃[实验性功能；如果出现游戏运行异常较多时可以关闭此功能]");
 
         Property renderLineWidth = config.get(Config.CATEGORY_CLIENT,"renderLineWidth",1.5f, "渲染线框宽度", 0.1f, 100f);
         Property renderFadeSpeedMultiplier = config.get(Config.CATEGORY_CLIENT,"renderFadeSpeedMultiplier",0.5f, "渲染变化参数种子，改为0或负数即可显示为白色", 0.f, Float.MAX_VALUE);
@@ -96,6 +100,8 @@ public class Config {
         properties.add(forceNatural);
         properties.add(dropItemToSelf);
         properties.add(whiteList);
+        properties.add(tickUpdateCount);
+        properties.add(tickOutSyncCrash);
 
         properties.add(renderLineWidth);
         properties.add(renderFadeSpeedMultiplier);
