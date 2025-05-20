@@ -118,6 +118,8 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void logicTick(TickEvent.ServerTickEvent event) {
+        // 用于取消监听失败时再次卸载流程
+        if (checkShut()) return;
         if (event.phase == TickEvent.Phase.START && side == Sides.SERVER) {
             sendHeartbeat();
             if (!checkHeartBeat()) {
@@ -141,6 +143,8 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void renderTick(TickEvent.ClientTickEvent event) {
+        // 用于取消监听失败时再次卸载流程
+        if (checkShut()) return;
         if (event.phase == TickEvent.Phase.START) return;
         sendHeartbeat();
         if (!checkHeartBeat()) {
@@ -237,6 +241,17 @@ public abstract class AbstractMode {
         }
         unregister();
         positionFounder = null;
+    }
+
+    /**
+     * 返回是否应当终止，为true时表明已经卸载
+     */
+    public boolean checkShut() {
+        if (isShut) {
+            shutdown();
+            return true;
+        }
+        return false;
     }
 
     public void addPreUnregisterTask(Runnable task) {

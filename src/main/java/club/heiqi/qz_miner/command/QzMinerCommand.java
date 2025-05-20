@@ -97,6 +97,7 @@ public class QzMinerCommand extends CommandBase {
             sender.addChatMessage(
                 new ChatComponentText(
                     "当前后台有"+ AbstractMode.TRACER.size()+"个挖掘监听器在后台监听tick!"));
+            return;
         }
         else if (Objects.equals(subCommand, "cleanRenderCacheSize")) {
             if (FMLCommonHandler.instance().getEffectiveSide().isClient()) {
@@ -109,6 +110,7 @@ public class QzMinerCommand extends CommandBase {
                     indexesBufferF.set(null,BufferUtils.createIntBuffer(initSizeF.getInt(null)));
                 } catch (Throwable ignored) {}
             }
+            return;
         }
         else if (Objects.equals(subCommand, "addWhite")) {
             String name = sender.getCommandSenderName();
