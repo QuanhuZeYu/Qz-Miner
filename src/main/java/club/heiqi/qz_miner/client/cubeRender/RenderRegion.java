@@ -39,16 +39,40 @@ public class RenderRegion {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     }
 
-    FloatBuffer verticesBuffer = BufferUtils.createFloatBuffer(Integer.MAX_VALUE/10);
-    IntBuffer indexesBuffer = BufferUtils.createIntBuffer(Integer.MAX_VALUE/10);
-
+    FloatBuffer verticesBuffer = BufferUtils.createFloatBuffer(8192);
+    long verticesDownSizeTime;
+    IntBuffer indexesBuffer = BufferUtils.createIntBuffer(8192);
+    long indexesDownSizeTime;
 
     public void render(float[] vertices, int[] indexes) {
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
         verticesBuffer.clear();
+        // 动态扩容
+        if (vertices.length > verticesBuffer.capacity()) {
+            verticesBuffer = BufferUtils.createFloatBuffer(vertices.length + Math.min(1024,vertices.length/2));
+        }
+        // 动态缩容 - 超过10s使用时间后才进行一次缩容
+        else if (verticesBuffer.capacity() > Math.max(8192,vertices.length / 2) && System.currentTimeMillis() - verticesDownSizeTime >= 10_000) {
+            verticesDownSizeTime = System.currentTimeMillis();
+            // 最小调整到8192
+            verticesBuffer = BufferUtils.createFloatBuffer(Math.max(vertices.length + Math.max(1024,vertices.length/2),8192));
+        }
         verticesBuffer.put(vertices).flip();
+
         indexesBuffer.clear();
+        // 动态扩容
+        if (indexes.length > indexesBuffer.capacity()) {
+            indexesBuffer = BufferUtils.createIntBuffer(indexes.length + Math.min(1024,indexes.length/2));
+        }
+        // 动态缩容
+        else if (verticesBuffer.capacity() > Math.max(8192,vertices.length / 2) && System.currentTimeMillis() - indexesDownSizeTime >= 10_000) {
+            indexesDownSizeTime = System.currentTimeMillis();
+            // 最小调整到8192
+            indexesBuffer = BufferUtils.createIntBuffer(Math.max(indexes.length + Math.min(1024,indexes.length/2),8192));
+        }
         indexesBuffer.put(indexes).flip();
+
         // 动态更新VBO
         glBindVertexArray(vao);
         if (glGetBufferParameteri(GL_ARRAY_BUFFER, GL_BUFFER_SIZE) < vertices.length * Float.BYTES) {

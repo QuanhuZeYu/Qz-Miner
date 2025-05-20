@@ -44,9 +44,6 @@ public class ModeManager {
 
     public Logger LOG = LogManager.getLogger();
     public UUID registryInfo = UUID.randomUUID();
-    /**掉落物管理*/
-    // 全局掉落物表：Key=位置，Value=该位置的实体队列（线程安全）
-    public static ConcurrentHashMap<Vector3i, ConcurrentLinkedQueue<EntityItem>> GLOBAL_DROPS = new ConcurrentHashMap<>();
     public ConcurrentLinkedQueue<Vector3i> selfDrops = new ConcurrentLinkedQueue<>();
 
     /**缓存的玩家引用*/
