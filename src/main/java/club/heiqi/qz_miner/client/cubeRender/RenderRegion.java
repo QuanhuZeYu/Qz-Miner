@@ -39,8 +39,9 @@ public class RenderRegion {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     }
 
-    public FloatBuffer verticesBuffer = BufferUtils.createFloatBuffer(81920);
-    public IntBuffer indexesBuffer = BufferUtils.createIntBuffer(81920);
+    public static int initSize = 81920;
+    public FloatBuffer verticesBuffer = BufferUtils.createFloatBuffer(initSize);
+    public IntBuffer indexesBuffer = BufferUtils.createIntBuffer(initSize);
 
     public void render(float[] vertices, int[] indexes) {
         glBindBuffer(GL_ARRAY_BUFFER, vbo);

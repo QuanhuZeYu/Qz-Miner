@@ -104,8 +104,9 @@ public class QzMinerCommand extends CommandBase {
                     Class<?> RenderRegionClass = Class.forName("club.heiqi.qz_miner.client.cubeRender.RenderRegion");
                     Field verticesBufferF = RenderRegionClass.getField("verticesBuffer");
                     Field indexesBufferF = RenderRegionClass.getField("indexesBuffer");
-                    verticesBufferF.set(null, BufferUtils.createFloatBuffer(8192));
-                    indexesBufferF.set(null,BufferUtils.createIntBuffer(8192));
+                    Field initSizeF = RenderRegionClass.getField("initSize");
+                    verticesBufferF.set(null, BufferUtils.createFloatBuffer(initSizeF.getInt(null)));
+                    indexesBufferF.set(null,BufferUtils.createIntBuffer(initSizeF.getInt(null)));
                 } catch (Throwable ignored) {}
             }
         }
