@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.command;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.util.RayTrace;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.registry.GameRegistry;
 import gregtech.api.metatileentity.CoverableTileEntity;
@@ -18,6 +19,7 @@ import net.minecraftforge.common.config.Property;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
+import org.lwjgl.BufferUtils;
 
 import java.lang.reflect.Field;
 import java.util.*;
@@ -95,6 +97,17 @@ public class QzMinerCommand extends CommandBase {
             sender.addChatMessage(
                 new ChatComponentText(
                     "当前后台有"+ AbstractMode.TRACER.size()+"个挖掘监听器在后台监听tick!"));
+        }
+        else if (Objects.equals(subCommand, "cleanRenderCacheSize")) {
+            if (FMLCommonHandler.instance().getEffectiveSide().isClient()) {
+                try {
+                    Class<?> RenderRegionClass = Class.forName("club.heiqi.qz_miner.client.cubeRender.RenderRegion");
+                    Field verticesBufferF = RenderRegionClass.getField("verticesBuffer");
+                    Field indexesBufferF = RenderRegionClass.getField("indexesBuffer");
+                    verticesBufferF.set(null, BufferUtils.createFloatBuffer(8192));
+                    indexesBufferF.set(null,BufferUtils.createIntBuffer(8192));
+                } catch (Throwable ignored) {}
+            }
         }
         else if (Objects.equals(subCommand, "addWhite")) {
             String name = sender.getCommandSenderName();
