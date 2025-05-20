@@ -141,7 +141,7 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void renderTick(TickEvent.ClientTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && side == Sides.CLIENT) return;
+        if (event.phase == TickEvent.Phase.START) return;
         sendHeartbeat();
         if (!checkHeartBeat()) {
             shutdown();
@@ -235,9 +235,8 @@ public abstract class AbstractMode {
             thread.interrupt(); // 终止线程
             thread = null;
         }
-        positionFounder = null;
         unregister();
-        TRACER.remove(this);
+        positionFounder = null;
     }
 
     public void addPreUnregisterTask(Runnable task) {

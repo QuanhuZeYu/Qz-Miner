@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.command;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.util.RayTrace;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.registry.GameRegistry;
@@ -89,6 +90,11 @@ public class QzMinerCommand extends CommandBase {
         else if (Objects.equals(subCommand, "help")) {
             getCommandUsage(sender);
             return;
+        }
+        else if (Objects.equals(subCommand, "abstractModeTrace")) {
+            sender.addChatMessage(
+                new ChatComponentText(
+                    "当前后台有"+ AbstractMode.TRACER.size()+"个挖掘监听器在后台监听tick!"));
         }
         else if (Objects.equals(subCommand, "addWhite")) {
             String name = sender.getCommandSenderName();
