@@ -63,6 +63,7 @@ public class BlockBreaker {
             aeTe.getDrops(world,x,y,z,drops);
             Vector3f dropPos = Utils.getItemDropPos(player);
             drops.forEach(d -> world.spawnEntityInWorld(new EntityItem(world,dropPos.x,dropPos.y,dropPos.z,d)));
+            return;
         }
         copyTryHarvestBlock(pos);
         /*BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
