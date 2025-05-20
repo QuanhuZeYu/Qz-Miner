@@ -42,7 +42,6 @@ public class BlockBreaker {
     public Logger LOG = LogManager.getLogger();
     public EntityPlayer player;
     public World world;
-    public List<ItemStack> drops = new ArrayList<>();
 
     public BlockBreaker(EntityPlayer player, World world) {
         this.player = player;

@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner;
 
-import club.heiqi.qz_miner.eventIn.PlayerInteractive;
 import club.heiqi.qz_miner.lootGame.FindMines;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
 import club.heiqi.qz_miner.util.CheckCompatibility;

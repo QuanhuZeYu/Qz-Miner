@@ -149,26 +149,4 @@ public class Config {
         FMLCommonHandler.instance().bus().register(this);
     }
 
-    public static class ConfigFieldData {
-        public Field field;
-        public String name;
-        public Object staticValue;
-        public String category;
-        public Object defaultValue;
-        public String description;
-        public Object minValue;
-        public Object maxValue;
-
-        public ConfigFieldData(Field field, String name, Object staticValue, String category,
-                               Object defaultValue, String description, Object minValue, Object maxValue) {
-            this.field = field;
-            this.name = name;
-            this.staticValue = staticValue;
-            this.category = category;
-            this.defaultValue = defaultValue;
-            this.description = description;
-            this.minValue = minValue;
-            this.maxValue = maxValue;
-        }
-    }
 }
