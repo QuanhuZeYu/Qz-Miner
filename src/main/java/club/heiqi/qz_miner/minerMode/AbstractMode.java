@@ -43,6 +43,7 @@ public abstract class AbstractMode {
     /**管理器引用*/
     public final ModeManager modeManager;
     /**提供挖掘点坐标的类 由实现类创建*/
+    @Nullable
     public PositionFounder positionFounder;
     /**执行搜索器的线程*/
     @Nullable
@@ -71,9 +72,6 @@ public abstract class AbstractMode {
 
     /**
      * 会根据传入的Sides字段来分支执行实例化行为
-     * @param modeManager
-     * @param center
-     * @param sides
      */
     public AbstractMode(ModeManager modeManager, Vector3i center, Sides sides) {
         this.modeManager = modeManager;
@@ -165,7 +163,7 @@ public abstract class AbstractMode {
     /**默认实现主逻辑*/
     public void mainLogic() {
         lastTime = System.currentTimeMillis();
-        while (System.currentTimeMillis() - lastTime <= Config.taskTimeLimit) { // 任务运行将限制在配置的时间中
+        while (System.currentTimeMillis() - lastTime <= Config.taskTimeLimit && positionFounder != null) { // 任务运行将限制在配置的时间中
             Vector3i pos = positionFounder.cache.poll(); // 立即取出队列中头部元素，如果为空返回null
             /*此段 if 将会在结果持续为空时决定是否终止搜索*/
             if (pos == null) {
@@ -201,7 +199,6 @@ public abstract class AbstractMode {
 
     /**
      * 该方法由其 PositionFounder 进行更新
-     * @param timestamp
      */
     public void updateHeartbeat(long timestamp) {
         heartbeatTimer.set(timestamp);
@@ -236,10 +233,6 @@ public abstract class AbstractMode {
         modeManager.isRunning.set(false);
         if (thread != null) {
             thread.interrupt(); // 终止线程
-            thread = null;
-        }
-        if (thread != null) {
-            thread.interrupt();
             thread = null;
         }
         positionFounder = null;
