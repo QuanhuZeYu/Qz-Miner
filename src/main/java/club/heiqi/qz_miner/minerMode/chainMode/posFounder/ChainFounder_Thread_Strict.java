@@ -2,33 +2,29 @@ package club.heiqi.qz_miner.minerMode.chainMode.posFounder;
 
 import bartworks.system.material.TileEntityMetaGeneratedBlock;
 import club.heiqi.qz_miner.minerMode.AbstractMode;
-import club.heiqi.qz_miner.minerMode.AsyncManager;
-import club.heiqi.qz_miner.minerMode.PositionFounder;
+import club.heiqi.qz_miner.minerMode.PositionFounderThread;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.api.metatileentity.CommonMetaTileEntity;
 import gregtech.api.metatileentity.CoverableTileEntity;
 import gregtech.common.blocks.TileEntityOres;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.World;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.RunnableFuture;
 
-public class ChainFounder_Strict extends PositionFounder {
+public class ChainFounder_Thread_Strict extends PositionFounderThread {
     public Set<Vector3i> visitedChainSet = new HashSet<>();
     public Set<Vector3i> nextChainSet = new HashSet<>();
     public boolean isGTTile = false;
     public boolean isGTBlockOre = false;
     public boolean isBW = false;
 
-    public ChainFounder_Strict(AbstractMode mode) {
+    public ChainFounder_Thread_Strict(AbstractMode mode) {
         super(mode);
         nextChainSet.add(center);
         if (CheckCompatibility.isHasClass_MetaTileEntity && mode.tileSample instanceof CoverableTileEntity) isGTTile = true;
@@ -58,7 +54,6 @@ public class ChainFounder_Strict extends PositionFounder {
 
     public List<Vector3i> scanBox(Vector3i pos) {
         List<Vector3i> result = new ArrayList<>();
-        List<Future<Vector3i>> futures = new ArrayList<>();
         int minX = center.x - radiusLimit; int maxX = center.x + radiusLimit; // 设定允许搜索的边界
         int minY = Math.max(0, (center.y - radiusLimit)); int maxY = Math.min(255, (center.y + radiusLimit)); // 限制Y
         int minZ = center.z - radiusLimit; int maxZ = center.z + radiusLimit;
@@ -71,24 +66,10 @@ public class ChainFounder_Strict extends PositionFounder {
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     /*if (!checkCanBreak(thisPos)) continue; // 排除不可挖掘方块
                     if (!filter(thisPos)) continue; // 排除非连锁方块*/
-                    futures.add(filter(pos));
+                    Vector3i res = filter(thisPos);
+                    if (res != null) result.add(new Vector3i(res));
                     sendHeartbeat();
                 }
-            }
-        }
-        // 等待所有future结束
-        for (Future<Vector3i> future : futures) {
-            try {
-                Vector3i filteredPos = future.get(); // 阻塞等待结果
-                if (filteredPos != null) {
-                    result.add(filteredPos);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // 恢复中断状态
-                return result; // 中断时返回已收集的结果
-            } catch (ExecutionException e) {
-                // 处理任务执行异常，可以记录日志或根据需求处理
-                LOG.warn(e);
             }
         }
         return result;
@@ -98,76 +79,79 @@ public class ChainFounder_Strict extends PositionFounder {
      * 严格过滤模式
      * @return 是否通过
      */
-    public Future<Vector3i> filter(Vector3i pos) {
-        RunnableFuture<Vector3i> future = new FutureTask<>(() -> {
-            try {
-                final Block block = manager.world.getBlock(pos.x, pos.y, pos.z);
-                final int blockID = Block.getIdFromBlock(block); // 此方块ID
-                final int sampleBlockID = Block.getIdFromBlock(mode.blockSample); // 样本ID
-                // 1.筛选方块ID
-                if (blockID != sampleBlockID) {
-                    return null;
-                }
-                final int thisMeta = manager.world.getBlockMetadata(pos.x, pos.y, pos.z); // 此方块Meta
-                // 空气和水直接拒绝
-                if (block.isAir(manager.world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) {
-                    return null;
-                }
-                TileEntity te = manager.world.getTileEntity(pos.x, pos.y, pos.z);
-                // 2.筛选Meta值
-                if (thisMeta != mode.blockSampleMeta) {
-                    return null;
-                }
-                // 3.筛选Tile
-                if (te != null || mode.tileSample != null) {
-                    // 3.1筛选格雷Tile
-                    if (isGTTile
-                            && (te instanceof CommonMetaTileEntity gtTe)
-                    ) {
-                        int sMID = ((CommonMetaTileEntity) mode.tileSample).getMetaTileID();
-                        int tMID = gtTe.getMetaTileID();
-                        if (sMID == tMID) {
-                            return pos;
-                        }
-                        return null;
-                    }
-                    // 3.2矿物Meta
-                    else if (isGTBlockOre
-                            && (te instanceof TileEntityOres bTe)
-                    ) {
-                        int sMID = ((TileEntityOres) mode.tileSample).mMetaData;
-                        int tMID = bTe.mMetaData;
-                        if (sMID == tMID) {
-                            return pos;
-                        }
-                        return null;
-                    } else if (!isGTBlockOre) {
+    public Vector3i filter(Vector3i pos) {
+        /*RunnableFuture<Vector3i> future = new FutureTask<>(() -> {*/
+        try {
+            World world = manager.player.worldObj;
+            final Block block = world.getBlock(pos.x, pos.y, pos.z);
+            final int blockID = Block.getIdFromBlock(block); // 此方块ID
+            final int sampleBlockID = Block.getIdFromBlock(mode.blockSample); // 样本ID
+            // 1.筛选方块ID
+            if (blockID != sampleBlockID) {
+                /*LOG.info("方块ID不同: 样本:{} - 当前{}",sampleBlockID,blockID);*/
+                return null;
+            }
+            final int thisMeta = world.getBlockMetadata(pos.x, pos.y, pos.z); // 此方块Meta
+            // 空气和水直接拒绝
+            if (block.isAir(world, pos.x, pos.y, pos.z) || block.getMaterial().isLiquid()) {
+                /*LOG.info("空气和水直接拒绝");*/
+                return null;
+            }
+            TileEntity te = world.getTileEntity(pos.x, pos.y, pos.z);
+            // 2.筛选Meta值
+            if (thisMeta != mode.blockSampleMeta) {
+                /*LOG.info("meta: 样本: {} - 当前: {}",mode.blockSampleMeta,thisMeta);*/
+                return null;
+            }
+            // 3.筛选Tile
+            if (te != null || mode.tileSample != null) {
+                // 3.1筛选格雷Tile
+                if (isGTTile
+                        && (te instanceof CommonMetaTileEntity gtTe)
+                ) {
+                    int sMID = ((CommonMetaTileEntity) mode.tileSample).getMetaTileID();
+                    int tMID = gtTe.getMetaTileID();
+                    if (sMID == tMID) {
                         return pos;
                     }
-                    // 3.3bart-work
-                    else if (isBW
-                            && (te instanceof TileEntityMetaGeneratedBlock bTe)
-                    ) {
-                        int tMeta = bTe.mMetaData;
-                        int sMeta = ((TileEntityMetaGeneratedBlock) mode.tileSample).mMetaData;
-                        if (tMeta == sMeta) {
-                            return pos;
-                        }
-                        return null;
+                    return null;
+                }
+                // 3.2矿物Meta
+                else if (isGTBlockOre
+                        && (te instanceof TileEntityOres bTe)
+                ) {
+                    int sMID = ((TileEntityOres) mode.tileSample).mMetaData;
+                    int tMID = bTe.mMetaData;
+                    if (sMID == tMID) {
+                        return pos;
                     }
-                    // 3.4非以上情况Tile相同
+                    return null;
+                } else if (!isGTBlockOre) {
                     return pos;
                 }
-                // 判断方块是否相同
+                // 3.3bart-work
+                else if (isBW
+                        && (te instanceof TileEntityMetaGeneratedBlock bTe)
+                ) {
+                    int tMeta = bTe.mMetaData;
+                    int sMeta = ((TileEntityMetaGeneratedBlock) mode.tileSample).mMetaData;
+                    if (tMeta == sMeta) {
+                        return pos;
+                    }
+                    return null;
+                }
+                // 3.4非以上情况Tile相同
                 return pos;
-            } catch (Exception e) {
-                return null;
-            } finally {
-                sendHeartbeat();
             }
-        });
+            return pos;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            doWaitBool();
+        }
+        /*});
         AsyncManager.pollTask(future);
-        return future;
+        return future;*/
     }
 
 

@@ -1,6 +1,8 @@
 package club.heiqi.qz_miner.minerMode;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.lifeControl.LifeController;
+import club.heiqi.qz_miner.lifeControl.LifeThread;
 import club.heiqi.qz_miner.minerMode.enums.Sides;
 import club.heiqi.qz_miner.minerMode.breaker.BlockBreaker;
 import club.heiqi.qz_miner.minerMode.rightClicker.RightClicker;
@@ -44,10 +46,10 @@ public abstract class AbstractMode {
     public final ModeManager modeManager;
     /**提供挖掘点坐标的类 由实现类创建*/
     @Nullable
-    public PositionFounder positionFounder;
+    public PositionFounderThread positionFounderThread;
     /**执行搜索器的线程*/
     @Nullable
-    public Thread thread;
+    public LifeThread thread;
     /**用于管理搜索器线程是否终止的字段 - 心跳标记 - 时间戳*/
     public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis());
     /**硬性字段控制搜索线程是否终止*/
@@ -77,7 +79,7 @@ public abstract class AbstractMode {
         this.modeManager = modeManager;
         this.center = center;
         this.side = sides;
-        World world = modeManager.world;
+        World world = modeManager.player.worldObj;
         EntityPlayer player = modeManager.player;
         blockSample = world.getBlock(center.x, center.y, center.z);
         tileSample = world.getTileEntity(center.x, center.y, center.z);
@@ -93,31 +95,31 @@ public abstract class AbstractMode {
         // 不在客户端运行逻辑
         if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         // 如果在实例化时出现异常 搜索器 可能会为空
-        if (positionFounder == null || !initSuccess) return;
-        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
+        if (positionFounderThread == null || !initSuccess) return;
+        thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
         register();
-        thread.start();
+        LifeController.addThread(thread);
     }
 
     public AtomicBoolean isRenderMode = new AtomicBoolean(false);
     @SideOnly(Side.CLIENT)
     public void renderModeAutoSetup() {
-        if (positionFounder == null || !initSuccess) return;
+        if (positionFounderThread == null || !initSuccess) return;
         isRenderMode.set(true);
-        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
+        thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
         register();
-        thread.start();
+        LifeController.addThread(thread);
     }
 
     public AtomicBoolean isInteractMode = new AtomicBoolean(false);
     public void interactModeAutoSetup() {
         // 不在客户端运行逻辑
         if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
-        if (positionFounder == null || !initSuccess) return;
+        if (positionFounderThread == null || !initSuccess) return;
         isInteractMode.set(true);
-        thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
+        thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
         register();
-        thread.start();
+        LifeController.addThread(thread);
     }
 
     @SubscribeEvent
@@ -129,14 +131,17 @@ public abstract class AbstractMode {
         if (event.phase == TickEvent.Phase.START && side == Sides.SERVER) {
             sendHeartbeat();
             if (!checkHeartBeat()) {
+                LOG.info("心跳超时");
                 shutdown();
                 return;
             }
             if (!modeManager.getIsReady()) {
+                LOG.info("未准备");
                 shutdown();
                 return;
             }
             if (!modeManager.isRunning.get()) {
+                LOG.info("停止运行");
                 shutdown();
                 return;
             }
@@ -173,22 +178,26 @@ public abstract class AbstractMode {
     /**默认实现主逻辑*/
     public void mainLogic() {
         // 不在客户端运行逻辑
-        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
+
         lastTime = System.currentTimeMillis();
-        while (System.currentTimeMillis() - lastTime <= Config.taskTimeLimit && positionFounder != null) { // 任务运行将限制在配置的时间中
-            Vector3i pos = positionFounder.cache.poll(); // 立即取出队列中头部元素，如果为空返回null
+        while (System.currentTimeMillis() - lastTime <= Config.taskTimeLimit && positionFounderThread != null) { // 任务运行将限制在配置的时间中
+            Vector3i pos = positionFounderThread.cache.poll(); // 立即取出队列中头部元素，如果为空返回null
             /*此段 if 将会在结果持续为空时决定是否终止搜索*/
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= Config.heartbeatTimeout) {
+                    LOG.info("没有获取到点的时间超过最大等待限制终止任务");
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
                 return;
             }
+            /*LOG.info("获取到点: {x: {}, y: {}, z:{}}",pos.x,pos.y,pos.z);*/
             failCounter = 0;
             if (checkCanBreak(pos)) {
-                if (side == Sides.CLIENT && isRenderMode.get()) modeManager.renderCache.add(pos);
+                if (side == Sides.CLIENT && isRenderMode.get()) {
+                    modeManager.renderCache.add(pos);
+                }
                 else if (side == Sides.SERVER && isInteractMode.get()) {
                     rightClicker.rightClick(pos);
                     tickBreakCount++;
@@ -200,6 +209,7 @@ public abstract class AbstractMode {
                 }
                 // 判断挖掘数量是否终止
                 if (allBreakCount >= Config.blockLimit) {
+                    LOG.info("数量达到");
                     shutdown();
                     return;
                 }
@@ -218,10 +228,10 @@ public abstract class AbstractMode {
 
     public long sendTime = System.nanoTime();
     public void sendHeartbeat() {
-        if (positionFounder == null) return;
+        if (positionFounderThread == null) return;
         if (System.nanoTime() - sendTime <= 5_000_000) return; // 发送最小间隔 1_000_000ns = 1ms
         sendTime = System.nanoTime();
-        positionFounder.updateHeartbeat(System.currentTimeMillis());
+        positionFounderThread.updateHeartbeat(System.currentTimeMillis());
     }
 
 
@@ -248,7 +258,7 @@ public abstract class AbstractMode {
             thread = null;
         }
         unregister();
-        positionFounder = null;
+        positionFounderThread = null;
     }
 
     /**
@@ -290,7 +300,7 @@ public abstract class AbstractMode {
     }
 
     public boolean isInLag() {
-        World world = modeManager.world;
+        World world = modeManager.player.worldObj;
         if (world.isRemote) return false;
         MinecraftServer server = MinecraftServer.getServer();
         int tickCounter = server.getTickCounter();
@@ -305,7 +315,7 @@ public abstract class AbstractMode {
     }
 
     public boolean checkCanBreak(Vector3i pos) {
-        World world = modeManager.world;
+        World world = modeManager.player.worldObj;
         EntityPlayer player = modeManager.player;
         if (player instanceof EntityPlayerMP playerMP) {
             if (playerMP.playerNetServerHandler == null) return false;

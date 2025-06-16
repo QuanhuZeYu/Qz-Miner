@@ -22,7 +22,8 @@ public class MyEarlyMixin implements IEarlyMixinLoader, IFMLLoadingPlugin {
             "MixinsEntityTracker_Fix",
             "MixinsWorldClient",
             "MixinsWorldServer",
-            "MixinsPlayerManager"
+            "MixinsPlayerManager",
+            "MixinsFMLCommonHandler"
         );
     }
 

@@ -398,13 +398,7 @@ public class PlayerInput {
 
     public void trySetManager(ModeManager manager) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        if (player == null) return;
-        // 如果管理器中的是服务端世界可以不用设置
-        if (manager.world.isRemote) {
-            manager.world = player.worldObj;
-        } else if (!player.worldObj.isRemote) {
-            manager.world = player.worldObj;
-        }
+        if (player == null || manager == null) return;
         manager.player = player;
     }
 }

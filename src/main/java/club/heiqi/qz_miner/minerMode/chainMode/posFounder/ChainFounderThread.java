@@ -2,13 +2,14 @@ package club.heiqi.qz_miner.minerMode.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.minerMode.AsyncManager;
-import club.heiqi.qz_miner.minerMode.PositionFounder;
+import club.heiqi.qz_miner.minerMode.PositionFounderThread;
 import club.heiqi.qz_miner.mixins.GTMixin.CoverableTileEntityAccessor;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.api.metatileentity.CoverableTileEntity;
 import net.minecraft.block.Block;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,7 +22,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
 import java.util.stream.Collectors;
 
-public class ChainFounder extends PositionFounder {
+public class ChainFounderThread extends PositionFounderThread {
     public Logger LOG = LogManager.getLogger();
     /**已访问过的坐标*/
     public Set<Vector3i> visitedChainSet = new HashSet<>();
@@ -31,7 +32,7 @@ public class ChainFounder extends PositionFounder {
     /**
      * 构造函数准备执行搜索前的准备工作
      */
-    public ChainFounder(AbstractMode mode) {
+    public ChainFounderThread(AbstractMode mode) {
         super(mode);
         nextChainSet.add(this.center);
         if (CheckCompatibility.isHasClass_MetaTileEntity
@@ -63,7 +64,6 @@ public class ChainFounder extends PositionFounder {
 
     public List<Vector3i> scanBox(Vector3i pos) {
         List<Vector3i> result = new ArrayList<>();
-        List<Future<Vector3i>> futures = new ArrayList<>();
         int minX = center.x - radiusLimit; int maxX = center.x + radiusLimit; // 设定允许搜索的边界
         int minY = Math.max(0, (center.y - radiusLimit)); int maxY = Math.min(255, (center.y + radiusLimit)); // 限制Y
         int minZ = center.z - radiusLimit; int maxZ = center.z + radiusLimit;
@@ -75,43 +75,34 @@ public class ChainFounder extends PositionFounder {
                     Vector3i thisPos = new Vector3i(i, j, k);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
                     /*if (!checkCanBreak(thisPos)) continue; // 排除不可挖掘方块*/
-                    futures.add(filter(thisPos));
+                    Vector3i res = filter(thisPos);
+                    if (res != null) result.add(res);
                     sendHeartbeat();
                 }
             }
         }
         // 等待所有future结束
-        for (Future<Vector3i> future : futures) {
-            try {
-                Vector3i filteredPos = future.get(); // 阻塞等待结果
-                if (filteredPos != null) {
-                    result.add(filteredPos);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // 恢复中断状态
-                return result; // 中断时返回已收集的结果
-            } catch (ExecutionException e) {
-                // 处理任务执行异常，可以记录日志或根据需求处理
-                LOG.warn(e);
-            }
-        }
         return result;
     }
 
-    public Future<Vector3i> filter(Vector3i pos) {
-        RunnableFuture<Vector3i> future = new FutureTask<>(() -> {
-            int x = pos.x; int y = pos.y; int z = pos.z;
-            Block block = manager.world.getBlock(x, y, z);
+    public Vector3i filter(Vector3i pos) {
+        /*RunnableFuture<Vector3i> future = new FutureTask<>(() -> {*/
+        try {
+            int x = pos.x;
+            int y = pos.y;
+            int z = pos.z;
+            World worldObj = manager.player.worldObj;
+            Block block = worldObj.getBlock(x, y, z);
             // 快速失败：空气或液体直接返回
-            if (block.isAir(manager.world, x, y, z) || block.getMaterial().isLiquid()) return null;
+            if (block.isAir(worldObj, x, y, z) || block.getMaterial().isLiquid()) return null;
 
             // 元数据不匹配直接返回
-            if (manager.world.getBlockMetadata(x, y, z) != mode.blockSampleMeta) {
+            if (worldObj.getBlockMetadata(x, y, z) != mode.blockSampleMeta) {
                 return null;
             }
 
             // 处理 TileEntity 匹配逻辑
-            TileEntity te = manager.world.getTileEntity(x, y, z);
+            TileEntity te = worldObj.getTileEntity(x, y, z);
             if (te != null) {
                 if (isGTTile) {
                     if (te instanceof CoverableTileEntity gtTe) {
@@ -147,8 +138,13 @@ public class ChainFounder extends PositionFounder {
             } else {
                 return null;
             }
-        });
+        } catch (Exception e) {
+            return null;
+        } finally {
+            doWaitBool();
+        }
+        /*});
         AsyncManager.pollTask(future);
-        return future;
+        return future;*/
     }
 }

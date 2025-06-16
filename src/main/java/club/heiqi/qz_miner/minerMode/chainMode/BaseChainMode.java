@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.minerMode.chainMode;
 import club.heiqi.qz_miner.minerMode.enums.Sides;
 import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.minerMode.ModeManager;
-import club.heiqi.qz_miner.minerMode.chainMode.posFounder.ChainFounder;
+import club.heiqi.qz_miner.minerMode.chainMode.posFounder.ChainFounderThread;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import org.apache.logging.log4j.LogManager;
@@ -16,7 +16,7 @@ public class BaseChainMode extends AbstractMode {
 
     public BaseChainMode(ModeManager modeManager, Vector3i center, Sides sides) {
         super(modeManager, center, sides);
-        positionFounder = new ChainFounder(this);
+        positionFounderThread = new ChainFounderThread(this);
         timer = System.currentTimeMillis();
         addPreUnregisterTask(this::sendMessage);
     }

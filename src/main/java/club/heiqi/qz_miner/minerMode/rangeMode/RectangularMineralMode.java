@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.minerMode.rangeMode;
 import club.heiqi.qz_miner.minerMode.enums.Sides;
 import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.minerMode.ModeManager;
-import club.heiqi.qz_miner.minerMode.rangeMode.posFounder.RectangularMineralFounder;
+import club.heiqi.qz_miner.minerMode.rangeMode.posFounder.RectangularMineralFounderThread;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import org.joml.Vector3i;
@@ -14,7 +14,7 @@ public class RectangularMineralMode extends AbstractMode {
         super(modeManager, center, sides);
         EntityPlayer player = modeManager.player;
         timer = System.currentTimeMillis();
-        positionFounder = new RectangularMineralFounder(this);
+        positionFounderThread = new RectangularMineralFounderThread(this);
         addPreUnregisterTask(this::sendMessage);
     }
 

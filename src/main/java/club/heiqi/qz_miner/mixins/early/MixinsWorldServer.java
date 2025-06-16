@@ -21,7 +21,7 @@ import java.util.Iterator;
 
 @Mixin(WorldServer.class)
 public class MixinsWorldServer {
-    @Unique
+    /*@Unique
     private MinecraftServer mcServer;
 
     @Inject(
@@ -128,5 +128,5 @@ public class MixinsWorldServer {
             }
             ci.setReturnValue(treeIsEmpty);
         }
-    }
+    }*/
 }

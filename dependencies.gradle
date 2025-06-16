@@ -43,11 +43,6 @@ ext {
 dependencies {
     implementation('org.joml:joml:1.10.8')
 
-    // https://mvnrepository.com/artifact/net.bytebuddy/byte-buddy-agent
-    implementation("net.bytebuddy:byte-buddy-agent:1.17.5")
-    // https://mvnrepository.com/artifact/net.bytebuddy/byte-buddy
-    implementation("net.bytebuddy:byte-buddy:1.17.5")
-
     /*implementation "org.lwjgl:lwjgl:${lwjglVersion}"
     implementation "org.lwjgl:lwjgl-opengl:${lwjglVersion}"
     implementation "org.lwjgl:lwjgl-glfw:${lwjglVersion}"

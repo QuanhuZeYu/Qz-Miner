@@ -4,7 +4,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.minerMode.enums.Sides;
 import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.minerMode.ModeManager;
-import club.heiqi.qz_miner.minerMode.chainMode.posFounder.ChainFounder_Strict;
+import club.heiqi.qz_miner.minerMode.chainMode.posFounder.ChainFounder_Thread_Strict;
 import gregtech.api.metatileentity.CoverableTileEntity;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
@@ -27,7 +27,7 @@ public class GroupMode extends AbstractMode {
         parseConfig();
         EntityPlayer player = modeManager.player;
         timer = System.currentTimeMillis();
-        positionFounder = new ChainFounder_Strict(this);
+        positionFounderThread = new ChainFounder_Thread_Strict(this);
         addPreUnregisterTask(this::sendMessage);
         if (!isInWhiteList()) initSuccess = false; // 如果挖掘样本不在白名单内取消模式创建
     }

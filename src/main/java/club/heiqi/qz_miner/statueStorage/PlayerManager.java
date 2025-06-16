@@ -41,27 +41,14 @@ public class PlayerManager {
         if (allPlayer.containsKey(uuid)) {
             modeManager = allPlayer.get(uuid);
             modeManager.player = player;
-            modeManager.world = player.worldObj;
-            LOG.info("[{}: {}] 管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
+            LOG.info("[{}: {}] 客户端管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
         // 2.不存在缓存的管理器
         else {
-            modeManager = new ModeManager();
+            modeManager = new ModeManager(player);
             modeManager.player = player;
-            modeManager.world = player.worldObj;
-            modeManager.register();
             allPlayer.put(uuid, modeManager);
-            LOG.info("[{}: {}] 管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
-        }
-    }
-    public void clientUnRegister(EntityPlayer player) {
-        UUID uuid = player.getUniqueID();
-        if (!allPlayer.containsKey(uuid)) {
-            return;
-        } else {
-            ModeManager modeManager = allPlayer.get(uuid);
-            modeManager.unregister();
-            allPlayer.remove(uuid);
+            LOG.info("[{}: {}] 客户端管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
     }
 
@@ -85,23 +72,19 @@ public class PlayerManager {
         if (allPlayer.containsKey(uuid)) {
             modeManager = allPlayer.get(uuid);
             modeManager.player = player;
-            modeManager.world = player.worldObj;
-            LOG.info("[{}: {}] 管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
+            LOG.info("[{}: {}] 服务端管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
         // 2.不存在缓存的管理器
         else {
-            modeManager = new ModeManager();
-            modeManager.player = player;
-            modeManager.world = player.worldObj;
-            modeManager.register();
+            modeManager = new ModeManager(player);
             allPlayer.put(uuid, modeManager);
-            LOG.info("[{}: {}] 管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
+            LOG.info("[{}: {}] 服务端管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
     }
-    public void serverUnRegister(EntityPlayer player) {
+
+    public void unregister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
         if (!allPlayer.containsKey(uuid)) {
-            LOG.info("玩家: {} 不存在连锁缓存中，无需卸载", player.getDisplayName());
             return;
         } else {
             ModeManager modeManager = allPlayer.get(uuid);
@@ -142,22 +125,15 @@ public class PlayerManager {
     @SubscribeEvent
     public void qz_onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         EntityPlayer player = event.player;
-        UUID playerUUID = player.getUniqueID();
-        if (FMLCommonHandler.instance().getEffectiveSide() == Side.CLIENT) {
-            // 客户端逻辑
-            clientUnRegister(player);
-        }
-        if (allPlayer.containsKey(playerUUID)) {
-            serverUnRegister(player);
-        }
+        unregister(player);
     }
 
-    @SubscribeEvent
+    /*@SubscribeEvent
     public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
         if (!(event.entity instanceof EntityPlayer)) return;
         EntityPlayer player = (EntityPlayer) event.entity;
         proxyRegister(player);
-    }
+    }*/
 
     /*@SubscribeEvent
     public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {

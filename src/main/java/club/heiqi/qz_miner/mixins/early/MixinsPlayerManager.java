@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(PlayerManager.class)
 public class MixinsPlayerManager {
 
-    @Inject(
+    /*@Inject(
         method = "updatePlayerInstances",
         at = @At("HEAD"),
         cancellable = true,
@@ -66,5 +66,5 @@ public class MixinsPlayerManager {
                 ((PlayerManager)((Object)this)).theWorldServer.theChunkProviderServer.unloadAllChunks();
             }
         }
-    }
+    }*/
 }

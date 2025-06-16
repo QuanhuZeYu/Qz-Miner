@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.util.GlobalGet;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -32,7 +33,6 @@ import org.joml.Vector3i;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -43,12 +43,12 @@ public class ModeManager {
     public static List<ModeManager> MANAGERS = new ArrayList<>();
 
     public Logger LOG = LogManager.getLogger();
-    public UUID registryInfo = UUID.randomUUID();
+    /**管理器的UUID*/
+    public UUID registryInfo;
     public ConcurrentLinkedQueue<Vector3i> selfDrops = new ConcurrentLinkedQueue<>();
 
     /**缓存的玩家引用*/
     public EntityPlayer player;
-    public World world;
 
     /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
@@ -64,6 +64,12 @@ public class ModeManager {
     public AtomicBoolean isReady = new AtomicBoolean(false);
     public AtomicBoolean isRunning = new AtomicBoolean(false);
     public AtomicBoolean printResult = new AtomicBoolean(true);
+
+    public ModeManager(EntityPlayer player) {
+        registryInfo = player.getUniqueID();
+        this.player = player;
+        register();
+    }
 
     /**
      * 由方块破坏事件触发该方法，该方法调用模式类中的run方法，完成模式运行
@@ -146,11 +152,11 @@ public class ModeManager {
 
 
     // ==================== 事件订阅 - 监听玩家自身即可，简化触发流程
-    public boolean register() {
+    private void register() {
         // 1.检查全局中是否有相同玩家的管理器
         for (ModeManager manager : MANAGERS) {
             if (manager.player.getUniqueID().equals(getPlayer().getUniqueID())) {
-                return false;
+                return;
             }
         }
         FMLCommonHandler.instance().bus().register(this);
@@ -158,7 +164,6 @@ public class ModeManager {
         EntityPlayer player = getPlayer();
         LOG.info("{} 管理器:{} 注册完成", player.getDisplayName(), registryInfo);
         MANAGERS.add(this);
-        return true;
     }
     public void unregister() {
         if (!captureDrops.isEmpty()) dropCapture();
@@ -174,7 +179,7 @@ public class ModeManager {
     }
 
     public World getWorld() {
-        return world;
+        return player.worldObj;
     }
 
     /**
@@ -189,10 +194,9 @@ public class ModeManager {
             //LOG.info("非自身挖掘");
             return;
         }
-        // 刷新世界引用
-        updateWP(event.world,event.getPlayer());
+        // 刷新引用
+        updatePlayer(event.getPlayer());
 
-        selfDrops.add(new Vector3i(event.x, event.y, event.z));
         if (isRunning.get()) {
             //LOG.info("已在运行，退出");
             return;
@@ -225,7 +229,6 @@ public class ModeManager {
         // 确保触发者是管理器玩 触发在服务端
         if (!player.getUniqueID().equals(this.player.getUniqueID()) || event.world.isRemote) return;
         // 刷新存储状态
-        this.world = event.world;
         this.player = player;
 
         if (event.action != PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) return;
@@ -254,7 +257,6 @@ public class ModeManager {
         // 更新玩家
         player = harvester;
         // 更新世界
-        if (!world.isRemote) world = event.world;
         if (!getIsReady()) return;
         if (Config.dropItemToSelf) { // 如果配置打开了掉落到自己附近
             {
@@ -294,10 +296,12 @@ public class ModeManager {
     public long updateTime = System.currentTimeMillis();
     @SubscribeEvent
     public void onTick(TickEvent.ServerTickEvent event) {
+        // 只在服务端线程执行
+        if (!Thread.currentThread().getName().contains("Server")) return;
         if (System.currentTimeMillis() - updateTime >= 1_000) {
             for (EntityPlayerMP playerMP : new ArrayList<>(FMLCommonHandler.instance().getMinecraftServerInstance().getConfigurationManager().playerEntityList)) {
                 if (playerMP.getUniqueID().equals(this.player.getUniqueID())) {
-                    updateWP(playerMP.worldObj,playerMP);
+                    updatePlayer(playerMP);
                     break;
                 }
             }
@@ -306,17 +310,18 @@ public class ModeManager {
         if (getIsReady()) return;
 
         if (!captureDrops.isEmpty()) {
-            Vector3f dropPos = Utils.getItemDropPos(player);
+            EntityPlayerMP playerMP = GlobalGet.getPlayerByUUID(player.getUniqueID());
+            Vector3f dropPos = Utils.getItemDropPos(playerMP);
             for (ItemStack drop : captureDrops) {
                 EntityItem entityDrop = new EntityItem(
-                        world,
+                        playerMP.worldObj,
                         dropPos.x,
                         dropPos.y,
                         dropPos.z,
                         drop
                 );
                 entityDrop.delayBeforeCanPickup = 5;
-                world.spawnEntityInWorld(entityDrop);
+                playerMP.worldObj.spawnEntityInWorld(entityDrop);
             }
             captureDrops.clear();
         }
@@ -328,20 +333,20 @@ public class ModeManager {
         Vector3f dropPos = Utils.getItemDropPos(player);
         drops.forEach(drop -> {
             EntityItem entityDrop = new EntityItem(
-                world,
+                player.worldObj,
                 dropPos.x,
                 dropPos.y,
                 dropPos.z,
                 drop
             );
             entityDrop.delayBeforeCanPickup = 5;
-            world.spawnEntityInWorld(entityDrop);
+            player.worldObj.spawnEntityInWorld(entityDrop);
         });
     }
 
-    public void updateWP(World world, EntityPlayer player) {
+    public void updatePlayer(EntityPlayer player) {
         if (player.getUniqueID().equals(this.player.getUniqueID())) {
-            this.player = player; this.world = world;
+            this.player = player;
         }
     }
 }

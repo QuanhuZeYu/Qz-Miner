@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Mixin(EntityTracker.class)
 public abstract class MixinsEntityTracker_Fix {
-    @Unique
+    /*@Unique
     private final Object lock = new Object();
 
     @Inject(
@@ -59,5 +59,5 @@ public abstract class MixinsEntityTracker_Fix {
         }
 
         ci.cancel();
-    }
+    }*/
 }

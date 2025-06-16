@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.minerMode.AsyncManager;
 import net.minecraft.block.Block;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.item.ItemStack;
+import net.minecraft.world.World;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
 
@@ -13,14 +14,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
 
-public class ChainFounderRelaxed extends ChainFounder {
+public class ChainFounderThreadRelaxed extends ChainFounderThread {
     public List<ItemStack> sampleDrops;
 
 
-    public ChainFounderRelaxed(AbstractMode mode) {
+    public ChainFounderThreadRelaxed(AbstractMode mode) {
         super(mode);
         int fortune = EnchantmentHelper.getFortuneModifier(manager.player);
-        sampleDrops = mode.blockSample.getDrops(manager.world, center.x, center.y, center.z, mode.blockSampleMeta, fortune);
+        World world = manager.player.worldObj;
+        sampleDrops = mode.blockSample.getDrops(world, center.x, center.y, center.z, mode.blockSampleMeta, fortune);
     }
 
     @Override
@@ -29,10 +31,12 @@ public class ChainFounderRelaxed extends ChainFounder {
     }
 
     @Override
-    public Future<Vector3i> filter(Vector3i pos) {
-        RunnableFuture<Vector3i> future = new FutureTask<>(() -> {
-            final Block thisBlock = manager.world.getBlock(pos.x, pos.y, pos.z);
-            if (thisBlock.isAir(manager.world, pos.x, pos.y, pos.z) || thisBlock.getMaterial().isLiquid()) return null;
+    public Vector3i filter(Vector3i pos) {
+        /*RunnableFuture<Vector3i> future = new FutureTask<>(() -> {*/
+        try {
+            World world = manager.player.worldObj;
+            final Block thisBlock = world.getBlock(pos.x, pos.y, pos.z);
+            if (thisBlock.isAir(world, pos.x, pos.y, pos.z) || thisBlock.getMaterial().isLiquid()) return null;
             // 1.方块ID相同
             final int thisBID = Block.getIdFromBlock(thisBlock);
             if (thisBID == Block.getIdFromBlock(mode.blockSample)) {
@@ -52,7 +56,7 @@ public class ChainFounderRelaxed extends ChainFounder {
             }
             // 3.掉落物相同
             int fortune = EnchantmentHelper.getFortuneModifier(manager.player);
-            List<ItemStack> blockDrops = thisBlock.getDrops(manager.world, pos.x, pos.y, pos.z, manager.world.getBlockMetadata(pos.x, pos.y, pos.z), fortune);
+            List<ItemStack> blockDrops = thisBlock.getDrops(world, pos.x, pos.y, pos.z, world.getBlockMetadata(pos.x, pos.y, pos.z), fortune);
             for (ItemStack drop : blockDrops) {
                 for (ItemStack sampleDrop : sampleDrops) {
                     if (drop.isItemEqual(sampleDrop)) {
@@ -61,9 +65,14 @@ public class ChainFounderRelaxed extends ChainFounder {
                 }
             }
             return null;
-        });
+        } catch (Exception e) {
+            return null;
+        } finally {
+            doWaitBool();
+        }
+        /*});
         AsyncManager.pollTask(future);
-        return future;
+        return future;*/
     }
 
     public long sendTime = System.nanoTime();

@@ -1,15 +1,14 @@
 package club.heiqi.qz_miner.minerMode.rangeMode.posFounder;
 
 import club.heiqi.qz_miner.minerMode.AbstractMode;
-import club.heiqi.qz_miner.minerMode.AsyncManager;
-import club.heiqi.qz_miner.minerMode.PositionFounder;
+import club.heiqi.qz_miner.minerMode.PositionFounderThread;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 
-public class TunnelFounder extends PositionFounder {
+public class TunnelFounderThread extends PositionFounderThread {
 
 
-    public TunnelFounder(AbstractMode mode) {
+    public TunnelFounderThread(AbstractMode mode) {
         super(mode);
         Vector3f dir = getDirection();
         this.dir = getAxialDir(dir);
@@ -49,11 +48,12 @@ public class TunnelFounder extends PositionFounder {
     }
 
     public void filter(Vector3i pos) {
-        AsyncManager.pollTask(() -> {
-            if (checkCanBreak(new Vector3i(pos))) {
-                cache.add(pos);
-            }
-        });
+        /*AsyncManager.pollTask(() -> {*/
+        if (checkCanBreak(new Vector3i(pos))) {
+            cache.add(pos);
+        }
+        /*});*/
+        doWaitBool();
     }
 
     public Vector3f getDirection() {
