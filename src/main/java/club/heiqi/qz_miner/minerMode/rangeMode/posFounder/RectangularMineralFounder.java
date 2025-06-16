@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.minerMode.rangeMode.posFounder;
 
 import club.heiqi.qz_miner.minerMode.AbstractMode;
+import club.heiqi.qz_miner.minerMode.AsyncManager;
 import club.heiqi.qz_miner.minerMode.PositionFounder;
 import club.heiqi.qz_miner.util.CheckCompatibility;
 import gregtech.common.blocks.BlockOresAbstract;
@@ -29,16 +30,13 @@ public class RectangularMineralFounder extends PositionFounder {
     @Override
     public void mainLogic() {
         if (rad >= radiusLimit) return;
-        List<Vector3i> result = new ArrayList<>();
         // 1. X 轴正负方向的两个面
         for (int xSign : new int[]{-1, 1}) {
             int x = center.x + xSign * rad; // ✅ 正确计算偏移
             for (int y = center.y - rad; y <= center.y + rad; y++) {
                 for (int z = center.z - rad; z <= center.z + rad; z++) {
                     if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
-                    if (!filter(x,y,z)) continue;
-                    result.add(new Vector3i(x, y, z));
-                    sendHeartbeat();
+                    filter(x,y,z);
                 }
             }
         }
@@ -48,9 +46,7 @@ public class RectangularMineralFounder extends PositionFounder {
             for (int x = center.x - rad; x <= center.x + rad; x++) {
                 for (int z = center.z - rad; z <= center.z + rad; z++) {
                     if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
-                    if (!filter(x,y,z)) continue;
-                    result.add(new Vector3i(x, y, z));
-                    sendHeartbeat();
+                    filter(x,y,z);
                 }
             }
         }
@@ -59,22 +55,31 @@ public class RectangularMineralFounder extends PositionFounder {
             for (int x = center.x - rad; x <= center.x + rad; x++) {
                 for (int y = center.y - rad; y <= center.y + rad; y++) { // ✅ 修复循环变量为 y
                     if (Thread.currentThread().isInterrupted()) return; // 线程中断提前返回
-                    if (!filter(x,y,z)) continue;
-                    result.add(new Vector3i(x, y, z));
-                    sendHeartbeat();
+                    filter(x,y,z);
                 }
             }
         }
-        cache.addAll(sort(result));
         rad++;
     }
 
-    public boolean filter(int bx, int by, int bz) {
-        Block tb = manager.world.getBlock(bx,by,bz);
-        if (CheckCompatibility.isHasClass_BlockOresAbstract && tb instanceof BlockOresAbstract) return true; // 是矿石
-        TileEntity tt = manager.world.getTileEntity(bx,by,bz);
-        if (CheckCompatibility.isHasClass_TileEntityOre && tt instanceof TileEntityOres) return true;
-        if (tb.getUnlocalizedName().contains("ore") && !tb.getUnlocalizedName().contains("machine")) return true;
-        return false;
+    public void filter(int bx, int by, int bz) {
+        Vector3i pos = new Vector3i(bx,by,bz);
+        Runnable task = () -> {
+            Block tb = manager.world.getBlock(bx,by,bz);
+            if (CheckCompatibility.isHasClass_BlockOresAbstract && tb instanceof BlockOresAbstract) {
+                cache.add(pos);
+                return;
+            }
+            TileEntity tt = manager.world.getTileEntity(bx,by,bz);
+            if (CheckCompatibility.isHasClass_TileEntityOre && tt instanceof TileEntityOres) {
+                cache.add(pos);
+                return;
+            }
+            if (tb.getUnlocalizedName().contains("ore") && !tb.getUnlocalizedName().contains("machine")) {
+                cache.add(pos);
+                return;
+            }
+        };
+        AsyncManager.pollTask(task);
     }
 }

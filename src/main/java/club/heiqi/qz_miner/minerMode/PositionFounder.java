@@ -18,7 +18,6 @@ public abstract class PositionFounder implements Runnable {
     public static int radiusLimit = Config.radiusLimit;
     public static int chainRange = Config.neighborDistance;
 
-    public int canBreakBlockCount = 0;
     public final Vector3i center;
     /**初始化时添加10ms的误差容量避免初始化后立即卸载*/
     public AtomicLong heartbeatTimer = new AtomicLong(System.currentTimeMillis()+10_000);

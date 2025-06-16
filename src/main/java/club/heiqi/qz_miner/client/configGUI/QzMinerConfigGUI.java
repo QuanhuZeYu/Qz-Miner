@@ -36,12 +36,4 @@ public class QzMinerConfigGUI extends GuiConfig {
 
         return elements;
     }
-
-    /*@Override
-    public void onGuiClosed() {
-        super.onGuiClosed();
-        for (IConfigElement element : configElements) {
-
-        }
-    }*/
 }

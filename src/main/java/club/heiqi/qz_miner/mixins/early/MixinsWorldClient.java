@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.mixins.early;
 
 import club.heiqi.qz_miner.Mod_Main;
 import club.heiqi.qz_miner.minerMode.ModeManager;
-import club.heiqi.qz_miner.statueStorage.AllPlayer;
+import club.heiqi.qz_miner.statueStorage.PlayerManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.WorldClient;
 import net.minecraft.entity.player.EntityPlayer;
@@ -27,11 +27,11 @@ public class MixinsWorldClient {
     )
     public void qz_miner$sendQuittingDisconnectingPacket(CallbackInfo ci) {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        AllPlayer allPlayerStorage = Mod_Main.allPlayerStorage;
-        ModeManager manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        PlayerManager playerManagerStorage = Mod_Main.playerManagerStorage;
+        ModeManager manager = playerManagerStorage.allPlayer.get(player.getUniqueID());
         if (manager != null) {
             manager.unregister();
-            allPlayerStorage.allPlayer.remove(player.getUniqueID());
+            playerManagerStorage.allPlayer.remove(player.getUniqueID());
             LOG.info("客户端管理器卸载完成");
         }
     }

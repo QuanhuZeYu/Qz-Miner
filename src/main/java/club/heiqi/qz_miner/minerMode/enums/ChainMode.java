@@ -4,7 +4,6 @@ import club.heiqi.qz_miner.minerMode.AbstractMode;
 import club.heiqi.qz_miner.minerMode.ModeManager;
 import club.heiqi.qz_miner.minerMode.chainMode.BaseChainMode;
 import club.heiqi.qz_miner.minerMode.chainMode.GroupMode;
-import club.heiqi.qz_miner.minerMode.chainMode.LumberJackMode;
 import club.heiqi.qz_miner.minerMode.chainMode.StrictChainMode;
 import org.joml.Vector3i;
 
@@ -15,7 +14,6 @@ import java.util.List;
 public enum ChainMode {
     BASE_CHAIN_MODE("qz_miner.chainmode.base_chain"),
     STRICT("qz_miner.chainmode.strict"),
-    LUMBER_JACK("qz_miner.chainmode.lumberjack"),
     GROUP("qz_miner.chainmode.group");
     public final String unLocalizedName;
 
@@ -38,9 +36,6 @@ public enum ChainMode {
             }
             case STRICT -> {
                 return new StrictChainMode(manager, center, sides);
-            }
-            case LUMBER_JACK -> {
-                return new LumberJackMode(manager, center, sides);
             }
             case GROUP -> {
                 return new GroupMode(manager, center, sides);

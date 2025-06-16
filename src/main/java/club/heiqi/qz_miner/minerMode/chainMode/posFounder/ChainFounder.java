@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.minerMode.chainMode.posFounder;
 
 import club.heiqi.qz_miner.minerMode.AbstractMode;
+import club.heiqi.qz_miner.minerMode.AsyncManager;
 import club.heiqi.qz_miner.minerMode.PositionFounder;
 import club.heiqi.qz_miner.mixins.GTMixin.CoverableTileEntityAccessor;
 import club.heiqi.qz_miner.util.CheckCompatibility;
@@ -14,6 +15,10 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RunnableFuture;
 import java.util.stream.Collectors;
 
 public class ChainFounder extends PositionFounder {
@@ -58,6 +63,7 @@ public class ChainFounder extends PositionFounder {
 
     public List<Vector3i> scanBox(Vector3i pos) {
         List<Vector3i> result = new ArrayList<>();
+        List<Future<Vector3i>> futures = new ArrayList<>();
         int minX = center.x - radiusLimit; int maxX = center.x + radiusLimit; // 设定允许搜索的边界
         int minY = Math.max(0, (center.y - radiusLimit)); int maxY = Math.min(255, (center.y + radiusLimit)); // 限制Y
         int minZ = center.z - radiusLimit; int maxZ = center.z + radiusLimit;
@@ -68,59 +74,81 @@ public class ChainFounder extends PositionFounder {
                     if (Thread.currentThread().isInterrupted() || !checkHeartBeat()) return result; // 线程中断或心跳超时提前返回
                     Vector3i thisPos = new Vector3i(i, j, k);
                     if (i == pos.x && j == pos.y && k == pos.z) continue; // 排除自身
-                    if (!checkCanBreak(thisPos)) continue; // 排除不可挖掘方块
-                    if (!filter(thisPos)) continue; // 排除非连锁方块
-                    result.add(thisPos);
+                    /*if (!checkCanBreak(thisPos)) continue; // 排除不可挖掘方块*/
+                    futures.add(filter(thisPos));
                     sendHeartbeat();
                 }
+            }
+        }
+        // 等待所有future结束
+        for (Future<Vector3i> future : futures) {
+            try {
+                Vector3i filteredPos = future.get(); // 阻塞等待结果
+                if (filteredPos != null) {
+                    result.add(filteredPos);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // 恢复中断状态
+                return result; // 中断时返回已收集的结果
+            } catch (ExecutionException e) {
+                // 处理任务执行异常，可以记录日志或根据需求处理
+                LOG.warn(e);
             }
         }
         return result;
     }
 
-    public boolean filter(Vector3i pos) {
-        int x = pos.x; int y = pos.y; int z = pos.z;
-        Block block = manager.world.getBlock(x, y, z);
-        // 快速失败：空气或液体直接返回
-        if (block.isAir(manager.world, x, y, z) || block.getMaterial().isLiquid()) return false;
+    public Future<Vector3i> filter(Vector3i pos) {
+        RunnableFuture<Vector3i> future = new FutureTask<>(() -> {
+            int x = pos.x; int y = pos.y; int z = pos.z;
+            Block block = manager.world.getBlock(x, y, z);
+            // 快速失败：空气或液体直接返回
+            if (block.isAir(manager.world, x, y, z) || block.getMaterial().isLiquid()) return null;
 
-        // 元数据不匹配直接返回
-        if (manager.world.getBlockMetadata(x, y, z) != mode.blockSampleMeta) {
-            return false;
-        }
+            // 元数据不匹配直接返回
+            if (manager.world.getBlockMetadata(x, y, z) != mode.blockSampleMeta) {
+                return null;
+            }
 
-        // 处理 TileEntity 匹配逻辑
-        TileEntity te = manager.world.getTileEntity(x, y, z);
-        if (te != null) {
-            if (isGTTile) {
-                if (te instanceof CoverableTileEntity gtTe) {
-                    CoverableTileEntity sampleTe = (CoverableTileEntity) mode.tileSample;
-                    int sampleMID = ((CoverableTileEntityAccessor) sampleTe).getMID();
-                    int targetMID = ((CoverableTileEntityAccessor) gtTe).getMID();
-                    if (sampleMID == targetMID) {
-                        return true;
+            // 处理 TileEntity 匹配逻辑
+            TileEntity te = manager.world.getTileEntity(x, y, z);
+            if (te != null) {
+                if (isGTTile) {
+                    if (te instanceof CoverableTileEntity gtTe) {
+                        CoverableTileEntity sampleTe = (CoverableTileEntity) mode.tileSample;
+                        int sampleMID = ((CoverableTileEntityAccessor) sampleTe).getMID();
+                        int targetMID = ((CoverableTileEntityAccessor) gtTe).getMID();
+                        if (sampleMID == targetMID) {
+                            return pos;
+                        }
                     }
+                } else {
+                    // 非 GTTile 类型直接通过
+                    return pos;
                 }
-            } else {
-                // 非 GTTile 类型直接通过
-                return true;
             }
-        }
-        // 准备比较对象
-        Block sampleBlock = mode.blockSample;
-        ItemStack sampleStack = new ItemStack(sampleBlock);
-        ItemStack blockStack = new ItemStack(block);
-        // 矿词匹配优化（使用 HashSet 加速查找）
-        int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
-        int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
-        Set<Integer> blockOreSet = Arrays.stream(blockOreIDs).boxed().collect(Collectors.toSet());
+            // 准备比较对象
+            Block sampleBlock = mode.blockSample;
+            ItemStack sampleStack = new ItemStack(sampleBlock);
+            ItemStack blockStack = new ItemStack(block);
+            // 矿词匹配优化（使用 HashSet 加速查找）
+            int[] sampleOreIDs = OreDictionary.getOreIDs(sampleStack);
+            int[] blockOreIDs = OreDictionary.getOreIDs(blockStack);
+            Set<Integer> blockOreSet = Arrays.stream(blockOreIDs).boxed().collect(Collectors.toSet());
 
-        for (int oreId : sampleOreIDs) {
-            if (blockOreSet.contains(oreId)) {
-                return true;
+            for (int oreId : sampleOreIDs) {
+                if (blockOreSet.contains(oreId)) {
+                    return pos;
+                }
             }
-        }
-        // 判断方块是否相同
-        return Block.getIdFromBlock(block) == Block.getIdFromBlock(mode.blockSample);
+            // 判断方块是否相同
+            if (Block.getIdFromBlock(block) == Block.getIdFromBlock(mode.blockSample)) {
+                return pos;
+            } else {
+                return null;
+            }
+        });
+        AsyncManager.pollTask(future);
+        return future;
     }
 }

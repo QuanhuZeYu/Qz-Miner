@@ -1,11 +1,9 @@
 package club.heiqi.qz_miner.statueStorage;
 
-import club.heiqi.qz_miner.MOD_INFO;
 import club.heiqi.qz_miner.minerMode.ModeManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
-import cpw.mods.fml.common.network.NetworkCheckHandler;
 import cpw.mods.fml.relauncher.Side;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraftforge.common.MinecraftForge;
@@ -18,7 +16,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class AllPlayer {
+/**
+ * 玩家管理器
+ */
+public class PlayerManager {
     public static Logger LOG = LogManager.getLogger();
     /**
      * 玩家UUID为键 - 连锁管理器
@@ -187,39 +188,6 @@ public class AllPlayer {
             serverRegister(player);
         }
     }*/
-
-    /**
-     * 兼容性检查
-     * @param mods
-     * @param side
-     * @return
-     */
-    @NetworkCheckHandler
-    public boolean checkClientVersion(Map<String, String> mods, Side side) {
-        if (mods.isEmpty()) {
-            return true;
-        }
-        if (mods.containsKey(MOD_INFO.MODID)) {
-            String clientVersion = mods.get(MOD_INFO.MODID);
-            String serverVersion = MOD_INFO.VERSION;
-            if (serverVersion.equals(clientVersion) || serverVersion.startsWith(clientVersion) || clientVersion.startsWith(serverVersion)) {
-                return true;
-            }
-            int clientMajor = Integer.parseInt(clientVersion.split("\\.")[0]);
-            int clientMinor = Integer.parseInt(clientVersion.split("\\.")[1]);
-            int clientPatch = Integer.parseInt(clientVersion.split("\\.")[2]);
-            int serverMajor = Integer.parseInt(serverVersion.split("\\.")[0]);
-            int serverMinor = Integer.parseInt(serverVersion.split("\\.")[1]);
-            int serverPatch = Integer.parseInt(serverVersion.split("\\.")[2]);
-            if (serverMajor == clientMajor && serverMinor == clientMinor) {
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return true;
-        }
-    }
 
     public void register() {
         MinecraftForge.EVENT_BUS.register(this);

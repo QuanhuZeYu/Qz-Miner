@@ -26,7 +26,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import static club.heiqi.qz_miner.Mod_Main.playerManagerStorage;
 
 public class FindMines {
     public static FindMines findMines = new FindMines();
@@ -44,7 +44,7 @@ public class FindMines {
         }
         if (event.side.isClient()) return;
         EntityPlayer player = event.player;
-        ModeManager modeManager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        ModeManager modeManager = playerManagerStorage.allPlayer.get(player.getUniqueID());
         if (modeManager == null) return;
         if (modeManager.getIsReady()) {
             if (!inReady) { // 首次进入设置状态

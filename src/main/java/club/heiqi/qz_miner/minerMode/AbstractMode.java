@@ -90,6 +90,8 @@ public abstract class AbstractMode {
     }
 
     public void mineModeAutoSetup() {
+        // 不在客户端运行逻辑
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         // 如果在实例化时出现异常 搜索器 可能会为空
         if (positionFounder == null || !initSuccess) return;
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
@@ -109,6 +111,8 @@ public abstract class AbstractMode {
 
     public AtomicBoolean isInteractMode = new AtomicBoolean(false);
     public void interactModeAutoSetup() {
+        // 不在客户端运行逻辑
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         if (positionFounder == null || !initSuccess) return;
         isInteractMode.set(true);
         thread = new Thread(positionFounder, this + " - 连锁搜索者线程");
@@ -118,6 +122,8 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void logicTick(TickEvent.ServerTickEvent event) {
+        // 不在客户端运行逻辑
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         // 用于取消监听失败时再次卸载流程
         if (checkShut()) return;
         if (event.phase == TickEvent.Phase.START && side == Sides.SERVER) {
@@ -166,6 +172,8 @@ public abstract class AbstractMode {
     public int allBreakCount = 0;
     /**默认实现主逻辑*/
     public void mainLogic() {
+        // 不在客户端运行逻辑
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         lastTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - lastTime <= Config.taskTimeLimit && positionFounder != null) { // 任务运行将限制在配置的时间中
             Vector3i pos = positionFounder.cache.poll(); // 立即取出队列中头部元素，如果为空返回null

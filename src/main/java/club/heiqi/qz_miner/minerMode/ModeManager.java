@@ -182,6 +182,8 @@ public class ModeManager {
      */
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
+        // 不在客户端运行逻辑
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         // 判断是否是自己挖的
         if (!event.getPlayer().getUniqueID().equals(this.player.getUniqueID())) {
             //LOG.info("非自身挖掘");
@@ -217,6 +219,8 @@ public class ModeManager {
      */
     @SubscribeEvent
     public void interactEvent(PlayerInteractEvent event) {
+        // 不在客户端运行逻辑
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         EntityPlayer player = event.entityPlayer;
         // 确保触发者是管理器玩 触发在服务端
         if (!player.getUniqueID().equals(this.player.getUniqueID()) || event.world.isRemote) return;

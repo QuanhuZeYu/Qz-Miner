@@ -10,7 +10,7 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.UUID;
 
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import static club.heiqi.qz_miner.Mod_Main.playerManagerStorage;
 
 public class PacketMainMode implements IMessage {
     public int mode;
@@ -38,7 +38,7 @@ public class PacketMainMode implements IMessage {
         public IMessage onMessage(PacketMainMode message, MessageContext ctx) {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
-            ModeManager modeManager = allPlayerStorage.allPlayer.get(uuid);
+            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid);
             modeManager.mainMode = MainMode.values()[message.mode];
             return null;
         }

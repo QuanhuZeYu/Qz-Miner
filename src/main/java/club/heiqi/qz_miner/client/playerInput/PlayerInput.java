@@ -29,7 +29,6 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.common.MinecraftForge;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 import org.joml.Vector2d;
 import org.joml.Vector3i;
 import org.lwjgl.input.Keyboard;
@@ -40,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import static club.heiqi.qz_miner.Mod_Main.playerManagerStorage;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM;
 import static org.lwjgl.opengl.GL20.glUseProgram;
@@ -392,7 +391,7 @@ public class PlayerInput {
     public ModeManager tryGetManager() {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return null;
-        ModeManager manager = allPlayerStorage.allPlayer.get(player.getUniqueID());
+        ModeManager manager = playerManagerStorage.allPlayer.get(player.getUniqueID());
         trySetManager(manager);
         return manager;
     }

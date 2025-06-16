@@ -56,16 +56,19 @@ public class BlockBreaker {
         final int metadata = world.getBlockMetadata(x, y, z);
         final int blockId = Block.getIdFromBlock(block);
         final TileEntity te = world.getTileEntity(x,y,z);
-        /*player.theItemInWorldManager.tryHarvestBlock(x,y,z);*/
+        if (!(player instanceof EntityPlayerMP playerMP)) return;
+        else {
+            playerMP.theItemInWorldManager.tryHarvestBlock(x,y,z);
+        }
         // 2. 处理AE逻辑
-        if (CheckCompatibility.isHasClass_AE2 && te instanceof AEBaseTile aeTe) {
+        /*if (CheckCompatibility.isHasClass_AE2 && te instanceof AEBaseTile aeTe) {
             List<ItemStack> drops = new ArrayList<>();
             aeTe.getDrops(world,x,y,z,drops);
             Vector3f dropPos = Utils.getItemDropPos(player);
             drops.forEach(d -> world.spawnEntityInWorld(new EntityItem(world,dropPos.x,dropPos.y,dropPos.z,d)));
             return;
         }
-        copyTryHarvestBlock(pos);
+        copyTryHarvestBlock(pos);*/
         /*BlockEvent.BreakEvent breakEvent = ForgeHooks.onBlockBreakEvent(world, selectType(), player, x, y, z);
         if (breakEvent.isCanceled()) {
             return false;

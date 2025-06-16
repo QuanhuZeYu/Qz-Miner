@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.HashSet;
 import java.util.Iterator;
 
 @Mixin(WorldServer.class)
@@ -29,27 +30,29 @@ public class MixinsWorldServer {
         cancellable = true,
         remap = true
     )
-    public void qz_miner$tickUpdates(boolean p_72955_1_, CallbackInfoReturnable<Boolean> ci) {
+    public void qz_miner$tickUpdates(boolean processAll, CallbackInfoReturnable<Boolean> ci) {
         ci.cancel();
-        int i = ((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.size();
+        int treeCount = ((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.size();
         boolean clearAllNextTick = false;
-        if (i != ((WorldServer)((Object)this)).pendingTickListEntriesHashSet.size()) {
+        if (treeCount != ((WorldServer)((Object)this)).pendingTickListEntriesHashSet.size()) {
             if (Config.tickOutSyncCrash) {
                 throw new IllegalStateException("TickNextTick list out of synch");
             }
             BroadCastMessage.broadCastMessage("qz_Miner已阻止计划刻不同步导致的崩溃；可在配置中关闭此功能[tickOutSyncCrash]");
             clearAllNextTick = true;
+            // 将快查表替换为树表
+            ((WorldServer)((Object)this)).pendingTickListEntriesHashSet = new HashSet(((WorldServer)((Object)this)).pendingTickListEntriesTreeSet);
         }
         {
             ((WorldServer)((Object)this)).theProfiler.startSection("cleaning");
             NextTickListEntry nextticklistentry;
             // 限制更新次数 - 使用配置来控制
-            if (i > Config.tickUpdateCount) i = Config.tickUpdateCount;
-            for (int j = 0; j < i; ++j)
-            {
+            if (treeCount > Config.tickUpdateCount) treeCount = Config.tickUpdateCount;
+            // 筛选本刻要更新的内容
+            for (int j = 0; j < treeCount; ++j) {
                 nextticklistentry = (NextTickListEntry)((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.first();
 
-                if (!p_72955_1_ && nextticklistentry.scheduledTime > ((WorldServer)((Object)this)).worldInfo.getWorldTotalTime())
+                if (!processAll && nextticklistentry.scheduledTime > ((WorldServer)((Object)this)).worldInfo.getWorldTotalTime())
                 {
                     break;
                 }
@@ -61,6 +64,7 @@ public class MixinsWorldServer {
 
             ((WorldServer)((Object)this)).theProfiler.endSection();
             ((WorldServer)((Object)this)).theProfiler.startSection("ticking");
+            // 开始更新本刻
             Iterator iterator = ((WorldServer)((Object)this)).pendingTickListEntriesThisTick.iterator();
 
             while (iterator.hasNext()) {
@@ -71,15 +75,24 @@ public class MixinsWorldServer {
                 //byte b0 = isForced ? 0 : 8;
                 byte b0 = 0;
 
-                if (((WorldServer)((Object)this)).checkChunksExist(nextticklistentry.xCoord - b0, nextticklistentry.yCoord - b0, nextticklistentry.zCoord - b0, nextticklistentry.xCoord + b0, nextticklistentry.yCoord + b0, nextticklistentry.zCoord + b0))
+
+                int nextY = nextticklistentry.yCoord;
+                int nextZ = nextticklistentry.zCoord;
+                int nextX = nextticklistentry.xCoord;
+                if (((WorldServer)((Object)this)).checkChunksExist(nextX - b0,
+                        nextY - b0,
+                        nextZ - b0,
+                        nextX + b0,
+                        nextY + b0,
+                        nextZ + b0))
                 {
-                    Block block = ((WorldServer)((Object)this)).getBlock(nextticklistentry.xCoord, nextticklistentry.yCoord, nextticklistentry.zCoord);
+                    Block block = ((WorldServer)((Object)this)).getBlock(nextX, nextY, nextZ);
 
                     if (block.getMaterial() != Material.air && Block.isEqualTo(block, nextticklistentry.func_151351_a()))
                     {
                         try
                         {
-                            block.updateTick(((WorldServer)((Object)this)), nextticklistentry.xCoord, nextticklistentry.yCoord, nextticklistentry.zCoord, ((WorldServer)((Object)this)).rand);
+                            block.updateTick(((WorldServer)((Object)this)), nextX, nextY, nextZ, ((WorldServer)((Object)this)).rand);
                         }
                         catch (Throwable throwable1)
                         {
@@ -89,32 +102,31 @@ public class MixinsWorldServer {
 
                             try
                             {
-                                k = ((WorldServer)((Object)this)).getBlockMetadata(nextticklistentry.xCoord, nextticklistentry.yCoord, nextticklistentry.zCoord);
+                                k = ((WorldServer)((Object)this)).getBlockMetadata(nextX, nextY, nextZ);
                             }
                             catch (Throwable throwable)
                             {
                                 k = -1;
                             }
 
-                            CrashReportCategory.func_147153_a(crashreportcategory, nextticklistentry.xCoord, nextticklistentry.yCoord, nextticklistentry.zCoord, block, k);
+                            CrashReportCategory.func_147153_a(crashreportcategory, nextX, nextY, nextZ, block, k);
                             throw new ReportedException(crashreport);
                         }
                     }
                 }
                 else
                 {
-                    ((WorldServer)((Object)this)).scheduleBlockUpdate(nextticklistentry.xCoord, nextticklistentry.yCoord, nextticklistentry.zCoord, nextticklistentry.func_151351_a(), 0);
+                    ((WorldServer)((Object)this)).scheduleBlockUpdate(nextX, nextY, nextZ, nextticklistentry.func_151351_a(), 0);
                 }
             }
 
             ((WorldServer)((Object)this)).theProfiler.endSection();
             ((WorldServer)((Object)this)).pendingTickListEntriesThisTick.clear();
-            boolean b = !((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.isEmpty();
+            boolean treeIsEmpty = !((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.isEmpty();
             if (clearAllNextTick) {
-                ((WorldServer)((Object)this)).pendingTickListEntriesTreeSet.clear();
-                ((WorldServer)((Object)this)).pendingTickListEntriesHashSet.clear();
+                ((WorldServer)((Object)this)).pendingTickListEntriesHashSet = new HashSet(((WorldServer)((Object)this)).pendingTickListEntriesTreeSet);
             }
-            ci.setReturnValue(b);
+            ci.setReturnValue(treeIsEmpty);
         }
     }
 }

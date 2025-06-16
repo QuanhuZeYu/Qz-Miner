@@ -2,7 +2,7 @@ package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.command.QzMinerCommand;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
-import club.heiqi.qz_miner.statueStorage.AllPlayer;
+import club.heiqi.qz_miner.statueStorage.PlayerManager;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -20,7 +20,7 @@ import org.apache.logging.log4j.Logger;
 )
 public class Mod_Main {
     /**全局玩家信息类*/
-    public static AllPlayer allPlayerStorage = new AllPlayer();
+    public static PlayerManager playerManagerStorage = new PlayerManager();
     public static QzMinerNetWork qzMinerNetWork;
     public static QzMinerCommand qzMinerCommand = new QzMinerCommand();
     public static Config config = new Config();

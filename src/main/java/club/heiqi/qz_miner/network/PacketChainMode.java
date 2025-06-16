@@ -10,7 +10,7 @@ import net.minecraft.entity.player.EntityPlayer;
 
 import java.util.UUID;
 
-import static club.heiqi.qz_miner.Mod_Main.allPlayerStorage;
+import static club.heiqi.qz_miner.Mod_Main.playerManagerStorage;
 
 public class PacketChainMode implements IMessage {
     public int mode;
@@ -38,7 +38,7 @@ public class PacketChainMode implements IMessage {
         public IMessage onMessage(PacketChainMode message, MessageContext ctx) {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
-            ModeManager modeManager = allPlayerStorage.allPlayer.get(uuid);
+            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid);
             modeManager.chainMode = ChainMode.values()[message.mode];
 //            logger.info("链模式已切换到: {}", modeManager.chainMode.unLocalizedName);
             return null;
