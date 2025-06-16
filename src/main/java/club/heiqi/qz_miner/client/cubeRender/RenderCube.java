@@ -157,7 +157,7 @@ public class RenderCube {
         remainingIndices.removeIf(Objects::isNull);
         // 6. 转换为 int 数组
         indexes = remainingIndices.stream().mapToInt(Integer::intValue).toArray();
-        LOG.info("indexSize:{}",indexes.length);
+        /*LOG.info("indexSize:{}",indexes.length);*/
     }
 
     public static void init() {

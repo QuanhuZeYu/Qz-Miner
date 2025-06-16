@@ -57,9 +57,7 @@ public class BlockBreaker {
         final int blockId = Block.getIdFromBlock(block);
         final TileEntity te = world.getTileEntity(x,y,z);
         if (!(player instanceof EntityPlayerMP playerMP)) return;
-        else {
-            playerMP.theItemInWorldManager.tryHarvestBlock(x,y,z);
-        }
+        playerMP.theItemInWorldManager.tryHarvestBlock(x,y,z);
         // 2. 处理AE逻辑
         /*if (CheckCompatibility.isHasClass_AE2 && te instanceof AEBaseTile aeTe) {
             List<ItemStack> drops = new ArrayList<>();

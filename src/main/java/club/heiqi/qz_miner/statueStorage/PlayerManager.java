@@ -41,14 +41,13 @@ public class PlayerManager {
         if (allPlayer.containsKey(uuid)) {
             modeManager = allPlayer.get(uuid);
             modeManager.player = player;
-            LOG.info("[{}: {}] 客户端管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
+            LOG.info("[{}: {}] 客户端管理器重新设置完毕",player.getDisplayName(),modeManager.registryInfo);
         }
         // 2.不存在缓存的管理器
         else {
             modeManager = new ModeManager(player);
             modeManager.player = player;
             allPlayer.put(uuid, modeManager);
-            LOG.info("[{}: {}] 客户端管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
     }
 
@@ -72,13 +71,12 @@ public class PlayerManager {
         if (allPlayer.containsKey(uuid)) {
             modeManager = allPlayer.get(uuid);
             modeManager.player = player;
-            LOG.info("[{}: {}] 服务端管理器重新注册完毕",player.getDisplayName(),modeManager.registryInfo);
+            LOG.info("[{}: {}] 服务端管理器重新设置完毕",player.getDisplayName(),modeManager.registryInfo);
         }
         // 2.不存在缓存的管理器
         else {
             modeManager = new ModeManager(player);
             allPlayer.put(uuid, modeManager);
-            LOG.info("[{}: {}] 服务端管理器注册完毕",player.getDisplayName(),modeManager.registryInfo);
         }
     }
 
