@@ -125,23 +125,23 @@ public abstract class AbstractMode {
     @SubscribeEvent
     public void logicTick(TickEvent.ServerTickEvent event) {
         // 不在客户端运行逻辑
-        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
+        if (!Thread.currentThread().getName().contains("Server")) return;
         // 用于取消监听失败时再次卸载流程
         if (checkShut()) return;
         if (event.phase == TickEvent.Phase.START && side == Sides.SERVER) {
             sendHeartbeat();
             if (!checkHeartBeat()) {
-                LOG.info("心跳超时");
+                /*LOG.info("心跳超时");*/
                 shutdown();
                 return;
             }
             if (!modeManager.getIsReady()) {
-                LOG.info("未准备");
+                /*LOG.info("未准备");*/
                 shutdown();
                 return;
             }
             if (!modeManager.isRunning.get()) {
-                LOG.info("停止运行");
+                /*LOG.info("停止运行");*/
                 shutdown();
                 return;
             }
@@ -154,6 +154,8 @@ public abstract class AbstractMode {
 
     @SubscribeEvent
     public void renderTick(TickEvent.ClientTickEvent event) {
+        // 如果不是该模式不要执行mainLogic
+        if (!isRenderMode.get()) return;
         // 用于取消监听失败时再次卸载流程
         if (checkShut()) return;
         if (event.phase == TickEvent.Phase.START) return;
@@ -177,8 +179,6 @@ public abstract class AbstractMode {
     public int allBreakCount = 0;
     /**默认实现主逻辑*/
     public void mainLogic() {
-        // 不在客户端运行逻辑
-
         lastTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - lastTime <= Config.taskTimeLimit && positionFounderThread != null) { // 任务运行将限制在配置的时间中
             Vector3i pos = positionFounderThread.cache.poll(); // 立即取出队列中头部元素，如果为空返回null
@@ -186,7 +186,7 @@ public abstract class AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= Config.heartbeatTimeout) {
-                    LOG.info("没有获取到点的时间超过最大等待限制终止任务");
+                    //LOG.info("没有获取到点的时间超过最大等待限制终止任务");
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
@@ -209,7 +209,7 @@ public abstract class AbstractMode {
                 }
                 // 判断挖掘数量是否终止
                 if (allBreakCount >= Config.blockLimit) {
-                    LOG.info("数量达到");
+                    //LOG.info("数量达到");
                     shutdown();
                     return;
                 }

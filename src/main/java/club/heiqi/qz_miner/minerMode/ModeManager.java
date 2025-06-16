@@ -45,7 +45,6 @@ public class ModeManager {
     public Logger LOG = LogManager.getLogger();
     /**管理器的UUID*/
     public UUID registryInfo;
-    public ConcurrentLinkedQueue<Vector3i> selfDrops = new ConcurrentLinkedQueue<>();
 
     /**缓存的玩家引用*/
     public EntityPlayer player;
@@ -251,13 +250,21 @@ public class ModeManager {
     List<ItemStack> captureDrops = new ArrayList<>();
     @SubscribeEvent
     public void onHarvestDrops(BlockEvent.HarvestDropsEvent event) {
+        // 非服务器线程不执行
+        if (!Thread.currentThread().getName().contains("Server")) return;
+        /*LOG.info("掉落事件: {采集者: {}; 掉落物: {}}",
+                event.harvester==null ? "无采集者" : event.harvester.getDisplayName(),
+                !event.drops.isEmpty() ? event.drops.get(0).getDisplayName() : "空掉落物");*/
         EntityPlayer harvester = event.harvester;
         // 确保采集者是管理器管理的玩家 - 通过UUID判断
-        if (harvester == null || harvester.getUniqueID() != player.getUniqueID()) return;
-        // 更新玩家
-        player = harvester;
+        if (harvester == null || !harvester.getUniqueID().equals(player.getUniqueID())) {
+            return;
+        }
+        if (!getIsReady()) {
+            /*LOG.info("拒绝收集: 管理器未准备");*/
+            return;
+        }
         // 更新世界
-        if (!getIsReady()) return;
         if (Config.dropItemToSelf) { // 如果配置打开了掉落到自己附近
             {
                 if (captureDrops.isEmpty()) {
