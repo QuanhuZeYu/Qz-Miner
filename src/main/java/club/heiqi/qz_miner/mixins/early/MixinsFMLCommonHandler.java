@@ -17,7 +17,7 @@ public class MixinsFMLCommonHandler {
             remap = false
     )
     public void qz_miner$onPreServerTick_PRE(CallbackInfo ci) {
-        LifeController.forgeStartEventStart();
+        LifeController.serverTickStartEventHead();
     }
 
     @Inject(
@@ -27,6 +27,26 @@ public class MixinsFMLCommonHandler {
             remap = false
     )
     public void qz_miner$onPreServerTick_END(CallbackInfo ci) {
-        LifeController.forgeStartEventEnd();
+        LifeController.serverTickEventTail();
+    }
+
+    @Inject(
+            method = "onPreClientTick",
+            at = @At("HEAD"),
+            cancellable = false,
+            remap = false
+    )
+    public void qz_miner$onPreClientTick_PRE(CallbackInfo ci) {
+        LifeController.clientTickEventHead();
+    }
+
+    @Inject(
+            method = "onPreClientTick",
+            at = @At("TAIL"),
+            cancellable = false,
+            remap = false
+    )
+    public void qz_miner$onPreClientTick_END(CallbackInfo ci) {
+        LifeController.clientTickEventTail();
     }
 }

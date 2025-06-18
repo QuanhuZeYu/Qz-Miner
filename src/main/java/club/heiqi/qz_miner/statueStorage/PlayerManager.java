@@ -126,12 +126,12 @@ public class PlayerManager {
         unregister(player);
     }
 
-    /*@SubscribeEvent
+    @SubscribeEvent
     public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
         if (!(event.entity instanceof EntityPlayer)) return;
         EntityPlayer player = (EntityPlayer) event.entity;
         proxyRegister(player);
-    }*/
+    }
 
     /*@SubscribeEvent
     public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {

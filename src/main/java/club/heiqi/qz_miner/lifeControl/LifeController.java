@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.lifeControl;
 
+import cpw.mods.fml.relauncher.Side;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -25,8 +26,9 @@ public class LifeController {
     /**
      * 每帧进入时开始/恢复所有线程并行
      */
-    public static void forgeStartEventStart() {
+    public static void serverTickStartEventHead() {
         for (LifeThread t : waitStart) {
+            if (t.side != Side.SERVER) continue;
             //LOG.info("开始任务: {}",t.getName());
             t.start();
             threads.add(t);
@@ -34,6 +36,7 @@ public class LifeController {
         // 清空待启动线程表
         waitStart.clear();
         for (LifeThread t : threads) {
+            if (t.side != Side.SERVER) continue;
             //LOG.info("继续任务: {}",t.getName());
             t.unpause();
         }
@@ -42,9 +45,42 @@ public class LifeController {
     /**
      * 帧事件结束暂停所有线程
      */
-    public static void forgeStartEventEnd() {
+    public static void serverTickEventTail() {
         List<LifeThread> willRemove = new ArrayList<>();
         for (LifeThread t : threads) {
+            if (t.side != Side.SERVER) continue;
+            //LOG.info("暂停任务: {}",t.getName());
+            t.pause();
+            // 如果线程已经被中断，移除它
+            if (t.isInterrupted()) {
+                /*LOG.info("移除任务: {}",t.getName());*/
+                willRemove.add(t);
+            }
+        }
+        // 执行移除
+        threads.removeAll(willRemove);
+    }
+
+    public static void clientTickEventHead() {
+        for (LifeThread t : waitStart) {
+            if (t.side != Side.CLIENT) continue;
+            //LOG.info("开始任务: {}",t.getName());
+            t.start();
+            threads.add(t);
+        }
+        // 清空待启动线程表
+        waitStart.clear();
+        for (LifeThread t : threads) {
+            if (t.side != Side.CLIENT) continue;
+            //LOG.info("继续任务: {}",t.getName());
+            t.unpause();
+        }
+    }
+
+    public static void clientTickEventTail() {
+        List<LifeThread> willRemove = new ArrayList<>();
+        for (LifeThread t : threads) {
+            if (t.side != Side.CLIENT) continue;
             //LOG.info("暂停任务: {}",t.getName());
             t.pause();
             // 如果线程已经被中断，移除它

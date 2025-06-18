@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner;
 
+import club.heiqi.qz_miner.httpServer.SparkHttp;
 import club.heiqi.qz_miner.lootGame.FindMines;
 import club.heiqi.qz_miner.minerMode.AsyncManager;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
@@ -45,5 +46,6 @@ public class CommonProxy {
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
         qzMinerCommand.register(event);
+        new SparkHttp();
     }
 }

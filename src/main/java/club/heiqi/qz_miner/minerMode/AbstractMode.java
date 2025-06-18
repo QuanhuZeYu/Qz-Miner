@@ -97,6 +97,7 @@ public abstract class AbstractMode {
         // 如果在实例化时出现异常 搜索器 可能会为空
         if (positionFounderThread == null || !initSuccess) return;
         thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
+        thread.side = Side.SERVER;
         register();
         LifeController.addThread(thread);
     }
@@ -107,6 +108,7 @@ public abstract class AbstractMode {
         if (positionFounderThread == null || !initSuccess) return;
         isRenderMode.set(true);
         thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
+        thread.side = Side.CLIENT;
         register();
         LifeController.addThread(thread);
     }
@@ -118,6 +120,7 @@ public abstract class AbstractMode {
         if (positionFounderThread == null || !initSuccess) return;
         isInteractMode.set(true);
         thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
+        thread.side = Side.SERVER;
         register();
         LifeController.addThread(thread);
     }

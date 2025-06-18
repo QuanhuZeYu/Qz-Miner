@@ -1,12 +1,14 @@
 package club.heiqi.qz_miner.lifeControl;
 
 import club.heiqi.qz_miner.minerMode.Pausable;
+import cpw.mods.fml.relauncher.Side;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LifeThread extends Thread {
     public AtomicBoolean pause = new AtomicBoolean(false);
     public AtomicBoolean running = new AtomicBoolean(false);
+    public Side side = Side.SERVER;
     public final Object lock = new Object();
 
     public Runnable loop = () -> {};
