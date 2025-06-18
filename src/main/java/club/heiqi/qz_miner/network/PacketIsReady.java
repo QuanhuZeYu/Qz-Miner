@@ -35,7 +35,7 @@ public class PacketIsReady implements IMessage {
         @Override
         public IMessage onMessage(PacketIsReady message, MessageContext ctx) {
             UUID uuid = ctx.getServerHandler().playerEntity.getUniqueID();
-            ModeManager manager = playerManagerStorage.allPlayer.get(uuid);
+            ModeManager manager = playerManagerStorage.allPlayer.get(uuid.toString());
             manager.setIsReady(message.isReady);
 //            logger.info("玩家 {} 准备状态已切换为: {}", ctx.getServerHandler().playerEntity.getUniqueID(), manager.getIsReady());
             return null;

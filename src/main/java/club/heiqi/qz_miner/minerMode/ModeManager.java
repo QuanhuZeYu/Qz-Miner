@@ -189,7 +189,10 @@ public class ModeManager {
     @SubscribeEvent
     public void blockBreakEvent(BlockEvent.BreakEvent event) {
         // 不在客户端运行逻辑
-        if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
+        if (Thread.currentThread().getName().toLowerCase().contains("client")) {
+            //LOG.info("客户端尝试挖掘！");
+            return;
+        }
         // 判断是否是自己挖的
         if (!event.getPlayer().getUniqueID().equals(this.player.getUniqueID())) {
             //LOG.info("非自身挖掘");

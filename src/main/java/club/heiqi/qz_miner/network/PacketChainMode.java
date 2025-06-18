@@ -38,7 +38,7 @@ public class PacketChainMode implements IMessage {
         public IMessage onMessage(PacketChainMode message, MessageContext ctx) {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
-            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid);
+            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid.toString());
             modeManager.chainMode = ChainMode.values()[message.mode];
 //            logger.info("链模式已切换到: {}", modeManager.chainMode.unLocalizedName);
             return null;

@@ -24,7 +24,7 @@ public class PlayerManager {
     /**
      * 玩家UUID为键 - 连锁管理器
      */
-    public Map<UUID, ModeManager> allPlayer = new ConcurrentHashMap<>();
+    public Map<String, ModeManager> allPlayer = new ConcurrentHashMap<>();
 
     public void clientRegister(EntityPlayer player) {
         if (player == null) {
@@ -38,8 +38,8 @@ public class PlayerManager {
         UUID uuid = player.getUniqueID();
         ModeManager modeManager;
         // 1.缓存已有管理器
-        if (allPlayer.containsKey(uuid)) {
-            modeManager = allPlayer.get(uuid);
+        if (allPlayer.containsKey(uuid.toString())) {
+            modeManager = allPlayer.get(uuid.toString());
             modeManager.player = player;
             LOG.info("[{}: {}] 客户端管理器重新设置完毕",player.getDisplayName(),modeManager.registryInfo);
         }
@@ -47,13 +47,12 @@ public class PlayerManager {
         else {
             modeManager = new ModeManager(player);
             modeManager.player = player;
-            allPlayer.put(uuid, modeManager);
+            allPlayer.put(uuid.toString(), modeManager);
         }
     }
 
     /**
      * 无论是否存在管理器实例都会重新赋值player world
-     * @param player
      */
     public void serverRegister(EntityPlayer player) {
         if (player == null) {
@@ -68,26 +67,26 @@ public class PlayerManager {
         // 服务端逻辑
         ModeManager modeManager;
         // 1.缓存已有管理器
-        if (allPlayer.containsKey(uuid)) {
-            modeManager = allPlayer.get(uuid);
+        if (allPlayer.containsKey(uuid.toString())) {
+            modeManager = allPlayer.get(uuid.toString());
             modeManager.player = player;
             LOG.info("[{}: {}] 服务端管理器重新设置完毕",player.getDisplayName(),modeManager.registryInfo);
         }
         // 2.不存在缓存的管理器
         else {
             modeManager = new ModeManager(player);
-            allPlayer.put(uuid, modeManager);
+            allPlayer.put(uuid.toString(), modeManager);
         }
     }
 
     public void unregister(EntityPlayer player) {
         UUID uuid = player.getUniqueID();
-        if (!allPlayer.containsKey(uuid)) {
+        if (!allPlayer.containsKey(uuid.toString())) {
             return;
         } else {
-            ModeManager modeManager = allPlayer.get(uuid);
+            ModeManager modeManager = allPlayer.get(uuid.toString());
             modeManager.unregister();
-            allPlayer.remove(uuid);
+            allPlayer.remove(uuid.toString());
             LOG.info("玩家: {} 已从连锁缓存中移除", player.getDisplayName());
         }
     }
@@ -108,7 +107,6 @@ public class PlayerManager {
     /**
      * 通用:
      *  进入世界时收集信息 - 初始化连锁状态
-     * @param event
      */
     @SubscribeEvent
     public void qz_onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
@@ -118,7 +116,6 @@ public class PlayerManager {
 
     /**
      * 退出时清理 - 清空连锁状态
-     * @param event
      */
     @SubscribeEvent
     public void qz_onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
@@ -126,12 +123,12 @@ public class PlayerManager {
         unregister(player);
     }
 
-    @SubscribeEvent
+    /*@SubscribeEvent
     public void qz_onEntityJoinWorld(EntityJoinWorldEvent event) {
-        if (!(event.entity instanceof EntityPlayer)) return;
-        EntityPlayer player = (EntityPlayer) event.entity;
+        if (!(event.entity instanceof EntityPlayer player)) return;
+        if (allPlayer.containsKey(player.getUniqueID().toString())) return;
         proxyRegister(player);
-    }
+    }*/
 
     /*@SubscribeEvent
     public void qz_onChangeWorld(PlayerEvent.PlayerChangedDimensionEvent event) {

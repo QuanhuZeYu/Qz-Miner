@@ -35,7 +35,7 @@ public class PacketPrintResult implements IMessage {
         public IMessage onMessage(PacketPrintResult message, MessageContext ctx) {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
-            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid);
+            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid.toString());
             modeManager.setPrintResult(message.printResult);
             return null;
         }

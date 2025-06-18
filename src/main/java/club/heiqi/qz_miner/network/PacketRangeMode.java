@@ -38,7 +38,7 @@ public class PacketRangeMode implements IMessage {
         public IMessage onMessage(PacketRangeMode message, MessageContext ctx) {
             EntityPlayer player = ctx.getServerHandler().playerEntity;
             UUID uuid = player.getUniqueID();
-            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid);
+            ModeManager modeManager = playerManagerStorage.allPlayer.get(uuid.toString());
             modeManager.rangeMode = RangeMode.values()[message.mode];
             return null;
         }

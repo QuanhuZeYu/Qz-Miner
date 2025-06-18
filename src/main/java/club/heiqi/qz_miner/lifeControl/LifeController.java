@@ -27,14 +27,15 @@ public class LifeController {
      * 每帧进入时开始/恢复所有线程并行
      */
     public static void serverTickStartEventHead() {
+        List<LifeThread> willRemove = new ArrayList<>();
         for (LifeThread t : waitStart) {
             if (t.side != Side.SERVER) continue;
             //LOG.info("开始任务: {}",t.getName());
             t.start();
             threads.add(t);
+            willRemove.add(t);
         }
-        // 清空待启动线程表
-        waitStart.clear();
+        waitStart.removeAll(willRemove);
         for (LifeThread t : threads) {
             if (t.side != Side.SERVER) continue;
             //LOG.info("继续任务: {}",t.getName());
@@ -53,7 +54,7 @@ public class LifeController {
             t.pause();
             // 如果线程已经被中断，移除它
             if (t.isInterrupted()) {
-                /*LOG.info("移除任务: {}",t.getName());*/
+                //LOG.info("移除任务: {}",t.getName());
                 willRemove.add(t);
             }
         }
@@ -62,14 +63,15 @@ public class LifeController {
     }
 
     public static void clientTickEventHead() {
+        List<LifeThread> willRemove = new ArrayList<>();
         for (LifeThread t : waitStart) {
             if (t.side != Side.CLIENT) continue;
             //LOG.info("开始任务: {}",t.getName());
             t.start();
             threads.add(t);
+            willRemove.add(t);
         }
-        // 清空待启动线程表
-        waitStart.clear();
+        waitStart.removeAll(willRemove);
         for (LifeThread t : threads) {
             if (t.side != Side.CLIENT) continue;
             //LOG.info("继续任务: {}",t.getName());
@@ -85,7 +87,7 @@ public class LifeController {
             t.pause();
             // 如果线程已经被中断，移除它
             if (t.isInterrupted()) {
-                /*LOG.info("移除任务: {}",t.getName());*/
+                //LOG.info("移除任务: {}",t.getName());
                 willRemove.add(t);
             }
         }

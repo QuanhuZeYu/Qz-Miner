@@ -391,14 +391,16 @@ public class PlayerInput {
     public ModeManager tryGetManager() {
         EntityPlayer player = Minecraft.getMinecraft().thePlayer;
         if (player == null) return null;
-        ModeManager manager = playerManagerStorage.allPlayer.get(player.getUniqueID());
+        ModeManager manager = playerManagerStorage.allPlayer.get(player.getUniqueID().toString());
+        if (manager == null) {
+            playerManagerStorage.proxyRegister(player);
+            manager = playerManagerStorage.allPlayer.get(player.getUniqueID().toString());
+        }
         trySetManager(manager);
         return manager;
     }
 
     public void trySetManager(ModeManager manager) {
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-        if (player == null || manager == null) return;
-        manager.player = player;
+        manager.player = Minecraft.getMinecraft().thePlayer;
     }
 }
