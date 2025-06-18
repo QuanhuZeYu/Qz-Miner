@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.network.PacketChainMode;
 import club.heiqi.qz_miner.network.PacketMainMode;
 import club.heiqi.qz_miner.network.PacketRangeMode;
 import club.heiqi.qz_miner.network.QzMinerNetWork;
+import club.heiqi.qz_miner.statueStorage.PlayerTracer;
 import club.heiqi.qz_miner.util.GlobalGet;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -30,9 +31,7 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -48,6 +47,7 @@ public class ModeManager {
 
     /**缓存的玩家引用*/
     public EntityPlayer player;
+    public PlayerTracer playerTracer;
 
     /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
@@ -65,9 +65,11 @@ public class ModeManager {
     public AtomicBoolean printResult = new AtomicBoolean(true);
 
     public ModeManager(EntityPlayer player) {
+        playerTracer = new PlayerTracer(player);
         registryInfo = player.getUniqueID();
         this.player = player;
         register();
+        recordLogin();
     }
 
     /**
@@ -193,6 +195,8 @@ public class ModeManager {
             //LOG.info("非自身挖掘");
             return;
         }
+        // 记录破坏
+        recordBreak(event);
         // 刷新引用
         updatePlayer(event.getPlayer());
 
@@ -355,5 +359,38 @@ public class ModeManager {
         if (player.getUniqueID().equals(this.player.getUniqueID())) {
             this.player = player;
         }
+    }
+
+    public void recordLogin() {
+        HashMap<String, Object> detail = new HashMap<>();
+        HashMap<String,String> pos = new HashMap<>();
+        pos.put("x", String.valueOf(player.posX));
+        pos.put("y", String.valueOf(player.posY));
+        pos.put("z", String.valueOf(player.posZ));
+        detail.put("坐标",pos);
+        HashMap<String,String> wordInfo = new HashMap<>();
+        wordInfo.put("ID", String.valueOf(player.worldObj.provider.dimensionId));
+        wordInfo.put("名称", player.worldObj.provider.getDimensionName());
+        detail.put("世界",wordInfo);
+        PlayerTracer.OpRecord record = new PlayerTracer.OpRecord("登录",System.currentTimeMillis(),detail);
+        playerTracer.addOperate(record);
+    }
+
+    public void recordBreak(BlockEvent.BreakEvent event) {
+        HashMap<String, Object> detail = new HashMap<>();
+        HashMap<String,String> pos = new HashMap<>();
+        pos.put("x", String.valueOf(event.x));
+        pos.put("y", String.valueOf(event.y));
+        pos.put("z", String.valueOf(event.z));
+        detail.put("破坏坐标",pos);
+        HashMap<String,String> wordInfo = new HashMap<>();
+        wordInfo.put("ID", String.valueOf(player.worldObj.provider.dimensionId));
+        wordInfo.put("名称", player.worldObj.provider.getDimensionName());
+        detail.put("世界",wordInfo);
+        HashMap<String,String> blockInfo = new HashMap<>();
+        blockInfo.put("ID",event.block.getUnlocalizedName());
+        detail.put("方块信息",blockInfo);
+        PlayerTracer.OpRecord record = new PlayerTracer.OpRecord("破坏",System.currentTimeMillis(),detail);
+        playerTracer.addOperate(record);
     }
 }
