@@ -47,7 +47,7 @@ public class ModeManager {
 
     /**缓存的玩家引用*/
     public EntityPlayer player;
-    public PlayerTracer playerTracer;
+    //public PlayerTracer playerTracer;
 
     /**模式枚举 - 通过网络发包修改值*/
     public MainMode mainMode = MainMode.CHAIN_MODE; // 默认为范围模式
@@ -65,11 +65,11 @@ public class ModeManager {
     public AtomicBoolean printResult = new AtomicBoolean(true);
 
     public ModeManager(EntityPlayer player) {
-        playerTracer = new PlayerTracer(player);
+        //playerTracer = new PlayerTracer(player);
         registryInfo = player.getUniqueID();
         this.player = player;
         register();
-        recordLogin();
+        //recordLogin();
     }
 
     /**
@@ -196,7 +196,7 @@ public class ModeManager {
             return;
         }
         // 记录破坏
-        recordBreak(event);
+        //recordBreak(event);
         // 刷新引用
         updatePlayer(event.getPlayer());
 
@@ -361,7 +361,7 @@ public class ModeManager {
         }
     }
 
-    public void recordLogin() {
+    /*public void recordLogin() {
         HashMap<String, Object> detail = new HashMap<>();
         HashMap<String,String> pos = new HashMap<>();
         pos.put("x", String.valueOf(player.posX));
@@ -392,5 +392,5 @@ public class ModeManager {
         detail.put("方块信息",blockInfo);
         PlayerTracer.OpRecord record = new PlayerTracer.OpRecord("破坏",System.currentTimeMillis(),detail);
         playerTracer.addOperate(record);
-    }
+    }*/
 }
