@@ -148,9 +148,7 @@ public abstract class AbstractMode {
                 shutdown();
                 return;
             }
-            if (isInLag()) {
-                return;
-            }
+
             if (!isShut) mainLogic();
         }
     }
@@ -217,6 +215,10 @@ public abstract class AbstractMode {
                     return;
                 }
                 if (tickBreakCount >= Config.perTickBlockLimit) break;
+
+                if (isInLag()) {
+                    return;
+                }
             }
         }
         tickBreakCount = 0;
