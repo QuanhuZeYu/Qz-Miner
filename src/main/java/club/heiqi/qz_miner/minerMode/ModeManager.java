@@ -61,7 +61,7 @@ public class ModeManager {
     public AbstractMode clientMode;
 
     public AtomicBoolean isReady = new AtomicBoolean(false);
-    public AtomicBoolean isRunning = new AtomicBoolean(false);
+    public AtomicBoolean isLogicRun = new AtomicBoolean(false);
     public AtomicBoolean printResult = new AtomicBoolean(true);
 
     public ModeManager(EntityPlayer player) {
@@ -87,7 +87,7 @@ public class ModeManager {
                 curMode.mineModeAutoSetup();
             }
         }
-        isRunning.set(true);
+        isLogicRun.set(true);
     }
     public List<Vector3i> renderCache = new ArrayList<>();
     @SideOnly(Side.CLIENT)
@@ -114,7 +114,7 @@ public class ModeManager {
                 curMode.interactModeAutoSetup();
             }
         }
-        isRunning.set(true);
+        isLogicRun.set(true);
     }
 
     public void nextMainMode() {
@@ -203,12 +203,7 @@ public class ModeManager {
         // 刷新引用
         updatePlayer(event.getPlayer());
 
-        if (isRunning.get()) {
-            //LOG.info("已在运行，退出");
-            return;
-        }
-        if (!isReady.get()) {
-            //LOG.info("未准备，退出");
+        if (!isReady.get() || isLogicRun.get()) {
             return;
         }
 
@@ -238,8 +233,7 @@ public class ModeManager {
         this.player = player;
 
         if (event.action != PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK) return;
-        if (!getIsReady()) return;
-        if (isRunning.get()) return;
+        if (!getIsReady() || isLogicRun.get()) return;
 
         Vector3i interactPos = new Vector3i(event.x, event.y, event.z);
         try {

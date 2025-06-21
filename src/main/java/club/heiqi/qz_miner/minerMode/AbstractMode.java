@@ -56,6 +56,12 @@ public abstract class AbstractMode {
     public boolean isShut = false;
     /**标记初始化是否成功，用于中断触发*/
     public boolean initSuccess = true;
+    /**标记模式用于逻辑还是渲染或是二者皆是*/
+    public AtomicBoolean isLogicMode = new AtomicBoolean(false);
+    /**标记模式用于逻辑还是渲染或是二者皆是*/
+    public AtomicBoolean isRenderMode = new AtomicBoolean(false);
+    /**标记是否在运行*/
+    public AtomicBoolean isRunning = new AtomicBoolean(false);
 
 
     /**记录触发点*/
@@ -96,17 +102,20 @@ public abstract class AbstractMode {
         if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         // 如果在实例化时出现异常 搜索器 可能会为空
         if (positionFounderThread == null || !initSuccess) return;
+        isLogicMode.set(true);
+        isRunning.set(true);
         thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
         thread.side = Side.SERVER;
         register();
         LifeController.addThread(thread);
+        //LOG.info("挖掘模式启用");
     }
 
-    public AtomicBoolean isRenderMode = new AtomicBoolean(false);
     @SideOnly(Side.CLIENT)
     public void renderModeAutoSetup() {
         if (positionFounderThread == null || !initSuccess) return;
         isRenderMode.set(true);
+        isRunning.set(true);
         thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
         thread.side = Side.CLIENT;
         register();
@@ -119,6 +128,7 @@ public abstract class AbstractMode {
         if (Thread.currentThread().getName().toLowerCase().contains("client")) return;
         if (positionFounderThread == null || !initSuccess) return;
         isInteractMode.set(true);
+        isRunning.set(true);
         thread = new LifeThread(positionFounderThread, this + " - 连锁搜索者线程");
         thread.side = Side.SERVER;
         register();
@@ -130,21 +140,23 @@ public abstract class AbstractMode {
         // 不在客户端运行逻辑
         if (!Thread.currentThread().getName().contains("Server")) return;
         // 用于取消监听失败时再次卸载流程
-        if (checkShut()) return;
+        if (checkShut()) {
+            return;
+        }
         if (event.phase == TickEvent.Phase.START && side == Sides.SERVER) {
             sendHeartbeat();
             if (!checkHeartBeat()) {
-                /*LOG.info("心跳超时");*/
+                //LOG.info("心跳超时");
                 shutdown();
                 return;
             }
             if (!modeManager.getIsReady()) {
-                /*LOG.info("未准备");*/
+                //LOG.info("未准备");
                 shutdown();
                 return;
             }
-            if (!modeManager.isRunning.get()) {
-                /*LOG.info("停止运行");*/
+            if (!isRunning.get()) {
+                //LOG.info("停止运行");
                 shutdown();
                 return;
             }
@@ -162,11 +174,17 @@ public abstract class AbstractMode {
         if (event.phase == TickEvent.Phase.START) return;
         sendHeartbeat();
         if (!checkHeartBeat()) {
-            shutdown();
+            if (!isLogicMode.get()) {
+                //LOG.info("由渲染终止-心跳超时-逻辑刻未开 {}",this);
+                shutdown();
+            }
             return;
         }
         if (!modeManager.getIsReady()) {
-            shutdown();
+            if (!isLogicMode.get()) {
+                //LOG.info("由渲染终止-未准备-逻辑刻未开 {}",this);
+                shutdown();
+            }
             return;
         }
         if (!isShut) mainLogic();
@@ -187,7 +205,7 @@ public abstract class AbstractMode {
             if (pos == null) {
                 if (failCounter == 0) failTimer = System.currentTimeMillis();
                 if (System.currentTimeMillis() - failTimer >= Config.heartbeatTimeout) {
-                    //LOG.info("没有获取到点的时间超过最大等待限制终止任务");
+                    //LOG.info("没有获取到点的时间超过最大等待限制终止任务 - {}", isRenderMode.get());
                     shutdown(); // 没有获取到点的时间超过最大等待限制终止任务
                 }
                 failCounter++;
@@ -257,7 +275,9 @@ public abstract class AbstractMode {
      * 关闭点搜寻器并且卸载本类的监听器
      */
     public void shutdown() {
-        modeManager.isRunning.set(false);
+        if (isLogicMode.get()) {
+            modeManager.isLogicRun.set(false);
+        }
         if (thread != null) {
             thread.interrupt(); // 终止线程
             thread = null;
@@ -271,6 +291,7 @@ public abstract class AbstractMode {
      */
     public boolean checkShut() {
         if (isShut) {
+            //LOG.info("isShut字段控制终止");
             shutdown();
             return true;
         }
@@ -293,6 +314,7 @@ public abstract class AbstractMode {
         isShut = true;
         modeManager.curMode = null;
         modeManager.clientMode = null;
+        //LOG.info("模式已卸载 {}",this);
     }
 
 

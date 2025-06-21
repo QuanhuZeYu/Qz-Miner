@@ -9,7 +9,6 @@ public class LifeThread extends Thread {
     public AtomicBoolean pause = new AtomicBoolean(false);
     public AtomicBoolean running = new AtomicBoolean(false);
     public Side side = Side.SERVER;
-    public final Object lock = new Object();
 
     public Runnable loop = () -> {};
     public Runnable loopOut = () -> {};
@@ -31,14 +30,12 @@ public class LifeThread extends Thread {
             if (!pause.get()) {
                 loop.run();
             } else {
-                // 如果检测到暂停，使用wait让出停止执行
+                // 如果检测到暂停，休眠10ms轮询
                 try {
                     if (loop instanceof Pausable pausable) {
                         pausable.pause();
                     }
-                    synchronized (lock) {
-                        lock.wait();
-                    }
+                    Thread.sleep(10);
                 } catch (InterruptedException e) {
                     // 如果在暂停时间中被终止了，就执行终止逻辑
                     Thread.currentThread().interrupt();
@@ -68,9 +65,6 @@ public class LifeThread extends Thread {
         pause.set(false);
         if (loop instanceof Pausable pausable) {
             pausable.unpause();
-        }
-        synchronized (lock) {
-            lock.notifyAll();
         }
     }
 
