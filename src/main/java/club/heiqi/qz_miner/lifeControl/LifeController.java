@@ -6,6 +6,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 尝试以并行的方式运行Event
@@ -14,9 +15,9 @@ public class LifeController {
     public static Logger LOG = LogManager.getLogger();
 
     /**待启动线程*/
-    public static List<LifeThread> waitStart = new ArrayList<>();
+    public static List<LifeThread> waitStart = new CopyOnWriteArrayList<>();
     /**已经启动的线程*/
-    public static List<LifeThread> threads = new ArrayList<>();
+    public static List<LifeThread> threads = new CopyOnWriteArrayList<>();
 
     public static void addThread(LifeThread thread) {
         //LOG.info("添加任务: {}", thread.getName());
