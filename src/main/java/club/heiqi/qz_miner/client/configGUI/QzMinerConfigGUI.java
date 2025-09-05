@@ -1,7 +1,7 @@
 package club.heiqi.qz_miner.client.configGUI;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.MOD_INFO;
+import club.heiqi.qz_miner.Constant;
 import cpw.mods.fml.client.config.GuiConfig;
 import cpw.mods.fml.client.config.IConfigElement;
 import net.minecraft.client.gui.GuiScreen;
@@ -18,17 +18,17 @@ public class QzMinerConfigGUI extends GuiConfig {
         super(
             parentScreen,
             getConfigElements(),
-            MOD_INFO.MODID,
+            Constant.MODID,
             false,
             false,
-            MOD_INFO.NAME,
+            Constant.MOD_NAME,
             GuiConfig.getAbridgedConfigPath(Config.configPath));
     }
 
     private static List<IConfigElement> getConfigElements() {
         List<IConfigElement> elements = new ArrayList<>();
 
-        List<String> topCategories = Arrays.asList(Configuration.CATEGORY_GENERAL, Config.CATEGORY_CLIENT);
+        List<String> topCategories = Arrays.asList(Configuration.CATEGORY_GENERAL);
         for (String categoryName : topCategories) {
             ConfigCategory category = Config.config.getCategory(categoryName);
             elements.add(new ConfigElement(category));
