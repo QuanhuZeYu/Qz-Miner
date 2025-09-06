@@ -38,9 +38,10 @@ public class Config {
 
     @SubscribeEvent
     public void onConfigChangeEvent(ConfigChangedEvent event) {
-        if (event.modID.equalsIgnoreCase(Constant.MODID)) {
-            save();
-        }
+        if (!event.modID.equalsIgnoreCase(Constant.MODID)) return;
+        save();
+        Constant.LOG.info("保存事件触发");
+        load();
     }
 
     public void register() {

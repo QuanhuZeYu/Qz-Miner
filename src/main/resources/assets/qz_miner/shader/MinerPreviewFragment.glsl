@@ -2,9 +2,9 @@
 
 out vec4 gl_FragColor;
 
-uniform vec3 fogColor = vec3(0.2);      // 迷雾颜色（通常为深色）
-uniform float fogNear = 0;      // 迷雾起始距离
-uniform float fogFar = 32;       // 迷雾结束距离
+uniform vec3 fogColor = vec3(0.2);      // 迷雾颜色
+uniform float fogNear = 0;              // 迷雾起始距离
+uniform float fogFar = 32;              // 迷雾结束距离
 
 void main() {
     // 原始颜色（白色）
@@ -19,5 +19,8 @@ void main() {
     // 混合物体颜色和迷雾颜色
     vec3 finalColor = mix(objectColor.rgb, fogColor, fogIntensity);
 
-    gl_FragColor = vec4(finalColor, objectColor.a);
+    // 计算透明度：距离越远越透明（fogIntensity=1时完全透明）
+    float alpha = 1.0 - fogIntensity;
+
+    gl_FragColor = vec4(finalColor, alpha);
 }

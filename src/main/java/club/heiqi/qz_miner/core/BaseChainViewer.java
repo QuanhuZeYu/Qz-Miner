@@ -7,6 +7,7 @@ import club.heiqi.qz_miner.client.SpaceCalculator;
 import club.heiqi.qz_miner.shaderTools.ShaderManager;
 import club.heiqi.qz_miner.utils.FileReadUtils;
 import club.heiqi.qz_miner.utils.MatrixUtils;
+import club.heiqi.qz_miner.utils.MessageUtils;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -19,6 +20,7 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
+import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -58,45 +60,59 @@ public class BaseChainViewer {
     }
 
     public boolean foundComplete = false;
+    public static final long waitAddTimeMillisecond = 5; // 添加剔除顶点允许用时
+    public static final int perTickMaxAdd = 64;
     @SubscribeEvent
     public void renderTick(TickEvent.RenderTickEvent event) {
+        if (!(event.phase == TickEvent.RenderTickEvent.Phase.END)) return;
         if (!inPressChainKey) {
             this.unRegistry();
         }
-        if (canBreakPositions.isEmpty()) {
-            return;
-        }
         float particle = event.renderTickTime;
 
-        // 取出所有结果
+        // 取出所有结果 - 限定用时 - 限定数量
+        long startTime = System.currentTimeMillis();
+        int addCount = 0;
         if (!foundComplete) {
             ArrayList<Vector3i> points = new ArrayList<>(canBreakPositions);
+            ArrayList<Vector3i> added = new ArrayList<>();
             for (Vector3i point : points) {
                 spaceCalculator.add(point);
+                added.add(point);
+                addCount++;
                 // 检查是否搜索完毕和加载完毕
                 if (!spaceCalculator.hasChange && positionFounder.stopped.get()) {
                     foundComplete = true;
+                    LOG.info("预览方块加载完毕");
+                    MessageUtils.printSelfMessage("预览方块加载完毕");
+                    break;
+                }
+
+                // 检查执行时间是否超时
+                if (System.currentTimeMillis() - startTime > waitAddTimeMillisecond || addCount >= perTickMaxAdd) {
+                    break; // 超时退出循环加点
                 }
             }
-        }
+            canBreakPositions.removeAll(added); // 移除已经添加过的
 
-        // 传递数据到渲染数据中
-        if (spaceCalculator.hasChange) {
+            // 传递数据到渲染数据中
             SpaceCalculator.VertexAndIndex vertexAndIndex = spaceCalculator.getVertexAndIndex();
             renderCache.updateData(vertexAndIndex.vertices, vertexAndIndex.indices);
         }
 
         shader.bind();
 
-        Matrix4f model = MatrixUtils.getModelMatrix(0,0,0);
-        Matrix4f view = MatrixUtils.getViewMatrix(particle);
-        Matrix4f projection = MatrixUtils.getProjectionMatrix();
-        EntityPlayer player = Minecraft.getMinecraft().thePlayer;;
+        Vector3f cameraPos = MatrixUtils.getCameraPos(particle);
+
+        Matrix4f model = MatrixUtils.getModelMatrix(-cameraPos.x, -cameraPos.y, -cameraPos.z);
+        Matrix4f view = /* MatrixUtils.getViewMatrix(particle); */MatrixUtils.getModelViewByOriginal();
+        Matrix4f projection = MatrixUtils.getProjectionByOriginal();
+
 
         shader.setUniformM4f("model", model);
         shader.setUniformM4f("view", view);
         shader.setUniformM4f("projection", projection);
-        // shader.setUniform3F("cameraPos", new Vector3f((float) player.posX, (float) player.posY, (float) player.posZ));
+        shader.setUniform3F("cameraPos", cameraPos);
 
         renderCache.render();
 
@@ -117,11 +133,13 @@ public class BaseChainViewer {
 
     public void registry() {
         FMLCommonHandler.instance().bus().register(this);
+        LOG.info("预览器已加载");
     }
 
     public void unRegistry() {
         positionFounder.interrupt();
         renderCache.updateData(SpaceCalculator.vertex, SpaceCalculator.index);
         FMLCommonHandler.instance().bus().unregister(this);
+        LOG.info("预览器已卸载");
     }
 }

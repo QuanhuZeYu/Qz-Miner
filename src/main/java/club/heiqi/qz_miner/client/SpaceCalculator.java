@@ -187,7 +187,7 @@ public class SpaceCalculator {
                 removeEdges(adjacent);
             }
             int[] result = getCompleteIndexByIntArray();
-            blockRemovalTypes.put(adjacentSet, result);
+            blockRemovalTypes.put(new HashSet<>(adjacentSet), result.clone());
 
             LOG.info("缓存 -> 相邻状态: {}, 对应索引: {}", adjacentSet, result);
 

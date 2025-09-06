@@ -8,16 +8,22 @@ import net.minecraft.entity.player.EntityPlayer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.*;
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
 
 import java.lang.Math;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.FloatBuffer;
 
 @SideOnly(Side.CLIENT)
 public class MatrixUtils {
     public static Logger LOG = LogManager.getLogger();
 
+    /**
+     * 仅计算位移
+     */
     public static Matrix4f getModelMatrix(float x, float y, float z) {
         Matrix4f modelMatrix = new Matrix4f();
         modelMatrix.identity();
@@ -144,5 +150,24 @@ public class MatrixUtils {
                 0.05f, farPlane
         );
         return projectionMatrix;
+    }
+
+    public static final FloatBuffer floatBuffer = BufferUtils.createFloatBuffer(16);
+    public static final Matrix4f modelView = new Matrix4f();
+    public static final Matrix4f projection = new Matrix4f();
+
+    public static Matrix4f getModelViewByOriginal() {return modelView;}
+    public static Matrix4f getProjectionByOriginal() {return projection;}
+
+    public static Vector3f getCameraPos(float partialTicks) {
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityPlayer player = mc.thePlayer;
+
+        // 位置插值（保持不变）
+        double eyeX = player.prevPosX + (player.posX - player.prevPosX) * partialTicks;
+        double eyeY = player.prevPosY + (player.posY - player.prevPosY) * partialTicks;
+        double eyeZ = player.prevPosZ + (player.posZ - player.prevPosZ) * partialTicks;
+
+        return new Vector3f((float) eyeX, (float) eyeY, (float) eyeZ);
     }
 }
