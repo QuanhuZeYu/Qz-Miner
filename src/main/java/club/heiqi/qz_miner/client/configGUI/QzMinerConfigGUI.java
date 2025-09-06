@@ -17,7 +17,7 @@ public class QzMinerConfigGUI extends GuiConfig {
     public QzMinerConfigGUI(GuiScreen parentScreen) {
         super(
             parentScreen,
-            getConfigElements(),
+            getConfigElements(),// new ConfigElement(Config.config.getCategory(Configuration.CATEGORY_GENERAL)).getChildElements(),
             Constant.MODID,
             false,
             false,

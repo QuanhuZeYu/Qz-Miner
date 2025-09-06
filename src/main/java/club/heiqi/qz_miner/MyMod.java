@@ -12,7 +12,13 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-@Mod(modid = Constant.MODID, version = Tags.VERSION, name = Constant.MOD_NAME, acceptedMinecraftVersions = "[1.7.10]")
+@Mod(
+        modid = Constant.MODID,
+        version = Tags.VERSION,
+        name = Constant.MOD_NAME,
+        acceptedMinecraftVersions = "[1.7.10]",
+        guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory"
+)
 public class MyMod {
     public Logger LOG = LogManager.getLogger();
 

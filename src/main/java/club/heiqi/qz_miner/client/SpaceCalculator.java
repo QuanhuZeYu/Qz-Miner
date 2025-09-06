@@ -1,6 +1,8 @@
 package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.utils.ArrayConverter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.joml.Vector2i;
 import org.joml.Vector3i;
 
@@ -12,6 +14,7 @@ import java.util.Map;
 import java.util.*;
 
 public class SpaceCalculator {
+    public static Logger LOG = LogManager.getLogger();
     // 顶点数据
     public static final float[] vertex = {
     // 后   左下 4     右下 5     右上 6     左上 7
@@ -68,12 +71,22 @@ public class SpaceCalculator {
         adjacentIndexMap.put("ZN", new Vector2i[]{new Vector2i(4,5), new Vector2i(5,6), new Vector2i(6,7), new Vector2i(7,4)});
     }
 
+    /**相邻种类对应的索引*/
+    public static final Map<Set<String>, int[]> blockRemovalTypes = new HashMap<>();
+
     // ==================== 实例数据 ====================
 
     public ArrayList<SpacePoint> spacePoints = new ArrayList<>();
 
+    public boolean hasChange = false;
+
     public void add(Vector3i position) {
         SpacePoint newPoint = new SpacePoint(position);
+
+        // 检查是否存在 存在则跳过
+        for (SpacePoint existingPoint : spacePoints) {
+            if (existingPoint.position.equals(position)) return;
+        }
 
         for (SpacePoint existingPoint : spacePoints) {
             if (existingPoint.adjacentAll) continue;
@@ -87,35 +100,22 @@ public class SpaceCalculator {
                 // config.dir 当前检查方向;  config.opposite 当前检查方向的对向
                 Vector3i neighborPos = new Vector3i(position).add(config.offset);
 
-                if (existingPoint.adjacentMap.get(config.opposite) == null &&
+                if (!existingPoint.adjacentSet.contains(config.opposite) &&
                         existingPoint.position.equals(neighborPos)
                 ) {
-                    // 移除新点的边
-                    removeEdges(newPoint, config.dir);
-                    // 移除现有点的边
-                    removeEdges(existingPoint, config.opposite);
-
                     // 更新相邻关系
-                    newPoint.adjacentMap.put(config.dir, existingPoint);
-                    existingPoint.adjacentMap.put(config.opposite, newPoint);
+                    newPoint.adjacentSet.add(config.dir);
+                    existingPoint.adjacentSet.add(config.opposite);
 
                     // 更新完整状态
-                    if (newPoint.adjacentMap.size() == 6) newPoint.adjacentAll = true;
-                    if (existingPoint.adjacentMap.size() == 6) existingPoint.adjacentAll = true;
+                    if (newPoint.adjacentSet.size() == 6) newPoint.adjacentAll = true;
+                    if (existingPoint.adjacentSet.size() == 6) existingPoint.adjacentAll = true;
                 }
             }
         }
 
         spacePoints.add(newPoint);
-    }
-
-    public void removeEdges(SpacePoint point, String direction) {
-        Vector2i[] edges = adjacentIndexMap.get(direction);
-        if (edges != null) {
-            for (Vector2i edge : edges) {
-                point.completeIndex.remove(edge);
-            }
-        }
+        hasChange = true;
     }
 
     public VertexAndIndex getVertexAndIndex() {
@@ -124,8 +124,10 @@ public class SpaceCalculator {
 
         int vertexCount = 0;
         for (SpacePoint point : spacePoints) {
-            float[] vertices = SpaceCalculator.vertex.clone();
             int[] indices = point.getIndices();
+            if (indices.length == 0) continue;
+
+            float[] vertices = SpaceCalculator.vertex.clone();
 
             // 更新顶点
             for (int i = 0; i < vertices.length; i += 3) {
@@ -146,6 +148,7 @@ public class SpaceCalculator {
             vertexCount += 8;
         }
 
+        hasChange = false;
         return new VertexAndIndex(ArrayConverter.convertF(verticesList), ArrayConverter.convertI(indicesList));
     }
 
@@ -166,7 +169,7 @@ public class SpaceCalculator {
     public static class SpacePoint {
         public Vector3i position;
         public ArrayList<Vector2i> completeIndex = new ArrayList<>(SpaceCalculator.completeIndex);
-        public Map<String, SpacePoint> adjacentMap = new HashMap<>();
+        public Set<String> adjacentSet = new HashSet<>();
         public boolean adjacentAll = false;
 
         public SpacePoint(Vector3i position) {
@@ -174,6 +177,24 @@ public class SpaceCalculator {
         }
 
         public int[] getIndices() {
+            if (adjacentSet.isEmpty()) {
+                return getCompleteIndexByIntArray().clone();
+            }
+            if (SpaceCalculator.blockRemovalTypes.containsKey(adjacentSet)) {
+                return blockRemovalTypes.get(adjacentSet).clone();
+            }
+            for (String adjacent: adjacentSet) {
+                removeEdges(adjacent);
+            }
+            int[] result = getCompleteIndexByIntArray();
+            blockRemovalTypes.put(adjacentSet, result);
+
+            LOG.info("缓存 -> 相邻状态: {}, 对应索引: {}", adjacentSet, result);
+
+            return result.clone();
+        }
+
+        private int[] getCompleteIndexByIntArray() {
             int[] indices = new int[completeIndex.size() * 2];
             for (int i = 0; i < completeIndex.size(); i++) {
                 Vector2i index = completeIndex.get(i);
@@ -181,6 +202,15 @@ public class SpaceCalculator {
                 indices[i * 2 + 1] = index.y;
             }
             return indices;
+        }
+
+        public void removeEdges(String direction) {
+            Vector2i[] edges = adjacentIndexMap.get(direction);
+            if (edges != null) {
+                for (Vector2i edge : edges) {
+                    completeIndex.remove(edge);
+                }
+            }
         }
 
         public boolean equals(Object other) {

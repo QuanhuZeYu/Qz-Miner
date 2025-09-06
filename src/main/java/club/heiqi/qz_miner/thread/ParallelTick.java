@@ -77,11 +77,17 @@ public class ParallelTick {
      * 普通任务不执行暂停和恢复操作
      */
     public void processNormalTasks() {
+        ArrayList<Pauseable> willRemove = new ArrayList<>();
         for (Pauseable task : normalTasks) {
             if (!task.started.get()) {
                 task.start();
             }
+            if (task.stopped.get()) {
+                willRemove.add(task);
+            }
         }
+
+        normalTasks.removeAll(willRemove);
     }
 
 
