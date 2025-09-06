@@ -14,6 +14,7 @@ public class Config {
 
     public static int bigRadius = 8;
     public static int blockLimit = 1024;
+    public static int smallRadius = 2;
 
     public void init(File configFile) {
         if (config == null) {
@@ -26,20 +27,16 @@ public class Config {
     public void load() {
         bigRadius = config.getInt("bigRadius", Configuration.CATEGORY_GENERAL, 8, 0, Integer.MAX_VALUE, "最大连锁半径");
         blockLimit = config.getInt("blockLimit", Configuration.CATEGORY_GENERAL, 1024, 0, Integer.MAX_VALUE, "最大连锁数量");
+        smallRadius = config.getInt("smallRadius", Configuration.CATEGORY_GENERAL, 2, 0, Integer.MAX_VALUE, "连锁 小区域 检测半径");
 
         if (config.hasChanged()) {
             config.save();
         }
     }
 
-    public void save() {
-        config.save();
-    }
-
     @SubscribeEvent
     public void onConfigChangeEvent(ConfigChangedEvent event) {
         if (!event.modID.equalsIgnoreCase(Constant.MODID)) return;
-        save();
         Constant.LOG.info("保存事件触发");
         load();
     }

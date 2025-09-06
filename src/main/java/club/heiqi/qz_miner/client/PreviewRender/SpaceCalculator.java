@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.client;
+package club.heiqi.qz_miner.client.PreviewRender;
 
 import club.heiqi.qz_miner.utils.ArrayConverter;
 import org.apache.logging.log4j.LogManager;

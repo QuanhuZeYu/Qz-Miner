@@ -9,6 +9,12 @@ public class NetworkMain {
     public final SimpleNetworkWrapper network = NetworkRegistry.INSTANCE.newSimpleChannel(Constant.MODID);
     public int packetID = 0;
     public void registry() {
-        network.registerMessage(ChainSwitcherPacket.ChainSwitcherPacketHandler.class, ChainSwitcherPacket.class, packetID++, Side.SERVER);
+        // 注册按键检测
+        network.registerMessage(PacketChainSwitcher.ChainSwitcherPacketHandler.class, PacketChainSwitcher.class, packetID++, Side.SERVER);
+        // 注册配置网络
+        network.registerMessage(PacketMinerConfig.PacketMinerConfigHandler.class, PacketMinerConfig.class, packetID++, Side.SERVER);
+        network.registerMessage(PacketMinerConfig.PacketMinerConfigHandler.class, PacketMinerConfig.class, packetID++, Side.CLIENT);
+        // 注册连锁模式网络
+        network.registerMessage(PacketMinerModeState.PacketMinerModeStateHandler.class, PacketMinerModeState.class, packetID++, Side.SERVER);
     }
 }

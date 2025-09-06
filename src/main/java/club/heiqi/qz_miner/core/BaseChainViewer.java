@@ -1,9 +1,9 @@
 package club.heiqi.qz_miner.core;
 
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.client.RenderCache;
-import club.heiqi.qz_miner.client.SpaceCalculator;
+import club.heiqi.qz_miner.client.PreviewRender.RenderCache;
+import club.heiqi.qz_miner.client.PreviewRender.SpaceCalculator;
+import club.heiqi.qz_miner.core.founder.BasePositionFounder;
 import club.heiqi.qz_miner.shaderTools.ShaderManager;
 import club.heiqi.qz_miner.utils.FileReadUtils;
 import club.heiqi.qz_miner.utils.MatrixUtils;
@@ -20,7 +20,6 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
-import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -53,8 +52,13 @@ public class BaseChainViewer {
         initShader();
         inPressChainKey = true;
 
-        this.positionFounder = new BasePositionFounder(pos, canBreakPositions, player, Config.bigRadius, Config.blockLimit);
-        MyMod.parallelTick.addPreServerTickTask(this.positionFounder);
+        this.positionFounder = new BasePositionFounder(
+                pos,
+                canBreakPositions,
+                player,
+                new Manager.MinerConfig()
+        );
+        MyMod.parallelTick.addNormalTask(this.positionFounder);
 
         this.registry();
     }

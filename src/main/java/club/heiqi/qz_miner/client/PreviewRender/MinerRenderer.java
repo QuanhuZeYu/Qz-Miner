@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.client;
+package club.heiqi.qz_miner.client.PreviewRender;
 
 import club.heiqi.qz_miner.core.BaseChainViewer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;

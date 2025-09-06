@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.core;
 
+import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.core.opertator.BaseOperator;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -16,6 +18,8 @@ import org.joml.Vector3i;
 public class Manager {
     public Logger LOG = LogManager.getLogger();
     public EntityPlayerMP player;
+    public MinerConfig pConfig = new MinerConfig();
+    public MinerModeState minerModeState = new MinerModeState();
     /**是否按下连锁键*/
     public boolean inPressChainKey = false;
     public boolean inChain = false;
@@ -24,7 +28,7 @@ public class Manager {
         this.player = player;
     }
 
-    public BaseChainOperator operator = null;
+    public BaseOperator operator = null;
     @SubscribeEvent
     public void onBlockBreakEvent(BlockEvent.BreakEvent event) {
         // 事件触发者 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
@@ -42,7 +46,8 @@ public class Manager {
 
         // 寻找点并挖掘
         Vector3i pos = new Vector3i(event.x, event.y, event.z);
-        operator = new BaseChainOperator(pos, this);
+        // ==========  触发连锁  ==========
+        operator = minerModeState.createOperator(pos, this);
     }
 
     public void registry() {
@@ -55,5 +60,23 @@ public class Manager {
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
         LOG.info("注销成功");
+    }
+
+    public void receiveClientConfig(MinerConfig minerConfig) {
+        pConfig.bigRadius = Math.min(minerConfig.bigRadius, Config.bigRadius);
+        pConfig.blockLimit = Math.min(minerConfig.blockLimit, Config.blockLimit);
+        pConfig.smallRadius = Math.min(minerConfig.smallRadius, Config.smallRadius);
+    }
+
+
+    public static class MinerConfig {
+        public int bigRadius = Config.bigRadius;
+        public int blockLimit = Config.blockLimit;
+        public int smallRadius = Config.smallRadius;
+
+        public MinerConfig() {}
+        public MinerConfig(int bigRadius, int blockLimit, int smallRadius) {
+            this.bigRadius = bigRadius; this.blockLimit = blockLimit; this.smallRadius = smallRadius;
+        }
     }
 }

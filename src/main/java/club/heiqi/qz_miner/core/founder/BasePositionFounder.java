@@ -1,5 +1,6 @@
-package club.heiqi.qz_miner.core;
+package club.heiqi.qz_miner.core.founder;
 
+import club.heiqi.qz_miner.core.Manager;
 import club.heiqi.qz_miner.thread.Pauseable;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
@@ -15,32 +16,29 @@ public class BasePositionFounder extends Pauseable {
 
     public Vector3i center;
     public EntityPlayer player;
+    public Manager.MinerConfig minerConfig;
     public LinkedBlockingQueue<Vector3i> positions;
 
-    public int radius;
-    public int blockLimit;
-    public int curCount = 1; // 包含初始加入的中心块
+    public int curCount = 0; // 包含初始加入的中心块
 
     public BasePositionFounder(
             Vector3i center,
             LinkedBlockingQueue<Vector3i> results,
             EntityPlayer player,
-            int radius, // 半径
-            int blockLimit // 块数限制
+            Manager.MinerConfig minerConfig
     ) {
         this.center = center;
-        this.radius = radius;
-        this.blockLimit = blockLimit;
         this.player = player;
         this.positions = results;
-        results.add(center);
+        this.minerConfig = minerConfig;
+        addResult(center);
     }
 
     @Override
     public void run() {
         int curRadius = 1;
         try {
-            while (curCount < blockLimit && curRadius <= radius) {
+            while (curCount < minerConfig.blockLimit && curRadius <= minerConfig.bigRadius) {
                 // LOG.info("当前半径: {} 当前块数: {}", curRadius, curCount);
                 for (int x = center.x - curRadius; x <= center.x + curRadius; x++) {
                     for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
@@ -49,7 +47,7 @@ public class BasePositionFounder extends Pauseable {
                             if (checkCanBreak(pos)) {
                                 this.addResult(pos);
                             }
-                            if (curCount >= blockLimit) {
+                            if (curCount >= minerConfig.blockLimit) {
                                 return;
                             }
                             waitUntil();
@@ -61,7 +59,7 @@ public class BasePositionFounder extends Pauseable {
                     }
                 }
                 curRadius++;
-                if (curRadius > radius) {
+                if (curRadius > minerConfig.bigRadius) {
                     break; // 超出半径范围，退出
                 }
             }

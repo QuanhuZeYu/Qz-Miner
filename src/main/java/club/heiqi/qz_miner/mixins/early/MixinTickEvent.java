@@ -34,4 +34,9 @@ public class MixinTickEvent {
     public void onPostServerTickEnd(CallbackInfo ci) {
 
     }
+
+    @Inject(method = "onPreClientTick", at = @At("HEAD"))
+    public void onPreClientTickStart(CallbackInfo ci) {
+        MyMod.parallelTick.processNormalTasks();
+    }
 }

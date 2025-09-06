@@ -10,12 +10,12 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class ChainSwitcherPacket implements IMessage {
+public class PacketChainSwitcher implements IMessage {
     public boolean inChain;
-    public ChainSwitcherPacket() {
+    public PacketChainSwitcher() {
         inChain = false;
     }
-    public ChainSwitcherPacket(boolean inChain) {
+    public PacketChainSwitcher(boolean inChain) {
         this.inChain = inChain;
     }
     /**
@@ -39,19 +39,11 @@ public class ChainSwitcherPacket implements IMessage {
     }
 
 
-    public static class ChainSwitcherPacketHandler implements IMessageHandler<ChainSwitcherPacket, IMessage> {
+    public static class ChainSwitcherPacketHandler implements IMessageHandler<PacketChainSwitcher, IMessage> {
         public Logger LOG = LogManager.getLogger();
 
-        /**
-         * Called when a message is received of the appropriate type. You can optionally return a reply message, or null if no reply
-         * is needed.
-         *
-         * @param message The message
-         * @param ctx
-         * @return an optional return message
-         */
         @Override
-        public IMessage onMessage(ChainSwitcherPacket message, MessageContext ctx) {
+        public IMessage onMessage(PacketChainSwitcher message, MessageContext ctx) {
             if (ctx.side.isServer()) {
                  LOG.info("Player: {}Server: {}",
                          ctx.getServerHandler().playerEntity.getDisplayName(),
