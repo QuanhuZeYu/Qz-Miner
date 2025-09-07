@@ -19,21 +19,14 @@ public class BaseOperator {
     public Logger LOG = LogManager.getLogger();
 
     public EntityPlayerMP playerMP;
-    public Vector3i pos;
-    public Block block;
-    public int blockMeta;
-    public TileEntity tileEntity;
 
     public Manager manager;
     public BasePositionFounder positionFounder;
     public LinkedBlockingQueue<Vector3i> canBreakPositions = new LinkedBlockingQueue<>();
 
     public BaseOperator(Vector3i pos, Manager manager) {
-        this.pos = pos; this.playerMP = manager.player; this.manager = manager;
-        this.block = playerMP.worldObj.getBlock(pos.x, pos.y, pos.z);
-        this.blockMeta = playerMP.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
-        this.tileEntity = playerMP.worldObj.getTileEntity(pos.x, pos.y, pos.z);
-
+        this.playerMP = manager.player;
+        this.manager = manager;
         // 根据缓存中的模式选取合适的搜索器
         this.positionFounder = manager.minerModeState.createPositionFounder(
                 pos,

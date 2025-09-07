@@ -6,6 +6,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -76,18 +77,25 @@ public class ParallelTick {
     /**
      * 普通任务不执行暂停和恢复操作
      */
+    public ReentrantLock lock = new ReentrantLock();
     public void processNormalTasks() {
-        ArrayList<Pauseable> willRemove = new ArrayList<>();
-        for (Pauseable task : normalTasks) {
-            if (!task.started.get()) {
-                task.start();
+        if (lock.isLocked()) return;
+        lock.lock();
+        try {
+            ArrayList<Pauseable> willRemove = new ArrayList<>();
+            for (Pauseable task : normalTasks) {
+                if (!task.started.get()) {
+                    task.start();
+                }
+                if (task.stopped.get()) {
+                    willRemove.add(task);
+                }
             }
-            if (task.stopped.get()) {
-                willRemove.add(task);
-            }
-        }
 
-        normalTasks.removeAll(willRemove);
+            normalTasks.removeAll(willRemove);
+        } finally {
+            lock.unlock();
+        }
     }
 
 

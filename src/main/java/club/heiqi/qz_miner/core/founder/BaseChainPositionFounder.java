@@ -6,7 +6,6 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BaseChainPositionFounder extends BasePositionFounder {
@@ -30,24 +29,30 @@ public class BaseChainPositionFounder extends BasePositionFounder {
             return false;
         }
 
+        // 判断是否与样本相同
+        if (!DeterminingTwoItemsIdentical.Identical(sampleBlock, sampleBlockMeta, sampleTileEntity, pos, player))
+            return false;
+
         // 检查该点连锁小区域内是否有已标记点
-        for (Vector3i position : new ArrayList<>(this.positions)) {
+        boolean inRange = false;
+        for (Vector3i position : foundedPositions) {
             // 判断点 X Y Z 距离 及其曼哈顿距离
             Vector3i offsetDistance = new Vector3i(position).sub(pos);
             int xOffset = Math.abs(offsetDistance.x);
             int yOffset = Math.abs(offsetDistance.y);
             int zOffset = Math.abs(offsetDistance.z);
 
-            if (xOffset <= minerConfig.smallRadius ||
-                    yOffset <= minerConfig.smallRadius ||
+            if (xOffset <= minerConfig.smallRadius &&
+                    yOffset <= minerConfig.smallRadius &&
                     zOffset <= minerConfig.smallRadius
             ) {
-                // 如果是创造模式全都能挖掘
-                if (player.capabilities.isCreativeMode) return true;
-                return block.canHarvestBlock(player, blockMeta);
+                inRange = true;
+                break;
             }
         }
+        if (!inRange) return false;
 
-        return false;
+        if (player.capabilities.isCreativeMode) return true;
+        return block.canHarvestBlock(player, blockMeta);
     }
 }

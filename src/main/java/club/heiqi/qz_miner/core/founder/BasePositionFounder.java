@@ -6,10 +6,12 @@ import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BasePositionFounder extends Pauseable {
@@ -18,10 +20,16 @@ public class BasePositionFounder extends Pauseable {
     public Vector3i center;
     public EntityPlayer player;
     public MinerConfig minerConfig;
-    /**已收集的可采集点*/
+    /**已收集的可采集点 外部容器*/
     public LinkedBlockingQueue<Vector3i> positions;
+    /**已收集的可采集点 内部容器*/
+    public ArrayList<Vector3i> foundedPositions = new ArrayList<>();
 
     public int curCount = 0; // 包含初始加入的中心块
+    // ========== 挖掘样本 ==========
+    public final Block sampleBlock;
+    public final int sampleBlockMeta;
+    public final TileEntity sampleTileEntity;
 
     public BasePositionFounder(
             Vector3i center,
@@ -34,6 +42,10 @@ public class BasePositionFounder extends Pauseable {
         this.positions = results;
         this.minerConfig = minerConfig;
         addResult(center);
+
+        sampleBlock = player.worldObj.getBlock(center.x, center.y, center.z);
+        sampleBlockMeta = player.worldObj.getBlockMetadata(center.x, center.y, center.z);
+        sampleTileEntity = player.worldObj.getTileEntity(center.x, center.y, center.z);
     }
 
     @Override
@@ -83,6 +95,10 @@ public class BasePositionFounder extends Pauseable {
             return false;
         }
 
+        // 判断是否与样本相同
+        if (!DeterminingTwoItemsIdentical.Identical(sampleBlock, sampleBlockMeta, sampleTileEntity, pos, player))
+            return false;
+
         // 如果是创造模式全都能挖掘
         if (player.capabilities.isCreativeMode) return true;
         return block.canHarvestBlock(player, blockMeta);
@@ -92,6 +108,7 @@ public class BasePositionFounder extends Pauseable {
         // LOG.info("添加位置: x: {} y: {} z: {}", pos.x, pos.y, pos.z);
         try {
             this.positions.put(pos);
+            this.foundedPositions.add(pos);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); // 重新设置中断标志位
         }
