@@ -38,16 +38,15 @@ public class Manager {
         ) {
             return;
         }
-        // 正在连锁中 或 未按下连锁键 不处理
+        // 正在连锁中 或 未按下连锁键 不处理 避免重复触发连锁
         if (inChain || !inPressChainKey) {
             return;
         }
         inChain = true;
 
-        // 寻找点并挖掘
         Vector3i pos = new Vector3i(event.x, event.y, event.z);
         // ==========  触发连锁  ==========
-        operator = minerModeState.createOperator(pos, this);
+        operator = new BaseOperator(pos, this);
     }
 
     public void registry() {

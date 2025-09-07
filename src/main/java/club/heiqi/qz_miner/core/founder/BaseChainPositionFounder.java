@@ -21,7 +21,7 @@ public class BaseChainPositionFounder extends BasePositionFounder {
         int blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
 
         // 是空气跳过
-        if (block.equals(Blocks.air)) {
+        if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;
         }
 
@@ -30,14 +30,24 @@ public class BaseChainPositionFounder extends BasePositionFounder {
             return false;
         }
 
-        // 不可挖掘跳过
-        if (!block.canHarvestBlock(player, blockMeta)) return false;
-
         // 检查该点连锁小区域内是否有已标记点
         for (Vector3i position : new ArrayList<>(this.positions)) {
             // 判断点 X Y Z 距离 及其曼哈顿距离
+            Vector3i offsetDistance = new Vector3i(position).sub(pos);
+            int xOffset = Math.abs(offsetDistance.x);
+            int yOffset = Math.abs(offsetDistance.y);
+            int zOffset = Math.abs(offsetDistance.z);
+
+            if (xOffset <= minerConfig.smallRadius ||
+                    yOffset <= minerConfig.smallRadius ||
+                    zOffset <= minerConfig.smallRadius
+            ) {
+                // 如果是创造模式全都能挖掘
+                if (player.capabilities.isCreativeMode) return true;
+                return block.canHarvestBlock(player, blockMeta);
+            }
         }
 
-        return true;
+        return false;
     }
 }

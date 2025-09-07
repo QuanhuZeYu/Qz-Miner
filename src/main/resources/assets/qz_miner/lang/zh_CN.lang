@@ -4,4 +4,10 @@ key.qz_miner.mainModeSwitch=连锁主模式切换(需要按住连锁开关后触
 key.categories.qz_miner=爆破连锁
 
 qz_miner.textTips.rangeMode=爆破模式
+qz_miner.textTips.rangeMode.blindBlastMode=无差别爆破模式
+qz_miner.textTips.rangeMode.screenBlastingMode=筛选爆破模式
+qz_miner.textTips.rangeMode.tunnelBlastingMode=隧道爆破模式
+
 qz_miner.textTips.chainMode=连锁模式
+qz_miner.textTips.chainMode.baseChainMode=基础连锁模式
+qz_miner.textTips.chainMode.chainSawOperationModel=伐木连锁模式

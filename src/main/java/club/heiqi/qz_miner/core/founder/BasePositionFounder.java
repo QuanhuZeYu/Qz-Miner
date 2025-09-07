@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.core.founder;
 import club.heiqi.qz_miner.core.MinerConfig;
 import club.heiqi.qz_miner.thread.Pauseable;
 import net.minecraft.block.Block;
+import net.minecraft.block.material.Material;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import org.apache.logging.log4j.LogManager;
@@ -17,6 +18,7 @@ public class BasePositionFounder extends Pauseable {
     public Vector3i center;
     public EntityPlayer player;
     public MinerConfig minerConfig;
+    /**已收集的可采集点*/
     public LinkedBlockingQueue<Vector3i> positions;
 
     public int curCount = 0; // 包含初始加入的中心块
@@ -72,13 +74,17 @@ public class BasePositionFounder extends Pauseable {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
         int blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
-        if (block.equals(Blocks.air)) {
+
+        if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;
         }
         // 玩家脚下的一个方块不能被挖掘
         if (pos.x == playerPos.x && pos.y == (playerPos.y - 1) && pos.z == playerPos.z) {
             return false;
         }
+
+        // 如果是创造模式全都能挖掘
+        if (player.capabilities.isCreativeMode) return true;
         return block.canHarvestBlock(player, blockMeta);
     }
 

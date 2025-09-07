@@ -24,7 +24,7 @@ public class MinerRenderer {
     public Vector3i lastTarget = new Vector3i(Integer.MIN_VALUE);
     @SubscribeEvent
     public void onBlockHighLight(DrawBlockHighlightEvent event) {
-        renderAxis();
+        // renderAxis();
         // 如果没有按下连锁键，不执行逻辑
         if (!inPressChainKey) {
             onNotPressChainKey();

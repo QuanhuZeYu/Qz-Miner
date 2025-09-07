@@ -18,6 +18,7 @@ import net.minecraft.client.settings.KeyBinding;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 @SideOnly(Side.CLIENT)
 public class KeyListener {
@@ -30,10 +31,11 @@ public class KeyListener {
             "key.qz_miner.mainModeSwitch", -98/*鼠标中键*/, "key.categories.qz_miner"
     );
     public boolean onChain = false;
-    public MinerModeState minerModeState = new MinerModeState();
+    public MinerModeState minerModeState;
 
     @SubscribeEvent
     public void onInput(InputEvent event) {
+        init();
         // ========== 按下连锁键 ==========
         if (chainSwitch.getIsKeyPressed()) {
             // ===== 状态切换: 开始连锁 =====
@@ -57,6 +59,16 @@ public class KeyListener {
                 // 网络同步当前模式
                 MyMod.networkMain.network.sendToServer(new PacketMinerModeState(minerModeState));
             }
+            // ========== 滚轮切换子模式 ==========
+            if (event instanceof InputEvent.MouseInputEvent && Mouse.getEventDWheel() != 0) {
+                int dWheel = Mouse.getDWheel();
+                if (dWheel < 0) {
+                    minerModeState.nextSecondMode();
+                } else if (dWheel > 0) {
+                    minerModeState.previousSecondMode();
+                }
+                MessageUtils.printSelfMessage("当前子模式: "+I18n.format(minerModeState.currentSecondMode()));
+            }
         }
         // ========== 松开连锁键 ==========
         if (!chainSwitch.getIsKeyPressed()) {
@@ -71,6 +83,13 @@ public class KeyListener {
             onChain = false;
             // ===== 连锁持续关闭 =====
         }
+    }
+
+    public boolean inited = false;
+    public void init() {
+        if (inited) return;
+        inited = true;
+        minerModeState = ((ClientProxy)MyMod.proxy).clientState.minerModeState;
     }
 
     public void registry() {

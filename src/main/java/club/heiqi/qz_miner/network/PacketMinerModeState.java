@@ -10,9 +10,11 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 public class PacketMinerModeState implements IMessage {
-    public MinerModeState state = new MinerModeState();
+    public MinerModeState state;
 
-    public PacketMinerModeState() {}
+    public PacketMinerModeState() {
+        state = new MinerModeState();
+    }
     public PacketMinerModeState(MinerModeState state) {
         this.state = state;
     }

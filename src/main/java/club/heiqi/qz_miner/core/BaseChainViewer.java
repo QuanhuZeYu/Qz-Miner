@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.core;
 
+import club.heiqi.qz_miner.ClientProxy;
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.client.PreviewRender.RenderCache;
 import club.heiqi.qz_miner.client.PreviewRender.SpaceCalculator;
@@ -44,6 +46,7 @@ public class BaseChainViewer {
     public SpaceCalculator spaceCalculator = new SpaceCalculator();
 
     public BaseChainViewer(Vector3i pos) {
+        if (!Config.usePreview) return;  // 如果配置关闭预览则不做任何事情
         this.pos = pos; this.player = Minecraft.getMinecraft().thePlayer;
         this.block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         this.blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
@@ -52,7 +55,7 @@ public class BaseChainViewer {
         initShader();
         inPressChainKey = true;
 
-        this.positionFounder = new BasePositionFounder(
+        this.positionFounder = ((ClientProxy)MyMod.proxy).clientState.minerModeState.createPositionFounder(
                 pos,
                 canBreakPositions,
                 player,

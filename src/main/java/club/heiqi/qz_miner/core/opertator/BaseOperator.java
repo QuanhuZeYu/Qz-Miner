@@ -34,18 +34,16 @@ public class BaseOperator {
         this.blockMeta = playerMP.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
         this.tileEntity = playerMP.worldObj.getTileEntity(pos.x, pos.y, pos.z);
 
-        this.positionFounder = createPositionFounder();
-        MyMod.parallelTick.addPreServerTickTask(this.positionFounder);
-
-        this.registry();
-    }
-    public BasePositionFounder createPositionFounder() {
-        return new BasePositionFounder(
+        // 根据缓存中的模式选取合适的搜索器
+        this.positionFounder = manager.minerModeState.createPositionFounder(
                 pos,
                 canBreakPositions,
                 playerMP,
                 manager.pConfig
         );
+        MyMod.parallelTick.addPreServerTickTask(this.positionFounder);
+
+        this.registry();
     }
 
     @SubscribeEvent

@@ -1,12 +1,14 @@
 package club.heiqi.qz_miner;
 
+import club.heiqi.qz_miner.client.ClientStateContainer;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.client.PreviewRender.MinerRenderer;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
 public class ClientProxy extends CommonProxy {
-    public KeyListener   keyListener   = new KeyListener();
-    public MinerRenderer minerRenderer = new MinerRenderer();
+    public KeyListener   keyListener        = new KeyListener();
+    public MinerRenderer minerRenderer      = new MinerRenderer();
+    public ClientStateContainer clientState = new ClientStateContainer();
 
     @Override
     public void preInit(FMLPreInitializationEvent event) {
