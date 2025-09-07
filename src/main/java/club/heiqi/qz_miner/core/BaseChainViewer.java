@@ -56,7 +56,7 @@ public class BaseChainViewer {
                 pos,
                 canBreakPositions,
                 player,
-                new Manager.MinerConfig()
+                new MinerConfig()
         );
         MyMod.parallelTick.addNormalTask(this.positionFounder);
 

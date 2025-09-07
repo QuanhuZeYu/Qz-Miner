@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner.core.founder;
 
-import club.heiqi.qz_miner.core.Manager;
+import club.heiqi.qz_miner.core.MinerConfig;
 import club.heiqi.qz_miner.thread.Pauseable;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
@@ -16,7 +16,7 @@ public class BasePositionFounder extends Pauseable {
 
     public Vector3i center;
     public EntityPlayer player;
-    public Manager.MinerConfig minerConfig;
+    public MinerConfig minerConfig;
     public LinkedBlockingQueue<Vector3i> positions;
 
     public int curCount = 0; // 包含初始加入的中心块
@@ -25,7 +25,7 @@ public class BasePositionFounder extends Pauseable {
             Vector3i center,
             LinkedBlockingQueue<Vector3i> results,
             EntityPlayer player,
-            Manager.MinerConfig minerConfig
+            MinerConfig minerConfig
     ) {
         this.center = center;
         this.player = player;

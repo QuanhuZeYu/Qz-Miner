@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.core.Manager;
+import club.heiqi.qz_miner.core.MinerConfig;
 import club.heiqi.qz_miner.core.MinerModeState;
 import club.heiqi.qz_miner.network.PacketChainSwitcher;
 import club.heiqi.qz_miner.network.PacketMinerConfig;
@@ -15,7 +15,6 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.KeyBinding;
-import net.minecraft.util.IChatComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lwjgl.input.Keyboard;
@@ -46,7 +45,7 @@ public class KeyListener {
                 ((ClientProxy)MyMod.proxy).minerRenderer.inPressChainKey = true;
 
                 // ========== 同步连锁配置 ==========
-                MyMod.networkMain.network.sendToServer(new PacketMinerConfig(new Manager.MinerConfig()));
+                MyMod.networkMain.network.sendToServer(new PacketMinerConfig(new MinerConfig()));
             }
             // ===== 持续连锁状态 =====
             onChain = true;

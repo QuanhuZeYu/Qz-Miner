@@ -18,30 +18,8 @@ public class RenderCache {
     public int vbo;
     public int ebo;
     // 默认使用完整方块顶点数据
-    public float[] vertices = {
-            // 前左下 0   右下 1   右上 2   左上 3
-            0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0,
-            // 后左下 4   右下 5   右上 6   左上 7
-            0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1,
-    };
-    public int[] indices = {
-            // 三角形顺序
-            // 2,1,0, 0,3,2,  // 前面
-            // 4,5,6, 6,7,4,  // 后面
-            // 0,4,7, 7,3,0,  // 左面
-            // 1,2,6, 6,5,1,  // 右面
-            // 2,3,7, 7,6,2,  // 上面
-            // 0,4,5, 5,1,0,  // 下面
-            // 正方形顺序
-            // 3,2,1,0, 4,5,6,7,
-            // 0,4,7,3, 1,2,6,5,
-            // 2,3,7,6, 0,4,5,1,
-            // 线顺序
-            3, 2, 2, 1, 1, 0, 0, 3, // 前面
-            4, 5, 5, 6, 6, 7, 7, 4, // 后面
-            2, 6, 3, 7, // 上连接
-            0, 4, 1, 5, // 下连接
-    };
+    public float[] vertices = SpaceCalculator.vertex;
+    public int[] indices = SpaceCalculator.index;
 
     // 记录当前分配的缓冲区大小（字节）
     public int vboCapacity = 0;
@@ -138,6 +116,7 @@ public class RenderCache {
         GL30.glBindVertexArray(vao);
         GL20.glEnableVertexAttribArray(0);
         GL11.glDrawElements(GL11.GL_LINES, indices.length, GL11.GL_UNSIGNED_INT, 0);
+        GL20.glDisableVertexAttribArray(0);
 
         GL20.glDisableVertexAttribArray(0);
         GL30.glBindVertexArray(0);

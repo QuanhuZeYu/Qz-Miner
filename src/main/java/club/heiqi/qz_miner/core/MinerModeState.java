@@ -40,7 +40,7 @@ public class MinerModeState {
         }
     }
 
-    public BasePositionFounder createPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, Manager.MinerConfig config) {
+    public BasePositionFounder createPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig config) {
         switch (mainMode) {
             case 1 -> {
                 return new BaseChainPositionFounder(center, results, player, config);

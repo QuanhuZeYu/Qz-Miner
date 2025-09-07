@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner.core.founder;
 
-import club.heiqi.qz_miner.core.Manager;
+import club.heiqi.qz_miner.core.MinerConfig;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BaseChainPositionFounder extends BasePositionFounder {
-    public BaseChainPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, Manager.MinerConfig minerConfig) {
+    public BaseChainPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
     }
 
