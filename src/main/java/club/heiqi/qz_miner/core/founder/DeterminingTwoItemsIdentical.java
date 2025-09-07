@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.core.founder;
 
 import bartworks.system.material.TileEntityMetaGeneratedBlock;
-import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.common.blocks.TileEntityOres;
 import net.minecraft.block.Block;
@@ -12,7 +11,6 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import javax.annotation.Nullable;
-import java.util.Objects;
 
 public class DeterminingTwoItemsIdentical {
     public static Logger LOG = LogManager.getLogger();

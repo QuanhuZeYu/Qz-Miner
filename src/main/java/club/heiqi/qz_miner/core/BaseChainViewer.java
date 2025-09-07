@@ -67,6 +67,7 @@ public class BaseChainViewer {
     }
 
     public boolean foundComplete = false;
+    public boolean addComplete = false;
     public static final long waitAddTimeMillisecond = 5; // 添加剔除顶点允许用时
     public static final int perTickMaxAdd = 64;
     @SubscribeEvent
@@ -80,27 +81,17 @@ public class BaseChainViewer {
         // 取出所有结果 - 限定用时 - 限定数量
         long startTime = System.currentTimeMillis();
         int addCount = 0;
-        if (!foundComplete) {
-            ArrayList<Vector3i> points = new ArrayList<>(canBreakPositions);
-            ArrayList<Vector3i> added = new ArrayList<>();
-            for (Vector3i point : points) {
-                spaceCalculator.add(point);
-                added.add(point);
-                addCount++;
-                // 检查是否搜索完毕和加载完毕
-                if (!spaceCalculator.hasChange && positionFounder.stopped.get()) {
-                    foundComplete = true;
-                    LOG.info("预览方块加载完毕");
-                    MessageUtils.printSelfMessage("预览方块加载完毕");
-                    break;
-                }
-
-                // 检查执行时间是否超时
-                if (System.currentTimeMillis() - startTime > waitAddTimeMillisecond || addCount >= perTickMaxAdd) {
-                    break; // 超时退出循环加点
+        if (!foundComplete && !addComplete) {
+            // 检查是否传递完毕
+            if (positionFounder.stopped.get()) foundComplete = true;
+            while (System.currentTimeMillis() - startTime < waitAddTimeMillisecond && addCount < perTickMaxAdd) {
+                Vector3i point = canBreakPositions.poll();
+                if (point != null) {
+                    spaceCalculator.add(point);
+                    addCount++;
                 }
             }
-            canBreakPositions.removeAll(added); // 移除已经添加过的
+            if (!spaceCalculator.hasChange && foundComplete) addComplete = true;
 
             // 传递数据到渲染数据中
             SpaceCalculator.VertexAndIndex vertexAndIndex = spaceCalculator.getVertexAndIndex();

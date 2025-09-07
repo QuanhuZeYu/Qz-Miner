@@ -8,8 +8,8 @@ import org.joml.Vector3i;
 
 import java.util.concurrent.LinkedBlockingQueue;
 
-public class BaseChainPositionFounder extends BasePositionFounder {
-    public BaseChainPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
+public class ChainPositionFounder extends BasePositionFounder {
+    public ChainPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
     }
 

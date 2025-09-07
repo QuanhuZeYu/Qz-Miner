@@ -3,7 +3,6 @@ package club.heiqi.qz_miner.core.founder;
 import club.heiqi.qz_miner.core.MinerConfig;
 import club.heiqi.qz_miner.thread.Pauseable;
 import net.minecraft.block.Block;
-import net.minecraft.block.material.Material;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
@@ -94,10 +93,6 @@ public class BasePositionFounder extends Pauseable {
         if (pos.x == playerPos.x && pos.y == (playerPos.y - 1) && pos.z == playerPos.z) {
             return false;
         }
-
-        // 判断是否与样本相同
-        if (!DeterminingTwoItemsIdentical.Identical(sampleBlock, sampleBlockMeta, sampleTileEntity, pos, player))
-            return false;
 
         // 如果是创造模式全都能挖掘
         if (player.capabilities.isCreativeMode) return true;

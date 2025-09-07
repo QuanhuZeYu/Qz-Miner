@@ -21,10 +21,14 @@ public class PacketMinerModeState implements IMessage {
 
     public void fromBytes(ByteBuf buf) {
         state.mainMode = buf.readInt();
+        state.rangeMode = buf.readInt();
+        state.chainMode = buf.readInt();
     }
 
     public void toBytes(ByteBuf buf) {
         buf.writeInt(state.mainMode);
+        buf.writeInt(state.rangeMode);
+        buf.writeInt(state.chainMode);
     }
 
     public static class PacketMinerModeStateHandler implements IMessageHandler<PacketMinerModeState, IMessage> {
@@ -32,7 +36,7 @@ public class PacketMinerModeState implements IMessage {
             if (ctx.side.isServer()) {
                 EntityPlayerMP playerMP = ctx.getServerHandler().playerEntity;
                 Manager manager = MyMod.playerManager.managers.get(playerMP);
-                manager.minerModeState.mainMode = message.state.mainMode;
+                manager.minerModeState = message.state;
             }
             return null;
         }

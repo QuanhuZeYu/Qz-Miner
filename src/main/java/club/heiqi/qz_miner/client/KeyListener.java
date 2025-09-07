@@ -31,11 +31,9 @@ public class KeyListener {
             "key.qz_miner.mainModeSwitch", -98/*鼠标中键*/, "key.categories.qz_miner"
     );
     public boolean onChain = false;
-    public MinerModeState minerModeState;
 
     @SubscribeEvent
     public void onInput(InputEvent event) {
-        init();
         // ========== 按下连锁键 ==========
         if (chainSwitch.getIsKeyPressed()) {
             // ===== 状态切换: 开始连锁 =====
@@ -53,6 +51,7 @@ public class KeyListener {
             onChain = true;
 
             // ========== 切换主模式 ==========
+            MinerModeState minerModeState = ((ClientProxy) MyMod.proxy).clientState.minerModeState;
             if (mainModeSwitch.isPressed()) {
                 // 打印提示 - 切换到下一个主模式
                 MessageUtils.printSelfMessage("当前模式: "+I18n.format(minerModeState.nextMainMode()));
@@ -67,6 +66,8 @@ public class KeyListener {
                 } else if (dWheel > 0) {
                     minerModeState.previousSecondMode();
                 }
+                // 网络同步当前子模式
+                MyMod.networkMain.network.sendToServer(new PacketMinerModeState(minerModeState));
                 MessageUtils.printSelfMessage("当前子模式: "+I18n.format(minerModeState.currentSecondMode()));
             }
         }
@@ -83,13 +84,6 @@ public class KeyListener {
             onChain = false;
             // ===== 连锁持续关闭 =====
         }
-    }
-
-    public boolean inited = false;
-    public void init() {
-        if (inited) return;
-        inited = true;
-        minerModeState = ((ClientProxy)MyMod.proxy).clientState.minerModeState;
     }
 
     public void registry() {
