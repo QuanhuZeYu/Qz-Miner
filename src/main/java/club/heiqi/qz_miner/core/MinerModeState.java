@@ -2,7 +2,8 @@ package club.heiqi.qz_miner.core;
 
 import club.heiqi.qz_miner.core.founder.ChainPositionFounder;
 import club.heiqi.qz_miner.core.founder.BasePositionFounder;
-import club.heiqi.qz_miner.core.founder.ScreenBlastingMode;
+import club.heiqi.qz_miner.core.founder.OreBlastingFounder;
+import club.heiqi.qz_miner.core.founder.ScreenBlastingFounder;
 import net.minecraft.entity.player.EntityPlayer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -18,9 +19,10 @@ public class MinerModeState {
     };
 
     public static final String[] RANGE_MODE = {
-            "qz_miner.textTips.rangeMode.blindBlastMode",       // 无差别爆破模式
-            "qz_miner.textTips.rangeMode.screenBlastingMode",   // 筛选爆破模式
-            "qz_miner.textTips.rangeMode.tunnelBlastingMode",   // 隧道爆破模式
+            "qz_miner.textTips.rangeMode.blindBlastMode",       // 无差别爆破模式 0
+            "qz_miner.textTips.rangeMode.screenBlastingMode",   // 筛选爆破模式 1
+            "qz_miner.textTips.rangeMode.tunnelBlastingMode",   // 隧道爆破模式 2
+            "qz_miner.textTips.rangeMode.oreBlastingMode",      // 矿石爆破模式 3
     };
 
     public static final String[] CHAIN_MODE = {
@@ -101,7 +103,10 @@ public class MinerModeState {
         else {
             switch (rangeMode) {
                 case 1 -> {
-                    return new ScreenBlastingMode(center, results, player, config);
+                    return new ScreenBlastingFounder(center, results, player, config);
+                }
+                case 3 -> {
+                    return new OreBlastingFounder(center, results, player, config);
                 }
                 default -> { // 0
                     return new BasePositionFounder(center, results, player, config);

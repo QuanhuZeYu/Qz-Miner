@@ -83,12 +83,12 @@ public class BasePositionFounder extends Pauseable {
 
     public boolean checkCanBreak(Vector3i pos) {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
-        Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
-        int blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
-
         if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;
         }
+        Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
+        int blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
+
         // 玩家脚下的一个方块不能被挖掘
         if (pos.x == playerPos.x && pos.y == (playerPos.y - 1) && pos.z == playerPos.z) {
             return false;

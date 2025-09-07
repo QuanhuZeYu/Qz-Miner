@@ -8,26 +8,26 @@ import org.joml.Vector3i;
 
 import java.util.concurrent.LinkedBlockingQueue;
 
-public class ScreenBlastingMode extends BasePositionFounder {
-    public ScreenBlastingMode(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
+public class OreBlastingFounder extends BasePositionFounder {
+    public OreBlastingFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
     }
 
     @Override
     public boolean checkCanBreak(Vector3i pos) {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
-        Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
-        int blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
-
         if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;
         }
+        Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
+        int blockMeta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
+
         // 玩家脚下的一个方块不能被挖掘
         if (pos.x == playerPos.x && pos.y == (playerPos.y - 1) && pos.z == playerPos.z)
             return false;
 
-        // 筛选
-        if (!DeterminingTwoItemsIdentical.Identical(sampleBlock, sampleBlockMeta, sampleTileEntity, pos, player))
+        // 检查是否是矿石
+        if (!DeterminingIdentical.isOreBlock(pos, player))
             return false;
 
         // 如果是创造模式全都能挖掘
