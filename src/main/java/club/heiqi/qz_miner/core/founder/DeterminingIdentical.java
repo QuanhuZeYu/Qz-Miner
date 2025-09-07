@@ -14,13 +14,18 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockOre;
 import net.minecraft.block.BlockRedstoneOre;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.joml.Vector3i;
 
 import javax.annotation.Nullable;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 
 public class DeterminingIdentical {
@@ -99,6 +104,31 @@ public class DeterminingIdentical {
         }
 
         return false;
+    }
+
+    public static boolean isSame(@NotNull ItemStack A, @NotNull ItemStack B) {
+        // 比较物品类型
+        Item itemA = A.getItem();
+        Item itemB = B.getItem();
+        if (!Objects.equals(itemA, itemB))
+            return false;
+
+        // 比较元数据/损害值
+        if (A.getItemDamage() != B.getItemDamage())
+            return false;
+
+        // 比较 NBT 标签
+        NBTTagCompound tagA = A.getTagCompound();
+        NBTTagCompound tagB = B.getTagCompound();
+
+        if (tagA == null && tagB == null) {
+            return true; // 都没有 NBT 标签
+        } else if (tagA != null && tagB != null) {
+            return tagA.equals(tagB); // 比较 NBT 是否相等
+        }
+        else {
+            return false; // 一个有 NBT 一个没有
+        }
     }
 
     public static boolean hasCheck = false;

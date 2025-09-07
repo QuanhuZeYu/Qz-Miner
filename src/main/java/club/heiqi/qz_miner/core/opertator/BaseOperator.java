@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.core.opertator;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.core.Manager;
 import club.heiqi.qz_miner.core.founder.BasePositionFounder;
+import club.heiqi.qz_miner.utils.MessageUtils;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -78,9 +79,10 @@ public class BaseOperator {
         //     } catch (InterruptedException e) {
         //         Thread.currentThread().interrupt();
         //     }
-            FMLCommonHandler.instance().bus().unregister(this);
-            manager.inChain = false;
-            LOG.info("连锁执行器注销成功");
+        MessageUtils.sendPlayerMessage("连锁完毕", playerMP);
+        FMLCommonHandler.instance().bus().unregister(this);
+        manager.inChain = false;
+        LOG.info("连锁执行器注销成功");
         // }).start();
     }
 }
