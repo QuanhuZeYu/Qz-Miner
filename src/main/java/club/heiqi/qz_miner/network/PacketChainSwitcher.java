@@ -45,10 +45,10 @@ public class PacketChainSwitcher implements IMessage {
         @Override
         public IMessage onMessage(PacketChainSwitcher message, MessageContext ctx) {
             if (ctx.side.isServer()) {
-                 LOG.info("Player: {}Server: {}",
-                         ctx.getServerHandler().playerEntity.getDisplayName(),
-                         message.inChain ? "按下连锁键" : "松开连锁键"
-                 );
+                 // LOG.info("Player: {}Server: {}",
+                 //         ctx.getServerHandler().playerEntity.getDisplayName(),
+                 //         message.inChain ? "按下连锁键" : "松开连锁键"
+                 // );
                 EntityPlayerMP playerMP = ctx.getServerHandler().playerEntity;
                 Manager manager = MyMod.playerManager.managers.get(playerMP);
                 manager.inPressChainKey = message.inChain;

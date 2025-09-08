@@ -1,5 +1,5 @@
-key.qz_miner.chainSwitch=连锁开关(持续按压开启)
-key.qz_miner.mainModeSwitch=连锁主模式切换(需要按住连锁开关后触发)
+key.qz_miner.chainSwitch=连锁开关
+key.qz_miner.mainModeSwitch=连锁主模式切换
 
 key.categories.qz_miner=爆破连锁
 

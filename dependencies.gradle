@@ -56,45 +56,12 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjglVersion}:${natives}"*/
 
 
-    implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.443:dev")
-
-//    implementation("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
-//    implementation("com.github.GTNewHorizons:waila:1.8.2:dev")
-//    implementation("com.github.GTNewHorizons:Mantle:0.4.2:dev")
-//    implementation("curse.maven:cofh-core-69162:2388751")
-//    implementation("com.github.GTNewHorizons:TinkersConstruct:1.12.16-GTNH:dev")
-//    implementation("com.github.GTNewHorizons:StructureLib:1.3.6:dev")
-//    implementation("com.github.GTNewHorizons:GTNHLib:0.5.21:dev")
-//    implementation("com.github.GTNewHorizons:Hodgepodge:2.5.82:dev")
-//    implementation("com.github.GTNewHorizons:ModularUI:1.2.17:dev")
-//    implementation("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-478-GTNH:dev")
-    // modularUI2
-    // GT NEI Ore Plugin
-    // YAMCore
-    // TecTech
-    // BartWorks
-    // KekzTech
-    // Good Generator
-    // GTNH: Lanthanides
-    // gtpp
-    // GT Scanner
-    // KubaTech
-    // Galactic Greg
-    // Postea
-    // AE2Wireless
-    // Baubles
-    implementation("com.github.GTNewHorizons:LootGames:2.2.0:dev")
-    implementation("com.github.GTNewHorizons:EnderIO:2.9.22:dev")
-    implementation("com.github.GTNewHorizons:ServerUtilities:2.1.59:dev")
-
+    implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.449:dev")
+    implementation("com.github.GTNewHorizons:lwjgl3ify:2.1.14:dev")
 
 
     // For testing iApiary
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:ForestryMC:4.8.9:dev")
-
-    testImplementation(platform('org.junit:junit-bom:5.9.2'))
-    testImplementation('org.junit.jupiter:junit-jupiter')
-    testImplementation("org.mockito:mockito-core:3.+")
 
 //    functionalTestImplementation(platform('org.junit:junit-bom:5.9.2'))
 //    functionalTestImplementation('org.junit.jupiter:junit-jupiter')
