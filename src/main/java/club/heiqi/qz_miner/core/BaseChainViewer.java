@@ -9,7 +9,6 @@ import club.heiqi.qz_miner.core.founder.BasePositionFounder;
 import club.heiqi.qz_miner.shaderTools.ShaderManager;
 import club.heiqi.qz_miner.utils.FileReadUtils;
 import club.heiqi.qz_miner.utils.MatrixUtils;
-import club.heiqi.qz_miner.utils.MessageUtils;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -23,7 +22,6 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BaseChainViewer {
@@ -74,6 +72,7 @@ public class BaseChainViewer {
     public void renderTick(TickEvent.RenderTickEvent event) {
         if (!(event.phase == TickEvent.RenderTickEvent.Phase.END)) return;
         if (!inPressChainKey) {
+            LOG.info("运行中终止");
             this.unRegistry();
         }
         float particle = event.renderTickTime;
@@ -81,7 +80,7 @@ public class BaseChainViewer {
         // 取出所有结果 - 限定用时 - 限定数量
         long startTime = System.currentTimeMillis();
         int addCount = 0;
-        if (!foundComplete && !addComplete) {
+        if (!foundComplete || !addComplete) {
             // 检查是否传递完毕
             if (positionFounder.stopped.get()) foundComplete = true;
             while (System.currentTimeMillis() - startTime < waitAddTimeMillisecond && addCount < perTickMaxAdd) {

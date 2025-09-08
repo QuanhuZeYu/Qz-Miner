@@ -1,9 +1,6 @@
 package club.heiqi.qz_miner.core;
 
-import club.heiqi.qz_miner.core.founder.ChainPositionFounder;
-import club.heiqi.qz_miner.core.founder.BasePositionFounder;
-import club.heiqi.qz_miner.core.founder.OreBlastingFounder;
-import club.heiqi.qz_miner.core.founder.ScreenBlastingFounder;
+import club.heiqi.qz_miner.core.founder.*;
 import net.minecraft.entity.player.EntityPlayer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -104,6 +101,9 @@ public class MinerModeState {
             switch (rangeMode) {
                 case 1 -> {
                     return new ScreenBlastingFounder(center, results, player, config);
+                }
+                case 2 -> {
+                    return new TunnelBlastingFounder(center, results, player, config);
                 }
                 case 3 -> {
                     return new OreBlastingFounder(center, results, player, config);

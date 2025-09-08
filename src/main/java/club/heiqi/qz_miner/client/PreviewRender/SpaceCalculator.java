@@ -127,13 +127,14 @@ public class SpaceCalculator {
             if (existingPoint.position.equals(position)) return;
         }
 
+        // 检查连接关系
         for (SpacePoint existingPoint : spacePoints) {
             if (existingPoint.connectAll) continue;
 
-            // 检查曼哈顿距离是否大于2
+            // 检查距离
             Vector3i offsetVec = new Vector3i(existingPoint.position).sub(position);
-            int offset = Math.abs(offsetVec.x) + Math.abs(offsetVec.y) + Math.abs(offsetVec.z);
-            if (offset > 2) continue;
+            if (Math.abs(offsetVec.x) > 1 || Math.abs(offsetVec.y) > 1 || Math.abs(offsetVec.z) > 1)
+                continue;
 
             for (DirectionConfig config : DIRECTION_CONFIGS) {
                 // config.dir 当前检查方向;  config.opposite 当前检查方向的对向

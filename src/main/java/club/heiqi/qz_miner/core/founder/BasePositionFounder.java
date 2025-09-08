@@ -11,6 +11,8 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BasePositionFounder extends Pauseable {
@@ -22,7 +24,7 @@ public class BasePositionFounder extends Pauseable {
     /**已收集的可采集点 外部容器*/
     public LinkedBlockingQueue<Vector3i> positions;
     /**已收集的可采集点 内部容器*/
-    public ArrayList<Vector3i> foundedPositions = new ArrayList<>();
+    public Set<Vector3i> foundedPositions = new HashSet<>();
 
     public int curCount = 0; // 包含初始加入的中心块
     // ========== 挖掘样本 ==========
@@ -48,36 +50,32 @@ public class BasePositionFounder extends Pauseable {
     }
 
     @Override
-    public void run() {
+    public void run1() {
         int curRadius = 1;
-        try {
-            while (curCount < minerConfig.blockLimit && curRadius <= minerConfig.bigRadius) {
-                // LOG.info("当前半径: {} 当前块数: {}", curRadius, curCount);
-                for (int x = center.x - curRadius; x <= center.x + curRadius; x++) {
-                    for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
-                        for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
-                            Vector3i pos = new Vector3i(x, y, z);
-                            if (checkCanBreak(pos)) {
-                                this.addResult(pos);
-                            }
-                            if (curCount >= minerConfig.blockLimit) {
-                                return;
-                            }
-                            waitUntil();
-                            if (Thread.currentThread().isInterrupted()) {
-                                LOG.info("线程被中断");
-                                return;
-                            }
+        while (curCount < minerConfig.blockLimit && curRadius <= minerConfig.bigRadius) {
+            // LOG.info("当前半径: {} 当前块数: {}", curRadius, curCount);
+            for (int x = center.x - curRadius; x <= center.x + curRadius; x++) {
+                for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
+                    for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
+                        Vector3i pos = new Vector3i(x, y, z);
+                        if (checkCanBreak(pos)) {
+                            this.addResult(pos);
+                        }
+                        if (curCount >= minerConfig.blockLimit) {
+                            return;
+                        }
+                        waitUntil();
+                        if (Thread.currentThread().isInterrupted()) {
+                            LOG.info("线程被中断");
+                            return;
                         }
                     }
                 }
-                curRadius++;
-                if (curRadius > minerConfig.bigRadius) {
-                    break; // 超出半径范围，退出
-                }
             }
-        } finally {
-            LOG.info("搜索执行完毕");
+            curRadius++;
+            if (curRadius > minerConfig.bigRadius) {
+                break; // 超出半径范围，退出
+            }
         }
     }
 

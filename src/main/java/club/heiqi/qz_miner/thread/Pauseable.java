@@ -45,9 +45,17 @@ public class Pauseable extends Thread {
     }
 
     @Override
+    public void run() {
+        super.run();
+        run1();
+        stopped.set(true);
+    }
+
+    public void run1() {}
+
+    @Override
     public synchronized void start() {
         started.set(true);
         super.start();
-        stopped.set(true);
     }
 }

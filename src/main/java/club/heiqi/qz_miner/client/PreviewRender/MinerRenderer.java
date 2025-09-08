@@ -48,6 +48,7 @@ public class MinerRenderer {
 
     private void onPressButChangeTarget() {
         if (viewer != null) {
+            LOG.info("目标切换卸载预览器");
             viewer.unRegistry();
 
             viewer = new BaseChainViewer(lastTarget);
@@ -57,6 +58,7 @@ public class MinerRenderer {
     private void onNotPressChainKey() {
         if (viewer != null) {
             viewer.inPressChainKey = false;
+            LOG.info("未按下连锁键卸载预览器");
             viewer.unRegistry();
 
             viewer = null;
