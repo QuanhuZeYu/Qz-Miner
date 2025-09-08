@@ -20,11 +20,11 @@ public class MinerModeState {
             "qz_miner.textTips.rangeMode.screenBlastingMode",   // 筛选爆破模式 1
             "qz_miner.textTips.rangeMode.tunnelBlastingMode",   // 隧道爆破模式 2
             "qz_miner.textTips.rangeMode.oreBlastingMode",      // 矿石爆破模式 3
+            "qz_miner.textTips.rangeMode.blastingLoggingMode",  // 爆破伐木模式 4
     };
 
     public static final String[] CHAIN_MODE = {
-            "qz_miner.textTips.chainMode.baseChainMode",            // 基础连锁模式
-            "qz_miner.textTips.chainMode.chainSawOperationModel",   // 伐木连锁模式
+            "qz_miner.textTips.chainMode.baseChainMode",            // 基础连锁模式 0
     };
 
     public int mainMode = 1;
@@ -107,6 +107,9 @@ public class MinerModeState {
                 }
                 case 3 -> {
                     return new OreBlastingFounder(center, results, player, config);
+                }
+                case 4 -> {
+                    return new BlastingLoggingFounder(center, results, player, config);
                 }
                 default -> { // 0
                     return new BasePositionFounder(center, results, player, config);

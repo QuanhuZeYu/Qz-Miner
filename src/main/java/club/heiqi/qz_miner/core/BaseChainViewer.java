@@ -72,7 +72,7 @@ public class BaseChainViewer {
     public void renderTick(TickEvent.RenderTickEvent event) {
         if (!(event.phase == TickEvent.RenderTickEvent.Phase.END)) return;
         if (!inPressChainKey) {
-            LOG.info("运行中终止");
+            // LOG.info("运行中终止");
             this.unRegistry();
         }
         float particle = event.renderTickTime;

@@ -8,7 +8,7 @@ qz_miner.textTips.rangeMode.blindBlastMode=无差别爆破模式
 qz_miner.textTips.rangeMode.screenBlastingMode=筛选爆破模式
 qz_miner.textTips.rangeMode.tunnelBlastingMode=隧道爆破模式
 qz_miner.textTips.rangeMode.oreBlastingMode=矿石爆破模式
+qz_miner.textTips.rangeMode.blastingLoggingMode=爆破伐木模式
 
 qz_miner.textTips.chainMode=连锁模式
 qz_miner.textTips.chainMode.baseChainMode=基础连锁模式
-qz_miner.textTips.chainMode.chainSawOperationModel=伐木连锁模式

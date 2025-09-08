@@ -52,7 +52,7 @@ public class TunnelBlastingFounder extends BasePositionFounder {
             }
             curRadius++;
         }
-        LOG.info("结束时半径: {}; 找到数量: {}", curRadius, foundedPositions.size());
+        // LOG.info("结束时半径: {}; 找到数量: {}", curRadius, foundedPositions.size());
     }
 
     public Vector3i getAxisAlignedLookDir() {
