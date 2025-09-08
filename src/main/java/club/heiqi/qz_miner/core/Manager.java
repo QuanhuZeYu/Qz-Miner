@@ -118,10 +118,9 @@ public class Manager {
     }
 
     public void receiveClientConfig(MinerConfig minerConfig) {
-        pConfig.bigRadius = Math.min(minerConfig.bigRadius, Config.bigRadius);
-        pConfig.blockLimit = Math.min(minerConfig.blockLimit, Config.blockLimit);
-        pConfig.smallRadius = Math.min(minerConfig.smallRadius, Config.smallRadius);
+        pConfig.bigRadius = Math.max(Math.min(minerConfig.bigRadius, Config.bigRadius), 0);
+        pConfig.blockLimit = Math.max(Math.min(minerConfig.blockLimit, Config.blockLimit), 0);
+        pConfig.smallRadius = Math.max(Math.min(minerConfig.smallRadius, Config.smallRadius), 0);
+        pConfig.tunnelWidth = Math.max(Math.min(minerConfig.tunnelWidth, Config.tunnelWidth), 0);
     }
-
-
 }
