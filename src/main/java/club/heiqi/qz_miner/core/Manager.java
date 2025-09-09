@@ -2,7 +2,6 @@ package club.heiqi.qz_miner.core;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.core.founder.DeterminingIdentical;
-import club.heiqi.qz_miner.core.opertator.BaseOperator;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -16,8 +15,6 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * 以玩家为核心的连锁管理器

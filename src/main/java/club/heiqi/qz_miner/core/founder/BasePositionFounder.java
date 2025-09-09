@@ -1,9 +1,15 @@
 package club.heiqi.qz_miner.core.founder;
 
+import club.heiqi.qz_miner.Constant;
+import club.heiqi.qz_miner.core.BaseOperator;
 import club.heiqi.qz_miner.core.MinerConfig;
 import club.heiqi.qz_miner.thread.Pauseable;
+import com.sinthoras.visualprospecting.VisualProspecting_API;
+import cpw.mods.fml.common.FMLCommonHandler;
+import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
 import org.apache.logging.log4j.LogManager;
@@ -38,6 +44,8 @@ public class BasePositionFounder extends Pauseable {
             EntityPlayer player,
             MinerConfig minerConfig
     ) {
+        BaseOperator.compatibilityCheck();
+
         this.center = center;
         this.player = player;
         this.positions = results;
@@ -106,5 +114,14 @@ public class BasePositionFounder extends Pauseable {
             Thread.currentThread().interrupt(); // 重新设置中断标志位
         }
         curCount++;
+
+        // 触发矿脉探索功能
+        if (BaseOperator.hasVP_API && DeterminingIdentical.hasBlockBaseOre &&
+                player.worldObj.isRemote && FMLCommonHandler.instance().getEffectiveSide().isClient() &&
+                player.worldObj.getBlock(pos.x, pos.y, pos.z) instanceof BlockOresAbstract
+        ) {
+            LOG.info("尝试触发矿脉探索");
+            player.worldObj.getBlock(pos.x, pos.y, pos.z).onBlockActivated(player.worldObj, pos.x, pos.y, pos.z, player, 0,0,0,0);
+        }
     }
 }

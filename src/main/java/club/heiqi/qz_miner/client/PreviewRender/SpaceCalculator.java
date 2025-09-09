@@ -281,25 +281,6 @@ public class SpaceCalculator {
 
         }
 
-        public void addBack() {
-            // 检查所有斜向
-            for (String oblique : connectIndexMap.keySet()) {
-                if (oblique.length() != 4) continue;
-                // 检查自身是否连接 连接了则跳过
-                if (connectionsSet.contains(oblique)) {
-
-                    continue;
-                }
-                String dirA = oblique.substring(0,2);
-                String dirB = oblique.substring(2,4);
-                // 检查斜向的两个分量的直接连接向是否连接了
-                if (connectionsSet.contains(dirA) && connectionsSet.contains(dirB)) {
-                    Vector2i[] needAdds = connectIndexMap.get(oblique);
-                    Collections.addAll(completeIndex, needAdds);
-                }
-            }
-        }
-
         public boolean equals(Object other) {
             if (!(other instanceof SpacePoint)) return false;
             return this.position.equals(((SpacePoint) other).position);
