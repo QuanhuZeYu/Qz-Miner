@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.utils.MessageUtils;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
+import org.joml.Vector3d;
 import org.joml.Vector3i;
 
 public class InteractOperator extends BaseOperator {
@@ -22,32 +23,41 @@ public class InteractOperator extends BaseOperator {
             return;
         }
 
+        // 记录玩家位置以便还原
+        Vector3d playerPos = new Vector3d(playerMP.posX, playerMP.posY, playerMP.posZ);
+
         int breakCountInTick = 0;
         Vector3i pos;
+        playerMP.rotationPitch = 90;
         while ((pos = canBreakPositions.poll()) != null) {
+            // 将玩家位置设置到该方块位置
+            playerMP.posX = pos.x; playerMP.posY = pos.y; playerMP.posZ = pos.z;
+
             playerMP.theItemInWorldManager.activateBlockOrUseItem(
                     playerMP, playerMP.worldObj,
                     playerMP.getCurrentEquippedItem(),
                     pos.x, pos.y, pos.z,
                     1,
                     0,0,0);
+            if (playerMP.getCurrentEquippedItem() != null) {
+                playerMP.theItemInWorldManager.tryUseItem(playerMP, playerMP.worldObj, playerMP.getCurrentEquippedItem());
+            }
 
             breakCountInTick++;
             operatorCount++;
             if (breakCountInTick >= 64) {
+                // 还原玩家位置
+                playerMP.posX = playerPos.x; playerMP.posY = playerPos.y; playerMP.posZ = playerPos.z;
                 return;
             }
         }
 
+        // 还原玩家位置
+        playerMP.posX = playerPos.x; playerMP.posY = playerPos.y; playerMP.posZ = playerPos.z;
+
         if (positionFounder.stopped.get()) {
             this.unRegistry();
         }
-    }
-
-    @Override
-    public void registry() {
-        startTime = System.currentTimeMillis();
-        FMLCommonHandler.instance().bus().register(this);
     }
 
     @Override

@@ -164,6 +164,9 @@ public class MinerModeState {
                     case 2 -> {
                         return new ScreenBlastingFounder(center, results, player, config);
                     }
+                    case 3 -> {
+                        return new LiquidDetector(center, results, player, config);
+                    }
                     default -> { // 0
                         return new ChainPositionFounder(center, results, player, config);
                     }

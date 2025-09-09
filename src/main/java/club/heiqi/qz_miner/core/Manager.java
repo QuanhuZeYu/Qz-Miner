@@ -55,6 +55,8 @@ public class Manager {
         operator.registry();
     }
 
+    /**Bottom = 0, Top = 1, East = 2, West = 3, North = 4, South = 5.*/
+    public int hitSide = 1;
     @SubscribeEvent
     public void onInteractEvent(PlayerInteractEvent event) {
         if (!minerModeState.isInteractMode() ||
