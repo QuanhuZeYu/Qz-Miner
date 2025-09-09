@@ -9,6 +9,7 @@ import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,7 +28,7 @@ public class Manager {
     public MinerModeState minerModeState = new MinerModeState();
     /**是否按下连锁键*/
     public boolean inPressChainKey = false;
-    public boolean inChain = false;
+    public boolean inOperate = false;
 
     public Manager(EntityPlayerMP player) {
         this.player = player;
@@ -36,20 +37,41 @@ public class Manager {
     public BaseOperator operator = null;
     @SubscribeEvent
     public void onBlockBreakEvent(BlockEvent.BreakEvent event) {
-        // 事件触发者 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
-        if (!event.getPlayer().getUniqueID().equals(player.getUniqueID()) ||
+        // 0.是交互模式 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
+        if (minerModeState.isInteractMode() &&
+                !event.getPlayer().getUniqueID().equals(player.getUniqueID()) ||
                 !(event.getPlayer() instanceof EntityPlayerMP) ||
                 !Thread.currentThread().getName().toLowerCase().contains("server")
         ) return;
         // 正在连锁中 或 未按下连锁键 不处理 避免重复触发连锁
-        if (inChain || !inPressChainKey) {
+        if (inOperate || !inPressChainKey) {
             return;
         }
-        inChain = true;
+        inOperate = true;
 
         Vector3i pos = new Vector3i(event.x, event.y, event.z);
         // ==========  触发连锁  ==========
         operator = new BaseOperator(pos, this);
+        operator.registry();
+    }
+
+    @SubscribeEvent
+    public void onInteractEvent(PlayerInteractEvent event) {
+        if (!minerModeState.isInteractMode() ||
+                !event.entityPlayer.getUniqueID().equals(player.getUniqueID()) ||
+                !(event.entityPlayer instanceof EntityPlayerMP) ||
+                !Thread.currentThread().getName().toLowerCase().contains("server")
+        ) return;
+        // 正在连锁中 或 未按下连锁键 不处理 避免重复触发连锁
+        if (inOperate || !inPressChainKey) {
+            return;
+        }
+        inOperate = true;
+
+        Vector3i pos = new Vector3i(event.x, event.y, event.z);
+        // ==========  触发连锁  ==========
+        operator = new InteractOperator(pos, this);
+        operator.registry();
     }
 
     public ArrayList<ItemStack> drops = new ArrayList<>();
@@ -65,7 +87,7 @@ public class Manager {
         }
 
         // 未在连锁不处理 - 检查drops收集容器是否有东西 此时掉落到地面
-        if (!inChain) {
+        if (!inOperate) {
             return;
         }
 
@@ -88,7 +110,7 @@ public class Manager {
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (!inChain && !inPressChainKey) dropCollects();
+        if (!inOperate && !inPressChainKey) dropCollects();
     }
 
     public void dropCollects() {

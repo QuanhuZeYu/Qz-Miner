@@ -3,19 +3,15 @@ package club.heiqi.qz_miner.core;
 import club.heiqi.qz_miner.Constant;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.core.founder.BasePositionFounder;
-import club.heiqi.qz_miner.core.founder.DeterminingIdentical;
 import club.heiqi.qz_miner.utils.MessageUtils;
-import com.sinthoras.visualprospecting.VisualProspecting_API;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
-import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.entity.player.EntityPlayerMP;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BaseOperator {
@@ -41,14 +37,12 @@ public class BaseOperator {
                 manager.pConfig
         );
         MyMod.parallelTick.addPreServerTickTask(this.positionFounder);
-
-        this.registry();
     }
 
     public long startTime;
-    public int breakCount = 0;
+    public int operatorCount = 0;
     @SubscribeEvent
-    public void breakTask(TickEvent.ServerTickEvent event) {
+    public void operatorTask(TickEvent.ServerTickEvent event) {
         if (!manager.inPressChainKey) {
             this.unRegistry();
         }
@@ -63,7 +57,7 @@ public class BaseOperator {
             playerMP.theItemInWorldManager.tryHarvestBlock(pos.x, pos.y, pos.z);
 
             breakCountInTick++;
-            breakCount++;
+            operatorCount++;
             if (breakCountInTick >= 64) {
                 return;
             }
@@ -82,9 +76,9 @@ public class BaseOperator {
     }
     public void unRegistry() {
         long totalTime = System.currentTimeMillis() - startTime;
-        MessageUtils.sendPlayerMessage("连锁完毕; 挖掘数量: "+breakCount+"; 连锁用时: "+convertMillisToSeconds(totalTime), playerMP);
+        MessageUtils.sendPlayerMessage("连锁完毕; 挖掘数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), playerMP);
         FMLCommonHandler.instance().bus().unregister(this);
-        manager.inChain = false;
+        manager.inOperate = false;
         // LOG.info("连锁执行器注销成功 {}", playerMP.getDisplayName());
     }
     public static float convertMillisToSeconds(long millis) {
@@ -108,15 +102,5 @@ public class BaseOperator {
             Constant.LOG.warn("未检测到 VisualProspecting_API");
             hasVP_API = false;
         }
-    }
-    public static void useVP_API(EntityPlayerMP aPlayer) {
-        VisualProspecting_API.LogicalServer.sendProspectionResultsToClient(
-                aPlayer,
-                VisualProspecting_API.LogicalServer.prospectOreVeinsWithinRadius(
-                        aPlayer.worldObj.provider.dimensionId,
-                        (int) aPlayer.posX,
-                        (int) aPlayer.posZ,
-                        1),
-                new ArrayList<>());
     }
 }

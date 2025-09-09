@@ -120,7 +120,6 @@ public class BasePositionFounder extends Pauseable {
                 player.worldObj.isRemote && FMLCommonHandler.instance().getEffectiveSide().isClient() &&
                 player.worldObj.getBlock(pos.x, pos.y, pos.z) instanceof BlockOresAbstract
         ) {
-            LOG.info("尝试触发矿脉探索");
             player.worldObj.getBlock(pos.x, pos.y, pos.z).onBlockActivated(player.worldObj, pos.x, pos.y, pos.z, player, 0,0,0,0);
         }
     }
