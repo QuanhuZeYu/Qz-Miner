@@ -4,8 +4,6 @@ import club.heiqi.qz_miner.core.MinerConfig;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
 import org.joml.Vector3i;
@@ -29,7 +27,7 @@ public class BlastingLoggingFounder extends BasePositionFounder {
                 for (int y = center.y - highRadius; y <= center.y + highRadius; y++) {
                     for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
                         Vector3i pos = new Vector3i(x, y, z);
-                        if (checkCanBreak(pos)) {
+                        if (checkCanAdd(pos)) {
                             this.addResult(pos);
                         }
                         if (curCount >= minerConfig.blockLimit) {
@@ -50,7 +48,7 @@ public class BlastingLoggingFounder extends BasePositionFounder {
     }
 
     @Override
-    public boolean checkCanBreak(Vector3i pos) {
+    public boolean checkCanAdd(Vector3i pos) {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;

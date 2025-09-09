@@ -29,9 +29,10 @@ public class MinerModeState {
     };
 
     public static final String[] INTERACT_MODE = {
-            "qz_miner.textTips.chainMode.baseChainMode",        // 基础连锁模式 0
-            "qz_miner.textTips.rangeMode.blindBlastMode",       // 无差别爆破模式 1
-            "qz_miner.textTips.rangeMode.screenBlastingMode",   // 筛选爆破模式 2
+            "qz_miner.textTips.interactMode.baseChainMode",         // 基础连锁模式 0
+            "qz_miner.textTips.interactMode.blindBlastMode",        // 无差别爆破模式 1
+            "qz_miner.textTips.interactMode.screenBlastingMode",    // 筛选爆破模式 2
+            "qz_miner.textTips.interactMode.liquidMode",            // 流体搜索模式 3
     };
 
     public int mainMode = 1;

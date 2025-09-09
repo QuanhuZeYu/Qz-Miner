@@ -1,22 +1,18 @@
 package club.heiqi.qz_miner.core.founder;
 
-import club.heiqi.qz_miner.Constant;
 import club.heiqi.qz_miner.core.BaseOperator;
 import club.heiqi.qz_miner.core.MinerConfig;
 import club.heiqi.qz_miner.thread.Pauseable;
-import com.sinthoras.visualprospecting.VisualProspecting_API;
 import cpw.mods.fml.common.FMLCommonHandler;
 import gregtech.common.blocks.BlockOresAbstract;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -66,7 +62,7 @@ public class BasePositionFounder extends Pauseable {
                 for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
                     for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
                         Vector3i pos = new Vector3i(x, y, z);
-                        if (checkCanBreak(pos)) {
+                        if (checkCanAdd(pos)) {
                             this.addResult(pos);
                         }
                         if (curCount >= minerConfig.blockLimit) {
@@ -87,7 +83,7 @@ public class BasePositionFounder extends Pauseable {
         }
     }
 
-    public boolean checkCanBreak(Vector3i pos) {
+    public boolean checkCanAdd(Vector3i pos) {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;

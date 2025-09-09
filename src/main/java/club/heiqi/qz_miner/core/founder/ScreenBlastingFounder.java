@@ -14,7 +14,7 @@ public class ScreenBlastingFounder extends BasePositionFounder {
     }
 
     @Override
-    public boolean checkCanBreak(Vector3i pos) {
+    public boolean checkCanAdd(Vector3i pos) {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
             return false;

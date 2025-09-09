@@ -12,3 +12,9 @@ qz_miner.textTips.rangeMode.blastingLoggingMode=爆破伐木模式
 
 qz_miner.textTips.chainMode=连锁模式
 qz_miner.textTips.chainMode.baseChainMode=基础连锁模式
+
+qz_miner.textTips.interactMode=交互模式
+qz_miner.textTips.interactMode.baseChainMode=连锁筛选器
+qz_miner.textTips.interactMode.blindBlastMode=范围固体方块筛选器
+qz_miner.textTips.interactMode.screenBlastingMode=范围同类筛选器
+qz_miner.textTips.interactMode.liquidMode=流体搜索器
