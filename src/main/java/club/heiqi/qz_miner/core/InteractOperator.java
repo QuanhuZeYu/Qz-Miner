@@ -15,13 +15,7 @@ public class InteractOperator extends BaseOperator {
     @Override
     @SubscribeEvent
     public void operatorTask(TickEvent.ServerTickEvent event) {
-        // 没按下连锁键    注销
-        // 物品只有一个时   注销
-        // 物品耐久只剩1时  注销
-        if (!manager.inPressChainKey ||
-                (playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().stackSize == 1) ||
-                (playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().getMaxDamage() - playerMP.getCurrentEquippedItem().getItemDamage() == 1)
-        ) {
+        if (!checkCanInteract()) {
             this.unRegistry();
             return;
         }
@@ -38,11 +32,7 @@ public class InteractOperator extends BaseOperator {
         playerMP.rotationPitch = 90;
         while ((pos = canBreakPositions.poll()) != null) {
             // 检查是否可以执行交互
-            if ((playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().stackSize == 1) ||
-                    (playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().getMaxDamage() - playerMP.getCurrentEquippedItem().getItemDamage() == 1)
-            ) {
-                break;
-            }
+            if (!checkCanInteract()) break;
             // 将玩家位置设置到该方块位置
             playerMP.posX = pos.x; playerMP.posY = pos.y; playerMP.posZ = pos.z;
 
@@ -71,6 +61,22 @@ public class InteractOperator extends BaseOperator {
         if (positionFounder.stopped.get()) {
             this.unRegistry();
         }
+    }
+
+    public boolean checkCanInteract() {
+        if (!manager.inPressChainKey) return false;
+        // 检查是否可以执行交互
+        if (playerMP.getCurrentEquippedItem() != null) { // 当手上持有物品时
+            // 检查是否是有耐久值的物品
+            if ((playerMP.getCurrentEquippedItem().getMaxDamage() > 0 && playerMP.getCurrentEquippedItem().hasTagCompound())) {
+                return playerMP.getCurrentEquippedItem().getMaxDamage() - playerMP.getCurrentEquippedItem().getItemDamage() > 1;
+            }
+            // 不是装备物品
+            else {
+                return playerMP.getCurrentEquippedItem().stackSize > 1;
+            }
+        }
+        return true;
     }
 
     @Override
