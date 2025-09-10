@@ -37,7 +37,7 @@ public class PacketMinerConfig implements IMessage {
             // 如果处理该消息的是服务端
             if (ctx.side.isServer()) {
                 EntityPlayerMP playerMP = ctx.getServerHandler().playerEntity;
-                Manager manager = MyMod.playerManager.managers.get(playerMP);
+                Manager manager = MyMod.playerManager.managers.get(playerMP.getUniqueID());
 
                 // 服务端校验传来的配置
                 manager.receiveClientConfig(message.minerConfig);

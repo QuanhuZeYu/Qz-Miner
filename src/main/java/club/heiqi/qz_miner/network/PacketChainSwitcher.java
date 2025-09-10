@@ -50,7 +50,7 @@ public class PacketChainSwitcher implements IMessage {
                  //         message.inChain ? "按下连锁键" : "松开连锁键"
                  // );
                 EntityPlayerMP playerMP = ctx.getServerHandler().playerEntity;
-                Manager manager = MyMod.playerManager.managers.get(playerMP);
+                Manager manager = MyMod.playerManager.managers.get(playerMP.getUniqueID());
                 manager.inPressChainKey = message.inChain;
             }
             return null;

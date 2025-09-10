@@ -38,7 +38,7 @@ public class PacketMinerModeState implements IMessage {
         public IMessage onMessage(PacketMinerModeState message, MessageContext ctx) {
             if (ctx.side.isServer()) {
                 EntityPlayerMP playerMP = ctx.getServerHandler().playerEntity;
-                Manager manager = MyMod.playerManager.managers.get(playerMP);
+                Manager manager = MyMod.playerManager.managers.get(playerMP.getUniqueID());
                 manager.minerModeState = message.state;
             }
             return null;
