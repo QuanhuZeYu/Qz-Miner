@@ -53,6 +53,7 @@ public class Manager {
         // ==========  触发连锁  ==========
         operator = new BaseOperator(pos, this);
         operator.registry();
+        player = (EntityPlayerMP) event.getPlayer();
     }
 
     /**Bottom = 0, Top = 1, East = 2, West = 3, North = 4, South = 5.*/
@@ -74,6 +75,7 @@ public class Manager {
         // ==========  触发连锁  ==========
         operator = new InteractOperator(pos, this);
         operator.registry();
+        player = (EntityPlayerMP) event.entityPlayer;
     }
 
     public ArrayList<ItemStack> drops = new ArrayList<>();
