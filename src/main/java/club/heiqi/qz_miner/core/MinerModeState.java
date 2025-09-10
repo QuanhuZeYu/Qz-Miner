@@ -33,6 +33,7 @@ public class MinerModeState {
             "qz_miner.textTips.interactMode.blindBlastMode",        // 无差别爆破模式 1
             "qz_miner.textTips.interactMode.screenBlastingMode",    // 筛选爆破模式 2
             "qz_miner.textTips.interactMode.liquidMode",            // 流体搜索模式 3
+            "qz_miner.textTips.interactMode.cropMode",              // 作物搜索器 4
     };
 
     public int mainMode = 1;
@@ -166,6 +167,9 @@ public class MinerModeState {
                     }
                     case 3 -> {
                         return new LiquidDetector(center, results, player, config);
+                    }
+                    case 4 -> {
+                        return new CropFounder(center, results, player, config);
                     }
                     default -> { // 0
                         return new ChainPositionFounder(center, results, player, config);

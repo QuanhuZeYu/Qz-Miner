@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.core;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.core.founder.DeterminingIdentical;
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.item.EntityItem;
@@ -58,7 +59,7 @@ public class Manager {
 
     /**Bottom = 0, Top = 1, East = 2, West = 3, North = 4, South = 5.*/
     public int hitSide = 1;
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onInteractEvent(PlayerInteractEvent event) {
         if (!minerModeState.isInteractMode() ||
                 !event.entityPlayer.getUniqueID().equals(player.getUniqueID()) ||
@@ -72,6 +73,7 @@ public class Manager {
         inOperate = true;
 
         Vector3i pos = new Vector3i(event.x, event.y, event.z);
+        hitSide = event.face;
         // ==========  触发连锁  ==========
         operator = new InteractOperator(pos, this);
         operator.registry();

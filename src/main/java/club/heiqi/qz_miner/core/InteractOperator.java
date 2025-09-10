@@ -15,8 +15,15 @@ public class InteractOperator extends BaseOperator {
     @Override
     @SubscribeEvent
     public void operatorTask(TickEvent.ServerTickEvent event) {
-        if (!manager.inPressChainKey) {
+        // 没按下连锁键    注销
+        // 物品只有一个时   注销
+        // 物品耐久只剩1时  注销
+        if (!manager.inPressChainKey ||
+                (playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().stackSize == 1) ||
+                (playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().getMaxDamage() - playerMP.getCurrentEquippedItem().getItemDamage() == 1)
+        ) {
             this.unRegistry();
+            return;
         }
 
         if (canBreakPositions.isEmpty()) {
@@ -30,6 +37,12 @@ public class InteractOperator extends BaseOperator {
         Vector3i pos;
         playerMP.rotationPitch = 90;
         while ((pos = canBreakPositions.poll()) != null) {
+            // 检查是否可以执行交互
+            if ((playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().stackSize == 1) ||
+                    (playerMP.getCurrentEquippedItem() != null && playerMP.getCurrentEquippedItem().getMaxDamage() - playerMP.getCurrentEquippedItem().getItemDamage() == 1)
+            ) {
+                break;
+            }
             // 将玩家位置设置到该方块位置
             playerMP.posX = pos.x; playerMP.posY = pos.y; playerMP.posZ = pos.z;
 
@@ -37,7 +50,7 @@ public class InteractOperator extends BaseOperator {
                     playerMP, playerMP.worldObj,
                     playerMP.getCurrentEquippedItem(),
                     pos.x, pos.y, pos.z,
-                    1,
+                    manager.hitSide,
                     0,0,0);
             if (playerMP.getCurrentEquippedItem() != null) {
                 playerMP.theItemInWorldManager.tryUseItem(playerMP, playerMP.worldObj, playerMP.getCurrentEquippedItem());
