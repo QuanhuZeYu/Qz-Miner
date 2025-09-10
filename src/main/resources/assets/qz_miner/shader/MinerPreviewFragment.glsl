@@ -1,6 +1,6 @@
 #version 330
 
-out vec4 gl_FragColor;
+out vec4 FragColor;
 
 uniform vec3    fogColor    = vec3(0.2);    // 迷雾颜色
 uniform float   fogNear     = 0;            // 迷雾起始距离
@@ -20,5 +20,5 @@ void main() {
     // 计算透明度：距离越远越透明（fogIntensity=1时完全透明）
     float alpha = 1.0 - fogIntensity;
 
-    gl_FragColor = vec4(finalColor, alpha);
+    FragColor = vec4(finalColor, alpha);
 }
