@@ -21,7 +21,7 @@ public class PlayerManager {
             Manager manager = new Manager(playerMP);
             managers.put(playerMP.getUniqueID(), manager);
             manager.registry();
-            LOG.info("注册 玩家: {}", playerMP.getDisplayName());
+            LOG.info("注册 玩家: {}: {}", playerMP.getDisplayName(), playerMP.getUniqueID());
         }
     }
 
@@ -30,12 +30,12 @@ public class PlayerManager {
         if (event.player instanceof EntityPlayerMP playerMP) {
             Manager manager = managers.get(playerMP.getUniqueID());
             if (manager == null) {
-                LOG.warn("卸载管理器时未找到 玩家: {}", playerMP.getDisplayName());
+                LOG.warn("卸载管理器时未找到 玩家: {}: {}", playerMP.getDisplayName(), playerMP.getUniqueID());
                 return;
             }
             manager.unRegistry();
             managers.remove(playerMP.getUniqueID());
-            LOG.info("卸载 玩家: {}", playerMP.getDisplayName());
+            LOG.info("卸载 玩家: {}: {}", playerMP.getDisplayName(), playerMP.getUniqueID());
         }
     }
 

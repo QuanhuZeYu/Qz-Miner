@@ -160,8 +160,7 @@ public class MatrixUtils {
     public static Matrix4f getProjectionByOriginal() {return projection;}
 
     public static Vector3f getCameraPos(float partialTicks) {
-        Minecraft mc = Minecraft.getMinecraft();
-        EntityPlayer player = mc.thePlayer;
+        EntityPlayer player = Minecraft.getMinecraft().thePlayer;
 
         // 位置插值（保持不变）
         double eyeX = player.prevPosX + (player.posX - player.prevPosX) * partialTicks;
