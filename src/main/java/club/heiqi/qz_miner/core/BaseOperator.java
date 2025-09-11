@@ -8,6 +8,7 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
@@ -54,6 +55,10 @@ public class BaseOperator {
         int breakCountInTick = 0;
         Vector3i pos;
         while ((pos = canBreakPositions.poll()) != null) {
+            if (!checkCanOperate()) {
+                this.unRegistry();
+                return;
+            }
             playerMP.theItemInWorldManager.tryHarvestBlock(pos.x, pos.y, pos.z);
 
             breakCountInTick++;
@@ -66,6 +71,17 @@ public class BaseOperator {
         if (positionFounder.stopped.get()) {
             this.unRegistry();
         }
+    }
+
+    public boolean checkCanOperate() {
+        if (!manager.inPressChainKey) return false;
+
+        ItemStack equippedItem = playerMP.getCurrentEquippedItem();
+        if (equippedItem != null && equippedItem.isItemStackDamageable()) {
+            return (equippedItem.getMaxDamage() - equippedItem.getItemDamage() > 1);
+        }
+
+        return true;
     }
 
 
