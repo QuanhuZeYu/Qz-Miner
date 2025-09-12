@@ -1,25 +1,11 @@
-# This workflow will build a Java project with Gradle and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-gradle
-
 name: Release tagged build
 
 on:
-  workflow_call:
-    secrets:
-      MAVEN_USER:
-        required: false
-      MAVEN_PASSWORD:
-        required: false
-      CURSEFORGE_TOKEN:
-        required: false
-      MODRINTH_TOKEN:
-        required: false
-    inputs:
-      workspace:
-        description: 'setupCIWorkspace/setupDecompWorkspace'
-        required: false
-        default: "setupCIWorkspace"
-        type: string
+  push:
+    tags: [ '*' ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -57,12 +43,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Setup the workspace
-        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' ${{ inputs.workspace }}
+        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' setupCIWorkspace
 
       - name: Build the mod
         run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble
-
-      # Continue on error in the following steps to make sure releases still get made even if one of the methods fails
 
       - name: Delete old release if it already exists
         run: gh release delete --yes "${RELEASE_VERSION}"
@@ -95,7 +79,7 @@ jobs:
         env:
           MAVEN_USER: ${{ secrets.MAVEN_USER }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
-        if: ${{ env.MAVEN_USER != '' }}
+        if: ${{ secrets.MAVEN_USER != '' }}
 
       - name: Publish to Modrinth
         run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
