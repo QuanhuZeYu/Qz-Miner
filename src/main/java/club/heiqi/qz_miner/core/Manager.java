@@ -39,7 +39,7 @@ public class Manager {
     @SubscribeEvent
     public void onBlockBreakEvent(BlockEvent.BreakEvent event) {
         // 0.是交互模式 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
-        if (minerModeState.isInteractMode() &&
+        if (minerModeState.isInteractMode() ||
                 !event.getPlayer().getUniqueID().equals(player.getUniqueID()) ||
                 !(event.getPlayer() instanceof EntityPlayerMP) ||
                 !Thread.currentThread().getName().toLowerCase().contains("server")
@@ -52,9 +52,9 @@ public class Manager {
 
         Vector3i pos = new Vector3i(event.x, event.y, event.z);
         // ==========  触发连锁  ==========
+        player = (EntityPlayerMP) event.getPlayer();
         operator = new BaseOperator(pos, this);
         operator.registry();
-        player = (EntityPlayerMP) event.getPlayer();
     }
 
     /**Bottom = 0, Top = 1, East = 2, West = 3, North = 4, South = 5.*/
@@ -75,9 +75,9 @@ public class Manager {
         Vector3i pos = new Vector3i(event.x, event.y, event.z);
         hitSide = event.face;
         // ==========  触发连锁  ==========
+        player = (EntityPlayerMP) event.entityPlayer;
         operator = new InteractOperator(pos, this);
         operator.registry();
-        player = (EntityPlayerMP) event.entityPlayer;
     }
 
     public ArrayList<ItemStack> drops = new ArrayList<>();
@@ -88,9 +88,8 @@ public class Manager {
                 !event.harvester.getUniqueID().equals(player.getUniqueID()) ||
                 !(event.harvester instanceof EntityPlayerMP) ||
                 !Thread.currentThread().getName().toLowerCase().contains("server")
-        ) {
-            return;
-        }
+        ) return;
+        // 该管理器只收集此 player 的掉落物
 
         // 未在连锁不处理 - 检查drops收集容器是否有东西 此时掉落到地面
         if (!inOperate) {
@@ -120,6 +119,7 @@ public class Manager {
     }
 
     public void dropCollects() {
+        // 只收集自己掉落的东西!
         if (!drops.isEmpty()) {
             for (ItemStack itemStack : drops) {
                 player.worldObj.spawnEntityInWorld(
