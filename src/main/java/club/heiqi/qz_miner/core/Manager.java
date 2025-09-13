@@ -17,14 +17,16 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.ArrayList;
+import java.util.UUID;
 
 /**
- * 以玩家为核心的连锁管理器
+ * 以玩家UUID为核心的连锁管理器
  * 容器核心为玩家
  */
 public class Manager {
     public Logger LOG = LogManager.getLogger();
     public EntityPlayerMP player;
+    public final UUID playerUUID;
     public MinerConfig pConfig = new MinerConfig();
     public MinerModeState minerModeState = new MinerModeState();
     /**是否按下连锁键*/
@@ -33,6 +35,7 @@ public class Manager {
 
     public Manager(EntityPlayerMP player) {
         this.player = player;
+        playerUUID = player.getUniqueID();
     }
 
     public BaseOperator operator = null;
@@ -40,7 +43,7 @@ public class Manager {
     public void onBlockBreakEvent(BlockEvent.BreakEvent event) {
         // 0.是交互模式 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
         if (minerModeState.isInteractMode() ||
-                !event.getPlayer().getUniqueID().equals(player.getUniqueID()) ||
+                !event.getPlayer().getUniqueID().equals(playerUUID) ||
                 !(event.getPlayer() instanceof EntityPlayerMP) ||
                 !Thread.currentThread().getName().toLowerCase().contains("server")
         ) return;
@@ -62,7 +65,7 @@ public class Manager {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onInteractEvent(PlayerInteractEvent event) {
         if (!minerModeState.isInteractMode() ||
-                !event.entityPlayer.getUniqueID().equals(player.getUniqueID()) ||
+                !event.entityPlayer.getUniqueID().equals(playerUUID) ||
                 !(event.entityPlayer instanceof EntityPlayerMP) ||
                 !Thread.currentThread().getName().toLowerCase().contains("server")
         ) return;
@@ -85,7 +88,7 @@ public class Manager {
     public void onHarvestDropEvent(BlockEvent.HarvestDropsEvent event) {
         // 事件触发者 0.掉落物没有收获者 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
         if (event.harvester == null ||
-                !event.harvester.getUniqueID().equals(player.getUniqueID()) ||
+                !event.harvester.getUniqueID().equals(playerUUID) ||
                 !(event.harvester instanceof EntityPlayerMP) ||
                 !Thread.currentThread().getName().toLowerCase().contains("server")
         ) return;

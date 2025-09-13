@@ -18,21 +18,12 @@ public class PacketChainSwitcher implements IMessage {
     public PacketChainSwitcher(boolean inChain) {
         this.inChain = inChain;
     }
-    /**
-     * Convert from the supplied buffer into your specific message type
-     *
-     * @param buf
-     */
+
     @Override
     public void fromBytes(ByteBuf buf) {
         inChain = buf.readBoolean();
     }
 
-    /**
-     * Deconstruct your message into the supplied byte buffer
-     *
-     * @param buf
-     */
     @Override
     public void toBytes(ByteBuf buf) {
         buf.writeBoolean(inChain);
@@ -45,10 +36,6 @@ public class PacketChainSwitcher implements IMessage {
         @Override
         public IMessage onMessage(PacketChainSwitcher message, MessageContext ctx) {
             if (ctx.side.isServer()) {
-                 // LOG.info("Player: {}Server: {}",
-                 //         ctx.getServerHandler().playerEntity.getDisplayName(),
-                 //         message.inChain ? "按下连锁键" : "松开连锁键"
-                 // );
                 EntityPlayerMP playerMP = ctx.getServerHandler().playerEntity;
                 Manager manager = MyMod.playerManager.managers.get(playerMP.getUniqueID());
                 manager.inPressChainKey = message.inChain;
