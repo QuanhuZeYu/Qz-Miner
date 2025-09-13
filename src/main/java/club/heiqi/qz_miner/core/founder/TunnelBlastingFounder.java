@@ -35,6 +35,7 @@ public class TunnelBlastingFounder extends BasePositionFounder {
                             .add(new Vector3i(verticalA).mul(a))
                             .add(new Vector3i(verticalB).mul(b));
 
+                    if (!checkCanAdd(point)) continue;
                     addResult(point);
 
                     waitUntil();
