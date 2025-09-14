@@ -13,6 +13,11 @@ public class Pauseable extends Thread {
     /**请不要手动操作这个标志位<br>请使用pause()和unPause()方法操作*/
     public AtomicBoolean resumed =  new AtomicBoolean(false);
 
+
+    public Pauseable() {
+        super("可暂停线程");
+    }
+
     public void pause() {
         if (!started.get()) {
             throw  new RuntimeException("线程未启动");

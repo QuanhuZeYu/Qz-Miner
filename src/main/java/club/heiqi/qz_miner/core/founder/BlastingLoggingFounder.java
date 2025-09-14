@@ -13,6 +13,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class BlastingLoggingFounder extends BasePositionFounder {
     public BlastingLoggingFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
+        setName("爆破伐木搜索器");
     }
 
     @Override

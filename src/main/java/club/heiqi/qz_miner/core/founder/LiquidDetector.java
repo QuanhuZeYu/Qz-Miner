@@ -10,6 +10,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class LiquidDetector extends BasePositionFounder {
     public LiquidDetector(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
+        setName("流体搜索器");
     }
 
     @Override

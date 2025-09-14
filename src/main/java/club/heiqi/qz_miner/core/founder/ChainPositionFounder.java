@@ -11,6 +11,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class ChainPositionFounder extends BasePositionFounder {
     public ChainPositionFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
+        setName("连锁搜索器");
     }
 
     @Override

@@ -40,6 +40,7 @@ public class BasePositionFounder extends Pauseable {
             EntityPlayer player,
             MinerConfig minerConfig
     ) {
+        setName("无差别搜索器");
         BaseOperator.compatibilityCheck();
 
         this.center = center;

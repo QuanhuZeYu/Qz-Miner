@@ -13,6 +13,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class TunnelBlastingFounder extends BasePositionFounder {
     public TunnelBlastingFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
+        setName("隧道搜索器");
     }
 
     @Override

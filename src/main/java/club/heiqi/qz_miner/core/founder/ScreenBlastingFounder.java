@@ -11,6 +11,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class ScreenBlastingFounder extends BasePositionFounder {
     public ScreenBlastingFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
+        setName("同类搜索器");
     }
 
     @Override

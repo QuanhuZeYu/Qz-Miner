@@ -14,6 +14,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class CropFounder extends BasePositionFounder {
     public CropFounder(Vector3i center, LinkedBlockingQueue<Vector3i> results, EntityPlayer player, MinerConfig minerConfig) {
         super(center, results, player, minerConfig);
+        setName("作物搜索器");
     }
 
     @Override
