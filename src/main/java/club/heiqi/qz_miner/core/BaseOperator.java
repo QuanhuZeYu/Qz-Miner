@@ -95,6 +95,8 @@ public class BaseOperator {
         MessageUtils.sendPlayerMessage("连锁完毕; 挖掘数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), playerMP);
         FMLCommonHandler.instance().bus().unregister(this);
         manager.inOperate = false;
+        // 终止搜索器
+        positionFounder.interrupt();
         // LOG.info("连锁执行器注销成功 {}", playerMP.getDisplayName());
     }
     public static float convertMillisToSeconds(long millis) {
