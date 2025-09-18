@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.thread;
 
+import club.heiqi.qz_miner.Constant;
+import club.heiqi.qz_miner.MyMod;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Pauseable extends Thread {
@@ -20,9 +23,10 @@ public class Pauseable extends Thread {
 
     public void pause() {
         if (!started.get()) {
-            throw  new RuntimeException("线程未启动");
+            throw new RuntimeException("线程未启动");
         } else if (stopped.get()) {
-            throw  new RuntimeException("线程已停止! 无法执行暂停指令");
+            Constant.LOG.error("线程已停止! 无法执行暂停指令");
+            return;
         }
         paused.set(true);
         resumed.set(false);
@@ -30,9 +34,10 @@ public class Pauseable extends Thread {
 
     public void unPause() {
         if (!started.get()) {
-            throw  new RuntimeException("线程未启动");
+            throw new RuntimeException("线程未启动");
         } else if (stopped.get()) {
-            throw  new RuntimeException("线程已停止! 无法执行继续指令");
+            Constant.LOG.error("线程已停止! 无法执行继续指令");
+            return;
         }
         paused.set(false);
         resumed.set(true);
