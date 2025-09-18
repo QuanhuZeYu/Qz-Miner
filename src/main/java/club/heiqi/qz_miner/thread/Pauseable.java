@@ -15,6 +15,8 @@ public class Pauseable extends Thread {
     public AtomicBoolean paused  =  new AtomicBoolean(false);
     /**请不要手动操作这个标志位<br>请使用pause()和unPause()方法操作*/
     public AtomicBoolean resumed =  new AtomicBoolean(false);
+    /**错误执行次数*/
+    public int errorCount = 0;
 
 
     public Pauseable() {
@@ -26,6 +28,10 @@ public class Pauseable extends Thread {
             throw new RuntimeException("线程未启动");
         } else if (stopped.get()) {
             Constant.LOG.error("线程已停止! 无法执行暂停指令");
+            errorCount++;
+            if (errorCount > 10) {
+                throw new RuntimeException("连续在线程停止后尝试错误的操作10次");
+            }
             return;
         }
         paused.set(true);
@@ -37,6 +43,10 @@ public class Pauseable extends Thread {
             throw new RuntimeException("线程未启动");
         } else if (stopped.get()) {
             Constant.LOG.error("线程已停止! 无法执行继续指令");
+            errorCount++;
+            if (errorCount > 10) {
+                throw new RuntimeException("连续在线程停止后尝试错误的操作10次");
+            }
             return;
         }
         paused.set(false);
