@@ -18,7 +18,7 @@ public class ChainPositionFounder extends BasePositionFounder {
     public boolean checkCanAdd(Vector3i pos) {
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         // 是空气跳过
-        if (block.equals(Blocks.air) || block.getMaterial().isLiquid()) {
+        if (block.equals(Blocks.air) || block.getMaterial().isLiquid() || block.equals(Blocks.bedrock)) {
             return false;
         }
         Vector3i playerPos = new Vector3i((int) Math.floor(player.posX), (int) Math.floor(player.posY), (int) Math.floor(player.posZ));
