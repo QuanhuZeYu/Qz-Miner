@@ -15,6 +15,10 @@ public class LiquidDetector extends BasePositionFounder {
 
     @Override
     public boolean checkCanAdd(Vector3i pos) {
+        if (foundedPositions.contains(pos)) {
+            // LOG.info("重复的点");
+            return false;
+        }
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         int meta = player.worldObj.getBlockMetadata(pos.x, pos.y, pos.z);
         if (!block.getMaterial().isLiquid()) return false;

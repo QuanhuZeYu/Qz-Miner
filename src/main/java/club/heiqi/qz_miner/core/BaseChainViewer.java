@@ -130,13 +130,13 @@ public class BaseChainViewer {
 
     public void registry() {
         FMLCommonHandler.instance().bus().register(this);
-        LOG.info("预览器已加载");
+        // LOG.info("预览器已加载");
     }
 
     public void unRegistry() {
         positionFounder.interrupt();
         renderCache.updateData(SpaceCalculator.vertex, SpaceCalculator.index);
         FMLCommonHandler.instance().bus().unregister(this);
-        LOG.info("预览器已卸载");
+        // LOG.info("预览器已卸载");
     }
 }

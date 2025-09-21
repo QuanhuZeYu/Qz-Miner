@@ -26,7 +26,7 @@ public class BasePositionFounder extends Pauseable {
     /**已收集的可采集点 外部容器*/
     public LinkedBlockingQueue<Vector3i> positions;
     /**已收集的可采集点 内部容器*/
-    public Set<Vector3i> foundedPositions = new HashSet<>();
+    public HashSet<Vector3i> foundedPositions = new HashSet<>();
 
     public int curCount = 0; // 包含初始加入的中心块
     // ========== 挖掘样本 ==========
@@ -85,6 +85,10 @@ public class BasePositionFounder extends Pauseable {
     }
 
     public boolean checkCanAdd(Vector3i pos) {
+        if (foundedPositions.contains(pos)) {
+            // LOG.info("重复的点");
+            return false;
+        }
         Block block = player.worldObj.getBlock(pos.x, pos.y, pos.z);
         if (block.equals(Blocks.air) || block.getMaterial().isLiquid() || block.equals(Blocks.bedrock)) {
             return false;
@@ -107,10 +111,10 @@ public class BasePositionFounder extends Pauseable {
         try {
             this.positions.put(pos);
             this.foundedPositions.add(pos);
+            curCount++;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); // 重新设置中断标志位
         }
-        curCount++;
 
         // 触发矿脉探索功能
         if (BaseOperator.hasVP_API && DeterminingIdentical.hasBlockBaseOre &&

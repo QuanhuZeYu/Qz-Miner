@@ -13,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
+import java.util.ArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BaseOperator {
@@ -41,7 +42,7 @@ public class BaseOperator {
     }
 
     public long startTime;
-    public int operatorCount = 0;
+    public int operatorCount = 0; // 包含自己挖的那一个
     @SubscribeEvent
     public void operatorTask(TickEvent.ServerTickEvent event) {
         if (!manager.inPressChainKey) {
@@ -73,6 +74,9 @@ public class BaseOperator {
         }
     }
 
+    /**
+     * 未按连锁键 或者 装备耐久不足1 返回 false
+     */
     public boolean checkCanOperate() {
         if (!manager.inPressChainKey) return false;
 
