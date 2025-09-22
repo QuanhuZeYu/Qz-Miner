@@ -22,32 +22,32 @@ public class ChainPositionFounder extends BasePositionFounder {
         int curRadius = 1;
         while (curCount < minerConfig.blockLimit && curRadius <= minerConfig.bigRadius) {
             out:{
-                for (int x = center.x - curRadius; x <= center.x + curRadius; x++) {
-                    for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
-                        for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
-                            Vector3i pos = new Vector3i(x, y, z);
+            for (int x = center.x - curRadius; x <= center.x + curRadius; x++) {
+                for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
+                    for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
+                        Vector3i pos = new Vector3i(x, y, z);
 
-                            if (checkCanAdd(pos)) {
-                                this.addResult(pos);
-                            }
+                        if (checkCanAdd(pos)) {
+                            this.addResult(pos);
+                        }
 
-                            // 检查性流程    检查数量     检查线程是否被中断
-                            if (curCount >= minerConfig.blockLimit) {
-                                break out;
-                            }
-                            waitUntil();
-                            if (Thread.currentThread().isInterrupted()) {
-                                // LOG.info("线程被中断");
-                                break out;
-                            }
+                        // 检查性流程    检查数量     检查线程是否被中断
+                        if (curCount >= minerConfig.blockLimit) {
+                            break out;
+                        }
+                        waitUntil();
+                        if (Thread.currentThread().isInterrupted()) {
+                            // LOG.info("线程被中断");
+                            return;
                         }
                     }
                 }
-                curRadius++;
-                if (curRadius > minerConfig.bigRadius) {
-                    break out; // 超出半径范围，退出
-                }
             }
+            curRadius++;
+            if (curRadius > minerConfig.bigRadius) {
+                // 超出半径范围，退出
+                return;
+            }}
         }
     }
 
