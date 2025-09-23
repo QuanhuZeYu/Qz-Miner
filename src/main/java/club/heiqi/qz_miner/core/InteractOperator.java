@@ -82,7 +82,7 @@ public class InteractOperator extends BaseOperator {
     @Override
     public void unRegistry() {
         long totalTime = System.currentTimeMillis() - startTime;
-        MessageUtils.sendPlayerMessage("连锁完毕; 交互数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), playerMP);
+        MessageUtils.serverSendPlayerMessage("连锁完毕; 交互数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), manager.playerUUID);
         FMLCommonHandler.instance().bus().unregister(this);
         manager.inOperate = false;
     }

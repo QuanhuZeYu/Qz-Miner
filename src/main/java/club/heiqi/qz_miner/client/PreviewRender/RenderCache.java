@@ -118,7 +118,6 @@ public class RenderCache {
         GL11.glDrawElements(GL11.GL_LINES, indices.length, GL11.GL_UNSIGNED_INT, 0);
         GL20.glDisableVertexAttribArray(0);
 
-        GL20.glDisableVertexAttribArray(0);
         GL30.glBindVertexArray(0);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);

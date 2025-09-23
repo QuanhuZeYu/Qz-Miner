@@ -96,7 +96,8 @@ public class BaseOperator {
     }
     public void unRegistry() {
         long totalTime = System.currentTimeMillis() - startTime;
-        MessageUtils.sendPlayerMessage("连锁完毕; 挖掘数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), playerMP);
+        // 通过UUID发送消息，避免玩家为null
+        MessageUtils.serverSendPlayerMessage("连锁完毕; 挖掘数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), manager.playerUUID);
         FMLCommonHandler.instance().bus().unregister(this);
         manager.inOperate = false;
         // 终止搜索器
