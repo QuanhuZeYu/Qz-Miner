@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.core;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.core.founder.DeterminingIdentical;
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.Event;
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -117,7 +118,8 @@ public class Manager {
     }
 
     @SubscribeEvent
-    public void onServerTick(TickEvent.ServerTickEvent event) {
+    public void onServerTick(TickEvent.WorldTickEvent event) {
+        if (event.phase != TickEvent.WorldTickEvent.Phase.START) return;
         if (!inOperate && !inPressChainKey) dropCollects();
     }
 
