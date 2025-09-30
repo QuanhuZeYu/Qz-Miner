@@ -60,13 +60,13 @@ public class BaseOperator {
                 this.unRegistry();
                 return;
             }
-            
-            if (playerMP.playerNetServerHandler == null) {
-                LOG.error("playerNetServerHandler is null! Is unregistering operator...");
-                this.unRegistry();
-                return;
-            }
 
+            // 在执行过程中 playerMP.playerNetServerHandler 可能因各种原因变为 null
+            if (playerMP.playerNetServerHandler == null) {
+                LOG.error("playerMP.playerNetServerHandler == null! 正在卸载任务执行器...");
+                this.unRegistry();
+                throw new RuntimeException("如果你看到了此崩溃请提交issue以便改进mod，如果你装有betterCrash重新进入游玩即可，连锁各状态已正确处理");
+            }
             playerMP.theItemInWorldManager.tryHarvestBlock(pos.x, pos.y, pos.z);
 
             breakCountInTick++;
@@ -104,7 +104,11 @@ public class BaseOperator {
     public void unRegistry() {
         long totalTime = System.currentTimeMillis() - startTime;
         // 通过UUID发送消息，避免玩家为null
-        MessageUtils.serverSendPlayerMessage("连锁完毕; 挖掘数量: "+ operatorCount +"; 连锁用时: "+convertMillisToSeconds(totalTime), manager.playerUUID);
+        if (manager.pConfig.useChainDoneMessage)
+            MessageUtils.serverSendPlayerMessage(
+                    "连锁完毕; 挖掘数量: "+ operatorCount +
+                            "; 连锁用时: "+convertMillisToSeconds(totalTime), manager.playerUUID
+            );
         FMLCommonHandler.instance().bus().unregister(this);
         manager.inOperate = false;
         // 终止搜索器

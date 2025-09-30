@@ -18,7 +18,7 @@ public class Config {
     public static int tunnelWidth = 1;
 
     public static final String ClientCategory = "Client";
-    public static boolean usePreview = true;
+    public static boolean usePreview = true, useChainDoneMessage = true;
 
     public void init(File configFile) {
         if (config == null) {
@@ -35,6 +35,7 @@ public class Config {
         tunnelWidth = config.getInt("tunnelWidth", Configuration.CATEGORY_GENERAL, 1, 0, Integer.MAX_VALUE, "隧道半径");
 
         usePreview = config.getBoolean("usePreview", ClientCategory, true, "是否使用连锁预览功能");
+        useChainDoneMessage = config.getBoolean("useChainDoneMessage", ClientCategory, true, "是否使用连锁后的消息提示");
 
         if (config.hasChanged()) {
             config.save();

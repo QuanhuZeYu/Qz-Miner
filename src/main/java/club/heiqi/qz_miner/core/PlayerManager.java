@@ -25,6 +25,7 @@ public class PlayerManager {
         }
     }
 
+    /**可能是掉线触发的登出事件 -> 此时玩家可能仍在连锁过程中*/
     @SubscribeEvent
     public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.player instanceof EntityPlayerMP playerMP) {

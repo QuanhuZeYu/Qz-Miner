@@ -23,6 +23,7 @@ public class PacketMinerConfig implements IMessage {
         minerConfig.blockLimit = buf.readInt();
         minerConfig.smallRadius = buf.readInt();
         minerConfig.tunnelWidth = buf.readInt();
+        minerConfig.useChainDoneMessage = buf.readBoolean();
     }
 
     public void toBytes(ByteBuf buf) {
@@ -30,6 +31,7 @@ public class PacketMinerConfig implements IMessage {
         buf.writeInt(minerConfig.blockLimit);
         buf.writeInt(minerConfig.smallRadius);
         buf.writeInt(minerConfig.tunnelWidth);
+        buf.writeBoolean(minerConfig.useChainDoneMessage);
     }
 
     public static class PacketMinerConfigHandler implements IMessageHandler<PacketMinerConfig, IMessage> {
@@ -52,6 +54,7 @@ public class PacketMinerConfig implements IMessage {
                 Config.blockLimit = minerConfig.blockLimit;
                 Config.smallRadius = minerConfig.smallRadius;
                 Config.tunnelWidth = minerConfig.tunnelWidth;
+                Config.useChainDoneMessage = minerConfig.useChainDoneMessage;;
             }
             return null;
         }

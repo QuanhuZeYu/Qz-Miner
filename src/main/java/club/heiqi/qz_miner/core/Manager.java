@@ -6,6 +6,7 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.Event;
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -141,16 +142,29 @@ public class Manager {
         LOG.info("注册成功");
     }
 
+    @SubscribeEvent
+    public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        cleanupState();
+    }
+
     public void unRegistry() {
+        cleanupState();
         FMLCommonHandler.instance().bus().unregister(this);
         MinecraftForge.EVENT_BUS.unregister(this);
         LOG.info("注销成功");
     }
 
+    public void cleanupState() {
+        inPressChainKey = false;
+        inOperate = false;
+    }
+
+    /**从网络接收来自客户端的配置*/
     public void receiveClientConfig(MinerConfig minerConfig) {
         pConfig.bigRadius = Math.max(Math.min(minerConfig.bigRadius, Config.bigRadius), 0);
         pConfig.blockLimit = Math.max(Math.min(minerConfig.blockLimit, Config.blockLimit), 0);
         pConfig.smallRadius = Math.max(Math.min(minerConfig.smallRadius, Config.smallRadius), 0);
         pConfig.tunnelWidth = Math.max(Math.min(minerConfig.tunnelWidth, Config.tunnelWidth), 0);
+        pConfig.useChainDoneMessage = minerConfig.useChainDoneMessage;
     }
 }
