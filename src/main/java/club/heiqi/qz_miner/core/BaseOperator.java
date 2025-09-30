@@ -60,6 +60,13 @@ public class BaseOperator {
                 this.unRegistry();
                 return;
             }
+            
+            if (playerMP.playerNetServerHandler == null) {
+                LOG.error("playerNetServerHandler is null! Is unregistering operator...");
+                this.unRegistry();
+                return;
+            }
+
             playerMP.theItemInWorldManager.tryHarvestBlock(pos.x, pos.y, pos.z);
 
             breakCountInTick++;
