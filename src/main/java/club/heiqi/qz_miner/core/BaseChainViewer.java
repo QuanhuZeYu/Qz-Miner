@@ -97,23 +97,25 @@ public class BaseChainViewer {
             renderCache.updateData(vertexAndIndex.vertices, vertexAndIndex.indices);
         }
 
-        shader.bind();
+        try {
+            shader.bind();
 
-        Vector3f cameraPos = MatrixUtils.getCameraPos(particle);
+            Vector3f cameraPos = MatrixUtils.getCameraPos(particle);
 
-        Matrix4f model = MatrixUtils.getModelMatrix(-cameraPos.x, -cameraPos.y, -cameraPos.z);
-        Matrix4f view = /* MatrixUtils.getViewMatrix(particle); */MatrixUtils.getModelViewByOriginal();
-        Matrix4f projection = MatrixUtils.getProjectionByOriginal();
+            Matrix4f model = MatrixUtils.getModelMatrix(-cameraPos.x, -cameraPos.y, -cameraPos.z);
+            Matrix4f view = /* MatrixUtils.getViewMatrix(particle); */MatrixUtils.getModelViewByOriginal();
+            Matrix4f projection = MatrixUtils.getProjectionByOriginal();
 
 
-        shader.setUniformM4f("model", model);
-        shader.setUniformM4f("view", view);
-        shader.setUniformM4f("projection", projection);
-        shader.setUniform3F("cameraPos", cameraPos);
+            shader.setUniformM4f("model", model);
+            shader.setUniformM4f("view", view);
+            shader.setUniformM4f("projection", projection);
+            shader.setUniform3F("cameraPos", cameraPos);
 
-        renderCache.render();
-
-        shader.unbind();
+            renderCache.render();
+        } finally {
+            shader.unbind();
+        }
     }
 
     public void initShader() {
