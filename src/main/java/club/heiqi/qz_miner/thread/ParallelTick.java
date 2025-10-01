@@ -77,10 +77,10 @@ public class ParallelTick {
     /**
      * 普通任务不执行暂停和恢复操作
      */
-    public ReentrantLock lock = new ReentrantLock();
+    public ReentrantLock normalTaskLock = new ReentrantLock();
     public void processNormalTasks() {
-        if (lock.isLocked()) return;
-        lock.lock();
+        if (normalTaskLock.isLocked()) return;
+        normalTaskLock.lock();
         try {
             ArrayList<Pauseable> willRemove = new ArrayList<>();
             for (Pauseable task : normalTasks) {
@@ -94,7 +94,7 @@ public class ParallelTick {
 
             normalTasks.removeAll(willRemove);
         } finally {
-            lock.unlock();
+            normalTaskLock.unlock();
         }
     }
 
@@ -110,7 +110,12 @@ public class ParallelTick {
     }
 
     public void addNormalTask(Pauseable task) {
-        task.setDaemon(true);
-        normalTasks.add(task);
+        normalTaskLock.lock();
+        try {
+            task.setDaemon(true);
+            normalTasks.add(task);
+        } finally {
+            normalTaskLock.unlock();
+        }
     }
 }
