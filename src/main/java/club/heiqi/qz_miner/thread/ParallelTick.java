@@ -79,7 +79,10 @@ public class ParallelTick {
      */
     public ReentrantLock normalTaskLock = new ReentrantLock();
     public void processNormalTasks() {
-        if (normalTaskLock.isLocked()) return;
+        if (normalTaskLock.isLocked()) {
+            LOG.warn("通用并行同步线程被阻塞! [General-purpose parallel synchronous threads are blocked!]");
+            return;
+        };
         normalTaskLock.lock();
         try {
             ArrayList<Pauseable> willRemove = new ArrayList<>();
