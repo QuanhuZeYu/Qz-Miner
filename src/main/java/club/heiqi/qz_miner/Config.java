@@ -17,7 +17,7 @@ public class Config {
     public static int smallRadius = 2;
     public static int tunnelWidth = 1;
 
-    public static final String ClientCategory = "Client";
+    public static final String CLIENT_CATEGORY = "Client";
     public static boolean usePreview = true, useChainDoneMessage = true;
 
     public void init(File configFile) {
@@ -34,8 +34,8 @@ public class Config {
         smallRadius = config.getInt("smallRadius", Configuration.CATEGORY_GENERAL, 2, 0, Integer.MAX_VALUE, "连锁 小区域 检测半径");
         tunnelWidth = config.getInt("tunnelWidth", Configuration.CATEGORY_GENERAL, 1, 0, Integer.MAX_VALUE, "隧道半径");
 
-        usePreview = config.getBoolean("usePreview", ClientCategory, true, "是否使用连锁预览功能");
-        useChainDoneMessage = config.getBoolean("useChainDoneMessage", ClientCategory, true, "是否使用连锁后的消息提示");
+        usePreview = config.getBoolean("usePreview", CLIENT_CATEGORY, true, "是否使用连锁预览功能");
+        useChainDoneMessage = config.getBoolean("useChainDoneMessage", CLIENT_CATEGORY, true, "是否使用连锁后的消息提示");
 
         if (config.hasChanged()) {
             config.save();
