@@ -15,7 +15,7 @@ public class QzMinerConfigGUIFactory implements IModGuiFactory {
 
     @Override
     public Class<? extends GuiScreen> mainConfigGuiClass() {
-        return QzMinerConfigGUI.class;
+        return ByUILIBConfigGUI.class;
     }
 
     @Override

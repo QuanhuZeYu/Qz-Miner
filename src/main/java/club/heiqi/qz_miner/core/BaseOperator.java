@@ -45,6 +45,7 @@ public class BaseOperator {
     public int operatorCount = 0; // 包含自己挖的那一个
     @SubscribeEvent
     public void operatorTask(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;  // 仅在开始阶段处理任务
         if (!manager.inPressChainKey) {
             this.unRegistry();
         }

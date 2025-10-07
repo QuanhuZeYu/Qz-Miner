@@ -14,7 +14,6 @@ import org.apache.logging.log4j.Logger;
 import org.joml.Vector3i;
 
 import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BasePositionFounder extends Pauseable {
