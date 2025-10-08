@@ -36,8 +36,7 @@
 
 dependencies {
     implementation('org.joml:joml:1.10.8')
-    implementation(files("libs/qz_fontrender-1.8.2.jar"))
-    implementation(files("libs/qz_uilib-1.2.1.jar"))
+    implementation(files("libs/qz_uilib-1.3.0-dev.jar"))
 
     // 2025-10-2 更新依赖 统一到 整合包280版本中对应
     // GT5
@@ -47,7 +46,7 @@ dependencies {
     // NEI
     runtimeOnly("com.github.GTNewHorizons:NotEnoughItems:2.7.91-GTNH:dev")
     // Angelica
-    runtimeOnly("com.github.GTNewHorizons:Angelica:1.0.0-beta57:dev")
+//    runtimeOnly("com.github.GTNewHorizons:Angelica:1.0.0-beta57:dev")
     // AE2
     runtimeOnly("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-690-GTNH:dev")
     // AppleCore
