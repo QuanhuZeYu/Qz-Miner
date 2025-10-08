@@ -33,7 +33,7 @@ public class ByUILIBConfigGUI extends ConfigGuiTemplate {
         ArrayList<ConfigCategory> results = new ArrayList<>();
 
         ConfigCategory general = Config.config.getCategory(Configuration.CATEGORY_GENERAL);
-        ConfigCategory client = Config.config.getCategory(Config.CLIENT_CATEGORY);
+        ConfigCategory client = Config.config.getCategory(Config.CLIENT_CATEGORY.toLowerCase());
 
         results.add(general);
         results.add(client);
