@@ -18,7 +18,8 @@ import org.apache.logging.log4j.Logger;
         name = Constant.MOD_NAME,
         acceptedMinecraftVersions = "[1.7.10]",
         guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory",
-        dependencies = "required-after:qz_uilib;"
+        dependencies = "required-after:qz_uilib;",
+        acceptableRemoteVersions = "[4.3.0,5.0.0)"
 )
 public class MyMod {
     public Logger LOG = LogManager.getLogger();
