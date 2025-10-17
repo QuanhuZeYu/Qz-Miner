@@ -21,7 +21,6 @@ public class ChainPositionFounder extends BasePositionFounder {
     public void run1() {
         int curRadius = 1;
         while (curCount < minerConfig.blockLimit && curRadius <= minerConfig.bigRadius) {
-            out:{
             for (int x = center.x - curRadius; x <= center.x + curRadius; x++) {
                 for (int y = center.y - curRadius; y <= center.y + curRadius; y++) {
                     for (int z = center.z - curRadius; z <= center.z + curRadius; z++) {
@@ -33,7 +32,7 @@ public class ChainPositionFounder extends BasePositionFounder {
 
                         // 检查性流程    检查数量     检查线程是否被中断
                         if (curCount >= minerConfig.blockLimit) {
-                            break out;
+                            return;
                         }
                         waitUntil();
                         if (Thread.currentThread().isInterrupted()) {
@@ -47,7 +46,7 @@ public class ChainPositionFounder extends BasePositionFounder {
             if (curRadius > minerConfig.bigRadius) {
                 // 超出半径范围，退出
                 return;
-            }}
+            }
         }
     }
 
