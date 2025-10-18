@@ -61,7 +61,7 @@ public class KeyListener {
             onChain = true;
             // ========== 滚轮切换子模式 ==========
             if (event instanceof InputEvent.MouseInputEvent && Mouse.getEventDWheel() != 0) {
-                int dWheel = Mouse.getDWheel();
+                int dWheel = Mouse.getEventDWheel();
                 if (dWheel < 0) {
                     minerModeState.nextSecondMode();
                 } else if (dWheel > 0) {
