@@ -9,9 +9,11 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.item.EntityItem;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BlockEvent;
 import org.apache.logging.log4j.LogManager;
@@ -43,12 +45,9 @@ public class Manager {
     public BaseOperator operator = null;
     @SubscribeEvent
     public void onBlockBreakEvent(BlockEvent.BreakEvent event) {
-        // 0.是交互模式 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
-        if (minerModeState.isInteractMode() ||
-                !event.getPlayer().getUniqueID().equals(playerUUID) ||
-                !(event.getPlayer() instanceof EntityPlayerMP) ||
-                !Thread.currentThread().getName().toLowerCase().contains("server")
-        ) return;
+        // 0.是交互模式 1.不是同一个玩家且不是服务器线程
+        if (minerModeState.isInteractMode() || !isSamePlayer_checkOnServer(event.getPlayer(), playerUUID))
+            return;
         // 正在连锁中 或 未按下连锁键 不处理 避免重复触发连锁
         if (inOperate || !inPressChainKey) {
             return;
@@ -66,11 +65,8 @@ public class Manager {
     public int hitSide = 1;
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onInteractEvent(PlayerInteractEvent event) {
-        if (!minerModeState.isInteractMode() ||
-                !event.entityPlayer.getUniqueID().equals(playerUUID) ||
-                !(event.entityPlayer instanceof EntityPlayerMP) ||
-                !Thread.currentThread().getName().toLowerCase().contains("server")
-        ) return;
+        if (!minerModeState.isInteractMode() || !isSamePlayer_checkOnServer(event.entityPlayer, playerUUID))
+            return;
         // 正在连锁中 或 未按下连锁键 不处理 避免重复触发连锁
         if (inOperate || !inPressChainKey) {
             return;
@@ -89,11 +85,8 @@ public class Manager {
     @SubscribeEvent
     public void onHarvestDropEvent(BlockEvent.HarvestDropsEvent event) {
         // 事件触发者 0.掉落物没有收获者 1.不是玩家自己 2.不是服务器玩家类 3.不是服务器线程 任意一个满足 不处理
-        if (event.harvester == null ||
-                !event.harvester.getUniqueID().equals(playerUUID) ||
-                !(event.harvester instanceof EntityPlayerMP) ||
-                !Thread.currentThread().getName().toLowerCase().contains("server")
-        ) return;
+        if (event.harvester == null || !isSamePlayer_checkOnServer(event.harvester, playerUUID))
+            return;
         // 该管理器只收集此 player 的掉落物
 
         // 未在连锁不处理 - 检查drops收集容器是否有东西 此时掉落到地面
@@ -166,5 +159,15 @@ public class Manager {
         pConfig.smallRadius = Math.max(Math.min(minerConfig.smallRadius, Config.smallRadius), 0);
         pConfig.tunnelWidth = Math.max(Math.min(minerConfig.tunnelWidth, Config.tunnelWidth), 0);
         pConfig.useChainDoneMessage = minerConfig.useChainDoneMessage;
+    }
+
+
+
+    public static boolean isSamePlayer_checkOnServer(EntityPlayer player, UUID playerUUID) {
+        return (player.getUniqueID().equals(playerUUID)  // 1.玩家UUID相同
+                && player instanceof EntityPlayerMP  // 2.是服务器玩家类
+                && Thread.currentThread().getName().toLowerCase().contains("server")  // 3.发生在服务器线程
+                && !(player instanceof FakePlayer)  // 4.不是假玩家
+        );
     }
 }
