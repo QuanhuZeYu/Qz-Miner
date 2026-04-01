@@ -1,13 +1,19 @@
 package club.heiqi.qz_miner;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+/**
+ * 常量定义类
+ * 定义模组的基本常量信息
+ */
 public class Constant {
-    public static Logger LOG = LogManager.getLogger();
-
+    // 模组信息
     public static final String MODID = "qz_miner";
     public static final String MOD_NAME = "Qz Miner";
+    public static final String VERSION = "4.0.0";
+    
+    // 代理类
     public static final String CLIENT_PROXY = "club.heiqi.qz_miner.ClientProxy";
     public static final String COMMON_PROXY = "club.heiqi.qz_miner.CommonProxy";
+    
+    // 日志标记
+    public static final String LOG_TAG = "QzMiner";
 }

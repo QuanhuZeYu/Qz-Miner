@@ -1,23 +1,20 @@
 package club.heiqi.qz_miner;
 
-import club.heiqi.qz_miner.client.ClientStateContainer;
-import club.heiqi.qz_miner.client.KeyListener;
-import club.heiqi.qz_miner.client.PreviewRender.MinerRenderer;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
+/**
+ * 客户端代理类
+ * 处理客户端特定的初始化逻辑
+ */
 public class ClientProxy extends CommonProxy {
-    public KeyListener   keyListener        = new KeyListener();
-    public MinerRenderer minerRenderer      = new MinerRenderer();
-    public ClientStateContainer clientState = new ClientStateContainer();
-
+    
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         super.preInit(event);
-        keyListener.registry();
-        minerRenderer.registry();
+        
+        // 客户端预初始化逻辑
+        // 例如：键绑定、渲染注册等
     }
-
-    // Override CommonProxy methods here, if you want a different behaviour on the client (e.g. registering renders).
-    // Don't forget to call the super methods as well.
-
+    
+    // 可以重写其他方法添加客户端特定逻辑
 }

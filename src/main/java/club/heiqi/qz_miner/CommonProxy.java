@@ -1,30 +1,45 @@
 package club.heiqi.qz_miner;
 
-import club.heiqi.qz_miner.core.PlayerManager;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
+/**
+ * 通用代理类
+ * 处理服务端和客户端通用的初始化逻辑
+ */
 public class CommonProxy {
-    // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
-    // GameRegistry." (Remove if not needed)
+    
+    /**
+     * 预初始化
+     * @param event 事件
+     */
     public void preInit(FMLPreInitializationEvent event) {
-        MyMod.config.init(event.getSuggestedConfigurationFile());
-        MyMod.config.register();
-        MyMod.networkMain.registry();
-
+        // 通用预初始化逻辑
     }
-
-    // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
-    public void init(FMLInitializationEvent event) {}
-
-    // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
-    public void postInit(FMLPostInitializationEvent event) {}
-
-    // register server commands in this event handler (Remove if not needed)
+    
+    /**
+     * 初始化
+     * @param event 事件
+     */
+    public void init(FMLInitializationEvent event) {
+        // 通用初始化逻辑
+    }
+    
+    /**
+     * 后初始化
+     * @param event 事件
+     */
+    public void postInit(FMLPostInitializationEvent event) {
+        // 通用后初始化逻辑
+    }
+    
+    /**
+     * 服务器启动
+     * @param event 事件
+     */
     public void serverStarting(FMLServerStartingEvent event) {
-        MyMod.playerManager = new PlayerManager();
-        MyMod.playerManager.registry();
+        // 服务器启动逻辑
     }
 }
