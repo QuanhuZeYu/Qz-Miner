@@ -3,14 +3,14 @@ dependencies {
     implementation('org.joml:joml:1.10.8')
     implementation(files("libs/qz_uilib-1.7.0-dev.jar"))
 
-    // === GTNH 2.8.4 精确对齐版本（与你下载的整合包内部 mod 完全一致）===
-    implementation("com.github.GTNewHorizons:GT5-Unofficial:5.09.51.482:dev")
+    // === GTNH 官方 mod 使用 Elytra 动态版本管理 ===
+    implementation(elytraModpackVersion.gtnhdev("GT5-Unofficial"))
 
-    runtimeOnly("com.github.GTNewHorizons:ServerUtilities:2.2.2:dev")
-    runtimeOnly("com.github.GTNewHorizons:NotEnoughItems:2.8.44-GTNH:dev")
-    runtimeOnly("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-695-GTNH:dev")
-    runtimeOnly("com.github.GTNewHorizons:AppleCore:3.3.7:dev")
+    runtimeOnly(elytraModpackVersion.gtnhdev("ServerUtilities"))
+    runtimeOnly(elytraModpackVersion.gtnhdev("NotEnoughItems"))
+    runtimeOnly(elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
+    runtimeOnly(elytraModpackVersion.gtnhdev("AppleCore"))
 
     // Angelica 保持注释（2.8.4 包内未强制使用，与你项目原配置一致）
-    // runtimeOnly("com.github.GTNewHorizons:Angelica:1.0.0-beta57:dev")
+    // runtimeOnly(elytraModpackVersion.gtnhdev("Angelica"))
 }
