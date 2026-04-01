@@ -1,16 +1,21 @@
 
 dependencies {
+    elytraModpackVersion {
+        setGtnhVersion("2.8.4")
+    }
     implementation('org.joml:joml:1.10.8')
     implementation(files("libs/qz_uilib-1.7.0-dev.jar"))
 
     // === GTNH 官方 mod 使用 Elytra 动态版本管理 ===
-    implementation(elytraModpackVersion.gtnhdev("GT5-Unofficial"))
+    implementation(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
+    implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
+    implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
 
-    runtimeOnly(elytraModpackVersion.gtnhdev("ServerUtilities"))
-    runtimeOnly(elytraModpackVersion.gtnhdev("NotEnoughItems"))
-    runtimeOnly(elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
-    runtimeOnly(elytraModpackVersion.gtnhdev("AppleCore"))
+    runtimeOnly(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
+    runtimeOnly(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
+    runtimeOnly(project.elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
+    runtimeOnly(project.elytraModpackVersion.gtnhdev("AppleCore"))
 
     // Angelica 保持注释（2.8.4 包内未强制使用，与你项目原配置一致）
-    // runtimeOnly(elytraModpackVersion.gtnhdev("Angelica"))
+    // runtimeOnly(project.elytraModpackVersion.gtnhdev("Angelica"))
 }
