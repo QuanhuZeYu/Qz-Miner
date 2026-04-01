@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner.event;
 
-import club.heiqi.qz_miner.log.LogManager;
+import club.heiqi.qz_miner.log.QzLogManager;
 
 /**
  * 事件管理器
@@ -20,18 +20,18 @@ public class EventManager {
      */
     public static void init() {
         if (initialized) {
-            LogManager.warn("事件管理器已经初始化");
+            QzLogManager.warn("事件管理器已经初始化");
             return;
         }
         
-        LogManager.methodEnter(TAG, "init");
+        QzLogManager.methodEnter(TAG, "init");
         
         // 注册默认事件监听器（可选）
         registerDefaultListeners();
         
         initialized = true;
-        LogManager.info("事件管理器初始化完成");
-        LogManager.methodExit(TAG, "init");
+        QzLogManager.info("事件管理器初始化完成");
+        QzLogManager.methodExit(TAG, "init");
     }
     
     /**
@@ -45,7 +45,7 @@ public class EventManager {
         EVENT_BUS.register(BaseEvent.class, new EventListener<BaseEvent>() {
             @Override
             public void handleEvent(BaseEvent event) {
-                LogManager.trace("事件发生: {}", event);
+                QzLogManager.trace("事件发生: {}", event);
             }
             
             @Override
@@ -150,13 +150,13 @@ public class EventManager {
      * 销毁事件管理器
      */
     public static void destroy() {
-        LogManager.methodEnter(TAG, "destroy");
+        QzLogManager.methodEnter(TAG, "destroy");
         
         clear();
         initialized = false;
         
-        LogManager.info("事件管理器销毁完成");
-        LogManager.methodExit(TAG, "destroy");
+        QzLogManager.info("事件管理器销毁完成");
+        QzLogManager.methodExit(TAG, "destroy");
     }
     
     /**

@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner.event;
 
-import club.heiqi.qz_miner.log.LogManager;
+import club.heiqi.qz_miner.log.QzLogManager;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,12 +36,12 @@ public class EventBus {
      */
     public <T extends BaseEvent> void register(Class<T> eventType, EventListener<T> listener) {
         if (eventType == null || listener == null) {
-            LogManager.error("注册监听器失败：事件类型或监听器不能为空");
+            QzLogManager.error("注册监听器失败：事件类型或监听器不能为空");
             return;
         }
         
-        LogManager.methodEnter(TAG, "register");
-        LogManager.debug("注册事件监听器: {} -> {}", eventType.getSimpleName(), listener.getName());
+        QzLogManager.methodEnter(TAG, "register");
+        QzLogManager.debug("注册事件监听器: {} -> {}", eventType.getSimpleName(), listener.getName());
         
         // 获取或创建监听器列表
         List<EventListener<?>> listeners = listenerMap.computeIfAbsent(
@@ -50,19 +50,19 @@ public class EventBus {
         
         // 检查是否已注册
         if (listeners.contains(listener)) {
-            LogManager.warn("监听器已注册: {}", listener.getName());
+            QzLogManager.warn("监听器已注册: {}", listener.getName());
             return;
         }
         
         // 添加监听器并按优先级排序
         listeners.add(listener);
-        listeners.sort(Comparator.comparingInt(EventListener::getPriority).reversed());
+        listeners.sort(Comparator.comparingInt((EventListener<?> l) -> l.getPriority()).reversed());
         
         // 更新注册表
         listenerRegistry.computeIfAbsent(listener, k -> new ArrayList<>()).add(eventType);
         
-        LogManager.debug("事件监听器注册完成: {} (优先级: {})", listener.getName(), listener.getPriority());
-        LogManager.methodExit(TAG, "register");
+        QzLogManager.debug("事件监听器注册完成: {} (优先级: {})", listener.getName(), listener.getPriority());
+        QzLogManager.methodExit(TAG, "register");
     }
     
     /**
@@ -73,12 +73,12 @@ public class EventBus {
      */
     public <T extends BaseEvent> void unregister(Class<T> eventType, EventListener<T> listener) {
         if (eventType == null || listener == null) {
-            LogManager.error("注销监听器失败：事件类型或监听器不能为空");
+            QzLogManager.error("注销监听器失败：事件类型或监听器不能为空");
             return;
         }
         
-        LogManager.methodEnter(TAG, "unregister");
-        LogManager.debug("注销事件监听器: {} -> {}", eventType.getSimpleName(), listener.getName());
+        QzLogManager.methodEnter(TAG, "unregister");
+        QzLogManager.debug("注销事件监听器: {} -> {}", eventType.getSimpleName(), listener.getName());
         
         List<EventListener<?>> listeners = listenerMap.get(eventType);
         if (listeners != null) {
@@ -99,8 +99,8 @@ public class EventBus {
             }
         }
         
-        LogManager.debug("事件监听器注销完成: {}", listener.getName());
-        LogManager.methodExit(TAG, "unregister");
+        QzLogManager.debug("事件监听器注销完成: {}", listener.getName());
+        QzLogManager.methodExit(TAG, "unregister");
     }
     
     /**
@@ -112,8 +112,8 @@ public class EventBus {
             return;
         }
         
-        LogManager.methodEnter(TAG, "unregisterAll");
-        LogManager.debug("注销监听器的所有事件: {}", listener.getName());
+        QzLogManager.methodEnter(TAG, "unregisterAll");
+        QzLogManager.debug("注销监听器的所有事件: {}", listener.getName());
         
         List<Class<? extends BaseEvent>> eventTypes = listenerRegistry.remove(listener);
         if (eventTypes != null) {
@@ -128,8 +128,8 @@ public class EventBus {
             }
         }
         
-        LogManager.debug("监听器所有事件注销完成: {}", listener.getName());
-        LogManager.methodExit(TAG, "unregisterAll");
+        QzLogManager.debug("监听器所有事件注销完成: {}", listener.getName());
+        QzLogManager.methodExit(TAG, "unregisterAll");
     }
     
     /**
@@ -143,8 +143,8 @@ public class EventBus {
             return;
         }
         
-        LogManager.methodEnter(TAG, "post");
-        LogManager.trace("发布事件: {}", event);
+        QzLogManager.methodEnter(TAG, "post");
+        QzLogManager.trace("发布事件: {}", event);
         
         // 更新事件统计
         eventStats.merge(event.getClass(), 1L, Long::sum);
@@ -153,7 +153,7 @@ public class EventBus {
         List<EventListener<T>> listeners = getListenersForEvent(event);
         
         if (listeners.isEmpty()) {
-            LogManager.trace("没有监听器处理事件: {}", event.getEventName());
+            QzLogManager.trace("没有监听器处理事件: {}", event.getEventName());
             return;
         }
         
@@ -162,20 +162,20 @@ public class EventBus {
             try {
                 // 检查事件是否被取消
                 if (event.isCancelled()) {
-                    LogManager.trace("事件已被取消，跳过监听器: {}", listener.getName());
+                    QzLogManager.trace("事件已被取消，跳过监听器: {}", listener.getName());
                     continue;
                 }
                 
-                LogManager.trace("执行监听器: {} (优先级: {})", listener.getName(), listener.getPriority());
+                QzLogManager.trace("执行监听器: {} (优先级: {})", listener.getName(), listener.getPriority());
                 listener.handleEvent(event);
                 
             } catch (Exception e) {
-                LogManager.error("监听器处理事件异常: {} -> {}", listener.getName(), event, e);
+                QzLogManager.error("监听器处理事件异常: {} -> {}", listener.getName(), event, e);
             }
         }
         
-        LogManager.trace("事件处理完成: {}", event.getEventName());
-        LogManager.methodExit(TAG, "post");
+        QzLogManager.trace("事件处理完成: {}", event.getEventName());
+        QzLogManager.methodExit(TAG, "post");
     }
     
     /**
@@ -203,7 +203,7 @@ public class EventBus {
         }
         
         // 按优先级排序
-        result.sort(Comparator.comparingInt(EventListener::getPriority).reversed());
+        result.sort(Comparator.comparingInt((EventListener<?> l) -> l.getPriority()).reversed());
         
         return result;
     }
@@ -265,7 +265,7 @@ public class EventBus {
      */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
-        LogManager.info("事件总线{}", enabled ? "启用" : "禁用");
+        QzLogManager.info("事件总线{}", enabled ? "启用" : "禁用");
     }
     
     /**
@@ -280,14 +280,14 @@ public class EventBus {
      * 清除所有监听器
      */
     public void clear() {
-        LogManager.methodEnter(TAG, "clear");
+        QzLogManager.methodEnter(TAG, "clear");
         
         listenerMap.clear();
         listenerRegistry.clear();
         eventStats.clear();
         
-        LogManager.info("事件总线已清除所有监听器");
-        LogManager.methodExit(TAG, "clear");
+        QzLogManager.info("事件总线已清除所有监听器");
+        QzLogManager.methodExit(TAG, "clear");
     }
     
     /**

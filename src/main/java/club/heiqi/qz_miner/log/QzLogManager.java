@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.log;
 
-import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
@@ -8,8 +7,8 @@ import org.apache.logging.log4j.Logger;
  * 提供统一的日志接口，支持不同日志级别
  * 用于跟踪和调试，便于排查问题
  */
-public class LogManager {
-    private static final Logger LOGGER = LogManager.getLogger("QzMiner");
+public class QzLogManager {
+    private static final Logger LOGGER = org.apache.logging.log4j.LogManager.getLogger("QzMiner");
     
     // 跟踪日志开关，便于调试
     private static boolean traceEnabled = true;

@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.core.player;
 import club.heiqi.qz_miner.event.EventManager;
 import club.heiqi.qz_miner.event.PlayerLoginEvent;
 import club.heiqi.qz_miner.event.PlayerLogoutEvent;
-import club.heiqi.qz_miner.log.LogManager;
+import club.heiqi.qz_miner.log.QzLogManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
@@ -32,17 +32,17 @@ public class PlayerManager {
      */
     public void register() {
         if (registered) {
-            LogManager.warn("玩家管理器已经注册");
+            QzLogManager.warn("玩家管理器已经注册");
             return;
         }
         
-        LogManager.methodEnter(TAG, "register");
+        QzLogManager.methodEnter(TAG, "register");
         
         FMLCommonHandler.instance().bus().register(this);
         registered = true;
         
-        LogManager.info("玩家管理器注册成功");
-        LogManager.methodExit(TAG, "register");
+        QzLogManager.info("玩家管理器注册成功");
+        QzLogManager.methodExit(TAG, "register");
     }
     
     /**
@@ -53,7 +53,7 @@ public class PlayerManager {
             return;
         }
         
-        LogManager.methodEnter(TAG, "unregister");
+        QzLogManager.methodEnter(TAG, "unregister");
         
         FMLCommonHandler.instance().bus().unregister(this);
         registered = false;
@@ -61,8 +61,8 @@ public class PlayerManager {
         // 清空玩家列表
         onlinePlayers.clear();
         
-        LogManager.info("玩家管理器注销成功");
-        LogManager.methodExit(TAG, "unregister");
+        QzLogManager.info("玩家管理器注销成功");
+        QzLogManager.methodExit(TAG, "unregister");
     }
     
     /**
@@ -78,8 +78,8 @@ public class PlayerManager {
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID uuid = player.getUniqueID();
         
-        LogManager.methodEnter(TAG, "onPlayerLogin");
-        LogManager.info("玩家登录: {} ({})", player.getDisplayName(), uuid);
+        QzLogManager.methodEnter(TAG, "onPlayerLogin");
+        QzLogManager.info("玩家登录: {} ({})", player.getDisplayName(), uuid);
         
         // 添加到在线玩家列表
         onlinePlayers.put(uuid, player);
@@ -88,8 +88,8 @@ public class PlayerManager {
         PlayerLoginEvent loginEvent = new PlayerLoginEvent(this, player);
         EventManager.post(loginEvent);
         
-        LogManager.debug("当前在线玩家数量: {}", onlinePlayers.size());
-        LogManager.methodExit(TAG, "onPlayerLogin");
+        QzLogManager.debug("当前在线玩家数量: {}", onlinePlayers.size());
+        QzLogManager.methodExit(TAG, "onPlayerLogin");
     }
     
     /**
@@ -105,8 +105,8 @@ public class PlayerManager {
         EntityPlayerMP player = (EntityPlayerMP) event.player;
         UUID uuid = player.getUniqueID();
         
-        LogManager.methodEnter(TAG, "onPlayerLogout");
-        LogManager.info("玩家登出: {} ({})", player.getDisplayName(), uuid);
+        QzLogManager.methodEnter(TAG, "onPlayerLogout");
+        QzLogManager.info("玩家登出: {} ({})", player.getDisplayName(), uuid);
         
         // 从在线玩家列表移除
         onlinePlayers.remove(uuid);
@@ -115,8 +115,8 @@ public class PlayerManager {
         PlayerLogoutEvent logoutEvent = new PlayerLogoutEvent(this, player);
         EventManager.post(logoutEvent);
         
-        LogManager.debug("当前在线玩家数量: {}", onlinePlayers.size());
-        LogManager.methodExit(TAG, "onPlayerLogout");
+        QzLogManager.debug("当前在线玩家数量: {}", onlinePlayers.size());
+        QzLogManager.methodExit(TAG, "onPlayerLogout");
     }
     
     /**
@@ -184,12 +184,12 @@ public class PlayerManager {
      * 清空所有玩家（用于测试或重置）
      */
     public void clearAllPlayers() {
-        LogManager.methodEnter(TAG, "clearAllPlayers");
+        QzLogManager.methodEnter(TAG, "clearAllPlayers");
         
         onlinePlayers.clear();
         
-        LogManager.info("已清空所有在线玩家");
-        LogManager.methodExit(TAG, "clearAllPlayers");
+        QzLogManager.info("已清空所有在线玩家");
+        QzLogManager.methodExit(TAG, "clearAllPlayers");
     }
     
     @Override

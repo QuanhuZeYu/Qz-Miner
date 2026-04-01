@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.config;
 
 import club.heiqi.qz_miner.event.ConfigChangedEvent;
 import club.heiqi.qz_miner.event.EventManager;
-import club.heiqi.qz_miner.log.LogManager;
+import club.heiqi.qz_miner.log.QzLogManager;
 import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.common.config.Property;
 
@@ -36,10 +36,10 @@ public class ConfigManager {
      * @param configFile 配置文件
      */
     public void init(File configFile) {
-        LogManager.methodEnter(TAG, "init");
+        QzLogManager.methodEnter(TAG, "init");
         
         if (initialized) {
-            LogManager.warn("配置管理器已经初始化");
+            QzLogManager.warn("配置管理器已经初始化");
             return;
         }
         
@@ -50,18 +50,18 @@ public class ConfigManager {
         loadConfig();
         
         initialized = true;
-        LogManager.info("配置管理器初始化完成，配置文件: {}", configFile.getAbsolutePath());
-        LogManager.methodExit(TAG, "init");
+        QzLogManager.info("配置管理器初始化完成，配置文件: {}", configFile.getAbsolutePath());
+        QzLogManager.methodExit(TAG, "init");
     }
     
     /**
      * 加载配置
      */
     public void loadConfig() {
-        LogManager.methodEnter(TAG, "loadConfig");
+        QzLogManager.methodEnter(TAG, "loadConfig");
         
         if (config == null) {
-            LogManager.error("配置文件未初始化");
+            QzLogManager.error("配置文件未初始化");
             return;
         }
         
@@ -129,11 +129,11 @@ public class ConfigManager {
             // 通知监听器配置加载完成
             notifyConfigLoaded(currentConfig);
             
-            LogManager.info("配置加载完成: {}", currentConfig);
-            LogManager.methodExit(TAG, "loadConfig");
+            QzLogManager.info("配置加载完成: {}", currentConfig);
+            QzLogManager.methodExit(TAG, "loadConfig");
             
         } catch (Exception e) {
-            LogManager.error("加载配置文件失败", e);
+            QzLogManager.error("加载配置文件失败", e);
             // 使用默认配置
             currentConfig.resetToDefault();
         }
@@ -143,10 +143,10 @@ public class ConfigManager {
      * 保存配置
      */
     public void saveConfig() {
-        LogManager.methodEnter(TAG, "saveConfig");
+        QzLogManager.methodEnter(TAG, "saveConfig");
         
         if (config == null) {
-            LogManager.error("配置文件未初始化");
+            QzLogManager.error("配置文件未初始化");
             return;
         }
         
@@ -185,11 +185,11 @@ public class ConfigManager {
             // 通知监听器配置保存完成
             notifyConfigSaved(currentConfig);
             
-            LogManager.info("配置保存完成");
-            LogManager.methodExit(TAG, "saveConfig");
+            QzLogManager.info("配置保存完成");
+            QzLogManager.methodExit(TAG, "saveConfig");
             
         } catch (Exception e) {
-            LogManager.error("保存配置文件失败", e);
+            QzLogManager.error("保存配置文件失败", e);
         }
     }
     
@@ -198,15 +198,15 @@ public class ConfigManager {
      * @param newConfig 新配置
      */
     public void updateConfig(ConfigData newConfig) {
-        LogManager.methodEnter(TAG, "updateConfig");
+        QzLogManager.methodEnter(TAG, "updateConfig");
         
         if (newConfig == null) {
-            LogManager.error("新配置不能为空");
+            QzLogManager.error("新配置不能为空");
             return;
         }
         
         if (!newConfig.isValid()) {
-            LogManager.error("配置验证失败: {}", newConfig);
+            QzLogManager.error("配置验证失败: {}", newConfig);
             return;
         }
         
@@ -223,15 +223,15 @@ public class ConfigManager {
         ConfigChangedEvent event = new ConfigChangedEvent(this, oldConfig, currentConfig);
         EventManager.post(event);
         
-        LogManager.info("配置更新完成: {}", currentConfig);
-        LogManager.methodExit(TAG, "updateConfig");
+        QzLogManager.info("配置更新完成: {}", currentConfig);
+        QzLogManager.methodExit(TAG, "updateConfig");
     }
     
     /**
      * 重置配置为默认值
      */
     public void resetConfig() {
-        LogManager.methodEnter(TAG, "resetConfig");
+        QzLogManager.methodEnter(TAG, "resetConfig");
         
         ConfigData oldConfig = currentConfig;
         currentConfig = new ConfigData();
@@ -246,8 +246,8 @@ public class ConfigManager {
         ConfigChangedEvent event = new ConfigChangedEvent(this, oldConfig, currentConfig);
         EventManager.post(event);
         
-        LogManager.info("配置重置为默认值: {}", currentConfig);
-        LogManager.methodExit(TAG, "resetConfig");
+        QzLogManager.info("配置重置为默认值: {}", currentConfig);
+        QzLogManager.methodExit(TAG, "resetConfig");
     }
     
     /**
@@ -273,7 +273,7 @@ public class ConfigManager {
     public void addConfigChangeListener(ConfigChangeListener listener) {
         if (listener != null && !listeners.contains(listener)) {
             listeners.add(listener);
-            LogManager.debug("添加配置变更监听器: {}", listener.getClass().getName());
+            QzLogManager.debug("添加配置变更监听器: {}", listener.getClass().getName());
         }
     }
     
@@ -284,7 +284,7 @@ public class ConfigManager {
     public void removeConfigChangeListener(ConfigChangeListener listener) {
         if (listener != null) {
             listeners.remove(listener);
-            LogManager.debug("移除配置变更监听器: {}", listener.getClass().getName());
+            QzLogManager.debug("移除配置变更监听器: {}", listener.getClass().getName());
         }
     }
     
@@ -298,7 +298,7 @@ public class ConfigManager {
             try {
                 listener.onConfigChanged(oldConfig, newConfig);
             } catch (Exception e) {
-                LogManager.error("通知配置变更监听器失败: {}", listener.getClass().getName(), e);
+                QzLogManager.error("通知配置变更监听器失败: {}", listener.getClass().getName(), e);
             }
         }
     }
@@ -312,7 +312,7 @@ public class ConfigManager {
             try {
                 listener.onConfigReset(config);
             } catch (Exception e) {
-                LogManager.error("通知配置重置监听器失败: {}", listener.getClass().getName(), e);
+                QzLogManager.error("通知配置重置监听器失败: {}", listener.getClass().getName(), e);
             }
         }
     }
@@ -326,7 +326,7 @@ public class ConfigManager {
             try {
                 listener.onConfigLoaded(config);
             } catch (Exception e) {
-                LogManager.error("通知配置加载监听器失败: {}", listener.getClass().getName(), e);
+                QzLogManager.error("通知配置加载监听器失败: {}", listener.getClass().getName(), e);
             }
         }
     }
@@ -340,7 +340,7 @@ public class ConfigManager {
             try {
                 listener.onConfigSaved(config);
             } catch (Exception e) {
-                LogManager.error("通知配置保存监听器失败: {}", listener.getClass().getName(), e);
+                QzLogManager.error("通知配置保存监听器失败: {}", listener.getClass().getName(), e);
             }
         }
     }
@@ -357,7 +357,7 @@ public class ConfigManager {
      * 销毁配置管理器
      */
     public void destroy() {
-        LogManager.methodEnter(TAG, "destroy");
+        QzLogManager.methodEnter(TAG, "destroy");
         
         if (config != null) {
             // 保存配置
@@ -369,7 +369,7 @@ public class ConfigManager {
         listeners.clear();
         initialized = false;
         
-        LogManager.info("配置管理器销毁完成");
-        LogManager.methodExit(TAG, "destroy");
+        QzLogManager.info("配置管理器销毁完成");
+        QzLogManager.methodExit(TAG, "destroy");
     }
 }
