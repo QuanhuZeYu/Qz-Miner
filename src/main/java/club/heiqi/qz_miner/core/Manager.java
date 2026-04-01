@@ -162,7 +162,17 @@ public class Manager {
     }
 
 
-
+    /**
+     * 检查是否是同一个玩家
+     * 判断条件:
+     * 1.玩家UUID相同
+     * 2.是服务器玩家类
+     * 3.发生在服务器线程
+     * 4.不是假玩家
+     * @param player
+     * @param playerUUID
+     * @return
+     */
     public static boolean isSamePlayer_checkOnServer(EntityPlayer player, UUID playerUUID) {
         return (player.getUniqueID().equals(playerUUID)  // 1.玩家UUID相同
                 && player instanceof EntityPlayerMP  // 2.是服务器玩家类
