@@ -1,5 +1,0 @@
-
-plugins {
-    id 'com.gtnewhorizons.gtnhconvention'
-    id 'com.elytra.conventions' version '1.1.+'
-}
