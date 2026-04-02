@@ -2,7 +2,9 @@ package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.network.PacketKeyState;
+import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.client.registry.ClientRegistry;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.relauncher.Side;
@@ -48,11 +50,15 @@ public class KeyListener {
      */
     public void register() {
         ClientRegistry.registerKeyBinding(chainSwitch);
-        MinecraftForge.EVENT_BUS.register(this);
+        FMLCommonHandler.instance().bus().register(this);
     }
 
     @SubscribeEvent
-    public void onInput(InputEvent.KeyInputEvent event) {
+    public void onKeyInput(InputEvent.KeyInputEvent event) {
+        if (FMLClientHandler.instance().getClient().theWorld == null) {
+            return;
+        }
+
         boolean isPressed = chainSwitch.getIsKeyPressed();
 
         if (isPressed && !wasPressed) {
