@@ -40,7 +40,9 @@ dependencies {
 
     implementation(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
     implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
+    implementation(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
+    implementation(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
 
     runtimeOnly(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnly(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
