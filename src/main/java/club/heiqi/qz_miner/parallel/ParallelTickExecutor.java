@@ -1,16 +1,11 @@
 package club.heiqi.qz_miner.parallel;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 import club.heiqi.qz_miner.MyMod;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -20,28 +15,36 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * 逻辑服务器同步并行执行器。
  *
- * 在每个服务端 Tick 的 START 阶段提交所有任务，
- * 在 END 阶段统一等待任务完成，确保所有并行逻辑都被限制在单个 Tick 的边界内。
+ * 任务以“分片”形式在多个 Tick 之间持续推进：
+ * 1. START 打开本 Tick 的并行执行窗口
+ * 2. 后台工作线程在窗口内反复执行任务分片
+ * 3. END 关闭窗口，并等待当前分片全部停在边界上
+ *
+ * 因此长耗时任务不会被要求在单个 Tick 内完成，而是可以跨 Tick 增量执行。
  */
 public final class ParallelTickExecutor {
 
+    private static final long DEFAULT_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(45L);
+
     private final CopyOnWriteArrayList<RegisteredTask> registeredTasks = new CopyOnWriteArrayList<>();
-    private final ExecutorService executorService;
     private final AtomicLong tickCounter = new AtomicLong();
-    private volatile TickBatch currentBatch;
+    private final ReentrantLock stateLock = new ReentrantLock();
+    private final Condition windowChanged = stateLock.newCondition();
+    private final Condition workersIdle = stateLock.newCondition();
+
+    private volatile boolean running = true;
+    private volatile boolean tickWindowOpen = false;
+    private volatile ParallelTickContext currentContext;
+    private volatile long currentTickId = 0L;
+    private int activeWorkers = 0;
 
     public ParallelTickExecutor() {
-        this(createDefaultWorkerCount());
-    }
-
-    public ParallelTickExecutor(int workerCount) {
-        this.executorService = Executors.newFixedThreadPool(workerCount, new ParallelThreadFactory());
         FMLCommonHandler.instance().bus().register(this);
-        MyMod.LOG.info("[ParallelTick] Initialized with {} worker thread(s)", workerCount);
+        MyMod.LOG.info("[ParallelTick] Initialized cooperative incremental scheduler");
     }
 
     /**
-     * 注册一个每 Tick 执行的并行任务。
+     * 注册一个跨 Tick 增量执行的并行任务。
      *
      * @param name 任务名称，用于日志定位
      * @param task 任务实现
@@ -50,6 +53,7 @@ public final class ParallelTickExecutor {
     public ParallelTickSubscription register(String name, ParallelTickTask task) {
         RegisteredTask registeredTask = new RegisteredTask(name, task);
         registeredTasks.add(registeredTask);
+        registeredTask.start();
         MyMod.LOG.debug("[ParallelTick] Registered task: {}", name);
         return () -> unregister(registeredTask);
     }
@@ -65,22 +69,25 @@ public final class ParallelTickExecutor {
      * 关闭执行器并清空任务。
      */
     public void shutdown() {
-        TickBatch batch = currentBatch;
-        if (batch != null) {
-            awaitBatch(batch);
-            currentBatch = null;
+        running = false;
+        stateLock.lock();
+        try {
+            tickWindowOpen = false;
+            windowChanged.signalAll();
+            workersIdle.signalAll();
+        } finally {
+            stateLock.unlock();
+        }
+
+        for (RegisteredTask registeredTask : registeredTasks) {
+            registeredTask.shutdown();
+        }
+
+        for (RegisteredTask registeredTask : registeredTasks) {
+            registeredTask.joinQuietly();
         }
 
         registeredTasks.clear();
-        executorService.shutdown();
-        try {
-            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-                executorService.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            executorService.shutdownNow();
-        }
     }
 
     /**
@@ -97,99 +104,183 @@ public final class ParallelTickExecutor {
     }
 
     private void beginTick() {
-        if (registeredTasks.isEmpty()) {
-            currentBatch = null;
-            return;
-        }
-
-        if (currentBatch != null) {
-            MyMod.LOG.warn("[ParallelTick] Previous tick batch was not finished before next START, forcing wait");
-            awaitBatch(currentBatch);
-        }
-
         long tickId = tickCounter.incrementAndGet();
         long startNanoTime = System.nanoTime();
-        ParallelTickContext context = new ParallelTickContext(tickId, startNanoTime);
-        List<Future<?>> futures = new ArrayList<>(registeredTasks.size());
+        long deadlineNanoTime = startNanoTime + DEFAULT_TICK_BUDGET_NANOS;
 
-        for (RegisteredTask registeredTask : registeredTasks) {
-            futures.add(executorService.submit(() -> runTask(registeredTask, context)));
+        stateLock.lock();
+        try {
+            currentTickId = tickId;
+            currentContext = new ParallelTickContext(tickId, startNanoTime, deadlineNanoTime);
+            tickWindowOpen = true;
+            windowChanged.signalAll();
+        } finally {
+            stateLock.unlock();
         }
-
-        currentBatch = new TickBatch(tickId, futures);
     }
 
     private void endTick() {
-        TickBatch batch = currentBatch;
-        currentBatch = null;
-        if (batch == null) {
-            return;
-        }
-
-        awaitBatch(batch);
-    }
-
-    private void awaitBatch(TickBatch batch) {
-        for (Future<?> future : batch.futures) {
-            try {
-                future.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                MyMod.LOG.warn("[ParallelTick] Interrupted while waiting for tick {} tasks to finish", batch.tickId, e);
-                return;
-            } catch (ExecutionException e) {
-                MyMod.LOG.error("[ParallelTick] Task failed during tick {}", batch.tickId, e.getCause());
-            }
-        }
-    }
-
-    private void runTask(RegisteredTask registeredTask, ParallelTickContext context) {
+        stateLock.lock();
         try {
-            registeredTask.task.run(context);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            MyMod.LOG.warn("[ParallelTick] Task interrupted: {}", registeredTask.name, e);
-        } catch (Exception e) {
-            throw new RuntimeException("Parallel tick task failed: " + registeredTask.name, e);
+            tickWindowOpen = false;
+            windowChanged.signalAll();
+
+            while (activeWorkers > 0) {
+                try {
+                    workersIdle.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    MyMod.LOG.warn("[ParallelTick] Interrupted while waiting workers to stop on tick {}", currentTickId, e);
+                    return;
+                }
+            }
+        } finally {
+            stateLock.unlock();
         }
     }
 
     private void unregister(RegisteredTask registeredTask) {
         if (registeredTasks.remove(registeredTask)) {
+            registeredTask.shutdown();
             MyMod.LOG.debug("[ParallelTick] Unregistered task: {}", registeredTask.name);
         }
     }
 
-    private static int createDefaultWorkerCount() {
-        return Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
-    }
-
-    private static final class RegisteredTask {
+    private final class RegisteredTask implements Runnable {
         private final String name;
         private final ParallelTickTask task;
+        private final Thread thread;
+        private volatile boolean active = true;
+        private long observedTickId = -1L;
 
         private RegisteredTask(String name, ParallelTickTask task) {
             this.name = name;
             this.task = task;
+            this.thread = new ParallelThread(name).create(this);
         }
-    }
 
-    private static final class TickBatch {
-        private final long tickId;
-        private final List<Future<?>> futures;
-
-        private TickBatch(long tickId, List<Future<?>> futures) {
-            this.tickId = tickId;
-            this.futures = futures;
+        private void start() {
+            thread.start();
         }
-    }
 
-    private static final class ParallelThreadFactory implements ThreadFactory {
-        private final AtomicInteger threadId = new AtomicInteger(1);
+        private void shutdown() {
+            active = false;
+            thread.interrupt();
+            stateLock.lock();
+            try {
+                windowChanged.signalAll();
+            } finally {
+                stateLock.unlock();
+            }
+        }
+
+        private void joinQuietly() {
+            try {
+                thread.join(3000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
 
         @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "Qz-ParallelTick-" + threadId.getAndIncrement());
+        public void run() {
+            while (running && active && !Thread.currentThread().isInterrupted()) {
+                ParallelTickContext context = awaitNextWindow();
+                if (context == null) {
+                    break;
+                }
+
+                runSlicesInCurrentTick(context);
+            }
+        }
+
+        private ParallelTickContext awaitNextWindow() {
+            stateLock.lock();
+            try {
+                while (running && active && (!tickWindowOpen || observedTickId == currentTickId)) {
+                    try {
+                        windowChanged.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return null;
+                    }
+                }
+
+                if (!running || !active || !tickWindowOpen || currentContext == null) {
+                    return null;
+                }
+
+                observedTickId = currentTickId;
+                return currentContext;
+            } finally {
+                stateLock.unlock();
+            }
+        }
+
+        private void runSlicesInCurrentTick(ParallelTickContext context) {
+            while (running && active && context.hasTimeLeft()) {
+                enterWorker();
+                try {
+                    boolean shouldContinue = task.run(context);
+                    if (!shouldContinue) {
+                        registeredTasks.remove(this);
+                        active = false;
+                        MyMod.LOG.debug("[ParallelTick] Task completed: {}", name);
+                        return;
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    MyMod.LOG.warn("[ParallelTick] Task interrupted: {}", name, e);
+                    active = false;
+                    registeredTasks.remove(this);
+                    return;
+                } catch (Exception e) {
+                    MyMod.LOG.error("[ParallelTick] Task failed: {}", name, e);
+                    active = false;
+                    registeredTasks.remove(this);
+                    return;
+                } finally {
+                    exitWorker();
+                }
+
+                if (!tickWindowOpen) {
+                    return;
+                }
+            }
+        }
+    }
+
+    private void enterWorker() {
+        stateLock.lock();
+        try {
+            activeWorkers++;
+        } finally {
+            stateLock.unlock();
+        }
+    }
+
+    private void exitWorker() {
+        stateLock.lock();
+        try {
+            activeWorkers--;
+            if (activeWorkers <= 0) {
+                workersIdle.signalAll();
+            }
+        } finally {
+            stateLock.unlock();
+        }
+    }
+
+    private static final class ParallelThread {
+        private static final AtomicInteger THREAD_ID = new AtomicInteger(1);
+        private final String taskName;
+
+        private ParallelThread(String taskName) {
+            this.taskName = taskName;
+        }
+
+        private Thread create(Runnable runnable) {
+            Thread thread = new Thread(runnable, "Qz-ParallelTick-" + THREAD_ID.getAndIncrement() + "-" + taskName);
             thread.setDaemon(true);
             return thread;
         }
