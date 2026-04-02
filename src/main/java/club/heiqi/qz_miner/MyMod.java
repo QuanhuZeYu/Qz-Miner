@@ -10,11 +10,18 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
-@Mod(modid = MyMod.MODID, version = Tags.VERSION, name = "Qz Miner", acceptedMinecraftVersions = "[1.7.10]")
+@Mod(
+    modid = MyMod.MODID,
+    version = Tags.VERSION,
+    name = MyMod.MOD_NAME,
+    acceptedMinecraftVersions = "[1.7.10]",
+    guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory")
 public class MyMod {
 
     public static final String MODID = "qz_miner";
+    public static final String MOD_NAME = "Qz Miner";
     public static final Logger LOG = LogManager.getLogger(MODID);
+    public static final Config CONFIG = new Config();
 
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;

@@ -10,10 +10,10 @@ public class CommonProxy {
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
     // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
-        Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
+        MyMod.CONFIG.init(event.getSuggestedConfigurationFile());
 
         MyMod.LOG.info(Config.greeting);
-        MyMod.LOG.info("I am Qz Miner at version " + Tags.VERSION);
+        MyMod.LOG.info("I am " + MyMod.MOD_NAME + " at version " + Tags.VERSION);
     }
 
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
