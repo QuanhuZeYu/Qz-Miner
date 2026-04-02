@@ -50,10 +50,10 @@ public class KeyListener {
         boolean isPressed = chainSwitch.getIsKeyPressed();
 
         if (isPressed && !wasPressed) {
-            MyMod.LOG.info("[KeyListener] Chain key pressed");
+            MyMod.LOG.debug("[KeyListener] Chain key pressed");
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
         } else if (!isPressed && wasPressed) {
-            MyMod.LOG.info("[KeyListener] Chain key released");
+            MyMod.LOG.debug("[KeyListener] Chain key released");
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, false));
         }
 

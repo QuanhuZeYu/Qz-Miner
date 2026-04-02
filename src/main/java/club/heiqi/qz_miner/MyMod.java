@@ -47,7 +47,7 @@ public class MyMod {
         networkMain.register();
         playerManager = new PlayerManager();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
-                LOG.info("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
+                LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
                         e.player.getCommandSenderName(), e.reason));
         proxy.init(event);
     }

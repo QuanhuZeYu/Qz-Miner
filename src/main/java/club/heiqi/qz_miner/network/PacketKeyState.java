@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.network;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.core.PlayerManager;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -54,7 +53,7 @@ public class PacketKeyState implements IMessage {
         @Override
         public IMessage onMessage(PacketKeyState message, MessageContext ctx) {
             EntityPlayerMP player = ctx.getServerHandler().playerEntity;
-            MyMod.LOG.info("[Network] Player {} key state: keyId={}, pressed={}",
+            MyMod.LOG.debug("[Network] Player {} key state: keyId={}, pressed={}",
                     player.getCommandSenderName(), message.keyId, message.pressed);
             return null;
         }
