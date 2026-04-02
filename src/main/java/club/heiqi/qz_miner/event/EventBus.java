@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.event;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,9 +20,20 @@ public final class EventBus {
      */
     public static final EventBus INSTANCE = new EventBus();
 
-    private final Map<Class<? extends Event>, List<EventListener<? extends Event>>> listeners = new HashMap<>();
+    private final Map<Class<? extends Event>, List<ListenerEntry<? extends Event>>> listeners = new HashMap<>();
 
     private EventBus() {
+    }
+
+    /**
+     * 以默认优先级注册一个事件监听器。
+     *
+     * @param eventType 事件类型
+     * @param listener  监听器
+     * @param <T>       事件类型
+     */
+    public <T extends Event> void register(Class<T> eventType, EventListener<T> listener) {
+        register(eventType, listener, EventPriority.NORMAL);
     }
 
     /**
@@ -29,12 +41,14 @@ public final class EventBus {
      *
      * @param eventType 事件类型
      * @param listener  监听器
+     * @param priority  优先级
      * @param <T>       事件类型
      */
     @SuppressWarnings("unchecked")
-    public synchronized <T extends Event> void register(Class<T> eventType, EventListener<T> listener) {
-        listeners.computeIfAbsent(eventType, k -> Collections.synchronizedList(new ArrayList<>()))
-                .add((EventListener<? extends Event>) listener);
+    public synchronized <T extends Event> void register(Class<T> eventType, EventListener<T> listener, EventPriority priority) {
+        listeners.computeIfAbsent(eventType, k -> new ArrayList<>())
+                .add(new ListenerEntry<>((EventListener<? extends Event>) listener, priority));
+        sortListeners(eventType);
     }
 
     /**
@@ -56,9 +70,9 @@ public final class EventBus {
      */
     @SuppressWarnings("unchecked")
     public synchronized <T extends Event> void unregister(Class<T> eventType, EventListener<T> listener) {
-        List<EventListener<? extends Event>> list = listeners.get(eventType);
+        List<ListenerEntry<? extends Event>> list = listeners.get(eventType);
         if (list != null) {
-            list.remove(listener);
+            list.removeIf(entry -> entry.listener == listener);
             if (list.isEmpty()) {
                 listeners.remove(eventType);
             }
@@ -66,26 +80,47 @@ public final class EventBus {
     }
 
     /**
-     * 触发一个事件，同步通知所有已注册的监听器。
+     * 触发一个事件，按优先级顺序同步通知所有已注册的监听器。
      *
      * @param event 事件实例
      * @param <T>   事件类型
      */
     @SuppressWarnings("unchecked")
     public <T extends Event> void post(T event) {
-        List<EventListener<? extends Event>> list;
+        List<ListenerEntry<? extends Event>> list;
         synchronized (this) {
             list = listeners.get(event.getClass());
             if (list == null) {
                 return;
             }
         }
-        for (EventListener<? extends Event> listener : list) {
+        for (ListenerEntry<? extends Event> entry : list) {
             try {
-                ((EventListener<T>) listener).onEvent(event);
+                ((EventListener<T>) entry.listener).onEvent(event);
             } catch (Exception e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends Event> void sortListeners(Class<T> eventType) {
+        List<ListenerEntry<? extends Event>> list = listeners.get(eventType);
+        if (list != null) {
+            list.sort(Comparator.comparingInt(e -> e.priority.getValue()));
+        }
+    }
+
+    /**
+     * 内部监听器条目，携带优先级信息。
+     */
+    private static final class ListenerEntry<T extends Event> {
+        final EventListener<T> listener;
+        final EventPriority priority;
+
+        ListenerEntry(EventListener<T> listener, EventPriority priority) {
+            this.listener = listener;
+            this.priority = priority;
         }
     }
 }

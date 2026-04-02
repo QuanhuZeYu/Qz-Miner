@@ -18,7 +18,7 @@ public final class QzEvents {
     }
 
     /**
-     * 注册一个事件监听器。
+     * 以默认优先级注册一个事件监听器。
      *
      * @param eventType 事件类型
      * @param listener  监听器
@@ -26,6 +26,18 @@ public final class QzEvents {
      */
     public static <T extends Event> void register(Class<T> eventType, EventListener<T> listener) {
         EventBus.INSTANCE.register(eventType, listener);
+    }
+
+    /**
+     * 注册一个事件监听器。
+     *
+     * @param eventType 事件类型
+     * @param listener  监听器
+     * @param priority  优先级
+     * @param <T>       事件类型
+     */
+    public static <T extends Event> void register(Class<T> eventType, EventListener<T> listener, EventPriority priority) {
+        EventBus.INSTANCE.register(eventType, listener, priority);
     }
 
     /**
@@ -37,6 +49,16 @@ public final class QzEvents {
      */
     public static <T extends Event> void unregister(Class<T> eventType, EventListener<T> listener) {
         EventBus.INSTANCE.unregister(eventType, listener);
+    }
+
+    /**
+     * 移除指定事件类型的所有监听器。
+     *
+     * @param eventType 事件类型
+     * @param <T>       事件类型
+     */
+    public static <T extends Event> void unregisterAll(Class<T> eventType) {
+        EventBus.INSTANCE.unregister(eventType);
     }
 
     /**
