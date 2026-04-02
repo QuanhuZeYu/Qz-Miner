@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent.Reason;
 import club.heiqi.qz_miner.event.QzEvents;
@@ -85,6 +86,8 @@ public final class PlayerManager {
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         EntityPlayer player = event.player;
         players.put(player.getUniqueID(), player);
+        MyMod.LOG.info("[PlayerManager] Player logged in: {} (UUID: {}), online players: {}",
+                player.getCommandSenderName(), player.getUniqueID(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.LOGIN));
     }
 
@@ -95,6 +98,8 @@ public final class PlayerManager {
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         EntityPlayer player = event.player;
         players.remove(player.getUniqueID());
+        MyMod.LOG.info("[PlayerManager] Player logged out: {} (UUID: {}), online players: {}",
+                player.getCommandSenderName(), player.getUniqueID(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
     }
 
@@ -105,6 +110,8 @@ public final class PlayerManager {
     public void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
         EntityPlayer player = event.player;
         players.put(player.getUniqueID(), player);
+        MyMod.LOG.info("[PlayerManager] Player respawned: {} (UUID: {}), online players: {}",
+                player.getCommandSenderName(), player.getUniqueID(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.RESPAWN));
     }
 
@@ -115,6 +122,8 @@ public final class PlayerManager {
     public void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         EntityPlayer player = event.player;
         players.put(player.getUniqueID(), player);
+        MyMod.LOG.info("[PlayerManager] Player changed dimension: {} (UUID: {}), online players: {}",
+                player.getCommandSenderName(), player.getUniqueID(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.DIMENSION_CHANGE));
     }
 
@@ -131,6 +140,8 @@ public final class PlayerManager {
         EntityPlayer newPlayer = event.entityPlayer;
         UUID uuid = newPlayer.getUniqueID();
         players.put(uuid, newPlayer);
+        MyMod.LOG.info("[PlayerManager] Player cloned: {} (UUID: {}), wasDeath: {}, online players: {}",
+                newPlayer.getCommandSenderName(), uuid, event.wasDeath, players.size());
         QzEvents.post(new PlayerStateEvent(newPlayer, Reason.CLONE));
     }
 }

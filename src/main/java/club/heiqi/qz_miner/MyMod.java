@@ -4,6 +4,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import club.heiqi.qz_miner.core.PlayerManager;
+import club.heiqi.qz_miner.event.EventListener;
+import club.heiqi.qz_miner.event.PlayerStateEvent;
+import club.heiqi.qz_miner.event.QzEvents;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -39,6 +42,9 @@ public class MyMod {
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
         playerManager = new PlayerManager();
+        QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
+                LOG.info("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
+                        e.player.getCommandSenderName(), e.reason));
         proxy.init(event);
     }
 
