@@ -8,11 +8,13 @@ import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
 import club.heiqi.qz_miner.network.NetworkMain;
+import club.heiqi.qz_miner.parallel.ParallelTickExecutor;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
 @Mod(
@@ -29,6 +31,7 @@ public class MyMod {
     public static final Config CONFIG = new Config();
     public static PlayerManager playerManager;
     public static NetworkMain networkMain;
+    public static ParallelTickExecutor parallelTickExecutor;
 
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;
@@ -46,6 +49,7 @@ public class MyMod {
         networkMain = new NetworkMain();
         networkMain.register();
         playerManager = new PlayerManager();
+        parallelTickExecutor = new ParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
                         e.player.getCommandSenderName(), e.reason));
@@ -62,5 +66,13 @@ public class MyMod {
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
+    }
+
+    @Mod.EventHandler
+    public void serverStopping(FMLServerStoppingEvent event) {
+        if (parallelTickExecutor != null) {
+            parallelTickExecutor.shutdown();
+            parallelTickExecutor = null;
+        }
     }
 }
