@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.mixins;
+package club.heiqi.qz_miner.mixins.early;
 
 import club.heiqi.qz_miner.event.PlayerDisconnectEvent;
 import club.heiqi.qz_miner.event.QzEvents;
