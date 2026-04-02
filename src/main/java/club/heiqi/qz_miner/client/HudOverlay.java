@@ -1,14 +1,15 @@
 package club.heiqi.qz_miner.client;
 
+import club.heiqi.qz_miner.ClientProxy;
+import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType;
-import org.lwjgl.input.Keyboard;
 
 /**
  * HUD 渲染器。
@@ -52,5 +53,16 @@ public class HudOverlay {
         int y = resolution.getScaledHeight() - 20;
 
         mc.fontRenderer.drawStringWithShadow("\u00a7a\u6b63\u5728\u8fde\u9501", x, y, 0xFFFFFF);
+
+        if (ClientProxy.chainPreviewController != null && MyMod.chainStateService != null
+            && MyMod.chainStateService.getClientState().isPreviewActive()) {
+            ChainPreviewState previewState = ClientProxy.chainPreviewController.getPreviewState();
+            String previewText = String.format(
+                "\u00a77\u9884\u89c8: %d \u4e2a\u65b9\u5757 / \u626b\u63cf: %d%s",
+                previewState.getMatchedCount(),
+                previewState.getScannedCount(),
+                previewState.isCompleted() ? " \u00a7a(\u5b8c\u6210)" : " \u00a7e(\u8ba1\u7b97\u4e2d)");
+            mc.fontRenderer.drawStringWithShadow(previewText, x, y - 10, 0xFFFFFF);
+        }
     }
 }
