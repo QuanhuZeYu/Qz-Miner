@@ -63,10 +63,12 @@ public class KeyListener {
 
         if (isPressed && !wasPressed) {
             MyMod.LOG.debug("[KeyListener] Chain key pressed");
+            MyMod.chainStateService.setClientChainKeyPressed(true);
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
             hudOverlay.setChainActive(true);
         } else if (!isPressed && wasPressed) {
             MyMod.LOG.debug("[KeyListener] Chain key released");
+            MyMod.chainStateService.setClientChainKeyPressed(false);
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, false));
             hudOverlay.setChainActive(false);
         }

@@ -53,6 +53,9 @@ public class PacketKeyState implements IMessage {
         @Override
         public IMessage onMessage(PacketKeyState message, MessageContext ctx) {
             EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+            if (message.keyId == club.heiqi.qz_miner.client.KeyListener.KEY_CHAIN && MyMod.chainStateService != null) {
+                MyMod.chainStateService.setPlayerChainKeyPressed(player.getUniqueID(), message.pressed);
+            }
             MyMod.LOG.debug("[Network] Player {} key state: keyId={}, pressed={}",
                     player.getCommandSenderName(), message.keyId, message.pressed);
             return null;
