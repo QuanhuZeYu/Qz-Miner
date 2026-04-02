@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.mixins.early;
+package club.heiqi.qz_miner.mixins;
 
 import club.heiqi.qz_miner.event.PlayerDisconnectEvent;
 import club.heiqi.qz_miner.event.QzEvents;
@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * 注入到 NetHandlerPlayServer.onDisconnect 中，
  * 在原版注销逻辑之前触发 PlayerDisconnectEvent。
  */
-@Mixin(NetHandlerPlayServer.class)
+@Mixin(value = NetHandlerPlayServer.class, remap = false)
 public class MixinNetHandlerPlayServer {
 
     @Inject(
