@@ -7,6 +7,7 @@ import club.heiqi.qz_miner.core.PlayerManager;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
+import club.heiqi.qz_miner.network.NetworkMain;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -27,6 +28,7 @@ public class MyMod {
     public static final Logger LOG = LogManager.getLogger(MODID);
     public static final Config CONFIG = new Config();
     public static PlayerManager playerManager;
+    public static NetworkMain networkMain;
 
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;
@@ -41,6 +43,8 @@ public class MyMod {
     @Mod.EventHandler
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
+        networkMain = new NetworkMain();
+        networkMain.register();
         playerManager = new PlayerManager();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.info("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
