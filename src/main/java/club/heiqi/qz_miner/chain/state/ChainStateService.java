@@ -5,9 +5,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.network.PacketChainStateSync;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
  * 连锁状态服务。
@@ -49,6 +52,7 @@ public final class ChainStateService {
     public void setPlayerChainKeyPressed(UUID playerUUID, boolean pressed) {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setChainKeyPressed(pressed);
+        syncPlayerState(playerUUID);
         MyMod.LOG.debug("[ChainState] Player {} chain key pressed={}", playerUUID, pressed);
     }
 
@@ -56,6 +60,26 @@ public final class ChainStateService {
         clientState.setChainKeyPressed(pressed);
         clientState.setPreviewActive(pressed);
         MyMod.LOG.debug("[ChainState] Client chain key pressed={}", pressed);
+    }
+
+    public void syncPlayerState(UUID playerUUID) {
+        if (MyMod.networkMain == null || MyMod.playerManager == null) {
+            return;
+        }
+
+        ChainPlayerState state = getPlayerState(playerUUID);
+        if (state == null) {
+            return;
+        }
+
+        EntityPlayer player = MyMod.playerManager.getPlayer(playerUUID);
+        if (!(player instanceof EntityPlayerMP)) {
+            return;
+        }
+
+        MyMod.networkMain.network.sendTo(
+            new PacketChainStateSync(state.isChainKeyPressed(), state.isExecuting(), state.getSelectedMode()),
+            (EntityPlayerMP) player);
     }
 
     private void onPlayerStateChanged(PlayerStateEvent event) {
@@ -66,6 +90,7 @@ public final class ChainStateService {
             case DIMENSION_CHANGE:
             case CLONE:
                 getOrCreatePlayerState(playerUUID);
+                syncPlayerState(playerUUID);
                 break;
             case LOGOUT:
                 removePlayerState(playerUUID);

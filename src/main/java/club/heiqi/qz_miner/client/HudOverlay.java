@@ -19,15 +19,12 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent.ElementType;
 @SideOnly(Side.CLIENT)
 public class HudOverlay {
 
-    private boolean chainActive = false;
-
     /**
      * 设置连锁状态是否激活。
      *
      * @param active 是否激活
      */
     public void setChainActive(boolean active) {
-        this.chainActive = active;
     }
 
     /**
@@ -43,7 +40,7 @@ public class HudOverlay {
             return;
         }
 
-        if (!chainActive) {
+        if (MyMod.chainStateService == null || !MyMod.chainStateService.getClientState().isChainActiveDisplay()) {
             return;
         }
 
@@ -52,7 +49,10 @@ public class HudOverlay {
         int x = 4;
         int y = resolution.getScaledHeight() - 20;
 
-        mc.fontRenderer.drawStringWithShadow("\u00a7a\u6b63\u5728\u8fde\u9501", x, y, 0xFFFFFF);
+        String statusText = MyMod.chainStateService.getClientState().isServerExecuting()
+            ? "\u00a7a\u6b63\u5728\u8fde\u9501"
+            : "\u00a7e\u8fde\u9501\u5f85\u547d";
+        mc.fontRenderer.drawStringWithShadow(statusText, x, y, 0xFFFFFF);
 
         if (ClientProxy.chainPreviewController != null && MyMod.chainStateService != null
             && MyMod.chainStateService.getClientState().isPreviewActive()) {

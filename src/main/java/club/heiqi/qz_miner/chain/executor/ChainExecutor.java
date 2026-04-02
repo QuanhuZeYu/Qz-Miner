@@ -55,6 +55,7 @@ public class ChainExecutor {
             if (target == null) {
                 if (playerState.getPlannerSubscription() == null) {
                     playerState.setExecuting(false);
+                    MyMod.chainStateService.syncPlayerState(playerState.getPlayerUUID());
                 }
                 return;
             }

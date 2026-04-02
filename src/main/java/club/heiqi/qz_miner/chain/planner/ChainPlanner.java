@@ -64,6 +64,7 @@ public class ChainPlanner {
 
         playerState.clearRuntimeState();
         playerState.setExecuting(true);
+        MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
         ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPlannedTargets();
         Set<ChainTarget> visited = new HashSet<>();
@@ -121,6 +122,7 @@ public class ChainPlanner {
                         currentState.setPlannerSubscription(null);
                         if (currentState.getPlannedTargets().isEmpty()) {
                             currentState.setExecuting(false);
+                            MyMod.chainStateService.syncPlayerState(playerUUID);
                         }
                     }
                 }

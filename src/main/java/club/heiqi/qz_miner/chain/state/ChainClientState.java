@@ -10,6 +10,8 @@ public class ChainClientState {
 
     private boolean chainKeyPressed;
     private boolean previewActive;
+    private boolean serverChainKeyPressed;
+    private boolean serverExecuting;
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
 
     public boolean isChainKeyPressed() {
@@ -28,11 +30,31 @@ public class ChainClientState {
         this.previewActive = previewActive;
     }
 
+    public boolean isServerChainKeyPressed() {
+        return serverChainKeyPressed;
+    }
+
+    public void setServerChainKeyPressed(boolean serverChainKeyPressed) {
+        this.serverChainKeyPressed = serverChainKeyPressed;
+    }
+
+    public boolean isServerExecuting() {
+        return serverExecuting;
+    }
+
+    public void setServerExecuting(boolean serverExecuting) {
+        this.serverExecuting = serverExecuting;
+    }
+
     public ChainMode getSelectedMode() {
         return selectedMode;
     }
 
     public void setSelectedMode(ChainMode selectedMode) {
         this.selectedMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
+    }
+
+    public boolean isChainActiveDisplay() {
+        return serverChainKeyPressed || serverExecuting || chainKeyPressed;
     }
 }

@@ -30,5 +30,10 @@ public final class NetworkMain {
                 PacketKeyState.class,
                 packetId++,
                 Side.SERVER);
+        network.registerMessage(
+                PacketChainStateSync.Handler.class,
+                PacketChainStateSync.class,
+                packetId++,
+                Side.CLIENT);
     }
 }
