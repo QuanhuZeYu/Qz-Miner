@@ -26,8 +26,10 @@ public final class ParallelTickExecutor {
 
     private static final long DEFAULT_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(45L);
 
-    private final CopyOnWriteArrayList<RegisteredTask> preTasks = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<RegisteredTask> postTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> serverPreTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> serverPostTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> clientPreTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> clientPostTasks = new CopyOnWriteArrayList<>();
     private final AtomicLong tickCounter = new AtomicLong();
     private final ReentrantLock stateLock = new ReentrantLock();
     private final Condition windowChanged = stateLock.newCondition();
@@ -61,18 +63,26 @@ public final class ParallelTickExecutor {
     }
 
     public ParallelTickSubscription registerPre(String name, ParallelTickTask task) {
-        return register(name, ParallelTickStage.PRE, task);
+        return register(name, ParallelTickStage.SERVER_PRE, task);
     }
 
     public ParallelTickSubscription registerPost(String name, ParallelTickTask task) {
-        return register(name, ParallelTickStage.POST, task);
+        return register(name, ParallelTickStage.SERVER_POST, task);
+    }
+
+    public ParallelTickSubscription registerClientPre(String name, ParallelTickTask task) {
+        return register(name, ParallelTickStage.CLIENT_PRE, task);
+    }
+
+    public ParallelTickSubscription registerClientPost(String name, ParallelTickTask task) {
+        return register(name, ParallelTickStage.CLIENT_POST, task);
     }
 
     /**
      * @return 当前已注册任务数
      */
     public int getRegisteredTaskCount() {
-        return preTasks.size() + postTasks.size();
+        return serverPreTasks.size() + serverPostTasks.size() + clientPreTasks.size() + clientPostTasks.size();
     }
 
     /**
@@ -89,24 +99,42 @@ public final class ParallelTickExecutor {
             stateLock.unlock();
         }
 
-        for (RegisteredTask registeredTask : preTasks) {
+        for (RegisteredTask registeredTask : serverPreTasks) {
             registeredTask.shutdown();
         }
 
-        for (RegisteredTask registeredTask : postTasks) {
+        for (RegisteredTask registeredTask : serverPostTasks) {
             registeredTask.shutdown();
         }
 
-        for (RegisteredTask registeredTask : preTasks) {
+        for (RegisteredTask registeredTask : clientPreTasks) {
+            registeredTask.shutdown();
+        }
+
+        for (RegisteredTask registeredTask : clientPostTasks) {
+            registeredTask.shutdown();
+        }
+
+        for (RegisteredTask registeredTask : serverPreTasks) {
             registeredTask.joinQuietly();
         }
 
-        for (RegisteredTask registeredTask : postTasks) {
+        for (RegisteredTask registeredTask : serverPostTasks) {
             registeredTask.joinQuietly();
         }
 
-        preTasks.clear();
-        postTasks.clear();
+        for (RegisteredTask registeredTask : clientPreTasks) {
+            registeredTask.joinQuietly();
+        }
+
+        for (RegisteredTask registeredTask : clientPostTasks) {
+            registeredTask.joinQuietly();
+        }
+
+        serverPreTasks.clear();
+        serverPostTasks.clear();
+        clientPreTasks.clear();
+        clientPostTasks.clear();
     }
 
     public void beginStage(ParallelTickStage stage) {
@@ -134,7 +162,7 @@ public final class ParallelTickExecutor {
                 tickId,
                 startNanoTime,
                 deadlineNanoTime,
-                stage == ParallelTickStage.PRE ? ParallelTickContext.Stage.PRE : ParallelTickContext.Stage.POST);
+                stage);
             tickWindowOpen = true;
             windowChanged.signalAll();
         } finally {
@@ -174,7 +202,18 @@ public final class ParallelTickExecutor {
     }
 
     private CopyOnWriteArrayList<RegisteredTask> getTasks(ParallelTickStage stage) {
-        return stage == ParallelTickStage.PRE ? preTasks : postTasks;
+        switch (stage) {
+            case SERVER_PRE:
+                return serverPreTasks;
+            case SERVER_POST:
+                return serverPostTasks;
+            case CLIENT_PRE:
+                return clientPreTasks;
+            case CLIENT_POST:
+                return clientPostTasks;
+            default:
+                throw new IllegalArgumentException("Unsupported stage: " + stage);
+        }
     }
 
     private final class RegisteredTask implements Runnable {

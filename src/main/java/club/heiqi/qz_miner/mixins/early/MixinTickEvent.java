@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * 在 Forge 发布服务端 Tick 事件前后打开和关闭并行窗口。
+ * 在 Forge 发布客户端/服务端 Tick 事件前后打开和关闭并行窗口。
  *
  * pre 阶段：
  * onPreServerTick HEAD -> 开始并行
@@ -25,28 +25,56 @@ public class MixinTickEvent {
     @Inject(method = "onPreServerTick", at = @At("HEAD"))
     private void onPreServerTickStart(CallbackInfo ci) {
         if (MyMod.parallelTickExecutor != null) {
-            MyMod.parallelTickExecutor.beginStage(ParallelTickStage.PRE);
+            MyMod.parallelTickExecutor.beginStage(ParallelTickStage.SERVER_PRE);
         }
     }
 
     @Inject(method = "onPreServerTick", at = @At("TAIL"))
     private void onPreServerTickEnd(CallbackInfo ci) {
         if (MyMod.parallelTickExecutor != null) {
-            MyMod.parallelTickExecutor.endStage(ParallelTickStage.PRE);
+            MyMod.parallelTickExecutor.endStage(ParallelTickStage.SERVER_PRE);
         }
     }
 
     @Inject(method = "onPostServerTick", at = @At("HEAD"))
     private void onPostServerTickStart(CallbackInfo ci) {
         if (MyMod.parallelTickExecutor != null) {
-            MyMod.parallelTickExecutor.beginStage(ParallelTickStage.POST);
+            MyMod.parallelTickExecutor.beginStage(ParallelTickStage.SERVER_POST);
         }
     }
 
     @Inject(method = "onPostServerTick", at = @At("TAIL"))
     private void onPostServerTickEnd(CallbackInfo ci) {
         if (MyMod.parallelTickExecutor != null) {
-            MyMod.parallelTickExecutor.endStage(ParallelTickStage.POST);
+            MyMod.parallelTickExecutor.endStage(ParallelTickStage.SERVER_POST);
+        }
+    }
+
+    @Inject(method = "onPreClientTick", at = @At("HEAD"))
+    private void onPreClientTickStart(CallbackInfo ci) {
+        if (MyMod.parallelTickExecutor != null) {
+            MyMod.parallelTickExecutor.beginStage(ParallelTickStage.CLIENT_PRE);
+        }
+    }
+
+    @Inject(method = "onPreClientTick", at = @At("TAIL"))
+    private void onPreClientTickEnd(CallbackInfo ci) {
+        if (MyMod.parallelTickExecutor != null) {
+            MyMod.parallelTickExecutor.endStage(ParallelTickStage.CLIENT_PRE);
+        }
+    }
+
+    @Inject(method = "onPostClientTick", at = @At("HEAD"))
+    private void onPostClientTickStart(CallbackInfo ci) {
+        if (MyMod.parallelTickExecutor != null) {
+            MyMod.parallelTickExecutor.beginStage(ParallelTickStage.CLIENT_POST);
+        }
+    }
+
+    @Inject(method = "onPostClientTick", at = @At("TAIL"))
+    private void onPostClientTickEnd(CallbackInfo ci) {
+        if (MyMod.parallelTickExecutor != null) {
+            MyMod.parallelTickExecutor.endStage(ParallelTickStage.CLIENT_POST);
         }
     }
 }
