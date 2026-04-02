@@ -14,7 +14,6 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.player.PlayerEvent.Clone;
 import net.minecraftforge.event.world.WorldEvent;
@@ -151,14 +150,16 @@ public final class PlayerManager {
     }
 
     /**
-     * 世界卸载事件（单人模式退出兜底）。
+     * 世界卸载事件（单人/多人模式兜底）。
      *
-     * 单人模式下 NetHandlerPlayServer.onDisconnect 触发不可靠，
-     * 通过 WorldEvent.Unload 确保玩家状态被正确清理。
+     * 仅监听服务端主世界（维度0）的卸载事件，
+     * 确保在服务器停止或单人模式退出时清理所有玩家状态，
+     * 避免因断开事件未触发导致的玩家滞留问题。
+     * 维度卸载（如末地无人）不会触发此清理，因为 isRemote=false 且 dimension==0。
      */
     @SubscribeEvent
     public void onWorldUnload(WorldEvent.Unload event) {
-        if (event.world == null || !event.world.isRemote) {
+        if (event.world == null || event.world.isRemote || event.world.provider.dimensionId != 0) {
             return;
         }
 
@@ -166,7 +167,7 @@ public final class PlayerManager {
             return;
         }
 
-        MyMod.LOG.debug("[PlayerManager] World unloaded, clearing {} player(s)", players.size());
+        MyMod.LOG.info("[PlayerManager] Server world unloading, clearing {} player(s)", players.size());
         for (Map.Entry<UUID, EntityPlayer> entry : players.entrySet()) {
             EntityPlayer player = entry.getValue();
             QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
