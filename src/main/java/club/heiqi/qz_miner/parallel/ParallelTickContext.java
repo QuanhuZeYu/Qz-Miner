@@ -5,14 +5,21 @@ package club.heiqi.qz_miner.parallel;
  */
 public final class ParallelTickContext {
 
+    public enum Stage {
+        PRE,
+        POST
+    }
+
     private final long tickId;
     private final long startNanoTime;
     private final long deadlineNanoTime;
+    private final Stage stage;
 
-    public ParallelTickContext(long tickId, long startNanoTime, long deadlineNanoTime) {
+    public ParallelTickContext(long tickId, long startNanoTime, long deadlineNanoTime, Stage stage) {
         this.tickId = tickId;
         this.startNanoTime = startNanoTime;
         this.deadlineNanoTime = deadlineNanoTime;
+        this.stage = stage;
     }
 
     /**
@@ -41,6 +48,13 @@ public final class ParallelTickContext {
      */
     public long getDeadlineNanoTime() {
         return deadlineNanoTime;
+    }
+
+    /**
+     * @return 当前并行阶段
+     */
+    public Stage getStage() {
+        return stage;
     }
 
     /**

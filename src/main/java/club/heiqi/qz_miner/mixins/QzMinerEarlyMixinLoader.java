@@ -24,7 +24,7 @@ public class QzMinerEarlyMixinLoader implements IEarlyMixinLoader, IFMLLoadingPl
 
     @Override
     public List<String> getMixins(Set<String> loadedCoreMods) {
-        return Arrays.asList("MixinNetHandlerPlayServer");
+        return Arrays.asList("MixinNetHandlerPlayServer", "MixinTickEvent");
     }
 
     @Override

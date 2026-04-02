@@ -26,7 +26,8 @@ public final class ParallelTickExecutor {
 
     private static final long DEFAULT_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(45L);
 
-    private final CopyOnWriteArrayList<RegisteredTask> registeredTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> preTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> postTasks = new CopyOnWriteArrayList<>();
     private final AtomicLong tickCounter = new AtomicLong();
     private final ReentrantLock stateLock = new ReentrantLock();
     private final Condition windowChanged = stateLock.newCondition();
@@ -36,6 +37,7 @@ public final class ParallelTickExecutor {
     private volatile boolean tickWindowOpen = false;
     private volatile ParallelTickContext currentContext;
     private volatile long currentTickId = 0L;
+    private volatile ParallelTickStage currentStage;
     private int activeWorkers = 0;
 
     public ParallelTickExecutor() {
@@ -50,19 +52,27 @@ public final class ParallelTickExecutor {
      * @param task 任务实现
      * @return 任务注销句柄
      */
-    public ParallelTickSubscription register(String name, ParallelTickTask task) {
-        RegisteredTask registeredTask = new RegisteredTask(name, task);
-        registeredTasks.add(registeredTask);
+    public ParallelTickSubscription register(String name, ParallelTickStage stage, ParallelTickTask task) {
+        RegisteredTask registeredTask = new RegisteredTask(name, stage, task);
+        getTasks(stage).add(registeredTask);
         registeredTask.start();
-        MyMod.LOG.debug("[ParallelTick] Registered task: {}", name);
+        MyMod.LOG.debug("[ParallelTick] Registered {} task: {}", stage, name);
         return () -> unregister(registeredTask);
+    }
+
+    public ParallelTickSubscription registerPre(String name, ParallelTickTask task) {
+        return register(name, ParallelTickStage.PRE, task);
+    }
+
+    public ParallelTickSubscription registerPost(String name, ParallelTickTask task) {
+        return register(name, ParallelTickStage.POST, task);
     }
 
     /**
      * @return 当前已注册任务数
      */
     public int getRegisteredTaskCount() {
-        return registeredTasks.size();
+        return preTasks.size() + postTasks.size();
     }
 
     /**
@@ -79,31 +89,39 @@ public final class ParallelTickExecutor {
             stateLock.unlock();
         }
 
-        for (RegisteredTask registeredTask : registeredTasks) {
+        for (RegisteredTask registeredTask : preTasks) {
             registeredTask.shutdown();
         }
 
-        for (RegisteredTask registeredTask : registeredTasks) {
+        for (RegisteredTask registeredTask : postTasks) {
+            registeredTask.shutdown();
+        }
+
+        for (RegisteredTask registeredTask : preTasks) {
             registeredTask.joinQuietly();
         }
 
-        registeredTasks.clear();
+        for (RegisteredTask registeredTask : postTasks) {
+            registeredTask.joinQuietly();
+        }
+
+        preTasks.clear();
+        postTasks.clear();
     }
 
-    /**
-     * 在 Tick 开始时启动并行区。
-     */
-    @SubscribeEvent
-    public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.START) {
-            beginTick();
+    public void beginStage(ParallelTickStage stage) {
+        if (getTasks(stage).isEmpty()) {
+            stateLock.lock();
+            try {
+                currentStage = stage;
+                currentContext = null;
+                tickWindowOpen = false;
+            } finally {
+                stateLock.unlock();
+            }
             return;
         }
 
-        endTick();
-    }
-
-    private void beginTick() {
         long tickId = tickCounter.incrementAndGet();
         long startNanoTime = System.nanoTime();
         long deadlineNanoTime = startNanoTime + DEFAULT_TICK_BUDGET_NANOS;
@@ -111,7 +129,12 @@ public final class ParallelTickExecutor {
         stateLock.lock();
         try {
             currentTickId = tickId;
-            currentContext = new ParallelTickContext(tickId, startNanoTime, deadlineNanoTime);
+            currentStage = stage;
+            currentContext = new ParallelTickContext(
+                tickId,
+                startNanoTime,
+                deadlineNanoTime,
+                stage == ParallelTickStage.PRE ? ParallelTickContext.Stage.PRE : ParallelTickContext.Stage.POST);
             tickWindowOpen = true;
             windowChanged.signalAll();
         } finally {
@@ -119,9 +142,13 @@ public final class ParallelTickExecutor {
         }
     }
 
-    private void endTick() {
+    public void endStage(ParallelTickStage stage) {
         stateLock.lock();
         try {
+            if (currentStage != stage) {
+                return;
+            }
+
             tickWindowOpen = false;
             windowChanged.signalAll();
 
@@ -140,21 +167,27 @@ public final class ParallelTickExecutor {
     }
 
     private void unregister(RegisteredTask registeredTask) {
-        if (registeredTasks.remove(registeredTask)) {
+        if (getTasks(registeredTask.stage).remove(registeredTask)) {
             registeredTask.shutdown();
-            MyMod.LOG.debug("[ParallelTick] Unregistered task: {}", registeredTask.name);
+            MyMod.LOG.debug("[ParallelTick] Unregistered {} task: {}", registeredTask.stage, registeredTask.name);
         }
+    }
+
+    private CopyOnWriteArrayList<RegisteredTask> getTasks(ParallelTickStage stage) {
+        return stage == ParallelTickStage.PRE ? preTasks : postTasks;
     }
 
     private final class RegisteredTask implements Runnable {
         private final String name;
+        private final ParallelTickStage stage;
         private final ParallelTickTask task;
         private final Thread thread;
         private volatile boolean active = true;
         private long observedTickId = -1L;
 
-        private RegisteredTask(String name, ParallelTickTask task) {
+        private RegisteredTask(String name, ParallelTickStage stage, ParallelTickTask task) {
             this.name = name;
+            this.stage = stage;
             this.task = task;
             this.thread = new ParallelThread(name).create(this);
         }
@@ -206,7 +239,7 @@ public final class ParallelTickExecutor {
                     }
                 }
 
-                if (!running || !active || !tickWindowOpen || currentContext == null) {
+                if (!running || !active || !tickWindowOpen || currentContext == null || currentStage != stage) {
                     return null;
                 }
 
@@ -223,21 +256,21 @@ public final class ParallelTickExecutor {
                 try {
                     boolean shouldContinue = task.run(context);
                     if (!shouldContinue) {
-                        registeredTasks.remove(this);
+                        getTasks(stage).remove(this);
                         active = false;
-                        MyMod.LOG.debug("[ParallelTick] Task completed: {}", name);
+                        MyMod.LOG.debug("[ParallelTick] {} task completed: {}", stage, name);
                         return;
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     MyMod.LOG.warn("[ParallelTick] Task interrupted: {}", name, e);
                     active = false;
-                    registeredTasks.remove(this);
+                    getTasks(stage).remove(this);
                     return;
                 } catch (Exception e) {
                     MyMod.LOG.error("[ParallelTick] Task failed: {}", name, e);
                     active = false;
-                    registeredTasks.remove(this);
+                    getTasks(stage).remove(this);
                     return;
                 } finally {
                     exitWorker();
