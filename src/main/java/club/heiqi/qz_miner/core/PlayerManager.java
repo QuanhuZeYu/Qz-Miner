@@ -14,8 +14,10 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.player.PlayerEvent.Clone;
+import net.minecraftforge.event.world.WorldEvent;
 
 /**
  * 玩家管理器。
@@ -146,5 +148,29 @@ public final class PlayerManager {
         MyMod.LOG.debug("[PlayerManager] Player cloned: {} (UUID: {}), wasDeath: {}, online players: {}",
                 newPlayer.getCommandSenderName(), uuid, event.wasDeath, players.size());
         QzEvents.post(new PlayerStateEvent(newPlayer, Reason.CLONE));
+    }
+
+    /**
+     * 世界卸载事件（单人模式退出兜底）。
+     *
+     * 单人模式下 NetHandlerPlayServer.onDisconnect 触发不可靠，
+     * 通过 WorldEvent.Unload 确保玩家状态被正确清理。
+     */
+    @SubscribeEvent
+    public void onWorldUnload(WorldEvent.Unload event) {
+        if (event.world == null || !event.world.isRemote) {
+            return;
+        }
+
+        if (players.isEmpty()) {
+            return;
+        }
+
+        MyMod.LOG.debug("[PlayerManager] World unloaded, clearing {} player(s)", players.size());
+        for (Map.Entry<UUID, EntityPlayer> entry : players.entrySet()) {
+            EntityPlayer player = entry.getValue();
+            QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
+        }
+        players.clear();
     }
 }
