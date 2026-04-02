@@ -31,8 +31,15 @@ public final class ChainStateService {
         return playerStates.get(playerUUID);
     }
 
+    public Iterable<ChainPlayerState> getPlayerStates() {
+        return playerStates.values();
+    }
+
     public void removePlayerState(UUID playerUUID) {
-        playerStates.remove(playerUUID);
+        ChainPlayerState state = playerStates.remove(playerUUID);
+        if (state != null) {
+            state.clearRuntimeState();
+        }
     }
 
     public ChainClientState getClientState() {

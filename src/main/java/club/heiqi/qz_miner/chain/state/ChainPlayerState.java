@@ -1,9 +1,12 @@
 package club.heiqi.qz_miner.chain.state;
 
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
  * 服务端玩家连锁状态。
@@ -14,6 +17,8 @@ public class ChainPlayerState {
     private boolean chainKeyPressed;
     private boolean executing;
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
+    private ParallelTickSubscription plannerSubscription;
+    private final ConcurrentLinkedQueue<ChainTarget> plannedTargets = new ConcurrentLinkedQueue<>();
 
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
@@ -45,5 +50,26 @@ public class ChainPlayerState {
 
     public void setSelectedMode(ChainMode selectedMode) {
         this.selectedMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
+    }
+
+    public ParallelTickSubscription getPlannerSubscription() {
+        return plannerSubscription;
+    }
+
+    public void setPlannerSubscription(ParallelTickSubscription plannerSubscription) {
+        this.plannerSubscription = plannerSubscription;
+    }
+
+    public ConcurrentLinkedQueue<ChainTarget> getPlannedTargets() {
+        return plannedTargets;
+    }
+
+    public void clearRuntimeState() {
+        if (plannerSubscription != null) {
+            plannerSubscription.unregister();
+            plannerSubscription = null;
+        }
+        plannedTargets.clear();
+        executing = false;
     }
 }

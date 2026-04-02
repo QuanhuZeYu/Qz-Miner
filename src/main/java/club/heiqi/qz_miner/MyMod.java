@@ -5,6 +5,8 @@ import org.apache.logging.log4j.Logger;
 
 import club.heiqi.qz_miner.core.PlayerManager;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
+import club.heiqi.qz_miner.chain.executor.ChainExecutor;
+import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
@@ -32,6 +34,8 @@ public class MyMod {
     public static final Config CONFIG = new Config();
     public static PlayerManager playerManager;
     public static ChainStateService chainStateService;
+    public static ChainPlanner chainPlanner;
+    public static ChainExecutor chainExecutor;
     public static NetworkMain networkMain;
     public static ParallelTickExecutor parallelTickExecutor;
 
@@ -52,6 +56,8 @@ public class MyMod {
         networkMain.register();
         playerManager = new PlayerManager();
         chainStateService = new ChainStateService();
+        chainPlanner = new ChainPlanner();
+        chainExecutor = new ChainExecutor();
         parallelTickExecutor = new ParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
