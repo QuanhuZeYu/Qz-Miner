@@ -15,7 +15,7 @@ public class ChainPlayerState {
 
     private final UUID playerUUID;
     private boolean chainKeyPressed;
-    private boolean executing;
+    private ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private ParallelTickSubscription plannerSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> plannedTargets = new ConcurrentLinkedQueue<>();
@@ -37,11 +37,19 @@ public class ChainPlayerState {
     }
 
     public boolean isExecuting() {
-        return executing;
+        return executionStatus == ChainExecutionStatus.EXECUTING || executionStatus == ChainExecutionStatus.PLANNING;
     }
 
     public void setExecuting(boolean executing) {
-        this.executing = executing;
+        this.executionStatus = executing ? ChainExecutionStatus.EXECUTING : ChainExecutionStatus.IDLE;
+    }
+
+    public ChainExecutionStatus getExecutionStatus() {
+        return executionStatus;
+    }
+
+    public void setExecutionStatus(ChainExecutionStatus executionStatus) {
+        this.executionStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
     }
 
     public ChainMode getSelectedMode() {
@@ -70,6 +78,6 @@ public class ChainPlayerState {
             plannerSubscription = null;
         }
         plannedTargets.clear();
-        executing = false;
+        executionStatus = ChainExecutionStatus.IDLE;
     }
 }

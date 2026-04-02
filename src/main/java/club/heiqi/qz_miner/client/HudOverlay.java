@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.client;
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
+import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -49,10 +50,19 @@ public class HudOverlay {
         int x = 4;
         int y = resolution.getScaledHeight() - 20;
 
-        String statusText = MyMod.chainStateService.getClientState().isServerExecuting()
-            ? "\u00a7a\u6b63\u5728\u8fde\u9501"
-            : "\u00a7e\u8fde\u9501\u5f85\u547d";
+        ChainExecutionStatus executionStatus = MyMod.chainStateService.getClientState().getServerExecutionStatus();
+        String statusText;
+        if (executionStatus == ChainExecutionStatus.EXECUTING) {
+            statusText = "\u00a7a\u6b63\u5728\u8fde\u9501";
+        } else if (executionStatus == ChainExecutionStatus.PLANNING) {
+            statusText = "\u00a7e\u8fde\u9501\u89c4\u5212\u4e2d";
+        } else {
+            statusText = "\u00a7e\u8fde\u9501\u5f85\u547d";
+        }
         mc.fontRenderer.drawStringWithShadow(statusText, x, y, 0xFFFFFF);
+
+        String modeText = "\u00a77\u5f53\u524d\u6a21\u5f0f: " + MyMod.chainStateService.getClientState().getSelectedMode().name();
+        mc.fontRenderer.drawStringWithShadow(modeText, x, y - 10, 0xFFFFFF);
 
         if (ClientProxy.chainPreviewController != null && MyMod.chainStateService != null
             && MyMod.chainStateService.getClientState().isPreviewActive()) {
@@ -62,7 +72,7 @@ public class HudOverlay {
                 previewState.getMatchedCount(),
                 previewState.getScannedCount(),
                 previewState.isCompleted() ? " \u00a7a(\u5b8c\u6210)" : " \u00a7e(\u8ba1\u7b97\u4e2d)");
-            mc.fontRenderer.drawStringWithShadow(previewText, x, y - 10, 0xFFFFFF);
+            mc.fontRenderer.drawStringWithShadow(previewText, x, y - 20, 0xFFFFFF);
         }
     }
 }

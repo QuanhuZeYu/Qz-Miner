@@ -1,7 +1,10 @@
 package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.network.PacketKeyState;
+import club.heiqi.qz_miner.network.PacketChainModeSwitch;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -33,6 +36,10 @@ public class KeyListener {
             "key.qz_miner.chainSwitch",
             Keyboard.KEY_GRAVE,
             "key.categories.qz_miner");
+    public static KeyBinding mainModeSwitch = new KeyBinding(
+            "key.qz_miner.mainModeSwitch",
+            Keyboard.KEY_V,
+            "key.categories.qz_miner");
 
     private final HudOverlay hudOverlay;
 
@@ -50,6 +57,7 @@ public class KeyListener {
      */
     public void register() {
         ClientRegistry.registerKeyBinding(chainSwitch);
+        ClientRegistry.registerKeyBinding(mainModeSwitch);
         FMLCommonHandler.instance().bus().register(this);
     }
 
@@ -57,6 +65,13 @@ public class KeyListener {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         if (FMLClientHandler.instance().getClient().theWorld == null) {
             return;
+        }
+
+        if (mainModeSwitch.isPressed() && MyMod.chainStateService != null) {
+            ChainMode nextMode = ChainModeRegistry.next(MyMod.chainStateService.getClientState().getSelectedMode());
+            MyMod.chainStateService.setClientSelectedMode(nextMode);
+            MyMod.networkMain.network.sendToServer(new PacketChainModeSwitch(nextMode));
+            MyMod.LOG.debug("[KeyListener] Switched chain mode to {}", nextMode);
         }
 
         boolean isPressed = chainSwitch.getIsKeyPressed();

@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.network;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -17,13 +18,15 @@ public class PacketChainStateSync implements IMessage {
     public boolean chainKeyPressed;
     public boolean executing;
     public int modeOrdinal;
+    public int executionStatusOrdinal;
 
     public PacketChainStateSync() {}
 
-    public PacketChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode) {
+    public PacketChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus) {
         this.chainKeyPressed = chainKeyPressed;
         this.executing = executing;
         this.modeOrdinal = mode.ordinal();
+        this.executionStatusOrdinal = executionStatus.ordinal();
     }
 
     @Override
@@ -31,6 +34,7 @@ public class PacketChainStateSync implements IMessage {
         chainKeyPressed = buf.readBoolean();
         executing = buf.readBoolean();
         modeOrdinal = buf.readInt();
+        executionStatusOrdinal = buf.readInt();
     }
 
     @Override
@@ -38,6 +42,7 @@ public class PacketChainStateSync implements IMessage {
         buf.writeBoolean(chainKeyPressed);
         buf.writeBoolean(executing);
         buf.writeInt(modeOrdinal);
+        buf.writeInt(executionStatusOrdinal);
     }
 
     @SideOnly(Side.CLIENT)
@@ -53,12 +58,17 @@ public class PacketChainStateSync implements IMessage {
             ChainMode mode = message.modeOrdinal >= 0 && message.modeOrdinal < modes.length
                 ? modes[message.modeOrdinal]
                 : ChainMode.CHAIN;
+            ChainExecutionStatus[] statuses = ChainExecutionStatus.values();
+            ChainExecutionStatus executionStatus = message.executionStatusOrdinal >= 0 && message.executionStatusOrdinal < statuses.length
+                ? statuses[message.executionStatusOrdinal]
+                : ChainExecutionStatus.IDLE;
 
             MyMod.chainStateService.getClientState().setServerChainKeyPressed(message.chainKeyPressed);
             MyMod.chainStateService.getClientState().setServerExecuting(message.executing);
+            MyMod.chainStateService.getClientState().setServerExecutionStatus(executionStatus);
             MyMod.chainStateService.getClientState().setSelectedMode(mode);
-            MyMod.LOG.debug("[ChainSync] Received chain state sync: pressed={}, executing={}, mode={}",
-                message.chainKeyPressed, message.executing, mode);
+            MyMod.LOG.debug("[ChainSync] Received chain state sync: pressed={}, executing={}, mode={}, status={}",
+                message.chainKeyPressed, message.executing, mode, executionStatus);
             return null;
         }
     }

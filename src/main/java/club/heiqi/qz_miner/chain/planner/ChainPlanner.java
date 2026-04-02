@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -63,7 +64,7 @@ public class ChainPlanner {
         }
 
         playerState.clearRuntimeState();
-        playerState.setExecuting(true);
+        playerState.setExecutionStatus(ChainExecutionStatus.PLANNING);
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
         ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPlannedTargets();
@@ -110,6 +111,10 @@ public class ChainPlanner {
                     int meta = world.getBlockMetadata(worldX, worldY, worldZ);
                     if (block == sampleBlock && meta == sampleMeta && canHarvest((EntityPlayerMP) currentPlayer, worldX, worldY, worldZ)) {
                         queue.add(target);
+                        if (currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
+                            currentState.setExecutionStatus(ChainExecutionStatus.EXECUTING);
+                            MyMod.chainStateService.syncPlayerState(playerUUID);
+                        }
                     }
 
                     processed++;
@@ -121,7 +126,7 @@ public class ChainPlanner {
                     if (currentState != null) {
                         currentState.setPlannerSubscription(null);
                         if (currentState.getPlannedTargets().isEmpty()) {
-                            currentState.setExecuting(false);
+                            currentState.setExecutionStatus(ChainExecutionStatus.IDLE);
                             MyMod.chainStateService.syncPlayerState(playerUUID);
                         }
                     }

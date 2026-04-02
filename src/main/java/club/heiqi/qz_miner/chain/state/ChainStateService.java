@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.network.PacketChainStateSync;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
@@ -56,6 +57,18 @@ public final class ChainStateService {
         MyMod.LOG.debug("[ChainState] Player {} chain key pressed={}", playerUUID, pressed);
     }
 
+    public void setPlayerSelectedMode(UUID playerUUID, ChainMode mode) {
+        ChainPlayerState state = getOrCreatePlayerState(playerUUID);
+        state.setSelectedMode(mode);
+        syncPlayerState(playerUUID);
+        MyMod.LOG.debug("[ChainState] Player {} selected mode={}", playerUUID, mode);
+    }
+
+    public void setClientSelectedMode(ChainMode mode) {
+        clientState.setSelectedMode(mode);
+        MyMod.LOG.debug("[ChainState] Client selected mode={}", mode);
+    }
+
     public void setClientChainKeyPressed(boolean pressed) {
         clientState.setChainKeyPressed(pressed);
         clientState.setPreviewActive(pressed);
@@ -78,7 +91,11 @@ public final class ChainStateService {
         }
 
         MyMod.networkMain.network.sendTo(
-            new PacketChainStateSync(state.isChainKeyPressed(), state.isExecuting(), state.getSelectedMode()),
+            new PacketChainStateSync(
+                state.isChainKeyPressed(),
+                state.isExecuting(),
+                state.getSelectedMode(),
+                state.getExecutionStatus()),
             (EntityPlayerMP) player);
     }
 

@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -54,7 +55,7 @@ public class ChainExecutor {
             ChainTarget target = queue.poll();
             if (target == null) {
                 if (playerState.getPlannerSubscription() == null) {
-                    playerState.setExecuting(false);
+                    playerState.setExecutionStatus(ChainExecutionStatus.IDLE);
                     MyMod.chainStateService.syncPlayerState(playerState.getPlayerUUID());
                 }
                 return;
