@@ -3,6 +3,7 @@ package club.heiqi.qz_miner;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import club.heiqi.qz_miner.core.PlayerManager;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -22,6 +23,7 @@ public class MyMod {
     public static final String MOD_NAME = "Qz Miner";
     public static final Logger LOG = LogManager.getLogger(MODID);
     public static final Config CONFIG = new Config();
+    public static PlayerManager playerManager;
 
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;
@@ -36,6 +38,7 @@ public class MyMod {
     @Mod.EventHandler
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
+        playerManager = new PlayerManager();
         proxy.init(event);
     }
 
