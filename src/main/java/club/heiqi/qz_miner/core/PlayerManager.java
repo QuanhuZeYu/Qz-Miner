@@ -6,6 +6,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.event.PlayerDisconnectEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent.Reason;
 import club.heiqi.qz_miner.event.QzEvents;
@@ -21,6 +22,7 @@ import net.minecraftforge.event.entity.player.PlayerEvent.Clone;
  *
  * 监听所有可能的玩家事件，维护最新的玩家状态映射表。
  * 通过 {@link PlayerStateEvent} 向模组内部和外部模组广播玩家状态变更。
+ * 玩家断开连接使用 Mixin 注入的 {@link PlayerDisconnectEvent}，比 Forge 原生事件更准确。
  */
 public final class PlayerManager {
 
@@ -37,6 +39,7 @@ public final class PlayerManager {
     public PlayerManager() {
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
+        QzEvents.register(PlayerDisconnectEvent.class, this::onPlayerDisconnect);
     }
 
     /**
@@ -92,14 +95,14 @@ public final class PlayerManager {
     }
 
     /**
-     * 玩家离开游戏。
+     * 玩家断开连接（通过 Mixin 注入，比 Forge 原生事件更准确）。
      */
-    @SubscribeEvent
-    public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+    public void onPlayerDisconnect(PlayerDisconnectEvent event) {
         EntityPlayer player = event.player;
-        players.remove(player.getUniqueID());
-        MyMod.LOG.info("[PlayerManager] Player logged out: {} (UUID: {}), online players: {}",
-                player.getCommandSenderName(), player.getUniqueID(), players.size());
+        UUID uuid = player.getUniqueID();
+        players.remove(uuid);
+        MyMod.LOG.info("[PlayerManager] Player disconnected: {} (UUID: {}), reason: {}, online players: {}",
+                player.getCommandSenderName(), uuid, event.reason.getUnformattedText(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
     }
 
