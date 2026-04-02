@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.chain.executor;
 
-import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.MyMod;
@@ -12,6 +11,7 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 
 /**
  * 连锁执行器。
@@ -52,6 +52,12 @@ public class ChainExecutor {
         int executedCount = 0;
 
         while (executedCount < MAX_BREAK_PER_TICK) {
+            if (!checkCanOperate(player, playerState)) {
+                playerState.clearRuntimeState();
+                MyMod.chainStateService.syncPlayerState(playerState.getPlayerUUID());
+                return;
+            }
+
             ChainTarget target = queue.poll();
             if (target == null) {
                 if (playerState.getPlannerSubscription() == null) {
@@ -76,5 +82,18 @@ public class ChainExecutor {
 
             executedCount++;
         }
+    }
+
+    private boolean checkCanOperate(EntityPlayerMP player, ChainPlayerState playerState) {
+        if (!playerState.isChainKeyPressed()) {
+            return false;
+        }
+
+        ItemStack equippedItem = player.getCurrentEquippedItem();
+        if (equippedItem != null && equippedItem.isItemStackDamageable()) {
+            return equippedItem.getMaxDamage() - equippedItem.getItemDamage() > 1;
+        }
+
+        return true;
     }
 }

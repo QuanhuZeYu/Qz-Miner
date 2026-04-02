@@ -1,6 +1,12 @@
 package club.heiqi.qz_miner.chain.client;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.planner.ChainSearchAlgorithm;
+import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -26,7 +32,8 @@ import net.minecraft.world.World;
 public class ChainPreviewController {
 
     private static final int PREVIEW_RADIUS = 4;
-    private static final int MAX_SCAN_PER_SLICE = 64;
+    private static final int MAX_SCAN_PER_SLICE = 32;
+    private static final int MAX_PREVIEW_TARGETS = 256;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private ChainTarget currentTarget;
@@ -80,42 +87,48 @@ public class ChainPreviewController {
         final int generation = previewState.getGeneration();
         final Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         final int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-        final int diameter = PREVIEW_RADIUS * 2 + 1;
-        final int totalSize = diameter * diameter * diameter;
+        final ConcurrentLinkedQueue<ChainTarget> frontier = new ConcurrentLinkedQueue<>();
+        final Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
+        final Set<ChainTarget> matched = ConcurrentHashMap.newKeySet();
+        frontier.add(target);
+        visited.add(target);
+        matched.add(target);
+        previewState.addPreviewTarget(target);
+        final ChainSearchContext searchContext = new ChainSearchContext(
+            world,
+            target,
+            sampleBlock,
+            sampleMeta,
+            PREVIEW_RADIUS,
+            MAX_PREVIEW_TARGETS,
+            frontier,
+            visited,
+            matched);
 
         previewTaskSubscription = MyMod.parallelTickExecutor.registerClientPre(
             "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
             context -> {
-                int processed = 0;
-                while (context.hasTimeLeft() && processed < MAX_SCAN_PER_SLICE) {
-                    int currentIndex = previewState.incrementScannedCount() - 1;
-                    if (currentIndex >= totalSize) {
-                        previewState.setCompleted(true);
-                        return false;
-                    }
-
-                    if (!isPreviewStillValid(generation, target)) {
-                        return false;
-                    }
-
-                    int localX = currentIndex % diameter;
-                    int localY = (currentIndex / diameter) % diameter;
-                    int localZ = currentIndex / (diameter * diameter);
-
-                    int worldX = target.getX() + localX - PREVIEW_RADIUS;
-                    int worldY = target.getY() + localY - PREVIEW_RADIUS;
-                    int worldZ = target.getZ() + localZ - PREVIEW_RADIUS;
-
-                    Block block = world.getBlock(worldX, worldY, worldZ);
-                    int meta = world.getBlockMetadata(worldX, worldY, worldZ);
-                    if (block == sampleBlock && meta == sampleMeta) {
-                        previewState.addPreviewTarget(new ChainTarget(worldX, worldY, worldZ));
-                    }
-
-                    processed++;
+                if (!isPreviewStillValid(generation, target)) {
+                    return false;
                 }
 
-                return true;
+                int beforeMatched = matched.size();
+                boolean shouldContinue = ChainSearchAlgorithm.step(searchContext, MAX_SCAN_PER_SLICE, matchedTarget -> true);
+                previewState.incrementScannedCount();
+
+                if (matched.size() > beforeMatched) {
+                    for (ChainTarget matchedTarget : matched) {
+                        if (!previewState.containsPreviewTarget(matchedTarget)) {
+                            previewState.addPreviewTarget(matchedTarget);
+                        }
+                    }
+                }
+
+                if (!shouldContinue) {
+                    previewState.setCompleted(true);
+                }
+
+                return shouldContinue;
             });
 
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());

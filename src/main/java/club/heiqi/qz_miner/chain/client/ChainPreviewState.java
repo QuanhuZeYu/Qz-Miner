@@ -82,4 +82,10 @@ public class ChainPreviewState {
             return new ArrayList<>(previewTargets);
         }
     }
+
+    public boolean containsPreviewTarget(ChainTarget target) {
+        synchronized (previewTargets) {
+            return previewTargets.contains(target);
+        }
+    }
 }
