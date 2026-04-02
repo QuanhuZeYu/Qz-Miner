@@ -16,7 +16,6 @@ import cpw.mods.fml.common.gameevent.PlayerEvent;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.player.PlayerEvent.Clone;
-import net.minecraftforge.event.world.WorldEvent;
 
 /**
  * 玩家管理器。
@@ -26,6 +25,11 @@ import net.minecraftforge.event.world.WorldEvent;
  * 玩家断开连接使用 Mixin 注入的 {@link PlayerDisconnectEvent}，比 Forge 原生事件更准确。
  */
 public final class PlayerManager {
+
+    /**
+     * 全局唯一实例，供 Mixin 调用。
+     */
+    private static PlayerManager instance;
 
     /**
      * 所有当前在线玩家的映射表，以 UUID 为键。
@@ -38,9 +42,26 @@ public final class PlayerManager {
      * 自动向 Forge 和 FML 事件总线注册自身。
      */
     public PlayerManager() {
+        instance = this;
         MinecraftForge.EVENT_BUS.register(this);
         FMLCommonHandler.instance().bus().register(this);
         QzEvents.register(PlayerDisconnectEvent.class, this::onPlayerDisconnect);
+    }
+
+    /**
+     * 清空所有玩家（由客户端 Mixin 调用，用于单人模式退出）。
+     */
+    public static void clearAllPlayers() {
+        if (instance == null || instance.players.isEmpty()) {
+            return;
+        }
+
+        MyMod.LOG.info("[PlayerManager] Exiting to main menu, clearing {} player(s)", instance.players.size());
+        for (Map.Entry<UUID, EntityPlayer> entry : instance.players.entrySet()) {
+            EntityPlayer player = entry.getValue();
+            QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
+        }
+        instance.players.clear();
     }
 
     /**
@@ -147,31 +168,5 @@ public final class PlayerManager {
         MyMod.LOG.debug("[PlayerManager] Player cloned: {} (UUID: {}), wasDeath: {}, online players: {}",
                 newPlayer.getCommandSenderName(), uuid, event.wasDeath, players.size());
         QzEvents.post(new PlayerStateEvent(newPlayer, Reason.CLONE));
-    }
-
-    /**
-     * 世界卸载事件（单人/多人模式兜底）。
-     *
-     * 仅监听服务端主世界（维度0）的卸载事件，
-     * 确保在服务器停止或单人模式退出时清理所有玩家状态，
-     * 避免因断开事件未触发导致的玩家滞留问题。
-     * 维度卸载（如末地无人）不会触发此清理，因为 isRemote=false 且 dimension==0。
-     */
-    @SubscribeEvent
-    public void onWorldUnload(WorldEvent.Unload event) {
-        if (event.world == null || event.world.isRemote || event.world.provider.dimensionId != 0) {
-            return;
-        }
-
-        if (players.isEmpty()) {
-            return;
-        }
-
-        MyMod.LOG.info("[PlayerManager] Server world unloading, clearing {} player(s)", players.size());
-        for (Map.Entry<UUID, EntityPlayer> entry : players.entrySet()) {
-            EntityPlayer player = entry.getValue();
-            QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
-        }
-        players.clear();
     }
 }
