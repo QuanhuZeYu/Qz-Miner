@@ -32,10 +32,16 @@ public class KeyListener {
             Keyboard.KEY_GRAVE,
             "key.categories.qz_miner");
 
+    private final HudOverlay hudOverlay;
+
     /**
      * 当前是否处于按键按下状态。
      */
     private boolean wasPressed = false;
+
+    public KeyListener(HudOverlay hudOverlay) {
+        this.hudOverlay = hudOverlay;
+    }
 
     /**
      * 注册按键绑定和事件监听。
@@ -52,9 +58,11 @@ public class KeyListener {
         if (isPressed && !wasPressed) {
             MyMod.LOG.debug("[KeyListener] Chain key pressed");
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
+            hudOverlay.setChainActive(true);
         } else if (!isPressed && wasPressed) {
             MyMod.LOG.debug("[KeyListener] Chain key released");
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, false));
+            hudOverlay.setChainActive(false);
         }
 
         wasPressed = isPressed;
