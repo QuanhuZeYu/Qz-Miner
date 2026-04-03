@@ -10,10 +10,10 @@ import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.settings.KeyBinding;
-import net.minecraftforge.common.MinecraftForge;
 import org.lwjgl.input.Keyboard;
 
 /**
@@ -74,20 +74,44 @@ public class KeyListener {
             MyMod.LOG.debug("[KeyListener] Switched chain mode to {}", nextMode);
         }
 
-        boolean isPressed = chainSwitch.getIsKeyPressed();
+    }
 
+    @SubscribeEvent
+    public void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+
+        if (FMLClientHandler.instance().getClient().theWorld == null) {
+            if (wasPressed) {
+                updateChainKeyState(false);
+            }
+            return;
+        }
+
+        boolean isPressed = chainSwitch.getIsKeyPressed();
         if (isPressed && !wasPressed) {
-            MyMod.LOG.debug("[KeyListener] Chain key pressed");
-            MyMod.chainStateService.setClientChainKeyPressed(true);
-            MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
-            hudOverlay.setChainActive(true);
+            updateChainKeyState(true);
         } else if (!isPressed && wasPressed) {
-            MyMod.LOG.debug("[KeyListener] Chain key released");
-            MyMod.chainStateService.setClientChainKeyPressed(false);
-            MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, false));
-            hudOverlay.setChainActive(false);
+            updateChainKeyState(false);
         }
 
         wasPressed = isPressed;
+    }
+
+    private void updateChainKeyState(boolean pressed) {
+        if (pressed) {
+            MyMod.LOG.debug("[KeyListener] Chain key pressed");
+        } else {
+            MyMod.LOG.debug("[KeyListener] Chain key released");
+        }
+
+        if (MyMod.chainStateService != null) {
+            MyMod.chainStateService.setClientChainKeyPressed(pressed);
+        }
+        if (MyMod.networkMain != null) {
+            MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, pressed));
+        }
+        hudOverlay.setChainActive(pressed);
     }
 }
