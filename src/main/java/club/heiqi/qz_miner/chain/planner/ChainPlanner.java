@@ -78,7 +78,18 @@ public class ChainPlanner {
         Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
 
         visited.add(origin);
-        currentFrontier.add(origin);
+
+        int[][] offsets = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
+        for (int[] off : offsets) {
+            ChainTarget neighbor = new ChainTarget(origin.getX() + off[0], origin.getY() + off[1], origin.getZ() + off[2]);
+            if (visited.add(neighbor)) {
+                Block nb = world.getBlock(neighbor.getX(), neighbor.getY(), neighbor.getZ());
+                int nm = world.getBlockMetadata(neighbor.getX(), neighbor.getY(), neighbor.getZ());
+                if (nb == sampleBlock && nm == sampleMeta) {
+                    currentFrontier.add(neighbor);
+                }
+            }
+        }
 
         final UUID playerUUID = player.getUniqueID();
         final int chainRadius = Config.chainRadius;
