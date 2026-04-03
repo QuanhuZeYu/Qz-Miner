@@ -8,6 +8,11 @@ import net.minecraft.world.World;
 
 /**
  * 连锁搜索上下文。
+ *
+ * 状态分层：
+ * - currentFrontier：当前轮需要处理的候选点
+ * - nextFrontier：下一轮需要处理的候选点（从当前轮扩展出来的邻居）
+ * - visited：所有已检查过的点（避免重复检查）
  */
 public class ChainSearchContext {
 
@@ -17,9 +22,10 @@ public class ChainSearchContext {
     private final int sampleMeta;
     private final int maxRadius;
     private final int maxTargets;
-    private final Queue<ChainTarget> frontier;
+    private final Queue<ChainTarget> currentFrontier;
+    private final Queue<ChainTarget> nextFrontier;
     private final Set<ChainTarget> visited;
-    private final Set<ChainTarget> matched;
+    private int confirmedCount;
 
     public ChainSearchContext(
         World world,
@@ -28,18 +34,18 @@ public class ChainSearchContext {
         int sampleMeta,
         int maxRadius,
         int maxTargets,
-        Queue<ChainTarget> frontier,
-        Set<ChainTarget> visited,
-        Set<ChainTarget> matched) {
+        Queue<ChainTarget> currentFrontier,
+        Queue<ChainTarget> nextFrontier,
+        Set<ChainTarget> visited) {
         this.world = world;
         this.origin = origin;
         this.sampleBlock = sampleBlock;
         this.sampleMeta = sampleMeta;
         this.maxRadius = maxRadius;
         this.maxTargets = maxTargets;
-        this.frontier = frontier;
+        this.currentFrontier = currentFrontier;
+        this.nextFrontier = nextFrontier;
         this.visited = visited;
-        this.matched = matched;
     }
 
     public World getWorld() {
@@ -66,15 +72,23 @@ public class ChainSearchContext {
         return maxTargets;
     }
 
-    public Queue<ChainTarget> getFrontier() {
-        return frontier;
+    public Queue<ChainTarget> getCurrentFrontier() {
+        return currentFrontier;
+    }
+
+    public Queue<ChainTarget> getNextFrontier() {
+        return nextFrontier;
     }
 
     public Set<ChainTarget> getVisited() {
         return visited;
     }
 
-    public Set<ChainTarget> getMatched() {
-        return matched;
+    public int getConfirmedCount() {
+        return confirmedCount;
+    }
+
+    public void incrementConfirmedCount() {
+        confirmedCount++;
     }
 }

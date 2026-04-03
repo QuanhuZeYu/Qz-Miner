@@ -7,9 +7,21 @@ import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 
 /**
- * 共用连锁搜索算法。
+ * 连锁搜索算法。
  *
- * 使用从中心向外扩散的 BFS 方式增量搜索。
+ * BFS 从中心向外扩散，状态分为三层：
+ * - currentFrontier：当前轮需要处理的节点（从上一轮的邻居中选出的候选点）
+ * - nextFrontier：下一轮需要处理的节点（从当前轮扩展出来的邻居）
+ * - consumer 接收到的节点：已确认可挖掘的点
+ *
+ * 处理逻辑：
+ * 1. 从 currentFrontier 取出一个节点
+ * 2. 检查该节点是否仍然是同种方块（可能已被消费端挖掉）
+ * 3. 如果是且可挖掘，通知 consumer 接收，然后扩展邻居到 nextFrontier
+ * 4. 如果不是（已被挖掉），跳过该节点但不扩展邻居
+ * 5. currentFrontier 处理完后，将 nextFrontier 旋转为 currentFrontier
+ *
+ * 重入保证：无论何时暂停和恢复，都可以从 currentFrontier 继续处理。
  */
 public final class ChainSearchAlgorithm {
 
@@ -20,30 +32,45 @@ public final class ChainSearchAlgorithm {
         new ChainTarget(0, -1, 0),
         new ChainTarget(0, 0, 1),
         new ChainTarget(0, 0, -1));
-    private static final ChainTargetConsumer NO_OP_CONSUMER = target -> {};
 
     private ChainSearchAlgorithm() {}
 
-    public static boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher) {
-        return step(context, maxNodes, matcher, NO_OP_CONSUMER);
-    }
-
+    /**
+     * 执行一轮搜索分片。
+     *
+     * @param context     搜索上下文
+     * @param maxNodes    本轮最多处理的节点数
+     * @param matcher     节点匹配器（检查是否可挖掘）
+     * @param consumer    消费者（接收已确认可挖掘的节点）
+     * @return 是否还有更多节点可继续处理
+     */
     public static boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
         int processed = 0;
-        int matchedBefore = context.getMatched().size();
-        context.rotateFrontier();
 
-        while (processed < maxNodes && context.hasPendingTargets() && context.getMatched().size() < context.getMaxTargets()) {
-            ChainTarget current = context.getCurrentTarget();
+        while (processed < maxNodes && !context.getCurrentFrontier().isEmpty()) {
+            ChainTarget current = context.getCurrentFrontier().poll();
             if (current == null) {
-                current = context.getCurrentFrontier().poll();
-                context.setCurrentTarget(current);
-            }
-
-            if (current == null) {
-                context.rotateFrontier();
                 break;
             }
+
+            Block block = context.getWorld().getBlock(current.getX(), current.getY(), current.getZ());
+            if (block == null || block == Blocks.air || block != context.getSampleBlock()) {
+                processed++;
+                continue;
+            }
+
+            int meta = context.getWorld().getBlockMetadata(current.getX(), current.getY(), current.getZ());
+            if (meta != context.getSampleMeta()) {
+                processed++;
+                continue;
+            }
+
+            if (!matcher.matches(current)) {
+                processed++;
+                continue;
+            }
+
+            consumer.accept(current);
 
             for (ChainTarget offset : NEIGHBOR_OFFSETS) {
                 ChainTarget next = new ChainTarget(
@@ -59,39 +86,33 @@ public final class ChainSearchAlgorithm {
                     continue;
                 }
 
-                Block block = context.getWorld().getBlock(next.getX(), next.getY(), next.getZ());
-                if (block == null || block == Blocks.air || block != context.getSampleBlock()) {
+                if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                    break;
+                }
+
+                Block nextBlock = context.getWorld().getBlock(next.getX(), next.getY(), next.getZ());
+                if (nextBlock == null || nextBlock == Blocks.air || nextBlock != context.getSampleBlock()) {
                     continue;
                 }
 
-                int meta = context.getWorld().getBlockMetadata(next.getX(), next.getY(), next.getZ());
-                if (meta != context.getSampleMeta()) {
+                int nextMeta = context.getWorld().getBlockMetadata(next.getX(), next.getY(), next.getZ());
+                if (nextMeta != context.getSampleMeta()) {
                     continue;
                 }
 
-                if (!matcher.matches(next)) {
-                    continue;
-                }
-
-                context.getMatched().add(next);
                 context.getNextFrontier().add(next);
             }
-
-            context.setCurrentTarget(null);
-            consumer.accept(current);
-            context.rotateFrontier();
 
             processed++;
         }
 
-        if (processed > 0) {
-            context.rotateFrontier();
+        if (context.getCurrentFrontier().isEmpty() && !context.getNextFrontier().isEmpty()) {
+            while (!context.getNextFrontier().isEmpty()) {
+                context.getCurrentFrontier().add(context.getNextFrontier().poll());
+            }
         }
 
-        boolean hasMore = !context.getCurrentFrontier().isEmpty() || !context.getNextFrontier().isEmpty();
-        boolean foundNew = context.getMatched().size() > matchedBefore;
-
-        return (hasMore || foundNew) && context.getMatched().size() < context.getMaxTargets();
+        return !context.getCurrentFrontier().isEmpty();
     }
 
     private static int getDistance(ChainTarget a, ChainTarget b) {

@@ -87,13 +87,11 @@ public class ChainPreviewController {
         final int generation = previewState.getGeneration();
         final Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         final int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-        final ConcurrentLinkedQueue<ChainTarget> frontier = new ConcurrentLinkedQueue<>();
+        final ConcurrentLinkedQueue<ChainTarget> currentFrontier = new ConcurrentLinkedQueue<>();
+        final ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<>();
         final Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
-        final Set<ChainTarget> matched = ConcurrentHashMap.newKeySet();
-        frontier.add(target);
+        currentFrontier.add(target);
         visited.add(target);
-        matched.add(target);
-        previewState.addPreviewTarget(target);
         final ChainSearchContext searchContext = new ChainSearchContext(
             world,
             target,
@@ -101,28 +99,23 @@ public class ChainPreviewController {
             sampleMeta,
             PREVIEW_RADIUS,
             MAX_PREVIEW_TARGETS,
-            frontier,
-            visited,
-            matched);
+            currentFrontier,
+            nextFrontier,
+            visited);
 
-        previewTaskSubscription = MyMod.parallelTickExecutor.registerClientPre(
+        previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
             "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
             context -> {
                 if (!isPreviewStillValid(generation, target)) {
                     return false;
                 }
 
-                int beforeMatched = matched.size();
-                boolean shouldContinue = ChainSearchAlgorithm.step(searchContext, MAX_SCAN_PER_SLICE, matchedTarget -> true);
+                boolean shouldContinue = ChainSearchAlgorithm.step(
+                    searchContext,
+                    MAX_SCAN_PER_SLICE,
+                    matchedTarget -> true,
+                    previewState::addPreviewTarget);
                 previewState.incrementScannedCount();
-
-                if (matched.size() > beforeMatched) {
-                    for (ChainTarget matchedTarget : matched) {
-                        if (!previewState.containsPreviewTarget(matchedTarget)) {
-                            previewState.addPreviewTarget(matchedTarget);
-                        }
-                    }
-                }
 
                 if (!shouldContinue) {
                     previewState.setCompleted(true);
