@@ -6,6 +6,7 @@ import java.util.List;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.item.EntityItem;
@@ -22,6 +23,7 @@ public class ChainDropCollector {
 
     public ChainDropCollector() {
         MinecraftForge.EVENT_BUS.register(this);
+        FMLCommonHandler.instance().bus().register(this);
     }
 
     @SubscribeEvent
@@ -31,19 +33,27 @@ public class ChainDropCollector {
         }
 
         ChainPlayerState playerState = MyMod.chainStateService.getPlayerState(event.harvester.getUniqueID());
-        if (playerState == null || playerState.getExecutionStatus() != ChainExecutionStatus.EXECUTING) {
+        if (playerState == null || !playerState.isExecuting()) {
             return;
         }
 
+        MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent player={} status={} rawDropStacks={} pendingBefore={}",
+            event.harvester.getUniqueID(), playerState.getExecutionStatus(), event.drops.size(), playerState.getPendingDrops().size());
         for (ItemStack drop : event.drops) {
             mergeDrop(playerState.getPendingDrops(), drop);
         }
+        MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent merged player={} pendingAfter={}",
+            event.harvester.getUniqueID(), playerState.getPendingDrops().size());
         event.drops.clear();
     }
 
     @SubscribeEvent
     public void onWorldTick(TickEvent.WorldTickEvent event) {
-        if (event.phase != TickEvent.Phase.START || MyMod.chainStateService == null || MyMod.playerManager == null) {
+        if (event.phase != TickEvent.Phase.START
+            || event.world == null
+            || event.world.isRemote
+            || MyMod.chainStateService == null
+            || MyMod.playerManager == null) {
             return;
         }
 
@@ -54,10 +64,13 @@ public class ChainDropCollector {
 
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
             if (!(player instanceof EntityPlayerMP)) {
-                playerState.getPendingDrops().clear();
+                MyMod.LOG.warn("[ChainDropCollector] Missing EntityPlayerMP for {}, keeping {} pending drop stack(s)",
+                    playerState.getPlayerUUID(), playerState.getPendingDrops().size());
                 continue;
             }
 
+            MyMod.LOG.debug("[ChainDropCollector] Ready to release aggregated drops for player {}, pending aggregated stacks={}",
+                playerState.getPlayerUUID(), playerState.getPendingDrops().size());
             releaseDrops((EntityPlayerMP) player, playerState);
         }
     }
@@ -65,6 +78,8 @@ public class ChainDropCollector {
     private void releaseDrops(EntityPlayerMP player, ChainPlayerState playerState) {
         List<ItemStack> drops = new ArrayList<>(playerState.getPendingDrops());
         playerState.getPendingDrops().clear();
+        MyMod.LOG.debug("[ChainDropCollector] Releasing {} aggregated drop stack(s) for player {}",
+            drops.size(), player.getUniqueID());
         for (ItemStack itemStack : drops) {
             player.worldObj.spawnEntityInWorld(new EntityItem(player.worldObj, player.posX, player.posY, player.posZ, itemStack));
         }
@@ -72,7 +87,7 @@ public class ChainDropCollector {
 
     private void mergeDrop(List<ItemStack> drops, ItemStack incoming) {
         for (ItemStack existing : drops) {
-            if (ItemStack.areItemStacksEqual(existing, incoming)
+            if (existing.isItemEqual(incoming)
                 && ItemStack.areItemStackTagsEqual(existing, incoming)) {
                 existing.stackSize += incoming.stackSize;
                 return;

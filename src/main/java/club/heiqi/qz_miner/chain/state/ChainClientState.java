@@ -8,12 +8,12 @@ import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
  */
 public class ChainClientState {
 
-    private boolean chainKeyPressed;
-    private boolean previewActive;
-    private boolean serverChainKeyPressed;
-    private boolean serverExecuting;
-    private ChainExecutionStatus serverExecutionStatus = ChainExecutionStatus.IDLE;
-    private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
+    private volatile boolean chainKeyPressed;
+    private volatile boolean previewActive;
+    private volatile boolean serverChainKeyPressed;
+    private volatile boolean serverExecuting;
+    private volatile ChainExecutionStatus serverExecutionStatus = ChainExecutionStatus.IDLE;
+    private volatile ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
 
     public boolean isChainKeyPressed() {
         return chainKeyPressed;

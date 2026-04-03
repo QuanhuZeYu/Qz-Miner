@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
@@ -17,12 +18,15 @@ import net.minecraft.item.ItemStack;
 public class ChainPlayerState {
 
     private final UUID playerUUID;
-    private boolean chainKeyPressed;
-    private ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
+    private volatile boolean chainKeyPressed;
+    private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
-    private ParallelTickSubscription plannerSubscription;
+    private volatile ParallelTickSubscription plannerSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> plannedTargets = new ConcurrentLinkedQueue<>();
     private final List<ItemStack> pendingDrops = new ArrayList<>();
+    private volatile boolean executorWaitingForPlanner;
+    private volatile long plannerHeartbeatMillis;
+    private volatile long executorHeartbeatTick;
 
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
@@ -37,6 +41,9 @@ public class ChainPlayerState {
     }
 
     public void setChainKeyPressed(boolean chainKeyPressed) {
+        if (this.chainKeyPressed != chainKeyPressed) {
+            MyMod.LOG.debug("[ChainState] Player {} chainKeyPressed {} -> {}", playerUUID, this.chainKeyPressed, chainKeyPressed);
+        }
         this.chainKeyPressed = chainKeyPressed;
     }
 
@@ -53,7 +60,23 @@ public class ChainPlayerState {
     }
 
     public void setExecutionStatus(ChainExecutionStatus executionStatus) {
-        this.executionStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
+        setExecutionStatus(executionStatus, "unspecified");
+    }
+
+    public void setExecutionStatus(ChainExecutionStatus executionStatus, String reason) {
+        ChainExecutionStatus newStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
+        if (this.executionStatus != newStatus) {
+            MyMod.LOG.debug(
+                "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
+                playerUUID,
+                this.executionStatus,
+                newStatus,
+                reason,
+                plannedTargets.size(),
+                pendingDrops.size(),
+                executorWaitingForPlanner);
+        }
+        this.executionStatus = newStatus;
     }
 
     public ChainMode getSelectedMode() {
@@ -61,7 +84,11 @@ public class ChainPlayerState {
     }
 
     public void setSelectedMode(ChainMode selectedMode) {
-        this.selectedMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
+        ChainMode newMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
+        if (this.selectedMode != newMode) {
+            MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, this.selectedMode, newMode);
+        }
+        this.selectedMode = newMode;
     }
 
     public ParallelTickSubscription getPlannerSubscription() {
@@ -69,6 +96,12 @@ public class ChainPlayerState {
     }
 
     public void setPlannerSubscription(ParallelTickSubscription plannerSubscription) {
+        if (this.plannerSubscription == null && plannerSubscription != null) {
+            MyMod.LOG.debug("[ChainState] Player {} plannerSubscription attached", playerUUID);
+        } else if (this.plannerSubscription != null && plannerSubscription == null) {
+            MyMod.LOG.debug("[ChainState] Player {} plannerSubscription cleared queuedTargets={} pendingDrops={}",
+                playerUUID, plannedTargets.size(), pendingDrops.size());
+        }
         this.plannerSubscription = plannerSubscription;
     }
 
@@ -80,12 +113,51 @@ public class ChainPlayerState {
         return pendingDrops;
     }
 
+    public boolean isExecutorWaitingForPlanner() {
+        return executorWaitingForPlanner;
+    }
+
+    public void setExecutorWaitingForPlanner(boolean executorWaitingForPlanner) {
+        if (this.executorWaitingForPlanner != executorWaitingForPlanner) {
+            MyMod.LOG.debug("[ChainState] Player {} executorWaitingForPlanner {} -> {} queuedTargets={} pendingDrops={}",
+                playerUUID, this.executorWaitingForPlanner, executorWaitingForPlanner, plannedTargets.size(), pendingDrops.size());
+        }
+        this.executorWaitingForPlanner = executorWaitingForPlanner;
+    }
+
+    public long getPlannerHeartbeatMillis() {
+        return plannerHeartbeatMillis;
+    }
+
+    public void updatePlannerHeartbeat() {
+        this.plannerHeartbeatMillis = System.currentTimeMillis();
+    }
+
+    public long getExecutorHeartbeatTick() {
+        return executorHeartbeatTick;
+    }
+
+    public void updateExecutorHeartbeat(long heartbeatTick) {
+        this.executorHeartbeatTick = heartbeatTick;
+    }
+
     public void clearRuntimeState() {
+        clearRuntimeState("unspecified");
+    }
+
+    public void clearRuntimeState(String reason) {
+        int queuedTargets = plannedTargets.size();
+        int pendingDropStacks = pendingDrops.size();
         if (plannerSubscription != null) {
             plannerSubscription.unregister();
-            plannerSubscription = null;
+            setPlannerSubscription(null);
         }
         plannedTargets.clear();
-        executionStatus = ChainExecutionStatus.IDLE;
+        setExecutionStatus(ChainExecutionStatus.IDLE, reason);
+        setExecutorWaitingForPlanner(false);
+        plannerHeartbeatMillis = 0L;
+        executorHeartbeatTick = 0L;
+        MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}, queuedTargets={}, pendingDrops={}",
+            playerUUID, reason, queuedTargets, pendingDropStacks);
     }
 }

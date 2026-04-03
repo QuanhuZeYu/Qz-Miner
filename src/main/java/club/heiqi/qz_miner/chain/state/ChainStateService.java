@@ -42,7 +42,7 @@ public final class ChainStateService {
     public void removePlayerState(UUID playerUUID) {
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
-            state.clearRuntimeState();
+            state.clearRuntimeState("remove-player-state");
         }
     }
 
@@ -53,6 +53,12 @@ public final class ChainStateService {
     public void setPlayerChainKeyPressed(UUID playerUUID, boolean pressed) {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setChainKeyPressed(pressed);
+
+        if (!pressed && state.isExecuting()) {
+            stopPlayerExecution(playerUUID, "key-released");
+            return;
+        }
+
         syncPlayerState(playerUUID);
         MyMod.LOG.debug("[ChainState] Player {} chain key pressed={}", playerUUID, pressed);
     }
@@ -60,6 +66,12 @@ public final class ChainStateService {
     public void setPlayerSelectedMode(UUID playerUUID, ChainMode mode) {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedMode(mode);
+
+        if (state.isExecuting()) {
+            stopPlayerExecution(playerUUID, "mode-changed");
+            return;
+        }
+
         syncPlayerState(playerUUID);
         MyMod.LOG.debug("[ChainState] Player {} selected mode={}", playerUUID, mode);
     }
@@ -90,6 +102,16 @@ public final class ChainStateService {
             return;
         }
 
+        MyMod.LOG.debug(
+            "[ChainSync] Sending chain state sync to player {} pressed={} executing={} mode={} status={} queuedTargets={} pendingDrops={}",
+            playerUUID,
+            state.isChainKeyPressed(),
+            state.isExecuting(),
+            state.getSelectedMode(),
+            state.getExecutionStatus(),
+            state.getPlannedTargets().size(),
+            state.getPendingDrops().size());
+
         MyMod.networkMain.network.sendTo(
             new PacketChainStateSync(
                 state.isChainKeyPressed(),
@@ -97,6 +119,26 @@ public final class ChainStateService {
                 state.getSelectedMode(),
                 state.getExecutionStatus()),
             (EntityPlayerMP) player);
+    }
+
+    public void stopPlayerExecution(UUID playerUUID, String reason) {
+        ChainPlayerState state = getPlayerState(playerUUID);
+        if (state == null) {
+            return;
+        }
+
+        if (!state.isExecuting() && state.getPlannerSubscription() == null && state.getPlannedTargets().isEmpty()) {
+            return;
+        }
+
+        MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
+            playerUUID,
+            reason,
+            state.getExecutionStatus(),
+            state.getPlannedTargets().size(),
+            state.getPendingDrops().size());
+        state.clearRuntimeState(reason);
+        syncPlayerState(playerUUID);
     }
 
     private void onPlayerStateChanged(PlayerStateEvent event) {
