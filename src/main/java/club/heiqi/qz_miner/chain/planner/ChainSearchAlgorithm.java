@@ -20,14 +20,28 @@ public final class ChainSearchAlgorithm {
         new ChainTarget(0, -1, 0),
         new ChainTarget(0, 0, 1),
         new ChainTarget(0, 0, -1));
+    private static final ChainTargetConsumer NO_OP_CONSUMER = target -> {};
 
     private ChainSearchAlgorithm() {}
 
     public static boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher) {
+        return step(context, maxNodes, matcher, NO_OP_CONSUMER);
+    }
+
+    public static boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
         int processed = 0;
-        while (processed < maxNodes && !context.getFrontier().isEmpty() && context.getMatched().size() < context.getMaxTargets()) {
-            ChainTarget current = context.getFrontier().poll();
+        int matchedBefore = context.getMatched().size();
+        context.rotateFrontier();
+
+        while (processed < maxNodes && context.hasPendingTargets() && context.getMatched().size() < context.getMaxTargets()) {
+            ChainTarget current = context.getCurrentTarget();
             if (current == null) {
+                current = context.getCurrentFrontier().poll();
+                context.setCurrentTarget(current);
+            }
+
+            if (current == null) {
+                context.rotateFrontier();
                 break;
             }
 
@@ -60,13 +74,24 @@ public final class ChainSearchAlgorithm {
                 }
 
                 context.getMatched().add(next);
-                context.getFrontier().add(next);
+                context.getNextFrontier().add(next);
             }
+
+            context.setCurrentTarget(null);
+            consumer.accept(current);
+            context.rotateFrontier();
 
             processed++;
         }
 
-        return !context.getFrontier().isEmpty() && context.getMatched().size() < context.getMaxTargets();
+        if (processed > 0) {
+            context.rotateFrontier();
+        }
+
+        boolean hasMore = !context.getCurrentFrontier().isEmpty() || !context.getNextFrontier().isEmpty();
+        boolean foundNew = context.getMatched().size() > matchedBefore;
+
+        return (hasMore || foundNew) && context.getMatched().size() < context.getMaxTargets();
     }
 
     private static int getDistance(ChainTarget a, ChainTarget b) {
