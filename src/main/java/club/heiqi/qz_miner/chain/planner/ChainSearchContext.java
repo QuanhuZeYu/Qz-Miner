@@ -26,6 +26,7 @@ public class ChainSearchContext {
     private final Queue<ChainTarget> nextFrontier;
     private final Set<ChainTarget> visited;
     private int confirmedCount;
+    private int scanDepth;
 
     public ChainSearchContext(
         World world,
@@ -90,5 +91,13 @@ public class ChainSearchContext {
 
     public void incrementConfirmedCount() {
         confirmedCount++;
+    }
+
+    public int getScanDepth() {
+        return scanDepth;
+    }
+
+    public void setScanDepth(int scanDepth) {
+        this.scanDepth = Math.max(0, scanDepth);
     }
 }

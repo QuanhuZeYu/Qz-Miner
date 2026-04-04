@@ -27,7 +27,7 @@ public class CommonProxy {
     /**
      * 处理客户端连锁状态同步。
      */
-    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus) {
+    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
     }
 
     // register server commands in this event handler (Remove if not needed)

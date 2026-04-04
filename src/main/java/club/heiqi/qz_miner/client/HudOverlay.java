@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.client;
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
@@ -51,6 +52,7 @@ public class HudOverlay {
         int y = resolution.getScaledHeight() - 20;
 
         ChainExecutionStatus executionStatus = MyMod.chainStateService.getClientState().getServerExecutionStatus();
+        ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
         String statusText;
         if (executionStatus == ChainExecutionStatus.RUNNING) {
             statusText = "\u00a7a\u6b63\u5728\u8fde\u9501";
@@ -61,18 +63,44 @@ public class HudOverlay {
         }
         mc.fontRenderer.drawStringWithShadow(statusText, x, y, 0xFFFFFF);
 
-        String modeText = "\u00a77\u5f53\u524d\u6a21\u5f0f: " + MyMod.chainStateService.getClientState().getSelectedMode().name();
+        String modeText = "\u00a77\u5f53\u524d\u6a21\u5f0f: " + selectedMode.name();
         mc.fontRenderer.drawStringWithShadow(modeText, x, y - 10, 0xFFFFFF);
+
+        String serverMatchedText = String.format(
+            "\u00a77\u670d\u52a1\u7aef\u5df2\u5339\u914d: %d \u4e2a\u65b9\u5757",
+            MyMod.chainStateService.getClientState().getServerMatchedTargetCount());
+        mc.fontRenderer.drawStringWithShadow(serverMatchedText, x, y - 20, 0xFFFFFF);
 
         if (ClientProxy.chainPreviewController != null && MyMod.chainStateService != null
             && MyMod.chainStateService.getClientState().isPreviewActive()) {
             ChainPreviewState previewState = ClientProxy.chainPreviewController.getPreviewState();
-            String previewText = String.format(
-                "\u00a77\u9884\u89c8: %d \u4e2a\u65b9\u5757 / \u626b\u63cf: %d%s",
+            String matchedText = String.format(
+                "\u00a77\u9884\u89c8\u5df2\u5339\u914d: %d \u4e2a\u65b9\u5757%s",
                 previewState.getMatchedCount(),
-                previewState.getScannedCount(),
                 previewState.isCompleted() ? " \u00a7a(\u5b8c\u6210)" : " \u00a7e(\u8ba1\u7b97\u4e2d)");
-            mc.fontRenderer.drawStringWithShadow(previewText, x, y - 20, 0xFFFFFF);
+            mc.fontRenderer.drawStringWithShadow(matchedText, x, y - 30, 0xFFFFFF);
+
+            if (selectedMode == ChainMode.AREA) {
+                int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
+                int areaBlockCount = sideLength * sideLength * sideLength;
+                String areaText = String.format(
+                    "\u00a77\u670d\u52a1\u7aef\u533a\u57df: %d x %d x %d = %d",
+                    sideLength,
+                    sideLength,
+                    sideLength,
+                    areaBlockCount);
+                mc.fontRenderer.drawStringWithShadow(areaText, x, y - 40, 0xFFFFFF);
+            }
+        } else if (selectedMode == ChainMode.AREA) {
+            int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
+            int areaBlockCount = sideLength * sideLength * sideLength;
+            String areaText = String.format(
+                "\u00a77\u670d\u52a1\u7aef\u533a\u57df: %d x %d x %d = %d",
+                sideLength,
+                sideLength,
+                sideLength,
+                areaBlockCount);
+            mc.fontRenderer.drawStringWithShadow(areaText, x, y - 30, 0xFFFFFF);
         }
     }
 }

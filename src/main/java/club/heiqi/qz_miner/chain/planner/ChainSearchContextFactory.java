@@ -30,4 +30,20 @@ public final class ChainSearchContextFactory {
             nextFrontier,
             visited);
     }
+
+    public static ChainSearchContext createBlockBoxScanContext(World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
+        ConcurrentLinkedQueue<ChainTarget> currentFrontier = session.getTraversalTargets();
+        ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<ChainTarget>();
+        Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
+        return new ChainSearchContext(
+            world,
+            seedSnapshot.getOrigin(),
+            seedSnapshot.getSampleBlock(),
+            seedSnapshot.getSampleMeta(),
+            Config.chainRadius,
+            Config.chainMaxBlocks,
+            currentFrontier,
+            nextFrontier,
+            visited);
+    }
 }

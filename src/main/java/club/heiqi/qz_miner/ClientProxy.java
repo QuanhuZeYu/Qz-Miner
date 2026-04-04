@@ -22,7 +22,7 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus) {
+    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
         if (MyMod.chainStateService == null) {
             return;
         }
@@ -31,5 +31,8 @@ public class ClientProxy extends CommonProxy {
         MyMod.chainStateService.getClientState().setServerExecuting(executing);
         MyMod.chainStateService.getClientState().setServerExecutionStatus(executionStatus);
         MyMod.chainStateService.getClientState().setSelectedMode(mode);
+        MyMod.chainStateService.getClientState().setServerChainRadius(chainRadius);
+        MyMod.chainStateService.getClientState().setServerChainMaxBlocks(chainMaxBlocks);
+        MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedTargetCount);
     }
 }

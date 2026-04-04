@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.chain.executor;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.planner.ChainHarvestRules;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -13,14 +14,12 @@ public class BlockHarvestActionExecutor implements ChainActionExecutor {
 
     @Override
     public boolean supports(ChainMode mode) {
-        return mode == ChainMode.CHAIN;
+        return mode == ChainMode.CHAIN || mode == ChainMode.AREA;
     }
 
     @Override
     public boolean canExecute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
-        return !(target.getX() == (int) Math.floor(player.posX)
-            && target.getY() == (int) Math.floor(player.posY) - 1
-            && target.getZ() == (int) Math.floor(player.posZ));
+        return ChainHarvestRules.canHarvest(player, target);
     }
 
     @Override

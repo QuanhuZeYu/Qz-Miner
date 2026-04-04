@@ -17,6 +17,7 @@ public class Config {
     public static int chainMaxBlocks = 256;
     public static int maxBreakPerTick = 16;
     public static int parallelTickMinDurationMs = 15;
+    public static int clientPreviewMaxRadius = 4;
 
     /**
      * 初始化配置并注册配置变更监听。
@@ -43,6 +44,7 @@ public class Config {
         chainMaxBlocks = config.getInt("chainMaxBlocks", Configuration.CATEGORY_GENERAL, chainMaxBlocks, 1, Integer.MAX_VALUE, "最大连锁数量");
         maxBreakPerTick = config.getInt("maxBreakPerTick", Configuration.CATEGORY_GENERAL, maxBreakPerTick, 1, Integer.MAX_VALUE, "每 Tick 最多执行的连锁挖掘数量");
         parallelTickMinDurationMs = config.getInt("parallelTickMinDurationMs", Configuration.CATEGORY_GENERAL, parallelTickMinDurationMs, 10, Integer.MAX_VALUE, "同步执行器每刻最短执行时间（毫秒），默认 15，最低 10");
+        clientPreviewMaxRadius = config.getInt("clientPreviewMaxRadius", Configuration.CATEGORY_GENERAL, clientPreviewMaxRadius, 1, Integer.MAX_VALUE, "客户端最大预览半径；实际预览范围取该值与 chainRadius 的较小值，避免大范围预览渲染导致卡顿");
 
         if (config.hasChanged()) {
             config.save();

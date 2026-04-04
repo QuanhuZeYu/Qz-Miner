@@ -24,6 +24,7 @@ public class ChainSession {
     private volatile boolean plannerRunning;
     private volatile boolean plannerCompleted;
     private volatile long plannerHeartbeatMillis;
+    private volatile int matchedTargetCount;
     private final AtomicLong nextExecutorAllowedMillis = new AtomicLong();
 
     public ChainSession(UUID playerUUID, ChainMode mode, ChainTarget origin) {
@@ -112,6 +113,14 @@ public class ChainSession {
         this.plannerHeartbeatMillis = System.currentTimeMillis();
     }
 
+    public int getMatchedTargetCount() {
+        return matchedTargetCount;
+    }
+
+    public void setMatchedTargetCount(int matchedTargetCount) {
+        this.matchedTargetCount = Math.max(0, matchedTargetCount);
+    }
+
     public void resetExecutorThrottle() {
         nextExecutorAllowedMillis.set(0L);
     }
@@ -139,6 +148,7 @@ public class ChainSession {
         plannerRunning = false;
         plannerCompleted = false;
         plannerHeartbeatMillis = 0L;
+        matchedTargetCount = 0;
         resetExecutorThrottle();
         MyMod.LOG.debug("[ChainSession] Cleared runtime state for player {}, reason={}, queuedTargets={}",
             playerUUID, reason, queuedTargets);

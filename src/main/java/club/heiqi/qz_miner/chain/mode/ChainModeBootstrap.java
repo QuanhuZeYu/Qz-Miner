@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.mode;
 
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
+import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
 
 /**
@@ -15,6 +16,10 @@ public final class ChainModeBootstrap {
         ChainModeRegistry.register(new ChainModeDefinition(
             ChainMode.CHAIN,
             new BlockFloodFillPlanningStrategy(),
+            new BlockHarvestActionExecutor()));
+        ChainModeRegistry.register(new ChainModeDefinition(
+            ChainMode.AREA,
+            new BlockBoxScanPlanningStrategy(),
             new BlockHarvestActionExecutor()));
     }
 }

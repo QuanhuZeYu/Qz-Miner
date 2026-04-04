@@ -4,10 +4,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.chain.planner.ChainSearchAlgorithm;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.planner.BoxScanTraverser;
+import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
+import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -31,9 +37,11 @@ import net.minecraft.world.World;
 @SideOnly(Side.CLIENT)
 public class ChainPreviewController {
 
-    private static final int PREVIEW_RADIUS = 4;
     private static final int MAX_SCAN_PER_SLICE = 32;
     private static final int MAX_PREVIEW_TARGETS = 256;
+    private final ChainTraverser floodFillTraverser = new FloodFillTraverser();
+    private final ChainTraverser boxScanTraverser = new BoxScanTraverser();
+    private final ChainBlockMatcher blockMatcher = new HarvestableBlockMatcher();
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private ChainTarget currentTarget;
@@ -80,6 +88,12 @@ public class ChainPreviewController {
     private void startPreview(World world, ChainTarget target) {
         stopPreview();
 
+        Minecraft minecraft = Minecraft.getMinecraft();
+        EntityPlayer player = minecraft.thePlayer;
+        if (player == null) {
+            return;
+        }
+
         currentTarget = target;
         previewState.begin(target);
         MyMod.chainStateService.getClientState().setPreviewActive(true);
@@ -87,21 +101,23 @@ public class ChainPreviewController {
         final int generation = previewState.getGeneration();
         final Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         final int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        final int previewRadius = getEffectivePreviewRadius();
         final ConcurrentLinkedQueue<ChainTarget> currentFrontier = new ConcurrentLinkedQueue<>();
         final ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<>();
         final Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
-        currentFrontier.add(target);
-        visited.add(target);
         final ChainSearchContext searchContext = new ChainSearchContext(
             world,
             target,
             sampleBlock,
             sampleMeta,
-            PREVIEW_RADIUS,
+            previewRadius,
             MAX_PREVIEW_TARGETS,
             currentFrontier,
             nextFrontier,
             visited);
+        final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
+        final ChainTraverser traverser = resolveTraverser(selectedMode);
+        traverser.seed(searchContext);
 
         previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
             "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
@@ -110,10 +126,10 @@ public class ChainPreviewController {
                     return false;
                 }
 
-                boolean shouldContinue = ChainSearchAlgorithm.step(
+                boolean shouldContinue = traverser.step(
                     searchContext,
                     MAX_SCAN_PER_SLICE,
-                    matchedTarget -> true,
+                    matchedTarget -> blockMatcher.matches(player, matchedTarget),
                     previewState::addPreviewTarget);
                 previewState.incrementScannedCount();
 
@@ -125,6 +141,28 @@ public class ChainPreviewController {
             });
 
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());
+    }
+
+    /**
+     * 获取当前实际使用的预览半径。
+     *
+     * @return 预览半径
+     */
+    public int getEffectivePreviewRadius() {
+        return Math.max(1, Math.min(Config.chainRadius, Config.clientPreviewMaxRadius));
+    }
+
+    /**
+     * 根据当前模式选择预览遍历器。
+     *
+     * @param mode 当前连锁模式
+     * @return 对应的遍历器
+     */
+    private ChainTraverser resolveTraverser(ChainMode mode) {
+        if (mode == ChainMode.AREA) {
+            return boxScanTraverser;
+        }
+        return floodFillTraverser;
     }
 
     private boolean isPreviewStillValid(int generation, ChainTarget target) {

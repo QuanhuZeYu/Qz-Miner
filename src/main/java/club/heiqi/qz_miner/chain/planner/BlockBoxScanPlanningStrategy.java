@@ -14,20 +14,33 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
- * 当前默认的方块洪泛规划策略。
+ * 默认的范围盒扫规划策略。
  */
-public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
+public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
 
     private static final int MAX_SCAN_PER_SLICE = 64;
-    private final ChainTraverser traverser = new FloodFillTraverser();
+    private final ChainTraverser traverser = new BoxScanTraverser();
     private final ChainBlockMatcher blockMatcher = new HarvestableBlockMatcher();
     private final BlockSeedResolver blockSeedResolver = new WorldBlockSeedResolver();
 
+    /**
+     * 判断当前策略是否支持指定模式。
+     *
+     * @param mode 连锁模式
+     * @return 是否支持
+     */
     @Override
     public boolean supports(ChainMode mode) {
-        return mode == ChainMode.CHAIN;
+        return mode == ChainMode.AREA;
     }
 
+    /**
+     * 启动范围盒扫规划任务。
+     *
+     * @param player 服务端玩家
+     * @param playerState 玩家连锁状态
+     * @param origin 连锁起点
+     */
     @Override
     public void startPlanning(EntityPlayerMP player, ChainPlayerState playerState, ChainTarget origin) {
         BlockSeedSnapshot seedSnapshot = blockSeedResolver.resolve(player, origin);
@@ -39,10 +52,10 @@ public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
             return;
         }
 
-        playerState.clearRuntimeState("restart-plan");
+        playerState.clearRuntimeState("restart-area-plan");
         ChainSession session = new ChainSession(player.getUniqueID(), playerState.getSelectedMode(), origin);
         playerState.setSession(session);
-        playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-plan");
+        playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-area-plan");
         session.setPlannerRunning(true);
         session.setPlannerCompleted(false);
         session.updatePlannerHeartbeat();
@@ -55,22 +68,22 @@ public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
         traverser.seed(searchContext);
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
-            "chain-plan-" + playerUUID,
+            "area-plan-" + playerUUID,
             context -> {
                 EntityPlayer currentPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
                 if (!(currentPlayer instanceof EntityPlayerMP)) {
-                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "plan-player-unavailable");
+                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "area-plan-player-unavailable");
                     return false;
                 }
 
                 ChainPlayerState currentState = MyMod.chainStateService.getPlayerState(playerUUID);
                 if (currentState == null || currentState.getSession() == null) {
-                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "plan-state-missing");
+                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "area-plan-state-missing");
                     return false;
                 }
 
                 if (!currentState.isChainKeyPressed()) {
-                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "plan-key-released");
+                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "area-plan-key-released");
                     return false;
                 }
 
@@ -87,14 +100,14 @@ public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
                 boolean matchedCountChanged = previousMatchedCount != currentSession.getMatchedTargetCount();
 
                 if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
-                    currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "planner-found-targets");
+                    currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "area-planner-found-targets");
                     MyMod.chainStateService.syncPlayerState(playerUUID);
                 } else if (matchedCountChanged) {
                     MyMod.chainStateService.syncPlayerState(playerUUID);
                 }
 
                 if (!shouldContinue) {
-                    MyMod.LOG.debug("[ChainPlanner] Plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
+                    MyMod.LOG.debug("[ChainPlanner] Area plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
                         playerUUID, searchContext.getConfirmedCount(), queue.size(), currentState.getPendingDrops().size());
                     currentSession.setPlannerSubscription(null);
                     currentSession.setPlannerRunning(false);
@@ -102,11 +115,11 @@ public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
                     currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
-                        currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "planner-completed-empty-queue");
+                        currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "area-planner-completed-empty-queue");
                         currentState.clearSession();
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
-                        currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "planner-completed-with-targets");
+                        currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "area-planner-completed-with-targets");
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     } else {
                         MyMod.chainStateService.syncPlayerState(playerUUID);
@@ -117,17 +130,31 @@ public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
             });
 
         session.setPlannerSubscription(subscription);
-        MyMod.LOG.debug("[ChainPlanner] Started chain plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
+        MyMod.LOG.debug("[ChainPlanner] Started area plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
             playerUUID, origin.getX(), origin.getY(), origin.getZ(), Config.chainRadius, Config.chainMaxBlocks);
     }
 
+    /**
+     * 创建范围盒扫所需的搜索上下文。
+     *
+     * @param world 当前世界
+     * @param session 连锁会话
+     * @param seedSnapshot 方块种子快照
+     * @return 搜索上下文
+     */
     private ChainSearchContext createSearchContext(net.minecraft.world.World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
         session.getTraversalTargets().clear();
-        return ChainSearchContextFactory.createBlockFloodFillContext(world, session, seedSnapshot);
+        return ChainSearchContextFactory.createBlockBoxScanContext(world, session, seedSnapshot);
     }
 
+    /**
+     * 判断当前玩家是否允许启动范围连锁。
+     *
+     * @param player 服务端玩家
+     * @param playerState 玩家连锁状态
+     * @return 是否允许启动
+     */
     private boolean checkCanOperate(EntityPlayerMP player, ChainPlayerState playerState) {
         return playerState.isChainKeyPressed() && ChainHarvestRules.hasEnoughDurability(player);
     }
-
 }

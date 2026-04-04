@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.chain.state;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 
@@ -14,6 +15,9 @@ public class ChainClientState {
     private volatile boolean serverExecuting;
     private volatile ChainExecutionStatus serverExecutionStatus = ChainExecutionStatus.IDLE;
     private volatile ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
+    private volatile int serverChainRadius = Config.chainRadius;
+    private volatile int serverChainMaxBlocks = Config.chainMaxBlocks;
+    private volatile int serverMatchedTargetCount;
 
     public boolean isChainKeyPressed() {
         return chainKeyPressed;
@@ -61,6 +65,30 @@ public class ChainClientState {
 
     public void setSelectedMode(ChainMode selectedMode) {
         this.selectedMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
+    }
+
+    public int getServerChainRadius() {
+        return serverChainRadius;
+    }
+
+    public void setServerChainRadius(int serverChainRadius) {
+        this.serverChainRadius = Math.max(1, serverChainRadius);
+    }
+
+    public int getServerChainMaxBlocks() {
+        return serverChainMaxBlocks;
+    }
+
+    public void setServerChainMaxBlocks(int serverChainMaxBlocks) {
+        this.serverChainMaxBlocks = Math.max(1, serverChainMaxBlocks);
+    }
+
+    public int getServerMatchedTargetCount() {
+        return serverMatchedTargetCount;
+    }
+
+    public void setServerMatchedTargetCount(int serverMatchedTargetCount) {
+        this.serverMatchedTargetCount = Math.max(0, serverMatchedTargetCount);
     }
 
     public boolean isChainActiveDisplay() {

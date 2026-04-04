@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.network.PacketChainStateSync;
@@ -117,7 +118,10 @@ public final class ChainStateService {
                 state.isChainKeyPressed(),
                 state.isExecuting(),
                 state.getSelectedMode(),
-                state.getExecutionStatus()),
+                state.getExecutionStatus(),
+                Config.chainRadius,
+                Config.chainMaxBlocks,
+                state.getSession() == null ? 0 : state.getSession().getMatchedTargetCount()),
             (EntityPlayerMP) player);
     }
 
