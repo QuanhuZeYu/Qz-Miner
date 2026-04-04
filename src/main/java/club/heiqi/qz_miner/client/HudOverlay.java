@@ -61,47 +61,49 @@ public class HudOverlay {
         boolean showAreaInfo = modeDefinition != null && modeDefinition.shouldShowAreaInfo();
         String statusText;
         if (executionStatus == ChainExecutionStatus.RUNNING) {
-            statusText = "\u00a7a\u6b63\u5728\u8fde\u9501";
+            statusText = "\u00a7a" + ClientI18n.tr("hud.qz_miner.status.running");
         } else if (executionStatus == ChainExecutionStatus.PLANNING) {
-            statusText = "\u00a7e\u8fde\u9501\u89c4\u5212\u4e2d";
+            statusText = "\u00a7e" + ClientI18n.tr("hud.qz_miner.status.planning");
         } else {
-            statusText = "\u00a7e\u8fde\u9501\u5f85\u547d";
+            statusText = "\u00a7e" + ClientI18n.tr("hud.qz_miner.status.idle");
         }
         mc.fontRenderer.drawStringWithShadow(statusText, x, y, 0xFFFFFF);
 
-        String modeText = "\u00a77\u5f53\u524d\u6a21\u5f0f: " + selectedMode.name();
+        String modeText = "\u00a77" + ClientI18n.tr("hud.qz_miner.current_mode", ClientI18n.tr(selectedMode.getDisplayNameKey()));
         mc.fontRenderer.drawStringWithShadow(modeText, x, y - 10, 0xFFFFFF);
 
         int serverMatchedY = y - 20;
         int previewMatchedY = y - 30;
         int areaInfoY = y - 30;
         if (selectedSubMode != null) {
-            String subModeText = "\u00a77\u5f53\u524d\u5b50\u6a21\u5f0f: " + selectedSubMode.getDisplayName();
+            String subModeText = "\u00a77" + ClientI18n.tr("hud.qz_miner.current_sub_mode", ClientI18n.tr(selectedSubMode.getDisplayNameKey()));
             mc.fontRenderer.drawStringWithShadow(subModeText, x, y - 20, 0xFFFFFF);
             serverMatchedY = y - 30;
             previewMatchedY = y - 40;
             areaInfoY = y - 40;
         }
 
-        String serverMatchedText = String.format(
-            "\u00a77\u670d\u52a1\u7aef\u5df2\u5339\u914d: %d \u4e2a\u65b9\u5757",
+        String serverMatchedText = "\u00a77" + ClientI18n.tr(
+            "hud.qz_miner.server_matched",
             MyMod.chainStateService.getClientState().getServerMatchedTargetCount());
         mc.fontRenderer.drawStringWithShadow(serverMatchedText, x, serverMatchedY, 0xFFFFFF);
 
         if (ClientProxy.chainPreviewController != null && MyMod.chainStateService != null
             && MyMod.chainStateService.getClientState().isPreviewActive()) {
             ChainPreviewState previewState = ClientProxy.chainPreviewController.getPreviewState();
-            String matchedText = String.format(
-                "\u00a77\u9884\u89c8\u5df2\u5339\u914d: %d \u4e2a\u65b9\u5757%s",
-                previewState.getMatchedCount(),
-                previewState.isCompleted() ? " \u00a7a(\u5b8c\u6210)" : " \u00a7e(\u8ba1\u7b97\u4e2d)");
+            String previewSuffix = previewState.isCompleted()
+                ? " \u00a7a" + ClientI18n.tr("hud.qz_miner.preview.completed")
+                : " \u00a7e" + ClientI18n.tr("hud.qz_miner.preview.calculating");
+            String matchedText = "\u00a77" + ClientI18n.tr(
+                "hud.qz_miner.preview_matched",
+                previewState.getMatchedCount()) + previewSuffix;
             mc.fontRenderer.drawStringWithShadow(matchedText, x, previewMatchedY, 0xFFFFFF);
 
             if (showAreaInfo) {
                 int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
                 int areaBlockCount = sideLength * sideLength * sideLength;
-                String areaText = String.format(
-                    "\u00a77\u670d\u52a1\u7aef\u533a\u57df: %d x %d x %d = %d",
+                String areaText = "\u00a77" + ClientI18n.tr(
+                    "hud.qz_miner.server_area",
                     sideLength,
                     sideLength,
                     sideLength,
@@ -111,8 +113,8 @@ public class HudOverlay {
         } else if (showAreaInfo) {
             int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
             int areaBlockCount = sideLength * sideLength * sideLength;
-            String areaText = String.format(
-                "\u00a77\u670d\u52a1\u7aef\u533a\u57df: %d x %d x %d = %d",
+            String areaText = "\u00a77" + ClientI18n.tr(
+                "hud.qz_miner.server_area",
                 sideLength,
                 sideLength,
                 sideLength,

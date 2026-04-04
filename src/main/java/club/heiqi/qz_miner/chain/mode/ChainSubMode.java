@@ -102,28 +102,28 @@ public enum ChainSubMode {
      *
      * @return 中文名称
      */
-    public String getDisplayName() {
+    public String getDisplayNameKey() {
         switch (this) {
             case CHAIN_BASE:
-                return "基础连锁";
+                return "hud.qz_miner.sub_mode.chain.base";
             case CHAIN_ORE:
-                return "矿石连锁";
+                return "hud.qz_miner.sub_mode.chain.ore";
             case CHAIN_LOGGING:
-                return "伐木连锁";
+                return "hud.qz_miner.sub_mode.chain.logging";
             case AREA_SAME_BLOCK:
-                return "同类范围";
+                return "hud.qz_miner.sub_mode.area.base";
             case AREA_HARVESTABLE_ALL:
-                return "可收获范围";
+                return "hud.qz_miner.sub_mode.area.all";
             case AREA_ORE:
-                return "矿石范围";
+                return "hud.qz_miner.sub_mode.area.ore";
             case INTERACT_BASE:
-                return "基础交互";
+                return "hud.qz_miner.sub_mode.interact.base";
             case INTERACT_CROP:
-                return "作物交互";
+                return "hud.qz_miner.sub_mode.interact.crop";
             case SPECIAL_BASE:
-                return "基础特殊";
+                return "hud.qz_miner.sub_mode.special.base";
             case SPECIAL_EXTENDED:
-                return "扩展特殊";
+                return "hud.qz_miner.sub_mode.special.extended";
             default:
                 return name();
         }

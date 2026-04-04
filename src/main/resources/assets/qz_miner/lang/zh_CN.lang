@@ -1,0 +1,27 @@
+hud.qz_miner.status.running=正在连锁
+hud.qz_miner.status.planning=连锁规划中
+hud.qz_miner.status.idle=连锁待命
+hud.qz_miner.current_mode=当前模式: %s
+hud.qz_miner.current_sub_mode=当前子模式: %s
+hud.qz_miner.server_matched=服务端已匹配: %d 个方块
+hud.qz_miner.preview_matched=预览已匹配: %d 个方块
+hud.qz_miner.preview.completed=(完成)
+hud.qz_miner.preview.calculating=(计算中)
+hud.qz_miner.server_area=服务端区域: %d x %d x %d = %d
+hud.qz_miner.mode.chain=连锁模式
+hud.qz_miner.mode.area=爆破模式
+hud.qz_miner.mode.interact=连锁块交互模式
+hud.qz_miner.mode.special=特殊模式
+hud.qz_miner.sub_mode.chain.base=连锁基础模式
+hud.qz_miner.sub_mode.chain.logging=连锁伐木模式
+hud.qz_miner.sub_mode.chain.ore=连锁矿石模式
+hud.qz_miner.sub_mode.area.base=爆破基础模式
+hud.qz_miner.sub_mode.area.all=无差别爆破模式
+hud.qz_miner.sub_mode.area.ore=爆破矿石模式
+hud.qz_miner.sub_mode.interact.base=连锁块交互模式
+hud.qz_miner.sub_mode.interact.crop=作物交互模式
+hud.qz_miner.sub_mode.special.base=特殊基础模式
+hud.qz_miner.sub_mode.special.extended=特殊扩展模式
+key.categories.qz_miner=Qz-Miner
+key.qz_miner.chainSwitch=连锁按键
+key.qz_miner.mainModeSwitch=切换主模式
