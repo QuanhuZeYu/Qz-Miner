@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.chain.planner;
 
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 
 /**
  * 仅允许与起点同类且当前可收获的方块匹配器。
@@ -11,16 +11,19 @@ public class SameBlockHarvestableMatcher implements ChainBlockMatcher {
 
     private final Block sampleBlock;
     private final int sampleMeta;
+    private final TileEntity sampleTileEntity;
 
     /**
      * 创建同类方块匹配器。
      *
      * @param sampleBlock 起点方块
      * @param sampleMeta 起点元数据
+     * @param sampleTileEntity 起点 TileEntity
      */
-    public SameBlockHarvestableMatcher(Block sampleBlock, int sampleMeta) {
+    public SameBlockHarvestableMatcher(Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity) {
         this.sampleBlock = sampleBlock;
         this.sampleMeta = sampleMeta;
+        this.sampleTileEntity = sampleTileEntity;
     }
 
     @Override
@@ -29,13 +32,7 @@ public class SameBlockHarvestableMatcher implements ChainBlockMatcher {
             return false;
         }
 
-        Block block = player.worldObj.getBlock(target.getX(), target.getY(), target.getZ());
-        if (block == null || block == Blocks.air || block != sampleBlock) {
-            return false;
-        }
-
-        int meta = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-        if (meta != sampleMeta) {
+        if (!ChainBlockIdentity.matches(player.worldObj, sampleBlock, sampleMeta, sampleTileEntity, target)) {
             return false;
         }
 

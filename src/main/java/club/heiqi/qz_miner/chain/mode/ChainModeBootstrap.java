@@ -13,6 +13,7 @@ import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.InteractFloodFillPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.NoOpPlanningStrategy;
+import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockHarvestableMatcher;
 
@@ -21,9 +22,23 @@ import club.heiqi.qz_miner.chain.planner.SameBlockHarvestableMatcher;
  */
 public final class ChainModeBootstrap {
 
+    private static final ChainBlockMatcherResolver CHAIN_MATCHER = context -> {
+        if (context.getSubMode() != null && context.getSubMode().requiresOreMatch()) {
+            return new OreBlockHarvestableMatcher();
+        }
+        return new HarvestableBlockMatcher();
+    };
+
     private static final ChainBlockMatcherResolver SAME_BLOCK_OR_HARVESTABLE_MATCHER = context -> {
+        if (context.getSubMode() != null && context.getSubMode().requiresOreMatch()) {
+            return new OreBlockHarvestableMatcher();
+        }
+
         if (context.getSubMode() != null && context.getSubMode().requiresSameBlockMatch()) {
-            return new SameBlockHarvestableMatcher(context.getSampleBlock(), context.getSampleMeta());
+            return new SameBlockHarvestableMatcher(
+                context.getSampleBlock(),
+                context.getSampleMeta(),
+                context.getSampleTileEntity());
         }
         return new HarvestableBlockMatcher();
     };
@@ -33,7 +48,10 @@ public final class ChainModeBootstrap {
         if (context.getSubMode() == ChainSubMode.INTERACT_CROP) {
             return new CropBlockMatcher();
         }
-        return new SameBlockMatcher(context.getSampleBlock(), context.getSampleMeta());
+        return new SameBlockMatcher(
+            context.getSampleBlock(),
+            context.getSampleMeta(),
+            context.getSampleTileEntity());
     };
 
     private ChainModeBootstrap() {}
@@ -58,10 +76,10 @@ public final class ChainModeBootstrap {
             new BlockFloodFillPlanningStrategy(),
             new BlockHarvestActionExecutor(),
             new FloodFillTraverser(),
-            HARVESTABLE_MATCHER,
+            CHAIN_MATCHER,
             false,
             ChainSubMode.CHAIN_BASE,
-            Arrays.asList(ChainSubMode.CHAIN_BASE));
+            Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE));
     }
 
     /**
@@ -78,7 +96,7 @@ public final class ChainModeBootstrap {
             SAME_BLOCK_OR_HARVESTABLE_MATCHER,
             true,
             ChainSubMode.AREA_SAME_BLOCK,
-            Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL));
+            Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubMode.AREA_ORE));
     }
 
     /**

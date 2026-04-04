@@ -24,6 +24,7 @@ import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.world.World;
 
@@ -98,6 +99,7 @@ public class ChainPreviewController {
         final int generation = previewState.getGeneration();
         final Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         final int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        final TileEntity sampleTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
         final int previewRadius = getEffectivePreviewRadius();
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
         final ConcurrentLinkedQueue<ChainTarget> currentFrontier = new ConcurrentLinkedQueue<>();
@@ -108,6 +110,7 @@ public class ChainPreviewController {
             target,
             sampleBlock,
             sampleMeta,
+            sampleTileEntity,
             MyMod.chainStateService.getClientState().getSelectedSubMode(),
             previewRadius,
             previewMaxTargets,

@@ -25,6 +25,7 @@ public class ChainSearchContext {
     private final ChainTarget origin;
     private final Block sampleBlock;
     private final int sampleMeta;
+    private final TileEntity sampleTileEntity;
     private final ChainSubMode subMode;
     private final int maxRadius;
     private final int maxTargets;
@@ -39,6 +40,7 @@ public class ChainSearchContext {
         ChainTarget origin,
         Block sampleBlock,
         int sampleMeta,
+        TileEntity sampleTileEntity,
         ChainSubMode subMode,
         int maxRadius,
         int maxTargets,
@@ -49,6 +51,7 @@ public class ChainSearchContext {
         this.origin = origin;
         this.sampleBlock = sampleBlock;
         this.sampleMeta = sampleMeta;
+        this.sampleTileEntity = sampleTileEntity;
         this.subMode = subMode;
         this.maxRadius = maxRadius;
         this.maxTargets = maxTargets;
@@ -71,6 +74,10 @@ public class ChainSearchContext {
 
     public int getSampleMeta() {
         return sampleMeta;
+    }
+
+    public TileEntity getSampleTileEntity() {
+        return sampleTileEntity;
     }
 
     /**
@@ -143,11 +150,11 @@ public class ChainSearchContext {
             return tileEntity instanceof TileEntityCrop;
         }
 
-        if (block != sampleBlock) {
-            return false;
+        if (subMode != null && subMode.requiresOreMatch()) {
+            TileEntity tileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
+            return ChainOreRules.isOreBlock(block, tileEntity);
         }
 
-        int meta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-        return meta == sampleMeta;
+        return ChainBlockIdentity.matches(world, sampleBlock, sampleMeta, sampleTileEntity, target);
     }
 }

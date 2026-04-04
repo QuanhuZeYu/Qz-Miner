@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.chain.planner;
 
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 
 /**
  * 盒扫遍历器。
@@ -98,13 +99,18 @@ public class BoxScanTraverser implements ChainTraverser {
                         continue;
                     }
 
-                    if (context.getSubMode() != null && context.getSubMode().requiresSameBlockMatch()) {
-                        if (block != context.getSampleBlock()) {
+                    if (context.getSubMode() != null && context.getSubMode().requiresOreMatch()) {
+                        TileEntity tileEntity = context.getWorld().getTileEntity(x, y, z);
+                        if (!ChainOreRules.isOreBlock(block, tileEntity)) {
                             continue;
                         }
-
-                        int meta = context.getWorld().getBlockMetadata(x, y, z);
-                        if (meta != context.getSampleMeta()) {
+                    } else if (context.getSubMode() != null && context.getSubMode().requiresSameBlockMatch()) {
+                        if (!ChainBlockIdentity.matches(
+                            context.getWorld(),
+                            context.getSampleBlock(),
+                            context.getSampleMeta(),
+                            context.getSampleTileEntity(),
+                            candidate)) {
                             continue;
                         }
                     }
