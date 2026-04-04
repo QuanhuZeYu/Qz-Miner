@@ -15,6 +15,7 @@ public class ChainPreviewState {
     private final List<ChainTarget> previewTargets = Collections.synchronizedList(new ArrayList<>());
     private final AtomicInteger scannedCount = new AtomicInteger();
     private final AtomicInteger matchedCount = new AtomicInteger();
+    private final AtomicInteger renderRevision = new AtomicInteger();
     private volatile ChainTarget origin;
     private volatile boolean active;
     private volatile boolean completed;
@@ -28,6 +29,7 @@ public class ChainPreviewState {
         this.previewTargets.clear();
         this.scannedCount.set(0);
         this.matchedCount.set(0);
+        this.renderRevision.incrementAndGet();
     }
 
     public void clear() {
@@ -38,6 +40,7 @@ public class ChainPreviewState {
         this.previewTargets.clear();
         this.scannedCount.set(0);
         this.matchedCount.set(0);
+        this.renderRevision.incrementAndGet();
     }
 
     public int getGeneration() {
@@ -72,9 +75,19 @@ public class ChainPreviewState {
         return matchedCount.get();
     }
 
+    /**
+     * 获取渲染数据版本号。
+     *
+     * @return 渲染版本号
+     */
+    public int getRenderRevision() {
+        return renderRevision.get();
+    }
+
     public void addPreviewTarget(ChainTarget target) {
         previewTargets.add(target);
         matchedCount.incrementAndGet();
+        renderRevision.incrementAndGet();
     }
 
     public List<ChainTarget> getPreviewTargetsSnapshot() {
