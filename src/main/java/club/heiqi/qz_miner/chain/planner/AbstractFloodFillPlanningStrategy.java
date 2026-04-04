@@ -21,7 +21,6 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
     private static final int MAX_SCAN_PER_SLICE = 64;
 
     private final ChainMode mode;
-    private final ChainTraverser traverser = new FloodFillTraverser();
     private final BlockSeedResolver blockSeedResolver = new WorldBlockSeedResolver();
 
     protected AbstractFloodFillPlanningStrategy(ChainMode mode) {
@@ -63,8 +62,9 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
         final ChainSearchContext searchContext = createSearchContext(player.worldObj, session, seedSnapshot);
+        final ChainTraverser traverser = createTraverser(searchContext);
         final ChainBlockMatcher blockMatcher = createBlockMatcher(searchContext);
-        if (blockMatcher == null) {
+        if (traverser == null || blockMatcher == null) {
             return;
         }
         traverser.seed(searchContext);
@@ -146,6 +146,16 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
     protected ChainSearchContext createSearchContext(net.minecraft.world.World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
         session.getTraversalTargets().clear();
         return ChainSearchContextFactory.createBlockFloodFillContext(world, session, seedSnapshot);
+    }
+
+    /**
+     * 创建当前模式使用的遍历器。
+     *
+     * @param searchContext 搜索上下文
+     * @return 遍历器
+     */
+    protected ChainTraverser createTraverser(ChainSearchContext searchContext) {
+        return new FloodFillTraverser();
     }
 
     /**

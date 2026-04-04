@@ -155,6 +155,11 @@ public class ChainSearchContext {
             return ChainOreRules.isOreBlock(block, tileEntity);
         }
 
+        if (subMode != null && subMode.requiresLogMatch()) {
+            int meta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+            return ChainLogRules.isLogBlock(world, target.getX(), target.getY(), target.getZ(), block, meta);
+        }
+
         return ChainBlockIdentity.matches(world, sampleBlock, sampleMeta, sampleTileEntity, target);
     }
 }

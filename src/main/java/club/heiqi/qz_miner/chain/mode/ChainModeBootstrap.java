@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.planner.CropBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.InteractFloodFillPlanningStrategy;
+import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.NoOpPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockMatcher;
@@ -23,6 +24,10 @@ import club.heiqi.qz_miner.chain.planner.SameBlockHarvestableMatcher;
 public final class ChainModeBootstrap {
 
     private static final ChainBlockMatcherResolver CHAIN_MATCHER = context -> {
+        if (context.getSubMode() != null && context.getSubMode().requiresLogMatch()) {
+            return new LogBlockHarvestableMatcher();
+        }
+
         if (context.getSubMode() != null && context.getSubMode().requiresOreMatch()) {
             return new OreBlockHarvestableMatcher();
         }
@@ -79,7 +84,7 @@ public final class ChainModeBootstrap {
             CHAIN_MATCHER,
             false,
             ChainSubMode.CHAIN_BASE,
-            Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE));
+            Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE, ChainSubMode.CHAIN_LOGGING));
     }
 
     /**

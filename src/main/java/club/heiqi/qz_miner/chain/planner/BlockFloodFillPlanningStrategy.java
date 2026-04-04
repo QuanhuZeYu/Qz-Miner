@@ -1,11 +1,14 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import club.heiqi.qz_miner.Config;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -14,8 +17,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 当前默认的方块洪泛规划策略。
  */
 public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStrategy {
-
-    private final ChainBlockMatcher blockMatcher = new HarvestableBlockMatcher();
 
     public BlockFloodFillPlanningStrategy() {
         super(ChainMode.CHAIN);
@@ -26,7 +27,7 @@ public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStr
         ChainSession session = new ChainSession(
             player.getUniqueID(),
             playerState.getSelectedMode(),
-            ChainModeRegistry.getDefaultSubMode(ChainMode.CHAIN),
+            playerState.getSelectedSubMode(),
             origin);
         startPlanningInternal(player, playerState, origin, session);
     }
@@ -38,7 +39,17 @@ public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStr
 
     @Override
     protected ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext) {
-        return blockMatcher;
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.CHAIN);
+        return definition == null ? null : definition.createMatcher(searchContext);
+    }
+
+    @Override
+    protected ChainTraverser createTraverser(ChainSearchContext searchContext) {
+        ChainSubMode subMode = searchContext.getSubMode();
+        if (subMode != null && subMode.requiresLogMatch()) {
+            return new LoggingFloodFillTraverser(Config.chainLoggingShellLayers);
+        }
+        return new FloodFillTraverser();
     }
 
     @Override

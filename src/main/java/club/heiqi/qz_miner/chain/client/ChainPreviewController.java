@@ -15,6 +15,7 @@ import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -219,6 +220,13 @@ public class ChainPreviewController {
      * @return 对应的遍历器
      */
     private ChainTraverser resolveTraverser(ChainMode mode) {
+        if (mode == ChainMode.CHAIN
+            && MyMod.chainStateService != null
+            && MyMod.chainStateService.getClientState().getSelectedSubMode() != null
+            && MyMod.chainStateService.getClientState().getSelectedSubMode().requiresLogMatch()) {
+            return new LoggingFloodFillTraverser(Config.chainLoggingShellLayers);
+        }
+
         ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
         if (definition != null) {
             return definition.getTraverser();

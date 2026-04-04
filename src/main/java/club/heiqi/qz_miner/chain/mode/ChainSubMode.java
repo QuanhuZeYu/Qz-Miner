@@ -7,48 +7,58 @@ public enum ChainSubMode {
     /**
      * CHAIN 默认子模式。
      */
-    CHAIN_BASE(ChainMode.CHAIN, true, false),
+    CHAIN_BASE(ChainMode.CHAIN, true, false, false),
     /**
      * CHAIN 宽泛矿石匹配子模式。
      */
-    CHAIN_ORE(ChainMode.CHAIN, false, true),
+    CHAIN_ORE(ChainMode.CHAIN, false, true, false),
+    /**
+     * CHAIN 伐木子模式。
+     */
+    CHAIN_LOGGING(ChainMode.CHAIN, false, false, true),
     /**
      * AREA 同类匹配子模式。
      */
-    AREA_SAME_BLOCK(ChainMode.AREA, true, false),
+    AREA_SAME_BLOCK(ChainMode.AREA, true, false, false),
     /**
      * AREA 仅要求可收获的子模式。
      */
-    AREA_HARVESTABLE_ALL(ChainMode.AREA, false, false),
+    AREA_HARVESTABLE_ALL(ChainMode.AREA, false, false, false),
     /**
      * AREA 宽泛矿石匹配子模式。
      */
-    AREA_ORE(ChainMode.AREA, false, true),
+    AREA_ORE(ChainMode.AREA, false, true, false),
     /**
      * INTERACT 默认子模式。
      */
-    INTERACT_BASE(ChainMode.INTERACT, true, false),
+    INTERACT_BASE(ChainMode.INTERACT, true, false, false),
     /**
      * INTERACT 作物交互子模式。
      */
-    INTERACT_CROP(ChainMode.INTERACT, false, false),
+    INTERACT_CROP(ChainMode.INTERACT, false, false, false),
     /**
      * SPECIAL 默认子模式。
      */
-    SPECIAL_BASE(ChainMode.SPECIAL, true, false),
+    SPECIAL_BASE(ChainMode.SPECIAL, true, false, false),
     /**
      * SPECIAL 预留扩展子模式。
      */
-    SPECIAL_EXTENDED(ChainMode.SPECIAL, false, false);
+    SPECIAL_EXTENDED(ChainMode.SPECIAL, false, false, false);
 
     private final ChainMode parentMode;
     private final boolean sameBlockMatchRequired;
     private final boolean oreMatchRequired;
+    private final boolean logMatchRequired;
 
     ChainSubMode(ChainMode parentMode, boolean sameBlockMatchRequired, boolean oreMatchRequired) {
+        this(parentMode, sameBlockMatchRequired, oreMatchRequired, false);
+    }
+
+    ChainSubMode(ChainMode parentMode, boolean sameBlockMatchRequired, boolean oreMatchRequired, boolean logMatchRequired) {
         this.parentMode = parentMode;
         this.sameBlockMatchRequired = sameBlockMatchRequired;
         this.oreMatchRequired = oreMatchRequired;
+        this.logMatchRequired = logMatchRequired;
     }
 
     /**
@@ -79,6 +89,15 @@ public enum ChainSubMode {
     }
 
     /**
+     * 判断当前子模式是否要求原木匹配。
+     *
+     * @return 是否按原木类别匹配
+     */
+    public boolean requiresLogMatch() {
+        return logMatchRequired;
+    }
+
+    /**
      * 获取用于 HUD 展示的中文名称。
      *
      * @return 中文名称
@@ -89,6 +108,8 @@ public enum ChainSubMode {
                 return "基础连锁";
             case CHAIN_ORE:
                 return "矿石连锁";
+            case CHAIN_LOGGING:
+                return "伐木连锁";
             case AREA_SAME_BLOCK:
                 return "同类范围";
             case AREA_HARVESTABLE_ALL:
