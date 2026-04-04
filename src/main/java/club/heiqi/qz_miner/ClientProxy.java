@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
+import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
@@ -11,12 +12,15 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 public class ClientProxy extends CommonProxy {
 
     public static ChainPreviewController chainPreviewController;
+    public static ChainPreviewRenderer chainPreviewRenderer;
 
     @Override
     public void init(FMLInitializationEvent event) {
         super.init(event);
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
+        chainPreviewRenderer = new ChainPreviewRenderer();
+        chainPreviewRenderer.register();
         HudOverlay hudOverlay = new HudOverlay();
         hudOverlay.register();
         new KeyListener(hudOverlay).register();

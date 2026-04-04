@@ -39,7 +39,6 @@ import net.minecraft.world.World;
 public class ChainPreviewController {
 
     private static final int MAX_SCAN_PER_SLICE = 32;
-    private static final int MAX_PREVIEW_TARGETS = 256;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private ChainTarget currentTarget;
@@ -100,6 +99,7 @@ public class ChainPreviewController {
         final Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         final int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
         final int previewRadius = getEffectivePreviewRadius();
+        final int previewMaxTargets = getEffectivePreviewMaxTargets();
         final ConcurrentLinkedQueue<ChainTarget> currentFrontier = new ConcurrentLinkedQueue<>();
         final ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<>();
         final Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
@@ -110,7 +110,7 @@ public class ChainPreviewController {
             sampleMeta,
             MyMod.chainStateService.getClientState().getSelectedSubMode(),
             previewRadius,
-            MAX_PREVIEW_TARGETS,
+            previewMaxTargets,
             currentFrontier,
             nextFrontier,
             visited);
@@ -120,6 +120,15 @@ public class ChainPreviewController {
         if (traverser == null || blockMatcher == null) {
             previewState.setCompleted(true);
             return;
+        }
+
+        if (blockMatcher.matches(player, target)) {
+            previewState.addPreviewTarget(target);
+            searchContext.incrementConfirmedCount();
+            if (searchContext.getConfirmedCount() >= searchContext.getMaxTargets()) {
+                previewState.setCompleted(true);
+                return;
+            }
         }
         traverser.seed(searchContext);
 
@@ -157,6 +166,18 @@ public class ChainPreviewController {
             ? Config.chainRadius
             : MyMod.chainStateService.getClientState().getServerChainRadius();
         return Math.max(1, Math.min(serverChainRadius, Config.clientPreviewMaxRadius));
+    }
+
+    /**
+     * 获取当前实际使用的预览目标数量上限。
+     *
+     * @return 预览目标数量上限
+     */
+    public int getEffectivePreviewMaxTargets() {
+        int serverChainMaxBlocks = MyMod.chainStateService == null
+            ? Config.chainMaxBlocks
+            : MyMod.chainStateService.getClientState().getServerChainMaxBlocks();
+        return Math.max(1, Math.min(serverChainMaxBlocks, Config.clientPreviewMaxTargets));
     }
 
     /**

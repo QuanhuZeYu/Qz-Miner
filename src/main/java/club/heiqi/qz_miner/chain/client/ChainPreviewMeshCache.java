@@ -18,8 +18,10 @@ public class ChainPreviewMeshCache {
 
     private int vao;
     private int vbo;
+    private int cbo;
     private int ebo;
     private int vboCapacity;
+    private int cboCapacity;
     private int eboCapacity;
     private int indexCount;
     private boolean initialized;
@@ -34,8 +36,10 @@ public class ChainPreviewMeshCache {
 
         vao = GL30.glGenVertexArrays();
         vbo = GL15.glGenBuffers();
+        cbo = GL15.glGenBuffers();
         ebo = GL15.glGenBuffers();
         vboCapacity = INITIAL_CAPACITY;
+        cboCapacity = INITIAL_CAPACITY;
         eboCapacity = INITIAL_CAPACITY;
 
         GL30.glBindVertexArray(vao);
@@ -44,6 +48,10 @@ public class ChainPreviewMeshCache {
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
         GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, 0, 0);
         GL20.glEnableVertexAttribArray(0);
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
+        GL11.glColorPointer(4, GL11.GL_FLOAT, 0, 0);
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
@@ -67,6 +75,7 @@ public class ChainPreviewMeshCache {
         }
 
         float[] vertices = mesh.getVertices();
+        float[] colors = mesh.getColors();
         int[] indices = mesh.getIndices();
         indexCount = indices.length;
 
@@ -81,6 +90,16 @@ public class ChainPreviewMeshCache {
         FloatBuffer vertexBuffer = BufferUtils.createFloatBuffer(vertices.length);
         vertexBuffer.put(vertices).flip();
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, vertexBuffer);
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
+        int requiredCboSize = colors.length * 4;
+        if (requiredCboSize > cboCapacity) {
+            cboCapacity = calculateNewCapacity(requiredCboSize);
+            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
+        }
+        FloatBuffer colorBuffer = BufferUtils.createFloatBuffer(colors.length);
+        colorBuffer.put(colors).flip();
+        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, colorBuffer);
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         int requiredEboSize = indices.length * 4;
@@ -107,8 +126,13 @@ public class ChainPreviewMeshCache {
 
         GL30.glBindVertexArray(vao);
         GL20.glEnableVertexAttribArray(0);
+        GL11.glEnableClientState(GL11.GL_COLOR_ARRAY);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
+        GL11.glColorPointer(4, GL11.GL_FLOAT, 0, 0);
         GL11.glDrawElements(GL11.GL_LINES, indexCount, GL11.GL_UNSIGNED_INT, 0);
+        GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
         GL20.glDisableVertexAttribArray(0);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
         GL30.glBindVertexArray(0);
     }
 
@@ -126,11 +150,14 @@ public class ChainPreviewMeshCache {
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
         GL30.glDeleteVertexArrays(vao);
         GL15.glDeleteBuffers(vbo);
+        GL15.glDeleteBuffers(cbo);
         GL15.glDeleteBuffers(ebo);
         vao = 0;
         vbo = 0;
+        cbo = 0;
         ebo = 0;
         vboCapacity = 0;
+        cboCapacity = 0;
         eboCapacity = 0;
         initialized = false;
     }

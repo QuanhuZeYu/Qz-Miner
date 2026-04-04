@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
@@ -16,6 +17,9 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  */
 public class ChainPreviewMeshBuilder {
 
+    private static final float BASE_RED = 0.25F;
+    private static final float BASE_GREEN = 0.9F;
+    private static final float BASE_BLUE = 1.0F;
     private static final float[] UNIT_CUBE_VERTICES = {
         0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1,
         0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0
@@ -38,7 +42,7 @@ public class ChainPreviewMeshBuilder {
      * @param previewTargets 预览目标列表
      * @return 线框网格数据
      */
-    public ChainPreviewMesh build(List<ChainTarget> previewTargets) {
+    public ChainPreviewMesh build(List<ChainTarget> previewTargets, double cameraX, double cameraY, double cameraZ) {
         if (previewTargets == null || previewTargets.isEmpty()) {
             return ChainPreviewMesh.EMPTY;
         }
@@ -56,6 +60,7 @@ public class ChainPreviewMeshBuilder {
         }
 
         List<float[]> verticesList = new ArrayList<float[]>(spacePoints.size());
+        List<float[]> colorsList = new ArrayList<float[]>(spacePoints.size());
         List<int[]> indicesList = new ArrayList<int[]>(spacePoints.size());
         int vertexCount = 0;
         int visibleBlockCount = 0;
@@ -66,6 +71,7 @@ public class ChainPreviewMeshBuilder {
             }
 
             float[] pointVertices = UNIT_CUBE_VERTICES.clone();
+            float[] pointColors = buildPointColors(point.position, cameraX, cameraY, cameraZ);
             for (int i = 0; i < pointVertices.length; i += 3) {
                 pointVertices[i] += point.position.x;
                 pointVertices[i + 1] += point.position.y;
@@ -77,6 +83,7 @@ public class ChainPreviewMeshBuilder {
             }
 
             verticesList.add(pointVertices);
+            colorsList.add(pointColors);
             indicesList.add(pointIndices);
             vertexCount += 8;
             visibleBlockCount++;
@@ -86,7 +93,54 @@ public class ChainPreviewMeshBuilder {
             return ChainPreviewMesh.EMPTY;
         }
 
-        return new ChainPreviewMesh(flattenVertices(verticesList), flattenIndices(indicesList), visibleBlockCount);
+        return new ChainPreviewMesh(
+            flattenVertices(verticesList),
+            flattenColors(colorsList),
+            flattenIndices(indicesList),
+            visibleBlockCount);
+    }
+
+    /**
+     * 根据方块中心与相机距离构建顶点颜色。
+     *
+     * @param position 方块位置
+     * @param cameraX 相机 X 坐标
+     * @param cameraY 相机 Y 坐标
+     * @param cameraZ 相机 Z 坐标
+     * @return 8 个顶点对应的 RGBA 颜色数组
+     */
+    private float[] buildPointColors(BlockPos position, double cameraX, double cameraY, double cameraZ) {
+        double centerX = position.x + 0.5D;
+        double centerY = position.y + 0.5D;
+        double centerZ = position.z + 0.5D;
+        double dx = centerX - cameraX;
+        double dy = centerY - cameraY;
+        double dz = centerZ - cameraZ;
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double fadeStart = Config.clientPreviewAlphaFadeStartRadius;
+        double fadeEnd = Math.max(fadeStart + 0.001D, Config.clientPreviewAlphaFadeEndRadius);
+        float maxAlpha = (float) Config.clientPreviewAlphaStartValue;
+        float minAlpha = (float) Config.clientPreviewAlphaEndValue;
+        float alpha;
+        if (distance <= fadeStart) {
+            alpha = maxAlpha;
+        } else if (distance >= fadeEnd) {
+            alpha = minAlpha;
+        } else {
+            float normalized = (float) ((distance - fadeStart) / (fadeEnd - fadeStart));
+            float squared = normalized * normalized;
+            alpha = maxAlpha - (maxAlpha - minAlpha) * squared;
+        }
+
+        float[] colors = new float[8 * 4];
+        for (int vertexIndex = 0; vertexIndex < 8; vertexIndex++) {
+            int colorOffset = vertexIndex * 4;
+            colors[colorOffset] = BASE_RED;
+            colors[colorOffset + 1] = BASE_GREEN;
+            colors[colorOffset + 2] = BASE_BLUE;
+            colors[colorOffset + 3] = alpha;
+        }
+        return colors;
     }
 
     /**
@@ -161,6 +215,21 @@ public class ChainPreviewMeshBuilder {
         for (int[] indices : indicesList) {
             System.arraycopy(indices, 0, merged, offset, indices.length);
             offset += indices.length;
+        }
+        return merged;
+    }
+
+    private float[] flattenColors(List<float[]> colorsList) {
+        int totalLength = 0;
+        for (float[] colors : colorsList) {
+            totalLength += colors.length;
+        }
+
+        float[] merged = new float[totalLength];
+        int offset = 0;
+        for (float[] colors : colorsList) {
+            System.arraycopy(colors, 0, merged, offset, colors.length);
+            offset += colors.length;
         }
         return merged;
     }

@@ -18,6 +18,11 @@ public class Config {
     public static int maxBreakPerTick = 16;
     public static int parallelTickMinDurationMs = 15;
     public static int clientPreviewMaxRadius = 4;
+    public static int clientPreviewMaxTargets = 256;
+    public static double clientPreviewAlphaFadeStartRadius = 2.0D;
+    public static double clientPreviewAlphaFadeEndRadius = 6.0D;
+    public static double clientPreviewAlphaStartValue = 0.78D;
+    public static double clientPreviewAlphaEndValue = 0.15D;
 
     /**
      * 初始化配置并注册配置变更监听。
@@ -45,6 +50,15 @@ public class Config {
         maxBreakPerTick = config.getInt("maxBreakPerTick", Configuration.CATEGORY_GENERAL, maxBreakPerTick, 1, Integer.MAX_VALUE, "每 Tick 最多执行的连锁挖掘数量");
         parallelTickMinDurationMs = config.getInt("parallelTickMinDurationMs", Configuration.CATEGORY_GENERAL, parallelTickMinDurationMs, 10, Integer.MAX_VALUE, "同步执行器每刻最短执行时间（毫秒），默认 15，最低 10");
         clientPreviewMaxRadius = config.getInt("clientPreviewMaxRadius", Configuration.CATEGORY_GENERAL, clientPreviewMaxRadius, 1, Integer.MAX_VALUE, "客户端最大预览半径；实际预览范围取该值与 chainRadius 的较小值，避免大范围预览渲染导致卡顿");
+        clientPreviewMaxTargets = config.getInt("clientPreviewMaxTargets", Configuration.CATEGORY_GENERAL, clientPreviewMaxTargets, 1, Integer.MAX_VALUE, "客户端最大预览目标数量；实际预览数量取该值与服务端 chainMaxBlocks 的较小值，避免大范围预览导致卡顿");
+        clientPreviewAlphaFadeStartRadius = config.get(Configuration.CATEGORY_GENERAL, "clientPreviewAlphaFadeStartRadius", clientPreviewAlphaFadeStartRadius, "客户端预览透明度开始衰减的距离半径；在此半径内保持最高透明度").getDouble(clientPreviewAlphaFadeStartRadius);
+        clientPreviewAlphaFadeEndRadius = config.get(Configuration.CATEGORY_GENERAL, "clientPreviewAlphaFadeEndRadius", clientPreviewAlphaFadeEndRadius, "客户端预览透明度衰减到最低值的距离半径；超过该半径后保持最低透明度").getDouble(clientPreviewAlphaFadeEndRadius);
+        clientPreviewAlphaStartValue = config.get(Configuration.CATEGORY_GENERAL, "clientPreviewAlphaStartValue", clientPreviewAlphaStartValue, "客户端预览透明度的起始值；距离不超过衰减起点时使用该透明度").getDouble(clientPreviewAlphaStartValue);
+        clientPreviewAlphaEndValue = config.get(Configuration.CATEGORY_GENERAL, "clientPreviewAlphaEndValue", clientPreviewAlphaEndValue, "客户端预览透明度的结束值；距离超过衰减终点时使用该透明度").getDouble(clientPreviewAlphaEndValue);
+        clientPreviewAlphaFadeStartRadius = Math.max(0.0D, clientPreviewAlphaFadeStartRadius);
+        clientPreviewAlphaFadeEndRadius = Math.max(clientPreviewAlphaFadeStartRadius + 0.001D, clientPreviewAlphaFadeEndRadius);
+        clientPreviewAlphaStartValue = Math.max(0.0D, Math.min(1.0D, clientPreviewAlphaStartValue));
+        clientPreviewAlphaEndValue = Math.max(0.0D, Math.min(clientPreviewAlphaStartValue, clientPreviewAlphaEndValue));
 
         if (config.hasChanged()) {
             config.save();
