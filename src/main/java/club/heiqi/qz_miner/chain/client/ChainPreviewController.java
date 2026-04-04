@@ -153,7 +153,10 @@ public class ChainPreviewController {
      * @return 预览半径
      */
     public int getEffectivePreviewRadius() {
-        return Math.max(1, Math.min(Config.chainRadius, Config.clientPreviewMaxRadius));
+        int serverChainRadius = MyMod.chainStateService == null
+            ? Config.chainRadius
+            : MyMod.chainStateService.getClientState().getServerChainRadius();
+        return Math.max(1, Math.min(serverChainRadius, Config.clientPreviewMaxRadius));
     }
 
     /**
