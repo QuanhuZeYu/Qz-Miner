@@ -48,7 +48,4 @@ dependencies {
     runtimeOnly(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
     runtimeOnly(project.elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
     runtimeOnly(project.elytraModpackVersion.gtnhdev("AppleCore"))
-
-    // Angelica 保持注释
-    // runtimeOnly(project.elytraModpackVersion.gtnhdev("Angelica"))
 }
