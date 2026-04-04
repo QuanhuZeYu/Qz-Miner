@@ -2,6 +2,7 @@ package club.heiqi.qz_miner;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
@@ -22,7 +23,7 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainSubMode subMode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
         if (MyMod.chainStateService == null) {
             return;
         }
@@ -31,6 +32,7 @@ public class ClientProxy extends CommonProxy {
         MyMod.chainStateService.getClientState().setServerExecuting(executing);
         MyMod.chainStateService.getClientState().setServerExecutionStatus(executionStatus);
         MyMod.chainStateService.getClientState().setSelectedMode(mode);
+        MyMod.chainStateService.getClientState().setSelectedSubMode(subMode);
         MyMod.chainStateService.getClientState().setServerChainRadius(chainRadius);
         MyMod.chainStateService.getClientState().setServerChainMaxBlocks(chainMaxBlocks);
         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedTargetCount);

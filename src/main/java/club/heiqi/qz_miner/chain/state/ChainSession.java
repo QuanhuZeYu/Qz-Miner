@@ -6,6 +6,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
@@ -16,6 +18,7 @@ public class ChainSession {
 
     private final UUID playerUUID;
     private final ChainMode mode;
+    private final ChainSubMode subMode;
     private final ChainTarget origin;
     private volatile ParallelTickSubscription plannerSubscription;
     private volatile ParallelTickSubscription executorSubscription;
@@ -27,9 +30,10 @@ public class ChainSession {
     private volatile int matchedTargetCount;
     private final AtomicLong nextExecutorAllowedMillis = new AtomicLong();
 
-    public ChainSession(UUID playerUUID, ChainMode mode, ChainTarget origin) {
+    public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin) {
         this.playerUUID = playerUUID;
         this.mode = mode;
+        this.subMode = ChainModeRegistry.resolveSubMode(mode, subMode);
         this.origin = origin;
     }
 
@@ -39,6 +43,10 @@ public class ChainSession {
 
     public ChainMode getMode() {
         return mode;
+    }
+
+    public ChainSubMode getSubMode() {
+        return subMode;
     }
 
     public ChainTarget getOrigin() {

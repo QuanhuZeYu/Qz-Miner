@@ -94,13 +94,19 @@ public class BoxScanTraverser implements ChainTraverser {
                     }
 
                     Block block = context.getWorld().getBlock(x, y, z);
-                    if (block == null || block == Blocks.air || block != context.getSampleBlock()) {
+                    if (block == null || block == Blocks.air) {
                         continue;
                     }
 
-                    int meta = context.getWorld().getBlockMetadata(x, y, z);
-                    if (meta != context.getSampleMeta()) {
-                        continue;
+                    if (context.getSubMode() != null && context.getSubMode().requiresSameBlockMatch()) {
+                        if (block != context.getSampleBlock()) {
+                            continue;
+                        }
+
+                        int meta = context.getWorld().getBlockMetadata(x, y, z);
+                        if (meta != context.getSampleMeta()) {
+                            continue;
+                        }
                     }
 
                     context.getCurrentFrontier().add(candidate);

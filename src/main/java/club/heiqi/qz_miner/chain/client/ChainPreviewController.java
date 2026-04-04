@@ -7,12 +7,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.planner.BoxScanTraverser;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
-import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -39,9 +40,6 @@ public class ChainPreviewController {
 
     private static final int MAX_SCAN_PER_SLICE = 32;
     private static final int MAX_PREVIEW_TARGETS = 256;
-    private final ChainTraverser floodFillTraverser = new FloodFillTraverser();
-    private final ChainTraverser boxScanTraverser = new BoxScanTraverser();
-    private final ChainBlockMatcher blockMatcher = new HarvestableBlockMatcher();
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private ChainTarget currentTarget;
@@ -110,6 +108,7 @@ public class ChainPreviewController {
             target,
             sampleBlock,
             sampleMeta,
+            MyMod.chainStateService.getClientState().getSelectedSubMode(),
             previewRadius,
             MAX_PREVIEW_TARGETS,
             currentFrontier,
@@ -117,6 +116,11 @@ public class ChainPreviewController {
             visited);
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
         final ChainTraverser traverser = resolveTraverser(selectedMode);
+        final ChainBlockMatcher blockMatcher = createBlockMatcher(selectedMode, searchContext);
+        if (traverser == null || blockMatcher == null) {
+            previewState.setCompleted(true);
+            return;
+        }
         traverser.seed(searchContext);
 
         previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
@@ -153,16 +157,35 @@ public class ChainPreviewController {
     }
 
     /**
+     * 根据当前模式和子模式创建预览匹配器。
+     *
+     * @param mode 当前模式
+     * @param searchContext 搜索上下文
+     * @return 预览匹配器
+     */
+    private ChainBlockMatcher createBlockMatcher(ChainMode mode, ChainSearchContext searchContext) {
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
+        if (definition != null) {
+            ChainBlockMatcher matcher = definition.createMatcher(searchContext);
+            if (matcher != null) {
+                return matcher;
+            }
+        }
+        return new HarvestableBlockMatcher();
+    }
+
+    /**
      * 根据当前模式选择预览遍历器。
      *
      * @param mode 当前连锁模式
      * @return 对应的遍历器
      */
     private ChainTraverser resolveTraverser(ChainMode mode) {
-        if (mode == ChainMode.AREA) {
-            return boxScanTraverser;
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
+        if (definition != null) {
+            return definition.getTraverser();
         }
-        return floodFillTraverser;
+        return null;
     }
 
     private boolean isPreviewStillValid(int generation, ChainTarget target) {

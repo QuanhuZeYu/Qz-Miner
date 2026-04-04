@@ -46,6 +46,53 @@ public final class ChainModeRegistry {
         return MODE_DEFINITIONS.get(mode);
     }
 
+    /**
+     * 获取指定主模式的默认子模式。
+     *
+     * @param mode 主模式
+     * @return 默认子模式
+     */
+    public static ChainSubMode getDefaultSubMode(ChainMode mode) {
+        ChainModeDefinition definition = getDefinition(mode);
+        return definition == null ? null : definition.getDefaultSubMode();
+    }
+
+    /**
+     * 规范化指定主模式下的子模式。
+     *
+     * @param mode 主模式
+     * @param subMode 子模式
+     * @return 规范化后的子模式
+     */
+    public static ChainSubMode resolveSubMode(ChainMode mode, ChainSubMode subMode) {
+        ChainModeDefinition definition = getDefinition(mode);
+        return definition == null ? null : definition.resolveSubMode(subMode);
+    }
+
+    /**
+     * 获取指定主模式下的下一个子模式。
+     *
+     * @param mode 主模式
+     * @param currentSubMode 当前子模式
+     * @return 下一个子模式
+     */
+    public static ChainSubMode nextSubMode(ChainMode mode, ChainSubMode currentSubMode) {
+        ChainModeDefinition definition = getDefinition(mode);
+        return definition == null ? null : definition.nextSubMode(currentSubMode);
+    }
+
+    /**
+     * 获取指定主模式下的上一个子模式。
+     *
+     * @param mode 主模式
+     * @param currentSubMode 当前子模式
+     * @return 上一个子模式
+     */
+    public static ChainSubMode previousSubMode(ChainMode mode, ChainSubMode currentSubMode) {
+        ChainModeDefinition definition = getDefinition(mode);
+        return definition == null ? null : definition.previousSubMode(currentSubMode);
+    }
+
     public static ChainMode next(ChainMode currentMode) {
         int index = REGISTERED_MODES.indexOf(currentMode);
         if (index < 0) {

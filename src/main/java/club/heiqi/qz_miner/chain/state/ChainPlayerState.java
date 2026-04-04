@@ -7,6 +7,7 @@ import java.util.List;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import net.minecraft.item.ItemStack;
 
 /**
@@ -18,6 +19,7 @@ public class ChainPlayerState {
     private volatile boolean chainKeyPressed;
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
+    private ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
     private volatile ChainSession session;
     private final List<ItemStack> pendingDrops = new ArrayList<ItemStack>();
 
@@ -85,6 +87,29 @@ public class ChainPlayerState {
             MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, this.selectedMode, newMode);
         }
         this.selectedMode = newMode;
+        this.selectedSubMode = ChainModeRegistry.resolveSubMode(newMode, selectedSubMode);
+    }
+
+    /**
+     * 获取当前主模式下的子模式。
+     *
+     * @return 当前子模式
+     */
+    public ChainSubMode getSelectedSubMode() {
+        return selectedSubMode;
+    }
+
+    /**
+     * 设置当前主模式下的子模式。
+     *
+     * @param selectedSubMode 当前子模式
+     */
+    public void setSelectedSubMode(ChainSubMode selectedSubMode) {
+        ChainSubMode newSubMode = ChainModeRegistry.resolveSubMode(selectedMode, selectedSubMode);
+        if (this.selectedSubMode != newSubMode) {
+            MyMod.LOG.debug("[ChainState] Player {} selectedSubMode {} -> {}", playerUUID, this.selectedSubMode, newSubMode);
+        }
+        this.selectedSubMode = newSubMode;
     }
 
     public ChainSession getSession() {

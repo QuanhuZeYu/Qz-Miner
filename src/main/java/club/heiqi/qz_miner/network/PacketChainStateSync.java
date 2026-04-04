@@ -3,6 +3,8 @@ package club.heiqi.qz_miner.network;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
@@ -18,6 +20,7 @@ public class PacketChainStateSync implements IMessage {
     public boolean chainKeyPressed;
     public boolean executing;
     public int modeOrdinal;
+    public int subModeOrdinal;
     public int executionStatusOrdinal;
     public int chainRadius;
     public int chainMaxBlocks;
@@ -25,10 +28,11 @@ public class PacketChainStateSync implements IMessage {
 
     public PacketChainStateSync() {}
 
-    public PacketChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+    public PacketChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainSubMode subMode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
         this.chainKeyPressed = chainKeyPressed;
         this.executing = executing;
         this.modeOrdinal = mode.ordinal();
+        this.subModeOrdinal = subMode == null ? -1 : subMode.ordinal();
         this.executionStatusOrdinal = executionStatus.ordinal();
         this.chainRadius = chainRadius;
         this.chainMaxBlocks = chainMaxBlocks;
@@ -40,6 +44,7 @@ public class PacketChainStateSync implements IMessage {
         chainKeyPressed = buf.readBoolean();
         executing = buf.readBoolean();
         modeOrdinal = buf.readInt();
+        subModeOrdinal = buf.readInt();
         executionStatusOrdinal = buf.readInt();
         chainRadius = buf.readInt();
         chainMaxBlocks = buf.readInt();
@@ -51,6 +56,7 @@ public class PacketChainStateSync implements IMessage {
         buf.writeBoolean(chainKeyPressed);
         buf.writeBoolean(executing);
         buf.writeInt(modeOrdinal);
+        buf.writeInt(subModeOrdinal);
         buf.writeInt(executionStatusOrdinal);
         buf.writeInt(chainRadius);
         buf.writeInt(chainMaxBlocks);
@@ -65,6 +71,11 @@ public class PacketChainStateSync implements IMessage {
             ChainMode mode = message.modeOrdinal >= 0 && message.modeOrdinal < modes.length
                 ? modes[message.modeOrdinal]
                 : ChainMode.CHAIN;
+            ChainSubMode[] subModes = ChainSubMode.values();
+            ChainSubMode subMode = message.subModeOrdinal >= 0 && message.subModeOrdinal < subModes.length
+                ? subModes[message.subModeOrdinal]
+                : null;
+            subMode = ChainModeRegistry.resolveSubMode(mode, subMode);
             ChainExecutionStatus[] statuses = ChainExecutionStatus.values();
             ChainExecutionStatus executionStatus = message.executionStatusOrdinal >= 0 && message.executionStatusOrdinal < statuses.length
                 ? statuses[message.executionStatusOrdinal]
@@ -73,9 +84,9 @@ public class PacketChainStateSync implements IMessage {
             int chainMaxBlocks = message.chainMaxBlocks > 0 ? message.chainMaxBlocks : Config.chainMaxBlocks;
             int matchedTargetCount = Math.max(0, message.matchedTargetCount);
 
-            MyMod.proxy.handleClientChainStateSync(message.chainKeyPressed, message.executing, mode, executionStatus, chainRadius, chainMaxBlocks, matchedTargetCount);
-            MyMod.LOG.debug("[ChainSync] Received chain state sync: pressed={}, executing={}, mode={}, status={}, chainRadius={}, chainMaxBlocks={}, matchedTargets={}",
-                message.chainKeyPressed, message.executing, mode, executionStatus, chainRadius, chainMaxBlocks, matchedTargetCount);
+            MyMod.proxy.handleClientChainStateSync(message.chainKeyPressed, message.executing, mode, subMode, executionStatus, chainRadius, chainMaxBlocks, matchedTargetCount);
+            MyMod.LOG.debug("[ChainSync] Received chain state sync: pressed={}, executing={}, mode={}, subMode={}, status={}, chainRadius={}, chainMaxBlocks={}, matchedTargets={}",
+                message.chainKeyPressed, message.executing, mode, subMode, executionStatus, chainRadius, chainMaxBlocks, matchedTargetCount);
             return null;
         }
     }

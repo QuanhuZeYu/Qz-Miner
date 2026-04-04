@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
@@ -40,7 +41,11 @@ public class BlockFloodFillPlanningStrategy implements ChainPlanningStrategy {
         }
 
         playerState.clearRuntimeState("restart-plan");
-        ChainSession session = new ChainSession(player.getUniqueID(), playerState.getSelectedMode(), origin);
+        ChainSession session = new ChainSession(
+            player.getUniqueID(),
+            playerState.getSelectedMode(),
+            ChainModeRegistry.getDefaultSubMode(ChainMode.CHAIN),
+            origin);
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-plan");
         session.setPlannerRunning(true);

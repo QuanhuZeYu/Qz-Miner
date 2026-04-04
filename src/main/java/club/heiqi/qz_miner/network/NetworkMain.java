@@ -36,6 +36,11 @@ public final class NetworkMain {
                 packetId++,
                 Side.SERVER);
         network.registerMessage(
+                PacketChainSubModeSwitch.Handler.class,
+                PacketChainSubModeSwitch.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
                 PacketChainStateSync.Handler.class,
                 PacketChainStateSync.class,
                 packetId++,

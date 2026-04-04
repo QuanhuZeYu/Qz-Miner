@@ -4,6 +4,8 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.ChainConstants;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.network.PacketChainSubModeSwitch;
 import club.heiqi.qz_miner.network.PacketKeyState;
 import club.heiqi.qz_miner.network.PacketChainModeSwitch;
 import cpw.mods.fml.client.FMLClientHandler;
@@ -16,6 +18,7 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.settings.KeyBinding;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 /**
  * 客户端按键监听器。
@@ -75,6 +78,44 @@ public class KeyListener {
             MyMod.LOG.debug("[KeyListener] Switched chain mode to {}", nextMode);
         }
 
+    }
+
+    /**
+     * 在按住连锁键时，使用滚轮切换当前主模式的子模式。
+     *
+     * @param event 鼠标输入事件
+     */
+    @SubscribeEvent
+    public void onMouseInput(InputEvent.MouseInputEvent event) {
+        if (FMLClientHandler.instance().getClient().theWorld == null || MyMod.chainStateService == null) {
+            return;
+        }
+
+        if (!chainSwitch.getIsKeyPressed()) {
+            return;
+        }
+
+        ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
+        ChainSubMode currentSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        if (currentSubMode == null) {
+            return;
+        }
+
+        int dWheel = Mouse.getEventDWheel();
+        if (dWheel == 0) {
+            return;
+        }
+
+        ChainSubMode nextSubMode = dWheel < 0
+            ? ChainModeRegistry.nextSubMode(selectedMode, currentSubMode)
+            : ChainModeRegistry.previousSubMode(selectedMode, currentSubMode);
+        if (nextSubMode == null || nextSubMode == currentSubMode) {
+            return;
+        }
+
+        MyMod.chainStateService.setClientSelectedSubMode(nextSubMode);
+        MyMod.networkMain.network.sendToServer(new PacketChainSubModeSwitch(nextSubMode));
+        MyMod.LOG.debug("[KeyListener] Switched sub mode to {} under mode {}", nextSubMode, selectedMode);
     }
 
     @SubscribeEvent

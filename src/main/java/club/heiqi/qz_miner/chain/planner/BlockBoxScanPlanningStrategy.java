@@ -6,6 +6,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
@@ -20,7 +23,6 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
 
     private static final int MAX_SCAN_PER_SLICE = 64;
     private final ChainTraverser traverser = new BoxScanTraverser();
-    private final ChainBlockMatcher blockMatcher = new HarvestableBlockMatcher();
     private final BlockSeedResolver blockSeedResolver = new WorldBlockSeedResolver();
 
     /**
@@ -53,7 +55,11 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
         }
 
         playerState.clearRuntimeState("restart-area-plan");
-        ChainSession session = new ChainSession(player.getUniqueID(), playerState.getSelectedMode(), origin);
+        ChainSession session = new ChainSession(
+            player.getUniqueID(),
+            playerState.getSelectedMode(),
+            playerState.getSelectedSubMode(),
+            origin);
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-area-plan");
         session.setPlannerRunning(true);
@@ -65,6 +71,10 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
         ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
         final ChainSearchContext searchContext = createSearchContext(player.worldObj, session, seedSnapshot);
+        final ChainBlockMatcher blockMatcher = createBlockMatcher(searchContext);
+        if (blockMatcher == null) {
+            return;
+        }
         traverser.seed(searchContext);
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
@@ -145,6 +155,20 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
     private ChainSearchContext createSearchContext(net.minecraft.world.World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
         session.getTraversalTargets().clear();
         return ChainSearchContextFactory.createBlockBoxScanContext(world, session, seedSnapshot);
+    }
+
+    /**
+     * 根据当前子模式创建方块匹配器。
+     *
+     * @param searchContext 搜索上下文
+     * @return 匹配器
+     */
+    private ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext) {
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.AREA);
+        if (definition != null) {
+            return definition.createMatcher(searchContext);
+        }
+        return null;
     }
 
     /**

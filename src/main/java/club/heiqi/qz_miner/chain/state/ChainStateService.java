@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.network.PacketChainStateSync;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
@@ -77,9 +78,38 @@ public final class ChainStateService {
         MyMod.LOG.debug("[ChainState] Player {} selected mode={}", playerUUID, mode);
     }
 
+    /**
+     * 设置服务端玩家 AREA 子模式。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param areaSubMode AREA 子模式
+     */
+    public void setPlayerSelectedSubMode(UUID playerUUID, ChainSubMode subMode) {
+        ChainPlayerState state = getOrCreatePlayerState(playerUUID);
+        state.setSelectedSubMode(subMode);
+
+        if (state.isExecuting()) {
+            stopPlayerExecution(playerUUID, "sub-mode-changed");
+            return;
+        }
+
+        syncPlayerState(playerUUID);
+        MyMod.LOG.debug("[ChainState] Player {} selected sub mode={}", playerUUID, state.getSelectedSubMode());
+    }
+
     public void setClientSelectedMode(ChainMode mode) {
         clientState.setSelectedMode(mode);
         MyMod.LOG.debug("[ChainState] Client selected mode={}", mode);
+    }
+
+    /**
+     * 设置客户端 AREA 子模式。
+     *
+     * @param areaSubMode AREA 子模式
+     */
+    public void setClientSelectedSubMode(ChainSubMode subMode) {
+        clientState.setSelectedSubMode(subMode);
+        MyMod.LOG.debug("[ChainState] Client selected sub mode={}", clientState.getSelectedSubMode());
     }
 
     public void setClientChainKeyPressed(boolean pressed) {
@@ -118,6 +148,7 @@ public final class ChainStateService {
                 state.isChainKeyPressed(),
                 state.isExecuting(),
                 state.getSelectedMode(),
+                state.getSelectedSubMode(),
                 state.getExecutionStatus(),
                 Config.chainRadius,
                 Config.chainMaxBlocks,

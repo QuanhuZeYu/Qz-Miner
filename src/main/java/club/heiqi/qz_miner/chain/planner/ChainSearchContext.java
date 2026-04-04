@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.planner;
 import java.util.Queue;
 import java.util.Set;
 
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import net.minecraft.block.Block;
 import net.minecraft.world.World;
 
@@ -20,6 +21,7 @@ public class ChainSearchContext {
     private final ChainTarget origin;
     private final Block sampleBlock;
     private final int sampleMeta;
+    private final ChainSubMode subMode;
     private final int maxRadius;
     private final int maxTargets;
     private final Queue<ChainTarget> currentFrontier;
@@ -33,6 +35,7 @@ public class ChainSearchContext {
         ChainTarget origin,
         Block sampleBlock,
         int sampleMeta,
+        ChainSubMode subMode,
         int maxRadius,
         int maxTargets,
         Queue<ChainTarget> currentFrontier,
@@ -42,6 +45,7 @@ public class ChainSearchContext {
         this.origin = origin;
         this.sampleBlock = sampleBlock;
         this.sampleMeta = sampleMeta;
+        this.subMode = subMode;
         this.maxRadius = maxRadius;
         this.maxTargets = maxTargets;
         this.currentFrontier = currentFrontier;
@@ -63,6 +67,15 @@ public class ChainSearchContext {
 
     public int getSampleMeta() {
         return sampleMeta;
+    }
+
+    /**
+     * 获取当前子模式快照。
+     *
+     * @return 当前子模式
+     */
+    public ChainSubMode getSubMode() {
+        return subMode;
     }
 
     public int getMaxRadius() {
