@@ -1,11 +1,11 @@
 package club.heiqi.qz_miner.chain.executor;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
@@ -21,10 +21,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
  */
 public class ChainExecutor {
 
-    private final List<ChainActionExecutor> actionExecutors = new ArrayList<ChainActionExecutor>();
-
     public ChainExecutor() {
-        actionExecutors.add(new BlockHarvestActionExecutor());
         FMLCommonHandler.instance().bus().register(this);
     }
 
@@ -63,11 +60,12 @@ public class ChainExecutor {
                 continue;
             }
 
-            ChainActionExecutor actionExecutor = getActionExecutor(session);
-            if (actionExecutor == null) {
+            ChainModeDefinition definition = ChainModeRegistry.getDefinition(session.getMode());
+            if (definition == null || definition.getActionExecutor() == null) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-action-executor");
                 continue;
             }
+            ChainActionExecutor actionExecutor = definition.getActionExecutor();
 
             int maxBreakPerTick = Config.maxBreakPerTick;
             int executedCount = 0;
@@ -99,12 +97,4 @@ public class ChainExecutor {
         }
     }
 
-    private ChainActionExecutor getActionExecutor(ChainSession session) {
-        for (ChainActionExecutor actionExecutor : actionExecutors) {
-            if (actionExecutor.supports(session.getMode())) {
-                return actionExecutor;
-            }
-        }
-        return null;
-    }
 }

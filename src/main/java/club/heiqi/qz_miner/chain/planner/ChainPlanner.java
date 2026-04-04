@@ -1,9 +1,8 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -16,10 +15,7 @@ import net.minecraftforge.event.world.BlockEvent;
  */
 public class ChainPlanner {
 
-    private final List<ChainPlanningStrategy> planningStrategies = new ArrayList<ChainPlanningStrategy>();
-
     public ChainPlanner() {
-        planningStrategies.add(new BlockFloodFillPlanningStrategy());
         MinecraftForge.EVENT_BUS.register(this);
     }
 
@@ -39,20 +35,11 @@ public class ChainPlanner {
             return;
         }
 
-        ChainPlanningStrategy strategy = getPlanningStrategy(playerState);
-        if (strategy == null) {
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(playerState.getSelectedMode());
+        if (definition == null || definition.getPlanningStrategy() == null) {
             return;
         }
 
-        strategy.startPlanning(player, playerState, new ChainTarget(event.x, event.y, event.z));
-    }
-
-    private ChainPlanningStrategy getPlanningStrategy(ChainPlayerState playerState) {
-        for (ChainPlanningStrategy strategy : planningStrategies) {
-            if (strategy.supports(playerState.getSelectedMode())) {
-                return strategy;
-            }
-        }
-        return null;
+        definition.getPlanningStrategy().startPlanning(player, playerState, new ChainTarget(event.x, event.y, event.z));
     }
 }

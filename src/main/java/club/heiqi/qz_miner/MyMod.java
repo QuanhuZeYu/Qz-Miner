@@ -7,6 +7,7 @@ import club.heiqi.qz_miner.core.PlayerManager;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
 import club.heiqi.qz_miner.chain.executor.ChainExecutor;
+import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
@@ -41,6 +42,21 @@ public class MyMod {
     public static NetworkMain networkMain;
     public static ParallelTickExecutor parallelTickExecutor;
 
+    /**
+     * 确保并行 Tick 执行器可用。
+     *
+     * 单人世界退出时服务端停止事件会销毁执行器，
+     * 重新进入世界后需要按需重建，避免客户端预览或服务端规划空指针。
+     *
+     * @return 可用的并行 Tick 执行器
+     */
+    public static synchronized ParallelTickExecutor ensureParallelTickExecutor() {
+        if (parallelTickExecutor == null) {
+            parallelTickExecutor = new ParallelTickExecutor();
+        }
+        return parallelTickExecutor;
+    }
+
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;
 
@@ -56,12 +72,13 @@ public class MyMod {
     public void init(FMLInitializationEvent event) {
         networkMain = new NetworkMain();
         networkMain.register();
+        ChainModeBootstrap.bootstrap();
         playerManager = new PlayerManager();
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
         chainDropCollector = new ChainDropCollector();
         chainExecutor = new ChainExecutor();
-        parallelTickExecutor = new ParallelTickExecutor();
+        ensureParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
                         e.player.getCommandSenderName(), e.reason));

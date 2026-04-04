@@ -2,7 +2,9 @@ package club.heiqi.qz_miner.chain.mode;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 连锁模式注册表。
@@ -17,8 +19,20 @@ public final class ChainModeRegistry {
         ChainMode.AREA,
         ChainMode.INTERACT,
         ChainMode.SPECIAL));
+    private static final Map<ChainMode, ChainModeDefinition> MODE_DEFINITIONS = new EnumMap<ChainMode, ChainModeDefinition>(ChainMode.class);
 
     private ChainModeRegistry() {}
+
+    public static void clearDefinitions() {
+        MODE_DEFINITIONS.clear();
+    }
+
+    public static void register(ChainModeDefinition definition) {
+        if (definition == null || definition.getMode() == null) {
+            return;
+        }
+        MODE_DEFINITIONS.put(definition.getMode(), definition);
+    }
 
     public static List<ChainMode> getRegisteredModes() {
         return REGISTERED_MODES;
@@ -26,6 +40,10 @@ public final class ChainModeRegistry {
 
     public static ChainMode getDefaultMode() {
         return ChainMode.CHAIN;
+    }
+
+    public static ChainModeDefinition getDefinition(ChainMode mode) {
+        return MODE_DEFINITIONS.get(mode);
     }
 
     public static ChainMode next(ChainMode currentMode) {
