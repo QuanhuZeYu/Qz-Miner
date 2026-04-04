@@ -31,6 +31,7 @@ import net.minecraftforge.event.world.BlockEvent;
 public class ChainPlanner {
 
     private static final int MAX_SCAN_PER_SLICE = 64;
+    private static final int[][] NEIGHBOR_OFFSETS = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
     public ChainPlanner() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -69,18 +70,20 @@ public class ChainPlanner {
 
         playerState.clearRuntimeState("restart-plan");
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-plan");
+        playerState.setPlannerRunning(true);
+        playerState.setPlannerCompleted(false);
         playerState.updatePlannerHeartbeat();
+        playerState.resetExecutorThrottle();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
-        ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPlannedTargets();
-        ConcurrentLinkedQueue<ChainTarget> currentFrontier = new ConcurrentLinkedQueue<>();
+        ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPendingBreakTargets();
+        ConcurrentLinkedQueue<ChainTarget> currentFrontier = playerState.getTraversalTargets();
         ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<>();
         Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
 
         visited.add(origin);
 
-        int[][] offsets = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
-        for (int[] off : offsets) {
+        for (int[] off : NEIGHBOR_OFFSETS) {
             ChainTarget neighbor = new ChainTarget(origin.getX() + off[0], origin.getY() + off[1], origin.getZ() + off[2]);
             if (visited.add(neighbor)) {
                 Block nb = world.getBlock(neighbor.getX(), neighbor.getY(), neighbor.getZ());
@@ -131,15 +134,10 @@ public class ChainPlanner {
                     searchContext,
                     MAX_SCAN_PER_SLICE,
                     target -> canHarvest((EntityPlayerMP) currentPlayer, target.getX(), target.getY(), target.getZ()),
-                    target -> {
-                        if (searchContext.getConfirmedCount() < searchContext.getMaxTargets()) {
-                            queue.add(target);
-                            searchContext.incrementConfirmedCount();
-                        }
-                    });
+                    queue::add);
 
-                if (currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING && !queue.isEmpty()) {
-                    currentState.setExecutionStatus(ChainExecutionStatus.EXECUTING, "planner-found-targets");
+                if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
+                    currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "planner-found-targets");
                     MyMod.chainStateService.syncPlayerState(playerUUID);
                 }
 
@@ -147,9 +145,16 @@ public class ChainPlanner {
                     MyMod.LOG.debug("[ChainPlanner] Plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
                         playerUUID, searchContext.getConfirmedCount(), queue.size(), currentState.getPendingDrops().size());
                     currentState.setPlannerSubscription(null);
-                    currentState.setExecutorWaitingForPlanner(false);
+                    currentState.setPlannerRunning(false);
+                    currentState.setPlannerCompleted(true);
+                    currentFrontier.clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "planner-completed-empty-queue");
+                        MyMod.chainStateService.syncPlayerState(playerUUID);
+                    } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
+                        currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "planner-completed-with-targets");
+                        MyMod.chainStateService.syncPlayerState(playerUUID);
+                    } else {
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     }
                 }

@@ -47,6 +47,10 @@ public final class ChainSearchAlgorithm {
     public static boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
         int processed = 0;
 
+        if (context.getConfirmedCount() >= context.getMaxTargets()) {
+            return false;
+        }
+
         while (processed < maxNodes && !context.getCurrentFrontier().isEmpty()) {
             ChainTarget current = context.getCurrentFrontier().poll();
             if (current == null) {
@@ -71,6 +75,12 @@ public final class ChainSearchAlgorithm {
             }
 
             consumer.accept(current);
+            context.incrementConfirmedCount();
+
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                processed++;
+                break;
+            }
 
             for (ChainTarget offset : NEIGHBOR_OFFSETS) {
                 ChainTarget next = new ChainTarget(

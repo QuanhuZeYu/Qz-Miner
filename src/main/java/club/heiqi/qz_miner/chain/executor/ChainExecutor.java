@@ -12,7 +12,6 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.item.ItemStack;
 
 /**
  * 连锁执行器。
@@ -35,8 +34,10 @@ public class ChainExecutor {
             return;
         }
 
+        long nowMillis = System.currentTimeMillis();
+
         for (ChainPlayerState playerState : MyMod.chainStateService.getPlayerStates()) {
-            if (playerState.getExecutionStatus() != ChainExecutionStatus.EXECUTING) {
+            if (playerState.getExecutionStatus() == ChainExecutionStatus.IDLE) {
                 continue;
             }
 
@@ -46,12 +47,16 @@ public class ChainExecutor {
                 continue;
             }
 
-            if (!checkCanOperate((EntityPlayerMP) player, playerState)) {
-                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "check-can-operate-failed");
+            if (!playerState.isChainKeyPressed()) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "key-released");
                 continue;
             }
 
-            ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPlannedTargets();
+            ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPendingBreakTargets();
+            if (!playerState.isExecutorReady(nowMillis)) {
+                continue;
+            }
+
             int maxBreakPerTick = Config.maxBreakPerTick;
             int executedCount = 0;
 
@@ -77,20 +82,14 @@ public class ChainExecutor {
                 executedCount++;
             }
 
-            playerState.updateExecutorHeartbeat(((EntityPlayerMP) player).worldObj.getTotalWorldTime());
+            if (executedCount > 0) {
+                playerState.scheduleNextExecutorRun(nowMillis, 50L);
+            }
+
+            if (queue.isEmpty() && playerState.isPlannerCompleted()) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "executor-consumed-all-targets");
+            }
         }
     }
 
-    private boolean checkCanOperate(EntityPlayerMP player, ChainPlayerState playerState) {
-        if (!playerState.isChainKeyPressed()) {
-            return false;
-        }
-
-        ItemStack equippedItem = player.getCurrentEquippedItem();
-        if (equippedItem != null && equippedItem.isItemStackDamageable()) {
-            return equippedItem.getMaxDamage() - equippedItem.getItemDamage() > 1;
-        }
-
-        return true;
-    }
 }

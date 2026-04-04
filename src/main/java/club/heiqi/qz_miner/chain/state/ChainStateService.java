@@ -109,7 +109,7 @@ public final class ChainStateService {
             state.isExecuting(),
             state.getSelectedMode(),
             state.getExecutionStatus(),
-            state.getPlannedTargets().size(),
+            state.getPendingBreakTargets().size(),
             state.getPendingDrops().size());
 
         MyMod.networkMain.network.sendTo(
@@ -127,7 +127,10 @@ public final class ChainStateService {
             return;
         }
 
-        if (!state.isExecuting() && state.getPlannerSubscription() == null && state.getPlannedTargets().isEmpty()) {
+        if (!state.isExecuting()
+            && state.getPlannerSubscription() == null
+            && state.getExecutorSubscription() == null
+            && state.getPendingBreakTargets().isEmpty()) {
             return;
         }
 
@@ -135,7 +138,7 @@ public final class ChainStateService {
             playerUUID,
             reason,
             state.getExecutionStatus(),
-            state.getPlannedTargets().size(),
+            state.getPendingBreakTargets().size(),
             state.getPendingDrops().size());
         state.clearRuntimeState(reason);
         syncPlayerState(playerUUID);

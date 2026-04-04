@@ -52,7 +52,7 @@ public class HudOverlay {
 
         ChainExecutionStatus executionStatus = MyMod.chainStateService.getClientState().getServerExecutionStatus();
         String statusText;
-        if (executionStatus == ChainExecutionStatus.EXECUTING) {
+        if (executionStatus == ChainExecutionStatus.RUNNING) {
             statusText = "\u00a7a\u6b63\u5728\u8fde\u9501";
         } else if (executionStatus == ChainExecutionStatus.PLANNING) {
             statusText = "\u00a7e\u8fde\u9501\u89c4\u5212\u4e2d";

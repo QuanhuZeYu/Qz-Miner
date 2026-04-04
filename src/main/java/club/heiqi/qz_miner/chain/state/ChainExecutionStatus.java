@@ -13,7 +13,7 @@ public enum ChainExecutionStatus {
      */
     PLANNING,
     /**
-     * 执行中。
+     * 规划与执行并行中。
      */
-    EXECUTING
+    RUNNING
 }
