@@ -19,13 +19,7 @@ public class FloodFillTraverser implements ChainTraverser {
                 continue;
             }
 
-            Block neighborBlock = context.getWorld().getBlock(neighbor.getX(), neighbor.getY(), neighbor.getZ());
-            if (neighborBlock != context.getSampleBlock()) {
-                continue;
-            }
-
-            int neighborMeta = context.getWorld().getBlockMetadata(neighbor.getX(), neighbor.getY(), neighbor.getZ());
-            if (neighborMeta != context.getSampleMeta()) {
+            if (!context.canTraverse(neighbor)) {
                 continue;
             }
 

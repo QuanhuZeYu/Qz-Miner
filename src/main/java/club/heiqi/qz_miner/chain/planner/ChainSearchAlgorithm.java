@@ -3,9 +3,6 @@ package club.heiqi.qz_miner.chain.planner;
 import java.util.Arrays;
 import java.util.List;
 
-import net.minecraft.block.Block;
-import net.minecraft.init.Blocks;
-
 /**
  * 连锁搜索算法。
  *
@@ -57,14 +54,7 @@ public final class ChainSearchAlgorithm {
                 break;
             }
 
-            Block block = context.getWorld().getBlock(current.getX(), current.getY(), current.getZ());
-            if (block == null || block == Blocks.air || block != context.getSampleBlock()) {
-                processed++;
-                continue;
-            }
-
-            int meta = context.getWorld().getBlockMetadata(current.getX(), current.getY(), current.getZ());
-            if (meta != context.getSampleMeta()) {
+            if (!context.canTraverse(current)) {
                 processed++;
                 continue;
             }
@@ -100,13 +90,7 @@ public final class ChainSearchAlgorithm {
                     break;
                 }
 
-                Block nextBlock = context.getWorld().getBlock(next.getX(), next.getY(), next.getZ());
-                if (nextBlock == null || nextBlock == Blocks.air || nextBlock != context.getSampleBlock()) {
-                    continue;
-                }
-
-                int nextMeta = context.getWorld().getBlockMetadata(next.getX(), next.getY(), next.getZ());
-                if (nextMeta != context.getSampleMeta()) {
+                if (!context.canTraverse(next)) {
                     continue;
                 }
 

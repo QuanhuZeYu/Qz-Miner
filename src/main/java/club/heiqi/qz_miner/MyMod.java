@@ -8,6 +8,7 @@ import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
 import club.heiqi.qz_miner.chain.executor.ChainExecutor;
 import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
+import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
@@ -37,6 +38,7 @@ public class MyMod {
     public static PlayerManager playerManager;
     public static ChainStateService chainStateService;
     public static ChainPlanner chainPlanner;
+    public static ChainInteractPlanner chainInteractPlanner;
     public static ChainDropCollector chainDropCollector;
     public static ChainExecutor chainExecutor;
     public static NetworkMain networkMain;
@@ -76,6 +78,7 @@ public class MyMod {
         playerManager = new PlayerManager();
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
+        chainInteractPlanner = new ChainInteractPlanner();
         chainDropCollector = new ChainDropCollector();
         chainExecutor = new ChainExecutor();
         ensureParallelTickExecutor();

@@ -4,7 +4,11 @@ import java.util.Queue;
 import java.util.Set;
 
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import ic2.core.crop.TileEntityCrop;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockCrops;
+import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
 /**
@@ -112,5 +116,38 @@ public class ChainSearchContext {
 
     public void setScanDepth(int scanDepth) {
         this.scanDepth = Math.max(0, scanDepth);
+    }
+
+    /**
+     * 判断目标是否允许作为当前遍历候选点。
+     *
+     * @param target 候选目标
+     * @return 是否允许继续遍历
+     */
+    public boolean canTraverse(ChainTarget target) {
+        if (target == null) {
+            return false;
+        }
+
+        Block block = world.getBlock(target.getX(), target.getY(), target.getZ());
+        if (block == null || block == Blocks.air) {
+            return false;
+        }
+
+        if (subMode == ChainSubMode.INTERACT_CROP) {
+            if (block instanceof BlockCrops) {
+                return true;
+            }
+
+            TileEntity tileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
+            return tileEntity instanceof TileEntityCrop;
+        }
+
+        if (block != sampleBlock) {
+            return false;
+        }
+
+        int meta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        return meta == sampleMeta;
     }
 }

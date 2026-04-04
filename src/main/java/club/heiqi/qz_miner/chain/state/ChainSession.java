@@ -20,6 +20,10 @@ public class ChainSession {
     private final ChainMode mode;
     private final ChainSubMode subMode;
     private final ChainTarget origin;
+    private final int interactFace;
+    private final float interactHitX;
+    private final float interactHitY;
+    private final float interactHitZ;
     private volatile ParallelTickSubscription plannerSubscription;
     private volatile ParallelTickSubscription executorSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> traversalTargets = new ConcurrentLinkedQueue<>();
@@ -31,10 +35,43 @@ public class ChainSession {
     private final AtomicLong nextExecutorAllowedMillis = new AtomicLong();
 
     public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin) {
+        this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F);
+    }
+
+    /**
+     * 创建连锁会话。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param mode 主模式
+     * @param subMode 子模式
+     * @param origin 起点坐标
+     * @param interactFace 交互点击面
+     */
+    public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace) {
+        this(playerUUID, mode, subMode, origin, interactFace, 0.0F, 0.0F, 0.0F);
+    }
+
+    /**
+     * 创建连锁会话。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param mode 主模式
+     * @param subMode 子模式
+     * @param origin 起点坐标
+     * @param interactFace 交互点击面
+     * @param interactHitX 命中点 X 偏移
+     * @param interactHitY 命中点 Y 偏移
+     * @param interactHitZ 命中点 Z 偏移
+     */
+    public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace, float interactHitX, float interactHitY, float interactHitZ) {
         this.playerUUID = playerUUID;
         this.mode = mode;
         this.subMode = ChainModeRegistry.resolveSubMode(mode, subMode);
         this.origin = origin;
+        this.interactFace = interactFace;
+        this.interactHitX = interactHitX;
+        this.interactHitY = interactHitY;
+        this.interactHitZ = interactHitZ;
     }
 
     public UUID getPlayerUUID() {
@@ -51,6 +88,42 @@ public class ChainSession {
 
     public ChainTarget getOrigin() {
         return origin;
+    }
+
+    /**
+     * 获取触发交互时记录的点击面。
+     *
+     * @return 点击面编号
+     */
+    public int getInteractFace() {
+        return interactFace;
+    }
+
+    /**
+     * 获取交互命中点 X 偏移。
+     *
+     * @return 命中点 X 偏移
+     */
+    public float getInteractHitX() {
+        return interactHitX;
+    }
+
+    /**
+     * 获取交互命中点 Y 偏移。
+     *
+     * @return 命中点 Y 偏移
+     */
+    public float getInteractHitY() {
+        return interactHitY;
+    }
+
+    /**
+     * 获取交互命中点 Z 偏移。
+     *
+     * @return 命中点 Z 偏移
+     */
+    public float getInteractHitZ() {
+        return interactHitZ;
     }
 
     public ParallelTickSubscription getPlannerSubscription() {

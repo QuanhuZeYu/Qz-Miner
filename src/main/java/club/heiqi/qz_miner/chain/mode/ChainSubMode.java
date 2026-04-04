@@ -21,7 +21,7 @@ public enum ChainSubMode {
      */
     INTERACT_BASE(ChainMode.INTERACT, true),
     /**
-     * INTERACT 作物交互占位子模式。
+     * INTERACT 作物交互子模式。
      */
     INTERACT_CROP(ChainMode.INTERACT, false),
     /**

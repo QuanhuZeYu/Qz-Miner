@@ -6,6 +6,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
+import club.heiqi.qz_miner.MyMod;
+
 /**
  * 连锁模式注册表。
  *
@@ -29,9 +31,31 @@ public final class ChainModeRegistry {
 
     public static void register(ChainModeDefinition definition) {
         if (definition == null || definition.getMode() == null) {
+            MyMod.LOG.warn("[ChainModeRegistry] Ignore invalid mode definition: definition={}, mode=null", definition);
             return;
         }
+        if (!REGISTERED_MODES.contains(definition.getMode())) {
+            MyMod.LOG.warn("[ChainModeRegistry] Ignore unregistered mode definition: mode={}", definition.getMode());
+            return;
+        }
+        if (definition.getPlanningStrategy() == null) {
+            MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing planning strategy", definition.getMode());
+        }
+        if (definition.getActionExecutor() == null) {
+            MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing action executor", definition.getMode());
+        }
+        if (definition.getTraverser() == null) {
+            MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing traverser", definition.getMode());
+        }
+        if (definition.getSubModes().isEmpty()) {
+            MyMod.LOG.warn("[ChainModeRegistry] Mode {} has no sub modes", definition.getMode());
+        }
+        if (MODE_DEFINITIONS.containsKey(definition.getMode())) {
+            MyMod.LOG.warn("[ChainModeRegistry] Duplicate mode definition detected, overriding mode={}", definition.getMode());
+        }
         MODE_DEFINITIONS.put(definition.getMode(), definition);
+        MyMod.LOG.debug("[ChainModeRegistry] Registered mode definition: mode={}, subModes={}, defaultSubMode={}",
+            definition.getMode(), definition.getSubModes().size(), definition.getDefaultSubMode());
     }
 
     public static List<ChainMode> getRegisteredModes() {
@@ -43,7 +67,11 @@ public final class ChainModeRegistry {
     }
 
     public static ChainModeDefinition getDefinition(ChainMode mode) {
-        return MODE_DEFINITIONS.get(mode);
+        ChainModeDefinition definition = MODE_DEFINITIONS.get(mode);
+        if (definition == null && mode != null) {
+            MyMod.LOG.warn("[ChainModeRegistry] Missing mode definition: mode={}", mode);
+        }
+        return definition;
     }
 
     /**
@@ -107,5 +135,21 @@ public final class ChainModeRegistry {
             return getDefaultMode();
         }
         return REGISTERED_MODES.get((index - 1 + REGISTERED_MODES.size()) % REGISTERED_MODES.size());
+    }
+
+    /**
+     * 校验当前注册结果，补充缺失定义日志。
+     */
+    public static void validateDefinitions() {
+        for (ChainMode mode : REGISTERED_MODES) {
+            ChainModeDefinition definition = MODE_DEFINITIONS.get(mode);
+            if (definition == null) {
+                MyMod.LOG.warn("[ChainModeRegistry] Missing required mode definition after bootstrap: mode={}", mode);
+                continue;
+            }
+            if (definition.getDefaultSubMode() == null) {
+                MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing default sub mode", mode);
+            }
+        }
     }
 }
