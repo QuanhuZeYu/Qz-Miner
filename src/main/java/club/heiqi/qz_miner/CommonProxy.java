@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner;
 
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -21,6 +23,12 @@ public class CommonProxy {
 
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {}
+
+    /**
+     * 处理客户端连锁状态同步。
+     */
+    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainExecutionStatus executionStatus) {
+    }
 
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}

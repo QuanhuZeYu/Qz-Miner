@@ -7,7 +7,6 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
 import io.netty.buffer.ByteBuf;
 
 /**
@@ -45,15 +44,10 @@ public class PacketChainStateSync implements IMessage {
         buf.writeInt(executionStatusOrdinal);
     }
 
-    @SideOnly(Side.CLIENT)
     public static class Handler implements IMessageHandler<PacketChainStateSync, IMessage> {
 
         @Override
         public IMessage onMessage(PacketChainStateSync message, MessageContext ctx) {
-            if (MyMod.chainStateService == null) {
-                return null;
-            }
-
             ChainMode[] modes = ChainMode.values();
             ChainMode mode = message.modeOrdinal >= 0 && message.modeOrdinal < modes.length
                 ? modes[message.modeOrdinal]
@@ -63,10 +57,7 @@ public class PacketChainStateSync implements IMessage {
                 ? statuses[message.executionStatusOrdinal]
                 : ChainExecutionStatus.IDLE;
 
-            MyMod.chainStateService.getClientState().setServerChainKeyPressed(message.chainKeyPressed);
-            MyMod.chainStateService.getClientState().setServerExecuting(message.executing);
-            MyMod.chainStateService.getClientState().setServerExecutionStatus(executionStatus);
-            MyMod.chainStateService.getClientState().setSelectedMode(mode);
+            MyMod.proxy.handleClientChainStateSync(message.chainKeyPressed, message.executing, mode, executionStatus);
             MyMod.LOG.debug("[ChainSync] Received chain state sync: pressed={}, executing={}, mode={}, status={}",
                 message.chainKeyPressed, message.executing, mode, executionStatus);
             return null;

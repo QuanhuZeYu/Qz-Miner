@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.ChainConstants;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.network.PacketKeyState;
@@ -27,7 +28,7 @@ public class KeyListener {
     /**
      * 按键标识符常量。
      */
-    public static final int KEY_CHAIN = 0;
+    public static final int KEY_CHAIN = ChainConstants.KEY_CHAIN;
 
     /**
      * 连锁切换按键绑定，默认 ~ 键。
