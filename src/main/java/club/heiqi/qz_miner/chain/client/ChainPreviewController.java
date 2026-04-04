@@ -15,6 +15,7 @@ import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
+import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -39,7 +40,7 @@ import net.minecraft.world.World;
 @SideOnly(Side.CLIENT)
 public class ChainPreviewController {
 
-    private static final int MAX_SCAN_PER_SLICE = 32;
+    private static final int MAX_SCAN_PER_SLICE = 640;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private ChainTarget currentTarget;
@@ -69,6 +70,16 @@ public class ChainPreviewController {
 
         if (!MyMod.chainStateService.getClientState().isChainKeyPressed()) {
             stopPreview();
+            return;
+        }
+
+        if (shouldLockCurrentPreview()) {
+            if (currentTarget == null) {
+                ChainTarget lockedTarget = previewState.getOrigin();
+                if (lockedTarget != null) {
+                    currentTarget = lockedTarget;
+                }
+            }
             return;
         }
 
@@ -223,6 +234,27 @@ public class ChainPreviewController {
             return false;
         }
         return target.equals(currentTarget);
+    }
+
+    /**
+     * 判断当前是否应锁定已启动的预览计算。
+     *
+     * 只要服务端已经进入规划或执行阶段，就继续保留当前预览，
+     * 避免客户端转动视角导致正在进行的连锁预览被切走。
+     *
+     * @return 是否锁定当前预览
+     */
+    private boolean shouldLockCurrentPreview() {
+        if (MyMod.chainStateService == null) {
+            return false;
+        }
+
+        if (currentTarget == null || !previewState.isActive()) {
+            return false;
+        }
+
+        ChainExecutionStatus status = MyMod.chainStateService.getClientState().getServerExecutionStatus();
+        return status == ChainExecutionStatus.PLANNING || status == ChainExecutionStatus.RUNNING;
     }
 
     private void stopPreview() {
