@@ -4,9 +4,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -24,7 +26,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  */
 public final class ParallelTickExecutor {
 
-    private static final long DEFAULT_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(45L);
+    private static final long MIN_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(10L);
 
     private final CopyOnWriteArrayList<RegisteredTask> serverPreTasks = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<RegisteredTask> serverPostTasks = new CopyOnWriteArrayList<>();
@@ -152,7 +154,7 @@ public final class ParallelTickExecutor {
 
         long tickId = tickCounter.incrementAndGet();
         long startNanoTime = System.nanoTime();
-        long deadlineNanoTime = startNanoTime + DEFAULT_TICK_BUDGET_NANOS;
+        long deadlineNanoTime = startNanoTime + getConfiguredTickBudgetNanos();
 
         stateLock.lock();
         try {
@@ -171,6 +173,8 @@ public final class ParallelTickExecutor {
     }
 
     public void endStage(ParallelTickStage stage) {
+        waitForMinimumWindow(stage);
+
         stateLock.lock();
         try {
             if (currentStage != stage) {
@@ -192,6 +196,35 @@ public final class ParallelTickExecutor {
         } finally {
             stateLock.unlock();
         }
+    }
+
+    private void waitForMinimumWindow(ParallelTickStage stage) {
+        ParallelTickContext snapshot;
+        stateLock.lock();
+        try {
+            if (currentStage != stage || currentContext == null || !tickWindowOpen) {
+                return;
+            }
+            snapshot = currentContext;
+        } finally {
+            stateLock.unlock();
+        }
+
+        long minBudgetNanos = getConfiguredTickBudgetNanos();
+        long remainingNanos = (snapshot.getStartNanoTime() + minBudgetNanos) - System.nanoTime();
+        while (remainingNanos > 0L) {
+            LockSupport.parkNanos(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(1L)));
+            if (Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            remainingNanos = (snapshot.getStartNanoTime() + minBudgetNanos) - System.nanoTime();
+        }
+    }
+
+    private long getConfiguredTickBudgetNanos() {
+        long configuredBudgetMillis = Math.max(10L, Config.parallelTickMinDurationMs);
+        return Math.max(MIN_TICK_BUDGET_NANOS, TimeUnit.MILLISECONDS.toNanos(configuredBudgetMillis));
     }
 
     private void unregister(RegisteredTask registeredTask) {
