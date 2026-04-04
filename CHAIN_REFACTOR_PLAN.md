@@ -529,6 +529,49 @@ public final class ChainModeDefinition {
 - 新增一种执行器变体时，不需要改核心主流程
 - 主流程只依赖抽象接口，不依赖“挖方块”这一种具体能力
 
+当前进度：
+
+- 已引入 `ChainSession`
+- 已引入 `ChainPlanningStrategy`
+- 已引入 `ChainActionExecutor`
+- 已将 `ChainModeRegistry` 升级为模式定义注册表
+- 已将 `BlockFloodFillPlanningStrategy` 初步拆分为 `ChainTraverser + ChainBlockMatcher + SeedResolver + ContextFactory`
+- `ChainTarget` 已具备方块/实体双容器与存储模式字段
+- 当前仍只承接 `CHAIN` 模式的实际业务实现
+
+### 第七阶段：统一候选目标与多目标执行链
+
+目标：把当前“兼容旧方块坐标接口”的实现，推进到真正统一的候选目标模型，为实体规划与交互执行做准备。
+
+实现内容：
+
+- 引入 `ChainCandidate` 或等价统一目标抽象
+- 让 `ChainTarget` 从“主要表示单个方块坐标”过渡为“统一目标载体”
+- 为方块目标与实体目标分别补充访问器与校验逻辑
+- 让执行器消费逻辑显式处理 `BLOCK / ENTITY / ALL`
+- 评估并整理客户端预览链对新目标模型的适配
+
+完成标准：
+
+- 主流程不再默认假设目标一定是单个方块坐标
+- 为实体类目标接入规划器与执行器时，不需要再回头推翻当前主流程
+
+### 第八阶段：模式扩展与注册装配完善
+
+目标：在当前注册骨架可用的前提下，补齐模式装配流程，准备后续新增模式。
+
+实现内容：
+
+- 继续清理 `ChainModeBootstrap` 的装配职责
+- 让模式定义注册支持更明确的初始化入口和校验
+- 为 `AREA`、`INTERACT` 等模式预留明确的空实现或占位定义
+- 视需要补充注册冲突、缺失定义的日志与保护
+
+完成标准：
+
+- 模式注册过程清晰、集中、可审查
+- 后续新增模式时只需新增策略并在装配入口注册
+
 ## 当前建议的首批类
 
 建议先实现以下最小类集：
