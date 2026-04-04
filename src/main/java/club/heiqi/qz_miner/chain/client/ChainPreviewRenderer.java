@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.client;
 import java.util.List;
 
 import club.heiqi.qz_miner.ClientProxy;
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -43,6 +44,10 @@ public class ChainPreviewRenderer {
     public void onRenderWorldLast(RenderWorldLastEvent event) {
         Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft == null || minecraft.theWorld == null || minecraft.thePlayer == null) {
+            clearMesh();
+            return;
+        }
+        if (!Config.clientEnablePreviewRender) {
             clearMesh();
             return;
         }

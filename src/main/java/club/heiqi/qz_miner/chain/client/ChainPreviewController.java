@@ -69,6 +69,11 @@ public class ChainPreviewController {
             return;
         }
 
+        if (!Config.clientEnablePreviewRender) {
+            stopPreview();
+            return;
+        }
+
         if (!MyMod.chainStateService.getClientState().isChainKeyPressed()) {
             stopPreview();
             return;
@@ -177,6 +182,10 @@ public class ChainPreviewController {
      * @return 预览半径
      */
     public int getEffectivePreviewRadius() {
+        if (!Config.clientEnablePreviewRender) {
+            return 1;
+        }
+
         int serverChainRadius = MyMod.chainStateService == null
             ? Config.chainRadius
             : MyMod.chainStateService.getClientState().getServerChainRadius();
@@ -189,6 +198,10 @@ public class ChainPreviewController {
      * @return 预览目标数量上限
      */
     public int getEffectivePreviewMaxTargets() {
+        if (!Config.clientEnablePreviewRender) {
+            return 1;
+        }
+
         int serverChainMaxBlocks = MyMod.chainStateService == null
             ? Config.chainMaxBlocks
             : MyMod.chainStateService.getClientState().getServerChainMaxBlocks();

@@ -29,7 +29,7 @@ public class QzMinerConfigGUI extends GuiConfig {
     private static List<IConfigElement> getConfigElements() {
         List<IConfigElement> elements = new ArrayList<>();
 
-        for (String categoryName : Arrays.asList(Configuration.CATEGORY_GENERAL)) {
+        for (String categoryName : Arrays.asList(Configuration.CATEGORY_GENERAL, Config.CATEGORY_CLIENT)) {
             ConfigCategory category = Config.config.getCategory(categoryName);
             elements.add(new ConfigElement(category));
         }
