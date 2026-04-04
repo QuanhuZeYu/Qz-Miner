@@ -6,6 +6,7 @@ import java.util.List;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.state.ChainSession;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -33,7 +34,8 @@ public class ChainDropCollector {
         }
 
         ChainPlayerState playerState = MyMod.chainStateService.getPlayerState(event.harvester.getUniqueID());
-        if (playerState == null || !playerState.isExecuting()) {
+        ChainSession session = playerState == null ? null : playerState.getSession();
+        if (playerState == null || !playerState.isExecuting() || session == null) {
             return;
         }
 
@@ -58,6 +60,7 @@ public class ChainDropCollector {
         }
 
         for (ChainPlayerState playerState : MyMod.chainStateService.getPlayerStates()) {
+            ChainSession session = playerState.getSession();
             if (playerState.getExecutionStatus() != ChainExecutionStatus.IDLE || playerState.getPendingDrops().isEmpty()) {
                 continue;
             }
@@ -72,6 +75,9 @@ public class ChainDropCollector {
             MyMod.LOG.debug("[ChainDropCollector] Ready to release aggregated drops for player {}, pending aggregated stacks={}",
                 playerState.getPlayerUUID(), playerState.getPendingDrops().size());
             releaseDrops((EntityPlayerMP) player, playerState);
+            if (session != null && session.getPendingBreakTargets().isEmpty() && !session.isPlannerRunning()) {
+                playerState.clearSession();
+            }
         }
     }
 

@@ -1,39 +1,25 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.ArrayList;
+import java.util.List;
 
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
-import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import net.minecraft.block.Block;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
-import net.minecraft.item.ItemStack;
-import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.world.BlockEvent;
 
 /**
- * 连锁规划器。
- *
- * 在服务端并行窗口中增量搜索同种方块，
- * 将确认可挖掘的点移入消费队列供执行器挖掘。
+ * 连锁规划器调度器。
  */
 public class ChainPlanner {
 
-    private static final int MAX_SCAN_PER_SLICE = 64;
-    private static final int[][] NEIGHBOR_OFFSETS = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    private final List<ChainPlanningStrategy> planningStrategies = new ArrayList<ChainPlanningStrategy>();
 
     public ChainPlanner() {
+        planningStrategies.add(new BlockFloodFillPlanningStrategy());
         MinecraftForge.EVENT_BUS.register(this);
     }
 
@@ -49,147 +35,24 @@ public class ChainPlanner {
         }
 
         ChainPlayerState playerState = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
-        if (!playerState.isChainKeyPressed() || playerState.isExecuting() || playerState.getSelectedMode() != ChainMode.CHAIN) {
+        if (!playerState.isChainKeyPressed() || playerState.isExecuting()) {
             return;
         }
 
-        startChainPlan(player, playerState, new ChainTarget(event.x, event.y, event.z));
+        ChainPlanningStrategy strategy = getPlanningStrategy(playerState);
+        if (strategy == null) {
+            return;
+        }
+
+        strategy.startPlanning(player, playerState, new ChainTarget(event.x, event.y, event.z));
     }
 
-    private void startChainPlan(EntityPlayerMP player, ChainPlayerState playerState, ChainTarget origin) {
-        World world = player.worldObj;
-        Block sampleBlock = world.getBlock(origin.getX(), origin.getY(), origin.getZ());
-        int sampleMeta = world.getBlockMetadata(origin.getX(), origin.getY(), origin.getZ());
-        if (sampleBlock == null || sampleBlock == Blocks.air) {
-            return;
-        }
-
-        if (!checkCanOperate(player, playerState)) {
-            return;
-        }
-
-        playerState.clearRuntimeState("restart-plan");
-        playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-plan");
-        playerState.setPlannerRunning(true);
-        playerState.setPlannerCompleted(false);
-        playerState.updatePlannerHeartbeat();
-        playerState.resetExecutorThrottle();
-        MyMod.chainStateService.syncPlayerState(player.getUniqueID());
-
-        ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPendingBreakTargets();
-        ConcurrentLinkedQueue<ChainTarget> currentFrontier = playerState.getTraversalTargets();
-        ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<>();
-        Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
-
-        visited.add(origin);
-
-        for (int[] off : NEIGHBOR_OFFSETS) {
-            ChainTarget neighbor = new ChainTarget(origin.getX() + off[0], origin.getY() + off[1], origin.getZ() + off[2]);
-            if (visited.add(neighbor)) {
-                Block nb = world.getBlock(neighbor.getX(), neighbor.getY(), neighbor.getZ());
-                int nm = world.getBlockMetadata(neighbor.getX(), neighbor.getY(), neighbor.getZ());
-                if (nb == sampleBlock && nm == sampleMeta) {
-                    currentFrontier.add(neighbor);
-                }
+    private ChainPlanningStrategy getPlanningStrategy(ChainPlayerState playerState) {
+        for (ChainPlanningStrategy strategy : planningStrategies) {
+            if (strategy.supports(playerState.getSelectedMode())) {
+                return strategy;
             }
         }
-
-        final UUID playerUUID = player.getUniqueID();
-        final int chainRadius = Config.chainRadius;
-        final int chainMaxBlocks = Config.chainMaxBlocks;
-        final ChainSearchContext searchContext = new ChainSearchContext(
-            world,
-            origin,
-            sampleBlock,
-            sampleMeta,
-            chainRadius,
-            chainMaxBlocks,
-            currentFrontier,
-            nextFrontier,
-            visited);
-
-        ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
-            "chain-plan-" + playerUUID,
-            context -> {
-                EntityPlayer currentPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
-                if (!(currentPlayer instanceof EntityPlayerMP)) {
-                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "plan-player-unavailable");
-                    return false;
-                }
-
-                ChainPlayerState currentState = MyMod.chainStateService.getPlayerState(playerUUID);
-                if (currentState == null) {
-                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "plan-state-missing");
-                    return false;
-                }
-
-                if (!currentState.isChainKeyPressed()) {
-                    MyMod.chainStateService.stopPlayerExecution(playerUUID, "plan-key-released");
-                    return false;
-                }
-
-                currentState.updatePlannerHeartbeat();
-
-                boolean shouldContinue = ChainSearchAlgorithm.step(
-                    searchContext,
-                    MAX_SCAN_PER_SLICE,
-                    target -> canHarvest((EntityPlayerMP) currentPlayer, target.getX(), target.getY(), target.getZ()),
-                    queue::add);
-
-                if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
-                    currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "planner-found-targets");
-                    MyMod.chainStateService.syncPlayerState(playerUUID);
-                }
-
-                if (!shouldContinue) {
-                    MyMod.LOG.debug("[ChainPlanner] Plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
-                        playerUUID, searchContext.getConfirmedCount(), queue.size(), currentState.getPendingDrops().size());
-                    currentState.setPlannerSubscription(null);
-                    currentState.setPlannerRunning(false);
-                    currentState.setPlannerCompleted(true);
-                    currentFrontier.clear();
-                    if (queue.isEmpty()) {
-                        currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "planner-completed-empty-queue");
-                        MyMod.chainStateService.syncPlayerState(playerUUID);
-                    } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
-                        currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "planner-completed-with-targets");
-                        MyMod.chainStateService.syncPlayerState(playerUUID);
-                    } else {
-                        MyMod.chainStateService.syncPlayerState(playerUUID);
-                    }
-                }
-
-                return shouldContinue;
-            });
-
-        playerState.setPlannerSubscription(subscription);
-        MyMod.LOG.debug("[ChainPlanner] Started chain plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
-            playerUUID, origin.getX(), origin.getY(), origin.getZ(), chainRadius, chainMaxBlocks);
-    }
-
-    private boolean checkCanOperate(EntityPlayerMP player, ChainPlayerState playerState) {
-        if (!playerState.isChainKeyPressed()) {
-            return false;
-        }
-
-        ItemStack equippedItem = player.getCurrentEquippedItem();
-        if (equippedItem != null && equippedItem.isItemStackDamageable()) {
-            return equippedItem.getMaxDamage() - equippedItem.getItemDamage() > 1;
-        }
-
-        return true;
-    }
-
-    private boolean canHarvest(EntityPlayerMP player, int x, int y, int z) {
-        Block block = player.worldObj.getBlock(x, y, z);
-        if (block == null || block == Blocks.air || block == Blocks.bedrock || block.getMaterial().isLiquid()) {
-            return false;
-        }
-
-        int meta = player.worldObj.getBlockMetadata(x, y, z);
-        if (player.capabilities.isCreativeMode) {
-            return true;
-        }
-        return block.canHarvestBlock(player, meta);
+        return null;
     }
 }

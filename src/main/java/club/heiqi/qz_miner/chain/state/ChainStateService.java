@@ -109,7 +109,7 @@ public final class ChainStateService {
             state.isExecuting(),
             state.getSelectedMode(),
             state.getExecutionStatus(),
-            state.getPendingBreakTargets().size(),
+            state.getSession() == null ? 0 : state.getSession().getPendingBreakTargets().size(),
             state.getPendingDrops().size());
 
         MyMod.networkMain.network.sendTo(
@@ -128,18 +128,22 @@ public final class ChainStateService {
         }
 
         if (!state.isExecuting()
-            && state.getPlannerSubscription() == null
-            && state.getExecutorSubscription() == null
-            && state.getPendingBreakTargets().isEmpty()) {
+            && (state.getSession() == null
+            || (state.getSession().getPlannerSubscription() == null
+            && state.getSession().getExecutorSubscription() == null
+            && state.getSession().getPendingBreakTargets().isEmpty()))) {
             return;
         }
+
+        int queuedTargets = state.getSession() == null ? 0 : state.getSession().getPendingBreakTargets().size();
+        int pendingDrops = state.getPendingDrops().size();
 
         MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
             playerUUID,
             reason,
             state.getExecutionStatus(),
-            state.getPendingBreakTargets().size(),
-            state.getPendingDrops().size());
+            queuedTargets,
+            pendingDrops);
         state.clearRuntimeState(reason);
         syncPlayerState(playerUUID);
     }

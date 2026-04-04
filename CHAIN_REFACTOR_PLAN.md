@@ -86,6 +86,7 @@
 - 负责搜索和规划“哪些方块/目标会被连锁处理”
 - 负责大范围候选目标的增量计算
 - 与并行 Tick 框架集成
+- 支持多种遍历方式与多种匹配规则的自由组合
 
 建议类：
 
@@ -95,11 +96,22 @@
 - `ChainTraversalTask`
 - `ChainRuleEvaluator`
 - `ChainLimitPolicy`
+- `ChainPlanningStrategy`
+- `ChainTraverser`
+- `ChainMatcher`
+- `ChainPlanningContext`
 
 说明：
 
 - 这一层只做计算，不做世界写入。
 - 可以访问世界数据，但不能直接破坏方块或修改玩家。
+- 未来规划器的变体，不应继续堆在单个 `ChainPlanner` 中，而应拆为“遍历器 + 匹配器”组合。
+- 规划策略的变化，本质上分为两类：如何找到候选目标、候选目标是否匹配。
+- 典型组合示例：
+  - 方块洪泛遍历 + 同类方块匹配
+  - 范围盒扫描 + 矿物匹配
+  - 半径扫描 + 实体类型匹配
+  - 视线方向扫描 + 可交互对象匹配
 
 ### 5. `chain.executor`
 
@@ -108,6 +120,7 @@
 - 在主线程执行真正的世界修改
 - 消费 `ChainPlan`
 - 执行挖掘、交互、掉落处理、耐久检查等逻辑
+- 支持多种目标消费方式，而不局限于挖方块
 
 建议类：
 
@@ -115,11 +128,19 @@
 - `ChainExecutionTask`
 - `ChainExecutionQueue`
 - `ChainDropCollector`
+- `ChainActionExecutor`
+- `ChainExecuteResult`
 
 说明：
 
 - 执行层必须与规划层解耦。
 - 并行线程永远不直接执行 `tryHarvestBlock` 等世界修改。
+- 执行器本体应退化为调度器，真正的业务动作由具体执行策略负责。
+- 后续执行变体建议包括：
+  - `BlockHarvestActionExecutor`
+  - `BlockInteractActionExecutor`
+  - `EntityInteractActionExecutor`
+  - `EntityAttackActionExecutor`
 
 ### 6. `chain.client`
 
@@ -208,6 +229,39 @@
 
 不能让规划线程直接修改世界。
 
+### 2.1 规划器按策略组合解耦
+
+不要继续把所有搜索、规则判断、候选生成都塞进一个 `ChainPlanner`。
+
+建议将规划层拆为：
+
+- `ChainPlanningStrategy`：一次规划任务的总控策略
+- `ChainTraverser`：负责产生候选目标
+- `ChainMatcher`：负责判断候选目标是否匹配
+
+推荐接口方向：
+
+```java
+public interface ChainPlanningStrategy {
+    void start(ChainSession session, ChainTrigger trigger);
+    boolean step(ChainSession session, int budget);
+}
+```
+
+```java
+public interface ChainTraverser {
+    boolean step(ChainPlanningContext context, int budget, ChainCandidateConsumer consumer);
+}
+```
+
+```java
+public interface ChainMatcher {
+    boolean matches(ChainPlanningContext context, ChainCandidate candidate);
+}
+```
+
+这样以后新增规划器变体时，只需要替换遍历方式、匹配方式或总控策略，而不需要重写整个主流程。
+
 ### 3. 预览与执行分离
 
 预览需要的只是“候选区域”与“可视化结果”。
@@ -215,6 +269,71 @@
 执行需要的是“最终计划”和“主线程动作”。
 
 两者可以共享规则，但不应共享生命周期控制器。
+
+### 3.1 执行器按动作策略解耦
+
+执行层未来不一定是挖掘，所以不要继续围绕 `tryHarvestBlock` 建模整个系统。
+
+建议抽象统一动作执行接口：
+
+```java
+public interface ChainActionExecutor {
+    boolean canExecute(ChainSession session, ChainCandidate candidate);
+    ChainExecuteResult execute(ChainSession session, ChainCandidate candidate);
+}
+```
+
+这样 `ChainExecutor` 只保留：
+
+- 会话是否继续运行的判断
+- 待执行队列消费
+- 节流与 Tick 调度
+- 调用具体动作执行器
+
+而不再直接承载挖掘、交互、攻击等具体业务。
+
+### 3.2 目标模型从方块坐标提升为统一候选对象
+
+当前 `ChainTarget` 只适合表示方块坐标，这会限制未来实体类目标扩展。
+
+建议逐步升级为统一目标抽象：
+
+```java
+public interface ChainCandidate {
+    ChainCandidateType getType();
+}
+```
+
+首批实现建议：
+
+- `BlockCandidate`
+- `EntityCandidate`
+
+这样规划层和执行层都只依赖统一候选对象，不需要在主流程中写大量“如果是方块/如果是实体”的分支。
+
+在完全迁移前，`ChainTarget` 可以作为 `BlockCandidate` 的过渡形态存在，但最终不应继续作为唯一目标模型。
+
+### 3.3 玩家状态与会话状态分离
+
+`ChainPlayerState` 更适合保存玩家级长期状态，不适合继续承载一次连锁任务的全部运行细节。
+
+建议职责划分：
+
+- `ChainPlayerState`：玩家级状态
+  - 是否按住连锁键
+  - 当前模式
+  - 当前展示状态
+  - 当前是否存在活动会话
+
+- `ChainSession`：单次连锁任务状态
+  - 触发源
+  - 规划状态
+  - 执行状态
+  - 遍历容器
+  - 待执行容器
+  - 停止原因
+
+这样后续无论规划器还是执行器如何扩展，运行时复杂度都被限制在 session 内部，不会污染全局玩家状态对象。
 
 ### 4. Mixin 只做边界补钩子
 
@@ -249,11 +368,13 @@ Mixin 只负责：
 1. 客户端输入上传到服务端
 2. `chain.state` 更新玩家连锁状态
 3. 服务端事件触发连锁请求
-4. `chain.planner` 开始或推进搜索任务
-5. 生成 `ChainPlan`
-6. `chain.executor` 在主线程按 Tick 消费计划
-7. 触发执行结果事件
-8. 同步必要状态给客户端
+4. `chain.state` 创建 `ChainSession`
+5. `chain.mode` 根据当前模式选择规划策略与执行策略
+6. `chain.planner` 开始或推进搜索任务
+7. 规划层逐步产出 `ChainCandidate`
+8. `chain.executor` 在主线程按 Tick 消费候选目标
+9. 触发执行结果事件
+10. 同步必要状态给客户端
 
 ### 客户端预览链
 
@@ -281,6 +402,33 @@ Mixin 只负责：
 
 - 旧 `Founder`
   - 改为：规划层中的增量任务对象，不再直接继承线程
+
+## 模式到策略的映射原则
+
+`ChainModeRegistry` 未来不能只维护模式列表和循环切换能力，还应负责注册“模式 -> 策略组合”的映射。
+
+建议新增模式定义对象：
+
+```java
+public final class ChainModeDefinition {
+    private final ChainMode mode;
+    private final ChainPlanningStrategy planningStrategy;
+    private final ChainActionExecutor actionExecutor;
+}
+```
+
+注册关系建议为：
+
+- `CHAIN` -> 同类目标规划 + 挖掘执行
+- `AREA` -> 范围规划 + 挖掘执行
+- `INTERACT` -> 范围或视线规划 + 交互执行
+- `SPECIAL` -> 自定义规划 + 自定义执行
+
+注意：
+
+- `ChainMode` 本身只做标识，不直接承载业务逻辑。
+- `ChainModeRegistry` 负责查找模式定义。
+- 具体业务能力由策略对象承担。
 
 ## 分阶段落地计划
 
@@ -362,6 +510,25 @@ Mixin 只负责：
 5. 交互模式
 6. 特殊模式与兼容逻辑
 
+### 第六阶段：策略层彻底解耦
+
+目标：把当前可运行实现从“单实现可用”提升为“多规划器/多执行器可扩展架构”。
+
+实现内容：
+
+- 引入 `ChainSession`
+- 引入 `ChainPlanningStrategy`
+- 引入 `ChainTraverser`、`ChainMatcher`
+- 引入 `ChainActionExecutor`
+- 将 `ChainTarget` 逐步升级为统一 `ChainCandidate`
+- 让 `ChainModeRegistry` 从模式枚举表升级为模式定义注册表
+
+完成标准：
+
+- 新增一种规划器变体时，不需要改核心主流程
+- 新增一种执行器变体时，不需要改核心主流程
+- 主流程只依赖抽象接口，不依赖“挖方块”这一种具体能力
+
 ## 当前建议的首批类
 
 建议先实现以下最小类集：
@@ -376,6 +543,20 @@ Mixin 只负责：
 - `chain/client/ChainPreviewController.java`
 - `chain/executor/ChainExecutor.java`
 - `chain/integration/ChainModule.java`
+
+## 当前阶段的最小重构顺序建议
+
+在现有基础功能已经闭环可用的前提下，后续解耦建议按以下顺序推进，避免一次性大改：
+
+1. 先引入 `ChainSession`
+2. 把当前运行时队列、规划状态、执行状态迁入 `ChainSession`
+3. 抽出 `ChainPlanningStrategy`
+4. 将当前实现封装为默认策略，例如 `BlockFloodFillPlanningStrategy`
+5. 抽出 `ChainActionExecutor`
+6. 将当前挖掘逻辑封装为 `BlockHarvestActionExecutor`
+7. 最后再把 `ChainTarget` 升级为统一 `ChainCandidate`
+
+这样可以保证每一步都可编译、可测试、可回退。
 
 ## 实现顺序建议
 
@@ -398,6 +579,8 @@ Mixin 只负责：
 - 让客户端预览和服务端执行共用控制器
 - 让规划线程直接改世界
 - 在 Mixin 中承载业务逻辑
+- 一开始就引入过重的泛型体系
+- 让 `ChainMode` 枚举直接承担业务逻辑
 
 ## 结论
 

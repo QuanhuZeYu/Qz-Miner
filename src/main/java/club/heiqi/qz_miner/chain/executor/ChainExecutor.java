@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.chain.executor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.Config;
@@ -7,6 +9,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.state.ChainSession;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -14,17 +17,14 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
- * 连锁执行器。
- *
- * 每 tick 做两件事：
- * 1. 检查是否应该停止（按键松开、工具损坏等）
- * 2. 从队列中消费一个点并挖掘
- *
- * 无论队列是否为空，都应该继续执行这两件事。
+ * 连锁执行器调度器。
  */
 public class ChainExecutor {
 
+    private final List<ChainActionExecutor> actionExecutors = new ArrayList<ChainActionExecutor>();
+
     public ChainExecutor() {
+        actionExecutors.add(new BlockHarvestActionExecutor());
         FMLCommonHandler.instance().bus().register(this);
     }
 
@@ -41,6 +41,12 @@ public class ChainExecutor {
                 continue;
             }
 
+            ChainSession session = playerState.getSession();
+            if (session == null) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-session");
+                continue;
+            }
+
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
             if (!(player instanceof EntityPlayerMP)) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "player-unavailable");
@@ -52,8 +58,14 @@ public class ChainExecutor {
                 continue;
             }
 
-            ConcurrentLinkedQueue<ChainTarget> queue = playerState.getPendingBreakTargets();
-            if (!playerState.isExecutorReady(nowMillis)) {
+            ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
+            if (!session.isExecutorReady(nowMillis)) {
+                continue;
+            }
+
+            ChainActionExecutor actionExecutor = getActionExecutor(session);
+            if (actionExecutor == null) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-action-executor");
                 continue;
             }
 
@@ -66,30 +78,33 @@ public class ChainExecutor {
                     break;
                 }
 
-                if (target.getX() == (int) Math.floor(player.posX)
-                    && target.getY() == (int) Math.floor(player.posY) - 1
-                    && target.getZ() == (int) Math.floor(player.posZ)) {
+                if (!actionExecutor.canExecute((EntityPlayerMP) player, session, target)) {
                     continue;
                 }
 
-                try {
-                    ((EntityPlayerMP) player).theItemInWorldManager.tryHarvestBlock(target.getX(), target.getY(), target.getZ());
-                } catch (Exception e) {
-                    MyMod.LOG.error("[ChainExecutor] Failed to harvest block for player {} at ({}, {}, {})",
-                        player.getUniqueID(), target.getX(), target.getY(), target.getZ(), e);
+                if (!actionExecutor.execute((EntityPlayerMP) player, session, target)) {
+                    continue;
                 }
 
                 executedCount++;
             }
 
             if (executedCount > 0) {
-                playerState.scheduleNextExecutorRun(nowMillis, 50L);
+                session.scheduleNextExecutorRun(nowMillis, 50L);
             }
 
-            if (queue.isEmpty() && playerState.isPlannerCompleted()) {
+            if (queue.isEmpty() && session.isPlannerCompleted()) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "executor-consumed-all-targets");
             }
         }
     }
 
+    private ChainActionExecutor getActionExecutor(ChainSession session) {
+        for (ChainActionExecutor actionExecutor : actionExecutors) {
+            if (actionExecutor.supports(session.getMode())) {
+                return actionExecutor;
+            }
+        }
+        return null;
+    }
 }
