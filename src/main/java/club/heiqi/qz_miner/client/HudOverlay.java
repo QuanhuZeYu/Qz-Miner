@@ -4,6 +4,8 @@ import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -54,7 +56,9 @@ public class HudOverlay {
 
         ChainExecutionStatus executionStatus = MyMod.chainStateService.getClientState().getServerExecutionStatus();
         ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
+        ChainModeDefinition modeDefinition = ChainModeRegistry.getDefinition(selectedMode);
         ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        boolean showAreaInfo = modeDefinition != null && modeDefinition.shouldShowAreaInfo();
         String statusText;
         if (executionStatus == ChainExecutionStatus.RUNNING) {
             statusText = "\u00a7a\u6b63\u5728\u8fde\u9501";
@@ -72,7 +76,7 @@ public class HudOverlay {
         int previewMatchedY = y - 30;
         int areaInfoY = y - 30;
         if (selectedSubMode != null) {
-            String subModeText = "\u00a77\u5f53\u524d\u5b50\u6a21\u5f0f: " + selectedSubMode.name();
+            String subModeText = "\u00a77\u5f53\u524d\u5b50\u6a21\u5f0f: " + selectedSubMode.getDisplayName();
             mc.fontRenderer.drawStringWithShadow(subModeText, x, y - 20, 0xFFFFFF);
             serverMatchedY = y - 30;
             previewMatchedY = y - 40;
@@ -93,7 +97,7 @@ public class HudOverlay {
                 previewState.isCompleted() ? " \u00a7a(\u5b8c\u6210)" : " \u00a7e(\u8ba1\u7b97\u4e2d)");
             mc.fontRenderer.drawStringWithShadow(matchedText, x, previewMatchedY, 0xFFFFFF);
 
-            if (selectedMode == ChainMode.AREA) {
+            if (showAreaInfo) {
                 int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
                 int areaBlockCount = sideLength * sideLength * sideLength;
                 String areaText = String.format(
@@ -104,7 +108,7 @@ public class HudOverlay {
                     areaBlockCount);
                 mc.fontRenderer.drawStringWithShadow(areaText, x, y - 50, 0xFFFFFF);
             }
-        } else if (selectedMode == ChainMode.AREA) {
+        } else if (showAreaInfo) {
             int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
             int areaBlockCount = sideLength * sideLength * sideLength;
             String areaText = String.format(

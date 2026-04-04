@@ -164,7 +164,12 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
      * @return 匹配器
      */
     private ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.AREA);
+        ChainSubMode subMode = searchContext.getSubMode();
+        if (subMode == null) {
+            return null;
+        }
+
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(subMode.getParentMode());
         if (definition != null) {
             return definition.createMatcher(searchContext);
         }

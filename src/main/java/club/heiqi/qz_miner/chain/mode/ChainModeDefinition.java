@@ -23,6 +23,7 @@ public final class ChainModeDefinition {
     private final ChainSubMode defaultSubMode;
     private final ChainTraverser traverser;
     private final ChainBlockMatcherResolver matcherResolver;
+    private final boolean showAreaInfo;
 
     public ChainModeDefinition(
         ChainMode mode,
@@ -30,6 +31,7 @@ public final class ChainModeDefinition {
         ChainActionExecutor actionExecutor,
         ChainTraverser traverser,
         ChainBlockMatcherResolver matcherResolver,
+        boolean showAreaInfo,
         ChainSubMode defaultSubMode,
         List<ChainSubMode> subModes) {
         this.mode = mode;
@@ -37,6 +39,7 @@ public final class ChainModeDefinition {
         this.actionExecutor = actionExecutor;
         this.traverser = traverser;
         this.matcherResolver = matcherResolver;
+        this.showAreaInfo = showAreaInfo;
         this.subModes = Collections.unmodifiableList(new ArrayList<ChainSubMode>(subModes));
         this.defaultSubMode = resolveSubMode(defaultSubMode);
     }
@@ -70,6 +73,15 @@ public final class ChainModeDefinition {
      */
     public ChainBlockMatcher createMatcher(ChainSearchContext context) {
         return matcherResolver == null ? null : matcherResolver.createMatcher(context);
+    }
+
+    /**
+     * 判断当前模式是否需要在 HUD 中显示范围信息。
+     *
+     * @return 是否显示范围信息
+     */
+    public boolean shouldShowAreaInfo() {
+        return showAreaInfo;
     }
 
     /**
@@ -110,7 +122,7 @@ public final class ChainModeDefinition {
         if (supportsSubMode(subMode)) {
             return subMode;
         }
-        return subModes.isEmpty() ? null : subModes.get(0);
+        return subModes.isEmpty() ? null : defaultSubMode;
     }
 
     /**

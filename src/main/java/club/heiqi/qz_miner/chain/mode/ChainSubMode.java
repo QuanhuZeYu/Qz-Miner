@@ -58,4 +58,30 @@ public enum ChainSubMode {
     public boolean requiresSameBlockMatch() {
         return sameBlockMatchRequired;
     }
+
+    /**
+     * 获取用于 HUD 展示的中文名称。
+     *
+     * @return 中文名称
+     */
+    public String getDisplayName() {
+        switch (this) {
+            case CHAIN_BASE:
+                return "基础连锁";
+            case AREA_SAME_BLOCK:
+                return "同类范围";
+            case AREA_HARVESTABLE_ALL:
+                return "可收获范围";
+            case INTERACT_BASE:
+                return "基础交互";
+            case INTERACT_CROP:
+                return "作物交互";
+            case SPECIAL_BASE:
+                return "基础特殊";
+            case SPECIAL_EXTENDED:
+                return "扩展特殊";
+            default:
+                return name();
+        }
+    }
 }

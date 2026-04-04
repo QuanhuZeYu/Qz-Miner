@@ -37,6 +37,7 @@ public final class ChainModeBootstrap {
             new BlockHarvestActionExecutor(),
             new FloodFillTraverser(),
             HARVESTABLE_MATCHER,
+            false,
             ChainSubMode.CHAIN_BASE,
             Arrays.asList(ChainSubMode.CHAIN_BASE)));
         ChainModeRegistry.register(new ChainModeDefinition(
@@ -45,6 +46,7 @@ public final class ChainModeBootstrap {
             new BlockHarvestActionExecutor(),
             new BoxScanTraverser(),
             SAME_BLOCK_OR_HARVESTABLE_MATCHER,
+            true,
             ChainSubMode.AREA_SAME_BLOCK,
             Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL)));
         ChainModeRegistry.register(new ChainModeDefinition(
@@ -53,15 +55,17 @@ public final class ChainModeBootstrap {
             new NoOpActionExecutor(ChainMode.INTERACT),
             new FloodFillTraverser(),
             HARVESTABLE_MATCHER,
+            false,
             ChainSubMode.INTERACT_BASE,
-            Arrays.asList(ChainSubMode.INTERACT_BASE)));
+            Arrays.asList(ChainSubMode.INTERACT_BASE, ChainSubMode.INTERACT_CROP)));
         ChainModeRegistry.register(new ChainModeDefinition(
             ChainMode.SPECIAL,
             new NoOpPlanningStrategy(ChainMode.SPECIAL),
             new NoOpActionExecutor(ChainMode.SPECIAL),
             new FloodFillTraverser(),
             HARVESTABLE_MATCHER,
+            false,
             ChainSubMode.SPECIAL_BASE,
-            Arrays.asList(ChainSubMode.SPECIAL_BASE)));
+            Arrays.asList(ChainSubMode.SPECIAL_BASE, ChainSubMode.SPECIAL_EXTENDED)));
     }
 }
