@@ -5,7 +5,11 @@
   "refmap": "mixins.qz_miner.refmap.json",
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
-  "mixins": [],
+  "mixins": [
+    "MixinTileEntityOres",
+    "MixinBWTileEntityMetaGeneratedOre",
+    "MixinBlockBaseOre"
+  ],
   "client": [
     "client.MixinMinecraft"
   ],
