@@ -8,8 +8,9 @@ import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainPlanningStrategy;
-import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
+import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 
 /**
  * 连锁模式定义。
@@ -21,7 +22,7 @@ public final class ChainModeDefinition {
     private final ChainActionExecutor actionExecutor;
     private final List<ChainSubMode> subModes;
     private final ChainSubMode defaultSubMode;
-    private final ChainTraverser traverser;
+    private final ChainTraverserResolver traverserResolver;
     private final ChainBlockMatcherResolver matcherResolver;
     private final boolean showAreaInfo;
 
@@ -29,7 +30,7 @@ public final class ChainModeDefinition {
         ChainMode mode,
         ChainPlanningStrategy planningStrategy,
         ChainActionExecutor actionExecutor,
-        ChainTraverser traverser,
+        ChainTraverserResolver traverserResolver,
         ChainBlockMatcherResolver matcherResolver,
         boolean showAreaInfo,
         ChainSubMode defaultSubMode,
@@ -37,7 +38,7 @@ public final class ChainModeDefinition {
         this.mode = mode;
         this.planningStrategy = planningStrategy;
         this.actionExecutor = actionExecutor;
-        this.traverser = traverser;
+        this.traverserResolver = traverserResolver;
         this.matcherResolver = matcherResolver;
         this.showAreaInfo = showAreaInfo;
         this.subModes = Collections.unmodifiableList(new ArrayList<ChainSubMode>(subModes));
@@ -61,8 +62,8 @@ public final class ChainModeDefinition {
      *
      * @return 遍历器
      */
-    public ChainTraverser getTraverser() {
-        return traverser;
+    public ChainTraverser createTraverser(ChainResolverContext context) {
+        return traverserResolver == null ? null : traverserResolver.createTraverser(context);
     }
 
     /**
@@ -71,7 +72,7 @@ public final class ChainModeDefinition {
      * @param context 搜索上下文
      * @return 匹配器
      */
-    public ChainBlockMatcher createMatcher(ChainSearchContext context) {
+    public ChainBlockMatcher createMatcher(ChainResolverContext context) {
         return matcherResolver == null ? null : matcherResolver.createMatcher(context);
     }
 

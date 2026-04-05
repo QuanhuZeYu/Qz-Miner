@@ -18,6 +18,7 @@ hud.qz_miner.sub_mode.chain.ore=Chain Ore Mode
 hud.qz_miner.sub_mode.area.base=Blasting Base Mode
 hud.qz_miner.sub_mode.area.all=Indiscriminate Blasting Mode
 hud.qz_miner.sub_mode.area.ore=Blasting Ore Mode
+hud.qz_miner.sub_mode.area.tunnel=Tunnel Blasting Mode
 hud.qz_miner.sub_mode.interact.base=Chain Block Interaction Mode
 hud.qz_miner.sub_mode.interact.crop=Crop Interaction Mode
 hud.qz_miner.sub_mode.special.base=Special Base Mode

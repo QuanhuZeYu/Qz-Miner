@@ -29,6 +29,10 @@ public enum ChainSubMode {
      */
     AREA_ORE(ChainMode.AREA, false, true, false),
     /**
+     * AREA 指向性隧道子模式。
+     */
+    AREA_TUNNEL(ChainMode.AREA, false, false, false),
+    /**
      * INTERACT 默认子模式。
      */
     INTERACT_BASE(ChainMode.INTERACT, true, false, false),
@@ -116,6 +120,8 @@ public enum ChainSubMode {
                 return "hud.qz_miner.sub_mode.area.all";
             case AREA_ORE:
                 return "hud.qz_miner.sub_mode.area.ore";
+            case AREA_TUNNEL:
+                return "hud.qz_miner.sub_mode.area.tunnel";
             case INTERACT_BASE:
                 return "hud.qz_miner.sub_mode.interact.base";
             case INTERACT_CROP:

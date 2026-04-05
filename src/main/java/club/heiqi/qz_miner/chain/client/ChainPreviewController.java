@@ -9,14 +9,14 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
-import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
-import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
-import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
+import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -135,8 +135,15 @@ public class ChainPreviewController {
             nextFrontier,
             visited);
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
-        final ChainTraverser traverser = resolveTraverser(selectedMode);
-        final ChainBlockMatcher blockMatcher = createBlockMatcher(selectedMode, searchContext);
+        final ChainSession previewSession = new ChainSession(
+            player.getUniqueID(),
+            selectedMode,
+            MyMod.chainStateService.getClientState().getSelectedSubMode(),
+            target,
+            AxisAlignedTunnelDirection.resolveFace(player));
+        final ChainResolverContext resolverContext = new ChainResolverContext(player, previewSession, searchContext);
+        final ChainTraverser traverser = createTraverser(selectedMode, resolverContext);
+        final ChainBlockMatcher blockMatcher = createBlockMatcher(selectedMode, resolverContext);
         if (traverser == null || blockMatcher == null) {
             previewState.setCompleted(true);
             return;
@@ -212,18 +219,11 @@ public class ChainPreviewController {
      * 根据当前模式和子模式创建预览匹配器。
      *
      * @param mode 当前模式
-     * @param searchContext 搜索上下文
      * @return 预览匹配器
      */
-    private ChainBlockMatcher createBlockMatcher(ChainMode mode, ChainSearchContext searchContext) {
+    private ChainBlockMatcher createBlockMatcher(ChainMode mode, ChainResolverContext resolverContext) {
         ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
-        if (definition != null) {
-            ChainBlockMatcher matcher = definition.createMatcher(searchContext);
-            if (matcher != null) {
-                return matcher;
-            }
-        }
-        return new HarvestableBlockMatcher();
+        return definition == null ? null : definition.createMatcher(resolverContext);
     }
 
     /**
@@ -232,19 +232,9 @@ public class ChainPreviewController {
      * @param mode 当前连锁模式
      * @return 对应的遍历器
      */
-    private ChainTraverser resolveTraverser(ChainMode mode) {
-        if (mode == ChainMode.CHAIN
-            && MyMod.chainStateService != null
-            && MyMod.chainStateService.getClientState().getSelectedSubMode() != null
-            && MyMod.chainStateService.getClientState().getSelectedSubMode().requiresLogMatch()) {
-            return new LoggingFloodFillTraverser(Config.chainLoggingShellLayers);
-        }
-
+    private ChainTraverser createTraverser(ChainMode mode, ChainResolverContext resolverContext) {
         ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
-        if (definition != null) {
-            return definition.getTraverser();
-        }
-        return null;
+        return definition == null ? null : definition.createTraverser(resolverContext);
     }
 
     private boolean isPreviewStillValid(int generation, ChainTarget target) {

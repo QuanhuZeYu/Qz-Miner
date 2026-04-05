@@ -6,6 +6,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
@@ -62,8 +64,9 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
         final ChainSearchContext searchContext = createSearchContext(player.worldObj, session, seedSnapshot);
-        final ChainTraverser traverser = createTraverser(searchContext);
-        final ChainBlockMatcher blockMatcher = createBlockMatcher(searchContext);
+        final ChainResolverContext resolverContext = new ChainResolverContext(player, session, searchContext);
+        final ChainTraverser traverser = createTraverser(resolverContext);
+        final ChainBlockMatcher blockMatcher = createBlockMatcher(resolverContext);
         if (traverser == null || blockMatcher == null) {
             return;
         }
@@ -154,8 +157,9 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
      * @param searchContext 搜索上下文
      * @return 遍历器
      */
-    protected ChainTraverser createTraverser(ChainSearchContext searchContext) {
-        return new FloodFillTraverser();
+    protected ChainTraverser createTraverser(ChainResolverContext resolverContext) {
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
+        return definition == null ? null : definition.createTraverser(resolverContext);
     }
 
     /**
@@ -166,7 +170,10 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
     /**
      * 创建当前模式的匹配器。
      */
-    protected abstract ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext);
+    protected ChainBlockMatcher createBlockMatcher(ChainResolverContext resolverContext) {
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
+        return definition == null ? null : definition.createMatcher(resolverContext);
+    }
 
     /**
      * 返回重启规划前清理状态使用的原因。

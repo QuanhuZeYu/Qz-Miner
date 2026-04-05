@@ -100,26 +100,42 @@ public class HudOverlay {
             mc.fontRenderer.drawStringWithShadow(matchedText, x, previewMatchedY, 0xFFFFFF);
 
             if (showAreaInfo) {
-                int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
-                int areaBlockCount = sideLength * sideLength * sideLength;
+                int[] areaDimensions = getAreaDimensions(selectedSubMode);
+                int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
                 String areaText = "\u00a77" + ClientI18n.tr(
                     "hud.qz_miner.server_area",
-                    sideLength,
-                    sideLength,
-                    sideLength,
+                    areaDimensions[0],
+                    areaDimensions[1],
+                    areaDimensions[2],
                     areaBlockCount);
                 mc.fontRenderer.drawStringWithShadow(areaText, x, y - 50, 0xFFFFFF);
             }
         } else if (showAreaInfo) {
-            int sideLength = MyMod.chainStateService.getClientState().getServerChainRadius() * 2 + 1;
-            int areaBlockCount = sideLength * sideLength * sideLength;
+            int[] areaDimensions = getAreaDimensions(selectedSubMode);
+            int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
             String areaText = "\u00a77" + ClientI18n.tr(
                 "hud.qz_miner.server_area",
-                sideLength,
-                sideLength,
-                sideLength,
+                areaDimensions[0],
+                areaDimensions[1],
+                areaDimensions[2],
                 areaBlockCount);
             mc.fontRenderer.drawStringWithShadow(areaText, x, areaInfoY, 0xFFFFFF);
         }
+    }
+
+    /**
+     * 获取 AREA 模式当前应显示的区域尺寸。
+     *
+     * @param subMode 当前子模式
+     * @return 长宽高
+     */
+    private int[] getAreaDimensions(ChainSubMode subMode) {
+        int radius = MyMod.chainStateService.getClientState().getServerChainRadius();
+        if (subMode == ChainSubMode.AREA_TUNNEL) {
+            return new int[] {3, 3, Math.max(1, radius)};
+        }
+
+        int sideLength = radius * 2 + 1;
+        return new int[] {sideLength, sideLength, sideLength};
     }
 }

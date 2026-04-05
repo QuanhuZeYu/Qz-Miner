@@ -44,7 +44,7 @@ public final class ChainModeRegistry {
         if (definition.getActionExecutor() == null) {
             MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing action executor", definition.getMode());
         }
-        if (definition.getTraverser() == null) {
+        if (definition.createTraverser(null) == null) {
             MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing traverser", definition.getMode());
         }
         if (definition.getSubModes().isEmpty()) {

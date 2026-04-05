@@ -1,62 +1,106 @@
 package club.heiqi.qz_miner.chain.mode;
 
 import java.util.Arrays;
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
 import club.heiqi.qz_miner.chain.executor.BlockInteractActionExecutor;
 import club.heiqi.qz_miner.chain.executor.NoOpActionExecutor;
+import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BoxScanTraverser;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
+import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
+import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import club.heiqi.qz_miner.chain.planner.CropBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.InteractFloodFillPlanningStrategy;
+import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.NoOpPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockHarvestableMatcher;
+import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
 
 /**
  * 连锁模式注册引导。
  */
 public final class ChainModeBootstrap {
 
+    private static final ChainTraverserResolver CHAIN_TRAVERSER = context -> {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() != null
+            && context.getSearchContext().getSubMode().requiresLogMatch()) {
+            return new LoggingFloodFillTraverser(Config.chainLoggingShellLayers);
+        }
+        return new FloodFillTraverser();
+    };
+
+    private static final ChainTraverserResolver AREA_TRAVERSER = context -> {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() == ChainSubMode.AREA_TUNNEL) {
+            int face = context.getSession() != null
+                ? context.getSession().getInteractFace()
+                : AxisAlignedTunnelDirection.resolveFace(context.getPlayer());
+            return new TunnelBoxScanTraverser(face);
+        }
+        return new BoxScanTraverser();
+    };
+
+    private static final ChainTraverserResolver DEFAULT_FLOOD_FILL_TRAVERSER = context -> new FloodFillTraverser();
+
     private static final ChainBlockMatcherResolver CHAIN_MATCHER = context -> {
-        if (context.getSubMode() != null && context.getSubMode().requiresLogMatch()) {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() != null
+            && context.getSearchContext().getSubMode().requiresLogMatch()) {
             return new LogBlockHarvestableMatcher();
         }
 
-        if (context.getSubMode() != null && context.getSubMode().requiresOreMatch()) {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() != null
+            && context.getSearchContext().getSubMode().requiresOreMatch()) {
             return new OreBlockHarvestableMatcher();
         }
         return new HarvestableBlockMatcher();
     };
 
     private static final ChainBlockMatcherResolver SAME_BLOCK_OR_HARVESTABLE_MATCHER = context -> {
-        if (context.getSubMode() != null && context.getSubMode().requiresOreMatch()) {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() != null
+            && context.getSearchContext().getSubMode().requiresOreMatch()) {
             return new OreBlockHarvestableMatcher();
         }
 
-        if (context.getSubMode() != null && context.getSubMode().requiresSameBlockMatch()) {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() != null
+            && context.getSearchContext().getSubMode().requiresSameBlockMatch()) {
             return new SameBlockHarvestableMatcher(
-                context.getSampleBlock(),
-                context.getSampleMeta(),
-                context.getSampleTileEntity());
+                context.getSearchContext().getSampleBlock(),
+                context.getSearchContext().getSampleMeta(),
+                context.getSearchContext().getSampleTileEntity());
         }
         return new HarvestableBlockMatcher();
     };
-
+    
     private static final ChainBlockMatcherResolver HARVESTABLE_MATCHER = context -> new HarvestableBlockMatcher();
     private static final ChainBlockMatcherResolver INTERACT_MATCHER = context -> {
-        if (context.getSubMode() == ChainSubMode.INTERACT_CROP) {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() == ChainSubMode.INTERACT_CROP) {
             return new CropBlockMatcher();
         }
         return new SameBlockMatcher(
-            context.getSampleBlock(),
-            context.getSampleMeta(),
-            context.getSampleTileEntity());
+            context.getSearchContext().getSampleBlock(),
+            context.getSearchContext().getSampleMeta(),
+            context.getSearchContext().getSampleTileEntity());
     };
 
     private ChainModeBootstrap() {}
@@ -80,7 +124,7 @@ public final class ChainModeBootstrap {
             ChainMode.CHAIN,
             new BlockFloodFillPlanningStrategy(),
             new BlockHarvestActionExecutor(),
-            new FloodFillTraverser(),
+            CHAIN_TRAVERSER,
             CHAIN_MATCHER,
             false,
             ChainSubMode.CHAIN_BASE,
@@ -97,11 +141,11 @@ public final class ChainModeBootstrap {
             ChainMode.AREA,
             new BlockBoxScanPlanningStrategy(),
             new BlockHarvestActionExecutor(),
-            new BoxScanTraverser(),
+            AREA_TRAVERSER,
             SAME_BLOCK_OR_HARVESTABLE_MATCHER,
             true,
             ChainSubMode.AREA_SAME_BLOCK,
-            Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubMode.AREA_ORE));
+            Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubMode.AREA_ORE, ChainSubMode.AREA_TUNNEL));
     }
 
     /**
@@ -114,7 +158,7 @@ public final class ChainModeBootstrap {
             ChainMode.INTERACT,
             new InteractFloodFillPlanningStrategy(),
             new BlockInteractActionExecutor(),
-            new FloodFillTraverser(),
+            DEFAULT_FLOOD_FILL_TRAVERSER,
             INTERACT_MATCHER,
             false,
             ChainSubMode.INTERACT_BASE,
@@ -131,7 +175,7 @@ public final class ChainModeBootstrap {
             ChainMode.SPECIAL,
             new NoOpPlanningStrategy(ChainMode.SPECIAL),
             new NoOpActionExecutor(ChainMode.SPECIAL),
-            new FloodFillTraverser(),
+            DEFAULT_FLOOD_FILL_TRAVERSER,
             HARVESTABLE_MATCHER,
             false,
             ChainSubMode.SPECIAL_BASE,
