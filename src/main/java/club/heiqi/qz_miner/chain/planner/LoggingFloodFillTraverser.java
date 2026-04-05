@@ -75,10 +75,6 @@ public class LoggingFloodFillTraverser implements ChainTraverser {
                 continue;
             }
 
-            if (getDistance(next, context.getOrigin()) > context.getMaxRadius()) {
-                continue;
-            }
-
             if (!context.canTraverse(next)) {
                 continue;
             }
@@ -106,12 +102,5 @@ public class LoggingFloodFillTraverser implements ChainTraverser {
             }
         }
         return offsets;
-    }
-
-    private static int getDistance(ChainTarget a, ChainTarget b) {
-        int dx = Math.abs(a.getX() - b.getX());
-        int dy = Math.abs(a.getY() - b.getY());
-        int dz = Math.abs(a.getZ() - b.getZ());
-        return Math.max(dx, Math.max(dy, dz));
     }
 }
