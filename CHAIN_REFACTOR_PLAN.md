@@ -16,9 +16,9 @@
 
 已落地：
 
-- 状态层：`ChainPlayerState`、`ChainClientState`、`ChainSession`、`ChainStateService`
+- 状态层：`ChainPlayerState`、`ChainClientState`、`ChainRequest`、`ChainRuntimeState`、`ChainSession`、`ChainStateService`
 - 模式层：`ChainMode`、`ChainModeRegistry`、`ChainModeDefinition`、`ChainModeBootstrap`
-- 规划层骨架：`ChainPlanner`、`ChainPlanningStrategy`、`ChainTraverser`、`ChainBlockMatcher`、`ChainSearchContextFactory`
+- 规划层骨架：`ChainPlanner`、`ChainPlanningStrategy`、`ChainTraverser`、`ChainBlockMatcher`、`ChainPlanningRuntimeFactory`、`ChainCandidateFilter`
 - 执行层骨架：`ChainExecutor`、`ChainActionExecutor`、`BlockHarvestActionExecutor`、`ChainDropCollector`
 - 客户端预览：`ChainPreviewController`、`ChainPreviewState`
 - 网络同步：`PacketKeyState`、`PacketChainModeSwitch`、`PacketChainStateSync`
@@ -26,11 +26,13 @@
 当前闭环：
 
 - `CHAIN` 模式已经具备输入、规划、执行、HUD、预览的完整主链路，并补齐宽泛矿石与伐木子模式
-- `AREA` 模式已经具备盒扫规划、执行、预览与 HUD 同步的默认闭环
+- `AREA` 模式已经具备盒扫规划、执行、预览与 HUD 同步的默认闭环，并补齐 `AREA_TUNNEL` 指向性隧道子模式
 - `INTERACT` 模式已经具备服务端右键触发、邻居洪泛规划、默认同类交互与作物交互子模式闭环
 - 主模式与子模式已经具备统一状态、切换、同步与会话快照框架
 - 并行线程负责搜索，主线程负责实际破坏方块
 - 生命周期清理已经接入玩家登录、重生、切维度、退出流程
+- 客户端预览已支持锁定当前预览目标、限制每 tick 扫描配额，并可通过客户端配置关闭预览计算与渲染
+- HUD、模式名、子模式名与按键名称已接入 `lang` 语言键
 
 当前限制：
 
@@ -80,6 +82,7 @@
 - [x] 迁移作物模式
 - [x] 为 `CHAIN / AREA` 接入宽泛矿石匹配子模式
 - [x] 为 `CHAIN` 接入伐木子模式与壳层遍历
+- [x] 为 `AREA` 接入 `3x3x半径` 的指向性隧道子模式
 - [ ] 迁移原木/矿脉模式
 - [ ] 整理特殊模式与必要兼容逻辑
 
@@ -103,7 +106,7 @@
 - [x] 引入 `ChainPlanningStrategy`
 - [x] 引入 `ChainActionExecutor`
 - [x] 将 `ChainModeRegistry` 升级为模式定义注册表
-- [x] 将默认规划实现拆出 `Traverser / Matcher / SeedResolver / ContextFactory` 的初步骨架
+- [x] 将默认规划实现拆出 `Traverser / Matcher / SeedResolver / RuntimeFactory` 的初步骨架
 - [x] 为 `AREA` 接入壳层盒扫遍历器，并与 `CHAIN` 统一共享可挖掘判定规则
 - [x] 将客户端预览切换为按模式复用 `CHAIN / AREA` 遍历逻辑
 - [x] 将 HUD 调整为同时显示服务端真实匹配数、服务端区域信息与客户端预览匹配数
@@ -112,12 +115,17 @@
 - [x] 将 `CHAIN / AREA / INTERACT / SPECIAL` 的默认子模式装配收拢到 `ChainModeDefinition`
 - [x] 将预览层与 `AREA` 匹配规则选择下沉到模式定义层
 - [x] 抽取 `AbstractFloodFillPlanningStrategy`，收敛 `CHAIN / INTERACT` 的洪泛规划公共主流程
-- [x] 将 `INTERACT_CROP` 的候选遍历规则下沉到 `ChainSearchContext`
+- [x] 将 `INTERACT_CROP` 的候选遍历规则下沉到 planner 组合层
+- [x] 统一服务端规划与客户端预览的运行时装配流程
+- [x] 将候选过滤规则从 `ChainSearchContext / Traverser` 中抽离为独立过滤器
+- [x] 拆分 `ChainSession` 的请求参数与运行时状态职责
+- [x] 将聚合掉落 `pendingDrops` 迁入运行时状态
+- [x] 将 `AREA` 的 HUD 展示几何规则下沉到模式定义层
 
 待办：
 
-- [ ] 继续压缩默认实现中的模式特化判断
-- [x] 把更多搜索规则下沉到 `Traverser / Matcher / Context` 组合层
+- [ ] 继续压缩 `ChainModeBootstrap` 中剩余的子模式特化判断
+- [x] 把更多搜索规则下沉到 `Traverser / Matcher / RuntimeFactory` 组合层
 - [ ] 让调度器只依赖抽象接口，不依赖“挖方块”这一种默认能力
 
 验收标准：
@@ -223,6 +231,7 @@
 - 预览网格和 GPU 缓存已经独立成 `ChainPreviewMesh / Builder / Cache`
 - 当前预览范围同时受服务端同步半径、服务端最大连锁数和客户端本地预览配置约束
 - 基础线框不再依赖旧 shader，当前采用固定管线顶点颜色实现距离透明度衰减
+- 客户端预览配置已拆分到 `client` 分类，并支持独立关闭预览计算与渲染
 
 验收标准：
 
@@ -255,4 +264,4 @@
 补充说明：
 
 - `INTERACT` 当前已具备默认右键交互闭环，支持真实点击面、命中点与 `INTERACT_CROP` 子模式
-- `CHAIN / INTERACT` 的洪泛规划公共主流程已经完成一次收缩，但 `AREA` 与执行调度层仍有进一步抽象空间
+- `CHAIN / INTERACT` 的洪泛规划公共主流程已经完成一次收缩，`AREA` 的展示规则也已下沉到模式定义层，但执行调度层仍有进一步抽象空间

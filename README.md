@@ -25,8 +25,13 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 完成 `AREA` 模式、`INTERACT` 模式和作物交互模式迁移
 - 为 `CHAIN` 与 `AREA` 接入宽泛矿石匹配子模式
 - 为 `CHAIN` 接入伐木子模式，支持原木壳层遍历与可配置壳层层数
+- 为 `AREA` 接入 `3 x 3 x 半径` 的指向性隧道子模式
 - 补齐 GT / BartWorks 复杂 `TileEntity` 的方块身份判定，提升矿石和机器类方块匹配准确度
 - 优化客户端预览：连锁执行期间锁定当前预览目标，并限制每 tick 预览扫描配额
+- 将客户端预览配置拆分到独立 `client` 分类，并支持单独关闭预览计算与渲染
+- 为 HUD、模式名称、子模式名称、按键名称接入 `lang` 国际化
+- 将服务端规划、客户端预览的运行时装配统一收敛到 planner 工厂层
+- 将 `ChainSession` 拆分为请求参数与运行时状态两类职责，并把聚合掉落迁入运行时状态
 
 这些改动的核心目的，是把旧版高耦合的 `Manager / Founder / Operator` 逻辑拆成更清晰的策略层，让新功能和旧模式迁移都能在统一框架下进行。
 
@@ -36,15 +41,19 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 - `CHAIN` 模式完整闭环：输入、规划、执行、HUD、预览已接通
 - `AREA` 模式完整闭环：盒扫搜索、执行、HUD、预览已接通
+- `AREA_TUNNEL`：支持按玩家视线方向生成 `3 x 3 x radius` 的指向性隧道区域
 - `INTERACT` 模式完整闭环：右键触发、默认同类交互、作物交互已接通
 - 统一子模式框架：主模式下可挂载多个子模式，并同步到客户端与服务端
 - `CHAIN_ORE` 与 `AREA_ORE`：宽泛矿石匹配，面向 GT / BW / GT++ / 原版矿石体系
 - `CHAIN_LOGGING`：伐木子模式，只匹配原木，使用壳层扩张搜索而不是默认 6 邻洪泛
 - 复杂方块匹配：支持 `TileEntity` 参与同类判定，特别针对 GregTech 与 BartWorks 的复杂方块做了兼容
-- 客户端预览：支持实时预览、分片计算、执行期间锁定目标、限制单 tick 扫描上限
-- HUD 状态展示：支持显示当前模式、子模式、服务端执行状态与匹配数量
+- 客户端预览：支持实时预览、分片计算、执行期间锁定目标、限制单 tick 扫描上限，并支持通过客户端配置完全关闭
+- HUD 状态展示：支持显示当前模式、子模式、服务端执行状态、匹配数量与 AREA 模式区域尺寸
+- 文本国际化：HUD、模式名、子模式名、按键名已提供 `zh_CN / en_US`
 - 生命周期清理：登录、重生、切维度、退出等场景会清理连锁状态
 - 并行计算与主线程写世界分离：搜索放在并行 Tick 中，真实方块破坏仍由主线程执行
+- 规划装配统一：服务端规划与客户端预览共用 `ChainPlanningRuntimeFactory`
+- 状态职责拆分：`ChainRequest` 保存请求参数，`ChainRuntimeState` 保存一次任务的队列、心跳、掉落、订阅等运行态
 
 当前重要配置项包括：
 
@@ -52,6 +61,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `chainMaxBlocks`：最大连锁数量
 - `maxBreakPerTick`：每 tick 最大实际破坏数量
 - `chainLoggingShellLayers`：`CHAIN` 伐木子模式每次向外扩张的壳层数
+- `clientEnablePreviewRender`：是否启用客户端预览计算与渲染
 - `clientPreviewMaxRadius`：客户端最大预览半径
 - `clientPreviewMaxTargets`：客户端最大预览目标数
 
