@@ -69,13 +69,13 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
 
         ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
-        final ChainSearchContext searchContext = createSearchContext(player.worldObj, session, seedSnapshot);
-        final ChainResolverContext resolverContext = new ChainResolverContext(player, session, searchContext);
-        final ChainTraverser traverser = createTraverser(resolverContext);
-        final ChainBlockMatcher blockMatcher = createBlockMatcher(resolverContext);
-        if (traverser == null || blockMatcher == null) {
+        final ChainPlanningRuntime runtime = createPlanningRuntime(player, session, seedSnapshot);
+        if (runtime == null) {
             return;
         }
+        final ChainSearchContext searchContext = runtime.getSearchContext();
+        final ChainTraverser traverser = runtime.getTraverser();
+        final ChainBlockMatcher blockMatcher = runtime.getMatcher();
         traverser.seed(searchContext);
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
@@ -153,31 +153,8 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
      * @param seedSnapshot 方块种子快照
      * @return 搜索上下文
      */
-    private ChainSearchContext createSearchContext(net.minecraft.world.World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
-        session.getTraversalTargets().clear();
-        return ChainSearchContextFactory.createBlockBoxScanContext(world, session, seedSnapshot);
-    }
-
-    /**
-     * 根据当前子模式创建遍历器。
-     *
-     * @param session 连锁会话
-     * @return 遍历器
-     */
-    private ChainTraverser createTraverser(ChainResolverContext resolverContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.AREA);
-        return definition == null ? null : definition.createTraverser(resolverContext);
-    }
-
-    /**
-     * 根据当前子模式创建方块匹配器。
-     *
-     * @param searchContext 搜索上下文
-     * @return 匹配器
-     */
-    private ChainBlockMatcher createBlockMatcher(ChainResolverContext resolverContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.AREA);
-        return definition == null ? null : definition.createMatcher(resolverContext);
+    private ChainPlanningRuntime createPlanningRuntime(EntityPlayerMP player, ChainSession session, BlockSeedSnapshot seedSnapshot) {
+        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot, true);
     }
 
     /**

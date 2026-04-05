@@ -32,6 +32,7 @@ public class ChainSearchContext {
     private final Queue<ChainTarget> currentFrontier;
     private final Queue<ChainTarget> nextFrontier;
     private final Set<ChainTarget> visited;
+    private ChainCandidateFilter candidateFilter;
     private int confirmedCount;
     private int scanDepth;
 
@@ -109,6 +110,14 @@ public class ChainSearchContext {
         return visited;
     }
 
+    public ChainCandidateFilter getCandidateFilter() {
+        return candidateFilter;
+    }
+
+    public void setCandidateFilter(ChainCandidateFilter candidateFilter) {
+        this.candidateFilter = candidateFilter;
+    }
+
     public int getConfirmedCount() {
         return confirmedCount;
     }
@@ -132,34 +141,6 @@ public class ChainSearchContext {
      * @return 是否允许继续遍历
      */
     public boolean canTraverse(ChainTarget target) {
-        if (target == null) {
-            return false;
-        }
-
-        Block block = world.getBlock(target.getX(), target.getY(), target.getZ());
-        if (block == null || block == Blocks.air) {
-            return false;
-        }
-
-        if (subMode == ChainSubMode.INTERACT_CROP) {
-            if (block instanceof BlockCrops) {
-                return true;
-            }
-
-            TileEntity tileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
-            return tileEntity instanceof TileEntityCrop;
-        }
-
-        if (subMode != null && subMode.requiresOreMatch()) {
-            TileEntity tileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
-            return ChainOreRules.isOreBlock(block, tileEntity);
-        }
-
-        if (subMode != null && subMode.requiresLogMatch()) {
-            int meta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-            return ChainLogRules.isLogBlock(world, target.getX(), target.getY(), target.getZ(), block, meta);
-        }
-
-        return ChainBlockIdentity.matches(world, sampleBlock, sampleMeta, sampleTileEntity, target);
+        return candidateFilter != null && candidateFilter.canTraverse(target);
     }
 }

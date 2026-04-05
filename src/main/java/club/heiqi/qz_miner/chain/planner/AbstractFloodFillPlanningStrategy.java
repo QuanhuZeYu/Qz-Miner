@@ -6,8 +6,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
-import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
@@ -63,13 +61,13 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
 
         ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
-        final ChainSearchContext searchContext = createSearchContext(player.worldObj, session, seedSnapshot);
-        final ChainResolverContext resolverContext = new ChainResolverContext(player, session, searchContext);
-        final ChainTraverser traverser = createTraverser(resolverContext);
-        final ChainBlockMatcher blockMatcher = createBlockMatcher(resolverContext);
-        if (traverser == null || blockMatcher == null) {
+        final ChainPlanningRuntime runtime = createPlanningRuntime(player, session, seedSnapshot);
+        if (runtime == null) {
             return;
         }
+        final ChainSearchContext searchContext = runtime.getSearchContext();
+        final ChainTraverser traverser = runtime.getTraverser();
+        final ChainBlockMatcher blockMatcher = runtime.getMatcher();
         traverser.seed(searchContext);
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
@@ -139,41 +137,21 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
     }
 
     /**
-     * 创建洪泛搜索上下文。
+     * 创建单次规划运行时。
      *
-     * @param world 当前世界
+     * @param player 当前玩家
      * @param session 连锁会话
      * @param seedSnapshot 方块种子快照
-     * @return 搜索上下文
+     * @return 规划运行时
      */
-    protected ChainSearchContext createSearchContext(net.minecraft.world.World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
-        session.getTraversalTargets().clear();
-        return ChainSearchContextFactory.createBlockFloodFillContext(world, session, seedSnapshot);
-    }
-
-    /**
-     * 创建当前模式使用的遍历器。
-     *
-     * @param searchContext 搜索上下文
-     * @return 遍历器
-     */
-    protected ChainTraverser createTraverser(ChainResolverContext resolverContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
-        return definition == null ? null : definition.createTraverser(resolverContext);
+    protected ChainPlanningRuntime createPlanningRuntime(EntityPlayerMP player, ChainSession session, BlockSeedSnapshot seedSnapshot) {
+        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot, false);
     }
 
     /**
      * 判断当前玩家是否允许启动规划。
      */
     protected abstract boolean checkCanOperate(EntityPlayerMP player, ChainPlayerState playerState);
-
-    /**
-     * 创建当前模式的匹配器。
-     */
-    protected ChainBlockMatcher createBlockMatcher(ChainResolverContext resolverContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
-        return definition == null ? null : definition.createMatcher(resolverContext);
-    }
 
     /**
      * 返回重启规划前清理状态使用的原因。
