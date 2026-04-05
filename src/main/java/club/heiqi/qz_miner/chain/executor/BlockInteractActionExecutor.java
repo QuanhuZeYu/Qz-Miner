@@ -37,10 +37,10 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
                 target.getX(),
                 target.getY(),
                 target.getZ(),
-                session.getInteractFace(),
-                session.getInteractHitX(),
-                session.getInteractHitY(),
-                session.getInteractHitZ());
+                session.getRequest().getInteractFace(),
+                session.getRequest().getInteractHitX(),
+                session.getRequest().getInteractHitY(),
+                session.getRequest().getInteractHitZ());
             if (!activated && equippedItem != null) {
                 return player.theItemInWorldManager.tryUseItem(player, player.worldObj, equippedItem);
             }

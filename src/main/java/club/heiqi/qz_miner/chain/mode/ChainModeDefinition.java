@@ -8,8 +8,9 @@ import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainPlanningStrategy;
-import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
+import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 
 /**
  * 连锁模式定义。
@@ -21,25 +22,28 @@ public final class ChainModeDefinition {
     private final ChainActionExecutor actionExecutor;
     private final List<ChainSubMode> subModes;
     private final ChainSubMode defaultSubMode;
-    private final ChainTraverser traverser;
+    private final ChainTraverserResolver traverserResolver;
     private final ChainBlockMatcherResolver matcherResolver;
     private final boolean showAreaInfo;
+    private final ChainAreaPresentationResolver areaPresentationResolver;
 
     public ChainModeDefinition(
         ChainMode mode,
         ChainPlanningStrategy planningStrategy,
         ChainActionExecutor actionExecutor,
-        ChainTraverser traverser,
+        ChainTraverserResolver traverserResolver,
         ChainBlockMatcherResolver matcherResolver,
         boolean showAreaInfo,
+        ChainAreaPresentationResolver areaPresentationResolver,
         ChainSubMode defaultSubMode,
         List<ChainSubMode> subModes) {
         this.mode = mode;
         this.planningStrategy = planningStrategy;
         this.actionExecutor = actionExecutor;
-        this.traverser = traverser;
+        this.traverserResolver = traverserResolver;
         this.matcherResolver = matcherResolver;
         this.showAreaInfo = showAreaInfo;
+        this.areaPresentationResolver = areaPresentationResolver;
         this.subModes = Collections.unmodifiableList(new ArrayList<ChainSubMode>(subModes));
         this.defaultSubMode = resolveSubMode(defaultSubMode);
     }
@@ -61,8 +65,8 @@ public final class ChainModeDefinition {
      *
      * @return 遍历器
      */
-    public ChainTraverser getTraverser() {
-        return traverser;
+    public ChainTraverser createTraverser(ChainResolverContext context) {
+        return traverserResolver == null ? null : traverserResolver.createTraverser(context);
     }
 
     /**
@@ -71,7 +75,7 @@ public final class ChainModeDefinition {
      * @param context 搜索上下文
      * @return 匹配器
      */
-    public ChainBlockMatcher createMatcher(ChainSearchContext context) {
+    public ChainBlockMatcher createMatcher(ChainResolverContext context) {
         return matcherResolver == null ? null : matcherResolver.createMatcher(context);
     }
 
@@ -82,6 +86,20 @@ public final class ChainModeDefinition {
      */
     public boolean shouldShowAreaInfo() {
         return showAreaInfo;
+    }
+
+    /**
+     * 解析 HUD 中显示的区域尺寸。
+     *
+     * @param radius 服务端同步半径
+     * @param subMode 当前子模式
+     * @return 长宽高，若无展示信息则返回 null
+     */
+    public int[] resolveAreaDimensions(int radius, ChainSubMode subMode) {
+        if (!showAreaInfo || areaPresentationResolver == null) {
+            return null;
+        }
+        return areaPresentationResolver.resolveDimensions(radius, resolveSubMode(subMode));
     }
 
     /**

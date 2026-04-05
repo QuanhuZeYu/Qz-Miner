@@ -5,8 +5,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
-import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -59,12 +57,6 @@ public class InteractFloodFillPlanningStrategy extends AbstractFloodFillPlanning
             interactHitY,
             interactHitZ);
         startPlanningInternal(player, playerState, origin, session);
-    }
-
-    @Override
-    protected ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.INTERACT);
-        return definition == null ? null : definition.createMatcher(searchContext);
     }
 
     @Override

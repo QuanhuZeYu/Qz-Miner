@@ -8,7 +8,6 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
-import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
@@ -22,7 +21,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
 public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
 
     private static final int MAX_SCAN_PER_SLICE = 64;
-    private final ChainTraverser traverser = new BoxScanTraverser();
     private final BlockSeedResolver blockSeedResolver = new WorldBlockSeedResolver();
 
     /**
@@ -59,22 +57,25 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
             player.getUniqueID(),
             playerState.getSelectedMode(),
             playerState.getSelectedSubMode(),
-            origin);
+            origin,
+            AxisAlignedTunnelDirection.resolveFace(player));
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-area-plan");
-        session.setPlannerRunning(true);
-        session.setPlannerCompleted(false);
-        session.updatePlannerHeartbeat();
-        session.resetExecutorThrottle();
+        session.getRuntimeState().setPlannerRunning(true);
+        session.getRuntimeState().setPlannerCompleted(false);
+        session.getRuntimeState().updatePlannerHeartbeat();
+        session.getRuntimeState().resetExecutorThrottle();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
-        ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
+        ConcurrentLinkedQueue<ChainTarget> queue = session.getRuntimeState().getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
-        final ChainSearchContext searchContext = createSearchContext(player.worldObj, session, seedSnapshot);
-        final ChainBlockMatcher blockMatcher = createBlockMatcher(searchContext);
-        if (blockMatcher == null) {
+        final ChainPlanningRuntime runtime = createPlanningRuntime(player, session, seedSnapshot);
+        if (runtime == null) {
             return;
         }
+        final ChainSearchContext searchContext = runtime.getSearchContext();
+        final ChainTraverser traverser = runtime.getTraverser();
+        final ChainBlockMatcher blockMatcher = runtime.getMatcher();
         traverser.seed(searchContext);
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
@@ -98,16 +99,16 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 ChainSession currentSession = currentState.getSession();
-                currentSession.updatePlannerHeartbeat();
-                int previousMatchedCount = currentSession.getMatchedTargetCount();
+                currentSession.getRuntimeState().updatePlannerHeartbeat();
+                int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(
                     searchContext,
                     MAX_SCAN_PER_SLICE,
                     target -> blockMatcher.matches((EntityPlayerMP) currentPlayer, target),
                     queue::add);
-                currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
-                boolean matchedCountChanged = previousMatchedCount != currentSession.getMatchedTargetCount();
+                currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
+                boolean matchedCountChanged = previousMatchedCount != currentSession.getRuntimeState().getMatchedTargetCount();
 
                 if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
                     currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "area-planner-found-targets");
@@ -117,12 +118,13 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 if (!shouldContinue) {
+                    int pendingDrops = currentState.getSession() == null ? 0 : currentState.getSession().getRuntimeState().getPendingDrops().size();
                     MyMod.LOG.debug("[ChainPlanner] Area plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
-                        playerUUID, searchContext.getConfirmedCount(), queue.size(), currentState.getPendingDrops().size());
-                    currentSession.setPlannerSubscription(null);
-                    currentSession.setPlannerRunning(false);
-                    currentSession.setPlannerCompleted(true);
-                    currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
+                        playerUUID, searchContext.getConfirmedCount(), queue.size(), pendingDrops);
+                    currentSession.getRuntimeState().setPlannerSubscription(null);
+                    currentSession.getRuntimeState().setPlannerRunning(false);
+                    currentSession.getRuntimeState().setPlannerCompleted(true);
+                    currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "area-planner-completed-empty-queue");
@@ -139,7 +141,7 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 return shouldContinue;
             });
 
-        session.setPlannerSubscription(subscription);
+        session.getRuntimeState().setPlannerSubscription(subscription);
         MyMod.LOG.debug("[ChainPlanner] Started area plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
             playerUUID, origin.getX(), origin.getY(), origin.getZ(), Config.chainRadius, Config.chainMaxBlocks);
     }
@@ -152,28 +154,8 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
      * @param seedSnapshot 方块种子快照
      * @return 搜索上下文
      */
-    private ChainSearchContext createSearchContext(net.minecraft.world.World world, ChainSession session, BlockSeedSnapshot seedSnapshot) {
-        session.getTraversalTargets().clear();
-        return ChainSearchContextFactory.createBlockBoxScanContext(world, session, seedSnapshot);
-    }
-
-    /**
-     * 根据当前子模式创建方块匹配器。
-     *
-     * @param searchContext 搜索上下文
-     * @return 匹配器
-     */
-    private ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext) {
-        ChainSubMode subMode = searchContext.getSubMode();
-        if (subMode == null) {
-            return null;
-        }
-
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(subMode.getParentMode());
-        if (definition != null) {
-            return definition.createMatcher(searchContext);
-        }
-        return null;
+    private ChainPlanningRuntime createPlanningRuntime(EntityPlayerMP player, ChainSession session, BlockSeedSnapshot seedSnapshot) {
+        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot, true);
     }
 
     /**

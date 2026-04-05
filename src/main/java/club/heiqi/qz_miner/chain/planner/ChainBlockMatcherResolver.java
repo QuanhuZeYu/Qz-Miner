@@ -6,10 +6,10 @@ package club.heiqi.qz_miner.chain.planner;
 public interface ChainBlockMatcherResolver {
 
     /**
-     * 根据搜索上下文创建匹配器。
+     * 根据解析上下文创建匹配器。
      *
-     * @param context 搜索上下文
+     * @param context 解析上下文
      * @return 匹配器
      */
-    ChainBlockMatcher createMatcher(ChainSearchContext context);
+    ChainBlockMatcher createMatcher(ChainResolverContext context);
 }

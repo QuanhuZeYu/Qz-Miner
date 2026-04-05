@@ -1,14 +1,11 @@
 package club.heiqi.qz_miner.chain.state;
 
 import java.util.UUID;
-import java.util.ArrayList;
-import java.util.List;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
-import net.minecraft.item.ItemStack;
 
 /**
  * 服务端玩家连锁状态。
@@ -21,7 +18,6 @@ public class ChainPlayerState {
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
     private volatile ChainSession session;
-    private final List<ItemStack> pendingDrops = new ArrayList<ItemStack>();
 
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
@@ -61,9 +57,9 @@ public class ChainPlayerState {
     public void setExecutionStatus(ChainExecutionStatus executionStatus, String reason) {
         ChainExecutionStatus newStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
         if (this.executionStatus != newStatus) {
-            int queuedTargets = session == null ? 0 : session.getPendingBreakTargets().size();
-            int pendingDropsCount = pendingDrops.size();
-            boolean waitingForPlanner = session != null && session.isPlannerRunning();
+            int queuedTargets = session == null ? 0 : session.getRuntimeState().getPendingBreakTargets().size();
+            int pendingDropsCount = session == null ? 0 : session.getRuntimeState().getPendingDrops().size();
+            boolean waitingForPlanner = session != null && session.getRuntimeState().isPlannerRunning();
             MyMod.LOG.debug(
                 "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
                 playerUUID,
@@ -120,10 +116,10 @@ public class ChainPlayerState {
         if (this.session == null && session != null) {
             MyMod.LOG.debug("[ChainState] Player {} session attached mode={} origin=({}, {}, {})",
                 playerUUID,
-                session.getMode(),
-                session.getOrigin().getX(),
-                session.getOrigin().getY(),
-                session.getOrigin().getZ());
+                session.getRequest().getMode(),
+                session.getRequest().getOrigin().getX(),
+                session.getRequest().getOrigin().getY(),
+                session.getRequest().getOrigin().getZ());
         } else if (this.session != null && session == null) {
             MyMod.LOG.debug("[ChainState] Player {} session cleared", playerUUID);
         }
@@ -132,10 +128,6 @@ public class ChainPlayerState {
 
     public void clearSession() {
         setSession(null);
-    }
-
-    public List<ItemStack> getPendingDrops() {
-        return pendingDrops;
     }
 
     public void clearRuntimeState() {

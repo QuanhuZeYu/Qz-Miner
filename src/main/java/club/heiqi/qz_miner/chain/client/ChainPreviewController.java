@@ -1,22 +1,18 @@
 package club.heiqi.qz_miner.chain.client;
 
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
-import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
-import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
+import club.heiqi.qz_miner.chain.planner.BlockSeedSnapshot;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.ChainPlanningRuntime;
+import club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
-import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
-import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
+import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -119,28 +115,28 @@ public class ChainPreviewController {
         final TileEntity sampleTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
         final int previewRadius = getEffectivePreviewRadius();
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
-        final ConcurrentLinkedQueue<ChainTarget> currentFrontier = new ConcurrentLinkedQueue<>();
-        final ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<>();
-        final Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
-        final ChainSearchContext searchContext = new ChainSearchContext(
-            world,
-            target,
-            sampleBlock,
-            sampleMeta,
-            sampleTileEntity,
-            MyMod.chainStateService.getClientState().getSelectedSubMode(),
-            previewRadius,
-            previewMaxTargets,
-            currentFrontier,
-            nextFrontier,
-            visited);
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
-        final ChainTraverser traverser = resolveTraverser(selectedMode);
-        final ChainBlockMatcher blockMatcher = createBlockMatcher(selectedMode, searchContext);
-        if (traverser == null || blockMatcher == null) {
+        final ChainSession previewSession = new ChainSession(
+            player.getUniqueID(),
+            selectedMode,
+            MyMod.chainStateService.getClientState().getSelectedSubMode(),
+            target,
+            AxisAlignedTunnelDirection.resolveFace(player));
+        final BlockSeedSnapshot seedSnapshot = new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity);
+        final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForPreview(
+            world,
+            player,
+            previewSession,
+            seedSnapshot,
+            previewRadius,
+            previewMaxTargets);
+        if (runtime == null) {
             previewState.setCompleted(true);
             return;
         }
+        final ChainSearchContext searchContext = runtime.getSearchContext();
+        final ChainTraverser traverser = runtime.getTraverser();
+        final ChainBlockMatcher blockMatcher = runtime.getMatcher();
 
         if (blockMatcher.matches(player, target)) {
             previewState.addPreviewTarget(target);
@@ -206,45 +202,6 @@ public class ChainPreviewController {
             ? Config.chainMaxBlocks
             : MyMod.chainStateService.getClientState().getServerChainMaxBlocks();
         return Math.max(1, Math.min(serverChainMaxBlocks, Config.clientPreviewMaxTargets));
-    }
-
-    /**
-     * 根据当前模式和子模式创建预览匹配器。
-     *
-     * @param mode 当前模式
-     * @param searchContext 搜索上下文
-     * @return 预览匹配器
-     */
-    private ChainBlockMatcher createBlockMatcher(ChainMode mode, ChainSearchContext searchContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
-        if (definition != null) {
-            ChainBlockMatcher matcher = definition.createMatcher(searchContext);
-            if (matcher != null) {
-                return matcher;
-            }
-        }
-        return new HarvestableBlockMatcher();
-    }
-
-    /**
-     * 根据当前模式选择预览遍历器。
-     *
-     * @param mode 当前连锁模式
-     * @return 对应的遍历器
-     */
-    private ChainTraverser resolveTraverser(ChainMode mode) {
-        if (mode == ChainMode.CHAIN
-            && MyMod.chainStateService != null
-            && MyMod.chainStateService.getClientState().getSelectedSubMode() != null
-            && MyMod.chainStateService.getClientState().getSelectedSubMode().requiresLogMatch()) {
-            return new LoggingFloodFillTraverser(Config.chainLoggingShellLayers);
-        }
-
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
-        if (definition != null) {
-            return definition.getTraverser();
-        }
-        return null;
     }
 
     private boolean isPreviewStillValid(int generation, ChainTarget target) {

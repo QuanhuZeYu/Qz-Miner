@@ -1,14 +1,10 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import club.heiqi.qz_miner.Config;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
-import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
-import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -35,21 +31,6 @@ public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStr
     @Override
     protected boolean checkCanOperate(EntityPlayerMP player, ChainPlayerState playerState) {
         return playerState.isChainKeyPressed() && ChainHarvestRules.hasEnoughDurability(player);
-    }
-
-    @Override
-    protected ChainBlockMatcher createBlockMatcher(ChainSearchContext searchContext) {
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.CHAIN);
-        return definition == null ? null : definition.createMatcher(searchContext);
-    }
-
-    @Override
-    protected ChainTraverser createTraverser(ChainSearchContext searchContext) {
-        ChainSubMode subMode = searchContext.getSubMode();
-        if (subMode != null && subMode.requiresLogMatch()) {
-            return new LoggingFloodFillTraverser(Config.chainLoggingShellLayers);
-        }
-        return new FloodFillTraverser();
     }
 
     @Override
@@ -84,7 +65,8 @@ public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStr
 
     @Override
     protected void logPlanCompleted(UUID playerUUID, ChainSearchContext searchContext, ConcurrentLinkedQueue<ChainTarget> queue, ChainPlayerState currentState) {
+        int pendingDrops = currentState.getSession() == null ? 0 : currentState.getSession().getRuntimeState().getPendingDrops().size();
         MyMod.LOG.debug("[ChainPlanner] Plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
-            playerUUID, searchContext.getConfirmedCount(), queue.size(), currentState.getPendingDrops().size());
+            playerUUID, searchContext.getConfirmedCount(), queue.size(), pendingDrops);
     }
 }
