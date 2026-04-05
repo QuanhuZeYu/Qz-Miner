@@ -141,7 +141,7 @@ public final class ChainStateService {
             state.getSelectedMode(),
             state.getExecutionStatus(),
             state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingBreakTargets().size(),
-            state.getPendingDrops().size());
+            state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingDrops().size());
 
         MyMod.networkMain.network.sendTo(
             new PacketChainStateSync(
@@ -171,7 +171,7 @@ public final class ChainStateService {
         }
 
         int queuedTargets = state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingBreakTargets().size();
-        int pendingDrops = state.getPendingDrops().size();
+        int pendingDrops = state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingDrops().size();
 
         MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
             playerUUID,

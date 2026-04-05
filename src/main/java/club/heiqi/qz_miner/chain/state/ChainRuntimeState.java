@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.chain.state;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -7,6 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
+import net.minecraft.item.ItemStack;
 
 /**
  * 单次连锁运行时状态。
@@ -18,6 +21,7 @@ public final class ChainRuntimeState {
     private volatile ParallelTickSubscription executorSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> traversalTargets = new ConcurrentLinkedQueue<ChainTarget>();
     private final ConcurrentLinkedQueue<ChainTarget> pendingBreakTargets = new ConcurrentLinkedQueue<ChainTarget>();
+    private final List<ItemStack> pendingDrops = new ArrayList<ItemStack>();
     private volatile boolean plannerRunning;
     private volatile boolean plannerCompleted;
     private volatile long plannerHeartbeatMillis;
@@ -62,6 +66,10 @@ public final class ChainRuntimeState {
 
     public ConcurrentLinkedQueue<ChainTarget> getPendingBreakTargets() {
         return pendingBreakTargets;
+    }
+
+    public List<ItemStack> getPendingDrops() {
+        return pendingDrops;
     }
 
     public boolean isPlannerRunning() {
@@ -128,6 +136,7 @@ public final class ChainRuntimeState {
         }
         traversalTargets.clear();
         pendingBreakTargets.clear();
+        pendingDrops.clear();
         plannerRunning = false;
         plannerCompleted = false;
         plannerHeartbeatMillis = 0L;

@@ -1,14 +1,11 @@
 package club.heiqi.qz_miner.chain.state;
 
 import java.util.UUID;
-import java.util.ArrayList;
-import java.util.List;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
-import net.minecraft.item.ItemStack;
 
 /**
  * 服务端玩家连锁状态。
@@ -21,7 +18,6 @@ public class ChainPlayerState {
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
     private volatile ChainSession session;
-    private final List<ItemStack> pendingDrops = new ArrayList<ItemStack>();
 
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
@@ -62,7 +58,7 @@ public class ChainPlayerState {
         ChainExecutionStatus newStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
         if (this.executionStatus != newStatus) {
             int queuedTargets = session == null ? 0 : session.getRuntimeState().getPendingBreakTargets().size();
-            int pendingDropsCount = pendingDrops.size();
+            int pendingDropsCount = session == null ? 0 : session.getRuntimeState().getPendingDrops().size();
             boolean waitingForPlanner = session != null && session.getRuntimeState().isPlannerRunning();
             MyMod.LOG.debug(
                 "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
@@ -132,10 +128,6 @@ public class ChainPlayerState {
 
     public void clearSession() {
         setSession(null);
-    }
-
-    public List<ItemStack> getPendingDrops() {
-        return pendingDrops;
     }
 
     public void clearRuntimeState() {

@@ -118,8 +118,9 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 if (!shouldContinue) {
+                    int pendingDrops = currentState.getSession() == null ? 0 : currentState.getSession().getRuntimeState().getPendingDrops().size();
                     MyMod.LOG.debug("[ChainPlanner] Area plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
-                        playerUUID, searchContext.getConfirmedCount(), queue.size(), currentState.getPendingDrops().size());
+                        playerUUID, searchContext.getConfirmedCount(), queue.size(), pendingDrops);
                     currentSession.getRuntimeState().setPlannerSubscription(null);
                     currentSession.getRuntimeState().setPlannerRunning(false);
                     currentSession.getRuntimeState().setPlannerCompleted(true);

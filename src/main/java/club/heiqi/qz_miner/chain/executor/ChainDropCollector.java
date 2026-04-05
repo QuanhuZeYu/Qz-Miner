@@ -40,12 +40,12 @@ public class ChainDropCollector {
         }
 
         MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent player={} status={} rawDropStacks={} pendingBefore={}",
-            event.harvester.getUniqueID(), playerState.getExecutionStatus(), event.drops.size(), playerState.getPendingDrops().size());
+            event.harvester.getUniqueID(), playerState.getExecutionStatus(), event.drops.size(), session.getRuntimeState().getPendingDrops().size());
         for (ItemStack drop : event.drops) {
-            mergeDrop(playerState.getPendingDrops(), drop);
+            mergeDrop(session.getRuntimeState().getPendingDrops(), drop);
         }
         MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent merged player={} pendingAfter={}",
-            event.harvester.getUniqueID(), playerState.getPendingDrops().size());
+            event.harvester.getUniqueID(), session.getRuntimeState().getPendingDrops().size());
         event.drops.clear();
     }
 
@@ -61,20 +61,22 @@ public class ChainDropCollector {
 
         for (ChainPlayerState playerState : MyMod.chainStateService.getPlayerStates()) {
             ChainSession session = playerState.getSession();
-            if (playerState.getExecutionStatus() != ChainExecutionStatus.IDLE || playerState.getPendingDrops().isEmpty()) {
+            if (playerState.getExecutionStatus() != ChainExecutionStatus.IDLE
+                || session == null
+                || session.getRuntimeState().getPendingDrops().isEmpty()) {
                 continue;
             }
 
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
             if (!(player instanceof EntityPlayerMP)) {
                 MyMod.LOG.warn("[ChainDropCollector] Missing EntityPlayerMP for {}, keeping {} pending drop stack(s)",
-                    playerState.getPlayerUUID(), playerState.getPendingDrops().size());
+                    playerState.getPlayerUUID(), session.getRuntimeState().getPendingDrops().size());
                 continue;
             }
 
             MyMod.LOG.debug("[ChainDropCollector] Ready to release aggregated drops for player {}, pending aggregated stacks={}",
-                playerState.getPlayerUUID(), playerState.getPendingDrops().size());
-            releaseDrops((EntityPlayerMP) player, playerState);
+                playerState.getPlayerUUID(), session.getRuntimeState().getPendingDrops().size());
+            releaseDrops((EntityPlayerMP) player, session);
             if (session != null
                 && session.getRuntimeState().getPendingBreakTargets().isEmpty()
                 && !session.getRuntimeState().isPlannerRunning()) {
@@ -83,9 +85,9 @@ public class ChainDropCollector {
         }
     }
 
-    private void releaseDrops(EntityPlayerMP player, ChainPlayerState playerState) {
-        List<ItemStack> drops = new ArrayList<>(playerState.getPendingDrops());
-        playerState.getPendingDrops().clear();
+    private void releaseDrops(EntityPlayerMP player, ChainSession session) {
+        List<ItemStack> drops = new ArrayList<>(session.getRuntimeState().getPendingDrops());
+        session.getRuntimeState().getPendingDrops().clear();
         MyMod.LOG.debug("[ChainDropCollector] Releasing {} aggregated drop stack(s) for player {}",
             drops.size(), player.getUniqueID());
         for (ItemStack itemStack : drops) {
