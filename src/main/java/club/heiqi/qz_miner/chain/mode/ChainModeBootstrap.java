@@ -29,6 +29,18 @@ import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
  */
 public final class ChainModeBootstrap {
 
+    private static final ChainAreaPresentationResolver DEFAULT_CUBE_AREA_PRESENTATION = (radius, subMode) -> {
+        int sideLength = Math.max(1, radius) * 2 + 1;
+        return new int[] {sideLength, sideLength, sideLength};
+    };
+
+    private static final ChainAreaPresentationResolver AREA_PRESENTATION = (radius, subMode) -> {
+        if (subMode == ChainSubMode.AREA_TUNNEL) {
+            return new int[] {3, 3, Math.max(1, radius)};
+        }
+        return DEFAULT_CUBE_AREA_PRESENTATION.resolveDimensions(radius, subMode);
+    };
+
     private static final ChainTraverserResolver CHAIN_TRAVERSER = context -> {
         if (context != null
             && context.getSearchContext() != null
@@ -127,6 +139,7 @@ public final class ChainModeBootstrap {
             CHAIN_TRAVERSER,
             CHAIN_MATCHER,
             false,
+            null,
             ChainSubMode.CHAIN_BASE,
             Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE, ChainSubMode.CHAIN_LOGGING));
     }
@@ -144,6 +157,7 @@ public final class ChainModeBootstrap {
             AREA_TRAVERSER,
             SAME_BLOCK_OR_HARVESTABLE_MATCHER,
             true,
+            AREA_PRESENTATION,
             ChainSubMode.AREA_SAME_BLOCK,
             Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubMode.AREA_ORE, ChainSubMode.AREA_TUNNEL));
     }
@@ -161,6 +175,7 @@ public final class ChainModeBootstrap {
             DEFAULT_FLOOD_FILL_TRAVERSER,
             INTERACT_MATCHER,
             false,
+            null,
             ChainSubMode.INTERACT_BASE,
             Arrays.asList(ChainSubMode.INTERACT_BASE, ChainSubMode.INTERACT_CROP));
     }
@@ -178,6 +193,7 @@ public final class ChainModeBootstrap {
             DEFAULT_FLOOD_FILL_TRAVERSER,
             HARVESTABLE_MATCHER,
             false,
+            null,
             ChainSubMode.SPECIAL_BASE,
             Arrays.asList(ChainSubMode.SPECIAL_BASE, ChainSubMode.SPECIAL_EXTENDED));
     }

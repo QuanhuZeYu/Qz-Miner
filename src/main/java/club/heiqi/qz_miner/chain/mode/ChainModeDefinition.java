@@ -25,6 +25,7 @@ public final class ChainModeDefinition {
     private final ChainTraverserResolver traverserResolver;
     private final ChainBlockMatcherResolver matcherResolver;
     private final boolean showAreaInfo;
+    private final ChainAreaPresentationResolver areaPresentationResolver;
 
     public ChainModeDefinition(
         ChainMode mode,
@@ -33,6 +34,7 @@ public final class ChainModeDefinition {
         ChainTraverserResolver traverserResolver,
         ChainBlockMatcherResolver matcherResolver,
         boolean showAreaInfo,
+        ChainAreaPresentationResolver areaPresentationResolver,
         ChainSubMode defaultSubMode,
         List<ChainSubMode> subModes) {
         this.mode = mode;
@@ -41,6 +43,7 @@ public final class ChainModeDefinition {
         this.traverserResolver = traverserResolver;
         this.matcherResolver = matcherResolver;
         this.showAreaInfo = showAreaInfo;
+        this.areaPresentationResolver = areaPresentationResolver;
         this.subModes = Collections.unmodifiableList(new ArrayList<ChainSubMode>(subModes));
         this.defaultSubMode = resolveSubMode(defaultSubMode);
     }
@@ -83,6 +86,20 @@ public final class ChainModeDefinition {
      */
     public boolean shouldShowAreaInfo() {
         return showAreaInfo;
+    }
+
+    /**
+     * 解析 HUD 中显示的区域尺寸。
+     *
+     * @param radius 服务端同步半径
+     * @param subMode 当前子模式
+     * @return 长宽高，若无展示信息则返回 null
+     */
+    public int[] resolveAreaDimensions(int radius, ChainSubMode subMode) {
+        if (!showAreaInfo || areaPresentationResolver == null) {
+            return null;
+        }
+        return areaPresentationResolver.resolveDimensions(radius, resolveSubMode(subMode));
     }
 
     /**

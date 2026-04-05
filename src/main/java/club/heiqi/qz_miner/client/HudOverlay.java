@@ -100,7 +100,7 @@ public class HudOverlay {
             mc.fontRenderer.drawStringWithShadow(matchedText, x, previewMatchedY, 0xFFFFFF);
 
             if (showAreaInfo) {
-                int[] areaDimensions = getAreaDimensions(selectedSubMode);
+                int[] areaDimensions = resolveAreaDimensions(modeDefinition, selectedSubMode);
                 int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
                 String areaText = "\u00a77" + ClientI18n.tr(
                     "hud.qz_miner.server_area",
@@ -111,7 +111,7 @@ public class HudOverlay {
                 mc.fontRenderer.drawStringWithShadow(areaText, x, y - 50, 0xFFFFFF);
             }
         } else if (showAreaInfo) {
-            int[] areaDimensions = getAreaDimensions(selectedSubMode);
+            int[] areaDimensions = resolveAreaDimensions(modeDefinition, selectedSubMode);
             int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
             String areaText = "\u00a77" + ClientI18n.tr(
                 "hud.qz_miner.server_area",
@@ -126,15 +126,20 @@ public class HudOverlay {
     /**
      * 获取 AREA 模式当前应显示的区域尺寸。
      *
+     * @param modeDefinition 当前模式定义
      * @param subMode 当前子模式
      * @return 长宽高
      */
-    private int[] getAreaDimensions(ChainSubMode subMode) {
+    private int[] resolveAreaDimensions(ChainModeDefinition modeDefinition, ChainSubMode subMode) {
         int radius = MyMod.chainStateService.getClientState().getServerChainRadius();
-        if (subMode == ChainSubMode.AREA_TUNNEL) {
-            return new int[] {3, 3, Math.max(1, radius)};
+        if (modeDefinition == null) {
+            int sideLength = radius * 2 + 1;
+            return new int[] {sideLength, sideLength, sideLength};
         }
-
+        int[] dimensions = modeDefinition.resolveAreaDimensions(radius, subMode);
+        if (dimensions != null) {
+            return dimensions;
+        }
         int sideLength = radius * 2 + 1;
         return new int[] {sideLength, sideLength, sideLength};
     }
