@@ -140,7 +140,7 @@ public final class ChainStateService {
             state.isExecuting(),
             state.getSelectedMode(),
             state.getExecutionStatus(),
-            state.getSession() == null ? 0 : state.getSession().getPendingBreakTargets().size(),
+            state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingBreakTargets().size(),
             state.getPendingDrops().size());
 
         MyMod.networkMain.network.sendTo(
@@ -152,7 +152,7 @@ public final class ChainStateService {
                 state.getExecutionStatus(),
                 Config.chainRadius,
                 Config.chainMaxBlocks,
-                state.getSession() == null ? 0 : state.getSession().getMatchedTargetCount()),
+                state.getSession() == null ? 0 : state.getSession().getRuntimeState().getMatchedTargetCount()),
             (EntityPlayerMP) player);
     }
 
@@ -164,13 +164,13 @@ public final class ChainStateService {
 
         if (!state.isExecuting()
             && (state.getSession() == null
-            || (state.getSession().getPlannerSubscription() == null
-            && state.getSession().getExecutorSubscription() == null
-            && state.getSession().getPendingBreakTargets().isEmpty()))) {
+            || (state.getSession().getRuntimeState().getPlannerSubscription() == null
+            && state.getSession().getRuntimeState().getExecutorSubscription() == null
+            && state.getSession().getRuntimeState().getPendingBreakTargets().isEmpty()))) {
             return;
         }
 
-        int queuedTargets = state.getSession() == null ? 0 : state.getSession().getPendingBreakTargets().size();
+        int queuedTargets = state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingBreakTargets().size();
         int pendingDrops = state.getPendingDrops().size();
 
         MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",

@@ -53,13 +53,13 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         playerState.clearRuntimeState(getRestartReason());
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, getStartReason());
-        session.setPlannerRunning(true);
-        session.setPlannerCompleted(false);
-        session.updatePlannerHeartbeat();
-        session.resetExecutorThrottle();
+        session.getRuntimeState().setPlannerRunning(true);
+        session.getRuntimeState().setPlannerCompleted(false);
+        session.getRuntimeState().updatePlannerHeartbeat();
+        session.getRuntimeState().resetExecutorThrottle();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
-        ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
+        ConcurrentLinkedQueue<ChainTarget> queue = session.getRuntimeState().getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
         final ChainPlanningRuntime runtime = createPlanningRuntime(player, session, seedSnapshot);
         if (runtime == null) {
@@ -91,16 +91,16 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                 }
 
                 ChainSession currentSession = currentState.getSession();
-                currentSession.updatePlannerHeartbeat();
-                int previousMatchedCount = currentSession.getMatchedTargetCount();
+                currentSession.getRuntimeState().updatePlannerHeartbeat();
+                int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(
                     searchContext,
                     MAX_SCAN_PER_SLICE,
                     target -> blockMatcher.matches((EntityPlayerMP) currentPlayer, target),
                     queue::add);
-                currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
-                boolean matchedCountChanged = previousMatchedCount != currentSession.getMatchedTargetCount();
+                currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
+                boolean matchedCountChanged = previousMatchedCount != currentSession.getRuntimeState().getMatchedTargetCount();
 
                 if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
                     currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, getPlannerReasonPrefix() + "found-targets");
@@ -111,10 +111,10 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
 
                 if (!shouldContinue) {
                     logPlanCompleted(playerUUID, searchContext, queue, currentState);
-                    currentSession.setPlannerSubscription(null);
-                    currentSession.setPlannerRunning(false);
-                    currentSession.setPlannerCompleted(true);
-                    currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
+                    currentSession.getRuntimeState().setPlannerSubscription(null);
+                    currentSession.getRuntimeState().setPlannerRunning(false);
+                    currentSession.getRuntimeState().setPlannerCompleted(true);
+                    currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, getPlannerReasonPrefix() + "completed-empty-queue");
@@ -131,7 +131,7 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                 return shouldContinue;
             });
 
-        session.setPlannerSubscription(subscription);
+        session.getRuntimeState().setPlannerSubscription(subscription);
         MyMod.LOG.debug("[ChainPlanner] Started {} plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
             getLogLabel(), playerUUID, origin.getX(), origin.getY(), origin.getZ(), Config.chainRadius, Config.chainMaxBlocks);
     }

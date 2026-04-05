@@ -34,16 +34,16 @@ public final class ChainPlanningRuntimeFactory {
             return null;
         }
 
-        session.getTraversalTargets().clear();
+        session.getRuntimeState().getTraversalTargets().clear();
         ChainSearchContext searchContext = createSearchContext(
             world,
             seedSnapshot,
-            session.getSubMode(),
+            session.getRequest().getSubMode(),
             Config.chainRadius,
             Config.chainMaxBlocks,
-            session.getTraversalTargets());
+            session.getRuntimeState().getTraversalTargets());
 
-        return createRuntime(player, session, searchContext, session.getMode());
+        return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }
 
     public static ChainPlanningRuntime createForPreview(
@@ -60,12 +60,12 @@ public final class ChainPlanningRuntimeFactory {
         ChainSearchContext searchContext = createSearchContext(
             world,
             seedSnapshot,
-            session.getSubMode(),
+            session.getRequest().getSubMode(),
             maxRadius,
             maxTargets,
             new ConcurrentLinkedQueue<ChainTarget>());
 
-        return createRuntime(player, session, searchContext, session.getMode());
+        return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }
 
     private static ChainPlanningRuntime createRuntime(

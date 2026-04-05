@@ -61,9 +61,9 @@ public class ChainPlayerState {
     public void setExecutionStatus(ChainExecutionStatus executionStatus, String reason) {
         ChainExecutionStatus newStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
         if (this.executionStatus != newStatus) {
-            int queuedTargets = session == null ? 0 : session.getPendingBreakTargets().size();
+            int queuedTargets = session == null ? 0 : session.getRuntimeState().getPendingBreakTargets().size();
             int pendingDropsCount = pendingDrops.size();
-            boolean waitingForPlanner = session != null && session.isPlannerRunning();
+            boolean waitingForPlanner = session != null && session.getRuntimeState().isPlannerRunning();
             MyMod.LOG.debug(
                 "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
                 playerUUID,
@@ -120,10 +120,10 @@ public class ChainPlayerState {
         if (this.session == null && session != null) {
             MyMod.LOG.debug("[ChainState] Player {} session attached mode={} origin=({}, {}, {})",
                 playerUUID,
-                session.getMode(),
-                session.getOrigin().getX(),
-                session.getOrigin().getY(),
-                session.getOrigin().getZ());
+                session.getRequest().getMode(),
+                session.getRequest().getOrigin().getX(),
+                session.getRequest().getOrigin().getY(),
+                session.getRequest().getOrigin().getZ());
         } else if (this.session != null && session == null) {
             MyMod.LOG.debug("[ChainState] Player {} session cleared", playerUUID);
         }

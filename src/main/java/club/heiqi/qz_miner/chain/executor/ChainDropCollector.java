@@ -75,7 +75,9 @@ public class ChainDropCollector {
             MyMod.LOG.debug("[ChainDropCollector] Ready to release aggregated drops for player {}, pending aggregated stacks={}",
                 playerState.getPlayerUUID(), playerState.getPendingDrops().size());
             releaseDrops((EntityPlayerMP) player, playerState);
-            if (session != null && session.getPendingBreakTargets().isEmpty() && !session.isPlannerRunning()) {
+            if (session != null
+                && session.getRuntimeState().getPendingBreakTargets().isEmpty()
+                && !session.getRuntimeState().isPlannerRunning()) {
                 playerState.clearSession();
             }
         }

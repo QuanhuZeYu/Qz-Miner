@@ -55,12 +55,12 @@ public class ChainExecutor {
                 continue;
             }
 
-            ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
-            if (!session.isExecutorReady(nowMillis)) {
+            ConcurrentLinkedQueue<ChainTarget> queue = session.getRuntimeState().getPendingBreakTargets();
+            if (!session.getRuntimeState().isExecutorReady(nowMillis)) {
                 continue;
             }
 
-            ChainModeDefinition definition = ChainModeRegistry.getDefinition(session.getMode());
+            ChainModeDefinition definition = ChainModeRegistry.getDefinition(session.getRequest().getMode());
             if (definition == null || definition.getActionExecutor() == null) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-action-executor");
                 continue;
@@ -88,10 +88,10 @@ public class ChainExecutor {
             }
 
             if (executedCount > 0) {
-                session.scheduleNextExecutorRun(nowMillis, 50L);
+                session.getRuntimeState().scheduleNextExecutorRun(nowMillis, 50L);
             }
 
-            if (queue.isEmpty() && session.isPlannerCompleted()) {
+            if (queue.isEmpty() && session.getRuntimeState().isPlannerCompleted()) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "executor-consumed-all-targets");
             }
         }

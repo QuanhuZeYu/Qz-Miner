@@ -43,8 +43,8 @@ public final class ChainModeBootstrap {
         if (context != null
             && context.getSearchContext() != null
             && context.getSearchContext().getSubMode() == ChainSubMode.AREA_TUNNEL) {
-            int face = context.getSession() != null
-                ? context.getSession().getInteractFace()
+            int face = context.getSession() != null && context.getSession().getRequest() != null
+                ? context.getSession().getRequest().getInteractFace()
                 : AxisAlignedTunnelDirection.resolveFace(context.getPlayer());
             return new TunnelBoxScanTraverser(face);
         }
