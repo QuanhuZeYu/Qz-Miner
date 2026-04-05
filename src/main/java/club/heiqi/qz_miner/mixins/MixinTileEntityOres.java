@@ -2,11 +2,10 @@ package club.heiqi.qz_miner.mixins;
 
 import club.heiqi.qz_miner.compat.FortuneCompatHelper;
 import gregtech.common.blocks.TileEntityOres;
-import net.minecraft.block.Block;
+import java.util.Random;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
@@ -47,16 +46,16 @@ public abstract class MixinTileEntityOres {
     /**
      * 按配置解除 GT 普通矿时运 3 级上限。
      *
+     * @param random 随机数实例
      * @param currentBound 原始随机上界
      * @param droppedOre 掉落方块
      * @param fortune 原始时运等级
-     * @return 调整后的随机上界
+     * @return 调整后的随机结果
      */
-    @ModifyArg(
+    @Redirect(
         method = "getDrops(Lnet/minecraft/block/Block;I)Ljava/util/ArrayList;",
-        at = @At(value = "INVOKE", target = "Ljava/util/Random;nextInt(I)I", ordinal = 0),
-        index = 0)
-    private int qzMiner$removeNormalOreFortuneCap(int currentBound, Block droppedOre, int fortune) {
-        return FortuneCompatHelper.resolveGtOreFortuneRollBound(currentBound, fortune);
+        at = @At(value = "INVOKE", target = "Ljava/util/Random;nextInt(I)I", ordinal = 0))
+    private int qzMiner$removeNormalOreFortuneCap(Random random, int currentBound, net.minecraft.block.Block droppedOre, int fortune) {
+        return random.nextInt(FortuneCompatHelper.resolveGtOreFortuneRollBound(currentBound, fortune));
     }
 }

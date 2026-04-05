@@ -21,6 +21,7 @@ hud.qz_miner.sub_mode.area.ore=爆破矿石模式
 hud.qz_miner.sub_mode.area.tunnel=爆破隧道模式
 hud.qz_miner.sub_mode.interact.base=连锁块交互模式
 hud.qz_miner.sub_mode.interact.crop=作物交互模式
+hud.qz_miner.sub_mode.special.lootgames_minesweeper=特殊扫雷预览模式
 hud.qz_miner.sub_mode.special.base=特殊基础模式
 hud.qz_miner.sub_mode.special.extended=特殊扩展模式
 key.categories.qz_miner=Qz-Miner

@@ -2,7 +2,9 @@ package club.heiqi.qz_miner.chain.client;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockSeedSnapshot;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
@@ -13,6 +15,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.network.PacketLootGamesMinesweeperPreviewRequest;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -42,6 +45,7 @@ public class ChainPreviewController {
     private final ChainPreviewState previewState = new ChainPreviewState();
     private ChainTarget currentTarget;
     private ParallelTickSubscription previewTaskSubscription;
+    private int specialPreviewRequestId;
 
     public void register() {
         FMLCommonHandler.instance().bus().register(this);
@@ -116,10 +120,15 @@ public class ChainPreviewController {
         final int previewRadius = getEffectivePreviewRadius();
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
+        final ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        if (selectedMode == ChainMode.SPECIAL && selectedSubMode == ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER) {
+            startLootGamesMinesweeperPreview(world, target, previewRadius, previewMaxTargets);
+            return;
+        }
         final ChainSession previewSession = new ChainSession(
             player.getUniqueID(),
             selectedMode,
-            MyMod.chainStateService.getClientState().getSelectedSubMode(),
+            selectedSubMode,
             target,
             AxisAlignedTunnelDirection.resolveFace(player));
         final BlockSeedSnapshot seedSnapshot = new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity);
@@ -170,6 +179,53 @@ public class ChainPreviewController {
             });
 
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());
+    }
+
+    private void startLootGamesMinesweeperPreview(World world, ChainTarget target, int previewRadius, int previewMaxTargets) {
+        if (!LootGamesMinesweeperHelper.isMinesweeperTarget(world, target) || MyMod.networkMain == null) {
+            previewState.setCompleted(true);
+            return;
+        }
+
+        specialPreviewRequestId++;
+        MyMod.networkMain.network.sendToServer(
+            new PacketLootGamesMinesweeperPreviewRequest(specialPreviewRequestId, target, previewRadius, previewMaxTargets));
+        MyMod.LOG.debug(
+            "[ChainPreview] Requested LootGames minesweeper preview for ({}, {}, {}) radius={} maxTargets={} requestId={}",
+            target.getX(),
+            target.getY(),
+            target.getZ(),
+            previewRadius,
+            previewMaxTargets,
+            specialPreviewRequestId);
+    }
+
+    /**
+     * 应用 LootGames 扫雷预览结果。
+     *
+     * @param requestId 请求编号
+     * @param origin 请求原点
+     * @param targets 服务端返回的雷坐标
+     */
+    public void applyLootGamesMinesweeperPreview(int requestId, ChainTarget origin, java.util.List<ChainTarget> targets) {
+        if (requestId != specialPreviewRequestId
+            || currentTarget == null
+            || !currentTarget.equals(origin)
+            || !previewState.isActive()) {
+            return;
+        }
+
+        for (ChainTarget target : targets) {
+            previewState.addPreviewTarget(target);
+        }
+        previewState.setCompleted(true);
+        MyMod.LOG.debug(
+            "[ChainPreview] Applied LootGames minesweeper preview for ({}, {}, {}) targets={} requestId={}",
+            origin.getX(),
+            origin.getY(),
+            origin.getZ(),
+            targets.size(),
+            requestId);
     }
 
     /**
@@ -247,6 +303,7 @@ public class ChainPreviewController {
 
         previewState.clear();
         currentTarget = null;
+        specialPreviewRequestId++;
         if (MyMod.chainStateService != null) {
             MyMod.chainStateService.getClientState().setPreviewActive(false);
         }
