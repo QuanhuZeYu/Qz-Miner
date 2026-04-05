@@ -194,7 +194,7 @@ public final class ChainModeBootstrap {
             HARVESTABLE_MATCHER,
             false,
             null,
-            ChainSubMode.SPECIAL_BASE,
-            Arrays.asList(ChainSubMode.SPECIAL_BASE, ChainSubMode.SPECIAL_EXTENDED));
+            ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER,
+            Arrays.asList(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER, ChainSubMode.SPECIAL_BASE, ChainSubMode.SPECIAL_EXTENDED));
     }
 }

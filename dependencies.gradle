@@ -39,6 +39,7 @@ dependencies {
     }
 
     implementation(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
+    implementation(project.elytraModpackVersion.gtnhdev("LootGames"))
     implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
     implementation(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))

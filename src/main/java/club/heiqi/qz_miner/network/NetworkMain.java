@@ -45,5 +45,15 @@ public final class NetworkMain {
                 PacketChainStateSync.class,
                 packetId++,
                 Side.CLIENT);
+        network.registerMessage(
+                PacketLootGamesMinesweeperPreviewRequest.Handler.class,
+                PacketLootGamesMinesweeperPreviewRequest.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
+                PacketLootGamesMinesweeperPreviewResponse.Handler.class,
+                PacketLootGamesMinesweeperPreviewResponse.class,
+                packetId++,
+                Side.CLIENT);
     }
 }
