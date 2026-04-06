@@ -179,7 +179,7 @@ public final class ChainStateService {
             state.getExecutionStatus(),
             queuedTargets,
             pendingDrops);
-        state.clearRuntimeState(reason);
+        state.stopExecutionPreservingDrops(reason);
         syncPlayerState(playerUUID);
     }
 

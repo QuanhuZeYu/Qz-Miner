@@ -81,6 +81,7 @@ public class ChainDropCollector {
                 && session.getRuntimeState().getPendingBreakTargets().isEmpty()
                 && !session.getRuntimeState().isPlannerRunning()) {
                 playerState.clearSession();
+                MyMod.chainStateService.syncPlayerState(playerState.getPlayerUUID());
             }
         }
     }

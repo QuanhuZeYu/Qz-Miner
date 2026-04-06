@@ -145,4 +145,31 @@ public final class ChainRuntimeState {
         MyMod.LOG.debug("[ChainRuntime] Cleared runtime state for player {}, reason={}, queuedTargets={}",
             playerUUID, reason, queuedTargets);
     }
+
+    /**
+     * 停止本次连锁执行，但保留待释放掉落。
+     *
+     * @param reason 停止原因
+     */
+    public void stopExecutionPreservingDrops(String reason) {
+        int queuedTargets = pendingBreakTargets.size();
+        int pendingDropCount = pendingDrops.size();
+        if (plannerSubscription != null) {
+            plannerSubscription.unregister();
+            setPlannerSubscription(null);
+        }
+        if (executorSubscription != null) {
+            executorSubscription.unregister();
+            setExecutorSubscription(null);
+        }
+        traversalTargets.clear();
+        pendingBreakTargets.clear();
+        plannerRunning = false;
+        plannerCompleted = false;
+        plannerHeartbeatMillis = 0L;
+        matchedTargetCount = 0;
+        resetExecutorThrottle();
+        MyMod.LOG.debug("[ChainRuntime] Stopped execution for player {}, reason={}, queuedTargets={}, pendingDrops={}",
+            playerUUID, reason, queuedTargets, pendingDropCount);
+    }
 }
