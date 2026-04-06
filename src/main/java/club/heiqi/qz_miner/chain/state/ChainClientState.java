@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.chain.state;
 
+import java.util.EnumMap;
+import java.util.Map;
+
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
@@ -17,9 +20,14 @@ public class ChainClientState {
     private volatile ChainExecutionStatus serverExecutionStatus = ChainExecutionStatus.IDLE;
     private volatile ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private volatile ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
+    private final Map<ChainMode, ChainSubMode> rememberedSubModes = new EnumMap<ChainMode, ChainSubMode>(ChainMode.class);
     private volatile int serverChainRadius = Config.chainRadius;
     private volatile int serverChainMaxBlocks = Config.chainMaxBlocks;
     private volatile int serverMatchedTargetCount;
+
+    public ChainClientState() {
+        rememberCurrentSubMode(selectedMode, selectedSubMode);
+    }
 
     public boolean isChainKeyPressed() {
         return chainKeyPressed;
@@ -67,7 +75,9 @@ public class ChainClientState {
 
     public void setSelectedMode(ChainMode selectedMode) {
         this.selectedMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
-        this.selectedSubMode = ChainModeRegistry.resolveSubMode(this.selectedMode, selectedSubMode);
+        ChainSubMode rememberedSubMode = rememberedSubModes.get(this.selectedMode);
+        this.selectedSubMode = ChainModeRegistry.resolveSubMode(this.selectedMode, rememberedSubMode);
+        rememberCurrentSubMode(this.selectedMode, this.selectedSubMode);
     }
 
     public ChainSubMode getSelectedSubMode() {
@@ -76,6 +86,15 @@ public class ChainClientState {
 
     public void setSelectedSubMode(ChainSubMode selectedSubMode) {
         this.selectedSubMode = ChainModeRegistry.resolveSubMode(selectedMode, selectedSubMode);
+        rememberCurrentSubMode(selectedMode, this.selectedSubMode);
+    }
+
+    private void rememberCurrentSubMode(ChainMode mode, ChainSubMode subMode) {
+        if (mode == null || subMode == null) {
+            return;
+        }
+
+        rememberedSubModes.put(mode, subMode);
     }
 
     public int getServerChainRadius() {

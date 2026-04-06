@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.chain.state;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.MyMod;
@@ -17,10 +19,12 @@ public class ChainPlayerState {
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
+    private final Map<ChainMode, ChainSubMode> rememberedSubModes = new EnumMap<ChainMode, ChainSubMode>(ChainMode.class);
     private volatile ChainSession session;
 
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
+        rememberCurrentSubMode(selectedMode, selectedSubMode);
     }
 
     public UUID getPlayerUUID() {
@@ -83,7 +87,9 @@ public class ChainPlayerState {
             MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, this.selectedMode, newMode);
         }
         this.selectedMode = newMode;
-        this.selectedSubMode = ChainModeRegistry.resolveSubMode(newMode, selectedSubMode);
+        ChainSubMode rememberedSubMode = rememberedSubModes.get(newMode);
+        this.selectedSubMode = ChainModeRegistry.resolveSubMode(newMode, rememberedSubMode);
+        rememberCurrentSubMode(this.selectedMode, this.selectedSubMode);
     }
 
     /**
@@ -106,6 +112,15 @@ public class ChainPlayerState {
             MyMod.LOG.debug("[ChainState] Player {} selectedSubMode {} -> {}", playerUUID, this.selectedSubMode, newSubMode);
         }
         this.selectedSubMode = newSubMode;
+        rememberCurrentSubMode(selectedMode, this.selectedSubMode);
+    }
+
+    private void rememberCurrentSubMode(ChainMode mode, ChainSubMode subMode) {
+        if (mode == null || subMode == null) {
+            return;
+        }
+
+        rememberedSubModes.put(mode, subMode);
     }
 
     public ChainSession getSession() {

@@ -40,10 +40,6 @@ public class KeyListener {
             "key.qz_miner.chainSwitch",
             Keyboard.KEY_GRAVE,
             "key.categories.qz_miner");
-    public static KeyBinding mainModeSwitch = new KeyBinding(
-            "key.qz_miner.mainModeSwitch",
-            Keyboard.KEY_V,
-            "key.categories.qz_miner");
 
     private final HudOverlay hudOverlay;
 
@@ -61,27 +57,11 @@ public class KeyListener {
      */
     public void register() {
         ClientRegistry.registerKeyBinding(chainSwitch);
-        ClientRegistry.registerKeyBinding(mainModeSwitch);
         FMLCommonHandler.instance().bus().register(this);
     }
 
-    @SubscribeEvent
-    public void onKeyInput(InputEvent.KeyInputEvent event) {
-        if (FMLClientHandler.instance().getClient().theWorld == null) {
-            return;
-        }
-
-        if (mainModeSwitch.isPressed() && MyMod.chainStateService != null) {
-            ChainMode nextMode = ChainModeRegistry.next(MyMod.chainStateService.getClientState().getSelectedMode());
-            MyMod.chainStateService.setClientSelectedMode(nextMode);
-            MyMod.networkMain.network.sendToServer(new PacketChainModeSwitch(nextMode));
-            MyMod.LOG.debug("[KeyListener] Switched chain mode to {}", nextMode);
-        }
-
-    }
-
     /**
-     * 在按住连锁键时，使用滚轮切换当前主模式的子模式。
+     * 在按住连锁键时，使用滚轮切换主模式或子模式。
      *
      * @param event 鼠标输入事件
      */
@@ -103,6 +83,22 @@ public class KeyListener {
 
         int dWheel = Mouse.getEventDWheel();
         if (dWheel == 0) {
+            return;
+        }
+
+        boolean sneakKeyPressed = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT);
+
+        if (sneakKeyPressed) {
+            ChainMode nextMode = dWheel < 0
+                ? ChainModeRegistry.next(selectedMode)
+                : ChainModeRegistry.previous(selectedMode);
+            if (nextMode == null || nextMode == selectedMode) {
+                return;
+            }
+
+            MyMod.chainStateService.setClientSelectedMode(nextMode);
+            MyMod.networkMain.network.sendToServer(new PacketChainModeSwitch(nextMode));
+            MyMod.LOG.debug("[KeyListener] Switched chain mode to {}", nextMode);
             return;
         }
 
