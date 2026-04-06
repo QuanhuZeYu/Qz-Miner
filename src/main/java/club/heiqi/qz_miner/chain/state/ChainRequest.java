@@ -20,16 +20,22 @@ public final class ChainRequest {
     private final float interactHitX;
     private final float interactHitY;
     private final float interactHitZ;
+    private final int requestedChainRadius;
+    private final int requestedChainMaxBlocks;
 
     public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin) {
-        this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F);
+        this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F, -1, -1);
     }
 
     public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace) {
-        this(playerUUID, mode, subMode, origin, interactFace, 0.0F, 0.0F, 0.0F);
+        this(playerUUID, mode, subMode, origin, interactFace, 0.0F, 0.0F, 0.0F, -1, -1);
     }
 
     public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace, float interactHitX, float interactHitY, float interactHitZ) {
+        this(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY, interactHitZ, -1, -1);
+    }
+
+    public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace, float interactHitX, float interactHitY, float interactHitZ, int requestedChainRadius, int requestedChainMaxBlocks) {
         this.playerUUID = playerUUID;
         this.mode = mode;
         this.subMode = ChainModeRegistry.resolveSubMode(mode, subMode);
@@ -38,6 +44,8 @@ public final class ChainRequest {
         this.interactHitX = interactHitX;
         this.interactHitY = interactHitY;
         this.interactHitZ = interactHitZ;
+        this.requestedChainRadius = requestedChainRadius;
+        this.requestedChainMaxBlocks = requestedChainMaxBlocks;
     }
 
     public UUID getPlayerUUID() {
@@ -70,5 +78,13 @@ public final class ChainRequest {
 
     public float getInteractHitZ() {
         return interactHitZ;
+    }
+
+    public int getRequestedChainRadius() {
+        return requestedChainRadius;
+    }
+
+    public int getRequestedChainMaxBlocks() {
+        return requestedChainMaxBlocks;
     }
 }

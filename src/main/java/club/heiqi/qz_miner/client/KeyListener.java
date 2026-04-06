@@ -1,11 +1,13 @@
 package club.heiqi.qz_miner.client;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.ChainConstants;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.network.PacketChainSubModeSwitch;
+import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import club.heiqi.qz_miner.network.PacketKeyState;
 import club.heiqi.qz_miner.network.PacketChainModeSwitch;
 import cpw.mods.fml.client.FMLClientHandler;
@@ -148,8 +150,26 @@ public class KeyListener {
             MyMod.chainStateService.setClientChainKeyPressed(pressed);
         }
         if (MyMod.networkMain != null) {
+            if (pressed) {
+                syncRequestedChainConfigToServer();
+            }
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, pressed));
         }
         hudOverlay.setChainActive(pressed);
+    }
+
+    private void syncRequestedChainConfigToServer() {
+        if (MyMod.chainStateService == null || MyMod.networkMain == null) {
+            return;
+        }
+
+        if (FMLClientHandler.instance().getClient().isSingleplayer()) {
+            return;
+        }
+
+        MyMod.chainStateService.setClientRequestedChainConfig(Config.chainRadius, Config.chainMaxBlocks);
+        MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(
+            MyMod.chainStateService.getClientState().getRequestedChainRadius(),
+            MyMod.chainStateService.getClientState().getRequestedChainMaxBlocks()));
     }
 }

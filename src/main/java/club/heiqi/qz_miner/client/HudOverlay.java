@@ -72,16 +72,26 @@ public class HudOverlay {
         String modeText = "\u00a77" + ClientI18n.tr("hud.qz_miner.current_mode", ClientI18n.tr(selectedMode.getDisplayNameKey()));
         mc.fontRenderer.drawStringWithShadow(modeText, x, y - 10, 0xFFFFFF);
 
-        int serverMatchedY = y - 20;
-        int previewMatchedY = y - 30;
-        int areaInfoY = y - 30;
+        int configInfoY = y - 20;
+        int serverMatchedY = y - 30;
+        int previewMatchedY = y - 40;
+        int areaInfoY = y - 40;
         if (selectedSubMode != null) {
             String subModeText = "\u00a77" + ClientI18n.tr("hud.qz_miner.current_sub_mode", ClientI18n.tr(selectedSubMode.getDisplayNameKey()));
             mc.fontRenderer.drawStringWithShadow(subModeText, x, y - 20, 0xFFFFFF);
-            serverMatchedY = y - 30;
-            previewMatchedY = y - 40;
-            areaInfoY = y - 40;
+            configInfoY = y - 30;
+            serverMatchedY = y - 40;
+            previewMatchedY = y - 50;
+            areaInfoY = y - 50;
         }
+
+        String chainConfigText = "\u00a77" + ClientI18n.tr(
+            "hud.qz_miner.chain_config",
+            MyMod.chainStateService.getClientState().getRequestedChainRadius(),
+            MyMod.chainStateService.getClientState().getServerChainRadius(),
+            MyMod.chainStateService.getClientState().getRequestedChainMaxBlocks(),
+            MyMod.chainStateService.getClientState().getServerChainMaxBlocks());
+        mc.fontRenderer.drawStringWithShadow(chainConfigText, x, configInfoY, 0xFFFFFF);
 
         String serverMatchedText = "\u00a77" + ClientI18n.tr(
             "hud.qz_miner.server_matched",
@@ -108,7 +118,7 @@ public class HudOverlay {
                     areaDimensions[1],
                     areaDimensions[2],
                     areaBlockCount);
-                mc.fontRenderer.drawStringWithShadow(areaText, x, y - 50, 0xFFFFFF);
+                mc.fontRenderer.drawStringWithShadow(areaText, x, y - 60, 0xFFFFFF);
             }
         } else if (showAreaInfo) {
             int[] areaDimensions = resolveAreaDimensions(modeDefinition, selectedSubMode);

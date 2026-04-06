@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
+import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -21,6 +22,7 @@ public class ClientProxy extends CommonProxy {
         chainPreviewController.register();
         chainPreviewRenderer = new ChainPreviewRenderer();
         chainPreviewRenderer.register();
+        new ClientConnectionListener().register();
         HudOverlay hudOverlay = new HudOverlay();
         hudOverlay.register();
         new KeyListener(hudOverlay).register();
