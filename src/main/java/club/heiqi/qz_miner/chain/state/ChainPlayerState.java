@@ -20,6 +20,8 @@ public class ChainPlayerState {
     private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
     private final Map<ChainMode, ChainSubMode> rememberedSubModes = new EnumMap<ChainMode, ChainSubMode>(ChainMode.class);
+    private volatile int requestedChainRadius = -1;
+    private volatile int requestedChainMaxBlocks = -1;
     private volatile ChainSession session;
 
     public ChainPlayerState(UUID playerUUID) {
@@ -125,6 +127,22 @@ public class ChainPlayerState {
 
     public ChainSession getSession() {
         return session;
+    }
+
+    public int getRequestedChainRadius() {
+        return requestedChainRadius;
+    }
+
+    public void setRequestedChainRadius(int requestedChainRadius) {
+        this.requestedChainRadius = requestedChainRadius;
+    }
+
+    public int getRequestedChainMaxBlocks() {
+        return requestedChainMaxBlocks;
+    }
+
+    public void setRequestedChainMaxBlocks(int requestedChainMaxBlocks) {
+        this.requestedChainMaxBlocks = requestedChainMaxBlocks;
     }
 
     public void setSession(ChainSession session) {

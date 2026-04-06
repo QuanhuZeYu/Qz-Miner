@@ -46,6 +46,11 @@ public final class NetworkMain {
                 packetId++,
                 Side.CLIENT);
         network.registerMessage(
+                PacketChainConfigRequest.Handler.class,
+                PacketChainConfigRequest.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
                 PacketLootGamesMinesweeperPreviewRequest.Handler.class,
                 PacketLootGamesMinesweeperPreviewRequest.class,
                 packetId++,

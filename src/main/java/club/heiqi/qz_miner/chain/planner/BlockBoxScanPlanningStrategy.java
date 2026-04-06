@@ -58,7 +58,12 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
             playerState.getSelectedMode(),
             playerState.getSelectedSubMode(),
             origin,
-            AxisAlignedTunnelDirection.resolveFace(player));
+            AxisAlignedTunnelDirection.resolveFace(player),
+            0.0F,
+            0.0F,
+            0.0F,
+            playerState.getRequestedChainRadius(),
+            playerState.getRequestedChainMaxBlocks());
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-area-plan");
         session.getRuntimeState().setPlannerRunning(true);

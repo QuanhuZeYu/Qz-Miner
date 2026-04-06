@@ -3,6 +3,7 @@ hud.qz_miner.status.planning=Chain Plan In Progress
 hud.qz_miner.status.idle=Chain Ready
 hud.qz_miner.current_mode=Current Mode: %s
 hud.qz_miner.current_sub_mode=Current Sub Mode: %s
+hud.qz_miner.chain_config=Requested/Limit Radius: %d/%d, Requested/Limit Blocks: %d/%d
 hud.qz_miner.server_matched=Server Matched: %d blocks
 hud.qz_miner.preview_matched=Preview Matched: %d blocks
 hud.qz_miner.preview.completed=(Completed)

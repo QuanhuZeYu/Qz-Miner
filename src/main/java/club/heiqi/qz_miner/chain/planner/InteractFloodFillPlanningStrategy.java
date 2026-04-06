@@ -55,7 +55,9 @@ public class InteractFloodFillPlanningStrategy extends AbstractFloodFillPlanning
             interactFace,
             interactHitX,
             interactHitY,
-            interactHitZ);
+            interactHitZ,
+            playerState.getRequestedChainRadius(),
+            playerState.getRequestedChainMaxBlocks());
         startPlanningInternal(player, playerState, origin, session);
     }
 

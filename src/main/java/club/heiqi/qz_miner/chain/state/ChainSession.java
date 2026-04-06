@@ -14,7 +14,7 @@ public class ChainSession {
     private final ChainRuntimeState runtimeState;
 
     public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin) {
-        this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F);
+        this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F, -1, -1);
     }
 
     /**
@@ -27,7 +27,7 @@ public class ChainSession {
      * @param interactFace 交互点击面
      */
     public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace) {
-        this(playerUUID, mode, subMode, origin, interactFace, 0.0F, 0.0F, 0.0F);
+        this(playerUUID, mode, subMode, origin, interactFace, 0.0F, 0.0F, 0.0F, -1, -1);
     }
 
     /**
@@ -43,7 +43,11 @@ public class ChainSession {
      * @param interactHitZ 命中点 Z 偏移
      */
     public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace, float interactHitX, float interactHitY, float interactHitZ) {
-        this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY, interactHitZ));
+        this(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY, interactHitZ, -1, -1);
+    }
+
+    public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin, int interactFace, float interactHitX, float interactHitY, float interactHitZ, int requestedChainRadius, int requestedChainMaxBlocks) {
+        this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY, interactHitZ, requestedChainRadius, requestedChainMaxBlocks));
     }
 
     public ChainSession(ChainRequest request) {

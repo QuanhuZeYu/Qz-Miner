@@ -118,6 +118,13 @@ public final class ChainStateService {
         MyMod.LOG.debug("[ChainState] Client chain key pressed={}", pressed);
     }
 
+    public void setClientRequestedChainConfig(int requestedChainRadius, int requestedChainMaxBlocks) {
+        clientState.setRequestedChainRadius(requestedChainRadius);
+        clientState.setRequestedChainMaxBlocks(requestedChainMaxBlocks);
+        MyMod.LOG.debug("[ChainState] Client requested chain config radius={} maxBlocks={}",
+            clientState.getRequestedChainRadius(), clientState.getRequestedChainMaxBlocks());
+    }
+
     public void syncPlayerState(UUID playerUUID) {
         if (MyMod.networkMain == null || MyMod.playerManager == null) {
             return;

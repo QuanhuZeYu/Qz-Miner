@@ -3,6 +3,7 @@ hud.qz_miner.status.planning=连锁规划中
 hud.qz_miner.status.idle=连锁待命
 hud.qz_miner.current_mode=当前模式: %s
 hud.qz_miner.current_sub_mode=当前子模式: %s
+hud.qz_miner.chain_config=请求范围/上限: %d/%d, 请求数量/上限: %d/%d
 hud.qz_miner.server_matched=服务端已匹配: %d 个方块
 hud.qz_miner.preview_matched=预览已匹配: %d 个方块
 hud.qz_miner.preview.completed=(完成)

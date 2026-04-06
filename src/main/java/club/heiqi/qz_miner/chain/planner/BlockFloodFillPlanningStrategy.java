@@ -24,7 +24,13 @@ public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStr
             player.getUniqueID(),
             playerState.getSelectedMode(),
             playerState.getSelectedSubMode(),
-            origin);
+            origin,
+            1,
+            0.0F,
+            0.0F,
+            0.0F,
+            playerState.getRequestedChainRadius(),
+            playerState.getRequestedChainMaxBlocks());
         startPlanningInternal(player, playerState, origin, session);
     }
 

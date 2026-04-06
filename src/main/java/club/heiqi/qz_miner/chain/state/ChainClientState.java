@@ -21,6 +21,8 @@ public class ChainClientState {
     private volatile ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
     private volatile ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
     private final Map<ChainMode, ChainSubMode> rememberedSubModes = new EnumMap<ChainMode, ChainSubMode>(ChainMode.class);
+    private volatile int requestedChainRadius = Config.chainRadius;
+    private volatile int requestedChainMaxBlocks = Config.chainMaxBlocks;
     private volatile int serverChainRadius = Config.chainRadius;
     private volatile int serverChainMaxBlocks = Config.chainMaxBlocks;
     private volatile int serverMatchedTargetCount;
@@ -101,12 +103,28 @@ public class ChainClientState {
         return serverChainRadius;
     }
 
+    public int getRequestedChainRadius() {
+        return requestedChainRadius;
+    }
+
+    public void setRequestedChainRadius(int requestedChainRadius) {
+        this.requestedChainRadius = Math.max(1, requestedChainRadius);
+    }
+
     public void setServerChainRadius(int serverChainRadius) {
         this.serverChainRadius = Math.max(1, serverChainRadius);
     }
 
     public int getServerChainMaxBlocks() {
         return serverChainMaxBlocks;
+    }
+
+    public int getRequestedChainMaxBlocks() {
+        return requestedChainMaxBlocks;
+    }
+
+    public void setRequestedChainMaxBlocks(int requestedChainMaxBlocks) {
+        this.requestedChainMaxBlocks = Math.max(1, requestedChainMaxBlocks);
     }
 
     public void setServerChainMaxBlocks(int serverChainMaxBlocks) {
