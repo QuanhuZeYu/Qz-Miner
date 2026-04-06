@@ -4,7 +4,6 @@ import java.util.Arrays;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
 import club.heiqi.qz_miner.chain.executor.BlockInteractActionExecutor;
-import club.heiqi.qz_miner.chain.executor.NoOpActionExecutor;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
@@ -18,7 +17,6 @@ import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.InteractFloodFillPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
-import club.heiqi.qz_miner.chain.planner.NoOpPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockHarvestableMatcher;
@@ -188,13 +186,13 @@ public final class ChainModeBootstrap {
     private static ChainModeDefinition createSpecialDefinition() {
         return new ChainModeDefinition(
             ChainMode.SPECIAL,
-            new NoOpPlanningStrategy(ChainMode.SPECIAL),
-            new NoOpActionExecutor(ChainMode.SPECIAL),
+            null,
+            null,
             DEFAULT_FLOOD_FILL_TRAVERSER,
             HARVESTABLE_MATCHER,
             false,
             null,
             ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER,
-            Arrays.asList(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER, ChainSubMode.SPECIAL_BASE, ChainSubMode.SPECIAL_EXTENDED));
+            Arrays.asList(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER));
     }
 }

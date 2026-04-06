@@ -68,7 +68,6 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-area-plan");
         session.getRuntimeState().setPlannerRunning(true);
         session.getRuntimeState().setPlannerCompleted(false);
-        session.getRuntimeState().updatePlannerHeartbeat();
         session.getRuntimeState().resetExecutorThrottle();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
@@ -104,7 +103,6 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 ChainSession currentSession = currentState.getSession();
-                currentSession.getRuntimeState().updatePlannerHeartbeat();
                 int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(

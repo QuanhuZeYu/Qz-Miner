@@ -18,13 +18,11 @@ public final class ChainRuntimeState {
 
     private final UUID playerUUID;
     private volatile ParallelTickSubscription plannerSubscription;
-    private volatile ParallelTickSubscription executorSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> traversalTargets = new ConcurrentLinkedQueue<ChainTarget>();
     private final ConcurrentLinkedQueue<ChainTarget> pendingBreakTargets = new ConcurrentLinkedQueue<ChainTarget>();
     private final List<ItemStack> pendingDrops = new ArrayList<ItemStack>();
     private volatile boolean plannerRunning;
     private volatile boolean plannerCompleted;
-    private volatile long plannerHeartbeatMillis;
     private volatile int matchedTargetCount;
     private final AtomicLong nextExecutorAllowedMillis = new AtomicLong();
 
@@ -44,20 +42,6 @@ public final class ChainRuntimeState {
                 playerUUID, pendingBreakTargets.size());
         }
         this.plannerSubscription = plannerSubscription;
-    }
-
-    public ParallelTickSubscription getExecutorSubscription() {
-        return executorSubscription;
-    }
-
-    public void setExecutorSubscription(ParallelTickSubscription executorSubscription) {
-        if (this.executorSubscription == null && executorSubscription != null) {
-            MyMod.LOG.debug("[ChainRuntime] Player {} executorSubscription attached", playerUUID);
-        } else if (this.executorSubscription != null && executorSubscription == null) {
-            MyMod.LOG.debug("[ChainRuntime] Player {} executorSubscription cleared queuedTargets={}",
-                playerUUID, pendingBreakTargets.size());
-        }
-        this.executorSubscription = executorSubscription;
     }
 
     public ConcurrentLinkedQueue<ChainTarget> getTraversalTargets() {
@@ -96,14 +80,6 @@ public final class ChainRuntimeState {
         this.plannerCompleted = plannerCompleted;
     }
 
-    public long getPlannerHeartbeatMillis() {
-        return plannerHeartbeatMillis;
-    }
-
-    public void updatePlannerHeartbeat() {
-        this.plannerHeartbeatMillis = System.currentTimeMillis();
-    }
-
     public int getMatchedTargetCount() {
         return matchedTargetCount;
     }
@@ -130,16 +106,11 @@ public final class ChainRuntimeState {
             plannerSubscription.unregister();
             setPlannerSubscription(null);
         }
-        if (executorSubscription != null) {
-            executorSubscription.unregister();
-            setExecutorSubscription(null);
-        }
         traversalTargets.clear();
         pendingBreakTargets.clear();
         pendingDrops.clear();
         plannerRunning = false;
         plannerCompleted = false;
-        plannerHeartbeatMillis = 0L;
         matchedTargetCount = 0;
         resetExecutorThrottle();
         MyMod.LOG.debug("[ChainRuntime] Cleared runtime state for player {}, reason={}, queuedTargets={}",
@@ -158,15 +129,10 @@ public final class ChainRuntimeState {
             plannerSubscription.unregister();
             setPlannerSubscription(null);
         }
-        if (executorSubscription != null) {
-            executorSubscription.unregister();
-            setExecutorSubscription(null);
-        }
         traversalTargets.clear();
         pendingBreakTargets.clear();
         plannerRunning = false;
         plannerCompleted = false;
-        plannerHeartbeatMillis = 0L;
         matchedTargetCount = 0;
         resetExecutorThrottle();
         MyMod.LOG.debug("[ChainRuntime] Stopped execution for player {}, reason={}, queuedTargets={}, pendingDrops={}",

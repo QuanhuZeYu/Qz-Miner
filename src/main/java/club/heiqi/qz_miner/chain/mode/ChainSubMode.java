@@ -43,15 +43,7 @@ public enum ChainSubMode {
     /**
      * SPECIAL LootGames 扫雷预览子模式。
      */
-    SPECIAL_LOOTGAMES_MINESWEEPER(ChainMode.SPECIAL, false, false, false),
-    /**
-     * SPECIAL 默认子模式。
-     */
-    SPECIAL_BASE(ChainMode.SPECIAL, true, false, false),
-    /**
-     * SPECIAL 预留扩展子模式。
-     */
-    SPECIAL_EXTENDED(ChainMode.SPECIAL, false, false, false);
+    SPECIAL_LOOTGAMES_MINESWEEPER(ChainMode.SPECIAL, false, false, false);
 
     private final ChainMode parentMode;
     private final boolean sameBlockMatchRequired;
@@ -132,10 +124,6 @@ public enum ChainSubMode {
                 return "hud.qz_miner.sub_mode.interact.crop";
             case SPECIAL_LOOTGAMES_MINESWEEPER:
                 return "hud.qz_miner.sub_mode.special.lootgames_minesweeper";
-            case SPECIAL_BASE:
-                return "hud.qz_miner.sub_mode.special.base";
-            case SPECIAL_EXTENDED:
-                return "hud.qz_miner.sub_mode.special.extended";
             default:
                 return name();
         }

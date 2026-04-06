@@ -1,32 +1,25 @@
 package club.heiqi.qz_miner.chain.state;
 
-import java.util.EnumMap;
-import java.util.Map;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
-import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 
 /**
  * 服务端玩家连锁状态。
  */
-public class ChainPlayerState {
+public class ChainPlayerState extends AbstractChainModeState {
 
     private final UUID playerUUID;
     private volatile boolean chainKeyPressed;
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
-    private ChainMode selectedMode = ChainModeRegistry.getDefaultMode();
-    private ChainSubMode selectedSubMode = ChainModeRegistry.getDefaultSubMode(ChainModeRegistry.getDefaultMode());
-    private final Map<ChainMode, ChainSubMode> rememberedSubModes = new EnumMap<ChainMode, ChainSubMode>(ChainMode.class);
     private volatile int requestedChainRadius = -1;
     private volatile int requestedChainMaxBlocks = -1;
     private volatile ChainSession session;
 
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
-        rememberCurrentSubMode(selectedMode, selectedSubMode);
     }
 
     public UUID getPlayerUUID() {
@@ -80,18 +73,16 @@ public class ChainPlayerState {
     }
 
     public ChainMode getSelectedMode() {
-        return selectedMode;
+        return super.getSelectedMode();
     }
 
     public void setSelectedMode(ChainMode selectedMode) {
-        ChainMode newMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
-        if (this.selectedMode != newMode) {
-            MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, this.selectedMode, newMode);
+        ChainMode previousMode = getSelectedMode();
+        ChainMode newMode = selectedMode == null ? club.heiqi.qz_miner.chain.mode.ChainModeRegistry.getDefaultMode() : selectedMode;
+        if (previousMode != newMode) {
+            MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, previousMode, newMode);
         }
-        this.selectedMode = newMode;
-        ChainSubMode rememberedSubMode = rememberedSubModes.get(newMode);
-        this.selectedSubMode = ChainModeRegistry.resolveSubMode(newMode, rememberedSubMode);
-        rememberCurrentSubMode(this.selectedMode, this.selectedSubMode);
+        setSelectedModeInternal(newMode);
     }
 
     /**
@@ -100,7 +91,7 @@ public class ChainPlayerState {
      * @return 当前子模式
      */
     public ChainSubMode getSelectedSubMode() {
-        return selectedSubMode;
+        return super.getSelectedSubMode();
     }
 
     /**
@@ -109,20 +100,12 @@ public class ChainPlayerState {
      * @param selectedSubMode 当前子模式
      */
     public void setSelectedSubMode(ChainSubMode selectedSubMode) {
-        ChainSubMode newSubMode = ChainModeRegistry.resolveSubMode(selectedMode, selectedSubMode);
-        if (this.selectedSubMode != newSubMode) {
-            MyMod.LOG.debug("[ChainState] Player {} selectedSubMode {} -> {}", playerUUID, this.selectedSubMode, newSubMode);
+        ChainSubMode previousSubMode = getSelectedSubMode();
+        ChainSubMode newSubMode = club.heiqi.qz_miner.chain.mode.ChainModeRegistry.resolveSubMode(getSelectedMode(), selectedSubMode);
+        if (previousSubMode != newSubMode) {
+            MyMod.LOG.debug("[ChainState] Player {} selectedSubMode {} -> {}", playerUUID, previousSubMode, newSubMode);
         }
-        this.selectedSubMode = newSubMode;
-        rememberCurrentSubMode(selectedMode, this.selectedSubMode);
-    }
-
-    private void rememberCurrentSubMode(ChainMode mode, ChainSubMode subMode) {
-        if (mode == null || subMode == null) {
-            return;
-        }
-
-        rememberedSubModes.put(mode, subMode);
+        setSelectedSubModeInternal(selectedSubMode);
     }
 
     public ChainSession getSession() {

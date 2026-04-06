@@ -23,7 +23,5 @@ hud.qz_miner.sub_mode.area.tunnel=Tunnel Blasting Mode
 hud.qz_miner.sub_mode.interact.base=Chain Block Interaction Mode
 hud.qz_miner.sub_mode.interact.crop=Crop Interaction Mode
 hud.qz_miner.sub_mode.special.lootgames_minesweeper=Special Minesweeper Preview Mode
-hud.qz_miner.sub_mode.special.base=Special Base Mode
-hud.qz_miner.sub_mode.special.extended=Special Extended Mode
 key.categories.qz_miner=Qz-Miner
 key.qz_miner.chainSwitch=Chain Key
