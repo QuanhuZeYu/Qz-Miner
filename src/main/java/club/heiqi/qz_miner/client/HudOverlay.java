@@ -108,29 +108,28 @@ public class HudOverlay {
                 "hud.qz_miner.preview_matched",
                 previewState.getMatchedCount()) + previewSuffix;
             mc.fontRenderer.drawStringWithShadow(matchedText, x, previewMatchedY, 0xFFFFFF);
-
-            if (showAreaInfo) {
-                int[] areaDimensions = resolveAreaDimensions(modeDefinition, selectedSubMode);
-                int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
-                String areaText = "\u00a77" + ClientI18n.tr(
-                    "hud.qz_miner.server_area",
-                    areaDimensions[0],
-                    areaDimensions[1],
-                    areaDimensions[2],
-                    areaBlockCount);
-                mc.fontRenderer.drawStringWithShadow(areaText, x, y - 60, 0xFFFFFF);
-            }
-        } else if (showAreaInfo) {
-            int[] areaDimensions = resolveAreaDimensions(modeDefinition, selectedSubMode);
-            int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
-            String areaText = "\u00a77" + ClientI18n.tr(
-                "hud.qz_miner.server_area",
-                areaDimensions[0],
-                areaDimensions[1],
-                areaDimensions[2],
-                areaBlockCount);
-            mc.fontRenderer.drawStringWithShadow(areaText, x, areaInfoY, 0xFFFFFF);
         }
+
+        if (showAreaInfo) {
+            drawAreaInfo(mc, x, ClientProxy.chainPreviewController != null
+                && MyMod.chainStateService != null
+                && MyMod.chainStateService.getClientState().isPreviewActive() ? y - 60 : areaInfoY, modeDefinition, selectedSubMode);
+        }
+    }
+
+    /**
+     * 绘制 AREA 模式尺寸信息。
+     */
+    private void drawAreaInfo(Minecraft mc, int x, int y, ChainModeDefinition modeDefinition, ChainSubMode subMode) {
+        int[] areaDimensions = resolveAreaDimensions(modeDefinition, subMode);
+        int areaBlockCount = areaDimensions[0] * areaDimensions[1] * areaDimensions[2];
+        String areaText = "\u00a77" + ClientI18n.tr(
+            "hud.qz_miner.server_area",
+            areaDimensions[0],
+            areaDimensions[1],
+            areaDimensions[2],
+            areaBlockCount);
+        mc.fontRenderer.drawStringWithShadow(areaText, x, y, 0xFFFFFF);
     }
 
     /**

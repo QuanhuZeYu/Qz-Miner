@@ -55,7 +55,6 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, getStartReason());
         session.getRuntimeState().setPlannerRunning(true);
         session.getRuntimeState().setPlannerCompleted(false);
-        session.getRuntimeState().updatePlannerHeartbeat();
         session.getRuntimeState().resetExecutorThrottle();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
@@ -91,7 +90,6 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                 }
 
                 ChainSession currentSession = currentState.getSession();
-                currentSession.getRuntimeState().updatePlannerHeartbeat();
                 int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(

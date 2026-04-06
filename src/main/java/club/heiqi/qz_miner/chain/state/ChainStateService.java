@@ -172,8 +172,8 @@ public final class ChainStateService {
         if (!state.isExecuting()
             && (state.getSession() == null
             || (state.getSession().getRuntimeState().getPlannerSubscription() == null
-            && state.getSession().getRuntimeState().getExecutorSubscription() == null
-            && state.getSession().getRuntimeState().getPendingBreakTargets().isEmpty()))) {
+            && state.getSession().getRuntimeState().getPendingBreakTargets().isEmpty()
+            && state.getSession().getRuntimeState().getPendingDrops().isEmpty()))) {
             return;
         }
 
