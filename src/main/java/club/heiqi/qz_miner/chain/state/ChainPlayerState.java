@@ -142,4 +142,23 @@ public class ChainPlayerState {
         }
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
     }
+
+    /**
+     * 停止当前连锁，但保留待释放掉落直到掉落实体生成结束。
+     *
+     * @param reason 停止原因
+     */
+    public void stopExecutionPreservingDrops(String reason) {
+        setExecutionStatus(ChainExecutionStatus.IDLE, reason);
+        if (session == null) {
+            return;
+        }
+
+        session.getRuntimeState().stopExecutionPreservingDrops(reason);
+        if (session.getRuntimeState().getPendingDrops().isEmpty()) {
+            clearSession();
+        }
+        MyMod.LOG.debug("[ChainState] Stopped execution for player {}, reason={}, pendingDrops={}",
+            playerUUID, reason, session == null ? 0 : session.getRuntimeState().getPendingDrops().size());
+    }
 }
