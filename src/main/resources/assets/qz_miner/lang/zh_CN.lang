@@ -26,4 +26,3 @@ hud.qz_miner.sub_mode.special.base=特殊基础模式
 hud.qz_miner.sub_mode.special.extended=特殊扩展模式
 key.categories.qz_miner=Qz-Miner
 key.qz_miner.chainSwitch=连锁按键
-key.qz_miner.mainModeSwitch=切换主模式

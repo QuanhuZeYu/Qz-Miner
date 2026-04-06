@@ -40,6 +40,7 @@ dependencies {
 
     implementation(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
     implementation(project.elytraModpackVersion.gtnhdev("LootGames"))
+//    implementation("ganymedes01.etfuturum:Et-Futurum-Requiem:${elytraModpackVersion["Et-Futurum-Requiem"]}")
     implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
     implementation(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
