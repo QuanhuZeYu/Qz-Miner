@@ -1,10 +1,10 @@
 package club.heiqi.qz_miner.chain.planner;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
-import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -40,8 +40,7 @@ public class GregTechCableReplacePlanner {
         if (!playerState.isChainKeyPressed() || playerState.isExecuting()) {
             return;
         }
-        if (playerState.getSelectedMode() != ChainMode.SPECIAL
-            || playerState.getSelectedSubMode() != ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
+        if (ChainSubModeRegistry.getTrigger(playerState.getSelectedSubMode()) != ChainSubModeTrigger.LEFT_CLICK_BLOCK) {
             return;
         }
 

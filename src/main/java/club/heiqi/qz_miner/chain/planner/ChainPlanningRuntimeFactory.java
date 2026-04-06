@@ -5,10 +5,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import ic2.core.crop.TileEntityCrop;
 import net.minecraft.block.Block;
@@ -29,8 +29,7 @@ public final class ChainPlanningRuntimeFactory {
         World world,
         EntityPlayer player,
         ChainSession session,
-        BlockSeedSnapshot seedSnapshot,
-        boolean boxScan) {
+        BlockSeedSnapshot seedSnapshot) {
         if (world == null || session == null || seedSnapshot == null) {
             return null;
         }
@@ -120,7 +119,7 @@ public final class ChainPlanningRuntimeFactory {
     }
 
     private static ChainCandidateFilter createCandidateFilter(final ChainSearchContext context) {
-        return target -> {
+        ChainCandidateFilter fallback = target -> {
             if (context == null || target == null) {
                 return false;
             }
@@ -159,12 +158,8 @@ public final class ChainPlanningRuntimeFactory {
                     target);
             }
 
-            if (subMode == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
-                TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
-                return GregTechCableCompatHelper.isCable(tileEntity);
-            }
-
             return true;
         };
+        return ChainSubModeRegistry.createCandidateFilter(context, fallback);
     }
 }

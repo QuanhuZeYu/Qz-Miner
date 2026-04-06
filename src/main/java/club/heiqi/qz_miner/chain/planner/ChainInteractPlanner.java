@@ -1,9 +1,10 @@
 package club.heiqi.qz_miner.chain.planner;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -45,7 +46,7 @@ public class ChainInteractPlanner {
         if (!playerState.isChainKeyPressed() || playerState.isExecuting()) {
             return;
         }
-        if (playerState.getSelectedMode() != ChainMode.INTERACT) {
+        if (ChainSubModeRegistry.getTrigger(playerState.getSelectedSubMode()) != ChainSubModeTrigger.RIGHT_CLICK_BLOCK) {
             return;
         }
 

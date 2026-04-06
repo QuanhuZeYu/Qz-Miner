@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
@@ -65,7 +66,12 @@ public class ChainExecutor {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-action-executor");
                 continue;
             }
-            ChainActionExecutor actionExecutor = definition.getActionExecutor();
+            ChainSubMode subMode = session.getRequest() == null ? null : session.getRequest().getSubMode();
+            ChainActionExecutor actionExecutor = definition.resolveActionExecutor(subMode);
+            if (actionExecutor == null) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-sub-mode-action-executor");
+                continue;
+            }
 
             int maxBreakPerTick = Config.maxBreakPerTick;
             int executedCount = 0;

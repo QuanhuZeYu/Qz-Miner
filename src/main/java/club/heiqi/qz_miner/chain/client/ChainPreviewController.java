@@ -2,10 +2,9 @@ package club.heiqi.qz_miner.chain.client;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockSeedSnapshot;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
@@ -16,7 +15,6 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainSession;
-import club.heiqi.qz_miner.network.PacketLootGamesMinesweeperPreviewRequest;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -122,13 +120,12 @@ public class ChainPreviewController {
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
         final ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
-        if (selectedMode == ChainMode.SPECIAL && selectedSubMode == ChainSubMode.SPECIAL_GT_CABLE_REPLACE
-            && !GregTechCableCompatHelper.isCable(sampleTileEntity)) {
+        if (!ChainSubModeRegistry.canStartPreview(selectedSubMode, world, target, sampleTileEntity)) {
             previewState.setCompleted(true);
             return;
         }
-        if (selectedMode == ChainMode.SPECIAL && selectedSubMode == ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER) {
-            startLootGamesMinesweeperPreview(world, target, previewRadius, previewMaxTargets);
+        if (ChainSubModeRegistry.usesRemotePreview(selectedSubMode)) {
+            startRemotePreview(selectedMode, selectedSubMode, target, previewRadius, previewMaxTargets);
             return;
         }
         final ChainSession previewSession = new ChainSession(
@@ -187,17 +184,16 @@ public class ChainPreviewController {
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());
     }
 
-    private void startLootGamesMinesweeperPreview(World world, ChainTarget target, int previewRadius, int previewMaxTargets) {
-        if (!LootGamesMinesweeperHelper.isMinesweeperTarget(world, target) || MyMod.networkMain == null) {
+    private void startRemotePreview(ChainMode selectedMode, ChainSubMode selectedSubMode, ChainTarget target, int previewRadius, int previewMaxTargets) {
+        specialPreviewRequestId++;
+        if (!ChainSubModeRegistry.requestRemotePreview(selectedSubMode, specialPreviewRequestId, target, previewRadius, previewMaxTargets)) {
             previewState.setCompleted(true);
             return;
         }
-
-        specialPreviewRequestId++;
-        MyMod.networkMain.network.sendToServer(
-            new PacketLootGamesMinesweeperPreviewRequest(specialPreviewRequestId, target, previewRadius, previewMaxTargets));
         MyMod.LOG.debug(
-            "[ChainPreview] Requested LootGames minesweeper preview for ({}, {}, {}) radius={} maxTargets={} requestId={}",
+            "[ChainPreview] Requested remote preview for mode={} subMode={} target=({}, {}, {}) radius={} maxTargets={} requestId={}",
+            selectedMode,
+            selectedSubMode,
             target.getX(),
             target.getY(),
             target.getZ(),

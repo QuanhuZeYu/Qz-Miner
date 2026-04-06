@@ -158,7 +158,7 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
      * @return 搜索上下文
      */
     private ChainPlanningRuntime createPlanningRuntime(EntityPlayerMP player, ChainSession session, BlockSeedSnapshot seedSnapshot) {
-        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot, true);
+        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot);
     }
 
     /**

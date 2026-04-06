@@ -2,19 +2,25 @@ package club.heiqi.qz_miner.chain.mode;
 
 import java.util.Arrays;
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
+import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
 import club.heiqi.qz_miner.chain.executor.BlockInteractActionExecutor;
 import club.heiqi.qz_miner.chain.executor.GregTechCableReplaceActionExecutor;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
+import club.heiqi.qz_miner.chain.planner.ChainBlockIdentity;
 import club.heiqi.qz_miner.chain.planner.GregTechCableMatcher;
 import club.heiqi.qz_miner.chain.planner.GregTechCablePlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.BoxScanTraverser;
+import club.heiqi.qz_miner.chain.planner.ChainCandidateFilter;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
+import club.heiqi.qz_miner.chain.planner.ChainLogRules;
+import club.heiqi.qz_miner.chain.planner.ChainOreRules;
 import club.heiqi.qz_miner.chain.planner.CropBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
@@ -36,13 +42,6 @@ public final class ChainModeBootstrap {
         return new int[] {sideLength, sideLength, sideLength};
     };
 
-    private static final ChainAreaPresentationResolver AREA_PRESENTATION = (radius, subMode) -> {
-        if (subMode == ChainSubMode.AREA_TUNNEL) {
-            return new int[] {3, 3, Math.max(1, radius)};
-        }
-        return DEFAULT_CUBE_AREA_PRESENTATION.resolveDimensions(radius, subMode);
-    };
-
     private static final ChainTraverserResolver CHAIN_TRAVERSER = context -> {
         if (context != null
             && context.getSearchContext() != null
@@ -53,17 +52,7 @@ public final class ChainModeBootstrap {
         return new FloodFillTraverser();
     };
 
-    private static final ChainTraverserResolver AREA_TRAVERSER = context -> {
-        if (context != null
-            && context.getSearchContext() != null
-            && context.getSearchContext().getSubMode() == ChainSubMode.AREA_TUNNEL) {
-            int face = context.getSession() != null && context.getSession().getRequest() != null
-                ? context.getSession().getRequest().getInteractFace()
-                : AxisAlignedTunnelDirection.resolveFace(context.getPlayer());
-            return new TunnelBoxScanTraverser(face);
-        }
-        return new BoxScanTraverser();
-    };
+    private static final ChainTraverserResolver AREA_TRAVERSER = context -> new BoxScanTraverser();
 
     private static final ChainTraverserResolver DEFAULT_FLOOD_FILL_TRAVERSER = context -> new FloodFillTraverser();
 
@@ -105,24 +94,6 @@ public final class ChainModeBootstrap {
     };
     
     private static final ChainBlockMatcherResolver HARVESTABLE_MATCHER = context -> new HarvestableBlockMatcher();
-    private static final ChainTraverserResolver SPECIAL_TRAVERSER = context -> {
-        if (context != null
-            && context.getSearchContext() != null
-            && context.getSearchContext().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
-            return new GregTechCableTraverser();
-        }
-        return DEFAULT_FLOOD_FILL_TRAVERSER.createTraverser(context);
-    };
-    private static final ChainBlockMatcherResolver SPECIAL_MATCHER = context -> {
-        if (context != null
-            && context.getSearchContext() != null
-            && context.getSearchContext().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
-            return new GregTechCableMatcher(context.getSearchContext() == null ? -1
-                : club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper.getCableMetaTileId(
-                    context.getSearchContext().getSampleTileEntity()));
-        }
-        return HARVESTABLE_MATCHER.createMatcher(context);
-    };
     private static final ChainBlockMatcherResolver INTERACT_MATCHER = context -> {
         if (context != null
             && context.getSearchContext() != null
@@ -139,11 +110,176 @@ public final class ChainModeBootstrap {
 
     public static void bootstrap() {
         ChainModeRegistry.clearDefinitions();
+        ChainSubModeRegistry.clearDefinitions();
         ChainModeRegistry.register(createChainDefinition());
         ChainModeRegistry.register(createAreaDefinition());
         ChainModeRegistry.register(createInteractDefinition());
         ChainModeRegistry.register(createSpecialDefinition());
+        registerSubModeDefinitions();
         ChainModeRegistry.validateDefinitions();
+        ChainSubModeRegistry.validateDefinitions();
+    }
+
+    private static void registerSubModeDefinitions() {
+        registerDefaultSubModes();
+        registerAreaTunnelSubMode();
+        registerInteractCropSubMode();
+        registerSpecialGtCableReplaceSubMode();
+        registerSpecialLootGamesMinesweeperSubMode();
+    }
+
+    private static void registerDefaultSubModes() {
+        registerSubMode(ChainSubMode.CHAIN_BASE, ChainSubModeTrigger.BREAK_BLOCK, null, null, null, null, null, false, null);
+        registerSubMode(ChainSubMode.CHAIN_ORE, ChainSubModeTrigger.BREAK_BLOCK, null, null, createOreCandidateFilter(), null, null, false, null);
+        registerSubMode(
+            ChainSubMode.CHAIN_LOGGING,
+            ChainSubModeTrigger.BREAK_BLOCK,
+            context -> new LoggingFloodFillTraverser(Config.chainLoggingShellLayers),
+            context -> new LogBlockHarvestableMatcher(),
+            createLogCandidateFilter(),
+            null,
+            null,
+            false,
+            null);
+        registerSubMode(ChainSubMode.AREA_SAME_BLOCK, ChainSubModeTrigger.BREAK_BLOCK, null, null, createSameBlockCandidateFilter(), null, null, false, null);
+        registerSubMode(ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubModeTrigger.BREAK_BLOCK, null, null, null, null, null, false, null);
+        registerSubMode(ChainSubMode.AREA_ORE, ChainSubModeTrigger.BREAK_BLOCK, null, context -> new OreBlockHarvestableMatcher(), createOreCandidateFilter(), null, null, false, null);
+        registerSubMode(ChainSubMode.INTERACT_BASE, ChainSubModeTrigger.RIGHT_CLICK_BLOCK, null, null, createSameBlockCandidateFilter(), null, null, false, null);
+    }
+
+    private static void registerAreaTunnelSubMode() {
+        registerSubMode(
+            ChainSubMode.AREA_TUNNEL,
+            ChainSubModeTrigger.BREAK_BLOCK,
+            context -> {
+                int face = context != null && context.getSession() != null && context.getSession().getRequest() != null
+                    ? context.getSession().getRequest().getInteractFace()
+                    : AxisAlignedTunnelDirection.resolveFace(context == null ? null : context.getPlayer());
+                return new TunnelBoxScanTraverser(face);
+            },
+            null,
+            null,
+            (radius, subMode) -> new int[] {3, 3, Math.max(1, radius)},
+            null,
+            false,
+            null);
+    }
+
+    private static void registerInteractCropSubMode() {
+        registerSubMode(
+            ChainSubMode.INTERACT_CROP,
+            ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
+            null,
+            context -> new CropBlockMatcher(),
+            context -> target -> {
+                if (context == null || target == null) {
+                    return false;
+                }
+
+                net.minecraft.block.Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
+                if (block instanceof net.minecraft.block.BlockCrops) {
+                    return true;
+                }
+                net.minecraft.tileentity.TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
+                return tileEntity instanceof ic2.core.crop.TileEntityCrop;
+            },
+            null,
+            null,
+            false,
+            null);
+    }
+
+    private static void registerSpecialGtCableReplaceSubMode() {
+        registerSubMode(
+            ChainSubMode.SPECIAL_GT_CABLE_REPLACE,
+            ChainSubModeTrigger.LEFT_CLICK_BLOCK,
+            context -> new GregTechCableTraverser(),
+            context -> new GregTechCableMatcher(context == null || context.getSearchContext() == null ? -1
+                : GregTechCableCompatHelper.getCableMetaTileId(context.getSearchContext().getSampleTileEntity())),
+            context -> target -> {
+                if (context == null || target == null) {
+                    return false;
+                }
+                return GregTechCableCompatHelper.isCable(context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ()));
+            },
+            null,
+            (world, target, sampleTileEntity) -> GregTechCableCompatHelper.isCable(sampleTileEntity),
+            false,
+            new GregTechCableReplaceActionExecutor());
+    }
+
+    private static void registerSpecialLootGamesMinesweeperSubMode() {
+        registerSubMode(
+            ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER,
+            ChainSubModeTrigger.NONE,
+            null,
+            null,
+            null,
+            null,
+            (world, target, sampleTileEntity) -> LootGamesMinesweeperHelper.isMinesweeperTarget(world, target),
+            true,
+            null);
+    }
+
+    private static club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver createOreCandidateFilter() {
+        return context -> target -> {
+            if (context == null || target == null) {
+                return false;
+            }
+
+            net.minecraft.block.Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
+            net.minecraft.tileentity.TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
+            return ChainOreRules.isOreBlock(block, tileEntity);
+        };
+    }
+
+    private static club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver createLogCandidateFilter() {
+        return context -> target -> {
+            if (context == null || target == null) {
+                return false;
+            }
+
+            net.minecraft.block.Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
+            int meta = context.getWorld().getBlockMetadata(target.getX(), target.getY(), target.getZ());
+            return ChainLogRules.isLogBlock(context.getWorld(), target.getX(), target.getY(), target.getZ(), block, meta);
+        };
+    }
+
+    private static club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver createSameBlockCandidateFilter() {
+        return context -> target -> {
+            if (context == null || target == null) {
+                return false;
+            }
+
+            return ChainBlockIdentity.matches(
+                context.getWorld(),
+                context.getSampleBlock(),
+                context.getSampleMeta(),
+                context.getSampleTileEntity(),
+                target);
+        };
+    }
+
+    private static void registerSubMode(
+        ChainSubMode subMode,
+        ChainSubModeTrigger trigger,
+        ChainTraverserResolver traverserResolver,
+        ChainBlockMatcherResolver matcherResolver,
+        club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver candidateFilterResolver,
+        ChainAreaPresentationResolver areaPresentationResolver,
+        ChainPreviewTargetValidator previewTargetValidator,
+        boolean remotePreview,
+        club.heiqi.qz_miner.chain.executor.ChainActionExecutor actionExecutor) {
+        ChainSubModeRegistry.register(new ChainSubModeDefinition(
+            subMode,
+            trigger,
+            traverserResolver,
+            matcherResolver,
+            candidateFilterResolver,
+            areaPresentationResolver,
+            previewTargetValidator,
+            remotePreview,
+            actionExecutor));
     }
 
     /**
@@ -177,7 +313,7 @@ public final class ChainModeBootstrap {
             AREA_TRAVERSER,
             SAME_BLOCK_OR_HARVESTABLE_MATCHER,
             true,
-            AREA_PRESENTATION,
+            DEFAULT_CUBE_AREA_PRESENTATION,
             ChainSubMode.AREA_SAME_BLOCK,
             Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubMode.AREA_ORE, ChainSubMode.AREA_TUNNEL));
     }
@@ -210,8 +346,8 @@ public final class ChainModeBootstrap {
             ChainMode.SPECIAL,
             new GregTechCablePlanningStrategy(),
             new GregTechCableReplaceActionExecutor(),
-            SPECIAL_TRAVERSER,
-            SPECIAL_MATCHER,
+            DEFAULT_FLOOD_FILL_TRAVERSER,
+            HARVESTABLE_MATCHER,
             false,
             null,
             ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER,

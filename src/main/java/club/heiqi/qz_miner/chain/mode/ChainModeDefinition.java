@@ -66,7 +66,8 @@ public final class ChainModeDefinition {
      * @return 遍历器
      */
     public ChainTraverser createTraverser(ChainResolverContext context) {
-        return traverserResolver == null ? null : traverserResolver.createTraverser(context);
+        ChainTraverser fallback = traverserResolver == null ? null : traverserResolver.createTraverser(context);
+        return ChainSubModeRegistry.createTraverser(context, fallback);
     }
 
     /**
@@ -76,7 +77,8 @@ public final class ChainModeDefinition {
      * @return 匹配器
      */
     public ChainBlockMatcher createMatcher(ChainResolverContext context) {
-        return matcherResolver == null ? null : matcherResolver.createMatcher(context);
+        ChainBlockMatcher fallback = matcherResolver == null ? null : matcherResolver.createMatcher(context);
+        return ChainSubModeRegistry.createMatcher(context, fallback);
     }
 
     /**
@@ -99,7 +101,17 @@ public final class ChainModeDefinition {
         if (!showAreaInfo || areaPresentationResolver == null) {
             return null;
         }
-        return areaPresentationResolver.resolveDimensions(radius, resolveSubMode(subMode));
+        return ChainSubModeRegistry.resolveAreaDimensions(radius, resolveSubMode(subMode), areaPresentationResolver);
+    }
+
+    /**
+     * 解析当前子模式实际使用的执行器。
+     *
+     * @param subMode 当前子模式
+     * @return 执行器
+     */
+    public ChainActionExecutor resolveActionExecutor(ChainSubMode subMode) {
+        return ChainSubModeRegistry.resolveActionExecutor(resolveSubMode(subMode), actionExecutor);
     }
 
     /**

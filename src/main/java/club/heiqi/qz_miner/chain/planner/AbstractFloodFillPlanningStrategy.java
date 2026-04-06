@@ -148,7 +148,7 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
      * @return 规划运行时
      */
     protected ChainPlanningRuntime createPlanningRuntime(EntityPlayerMP player, ChainSession session, BlockSeedSnapshot seedSnapshot) {
-        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot, false);
+        return ChainPlanningRuntimeFactory.createForServer(player.worldObj, player, session, seedSnapshot);
     }
 
     /**
