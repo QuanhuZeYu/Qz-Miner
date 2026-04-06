@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.state;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 
@@ -153,6 +154,7 @@ public class ChainPlayerState extends AbstractChainModeState {
     public void clearRuntimeState(String reason) {
         setExecutionStatus(ChainExecutionStatus.IDLE, reason);
         if (session != null) {
+            GregTechCableSessionState.clear(session);
             session.clearRuntimeState(reason);
             clearSession();
         }
@@ -170,6 +172,7 @@ public class ChainPlayerState extends AbstractChainModeState {
             return;
         }
 
+        GregTechCableSessionState.clear(session);
         session.getRuntimeState().stopExecutionPreservingDrops(reason);
         if (session.getRuntimeState().getPendingDrops().isEmpty()) {
             clearSession();

@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockSeedSnapshot;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
@@ -121,6 +122,11 @@ public class ChainPreviewController {
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
         final ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        if (selectedMode == ChainMode.SPECIAL && selectedSubMode == ChainSubMode.SPECIAL_GT_CABLE_REPLACE
+            && !GregTechCableCompatHelper.isCable(sampleTileEntity)) {
+            previewState.setCompleted(true);
+            return;
+        }
         if (selectedMode == ChainMode.SPECIAL && selectedSubMode == ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER) {
             startLootGamesMinesweeperPreview(world, target, previewRadius, previewMaxTargets);
             return;

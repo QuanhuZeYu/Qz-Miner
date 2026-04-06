@@ -23,5 +23,6 @@ hud.qz_miner.sub_mode.area.tunnel=爆破隧道模式
 hud.qz_miner.sub_mode.interact.base=连锁块交互模式
 hud.qz_miner.sub_mode.interact.crop=作物交互模式
 hud.qz_miner.sub_mode.special.lootgames_minesweeper=特殊扫雷预览模式
+hud.qz_miner.sub_mode.special.gt_cable_replace=GT线缆连锁替换模式
 key.categories.qz_miner=Qz-Miner
 key.qz_miner.chainSwitch=连锁按键
