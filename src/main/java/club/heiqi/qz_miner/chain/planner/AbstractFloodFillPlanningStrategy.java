@@ -67,6 +67,11 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         final ChainSearchContext searchContext = runtime.getSearchContext();
         final ChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
+        if (shouldIncludeOriginTarget() && blockMatcher.matches(player, origin)) {
+            queue.add(origin);
+            searchContext.incrementConfirmedCount();
+            session.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
+        }
         traverser.seed(searchContext);
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
@@ -180,6 +185,13 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
      * 返回日志中的模式标签。
      */
     protected abstract String getLogLabel();
+
+    /**
+     * 是否将起点作为首个执行目标加入队列。
+     */
+    protected boolean shouldIncludeOriginTarget() {
+        return false;
+    }
 
     /**
      * 记录规划完成日志。

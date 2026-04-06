@@ -4,29 +4,34 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
-import net.minecraftforge.event.world.BlockEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
 /**
- * 连锁规划器调度器。
+ * GT 线缆替换模式左键规划入口。
  */
-public class ChainPlanner {
+public class GregTechCableReplacePlanner {
 
-    public ChainPlanner() {
+    public GregTechCableReplacePlanner() {
         MinecraftForge.EVENT_BUS.register(this);
     }
 
     @SubscribeEvent
-    public void onBlockBreak(BlockEvent.BreakEvent event) {
-        if (event.getPlayer() == null || !(event.getPlayer() instanceof EntityPlayerMP)) {
+    public void onPlayerLeftClickBlock(PlayerInteractEvent event) {
+        if (event.entityPlayer == null || !(event.entityPlayer instanceof EntityPlayerMP)) {
+            return;
+        }
+        if (event.action != PlayerInteractEvent.Action.LEFT_CLICK_BLOCK) {
             return;
         }
 
-        EntityPlayerMP player = (EntityPlayerMP) event.getPlayer();
+        EntityPlayerMP player = (EntityPlayerMP) event.entityPlayer;
         if (player instanceof FakePlayer || MyMod.chainStateService == null) {
             return;
         }
@@ -35,7 +40,12 @@ public class ChainPlanner {
         if (!playerState.isChainKeyPressed() || playerState.isExecuting()) {
             return;
         }
-        if (playerState.getSelectedMode() == ChainMode.SPECIAL) {
+        if (playerState.getSelectedMode() != ChainMode.SPECIAL
+            || playerState.getSelectedSubMode() != ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
+            return;
+        }
+
+        if (!GregTechCableCompatHelper.isCable(player.worldObj.getTileEntity(event.x, event.y, event.z))) {
             return;
         }
 
@@ -44,6 +54,7 @@ public class ChainPlanner {
             return;
         }
 
+        event.setCanceled(true);
         definition.getPlanningStrategy().startPlanning(player, playerState, new ChainTarget(event.x, event.y, event.z));
     }
 }

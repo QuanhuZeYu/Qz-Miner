@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
@@ -156,6 +157,11 @@ public final class ChainPlanningRuntimeFactory {
                     context.getSampleMeta(),
                     context.getSampleTileEntity(),
                     target);
+            }
+
+            if (subMode == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
+                TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
+                return GregTechCableCompatHelper.isCable(tileEntity);
             }
 
             return true;

@@ -4,9 +4,13 @@ import java.util.Arrays;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
 import club.heiqi.qz_miner.chain.executor.BlockInteractActionExecutor;
+import club.heiqi.qz_miner.chain.executor.GregTechCableReplaceActionExecutor;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
+import club.heiqi.qz_miner.chain.planner.GregTechCableMatcher;
+import club.heiqi.qz_miner.chain.planner.GregTechCablePlanningStrategy;
+import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.BoxScanTraverser;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
@@ -101,6 +105,24 @@ public final class ChainModeBootstrap {
     };
     
     private static final ChainBlockMatcherResolver HARVESTABLE_MATCHER = context -> new HarvestableBlockMatcher();
+    private static final ChainTraverserResolver SPECIAL_TRAVERSER = context -> {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
+            return new GregTechCableTraverser();
+        }
+        return DEFAULT_FLOOD_FILL_TRAVERSER.createTraverser(context);
+    };
+    private static final ChainBlockMatcherResolver SPECIAL_MATCHER = context -> {
+        if (context != null
+            && context.getSearchContext() != null
+            && context.getSearchContext().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
+            return new GregTechCableMatcher(context.getSearchContext() == null ? -1
+                : club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper.getCableMetaTileId(
+                    context.getSearchContext().getSampleTileEntity()));
+        }
+        return HARVESTABLE_MATCHER.createMatcher(context);
+    };
     private static final ChainBlockMatcherResolver INTERACT_MATCHER = context -> {
         if (context != null
             && context.getSearchContext() != null
@@ -186,13 +208,13 @@ public final class ChainModeBootstrap {
     private static ChainModeDefinition createSpecialDefinition() {
         return new ChainModeDefinition(
             ChainMode.SPECIAL,
-            null,
-            null,
-            DEFAULT_FLOOD_FILL_TRAVERSER,
-            HARVESTABLE_MATCHER,
+            new GregTechCablePlanningStrategy(),
+            new GregTechCableReplaceActionExecutor(),
+            SPECIAL_TRAVERSER,
+            SPECIAL_MATCHER,
             false,
             null,
             ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER,
-            Arrays.asList(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER));
+            Arrays.asList(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER, ChainSubMode.SPECIAL_GT_CABLE_REPLACE));
     }
 }
