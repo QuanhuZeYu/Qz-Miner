@@ -17,7 +17,7 @@
 已落地：
 
 - 状态层：`ChainPlayerState`、`ChainClientState`、`ChainRequest`、`ChainRuntimeState`、`ChainSession`、`ChainStateService`
-- 模式层：`ChainMode`、`ChainModeRegistry`、`ChainModeDefinition`、`ChainModeBootstrap`
+- 模式层：`ChainMode`、`ChainModeRegistry`、`ChainModeDefinition`、`ChainModeBootstrap`、`ChainSubModeDefinition`、`ChainSubModeRegistry`、`ChainSubModeBootstrap`
 - 规划层骨架：`ChainPlanner`、`ChainPlanningStrategy`、`ChainTraverser`、`ChainBlockMatcher`、`ChainPlanningRuntimeFactory`、`ChainCandidateFilter`
 - 执行层骨架：`ChainExecutor`、`ChainActionExecutor`、`BlockHarvestActionExecutor`、`ChainDropCollector`
 - 客户端预览：`ChainPreviewController`、`ChainPreviewState`
@@ -28,18 +28,21 @@
 - `CHAIN` 模式已经具备输入、规划、执行、HUD、预览的完整主链路，并补齐宽泛矿石与伐木子模式
 - `AREA` 模式已经具备盒扫规划、执行、预览与 HUD 同步的默认闭环，并补齐 `AREA_TUNNEL` 指向性隧道子模式
 - `INTERACT` 模式已经具备服务端右键触发、邻居洪泛规划、默认同类交互与作物交互子模式闭环
+- `SPECIAL` 模式已经具备统一子模式装配，当前已接入 `SPECIAL_LOOTGAMES_MINESWEEPER` 与 `SPECIAL_GT_CABLE_REPLACE`
 - 主模式与子模式已经具备统一状态、切换、同步与会话快照框架
 - 主模式切换已改为“连锁键 + 左 Shift + 滚轮”，子模式切换为“连锁键 + 滚轮”，并按主模式记忆最近子模式
 - 并行线程负责搜索，主线程负责实际破坏方块
 - 生命周期清理已经接入玩家登录、重生、切维度、退出流程
 - 客户端预览已支持锁定当前预览目标、限制每 tick 扫描配额，并可通过客户端配置关闭预览计算与渲染
 - HUD、模式名、子模式名与按键名称已接入 `lang` 语言键
+- 主模式默认装配与子模式特化装配已经拆分为 `ChainModeBootstrap` 与 `ChainSubModeBootstrap`
+- 子模式已支持统一声明触发方式、遍历器/匹配器覆盖、候选过滤、远程预览与执行器覆盖
 
 当前限制：
 
 - 实际业务仍主要围绕方块目标，实体目标仍未进入主线
-- `SPECIAL` 仍未完成实际策略装配
-- 抽象层已存在，但默认实现仍偏向单一路径
+- `SPECIAL` 已完成基础策略装配，但当前只落地了少量特殊子模式，更多兼容逻辑尚未迁入统一子模式体系
+- 抽象层已进一步下沉到子模式注册表，但默认 resolver 与候选过滤仍存在少量模式语义分支
 
 ## 核心原则
 
@@ -87,6 +90,11 @@
 - [ ] 迁移原木/矿脉模式
 - [x] 整理特殊模式与必要兼容逻辑
 
+当前判断：
+
+- `CHAIN / AREA / INTERACT / SPECIAL` 的当前主线模式都已接入新架构
+- 仍未完成的是旧版中更复杂、更细分的规则与兼容行为迁移，而不是主模式闭环本身
+
 验收标准：
 
 - 新模式接入后不破坏现有 `CHAIN` 主链路
@@ -124,12 +132,18 @@
 - [x] 将 `AREA` 的 HUD 展示几何规则下沉到模式定义层
 - [x] 修复执行结束后聚合掉落会被过早清空的问题
 - [x] 将主模式切换输入收敛到滚轮组合，并按主模式记忆最近子模式
+- [x] 引入 `ChainSubModeDefinition / ChainSubModeRegistry`，统一子模式触发方式、遍历器、匹配器、候选过滤、预览与执行器覆盖
+- [x] 将主模式装配与子模式装配拆分为 `ChainModeBootstrap / ChainSubModeBootstrap`
+- [x] 将远程预览请求下沉为 `ChainRemotePreviewProvider`
+- [x] 提取 `ChainModeResolvers`，压缩 `ChainModeBootstrap` 中的默认解析器杂糅逻辑
 
 待办：
 
-- [ ] 继续压缩 `ChainModeBootstrap` 中剩余的子模式特化判断
+- [x] 继续压缩 `ChainModeBootstrap` 中剩余的子模式特化判断
 - [x] 把更多搜索规则下沉到 `Traverser / Matcher / RuntimeFactory` 组合层
 - [ ] 让调度器只依赖抽象接口，不依赖“挖方块”这一种默认能力
+- [ ] 继续压缩 `ChainPlanningRuntimeFactory` 与 `ChainModeResolvers` 中残留的模式语义分支
+- [ ] 评估将 `INTERACT` 与 `SPECIAL` 的入口调度进一步统一到同一套触发分发表
 
 验收标准：
 
@@ -175,6 +189,7 @@
 - [x] 继续清理 `ChainModeBootstrap` 的装配职责
 - [x] 为模式定义注册补充初始化入口和校验逻辑
 - [x] 补充缺失定义、冲突注册的日志与保护
+- [x] 将子模式定义注册、远程预览 provider 与执行器覆盖纳入统一装配入口
 
 验收标准：
 
@@ -187,13 +202,13 @@
 后续开发按以下顺序推进：
 
 1. 先完成旧模式向新策略层的迁移
-2. 再继续拆分默认规划实现中的规则与遍历职责
-3. 再完善模式注册与装配校验
+2. 再继续拆分默认规划实现中的规则、触发与遍历职责
+3. 再让执行调度层和入口调度层进一步面向抽象接口
 4. 最后视实际需求决定是否启动统一目标抽象
 
 ### 里程碑 F：恢复连锁目标预览渲染
 
-状态：进行中
+状态：已完成
 
 目标：
 
@@ -227,6 +242,7 @@
 - [x] 将客户端预览目标数量上限改为配置项，并与服务端 `chainMaxBlocks` 联动
 - [x] 为基础线框预览接入按距离变化的顶点透明度
 - [x] 将透明衰减区间与透明度起止值改为可配置项
+- [x] 为特殊模式预览补齐统一入口，支持本地预览与远程预览分流
 
 当前结果：
 
@@ -236,6 +252,7 @@
 - 基础线框不再依赖旧 shader，当前采用固定管线顶点颜色实现距离透明度衰减
 - 客户端预览配置已拆分到 `client` 分类，并支持独立关闭预览计算与渲染
 - `SPECIAL` 已接入第一个实际子模式：`LootGames` 扫雷雷点预览
+- 特殊子模式预览已统一走 `ChainSubModeRegistry` 能力分发，而不是在控制器中散落特判
 
 验收标准：
 
@@ -261,11 +278,12 @@
 当前重构已经完成基础闭环，后续重点不再是继续铺新骨架，而是：
 
 - 把旧模式逐步迁到新策略层
-- 继续做规划层和执行层的职责收缩
-- 完善模式装配入口
+- 继续做规划层、执行层和入口调度层的职责收缩
+- 在现有模式注册完成的基础上，继续压缩残留的默认实现分支
 - 将实体目标保留为未来可选扩展，而不是当前主线任务
 
 补充说明：
 
 - `INTERACT` 当前已具备默认右键交互闭环，支持真实点击面、命中点与 `INTERACT_CROP` 子模式
-- `CHAIN / INTERACT` 的洪泛规划公共主流程已经完成一次收缩，`AREA` 的展示规则也已下沉到模式定义层，但执行调度层仍有进一步抽象空间
+- `CHAIN / INTERACT` 的洪泛规划公共主流程已经完成一次收缩，`AREA_TUNNEL` 与 `SPECIAL` 的多数特化装配也已下沉到子模式定义层
+- 当前仍需继续收缩的重点，主要集中在默认 resolver、运行时工厂和入口调度对具体业务路径的剩余依赖
