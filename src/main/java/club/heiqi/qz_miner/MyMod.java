@@ -8,6 +8,7 @@ import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
 import club.heiqi.qz_miner.chain.executor.ChainExecutor;
 import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.chain.planner.GregTechCableReplacePlanner;
@@ -77,6 +78,7 @@ public class MyMod {
         networkMain = new NetworkMain();
         networkMain.register();
         ChainModeBootstrap.bootstrap();
+        ChainSubModeBootstrap.bootstrap();
         playerManager = new PlayerManager();
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();

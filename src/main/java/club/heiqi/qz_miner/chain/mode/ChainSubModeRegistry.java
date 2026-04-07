@@ -11,7 +11,6 @@ import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
-import club.heiqi.qz_miner.network.PacketLootGamesMinesweeperPreviewRequest;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
@@ -84,12 +83,8 @@ public final class ChainSubModeRegistry {
     }
 
     public static boolean requestRemotePreview(ChainSubMode subMode, int requestId, ChainTarget target, int radius, int maxTargets) {
-        if (subMode != ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER || MyMod.networkMain == null || target == null) {
-            return false;
-        }
-
-        MyMod.networkMain.network.sendToServer(new PacketLootGamesMinesweeperPreviewRequest(requestId, target, radius, maxTargets));
-        return true;
+        ChainSubModeDefinition definition = getDefinition(subMode);
+        return definition != null && definition.requestRemotePreview(requestId, target, radius, maxTargets);
     }
 
     public static ChainActionExecutor resolveActionExecutor(ChainSubMode subMode, ChainActionExecutor fallback) {

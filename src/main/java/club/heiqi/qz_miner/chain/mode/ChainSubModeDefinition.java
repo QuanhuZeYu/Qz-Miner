@@ -25,7 +25,7 @@ public final class ChainSubModeDefinition {
     private final ChainCandidateFilterResolver candidateFilterResolver;
     private final ChainAreaPresentationResolver areaPresentationResolver;
     private final ChainPreviewTargetValidator previewTargetValidator;
-    private final boolean remotePreview;
+    private final ChainRemotePreviewProvider remotePreviewProvider;
     private final ChainActionExecutor actionExecutor;
 
     public ChainSubModeDefinition(
@@ -36,7 +36,7 @@ public final class ChainSubModeDefinition {
         ChainCandidateFilterResolver candidateFilterResolver,
         ChainAreaPresentationResolver areaPresentationResolver,
         ChainPreviewTargetValidator previewTargetValidator,
-        boolean remotePreview,
+        ChainRemotePreviewProvider remotePreviewProvider,
         ChainActionExecutor actionExecutor) {
         this.subMode = subMode;
         this.trigger = trigger == null ? ChainSubModeTrigger.NONE : trigger;
@@ -45,7 +45,7 @@ public final class ChainSubModeDefinition {
         this.candidateFilterResolver = candidateFilterResolver;
         this.areaPresentationResolver = areaPresentationResolver;
         this.previewTargetValidator = previewTargetValidator;
-        this.remotePreview = remotePreview;
+        this.remotePreviewProvider = remotePreviewProvider;
         this.actionExecutor = actionExecutor;
     }
 
@@ -78,7 +78,11 @@ public final class ChainSubModeDefinition {
     }
 
     public boolean usesRemotePreview() {
-        return remotePreview;
+        return remotePreviewProvider != null;
+    }
+
+    public boolean requestRemotePreview(int requestId, ChainTarget target, int radius, int maxTargets) {
+        return remotePreviewProvider != null && remotePreviewProvider.requestPreview(requestId, target, radius, maxTargets);
     }
 
     public ChainActionExecutor resolveActionExecutor(ChainActionExecutor fallback) {
