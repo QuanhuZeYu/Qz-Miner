@@ -6,6 +6,15 @@
   </picture>
 </div>
 
+
+Qz-Miner 改版
+
+在原版的Qz-Miner中添加了一个好用的区块清理模式。
+
+- `AREA_CHUNK_CLEAR`：试图清空指示方块对应的区块，根据玩家的视线方向选择向下清空或者向上清空。
+
+----
+
 # Qz-Miner
 
 Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘模组。

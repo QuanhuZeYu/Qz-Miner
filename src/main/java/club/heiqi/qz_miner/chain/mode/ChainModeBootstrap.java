@@ -58,7 +58,12 @@ public final class ChainModeBootstrap {
             true,
             ChainModeResolvers.DEFAULT_CUBE_AREA_PRESENTATION,
             ChainSubMode.AREA_SAME_BLOCK,
-            Arrays.asList(ChainSubMode.AREA_SAME_BLOCK, ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubMode.AREA_ORE, ChainSubMode.AREA_TUNNEL));
+            Arrays.asList(
+                ChainSubMode.AREA_SAME_BLOCK,
+                ChainSubMode.AREA_HARVESTABLE_ALL,
+                ChainSubMode.AREA_ORE,
+                ChainSubMode.AREA_TUNNEL,
+                ChainSubMode.AREA_CHUNK_CLEAR));
     }
 
     /**
