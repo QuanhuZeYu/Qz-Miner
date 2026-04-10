@@ -1,7 +1,10 @@
 package club.heiqi.qz_miner;
 
+import java.util.List;
+
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
@@ -29,6 +32,12 @@ public class CommonProxy {
      * 处理客户端连锁状态同步。
      */
     public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainSubMode subMode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+    }
+
+    /**
+     * 处理客户端扫雷预览结果。
+     */
+    public void handleClientLootGamesMinesweeperPreview(int requestId, ChainTarget origin, List<ChainTarget> targets) {
     }
 
     // register server commands in this event handler (Remove if not needed)

@@ -2,14 +2,6 @@ package club.heiqi.qz_miner;
 
 import java.io.File;
 
-import cpw.mods.fml.client.FMLClientHandler;
-import cpw.mods.fml.client.event.ConfigChangedEvent;
-import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
-import club.heiqi.qz_miner.network.PacketChainConfigRequest;
-import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
 
 public class Config {
@@ -43,8 +35,6 @@ public class Config {
         if (config == null) {
             configPath = configFile.getAbsolutePath();
             config = new Configuration(configFile);
-            MinecraftForge.EVENT_BUS.register(this);
-            FMLCommonHandler.instance().bus().register(this);
         }
 
         load();
@@ -79,32 +69,4 @@ public class Config {
         }
     }
 
-    /**
-     * 从 Forge 配置界面保存后重新加载配置。
-     *
-     * @param event 配置变更事件
-     */
-    @SubscribeEvent
-    public void onConfigChangeEvent(ConfigChangedEvent.OnConfigChangedEvent event) {
-        if (!MyMod.MODID.equalsIgnoreCase(event.modID)) {
-            return;
-        }
-
-        load();
-        syncClientRequestedChainConfig();
-    }
-
-    @SideOnly(Side.CLIENT)
-    private void syncClientRequestedChainConfig() {
-        if (MyMod.chainStateService == null) {
-            return;
-        }
-
-        MyMod.chainStateService.setClientRequestedChainConfig(chainRadius, chainMaxBlocks);
-        if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
-            return;
-        }
-
-        MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(chainRadius, chainMaxBlocks));
-    }
 }

@@ -19,6 +19,8 @@ import net.minecraftforge.event.entity.player.PlayerInteractEvent;
  */
 public class ChainInteractPlanner {
 
+    private static final double INTERACT_REACH_DISTANCE = 5.0D;
+
     public ChainInteractPlanner() {
         MinecraftForge.EVENT_BUS.register(this);
     }
@@ -107,9 +109,22 @@ public class ChainInteractPlanner {
      * @return 命中点偏移
      */
     private HitOffset resolveHitOffset(EntityPlayerMP player, PlayerInteractEvent event) {
-        MovingObjectPosition movingObjectPosition = player.rayTrace(5.0D, 1.0F);
+        Vec3 eyePosition = Vec3.createVectorHelper(player.posX, player.posY + player.getEyeHeight(), player.posZ);
+        Vec3 lookVec = player.getLookVec();
+        if (lookVec == null) {
+            return createFaceFallback(normalizeFace(event.face));
+        }
+
+        Vec3 reachPosition = eyePosition.addVector(
+            lookVec.xCoord * INTERACT_REACH_DISTANCE,
+            lookVec.yCoord * INTERACT_REACH_DISTANCE,
+            lookVec.zCoord * INTERACT_REACH_DISTANCE);
+        MovingObjectPosition movingObjectPosition = player.worldObj.func_147447_a(eyePosition, reachPosition, false, false, true);
         if (movingObjectPosition == null || movingObjectPosition.hitVec == null) {
-            return HitOffset.ZERO;
+            return createFaceFallback(normalizeFace(event.face));
+        }
+        if (movingObjectPosition.blockX != event.x || movingObjectPosition.blockY != event.y || movingObjectPosition.blockZ != event.z) {
+            return createFaceFallback(normalizeFace(event.face));
         }
 
         Vec3 hitVec = movingObjectPosition.hitVec;
@@ -117,6 +132,31 @@ public class ChainInteractPlanner {
             normalizeHit(event.x, hitVec.xCoord),
             normalizeHit(event.y, hitVec.yCoord),
             normalizeHit(event.z, hitVec.zCoord));
+    }
+
+    /**
+     * 在射线结果不可用时，回退到点击面的中心点。
+     *
+     * @param face 点击面
+     * @return 对应面的中心偏移
+     */
+    private HitOffset createFaceFallback(int face) {
+        switch (face) {
+            case 0:
+                return new HitOffset(0.5F, 0.0F, 0.5F);
+            case 1:
+                return new HitOffset(0.5F, 1.0F, 0.5F);
+            case 2:
+                return new HitOffset(0.5F, 0.5F, 0.0F);
+            case 3:
+                return new HitOffset(0.5F, 0.5F, 1.0F);
+            case 4:
+                return new HitOffset(0.0F, 0.5F, 0.5F);
+            case 5:
+                return new HitOffset(1.0F, 0.5F, 0.5F);
+            default:
+                return HitOffset.ZERO;
+        }
     }
 
     /**

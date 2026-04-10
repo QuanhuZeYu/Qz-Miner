@@ -3,13 +3,12 @@ package club.heiqi.qz_miner.network;
 import java.util.ArrayList;
 import java.util.List;
 
-import club.heiqi.qz_miner.ClientProxy;
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import io.netty.buffer.ByteBuf;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
-import cpw.mods.fml.client.FMLClientHandler;
-import io.netty.buffer.ByteBuf;
 
 /**
  * LootGames 扫雷预览结果响应包。
@@ -68,20 +67,10 @@ public class PacketLootGamesMinesweeperPreviewResponse implements IMessage {
 
         @Override
         public IMessage onMessage(final PacketLootGamesMinesweeperPreviewResponse message, MessageContext ctx) {
-            FMLClientHandler.instance().getClient().func_152344_a(new Runnable() {
-
-                @Override
-                public void run() {
-                    if (ClientProxy.chainPreviewController == null) {
-                        return;
-                    }
-
-                    ClientProxy.chainPreviewController.applyLootGamesMinesweeperPreview(
-                        message.requestId,
-                        new ChainTarget(message.originX, message.originY, message.originZ),
-                        message.targets);
-                }
-            });
+            MyMod.proxy.handleClientLootGamesMinesweeperPreview(
+                message.requestId,
+                new ChainTarget(message.originX, message.originY, message.originZ),
+                new ArrayList<ChainTarget>(message.targets));
             return null;
         }
     }
