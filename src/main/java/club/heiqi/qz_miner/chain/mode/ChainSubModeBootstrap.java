@@ -18,8 +18,8 @@ import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
+import club.heiqi.qz_miner.chain.planner.SliceClearTraverser;
 import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
-import club.heiqi.qz_miner.chain.planner.ChunkClearTraverser;
 import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.network.PacketLootGamesMinesweeperPreviewRequest;
@@ -53,7 +53,7 @@ public final class ChainSubModeBootstrap {
         registerInteractCropSubMode();
         registerSpecialGtCableReplaceSubMode();
         registerSpecialLootGamesMinesweeperSubMode();
-        registerAreaChunkClearSubMode();
+        registerAreaSliceClearSubMode();
         ChainSubModeRegistry.validateDefinitions();
     }
 
@@ -94,15 +94,18 @@ public final class ChainSubModeBootstrap {
             null);
     }
 
-    private static void registerAreaChunkClearSubMode() {
+    /**
+     * 注册 AREA 定向切片清理子模式。
+     */
+    private static void registerAreaSliceClearSubMode() {
         registerSubMode(
-            ChainSubMode.AREA_CHUNK_CLEAR,
+            ChainSubMode.AREA_SLICE_CLEAR,
             ChainSubModeTrigger.BREAK_BLOCK,
             context -> {
                 int face = context != null && context.getSession() != null && context.getSession().getRequest() != null
                     ? context.getSession().getRequest().getInteractFace()
                     : AxisAlignedTunnelDirection.resolveFace(context == null ? null : context.getPlayer());
-                return new ChunkClearTraverser(face);
+                return new SliceClearTraverser(face);
             },
             null,
             null,

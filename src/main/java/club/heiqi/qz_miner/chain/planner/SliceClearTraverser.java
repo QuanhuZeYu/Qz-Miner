@@ -1,10 +1,9 @@
 package club.heiqi.qz_miner.chain.planner;
 
 /**
- * 区块清除遍历器：16×16截面，沿玩家朝向方向挖掘指定深度。
- * 截面严格对齐区块边界（16的倍数）。
+ * 定向切片清理遍历器：固定 16x16 截面，沿玩家朝向方向推进指定深度。
  */
-public class ChunkClearTraverser implements ChainTraverser {
+public class SliceClearTraverser implements ChainTraverser {
 
     private final int face;
     private final ChainTarget forward;
@@ -15,7 +14,12 @@ public class ChunkClearTraverser implements ChainTraverser {
     private int bMin;
     private int bMax;
 
-    public ChunkClearTraverser(int face) {
+    /**
+     * 构造定向切片清理遍历器。
+     *
+     * @param face 玩家当前解析出的朝向面
+     */
+    public SliceClearTraverser(int face) {
         this.face = normalizeFace(face);
         this.forward = resolveForward(this.face);
         this.lateralA = resolveLateralA(this.face);
@@ -26,28 +30,19 @@ public class ChunkClearTraverser implements ChainTraverser {
     public void seed(ChainSearchContext context) {
         ChainTarget origin = context.getOrigin();
 
-        // 确定 lateralA 和 lateralB 对应的世界坐标轴
-        int axisA = resolveAxis(lateralA); // 0:X, 1:Y, 2:Z
+        // 根据推进方向确定两个横截面轴，并将 16x16 切片对齐到对应坐标系的 16 格边界。
+        int axisA = resolveAxis(lateralA);
         int axisB = resolveAxis(lateralB);
 
-        // 获取原点在对应轴上的坐标
         int coordA = getCoordByAxis(origin, axisA);
         int coordB = getCoordByAxis(origin, axisB);
 
-        // 计算区块起点（16的倍数）
-        int chunkStartA = (coordA >> 4) << 4; // Math.floorDiv(coordA, 16) * 16
-        int chunkStartB = (coordB >> 4) << 4;
+        int sliceStartA = (coordA >> 4) << 4;
+        int sliceStartB = (coordB >> 4) << 4;
 
-        // 计算原点相对于区块起点的偏移
-        int offsetA = coordA - chunkStartA;
-        int offsetB = coordB - chunkStartB;
+        int offsetA = coordA - sliceStartA;
+        int offsetB = coordB - sliceStartB;
 
-        // 截面范围：从 -offsetA 到 15-offsetA，确保总共16格
-        // 但为了简化，我们固定使用 -8 到 7，以原点为中心
-        // 根据用户需求，需要对齐区块边界，所以应该使用区块起点
-        // 我们调整偏移量，使截面以区块起点为基准
-
-        // 计算 lateralA 方向的偏移范围：从 -offsetA 到 15-offsetA
         aMin = -offsetA;
         aMax = 15 - offsetA;
         bMin = -offsetB;

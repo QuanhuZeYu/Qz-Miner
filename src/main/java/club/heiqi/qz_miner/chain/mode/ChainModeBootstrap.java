@@ -63,7 +63,7 @@ public final class ChainModeBootstrap {
                 ChainSubMode.AREA_HARVESTABLE_ALL,
                 ChainSubMode.AREA_ORE,
                 ChainSubMode.AREA_TUNNEL,
-                ChainSubMode.AREA_CHUNK_CLEAR));
+                ChainSubMode.AREA_SLICE_CLEAR));
     }
 
     /**

@@ -6,15 +6,6 @@
   </picture>
 </div>
 
-
-Qz-Miner 改版
-
-在原版的Qz-Miner中添加了一个好用的区块清理模式。
-
-- `AREA_CHUNK_CLEAR`：试图清空指示方块对应的区块，根据玩家的视线方向选择向下清空或者向上清空。
-
-----
-
 # Qz-Miner
 
 Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘模组。
@@ -47,6 +38,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `AREA_HARVESTABLE_ALL`：范围内处理所有当前可收获方块
 - `AREA_ORE`：范围内按宽泛矿石匹配
 - `AREA_TUNNEL`：按视线方向生成 `3 x 3 x radius` 的指向性隧道区域
+- `AREA_SLICE_CLEAR`：按视线方向生成 `16 x 16 x radius` 的定向切片清理区域
 - `INTERACT_BASE`：默认同类右键交互
 - `INTERACT_CROP`：作物交互模式，支持原版小麦与 IC2 作物
 - `SPECIAL_LOOTGAMES_MINESWEEPER`：对准 LootGames 扫雷棋盘时，通过服务端读取雷位并在客户端标记
@@ -58,6 +50,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 想清矿脉时，用 `CHAIN_ORE` 或 `AREA_ORE`
 - 想砍树时，用 `CHAIN_LOGGING`
 - 想开矿道时，用 `AREA_TUNNEL`
+- 想沿一个大截面持续推进清理时，用 `AREA_SLICE_CLEAR`
 - 想批量右键收作物时，用 `INTERACT_CROP`
 - 如果客户端卡顿明显，可关闭 `clientEnablePreviewRender`，或调低 `clientPreviewMaxRadius` 与 `clientPreviewMaxTargets`
 
@@ -69,6 +62,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 为 `CHAIN` 与 `AREA` 接入宽泛矿石匹配子模式
 - 为 `CHAIN` 接入伐木子模式，支持原木壳层遍历与可配置壳层层数
 - 为 `AREA` 接入 `3 x 3 x 半径` 的指向性隧道子模式
+- 为 `AREA` 接入 `16 x 16 x 半径` 的定向切片清理子模式
 - 优化客户端预览：连锁执行期间锁定当前预览目标，并限制每 tick 预览扫描配额
 - 将客户端预览配置拆分到独立 `client` 分类，并支持单独关闭预览计算与渲染
 - 为 HUD、模式名称、子模式名称、按键名称接入 `lang` 国际化
@@ -86,6 +80,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `CHAIN` 模式完整闭环：输入、规划、执行、HUD、预览已接通
 - `AREA` 模式完整闭环：盒扫搜索、执行、HUD、预览已接通
 - `AREA_TUNNEL`：支持按玩家视线方向生成 `3 x 3 x radius` 的指向性隧道区域
+- `AREA_SLICE_CLEAR`：支持按玩家视线方向生成 `16 x 16 x radius` 的定向切片清理区域
 - `INTERACT` 模式完整闭环：右键触发、默认同类交互、作物交互已接通
 - 统一子模式框架：主模式下可挂载多个子模式，并同步到客户端与服务端
 - `CHAIN_ORE` 与 `AREA_ORE`：宽泛矿石匹配，面向 GT / BW / GT++ / 原版矿石体系
