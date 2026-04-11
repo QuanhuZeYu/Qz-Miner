@@ -18,7 +18,7 @@ import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
-import club.heiqi.qz_miner.chain.planner.SliceClearTraverser;
+import club.heiqi.qz_miner.chain.planner.SectionClearTraverser;
 import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
 import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
@@ -53,7 +53,7 @@ public final class ChainSubModeBootstrap {
         registerInteractCropSubMode();
         registerSpecialGtCableReplaceSubMode();
         registerSpecialLootGamesMinesweeperSubMode();
-        registerAreaSliceClearSubMode();
+        registerAreaSectionClearSubMode();
         ChainSubModeRegistry.validateDefinitions();
     }
 
@@ -95,21 +95,16 @@ public final class ChainSubModeBootstrap {
     }
 
     /**
-     * 注册 AREA 定向切片清理子模式。
+     * 注册 AREA 区段清理子模式。
      */
-    private static void registerAreaSliceClearSubMode() {
+    private static void registerAreaSectionClearSubMode() {
         registerSubMode(
-            ChainSubMode.AREA_SLICE_CLEAR,
+            ChainSubMode.AREA_SECTION_CLEAR,
             ChainSubModeTrigger.BREAK_BLOCK,
-            context -> {
-                int face = context != null && context.getSession() != null && context.getSession().getRequest() != null
-                    ? context.getSession().getRequest().getInteractFace()
-                    : AxisAlignedTunnelDirection.resolveFace(context == null ? null : context.getPlayer());
-                return new SliceClearTraverser(face);
-            },
+            context -> new SectionClearTraverser(),
             null,
             null,
-            (radius, subMode) -> new int[] {16, 16, Math.max(1, radius)},
+            (radius, subMode) -> new int[] {16, 16, 16},
             null,
             null,
             null);

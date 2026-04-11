@@ -33,9 +33,9 @@ public enum ChainSubMode {
      */
     AREA_TUNNEL(ChainMode.AREA, false, false, false),
     /**
-     * AREA 切片清理子模式。
+     * AREA 区段清理子模式。
      */
-    AREA_SLICE_CLEAR(ChainMode.AREA, false, false, false),
+    AREA_SECTION_CLEAR(ChainMode.AREA, false, false, false),
     /**
      * INTERACT 默认子模式。
      */
@@ -126,8 +126,8 @@ public enum ChainSubMode {
                 return "hud.qz_miner.sub_mode.area.ore";
             case AREA_TUNNEL:
                 return "hud.qz_miner.sub_mode.area.tunnel";
-            case AREA_SLICE_CLEAR:
-                return "hud.qz_miner.sub_mode.area.slice_clear";
+            case AREA_SECTION_CLEAR:
+                return "hud.qz_miner.sub_mode.area.section_clear";
             case INTERACT_BASE:
                 return "hud.qz_miner.sub_mode.interact.base";
             case INTERACT_CROP:
