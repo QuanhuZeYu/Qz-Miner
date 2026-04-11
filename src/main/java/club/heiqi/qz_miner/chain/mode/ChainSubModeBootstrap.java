@@ -18,6 +18,7 @@ import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
+import club.heiqi.qz_miner.chain.planner.SectionClearTraverser;
 import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
 import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
@@ -52,6 +53,7 @@ public final class ChainSubModeBootstrap {
         registerInteractCropSubMode();
         registerSpecialGtCableReplaceSubMode();
         registerSpecialLootGamesMinesweeperSubMode();
+        registerAreaSectionClearSubMode();
         ChainSubModeRegistry.validateDefinitions();
     }
 
@@ -87,6 +89,22 @@ public final class ChainSubModeBootstrap {
             null,
             null,
             TUNNEL_AREA_PRESENTATION,
+            null,
+            null,
+            null);
+    }
+
+    /**
+     * 注册 AREA 区段清理子模式。
+     */
+    private static void registerAreaSectionClearSubMode() {
+        registerSubMode(
+            ChainSubMode.AREA_SECTION_CLEAR,
+            ChainSubModeTrigger.BREAK_BLOCK,
+            context -> new SectionClearTraverser(),
+            null,
+            null,
+            (radius, subMode) -> new int[] {16, 16, 16},
             null,
             null,
             null);

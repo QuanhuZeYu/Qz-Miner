@@ -20,6 +20,7 @@ hud.qz_miner.sub_mode.area.base=Blasting Base Mode
 hud.qz_miner.sub_mode.area.all=Indiscriminate Blasting Mode
 hud.qz_miner.sub_mode.area.ore=Blasting Ore Mode
 hud.qz_miner.sub_mode.area.tunnel=Tunnel Blasting Mode
+hud.qz_miner.sub_mode.area.section_clear=Section Clear Mode
 hud.qz_miner.sub_mode.interact.base=Chain Block Interaction Mode
 hud.qz_miner.sub_mode.interact.crop=Crop Interaction Mode
 hud.qz_miner.sub_mode.special.lootgames_minesweeper=Special Minesweeper Preview Mode
