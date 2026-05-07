@@ -1,11 +1,16 @@
 package club.heiqi.qz_miner.parallel;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
 import club.heiqi.qz_miner.Config;
@@ -19,19 +24,24 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * 任务以“分片”形式在多个 Tick 之间持续推进：
  * 1. START 打开本 Tick 的并行执行窗口
- * 2. 后台工作线程在窗口内反复执行任务分片
+ * 2. 后台 worker 在窗口内反复执行任务分片
  * 3. END 关闭窗口，并等待当前分片全部停在边界上
  *
- * 因此长耗时任务不会被要求在单个 Tick 内完成，而是可以跨 Tick 增量执行。
+ * 当前实现使用有界线程池，核心线程数为 1，最大线程数为 20，
+ * 目的是稳定线程名并减少 Hodgepodge 对异步世界读取的重复告警噪声。
  */
 public final class ParallelTickExecutor {
 
     private static final long MIN_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(10L);
+    private static final int CORE_WORKER_THREADS = 1;
+    private static final int MAX_WORKER_THREADS = 20;
+    private static final long WORKER_KEEP_ALIVE_SECONDS = 30L;
 
-    private final CopyOnWriteArrayList<RegisteredTask> serverPreTasks = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<RegisteredTask> serverPostTasks = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<RegisteredTask> clientPreTasks = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<RegisteredTask> clientPostTasks = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<RegisteredTask> serverPreTasks = new CopyOnWriteArrayList<RegisteredTask>();
+    private final CopyOnWriteArrayList<RegisteredTask> serverPostTasks = new CopyOnWriteArrayList<RegisteredTask>();
+    private final CopyOnWriteArrayList<RegisteredTask> clientPreTasks = new CopyOnWriteArrayList<RegisteredTask>();
+    private final CopyOnWriteArrayList<RegisteredTask> clientPostTasks = new CopyOnWriteArrayList<RegisteredTask>();
+    private final ThreadPoolExecutor workerPool;
     private final AtomicLong tickCounter = new AtomicLong();
     private final ReentrantLock stateLock = new ReentrantLock();
     private final Condition windowChanged = stateLock.newCondition();
@@ -45,8 +55,18 @@ public final class ParallelTickExecutor {
     private int activeWorkers = 0;
 
     public ParallelTickExecutor() {
+        this.workerPool = new ThreadPoolExecutor(
+            CORE_WORKER_THREADS,
+            MAX_WORKER_THREADS,
+            WORKER_KEEP_ALIVE_SECONDS,
+            TimeUnit.SECONDS,
+            new SynchronousQueue<Runnable>(),
+            new ParallelWorkerThreadFactory());
+        this.workerPool.allowCoreThreadTimeOut(false);
+        this.workerPool.prestartCoreThread();
         FMLCommonHandler.instance().bus().register(this);
-        MyMod.LOG.info("[ParallelTick] Initialized cooperative incremental scheduler");
+        MyMod.LOG.info("[ParallelTick] Initialized cooperative incremental scheduler with pooled workers (core={}, max={})",
+            Integer.valueOf(CORE_WORKER_THREADS), Integer.valueOf(MAX_WORKER_THREADS));
     }
 
     /**
@@ -59,7 +79,12 @@ public final class ParallelTickExecutor {
     public ParallelTickSubscription register(String name, ParallelTickStage stage, ParallelTickTask task) {
         RegisteredTask registeredTask = new RegisteredTask(name, stage, task);
         getTasks(stage).add(registeredTask);
-        registeredTask.start();
+        try {
+            registeredTask.start();
+        } catch (RuntimeException e) {
+            getTasks(stage).remove(registeredTask);
+            throw e;
+        }
         MyMod.LOG.debug("[ParallelTick] Registered {} task: {}", stage, name);
         return () -> unregister(registeredTask);
     }
@@ -117,20 +142,14 @@ public final class ParallelTickExecutor {
             registeredTask.shutdown();
         }
 
-        for (RegisteredTask registeredTask : serverPreTasks) {
-            registeredTask.joinQuietly();
-        }
+        workerPool.shutdownNow();
 
-        for (RegisteredTask registeredTask : serverPostTasks) {
-            registeredTask.joinQuietly();
-        }
-
-        for (RegisteredTask registeredTask : clientPreTasks) {
-            registeredTask.joinQuietly();
-        }
-
-        for (RegisteredTask registeredTask : clientPostTasks) {
-            registeredTask.joinQuietly();
+        try {
+            if (!workerPool.awaitTermination(3L, TimeUnit.SECONDS)) {
+                MyMod.LOG.warn("[ParallelTick] Worker pool did not terminate within timeout");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         serverPreTasks.clear();
@@ -189,7 +208,7 @@ public final class ParallelTickExecutor {
                     workersIdle.await();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    MyMod.LOG.warn("[ParallelTick] Interrupted while waiting workers to stop on tick {}", currentTickId, e);
+                    MyMod.LOG.warn("[ParallelTick] Interrupted while waiting workers to stop on tick {}", Long.valueOf(currentTickId), e);
                     return;
                 }
             }
@@ -253,37 +272,37 @@ public final class ParallelTickExecutor {
         private final String name;
         private final ParallelTickStage stage;
         private final ParallelTickTask task;
-        private final Thread thread;
         private volatile boolean active = true;
+        private volatile Future<?> future;
         private long observedTickId = -1L;
 
         private RegisteredTask(String name, ParallelTickStage stage, ParallelTickTask task) {
             this.name = name;
             this.stage = stage;
             this.task = task;
-            this.thread = new ParallelThread(name).create(this);
         }
 
         private void start() {
-            thread.start();
+            try {
+                future = workerPool.submit(this);
+            } catch (RejectedExecutionException e) {
+                MyMod.LOG.error("[ParallelTick] Worker pool exhausted, refuse task: {}", name, e);
+                active = false;
+                throw e;
+            }
         }
 
         private void shutdown() {
             active = false;
-            thread.interrupt();
+            Future<?> currentFuture = future;
+            if (currentFuture != null) {
+                currentFuture.cancel(true);
+            }
             stateLock.lock();
             try {
                 windowChanged.signalAll();
             } finally {
                 stateLock.unlock();
-            }
-        }
-
-        private void joinQuietly() {
-            try {
-                thread.join(3000L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
             }
         }
 
@@ -376,16 +395,33 @@ public final class ParallelTickExecutor {
         }
     }
 
-    private static final class ParallelThread {
-        private static final AtomicInteger THREAD_ID = new AtomicInteger(1);
-        private final String taskName;
+    private static final class ParallelWorkerThreadFactory implements ThreadFactory {
 
-        private ParallelThread(String taskName) {
-            this.taskName = taskName;
+        private final BlockingQueue<Integer> workerSlots = new java.util.concurrent.ArrayBlockingQueue<Integer>(MAX_WORKER_THREADS);
+
+        private ParallelWorkerThreadFactory() {
+            for (int i = 1; i <= MAX_WORKER_THREADS; i++) {
+                workerSlots.offer(Integer.valueOf(i));
+            }
         }
 
-        private Thread create(Runnable runnable) {
-            Thread thread = new Thread(runnable, "Qz-ParallelTick-" + THREAD_ID.getAndIncrement() + "-" + taskName);
+        @Override
+        public Thread newThread(final Runnable runnable) {
+            final Integer workerSlot = workerSlots.poll();
+            if (workerSlot == null) {
+                throw new IllegalStateException("Parallel tick worker slots exhausted");
+            }
+
+            Thread thread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        runnable.run();
+                    } finally {
+                        workerSlots.offer(workerSlot);
+                    }
+                }
+            }, "Qz-ParallelTick-worker-" + workerSlot.intValue());
             thread.setDaemon(true);
             return thread;
         }

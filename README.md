@@ -54,6 +54,12 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 想批量右键收作物时，用 `INTERACT_CROP`
 - 如果客户端卡顿明显，可关闭 `clientEnablePreviewRender`，或调低 `clientPreviewMaxRadius` 与 `clientPreviewMaxTargets`
 
+### 并行执行说明
+
+- 服务端连锁规划使用有界线程池调度，默认核心线程数为 `1`，最大线程数为 `20`
+- 这样做的目标是降低 Hodgepodge 对异步世界读取的重复告警噪声
+- 这不是线程安全修复，只是日志降噪方案，当前仍保留异步规划读取世界的实现方式
+
 ## 版本说明
 
 从 `4.0` 到当前 `5.0`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
