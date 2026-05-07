@@ -84,8 +84,13 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                 }
 
                 ChainPlayerState currentState = MyMod.chainStateService.getPlayerState(playerUUID);
-                if (currentState == null || currentState.getSession() == null) {
+                if (currentState == null) {
                     MyMod.chainStateService.stopPlayerExecution(playerUUID, getStopReasonPrefix() + "state-missing");
+                    return false;
+                }
+
+                if (!currentState.isSessionActive(session)) {
+                    MyMod.LOG.debug("[ChainPlanner] Ignore stale {} session for player {}", getLogLabel(), playerUUID);
                     return false;
                 }
 
@@ -94,7 +99,7 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                     return false;
                 }
 
-                ChainSession currentSession = currentState.getSession();
+                ChainSession currentSession = session;
                 int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(
@@ -121,7 +126,9 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, getPlannerReasonPrefix() + "completed-empty-queue");
-                        currentState.clearSession();
+                        if (currentState.isSessionActive(currentSession)) {
+                            currentState.clearSession();
+                        }
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
                         currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, getPlannerReasonPrefix() + "completed-with-targets");

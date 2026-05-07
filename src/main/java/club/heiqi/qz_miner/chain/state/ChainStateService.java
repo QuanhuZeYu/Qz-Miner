@@ -42,10 +42,29 @@ public final class ChainStateService {
     }
 
     public void removePlayerState(UUID playerUUID) {
+        removePlayerState(playerUUID, "remove-player-state");
+    }
+
+    public void removePlayerState(UUID playerUUID, String reason) {
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
-            state.clearRuntimeState("remove-player-state");
+            state.clearRuntimeState(reason);
         }
+    }
+
+    public void cleanupPlayerState(UUID playerUUID, String reason, boolean removeState) {
+        ChainPlayerState state = getPlayerState(playerUUID);
+        if (state == null) {
+            return;
+        }
+
+        if (removeState) {
+            removePlayerState(playerUUID, reason);
+            return;
+        }
+
+        state.clearRuntimeState(reason);
+        syncPlayerState(playerUUID);
     }
 
     public ChainClientState getClientState() {
@@ -135,6 +154,8 @@ public final class ChainStateService {
             return;
         }
 
+        ChainRuntimeState runtimeState = state.getRuntimeState();
+
         EntityPlayer player = MyMod.playerManager.getPlayer(playerUUID);
         if (!(player instanceof EntityPlayerMP)) {
             return;
@@ -147,8 +168,8 @@ public final class ChainStateService {
             state.isExecuting(),
             state.getSelectedMode(),
             state.getExecutionStatus(),
-            state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingBreakTargets().size(),
-            state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingDrops().size());
+            runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size(),
+            runtimeState == null ? 0 : runtimeState.getPendingDrops().size());
 
         MyMod.networkMain.network.sendTo(
             new PacketChainStateSync(
@@ -159,7 +180,7 @@ public final class ChainStateService {
                 state.getExecutionStatus(),
                 Config.chainRadius,
                 Config.chainMaxBlocks,
-                state.getSession() == null ? 0 : state.getSession().getRuntimeState().getMatchedTargetCount()),
+                runtimeState == null ? 0 : runtimeState.getMatchedTargetCount()),
             (EntityPlayerMP) player);
     }
 
@@ -169,16 +190,18 @@ public final class ChainStateService {
             return;
         }
 
+        ChainRuntimeState runtimeState = state.getRuntimeState();
+
         if (!state.isExecuting()
-            && (state.getSession() == null
-            || (state.getSession().getRuntimeState().getPlannerSubscription() == null
-            && state.getSession().getRuntimeState().getPendingBreakTargets().isEmpty()
-            && state.getSession().getRuntimeState().getPendingDrops().isEmpty()))) {
+            && (runtimeState == null
+            || (runtimeState.getPlannerSubscription() == null
+            && runtimeState.getPendingBreakTargets().isEmpty()
+            && runtimeState.getPendingDrops().isEmpty()))) {
             return;
         }
 
-        int queuedTargets = state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingBreakTargets().size();
-        int pendingDrops = state.getSession() == null ? 0 : state.getSession().getRuntimeState().getPendingDrops().size();
+        int queuedTargets = runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size();
+        int pendingDrops = runtimeState == null ? 0 : runtimeState.getPendingDrops().size();
 
         MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
             playerUUID,
@@ -194,14 +217,23 @@ public final class ChainStateService {
         UUID playerUUID = event.player.getUniqueID();
         switch (event.reason) {
             case LOGIN:
-            case RESPAWN:
-            case DIMENSION_CHANGE:
-            case CLONE:
                 getOrCreatePlayerState(playerUUID);
                 syncPlayerState(playerUUID);
                 break;
+            case RESPAWN:
+                getOrCreatePlayerState(playerUUID);
+                cleanupPlayerState(playerUUID, "player-respawn", false);
+                break;
+            case DIMENSION_CHANGE:
+                getOrCreatePlayerState(playerUUID);
+                cleanupPlayerState(playerUUID, "player-dimension-change", false);
+                break;
+            case CLONE:
+                getOrCreatePlayerState(playerUUID);
+                cleanupPlayerState(playerUUID, "player-clone", false);
+                break;
             case LOGOUT:
-                removePlayerState(playerUUID);
+                cleanupPlayerState(playerUUID, "player-logout", true);
                 break;
             default:
                 break;

@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.state.ChainRuntimeState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -35,6 +36,10 @@ public class ChainExecutor {
         long nowMillis = System.currentTimeMillis();
 
         for (ChainPlayerState playerState : MyMod.chainStateService.getPlayerStates()) {
+            if (playerState == null) {
+                continue;
+            }
+
             if (playerState.getExecutionStatus() == ChainExecutionStatus.IDLE) {
                 continue;
             }
@@ -42,6 +47,12 @@ public class ChainExecutor {
             ChainSession session = playerState.getSession();
             if (session == null) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-session");
+                continue;
+            }
+
+            ChainRuntimeState runtimeState = session.getRuntimeState();
+            if (runtimeState == null) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-runtime-state");
                 continue;
             }
 
@@ -56,8 +67,13 @@ public class ChainExecutor {
                 continue;
             }
 
-            ConcurrentLinkedQueue<ChainTarget> queue = session.getRuntimeState().getPendingBreakTargets();
-            if (!session.getRuntimeState().isExecutorReady(nowMillis)) {
+            ConcurrentLinkedQueue<ChainTarget> queue = runtimeState.getPendingBreakTargets();
+            if (!runtimeState.isExecutorReady(nowMillis)) {
+                continue;
+            }
+
+            if (session.getRequest() == null) {
+                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-request");
                 continue;
             }
 
@@ -94,10 +110,10 @@ public class ChainExecutor {
             }
 
             if (executedCount > 0) {
-                session.getRuntimeState().scheduleNextExecutorRun(nowMillis, 50L);
+                runtimeState.scheduleNextExecutorRun(nowMillis, 50L);
             }
 
-            if (queue.isEmpty() && session.getRuntimeState().isPlannerCompleted()) {
+            if (queue.isEmpty() && runtimeState.isPlannerCompleted()) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "executor-consumed-all-targets");
             }
         }

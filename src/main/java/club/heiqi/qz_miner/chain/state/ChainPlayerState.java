@@ -56,10 +56,12 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void setExecutionStatus(ChainExecutionStatus executionStatus, String reason) {
         ChainExecutionStatus newStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
+        ChainSession currentSession = this.session;
         if (this.executionStatus != newStatus) {
-            int queuedTargets = session == null ? 0 : session.getRuntimeState().getPendingBreakTargets().size();
-            int pendingDropsCount = session == null ? 0 : session.getRuntimeState().getPendingDrops().size();
-            boolean waitingForPlanner = session != null && session.getRuntimeState().isPlannerRunning();
+            ChainRuntimeState runtimeState = currentSession == null ? null : currentSession.getRuntimeState();
+            int queuedTargets = runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size();
+            int pendingDropsCount = runtimeState == null ? 0 : runtimeState.getPendingDrops().size();
+            boolean waitingForPlanner = runtimeState != null && runtimeState.isPlannerRunning();
             MyMod.LOG.debug(
                 "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
                 playerUUID,
@@ -113,6 +115,15 @@ public class ChainPlayerState extends AbstractChainModeState {
         return session;
     }
 
+    public ChainRuntimeState getRuntimeState() {
+        ChainSession currentSession = this.session;
+        return currentSession == null ? null : currentSession.getRuntimeState();
+    }
+
+    public boolean isSessionActive(ChainSession session) {
+        return session != null && this.session == session;
+    }
+
     public int getRequestedChainRadius() {
         return requestedChainRadius;
     }
@@ -153,10 +164,13 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void clearRuntimeState(String reason) {
         setExecutionStatus(ChainExecutionStatus.IDLE, reason);
-        if (session != null) {
-            GregTechCableSessionState.clear(session);
-            session.clearRuntimeState(reason);
-            clearSession();
+        ChainSession currentSession = this.session;
+        if (currentSession != null) {
+            GregTechCableSessionState.clear(currentSession);
+            currentSession.clearRuntimeState(reason);
+            if (this.session == currentSession) {
+                clearSession();
+            }
         }
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
     }
@@ -168,16 +182,18 @@ public class ChainPlayerState extends AbstractChainModeState {
      */
     public void stopExecutionPreservingDrops(String reason) {
         setExecutionStatus(ChainExecutionStatus.IDLE, reason);
-        if (session == null) {
+        ChainSession currentSession = this.session;
+        if (currentSession == null) {
             return;
         }
 
-        GregTechCableSessionState.clear(session);
-        session.getRuntimeState().stopExecutionPreservingDrops(reason);
-        if (session.getRuntimeState().getPendingDrops().isEmpty()) {
+        ChainRuntimeState runtimeState = currentSession.getRuntimeState();
+        GregTechCableSessionState.clear(currentSession);
+        runtimeState.stopExecutionPreservingDrops(reason);
+        if (this.session == currentSession && runtimeState.getPendingDrops().isEmpty()) {
             clearSession();
         }
         MyMod.LOG.debug("[ChainState] Stopped execution for player {}, reason={}, pendingDrops={}",
-            playerUUID, reason, session == null ? 0 : session.getRuntimeState().getPendingDrops().size());
+            playerUUID, reason, runtimeState.getPendingDrops().size());
     }
 }
