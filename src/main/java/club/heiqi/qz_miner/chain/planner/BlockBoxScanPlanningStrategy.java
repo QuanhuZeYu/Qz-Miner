@@ -92,8 +92,13 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 ChainPlayerState currentState = MyMod.chainStateService.getPlayerState(playerUUID);
-                if (currentState == null || currentState.getSession() == null) {
+                if (currentState == null) {
                     MyMod.chainStateService.stopPlayerExecution(playerUUID, "area-plan-state-missing");
+                    return false;
+                }
+
+                if (!currentState.isSessionActive(session)) {
+                    MyMod.LOG.debug("[ChainPlanner] Ignore stale area session for player {}", playerUUID);
                     return false;
                 }
 
@@ -102,7 +107,7 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                     return false;
                 }
 
-                ChainSession currentSession = currentState.getSession();
+                ChainSession currentSession = session;
                 int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(
@@ -121,7 +126,7 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 if (!shouldContinue) {
-                    int pendingDrops = currentState.getSession() == null ? 0 : currentState.getSession().getRuntimeState().getPendingDrops().size();
+                    int pendingDrops = currentSession.getRuntimeState().getPendingDrops().size();
                     MyMod.LOG.debug("[ChainPlanner] Area plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
                         playerUUID, searchContext.getConfirmedCount(), queue.size(), pendingDrops);
                     currentSession.getRuntimeState().setPlannerSubscription(null);
@@ -131,7 +136,9 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "area-planner-completed-empty-queue");
-                        currentState.clearSession();
+                        if (currentState.isSessionActive(currentSession)) {
+                            currentState.clearSession();
+                        }
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
                         currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "area-planner-completed-with-targets");

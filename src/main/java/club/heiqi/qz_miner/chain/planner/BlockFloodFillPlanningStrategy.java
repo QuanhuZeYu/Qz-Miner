@@ -71,7 +71,7 @@ public class BlockFloodFillPlanningStrategy extends AbstractFloodFillPlanningStr
 
     @Override
     protected void logPlanCompleted(UUID playerUUID, ChainSearchContext searchContext, ConcurrentLinkedQueue<ChainTarget> queue, ChainPlayerState currentState) {
-        int pendingDrops = currentState.getSession() == null ? 0 : currentState.getSession().getRuntimeState().getPendingDrops().size();
+        int pendingDrops = currentState.getRuntimeState() == null ? 0 : currentState.getRuntimeState().getPendingDrops().size();
         MyMod.LOG.debug("[ChainPlanner] Plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
             playerUUID, searchContext.getConfirmedCount(), queue.size(), pendingDrops);
     }
