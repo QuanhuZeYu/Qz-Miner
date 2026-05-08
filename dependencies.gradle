@@ -45,6 +45,7 @@ dependencies {
     implementation(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
     implementation(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
+    implementation("com.github.QuanhuZeYu:Qz-UILib:4.0.0")
 
     runtimeOnly(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnly(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
