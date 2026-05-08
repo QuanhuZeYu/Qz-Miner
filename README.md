@@ -117,5 +117,4 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 相关文档：
 
-- `OLD_README.md`：旧版说明文档归档
-- `CHAIN_REFACTOR_PLAN.md`：开发中的重构规划与里程碑
+- 当前使用说明以本 README 为准

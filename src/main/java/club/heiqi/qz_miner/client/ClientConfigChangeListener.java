@@ -17,6 +17,14 @@ import cpw.mods.fml.relauncher.SideOnly;
 public class ClientConfigChangeListener {
 
     /**
+     * 保存后同步本地状态与服务端请求配置。
+     */
+    public static void reloadAndSyncAfterConfigSaved() {
+        Config.saveAndReload();
+        syncClientRequestedChainConfig();
+    }
+
+    /**
      * 注册配置变更监听。
      */
     public void register() {
@@ -24,7 +32,7 @@ public class ClientConfigChangeListener {
     }
 
     /**
-     * 从 Forge 配置界面保存后重新加载配置，并同步到服务端。
+     * 从配置界面保存后重新加载配置，并同步到服务端。
      *
      * @param event 配置变更事件
      */
@@ -34,14 +42,13 @@ public class ClientConfigChangeListener {
             return;
         }
 
-        MyMod.CONFIG.load();
-        syncClientRequestedChainConfig();
+        reloadAndSyncAfterConfigSaved();
     }
 
     /**
      * 将客户端请求的连锁配置同步到本地状态与服务端。
      */
-    private void syncClientRequestedChainConfig() {
+    public static void syncClientRequestedChainConfig() {
         if (MyMod.chainStateService == null) {
             return;
         }

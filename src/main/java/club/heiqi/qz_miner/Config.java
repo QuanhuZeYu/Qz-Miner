@@ -69,4 +69,27 @@ public class Config {
         }
     }
 
+    /**
+     * 返回当前配置文件路径。
+     *
+     * @return 配置文件绝对路径；未初始化时返回空字符串
+     */
+    public static String getConfigPath() {
+        return configPath == null ? "" : configPath;
+    }
+
+    /**
+     * 保存 Forge 配置并重新加载运行时配置值。
+     */
+    public static void saveAndReload() {
+        if (config == null) {
+            return;
+        }
+
+        if (config.hasChanged()) {
+            config.save();
+        }
+        MyMod.CONFIG.load();
+    }
+
 }

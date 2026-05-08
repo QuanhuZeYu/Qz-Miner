@@ -1,39 +1,49 @@
 package club.heiqi.qz_miner.client.configGUI;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
-import cpw.mods.fml.client.config.GuiConfig;
-import cpw.mods.fml.client.config.IConfigElement;
+import club.heiqi.qz_miner.client.ClientConfigChangeListener;
+import club.heiqi.uilib.config.ForgeConfigTemplateScreen;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraftforge.common.config.ConfigCategory;
-import net.minecraftforge.common.config.ConfigElement;
 import net.minecraftforge.common.config.Configuration;
 
-public class QzMinerConfigGUI extends GuiConfig {
+/**
+ * 使用 QzUILib 配置模板替换默认 Forge 配置页。
+ */
+public class QzMinerConfigGUI extends ForgeConfigTemplateScreen {
 
+    /**
+     * 创建模组配置界面。
+     *
+     * @param parentScreen 父界面
+     */
     public QzMinerConfigGUI(GuiScreen parentScreen) {
-        super(
-            parentScreen,
-            getConfigElements(),
-            MyMod.MODID,
-            false,
-            false,
-            MyMod.MOD_NAME,
-            Config.configPath == null ? "" : GuiConfig.getAbridgedConfigPath(Config.configPath));
+        super(parentScreen, createSpec());
     }
 
-    private static List<IConfigElement> getConfigElements() {
-        List<IConfigElement> elements = new ArrayList<>();
+    /**
+     * 构建 QzUILib 配置模板规格。
+     *
+     * @return 配置模板规格
+     */
+    private static Spec createSpec() {
+        return new Spec(MyMod.MODID, MyMod.MOD_NAME + " 配置", Config.config)
+                .setSubtitle("QzUILib Config")
+                .setDescription("使用 QzUILib 的 HTML-like 配置模板替换默认 Forge 配置界面。")
+                .setConfigPath(Config.getConfigPath())
+                .setSaveHandler(new SaveHandler() {
 
-        for (String categoryName : Arrays.asList(Configuration.CATEGORY_GENERAL, Config.CATEGORY_CLIENT)) {
-            ConfigCategory category = Config.config.getCategory(categoryName);
-            elements.add(new ConfigElement(category));
-        }
-
-        return elements;
+                    @Override
+                    public void onSave(net.minecraftforge.common.config.Configuration configuration) {
+                        Config.saveAndReload();
+                        ClientConfigChangeListener.syncClientRequestedChainConfig();
+                    }
+                })
+                .addCategory(new CategorySpec(Configuration.CATEGORY_GENERAL)
+                        .setTitle("General")
+                        .setDescription("服务端与通用连锁行为配置。"))
+                .addCategory(new CategorySpec(Config.CATEGORY_CLIENT)
+                        .setTitle("Client")
+                        .setDescription("客户端预览渲染与本地显示配置。"));
     }
 }
