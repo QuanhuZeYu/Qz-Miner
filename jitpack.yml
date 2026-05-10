@@ -1,2 +1,11 @@
 jdk:
   - openjdk25
+
+before_install:
+  - sdk update
+  - sdk install java 25.0.1-temurin || true
+  - sdk use java 25.0.1-temurin || true
+  - export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+  - export GRADLE_OPTS="-Dorg.gradle.java.home=$JAVA_HOME"
+  - echo "JAVA_HOME=$JAVA_HOME"
+  - java -version
