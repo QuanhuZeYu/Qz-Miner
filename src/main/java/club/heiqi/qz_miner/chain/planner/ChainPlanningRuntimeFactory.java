@@ -10,9 +10,7 @@ import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainSession;
-import ic2.core.crop.TileEntityCrop;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockCrops;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
@@ -131,12 +129,8 @@ public final class ChainPlanningRuntimeFactory {
 
             ChainSubMode subMode = context.getSubMode();
             if (subMode == ChainSubMode.INTERACT_CROP) {
-                if (block instanceof BlockCrops) {
-                    return true;
-                }
-
                 TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
-                return tileEntity instanceof TileEntityCrop;
+                return ChainCropRules.isCropBlock(block, tileEntity);
             }
 
             if (subMode != null && subMode.requiresOreMatch()) {
