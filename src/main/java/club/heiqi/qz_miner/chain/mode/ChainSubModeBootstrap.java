@@ -8,6 +8,7 @@ import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.ChainBlockIdentity;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver;
+import club.heiqi.qz_miner.chain.planner.ChainCropRules;
 import club.heiqi.qz_miner.chain.planner.ChainLogRules;
 import club.heiqi.qz_miner.chain.planner.ChainOreRules;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
@@ -23,9 +24,7 @@ import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
 import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
 import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.network.PacketLootGamesMinesweeperPreviewRequest;
-import ic2.core.crop.TileEntityCrop;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockCrops;
 import net.minecraft.tileentity.TileEntity;
 
 /**
@@ -122,11 +121,8 @@ public final class ChainSubModeBootstrap {
                 }
 
                 Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
-                if (block instanceof BlockCrops) {
-                    return true;
-                }
                 TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
-                return tileEntity instanceof TileEntityCrop;
+                return ChainCropRules.isCropBlock(block, tileEntity);
             },
             null,
             null,

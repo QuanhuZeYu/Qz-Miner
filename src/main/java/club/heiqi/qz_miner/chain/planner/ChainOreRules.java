@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import club.heiqi.qz_miner.compat.etfuturum.EtFuturumCompatHelper;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockOre;
 import net.minecraft.block.BlockRedstoneOre;
@@ -53,7 +54,8 @@ public final class ChainOreRules {
             || isInstance(BW_META_GENERATED_ORES, block)
             || isInstance(GTPP_BLOCK_BASE_ORE, block)
             || isInstance(AE_ORE_QUARTZ, block)
-            || isInstance(AE_ORE_QUARTZ_CHARGED, block)) {
+            || isInstance(AE_ORE_QUARTZ_CHARGED, block)
+            || EtFuturumCompatHelper.isOreBlock(block)) {
             return true;
         }
 

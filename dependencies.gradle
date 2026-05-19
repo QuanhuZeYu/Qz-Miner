@@ -40,7 +40,6 @@ dependencies {
 
     implementation(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
     implementation(project.elytraModpackVersion.gtnhdev("LootGames"))
-//    implementation("ganymedes01.etfuturum:Et-Futurum-Requiem:${elytraModpackVersion["Et-Futurum-Requiem"]}")
     implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
     implementation(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
@@ -51,4 +50,5 @@ dependencies {
     runtimeOnly(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
     runtimeOnly(project.elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
     runtimeOnly(project.elytraModpackVersion.gtnhdev("AppleCore"))
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Et-Futurum-Requiem")) { transitive = false }
 }

@@ -1,8 +1,6 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import ic2.core.crop.TileEntityCrop;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockCrops;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
@@ -23,11 +21,7 @@ public class CropBlockMatcher implements ChainBlockMatcher {
             return false;
         }
 
-        if (block instanceof BlockCrops) {
-            return true;
-        }
-
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
-        return tileEntity instanceof TileEntityCrop;
+        return ChainCropRules.isCropBlock(block, tileEntity);
     }
 }
