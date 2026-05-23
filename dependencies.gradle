@@ -38,17 +38,18 @@ dependencies {
         setGtnhVersion("2.8.4")
     }
 
-    implementation(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
-    implementation(project.elytraModpackVersion.gtnhdev("LootGames"))
+    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
+    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("LootGames"))
     implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
-    implementation(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
-    implementation(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
-    implementation(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
+    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
+    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
+    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
     implementation("com.github.QuanhuZeYu:Qz-UILib:4.1.1-LTS") { transitive = false }
 
-    runtimeOnly(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
-    runtimeOnly(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
-    runtimeOnly(project.elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
-    runtimeOnly(project.elytraModpackVersion.gtnhdev("AppleCore"))
-    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Et-Futurum-Requiem")) { transitive = false }
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Applied-Energistics-2-Unofficial"))
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("AppleCore"))
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("lwjgl3ify"))
+    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Et-Futurum-Requiem")) { transitive = false }
 }

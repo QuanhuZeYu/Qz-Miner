@@ -21,8 +21,7 @@ import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.SectionClearTraverser;
 import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
-import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import club.heiqi.qz_miner.network.PacketLootGamesMinesweeperPreviewRequest;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
@@ -50,8 +49,12 @@ public final class ChainSubModeBootstrap {
         registerDefaultSubModes();
         registerAreaTunnelSubMode();
         registerInteractCropSubMode();
-        registerSpecialGtCableReplaceSubMode();
-        registerSpecialLootGamesMinesweeperSubMode();
+        if (CompatAdapters.isSubModeAvailable(ChainSubMode.SPECIAL_GT_CABLE_REPLACE)) {
+            registerSpecialGtCableReplaceSubMode();
+        }
+        if (CompatAdapters.isSubModeAvailable(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER)) {
+            registerSpecialLootGamesMinesweeperSubMode();
+        }
         registerAreaSectionClearSubMode();
         ChainSubModeRegistry.validateDefinitions();
     }
@@ -136,15 +139,15 @@ public final class ChainSubModeBootstrap {
             ChainSubModeTrigger.LEFT_CLICK_BLOCK,
             context -> new GregTechCableTraverser(),
             context -> new GregTechCableMatcher(context == null || context.getSearchContext() == null ? -1
-                : GregTechCableCompatHelper.getCableMetaTileId(context.getSearchContext().getSampleTileEntity())),
+                : CompatAdapters.cable().getCableMetaTileId(context.getSearchContext().getSampleTileEntity())),
             context -> target -> {
                 if (context == null || target == null) {
                     return false;
                 }
-                return GregTechCableCompatHelper.isCable(context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ()));
+                return CompatAdapters.cable().isCable(context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ()));
             },
             null,
-            (world, target, sampleTileEntity) -> GregTechCableCompatHelper.isCable(sampleTileEntity),
+            (world, target, sampleTileEntity) -> CompatAdapters.cable().isCable(sampleTileEntity),
             null,
             new GregTechCableReplaceActionExecutor());
     }
@@ -157,7 +160,7 @@ public final class ChainSubModeBootstrap {
             null,
             null,
             null,
-            (world, target, sampleTileEntity) -> LootGamesMinesweeperHelper.isMinesweeperTarget(world, target),
+            (world, target, sampleTileEntity) -> CompatAdapters.minesweeper().isMinesweeperTarget(world, target),
             LOOTGAMES_REMOTE_PREVIEW_PROVIDER,
             null);
     }

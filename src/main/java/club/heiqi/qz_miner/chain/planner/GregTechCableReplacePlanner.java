@@ -6,7 +6,7 @@ import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.common.MinecraftForge;
@@ -44,7 +44,7 @@ public class GregTechCableReplacePlanner {
             return;
         }
 
-        if (!GregTechCableCompatHelper.isCable(player.worldObj.getTileEntity(event.x, event.y, event.z))) {
+        if (!CompatAdapters.cable().isCable(player.worldObj.getTileEntity(event.x, event.y, event.z))) {
             return;
         }
 

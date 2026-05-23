@@ -1,11 +1,11 @@
-package club.heiqi.qz_miner.compat.gregtech;
+package club.heiqi.qz_miner.compat.adapter.gregtech;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import club.heiqi.qz_miner.compat.adapter.CableCompatAdapter;
 import gregtech.api.GregTechAPI;
-import gregtech.api.interfaces.metatileentity.IConnectable;
 import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.BaseMetaPipeEntity;
@@ -16,47 +16,30 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.common.util.ForgeDirection;
 
 /**
- * GregTech 线缆兼容辅助。
+ * GregTech 线缆兼容适配器。
  */
-public final class GregTechCableCompatHelper {
+public final class GregTechCableCompatAdapter implements CableCompatAdapter {
 
-    private GregTechCableCompatHelper() {}
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
 
-    /**
-     * 判断目标坐标是否为 GT 线缆。
-     */
-    public static boolean isCable(TileEntity tileEntity) {
+    @Override
+    public boolean isCable(TileEntity tileEntity) {
         return getCable(tileEntity) != null;
     }
 
-    /**
-     * 获取 GT 线缆元实体。
-     */
-    public static MTECable getCable(TileEntity tileEntity) {
+    @Override
+    public int getCableMetaTileId(TileEntity tileEntity) {
         if (!(tileEntity instanceof IGregTechTileEntity gregTechTileEntity)) {
-            return null;
+            return -1;
         }
-
-        IMetaTileEntity metaTileEntity = gregTechTileEntity.getMetaTileEntity();
-        if (!(metaTileEntity instanceof MTECable cable)) {
-            return null;
-        }
-        return cable;
+        return gregTechTileEntity.getMetaTileID();
     }
 
-    /**
-     * 获取 GT 线缆宿主方块。
-     */
-    public static BaseMetaPipeEntity getCableBase(TileEntity tileEntity) {
-        return tileEntity instanceof BaseMetaPipeEntity baseMetaPipeEntity && isCable(tileEntity)
-            ? baseMetaPipeEntity
-            : null;
-    }
-
-    /**
-     * 获取当前线缆已连接方向。
-     */
-    public static List<ForgeDirection> getConnectedSides(TileEntity tileEntity) {
+    @Override
+    public List<ForgeDirection> getConnectedSides(TileEntity tileEntity) {
         BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
         if (baseMetaPipeEntity == null) {
             return Collections.emptyList();
@@ -72,39 +55,14 @@ public final class GregTechCableCompatHelper {
         return connectedSides;
     }
 
-    /**
-     * 读取线缆元方块 ID。
-     */
-    public static int getCableMetaTileId(TileEntity tileEntity) {
-        if (!(tileEntity instanceof IGregTechTileEntity gregTechTileEntity)) {
-            return -1;
-        }
-        return gregTechTileEntity.getMetaTileID();
-    }
-
-    /**
-     * 判断物品栈是否为 GT 线缆。
-     */
-    public static boolean isCableStack(ItemStack stack) {
+    @Override
+    public boolean isCableStack(ItemStack stack) {
         return createCableFromStack(stack) != null;
     }
 
-    /**
-     * 从线缆物品栈解析临时元实体。
-     */
-    public static MTECable createCableFromStack(ItemStack stack) {
-        if (stack == null || stack.getItem() == null) {
-            return null;
-        }
-
-        IMetaTileEntity metaTileEntity = gregtech.common.blocks.ItemMachines.getMetaTileEntity(stack);
-        return metaTileEntity instanceof MTECable cable ? cable : null;
-    }
-
-    /**
-     * 复刻 GT 原生线缆替换逻辑，保持旧连接状态。
-     */
-    public static boolean replaceCableKeepingConnections(EntityPlayerMP player, BaseMetaPipeEntity baseMetaPipeEntity, ItemStack replacementStack, int replacementSlotIndex) {
+    @Override
+    public boolean replaceCableKeepingConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
+        BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
         if (player == null || baseMetaPipeEntity == null || replacementStack == null) {
             return false;
         }
@@ -151,35 +109,69 @@ public final class GregTechCableCompatHelper {
             }
         }
 
-        if (!player.capabilities.isCreativeMode) {
-            ItemStack oldCableStack = new ItemStack(replacementStack.getItem(), 1, oldMetaId);
-            boolean addedToInventory = false;
+        consumeReplacementStack(player, replacementStack, replacementSlotIndex, oldMetaId);
+        return true;
+    }
 
-            for (int i = 0; i < player.inventory.mainInventory.length; i++) {
-                ItemStack slot = player.inventory.mainInventory[i];
-                if (slot != null
-                    && slot.getItem() == oldCableStack.getItem()
-                    && slot.getItemDamage() == oldCableStack.getItemDamage()
-                    && slot.stackSize < slot.getMaxStackSize()) {
-                    slot.stackSize++;
-                    addedToInventory = true;
-                    break;
-                }
-            }
-
-            if (!addedToInventory) {
-                addedToInventory = player.inventory.addItemStackToInventory(oldCableStack);
-            }
-            if (!addedToInventory) {
-                player.dropPlayerItemWithRandomChoice(oldCableStack, false);
-            }
-
-            replacementStack.stackSize--;
-            if (replacementStack.stackSize <= 0) {
-                player.inventory.setInventorySlotContents(replacementSlotIndex, null);
-            }
+    private MTECable getCable(TileEntity tileEntity) {
+        if (!(tileEntity instanceof IGregTechTileEntity gregTechTileEntity)) {
+            return null;
         }
 
-        return true;
+        IMetaTileEntity metaTileEntity = gregTechTileEntity.getMetaTileEntity();
+        if (!(metaTileEntity instanceof MTECable cable)) {
+            return null;
+        }
+        return cable;
+    }
+
+    private BaseMetaPipeEntity getCableBase(TileEntity tileEntity) {
+        return tileEntity instanceof BaseMetaPipeEntity baseMetaPipeEntity && isCable(tileEntity)
+            ? baseMetaPipeEntity
+            : null;
+    }
+
+    private MTECable createCableFromStack(ItemStack stack) {
+        if (stack == null || stack.getItem() == null) {
+            return null;
+        }
+
+        IMetaTileEntity metaTileEntity = gregtech.common.blocks.ItemMachines.getMetaTileEntity(stack);
+        return metaTileEntity instanceof MTECable cable ? cable : null;
+    }
+
+    private void consumeReplacementStack(EntityPlayerMP player, ItemStack replacementStack, int replacementSlotIndex, short oldMetaId) {
+        if (player.capabilities.isCreativeMode) {
+            return;
+        }
+
+        ItemStack oldCableStack = new ItemStack(replacementStack.getItem(), 1, oldMetaId);
+        boolean addedToInventory = addOldCableToExistingStack(player, oldCableStack);
+
+        if (!addedToInventory) {
+            addedToInventory = player.inventory.addItemStackToInventory(oldCableStack);
+        }
+        if (!addedToInventory) {
+            player.dropPlayerItemWithRandomChoice(oldCableStack, false);
+        }
+
+        replacementStack.stackSize--;
+        if (replacementStack.stackSize <= 0) {
+            player.inventory.setInventorySlotContents(replacementSlotIndex, null);
+        }
+    }
+
+    private boolean addOldCableToExistingStack(EntityPlayerMP player, ItemStack oldCableStack) {
+        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
+            ItemStack slot = player.inventory.mainInventory[i];
+            if (slot != null
+                && slot.getItem() == oldCableStack.getItem()
+                && slot.getItemDamage() == oldCableStack.getItemDamage()
+                && slot.stackSize < slot.getMaxStackSize()) {
+                slot.stackSize++;
+                return true;
+            }
+        }
+        return false;
     }
 }

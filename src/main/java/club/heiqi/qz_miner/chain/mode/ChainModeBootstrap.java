@@ -1,6 +1,8 @@
 package club.heiqi.qz_miner.chain.mode;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
 import club.heiqi.qz_miner.chain.executor.BlockInteractActionExecutor;
 import club.heiqi.qz_miner.chain.executor.GregTechCableReplaceActionExecutor;
@@ -8,6 +10,7 @@ import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.GregTechCablePlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.InteractFloodFillPlanningStrategy;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 
 /**
  * 连锁模式注册引导。
@@ -21,7 +24,9 @@ public final class ChainModeBootstrap {
         ChainModeRegistry.register(createChainDefinition());
         ChainModeRegistry.register(createAreaDefinition());
         ChainModeRegistry.register(createInteractDefinition());
-        ChainModeRegistry.register(createSpecialDefinition());
+        if (CompatAdapters.isModeAvailable(ChainMode.SPECIAL)) {
+            ChainModeRegistry.register(createSpecialDefinition());
+        }
         ChainModeRegistry.validateDefinitions();
     }
 
@@ -90,6 +95,14 @@ public final class ChainModeBootstrap {
      * @return SPECIAL 模式定义
      */
     private static ChainModeDefinition createSpecialDefinition() {
+        List<ChainSubMode> subModes = new ArrayList<ChainSubMode>();
+        if (CompatAdapters.isSubModeAvailable(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER)) {
+            subModes.add(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER);
+        }
+        if (CompatAdapters.isSubModeAvailable(ChainSubMode.SPECIAL_GT_CABLE_REPLACE)) {
+            subModes.add(ChainSubMode.SPECIAL_GT_CABLE_REPLACE);
+        }
+
         return new ChainModeDefinition(
             ChainMode.SPECIAL,
             new GregTechCablePlanningStrategy(),
@@ -98,7 +111,7 @@ public final class ChainModeBootstrap {
             ChainModeResolvers.HARVESTABLE_MATCHER,
             false,
             null,
-            ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER,
-            Arrays.asList(ChainSubMode.SPECIAL_LOOTGAMES_MINESWEEPER, ChainSubMode.SPECIAL_GT_CABLE_REPLACE));
+            subModes.isEmpty() ? null : subModes.get(0),
+            subModes);
     }
 }

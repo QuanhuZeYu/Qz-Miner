@@ -3,8 +3,7 @@ package club.heiqi.qz_miner.chain.executor;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
-import gregtech.api.metatileentity.BaseMetaPipeEntity;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
@@ -26,7 +25,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         }
 
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
-        return GregTechCableCompatHelper.getCableBase(tileEntity) != null;
+        return CompatAdapters.cable().isCable(tileEntity);
     }
 
     @Override
@@ -36,8 +35,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         }
 
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
-        BaseMetaPipeEntity baseMetaPipeEntity = GregTechCableCompatHelper.getCableBase(tileEntity);
-        if (baseMetaPipeEntity == null) {
+        if (!CompatAdapters.cable().isCable(tileEntity)) {
             return false;
         }
 
@@ -51,9 +49,9 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
             if (lockedCableSlot.slotIndex < 9) {
                 player.inventory.currentItem = lockedCableSlot.slotIndex;
             }
-            return GregTechCableCompatHelper.replaceCableKeepingConnections(
+            return CompatAdapters.cable().replaceCableKeepingConnections(
                 player,
-                baseMetaPipeEntity,
+                tileEntity,
                 lockedCableSlot.stack,
                 lockedCableSlot.slotIndex);
         } finally {
@@ -92,7 +90,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         int endExclusive = hotbarOnly ? -1 : 8;
         for (int i = start; i > endExclusive; i--) {
             ItemStack stack = player.inventory.mainInventory[i];
-            if (!GregTechCableCompatHelper.isCableStack(stack)) {
+            if (!CompatAdapters.cable().isCableStack(stack)) {
                 continue;
             }
             if (stack.getItemDamage() == metaTileId) {
@@ -107,7 +105,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         int endExclusive = hotbarOnly ? -1 : 8;
         for (int i = start; i > endExclusive; i--) {
             ItemStack stack = player.inventory.mainInventory[i];
-            if (!GregTechCableCompatHelper.isCableStack(stack)) {
+            if (!CompatAdapters.cable().isCableStack(stack)) {
                 continue;
             }
             return new LockedCableSlot(i, stack, stack.getItemDamage());

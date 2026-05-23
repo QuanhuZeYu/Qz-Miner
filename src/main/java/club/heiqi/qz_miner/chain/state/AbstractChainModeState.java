@@ -30,7 +30,7 @@ public abstract class AbstractChainModeState {
 
     protected final ChainMode setSelectedModeInternal(ChainMode selectedMode) {
         ChainMode previousMode = this.selectedMode;
-        ChainMode newMode = selectedMode == null ? ChainModeRegistry.getDefaultMode() : selectedMode;
+        ChainMode newMode = ChainModeRegistry.resolveMode(selectedMode);
         this.selectedMode = newMode;
         ChainSubMode rememberedSubMode = rememberedSubModes.get(newMode);
         this.selectedSubMode = ChainModeRegistry.resolveSubMode(newMode, rememberedSubMode);

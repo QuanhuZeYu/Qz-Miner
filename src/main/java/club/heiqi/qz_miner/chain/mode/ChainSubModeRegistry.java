@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
@@ -94,6 +95,9 @@ public final class ChainSubModeRegistry {
 
     public static void validateDefinitions() {
         for (ChainSubMode subMode : ChainSubMode.values()) {
+            if (!CompatAdapters.isSubModeAvailable(subMode)) {
+                continue;
+            }
             if (!DEFINITIONS.containsKey(subMode)) {
                 MyMod.LOG.warn("[ChainSubModeRegistry] Missing sub mode definition after bootstrap: subMode={}", subMode);
             }

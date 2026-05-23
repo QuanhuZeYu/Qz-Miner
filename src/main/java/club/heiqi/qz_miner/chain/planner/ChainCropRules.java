@@ -1,9 +1,7 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import club.heiqi.qz_miner.compat.etfuturum.EtFuturumCompatHelper;
-import ic2.core.crop.TileEntityCrop;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockCrops;
 import net.minecraft.tileentity.TileEntity;
 
 /**
@@ -21,14 +19,6 @@ public final class ChainCropRules {
      * @return 是否为作物
      */
     public static boolean isCropBlock(Block block, TileEntity tileEntity) {
-        if (block == null) {
-            return false;
-        }
-
-        if (block instanceof BlockCrops || tileEntity instanceof TileEntityCrop) {
-            return true;
-        }
-
-        return EtFuturumCompatHelper.isCropBlock(block);
+        return CompatAdapters.isCropBlock(block, tileEntity);
     }
 }

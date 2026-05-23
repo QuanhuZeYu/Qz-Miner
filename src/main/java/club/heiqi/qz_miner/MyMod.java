@@ -12,6 +12,8 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.chain.planner.GregTechCableReplacePlanner;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
@@ -84,7 +86,9 @@ public class MyMod {
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
         chainInteractPlanner = new ChainInteractPlanner();
-        gregTechCableReplacePlanner = new GregTechCableReplacePlanner();
+        if (CompatAdapters.isSubModeAvailable(ChainSubMode.SPECIAL_GT_CABLE_REPLACE)) {
+            gregTechCableReplacePlanner = new GregTechCableReplacePlanner();
+        }
         chainDropCollector = new ChainDropCollector();
         chainExecutor = new ChainExecutor();
         ensureParallelTickExecutor();

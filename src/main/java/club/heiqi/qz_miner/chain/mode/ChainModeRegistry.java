@@ -1,12 +1,14 @@
 package club.heiqi.qz_miner.chain.mode;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 
 /**
  * 连锁模式注册表。
@@ -16,7 +18,7 @@ import club.heiqi.qz_miner.MyMod;
  */
 public final class ChainModeRegistry {
 
-    private static final List<ChainMode> REGISTERED_MODES = Collections.unmodifiableList(Arrays.asList(
+    private static final List<ChainMode> ALL_MODES = Collections.unmodifiableList(Arrays.asList(
         ChainMode.CHAIN,
         ChainMode.AREA,
         ChainMode.INTERACT,
@@ -34,7 +36,7 @@ public final class ChainModeRegistry {
             MyMod.LOG.warn("[ChainModeRegistry] Ignore invalid mode definition: definition={}, mode=null", definition);
             return;
         }
-        if (!REGISTERED_MODES.contains(definition.getMode())) {
+        if (!ALL_MODES.contains(definition.getMode())) {
             MyMod.LOG.warn("[ChainModeRegistry] Ignore unregistered mode definition: mode={}", definition.getMode());
             return;
         }
@@ -59,11 +61,27 @@ public final class ChainModeRegistry {
     }
 
     public static List<ChainMode> getRegisteredModes() {
-        return REGISTERED_MODES;
+        List<ChainMode> availableModes = new ArrayList<ChainMode>();
+        for (ChainMode mode : ALL_MODES) {
+            if (CompatAdapters.isModeAvailable(mode)) {
+                availableModes.add(mode);
+            }
+        }
+        return Collections.unmodifiableList(availableModes);
     }
 
     public static ChainMode getDefaultMode() {
         return ChainMode.CHAIN;
+    }
+
+    /**
+     * 规范化主模式，过滤当前不可用的可选模式。
+     *
+     * @param mode 待规范化主模式
+     * @return 可用主模式
+     */
+    public static ChainMode resolveMode(ChainMode mode) {
+        return getRegisteredModes().contains(mode) ? mode : getDefaultMode();
     }
 
     public static ChainModeDefinition getDefinition(ChainMode mode) {
@@ -122,26 +140,28 @@ public final class ChainModeRegistry {
     }
 
     public static ChainMode next(ChainMode currentMode) {
-        int index = REGISTERED_MODES.indexOf(currentMode);
+        List<ChainMode> modes = getRegisteredModes();
+        int index = modes.indexOf(currentMode);
         if (index < 0) {
             return getDefaultMode();
         }
-        return REGISTERED_MODES.get((index + 1) % REGISTERED_MODES.size());
+        return modes.get((index + 1) % modes.size());
     }
 
     public static ChainMode previous(ChainMode currentMode) {
-        int index = REGISTERED_MODES.indexOf(currentMode);
+        List<ChainMode> modes = getRegisteredModes();
+        int index = modes.indexOf(currentMode);
         if (index < 0) {
             return getDefaultMode();
         }
-        return REGISTERED_MODES.get((index - 1 + REGISTERED_MODES.size()) % REGISTERED_MODES.size());
+        return modes.get((index - 1 + modes.size()) % modes.size());
     }
 
     /**
      * 校验当前注册结果，补充缺失定义日志。
      */
     public static void validateDefinitions() {
-        for (ChainMode mode : REGISTERED_MODES) {
+        for (ChainMode mode : getRegisteredModes()) {
             ChainModeDefinition definition = MODE_DEFINITIONS.get(mode);
             if (definition == null) {
                 MyMod.LOG.warn("[ChainModeRegistry] Missing required mode definition after bootstrap: mode={}", mode);

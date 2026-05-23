@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.planner;
 import java.util.ArrayList;
 import java.util.List;
 
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.common.util.ForgeDirection;
 
@@ -84,12 +84,12 @@ public class GregTechCableTraverser implements ChainTraverser {
 
     private List<ChainTarget> resolveConnectedNeighbors(ChainSearchContext context, ChainTarget source) {
         TileEntity tileEntity = context.getWorld().getTileEntity(source.getX(), source.getY(), source.getZ());
-        if (!GregTechCableCompatHelper.isCable(tileEntity)) {
+        if (!CompatAdapters.cable().isCable(tileEntity)) {
             return java.util.Collections.emptyList();
         }
 
         List<ChainTarget> neighbors = new ArrayList<ChainTarget>();
-        for (ForgeDirection side : GregTechCableCompatHelper.getConnectedSides(tileEntity)) {
+        for (ForgeDirection side : CompatAdapters.cable().getConnectedSides(tileEntity)) {
             neighbors.add(new ChainTarget(
                 source.getX() + side.offsetX,
                 source.getY() + side.offsetY,
