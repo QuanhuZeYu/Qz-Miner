@@ -44,7 +44,7 @@ dependencies {
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
-    implementation("com.github.QuanhuZeYu:Qz-UILib:4.1.1-LTS") { transitive = false }
+    devOnlyNonPublishable("com.github.QuanhuZeYu:Qz-UILib:4.1.1-LTS") { transitive = false }
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
