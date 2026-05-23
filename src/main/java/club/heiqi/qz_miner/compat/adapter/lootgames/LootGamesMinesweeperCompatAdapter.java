@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.compat.lootgames;
+package club.heiqi.qz_miner.compat.adapter.lootgames;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -7,6 +7,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.compat.adapter.MinesweeperCompatAdapter;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
@@ -20,33 +21,22 @@ import ru.timeconqueror.lootgames.utils.future.BlockPos;
 import ru.timeconqueror.lootgames.utils.future.BlockState;
 
 /**
- * LootGames 扫雷兼容工具。
+ * LootGames 扫雷兼容适配器。
  */
-public final class LootGamesMinesweeperHelper {
+public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompatAdapter {
 
-    private LootGamesMinesweeperHelper() {}
+    @Override
+    public boolean isAvailable() {
+        return true;
+    }
 
-    /**
-     * 判断当前瞄准方块是否属于扫雷棋盘。
-     *
-     * @param world 当前世界
-     * @param target 当前瞄准坐标
-     * @return 是否属于扫雷棋盘
-     */
-    public static boolean isMinesweeperTarget(World world, ChainTarget target) {
+    @Override
+    public boolean isMinesweeperTarget(World world, ChainTarget target) {
         return resolveMasterTile(world, target) != null;
     }
 
-    /**
-     * 收集指定扫描半径内的雷方块坐标。
-     *
-     * @param world 当前世界
-     * @param target 当前瞄准坐标
-     * @param radius 扫描半径
-     * @param maxTargets 最大返回数量
-     * @return 雷方块坐标列表
-     */
-    public static List<ChainTarget> collectBombTargets(World world, ChainTarget target, int radius, int maxTargets) {
+    @Override
+    public List<ChainTarget> collectBombTargets(World world, ChainTarget target, int radius, int maxTargets) {
         MSMasterTile masterTile = resolveMasterTile(world, target);
         if (masterTile == null) {
             return Collections.emptyList();
@@ -80,14 +70,14 @@ public final class LootGamesMinesweeperHelper {
         return result;
     }
 
-    private static boolean isWithinPreviewRadius(ChainTarget target, BlockPos blockPos, int radius) {
+    private boolean isWithinPreviewRadius(ChainTarget target, BlockPos blockPos, int radius) {
         return Math.abs(blockPos.getX() - target.getX()) <= radius
             && Math.abs(blockPos.getY() - target.getY()) <= radius
             && Math.abs(blockPos.getZ() - target.getZ()) <= radius;
     }
 
     @Nullable
-    private static MSMasterTile resolveMasterTile(World world, ChainTarget target) {
+    private MSMasterTile resolveMasterTile(World world, ChainTarget target) {
         if (world == null || target == null) {
             return null;
         }

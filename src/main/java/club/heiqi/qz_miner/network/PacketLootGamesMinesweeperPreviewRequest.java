@@ -3,9 +3,8 @@ package club.heiqi.qz_miner.network;
 import java.util.List;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.compat.lootgames.LootGamesMinesweeperHelper;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import cpw.mods.fml.common.FMLCommonHandler;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -68,7 +67,7 @@ public class PacketLootGamesMinesweeperPreviewRequest implements IMessage {
 
             EntityPlayerMP player = ctx.getServerHandler().playerEntity;
             ChainTarget target = new ChainTarget(message.targetX, message.targetY, message.targetZ);
-            List<ChainTarget> bombs = LootGamesMinesweeperHelper.collectBombTargets(
+            List<ChainTarget> bombs = CompatAdapters.minesweeper().collectBombTargets(
                 player.worldObj,
                 target,
                 Math.max(1, message.radius),

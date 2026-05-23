@@ -1,8 +1,6 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import bartworks.system.material.TileEntityMetaGeneratedBlock;
-import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
-import gregtech.common.blocks.TileEntityOres;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
@@ -52,37 +50,6 @@ public final class ChainBlockIdentity {
      * @return 是否可视为同类
      */
     public static boolean matchesTileEntity(TileEntity sampleTileEntity, TileEntity targetTileEntity) {
-        if (sampleTileEntity == null && targetTileEntity == null) {
-            return true;
-        }
-
-        if (sampleTileEntity == null || targetTileEntity == null) {
-            return false;
-        }
-
-        if (sampleTileEntity instanceof IGregTechTileEntity sampleGregTechTile
-            && targetTileEntity instanceof IGregTechTileEntity targetGregTechTile) {
-            if (sampleGregTechTile.getMetaTileID() != targetGregTechTile.getMetaTileID()) {
-                return false;
-            }
-
-            if (sampleGregTechTile.getMetaTileEntity() == null || targetGregTechTile.getMetaTileEntity() == null) {
-                return sampleGregTechTile.getMetaTileEntity() == targetGregTechTile.getMetaTileEntity();
-            }
-
-            return sampleGregTechTile.getMetaTileEntity().getClass() == targetGregTechTile.getMetaTileEntity().getClass();
-        }
-
-        if (sampleTileEntity instanceof TileEntityOres sampleOres
-            && targetTileEntity instanceof TileEntityOres targetOres) {
-            return sampleOres.mMetaData == targetOres.mMetaData;
-        }
-
-        if (sampleTileEntity instanceof TileEntityMetaGeneratedBlock sampleMetaGeneratedBlock
-            && targetTileEntity instanceof TileEntityMetaGeneratedBlock targetMetaGeneratedBlock) {
-            return sampleMetaGeneratedBlock.mMetaData == targetMetaGeneratedBlock.mMetaData;
-        }
-
-        return sampleTileEntity.getClass() == targetTileEntity.getClass();
+        return CompatAdapters.matchesTileEntity(sampleTileEntity, targetTileEntity);
     }
 }

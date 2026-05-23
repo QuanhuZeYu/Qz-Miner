@@ -1,6 +1,6 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import club.heiqi.qz_miner.compat.gregtech.GregTechCableCompatHelper;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
 
@@ -22,7 +22,7 @@ public class GregTechCableMatcher implements ChainBlockMatcher {
         }
 
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
-        return GregTechCableCompatHelper.isCable(tileEntity)
-            && GregTechCableCompatHelper.getCableMetaTileId(tileEntity) == sampleMetaTileId;
+        return CompatAdapters.cable().isCable(tileEntity)
+            && CompatAdapters.cable().getCableMetaTileId(tileEntity) == sampleMetaTileId;
     }
 }

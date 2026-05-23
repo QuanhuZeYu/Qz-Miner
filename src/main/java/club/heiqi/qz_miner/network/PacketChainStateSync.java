@@ -71,6 +71,7 @@ public class PacketChainStateSync implements IMessage {
             ChainMode mode = message.modeOrdinal >= 0 && message.modeOrdinal < modes.length
                 ? modes[message.modeOrdinal]
                 : ChainMode.CHAIN;
+            mode = ChainModeRegistry.resolveMode(mode);
             ChainSubMode[] subModes = ChainSubMode.values();
             ChainSubMode subMode = message.subModeOrdinal >= 0 && message.subModeOrdinal < subModes.length
                 ? subModes[message.subModeOrdinal]

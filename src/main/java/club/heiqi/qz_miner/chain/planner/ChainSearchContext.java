@@ -4,10 +4,7 @@ import java.util.Queue;
 import java.util.Set;
 
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
-import ic2.core.crop.TileEntityCrop;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockCrops;
-import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 

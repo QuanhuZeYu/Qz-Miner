@@ -81,7 +81,7 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void setSelectedMode(ChainMode selectedMode) {
         ChainMode previousMode = getSelectedMode();
-        ChainMode newMode = selectedMode == null ? club.heiqi.qz_miner.chain.mode.ChainModeRegistry.getDefaultMode() : selectedMode;
+        ChainMode newMode = club.heiqi.qz_miner.chain.mode.ChainModeRegistry.resolveMode(selectedMode);
         if (previousMode != newMode) {
             MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, previousMode, newMode);
         }

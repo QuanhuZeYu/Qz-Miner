@@ -2,6 +2,7 @@
   "required": true,
   "minVersion": "0.8.5-GTNH",
   "package": "club.heiqi.qz_miner.mixins",
+  "plugin": "club.heiqi.qz_miner.mixins.QzMinerMixinPlugin",
   "refmap": "mixins.qz_miner.refmap.json",
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
