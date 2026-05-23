@@ -1,10 +1,12 @@
 package club.heiqi.qz_miner.mixins;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import net.minecraft.launchwrapper.Launch;
 import org.spongepowered.asm.lib.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -56,11 +58,28 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
         return Collections.unmodifiableMap(targets);
     }
 
+    /**
+     * 判断目标类字节码是否存在。
+     *
+     * <p>Mixin 准备阶段不能用 Class.forName 检查目标类，否则会提前加载 Minecraft/模组类，
+     * 可能导致其他 early mixin 的目标类已加载错误。</p>
+     *
+     * @param className 类名
+     * @return 字节码存在时返回 true
+     */
     private static boolean isClassPresent(String className) {
+        if (Launch.classLoader != null) {
+            try {
+                return Launch.classLoader.getClassBytes(className) != null;
+            } catch (IOException ignored) {
+                return false;
+            }
+        }
+
+        String classResourcePath = className.replace('.', '/') + ".class";
         try {
-            Class.forName(className, false, QzMinerMixinPlugin.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException ignored) {
+            return QzMinerMixinPlugin.class.getClassLoader().getResource(classResourcePath) != null;
+        } catch (RuntimeException ignored) {
             return false;
         }
     }
