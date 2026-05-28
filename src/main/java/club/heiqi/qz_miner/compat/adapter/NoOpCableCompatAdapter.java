@@ -39,7 +39,17 @@ public final class NoOpCableCompatAdapter implements CableCompatAdapter {
     }
 
     @Override
-    public boolean replaceCableKeepingConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
+    public List<ForgeDirection> captureConnectedSides(TileEntity tileEntity) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
+        return false;
+    }
+
+    @Override
+    public boolean reconnectCableSides(TileEntity tileEntity, List<ForgeDirection> connectedSides) {
         return false;
     }
 }

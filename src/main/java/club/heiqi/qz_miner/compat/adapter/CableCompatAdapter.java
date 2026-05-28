@@ -54,7 +54,15 @@ public interface CableCompatAdapter {
     boolean isCableStack(ItemStack stack);
 
     /**
-     * 替换线缆并尽量保留连接状态。
+     * 使用公开连接判定读取当前线缆已连接方向快照。
+     *
+     * @param tileEntity 线缆 TileEntity
+     * @return 当前连接方向快照
+     */
+    List<ForgeDirection> captureConnectedSides(TileEntity tileEntity);
+
+    /**
+     * 替换线缆但暂不恢复连接状态。
      *
      * @param player 执行替换的玩家
      * @param tileEntity 原线缆 TileEntity
@@ -62,5 +70,14 @@ public interface CableCompatAdapter {
      * @param replacementSlotIndex 替换物品所在背包槽位
      * @return 是否替换成功
      */
-    boolean replaceCableKeepingConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex);
+    boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex);
+
+    /**
+     * 按给定方向快照恢复线缆连接。
+     *
+     * @param tileEntity 已替换完成的新线缆 TileEntity
+     * @param connectedSides 旧连接方向快照
+     * @return 是否至少成功恢复一个连接
+     */
+    boolean reconnectCableSides(TileEntity tileEntity, List<ForgeDirection> connectedSides);
 }

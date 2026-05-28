@@ -82,6 +82,10 @@ public class ChainExecutor {
                 continue;
             }
 
+            if (actionExecutor.shouldWaitForPlannerCompletion(session) && !session.isPlannerCompleted()) {
+                continue;
+            }
+
             int maxBreakPerTick = Config.maxBreakPerTick;
             int executedCount = 0;
 
@@ -104,6 +108,10 @@ public class ChainExecutor {
 
             if (executedCount > 0) {
                 session.scheduleNextExecutorRun(nowMillis, 50L);
+            }
+
+            if (queue.isEmpty() && actionExecutor.enqueueFollowUpTargets((EntityPlayerMP) player, session, queue)) {
+                session.scheduleNextExecutorRun(nowMillis, 0L);
             }
 
             if (queue.isEmpty() && session.isPlannerCompleted()) {
