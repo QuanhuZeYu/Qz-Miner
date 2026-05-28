@@ -24,7 +24,7 @@
 - 当前掉落兜底策略：优先释放到当前玩家位置；拿不到当前玩家时，回退到已记录的重生点或世界出生点；再失败才告警丢弃。
 - 当前并行线程仍允许异步读取世界；这只是现状，不表示线程模型已经彻底安全。
 - 世界写入、真实方块破坏、掉落实体生成仍在主线程逻辑中完成。
-- 客户端预览会在断线和客户端世界卸载时停止并行预览任务，并释放 `ChainPreviewMeshCache` 持有的 GPU 资源。
+- 客户端预览会在断线和客户端世界卸载时停止并行预览任务，并释放 `ChainPreviewMeshCache` 持有的 GPU 资源。清理入口位于 `src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java`（`FMLNetworkEvent.ClientDisconnectionFromServerEvent` + `WorldEvent.Unload` 双钩子）。
 
 ## 开发流程约束
 
