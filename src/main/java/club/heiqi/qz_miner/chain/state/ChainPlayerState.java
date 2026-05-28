@@ -13,6 +13,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 public class ChainPlayerState extends AbstractChainModeState {
 
     private final UUID playerUUID;
+    private final ChainPlayerDropBuffer dropBuffer = new ChainPlayerDropBuffer();
     private volatile boolean chainKeyPressed;
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private volatile int requestedChainRadius = -1;
@@ -60,7 +61,7 @@ public class ChainPlayerState extends AbstractChainModeState {
         if (this.executionStatus != newStatus) {
             ChainRuntimeState runtimeState = currentSession == null ? null : currentSession.getRuntimeState();
             int queuedTargets = runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size();
-            int pendingDropsCount = runtimeState == null ? 0 : runtimeState.getPendingDrops().size();
+            int pendingDropsCount = dropBuffer.size();
             boolean waitingForPlanner = runtimeState != null && runtimeState.isPlannerRunning();
             MyMod.LOG.debug(
                 "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
@@ -124,6 +125,15 @@ public class ChainPlayerState extends AbstractChainModeState {
         return session != null && this.session == session;
     }
 
+    /**
+     * 获取玩家级掉落缓冲。
+     *
+     * @return 掉落缓冲
+     */
+    public ChainPlayerDropBuffer getDropBuffer() {
+        return dropBuffer;
+    }
+
     public int getRequestedChainRadius() {
         return requestedChainRadius;
     }
@@ -176,7 +186,9 @@ public class ChainPlayerState extends AbstractChainModeState {
     }
 
     /**
-     * 停止当前连锁，但保留待释放掉落直到掉落实体生成结束。
+     * 停止当前连锁执行。
+     *
+     * 玩家级掉落缓冲会由独立释放流程处理，因此此处只负责结束会话运行态。
      *
      * @param reason 停止原因
      */
@@ -190,10 +202,10 @@ public class ChainPlayerState extends AbstractChainModeState {
         ChainRuntimeState runtimeState = currentSession.getRuntimeState();
         GregTechCableSessionState.clear(currentSession);
         runtimeState.stopExecutionPreservingDrops(reason);
-        if (this.session == currentSession && runtimeState.getPendingDrops().isEmpty()) {
+        if (this.session == currentSession) {
             clearSession();
         }
         MyMod.LOG.debug("[ChainState] Stopped execution for player {}, reason={}, pendingDrops={}",
-            playerUUID, reason, runtimeState.getPendingDrops().size());
+            playerUUID, reason, dropBuffer.size());
     }
 }
