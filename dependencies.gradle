@@ -39,7 +39,7 @@ dependencies {
     }
 
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
-    devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("LootGames"))
+    runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("LootGames"))
     implementation(project.elytraModpackVersion.gtnhdev("GTNHLib"))
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Hodgepodge"))

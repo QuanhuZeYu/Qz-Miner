@@ -157,7 +157,10 @@ public final class CompatAdapters {
     private static MinesweeperCompatAdapter createMinesweeperAdapter() {
         if (ClassNameCompatSupport.isClassPresent("ru.timeconqueror.lootgames.common.block.tile.MSMasterTile")
             && ClassNameCompatSupport.isClassPresent("ru.timeconqueror.lootgames.minigame.minesweeper.GameMineSweeper")) {
-            return new LootGamesMinesweeperCompatAdapter();
+            MinesweeperCompatAdapter adapter = new LootGamesMinesweeperCompatAdapter();
+            if (adapter.isAvailable()) {
+                return adapter;
+            }
         }
         return new NoOpMinesweeperCompatAdapter();
     }

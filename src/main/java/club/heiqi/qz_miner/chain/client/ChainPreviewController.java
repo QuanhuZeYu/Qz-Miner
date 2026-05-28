@@ -42,7 +42,7 @@ public class ChainPreviewController {
     private static final int MAX_SCAN_PER_SLICE = 640;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
-    private ChainTarget currentTarget;
+    private volatile ChainTarget currentTarget;
     private ParallelTickSubscription previewTaskSubscription;
     private int specialPreviewRequestId;
 

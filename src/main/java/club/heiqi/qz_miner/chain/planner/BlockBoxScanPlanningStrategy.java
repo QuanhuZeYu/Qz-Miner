@@ -66,12 +66,10 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
             playerState.getRequestedChainMaxBlocks());
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, "start-area-plan");
-        session.getRuntimeState().setPlannerRunning(true);
-        session.getRuntimeState().setPlannerCompleted(false);
-        session.getRuntimeState().resetExecutorThrottle();
+        session.beginPlanning();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
-        ConcurrentLinkedQueue<ChainTarget> queue = session.getRuntimeState().getPendingBreakTargets();
+        ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
         final ChainPlanningRuntime runtime = createPlanningRuntime(player, session, seedSnapshot);
         if (runtime == null) {
@@ -108,15 +106,15 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 }
 
                 ChainSession currentSession = session;
-                int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
+                int previousMatchedCount = currentSession.getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(
                     searchContext,
                     MAX_SCAN_PER_SLICE,
                     target -> blockMatcher.matches((EntityPlayerMP) currentPlayer, target),
                     queue::add);
-                currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
-                boolean matchedCountChanged = previousMatchedCount != currentSession.getRuntimeState().getMatchedTargetCount();
+                currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
+                boolean matchedCountChanged = previousMatchedCount != currentSession.getMatchedTargetCount();
 
                 if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
                     currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "area-planner-found-targets");
@@ -129,10 +127,8 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                     int pendingDrops = currentState.getDropBuffer().size();
                     MyMod.LOG.debug("[ChainPlanner] Area plan completed for player {}, confirmed={}, queuedTargets={}, pendingDrops={}",
                         playerUUID, searchContext.getConfirmedCount(), queue.size(), pendingDrops);
-                    currentSession.getRuntimeState().setPlannerSubscription(null);
-                    currentSession.getRuntimeState().setPlannerRunning(false);
-                    currentSession.getRuntimeState().setPlannerCompleted(true);
-                    currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
+                    currentSession.markPlanningCompleted();
+                    currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "area-planner-completed-empty-queue");
@@ -151,7 +147,7 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                 return shouldContinue;
             });
 
-        session.getRuntimeState().setPlannerSubscription(subscription);
+        session.setPlannerSubscription(subscription);
         MyMod.LOG.debug("[ChainPlanner] Started area plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
             playerUUID, origin.getX(), origin.getY(), origin.getZ(), Config.chainRadius, Config.chainMaxBlocks);
     }

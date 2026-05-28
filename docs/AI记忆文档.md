@@ -19,12 +19,15 @@
 - `ChainSession` 只描述单次连锁请求与运行态，不再承担玩家资产级掉落缓存职责。
 - 玩家级掉落缓冲位于 `src/main/java/club/heiqi/qz_miner/chain/state/ChainPlayerDropBuffer.java`，由 `ChainPlayerState` 持有。
 - `ChainRuntimeState` 只负责单次会话的规划订阅、遍历队列、待破坏队列、执行节流和匹配计数。
+- `ChainSession` 仍持有 `ChainRuntimeState`，但外部核心链路优先通过 `ChainSession` 委托方法访问运行态，减少直接暴露可变状态对象。
 - 掉落释放与会话生命周期已解耦：会话结束不再依赖旧 `session` 保留到掉落释放完成。
 - 玩家退出、重生、切维度、克隆、单人退主菜单等生命周期事件统一通过 `ChainStateService.cleanupPlayerState(...)` 处理。
+- GT 线缆替换模式的锁定 MetaTileId 会在会话替换、会话清理和玩家生命周期清理时同步移除，避免跨会话残留。
 - 当前掉落兜底策略：优先释放到当前玩家位置；拿不到当前玩家时，回退到已记录的重生点或世界出生点；再失败才告警丢弃。
 - 当前并行线程仍允许异步读取世界；这只是现状，不表示线程模型已经彻底安全。
 - 世界写入、真实方块破坏、掉落实体生成仍在主线程逻辑中完成。
 - 客户端预览会在断线和客户端世界卸载时停止并行预览任务，并释放 `ChainPreviewMeshCache` 持有的 GPU 资源。清理入口位于 `src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java`（`FMLNetworkEvent.ClientDisconnectionFromServerEvent` + `WorldEvent.Unload` 双钩子）。
+- LootGames 扫雷兼容层已改为反射可选加载；构建时不再要求编译期引入 LootGames dev 依赖，运行时若反射调用失败会自动降级停用适配器。
 
 ## 开发流程约束
 

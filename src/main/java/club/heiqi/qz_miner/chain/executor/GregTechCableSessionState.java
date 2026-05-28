@@ -30,6 +30,10 @@ public final class GregTechCableSessionState {
 
     public static void clear(ChainSession session) {
         UUID playerUUID = session == null ? null : session.getPlayerUUID();
+        clear(playerUUID);
+    }
+
+    public static void clear(UUID playerUUID) {
         if (playerUUID == null) {
             return;
         }

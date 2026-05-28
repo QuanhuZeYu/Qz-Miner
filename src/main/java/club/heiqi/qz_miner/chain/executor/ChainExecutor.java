@@ -10,7 +10,6 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
-import club.heiqi.qz_miner.chain.state.ChainRuntimeState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -50,12 +49,6 @@ public class ChainExecutor {
                 continue;
             }
 
-            ChainRuntimeState runtimeState = session.getRuntimeState();
-            if (runtimeState == null) {
-                MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "missing-runtime-state");
-                continue;
-            }
-
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
             if (!(player instanceof EntityPlayerMP)) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "player-unavailable");
@@ -67,8 +60,8 @@ public class ChainExecutor {
                 continue;
             }
 
-            ConcurrentLinkedQueue<ChainTarget> queue = runtimeState.getPendingBreakTargets();
-            if (!runtimeState.isExecutorReady(nowMillis)) {
+            ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
+            if (!session.isExecutorReady(nowMillis)) {
                 continue;
             }
 
@@ -110,10 +103,10 @@ public class ChainExecutor {
             }
 
             if (executedCount > 0) {
-                runtimeState.scheduleNextExecutorRun(nowMillis, 50L);
+                session.scheduleNextExecutorRun(nowMillis, 50L);
             }
 
-            if (queue.isEmpty() && runtimeState.isPlannerCompleted()) {
+            if (queue.isEmpty() && session.isPlannerCompleted()) {
                 MyMod.chainStateService.stopPlayerExecution(playerState.getPlayerUUID(), "executor-consumed-all-targets");
             }
         }

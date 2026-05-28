@@ -32,7 +32,7 @@ public final class ChainPlanningRuntimeFactory {
             return null;
         }
 
-        session.getRuntimeState().getTraversalTargets().clear();
+        session.getTraversalTargets().clear();
         int requestedRadius = session.getRequest().getRequestedChainRadius();
         int requestedMaxBlocks = session.getRequest().getRequestedChainMaxBlocks();
         int effectiveRadius = requestedRadius > 0 ? Math.min(Config.chainRadius, requestedRadius) : Config.chainRadius;
@@ -43,7 +43,7 @@ public final class ChainPlanningRuntimeFactory {
             session.getRequest().getSubMode(),
             effectiveRadius,
             effectiveMaxBlocks,
-            session.getRuntimeState().getTraversalTargets());
+            session.getTraversalTargets());
 
         return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }

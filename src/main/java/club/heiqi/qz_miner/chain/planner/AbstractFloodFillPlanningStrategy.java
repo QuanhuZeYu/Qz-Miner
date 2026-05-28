@@ -53,12 +53,10 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         playerState.clearRuntimeState(getRestartReason());
         playerState.setSession(session);
         playerState.setExecutionStatus(ChainExecutionStatus.PLANNING, getStartReason());
-        session.getRuntimeState().setPlannerRunning(true);
-        session.getRuntimeState().setPlannerCompleted(false);
-        session.getRuntimeState().resetExecutorThrottle();
+        session.beginPlanning();
         MyMod.chainStateService.syncPlayerState(player.getUniqueID());
 
-        ConcurrentLinkedQueue<ChainTarget> queue = session.getRuntimeState().getPendingBreakTargets();
+        ConcurrentLinkedQueue<ChainTarget> queue = session.getPendingBreakTargets();
         final UUID playerUUID = player.getUniqueID();
         final ChainPlanningRuntime runtime = createPlanningRuntime(player, session, seedSnapshot);
         if (runtime == null) {
@@ -70,7 +68,7 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
         if (shouldIncludeOriginTarget() && blockMatcher.matches(player, origin)) {
             queue.add(origin);
             searchContext.incrementConfirmedCount();
-            session.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
+            session.setMatchedTargetCount(searchContext.getConfirmedCount());
         }
         traverser.seed(searchContext);
 
@@ -100,15 +98,15 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                 }
 
                 ChainSession currentSession = session;
-                int previousMatchedCount = currentSession.getRuntimeState().getMatchedTargetCount();
+                int previousMatchedCount = currentSession.getMatchedTargetCount();
 
                 boolean shouldContinue = traverser.step(
                     searchContext,
                     MAX_SCAN_PER_SLICE,
                     target -> blockMatcher.matches((EntityPlayerMP) currentPlayer, target),
                     queue::add);
-                currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
-                boolean matchedCountChanged = previousMatchedCount != currentSession.getRuntimeState().getMatchedTargetCount();
+                currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
+                boolean matchedCountChanged = previousMatchedCount != currentSession.getMatchedTargetCount();
 
                 if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
                     currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, getPlannerReasonPrefix() + "found-targets");
@@ -119,10 +117,8 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
 
                 if (!shouldContinue) {
                     logPlanCompleted(playerUUID, searchContext, queue, currentState);
-                    currentSession.getRuntimeState().setPlannerSubscription(null);
-                    currentSession.getRuntimeState().setPlannerRunning(false);
-                    currentSession.getRuntimeState().setPlannerCompleted(true);
-                    currentSession.getRuntimeState().setMatchedTargetCount(searchContext.getConfirmedCount());
+                    currentSession.markPlanningCompleted();
+                    currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
                         currentState.setExecutionStatus(ChainExecutionStatus.IDLE, getPlannerReasonPrefix() + "completed-empty-queue");
@@ -141,7 +137,7 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                 return shouldContinue;
             });
 
-        session.getRuntimeState().setPlannerSubscription(subscription);
+        session.setPlannerSubscription(subscription);
         MyMod.LOG.debug("[ChainPlanner] Started {} plan for player {} at ({}, {}, {}), radius={}, maxBlocks={}",
             getLogLabel(), playerUUID, origin.getX(), origin.getY(), origin.getZ(), Config.chainRadius, Config.chainMaxBlocks);
     }
