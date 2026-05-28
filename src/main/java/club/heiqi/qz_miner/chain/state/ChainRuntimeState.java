@@ -1,7 +1,5 @@
 package club.heiqi.qz_miner.chain.state;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -9,7 +7,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
-import net.minecraft.item.ItemStack;
 
 /**
  * 单次连锁运行时状态。
@@ -20,7 +17,6 @@ public final class ChainRuntimeState {
     private volatile ParallelTickSubscription plannerSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> traversalTargets = new ConcurrentLinkedQueue<ChainTarget>();
     private final ConcurrentLinkedQueue<ChainTarget> pendingBreakTargets = new ConcurrentLinkedQueue<ChainTarget>();
-    private final List<ItemStack> pendingDrops = new ArrayList<ItemStack>();
     private volatile boolean plannerRunning;
     private volatile boolean plannerCompleted;
     private volatile int matchedTargetCount;
@@ -50,10 +46,6 @@ public final class ChainRuntimeState {
 
     public ConcurrentLinkedQueue<ChainTarget> getPendingBreakTargets() {
         return pendingBreakTargets;
-    }
-
-    public List<ItemStack> getPendingDrops() {
-        return pendingDrops;
     }
 
     public boolean isPlannerRunning() {
@@ -108,7 +100,6 @@ public final class ChainRuntimeState {
         }
         traversalTargets.clear();
         pendingBreakTargets.clear();
-        pendingDrops.clear();
         plannerRunning = false;
         plannerCompleted = false;
         matchedTargetCount = 0;
@@ -118,13 +109,14 @@ public final class ChainRuntimeState {
     }
 
     /**
-     * 停止本次连锁执行，但保留待释放掉落。
+     * 停止本次连锁执行。
+     *
+     * 运行态不再持有掉落缓存，因此这里只清理本次会话的规划与执行状态。
      *
      * @param reason 停止原因
      */
     public void stopExecutionPreservingDrops(String reason) {
         int queuedTargets = pendingBreakTargets.size();
-        int pendingDropCount = pendingDrops.size();
         if (plannerSubscription != null) {
             plannerSubscription.unregister();
             setPlannerSubscription(null);
@@ -135,7 +127,7 @@ public final class ChainRuntimeState {
         plannerCompleted = false;
         matchedTargetCount = 0;
         resetExecutorThrottle();
-        MyMod.LOG.debug("[ChainRuntime] Stopped execution for player {}, reason={}, queuedTargets={}, pendingDrops={}",
-            playerUUID, reason, queuedTargets, pendingDropCount);
+        MyMod.LOG.debug("[ChainRuntime] Stopped execution for player {}, reason={}, queuedTargets={}",
+            playerUUID, reason, queuedTargets);
     }
 }

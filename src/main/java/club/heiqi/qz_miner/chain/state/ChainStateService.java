@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.executor.ChainDropReleaseHelper;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.network.PacketChainStateSync;
@@ -48,15 +49,22 @@ public final class ChainStateService {
     public void removePlayerState(UUID playerUUID, String reason) {
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
+            flushPlayerDrops(state, null, reason);
             state.clearRuntimeState(reason);
         }
     }
 
     public void cleanupPlayerState(UUID playerUUID, String reason, boolean removeState) {
+        cleanupPlayerState(playerUUID, null, reason, removeState);
+    }
+
+    public void cleanupPlayerState(UUID playerUUID, EntityPlayer player, String reason, boolean removeState) {
         ChainPlayerState state = getPlayerState(playerUUID);
         if (state == null) {
             return;
         }
+
+        flushPlayerDrops(state, player, reason);
 
         if (removeState) {
             removePlayerState(playerUUID, reason);
@@ -169,7 +177,7 @@ public final class ChainStateService {
             state.getSelectedMode(),
             state.getExecutionStatus(),
             runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size(),
-            runtimeState == null ? 0 : runtimeState.getPendingDrops().size());
+            state.getDropBuffer().size());
 
         MyMod.networkMain.network.sendTo(
             new PacketChainStateSync(
@@ -196,12 +204,12 @@ public final class ChainStateService {
             && (runtimeState == null
             || (runtimeState.getPlannerSubscription() == null
             && runtimeState.getPendingBreakTargets().isEmpty()
-            && runtimeState.getPendingDrops().isEmpty()))) {
+            && state.getDropBuffer().isEmpty()))) {
             return;
         }
 
         int queuedTargets = runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size();
-        int pendingDrops = runtimeState == null ? 0 : runtimeState.getPendingDrops().size();
+        int pendingDrops = state.getDropBuffer().size();
 
         MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
             playerUUID,
@@ -222,21 +230,48 @@ public final class ChainStateService {
                 break;
             case RESPAWN:
                 getOrCreatePlayerState(playerUUID);
-                cleanupPlayerState(playerUUID, "player-respawn", false);
+                cleanupPlayerState(playerUUID, event.player, "player-respawn", false);
                 break;
             case DIMENSION_CHANGE:
                 getOrCreatePlayerState(playerUUID);
-                cleanupPlayerState(playerUUID, "player-dimension-change", false);
+                cleanupPlayerState(playerUUID, event.player, "player-dimension-change", false);
                 break;
             case CLONE:
                 getOrCreatePlayerState(playerUUID);
-                cleanupPlayerState(playerUUID, "player-clone", false);
+                cleanupPlayerState(playerUUID, event.player, "player-clone", false);
                 break;
             case LOGOUT:
-                cleanupPlayerState(playerUUID, "player-logout", true);
+                cleanupPlayerState(playerUUID, event.player, "player-logout", true);
                 break;
             default:
                 break;
         }
+    }
+
+    private void flushPlayerDrops(ChainPlayerState state, EntityPlayer player, String reason) {
+        if (state == null || state.getDropBuffer().isEmpty()) {
+            return;
+        }
+
+        EntityPlayer playerSnapshot = player;
+        if (playerSnapshot == null && MyMod.playerManager != null) {
+            playerSnapshot = MyMod.playerManager.getPlayer(state.getPlayerUUID());
+        }
+
+        if (playerSnapshot instanceof EntityPlayerMP
+            && ChainDropReleaseHelper.releaseAtPlayer((EntityPlayerMP) playerSnapshot, state.getDropBuffer(), reason)) {
+            return;
+        }
+
+        if (playerSnapshot != null
+            && ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(playerSnapshot, state.getDropBuffer(), reason)) {
+            return;
+        }
+
+        if (ChainDropReleaseHelper.releaseAtRememberedTarget(state.getDropBuffer(), state.getPlayerUUID().toString(), reason)) {
+            return;
+        }
+
+        ChainDropReleaseHelper.discard(state.getPlayerUUID().toString(), state.getDropBuffer(), reason + "-missing-release-context");
     }
 }
