@@ -1,13 +1,17 @@
 package club.heiqi.qz_miner.client;
 
+import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import cpw.mods.fml.client.FMLClientHandler;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.network.FMLNetworkEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.world.WorldEvent;
 
 /**
  * 客户端连接事件监听。
@@ -15,8 +19,12 @@ import cpw.mods.fml.relauncher.SideOnly;
 @SideOnly(Side.CLIENT)
 public class ClientConnectionListener {
 
+    /**
+     * 注册客户端连接与世界生命周期监听。
+     */
     public void register() {
-        cpw.mods.fml.common.FMLCommonHandler.instance().bus().register(this);
+        FMLCommonHandler.instance().bus().register(this);
+        MinecraftForge.EVENT_BUS.register(this);
     }
 
     @SubscribeEvent
@@ -31,5 +39,44 @@ public class ClientConnectionListener {
         }
 
         MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(Config.chainRadius, Config.chainMaxBlocks));
+    }
+
+    /**
+     * 在客户端断开连接时清理预览任务与 GPU 缓存。
+     *
+     * @param event 客户端断线事件
+     */
+    @SubscribeEvent
+    public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+        cleanupPreviewResources("client-disconnect");
+    }
+
+    /**
+     * 在客户端世界卸载时清理预览任务与 GPU 缓存。
+     *
+     * @param event 世界卸载事件
+     */
+    @SubscribeEvent
+    public void onWorldUnload(WorldEvent.Unload event) {
+        if (event.world == null || !event.world.isRemote) {
+            return;
+        }
+
+        cleanupPreviewResources("client-world-unload");
+    }
+
+    /**
+     * 统一清理客户端预览运行态与 GPU 资源。
+     *
+     * @param reason 清理原因
+     */
+    private void cleanupPreviewResources(String reason) {
+        MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
+        if (ClientProxy.chainPreviewController != null) {
+            ClientProxy.chainPreviewController.stopPreviewForLifecycle();
+        }
+        if (ClientProxy.chainPreviewRenderer != null) {
+            ClientProxy.chainPreviewRenderer.disposeForLifecycle();
+        }
     }
 }

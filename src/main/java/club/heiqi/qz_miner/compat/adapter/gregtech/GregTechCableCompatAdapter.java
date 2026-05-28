@@ -11,6 +11,7 @@ import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.BaseMetaPipeEntity;
 import gregtech.api.metatileentity.implementations.MTECable;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.common.util.ForgeDirection;
@@ -46,9 +47,25 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         }
 
         List<ForgeDirection> connectedSides = new ArrayList<ForgeDirection>();
-        byte connections = baseMetaPipeEntity.mConnections;
+        byte connections = baseMetaPipeEntity.getConnections();
         for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
             if ((connections & side.flag) != 0) {
+                connectedSides.add(side);
+            }
+        }
+        return connectedSides;
+    }
+
+    @Override
+    public List<ForgeDirection> captureConnectedSides(TileEntity tileEntity) {
+        MTECable cable = getCable(tileEntity);
+        if (cable == null) {
+            return Collections.emptyList();
+        }
+
+        List<ForgeDirection> connectedSides = new ArrayList<ForgeDirection>();
+        for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
+            if (cable.isConnectedAtSide(side)) {
                 connectedSides.add(side);
             }
         }
@@ -61,12 +78,13 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
     }
 
     @Override
-    public boolean replaceCableKeepingConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
+    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
         BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
         if (player == null || baseMetaPipeEntity == null || replacementStack == null) {
             return false;
         }
 
+        List<ForgeDirection> oldConnectedSides = captureConnectedSides(baseMetaPipeEntity);
         MTECable oldCable = getCable(baseMetaPipeEntity);
         MTECable handCable = createCableFromStack(replacementStack);
         if (oldCable == null || handCable == null) {
@@ -80,7 +98,6 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
             return false;
         }
 
-        byte oldConnections = oldCable.mConnections;
         short oldMetaId = (short) baseMetaPipeEntity.getMetaTileID();
         short newMetaId = (short) replacementStack.getItemDamage();
 
@@ -89,11 +106,11 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
             return false;
         }
 
-        newCable.mConnections = oldConnections;
-
         baseMetaPipeEntity.setMetaTileID(newMetaId);
         baseMetaPipeEntity.setMetaTileEntity(newCable);
-        baseMetaPipeEntity.mConnections = oldConnections;
+        for (ForgeDirection side : oldConnectedSides) {
+            newCable.disconnect(side);
+        }
         baseMetaPipeEntity.markDirty();
         baseMetaPipeEntity.issueTextureUpdate();
         baseMetaPipeEntity.issueBlockUpdate();
@@ -111,6 +128,43 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
 
         consumeReplacementStack(player, replacementStack, replacementSlotIndex, oldMetaId);
         return true;
+    }
+
+    @Override
+    public boolean reconnectCableSides(TileEntity tileEntity, List<ForgeDirection> connectedSides) {
+        MTECable cable = getCable(tileEntity);
+        BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
+        if (cable == null || baseMetaPipeEntity == null || connectedSides == null || connectedSides.isEmpty()) {
+            return false;
+        }
+
+        boolean connected = false;
+        for (ForgeDirection side : connectedSides) {
+            if (side == null || side == ForgeDirection.UNKNOWN) {
+                continue;
+            }
+
+            if (cable.connect(side) > 0) {
+                connected = true;
+            }
+        }
+
+        baseMetaPipeEntity.markDirty();
+        baseMetaPipeEntity.issueTextureUpdate();
+        baseMetaPipeEntity.issueBlockUpdate();
+        baseMetaPipeEntity.issueClientUpdate();
+        GregTechAPI.causeCableUpdate(baseMetaPipeEntity.getWorld(), baseMetaPipeEntity.xCoord, baseMetaPipeEntity.yCoord, baseMetaPipeEntity.zCoord);
+        for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
+            TileEntity neighborTileEntity = baseMetaPipeEntity.getTileEntityAtSide(side);
+            if (neighborTileEntity instanceof BaseMetaPipeEntity neighborPipeEntity) {
+                neighborPipeEntity.issueClientUpdate();
+                neighborPipeEntity.issueTextureUpdate();
+                neighborPipeEntity.issueBlockUpdate();
+                GregTechAPI.causeCableUpdate(neighborPipeEntity.getWorld(), neighborPipeEntity.xCoord, neighborPipeEntity.yCoord, neighborPipeEntity.zCoord);
+            }
+        }
+
+        return connected;
     }
 
     private MTECable getCable(TileEntity tileEntity) {
@@ -136,7 +190,15 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
             return null;
         }
 
-        IMetaTileEntity metaTileEntity = gregtech.common.blocks.ItemMachines.getMetaTileEntity(stack);
+        Item machineItem = Item.getItemFromBlock(GregTechAPI.sBlockMachines);
+        if (machineItem == null || stack.getItem() != machineItem) {
+            return null;
+        }
+        int metaTileId = stack.getItemDamage();
+        if (metaTileId < 0 || metaTileId >= GregTechAPI.METATILEENTITIES.length) {
+            return null;
+        }
+        IMetaTileEntity metaTileEntity = GregTechAPI.METATILEENTITIES[metaTileId];
         return metaTileEntity instanceof MTECable cable ? cable : null;
     }
 

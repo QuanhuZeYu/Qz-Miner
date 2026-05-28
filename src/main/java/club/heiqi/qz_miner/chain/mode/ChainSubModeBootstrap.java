@@ -137,7 +137,7 @@ public final class ChainSubModeBootstrap {
         registerSubMode(
             ChainSubMode.SPECIAL_GT_CABLE_REPLACE,
             ChainSubModeTrigger.LEFT_CLICK_BLOCK,
-            context -> new GregTechCableTraverser(),
+            context -> new GregTechCableTraverser(context == null ? null : context.getSession()),
             context -> new GregTechCableMatcher(context == null || context.getSearchContext() == null ? -1
                 : CompatAdapters.cable().getCableMetaTileId(context.getSearchContext().getSampleTileEntity())),
             context -> target -> {

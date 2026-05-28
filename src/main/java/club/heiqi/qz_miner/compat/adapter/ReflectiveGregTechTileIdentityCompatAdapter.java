@@ -2,6 +2,9 @@ package club.heiqi.qz_miner.compat.adapter;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import net.minecraft.tileentity.TileEntity;
 
@@ -11,6 +14,8 @@ import net.minecraft.tileentity.TileEntity;
 public final class ReflectiveGregTechTileIdentityCompatAdapter implements TileIdentityCompatAdapter {
 
     private final Class<?> gregTechTileEntityType;
+    private final Map<String, Method> methodCache = new ConcurrentHashMap<String, Method>();
+    private final Set<String> missingMethods = ConcurrentHashMap.newKeySet();
 
     /**
      * 创建 GregTech TileEntity 身份适配器。
@@ -54,10 +59,38 @@ public final class ReflectiveGregTechTileIdentityCompatAdapter implements TileId
             return null;
         }
 
+        Method method = resolveMethod(owner.getClass(), methodName);
+        if (method == null) {
+            return null;
+        }
+
         try {
-            Method method = owner.getClass().getMethod(methodName);
             return method.invoke(owner);
-        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException ignored) {
+        } catch (IllegalAccessException | InvocationTargetException ignored) {
+            return null;
+        }
+    }
+
+    private Method resolveMethod(Class<?> ownerType, String methodName) {
+        if (ownerType == null || methodName == null || methodName.isEmpty()) {
+            return null;
+        }
+
+        String cacheKey = ownerType.getName() + "#" + methodName;
+        Method cachedMethod = methodCache.get(cacheKey);
+        if (cachedMethod != null) {
+            return cachedMethod;
+        }
+        if (missingMethods.contains(cacheKey)) {
+            return null;
+        }
+
+        try {
+            Method resolvedMethod = ownerType.getMethod(methodName);
+            Method previousMethod = methodCache.putIfAbsent(cacheKey, resolvedMethod);
+            return previousMethod == null ? resolvedMethod : previousMethod;
+        } catch (NoSuchMethodException ignored) {
+            missingMethods.add(cacheKey);
             return null;
         }
     }

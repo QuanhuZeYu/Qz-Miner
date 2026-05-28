@@ -42,7 +42,7 @@ public class ChainPreviewController {
     private static final int MAX_SCAN_PER_SLICE = 640;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
-    private ChainTarget currentTarget;
+    private volatile ChainTarget currentTarget;
     private ParallelTickSubscription previewTaskSubscription;
     private int specialPreviewRequestId;
 
@@ -52,6 +52,13 @@ public class ChainPreviewController {
 
     public ChainPreviewState getPreviewState() {
         return previewState;
+    }
+
+    /**
+     * 在客户端生命周期结束时停止当前预览任务并清空状态。
+     */
+    public void stopPreviewForLifecycle() {
+        stopPreview();
     }
 
     @SubscribeEvent

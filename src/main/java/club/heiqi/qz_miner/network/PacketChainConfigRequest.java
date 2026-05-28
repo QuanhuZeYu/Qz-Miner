@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.network;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -48,8 +49,14 @@ public class PacketChainConfigRequest implements IMessage {
 
             EntityPlayerMP player = ctx.getServerHandler().playerEntity;
             ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
-            state.setRequestedChainRadius(message.requestedChainRadius > 0 ? message.requestedChainRadius : -1);
-            state.setRequestedChainMaxBlocks(message.requestedChainMaxBlocks > 0 ? message.requestedChainMaxBlocks : -1);
+            int requestedRadius = message.requestedChainRadius > 0
+                ? Math.min(Config.chainRadius, message.requestedChainRadius)
+                : -1;
+            int requestedMaxBlocks = message.requestedChainMaxBlocks > 0
+                ? Math.min(Config.chainMaxBlocks, message.requestedChainMaxBlocks)
+                : -1;
+            state.setRequestedChainRadius(requestedRadius);
+            state.setRequestedChainMaxBlocks(requestedMaxBlocks);
             MyMod.LOG.debug("[ChainConfig] Received client request config for player {} radius={} maxBlocks={}",
                 player.getUniqueID(), state.getRequestedChainRadius(), state.getRequestedChainMaxBlocks());
             return null;

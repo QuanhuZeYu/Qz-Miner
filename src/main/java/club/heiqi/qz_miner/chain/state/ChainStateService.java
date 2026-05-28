@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.ChainDropReleaseHelper;
+import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.network.PacketChainStateSync;
@@ -47,6 +48,7 @@ public final class ChainStateService {
     }
 
     public void removePlayerState(UUID playerUUID, String reason) {
+        GregTechCableSessionState.clear(playerUUID);
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
             flushPlayerDrops(state, null, reason);
@@ -63,6 +65,8 @@ public final class ChainStateService {
         if (state == null) {
             return;
         }
+
+        GregTechCableSessionState.clear(playerUUID);
 
         flushPlayerDrops(state, player, reason);
 
@@ -162,8 +166,6 @@ public final class ChainStateService {
             return;
         }
 
-        ChainRuntimeState runtimeState = state.getRuntimeState();
-
         EntityPlayer player = MyMod.playerManager.getPlayer(playerUUID);
         if (!(player instanceof EntityPlayerMP)) {
             return;
@@ -176,7 +178,7 @@ public final class ChainStateService {
             state.isExecuting(),
             state.getSelectedMode(),
             state.getExecutionStatus(),
-            runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size(),
+            state.getPendingBreakTargetCount(),
             state.getDropBuffer().size());
 
         MyMod.networkMain.network.sendTo(
@@ -188,7 +190,7 @@ public final class ChainStateService {
                 state.getExecutionStatus(),
                 Config.chainRadius,
                 Config.chainMaxBlocks,
-                runtimeState == null ? 0 : runtimeState.getMatchedTargetCount()),
+                state.getMatchedTargetCount()),
             (EntityPlayerMP) player);
     }
 
@@ -198,17 +200,14 @@ public final class ChainStateService {
             return;
         }
 
-        ChainRuntimeState runtimeState = state.getRuntimeState();
-
         if (!state.isExecuting()
-            && (runtimeState == null
-            || (runtimeState.getPlannerSubscription() == null
-            && runtimeState.getPendingBreakTargets().isEmpty()
-            && state.getDropBuffer().isEmpty()))) {
+            && !state.hasPlannerSubscription()
+            && state.getPendingBreakTargetCount() <= 0
+            && state.getDropBuffer().isEmpty()) {
             return;
         }
 
-        int queuedTargets = runtimeState == null ? 0 : runtimeState.getPendingBreakTargets().size();
+        int queuedTargets = state.getPendingBreakTargetCount();
         int pendingDrops = state.getDropBuffer().size();
 
         MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",

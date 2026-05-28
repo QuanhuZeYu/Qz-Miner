@@ -36,6 +36,15 @@ public class ChainPreviewRenderer {
     }
 
     /**
+     * 在客户端生命周期结束时释放预览网格缓存。
+     */
+    public void disposeForLifecycle() {
+        meshCache.dispose();
+        lastGeneration = -1;
+        lastRenderRevision = -1;
+    }
+
+    /**
      * 在世界最后渲染阶段绘制基础线框预览。
      *
      * @param event 世界渲染事件
@@ -119,7 +128,7 @@ public class ChainPreviewRenderer {
      * 清理当前缓存的预览网格。
      */
     private void clearMesh() {
-        meshCache.upload(ChainPreviewMesh.EMPTY);
+        meshCache.clear();
         lastGeneration = -1;
         lastRenderRevision = -1;
     }

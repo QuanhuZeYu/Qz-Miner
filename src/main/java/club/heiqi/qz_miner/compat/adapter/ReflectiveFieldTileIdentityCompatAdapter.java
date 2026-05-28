@@ -1,6 +1,9 @@
 package club.heiqi.qz_miner.compat.adapter;
 
 import java.lang.reflect.Field;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import net.minecraft.tileentity.TileEntity;
 
@@ -11,6 +14,8 @@ public final class ReflectiveFieldTileIdentityCompatAdapter implements TileIdent
 
     private final Class<?> tileEntityType;
     private final String fieldName;
+    private final Map<String, Field> fieldCache = new ConcurrentHashMap<String, Field>();
+    private final Set<String> missingFields = ConcurrentHashMap.newKeySet();
 
     /**
      * 创建字段型身份适配器。
@@ -46,11 +51,39 @@ public final class ReflectiveFieldTileIdentityCompatAdapter implements TileIdent
             return Integer.MIN_VALUE;
         }
 
+        Field field = resolveField(tileEntity.getClass());
+        if (field == null) {
+            return Integer.MIN_VALUE;
+        }
+
         try {
-            Field field = tileEntity.getClass().getField(fieldName);
             return field.getInt(tileEntity);
         } catch (ReflectiveOperationException ignored) {
             return Integer.MIN_VALUE;
+        }
+    }
+
+    private Field resolveField(Class<?> ownerType) {
+        if (ownerType == null || fieldName == null || fieldName.isEmpty()) {
+            return null;
+        }
+
+        String cacheKey = ownerType.getName() + "#" + fieldName;
+        Field cachedField = fieldCache.get(cacheKey);
+        if (cachedField != null) {
+            return cachedField;
+        }
+        if (missingFields.contains(cacheKey)) {
+            return null;
+        }
+
+        try {
+            Field resolvedField = ownerType.getField(fieldName);
+            Field previousField = fieldCache.putIfAbsent(cacheKey, resolvedField);
+            return previousField == null ? resolvedField : previousField;
+        } catch (NoSuchFieldException ignored) {
+            missingFields.add(cacheKey);
+            return null;
         }
     }
 }
