@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.network;
 
 import java.util.List;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
@@ -67,11 +68,13 @@ public class PacketLootGamesMinesweeperPreviewRequest implements IMessage {
 
             EntityPlayerMP player = ctx.getServerHandler().playerEntity;
             ChainTarget target = new ChainTarget(message.targetX, message.targetY, message.targetZ);
+            int requestedRadius = Math.max(1, Math.min(Config.chainRadius, message.radius));
+            int requestedMaxTargets = Math.max(1, Math.min(Config.chainMaxBlocks, message.maxTargets));
             List<ChainTarget> bombs = CompatAdapters.minesweeper().collectBombTargets(
                 player.worldObj,
                 target,
-                Math.max(1, message.radius),
-                Math.max(1, message.maxTargets));
+                requestedRadius,
+                requestedMaxTargets);
             MyMod.networkMain.network.sendTo(new PacketLootGamesMinesweeperPreviewResponse(message.requestId, target, bombs), player);
             return null;
         }

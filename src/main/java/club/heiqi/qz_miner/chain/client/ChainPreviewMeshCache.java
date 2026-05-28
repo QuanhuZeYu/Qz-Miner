@@ -137,6 +137,13 @@ public class ChainPreviewMeshCache {
     }
 
     /**
+     * 清空当前缓存的索引数量，但保留已分配的 GPU 缓冲。
+     */
+    public void clear() {
+        indexCount = 0;
+    }
+
+    /**
      * 释放 GPU 资源。
      */
     public void dispose() {

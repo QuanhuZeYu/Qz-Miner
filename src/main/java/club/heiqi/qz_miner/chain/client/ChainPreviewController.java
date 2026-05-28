@@ -54,6 +54,13 @@ public class ChainPreviewController {
         return previewState;
     }
 
+    /**
+     * 在客户端生命周期结束时停止当前预览任务并清空状态。
+     */
+    public void stopPreviewForLifecycle() {
+        stopPreview();
+    }
+
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
