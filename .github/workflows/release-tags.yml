@@ -12,3 +12,15 @@ jobs:
   release-tags:
     uses: GTNewHorizons/GTNH-Actions-Workflows/.github/workflows/release-tags.yml@master
     secrets: inherit
+
+  normalize-release-title:
+    name: Normalize release title
+    needs: release-tags
+    runs-on: ubuntu-24.04
+    if: ${{ always() && needs.release-tags.result == 'success' }}
+    steps:
+      - name: Set release title to tag name
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG"
