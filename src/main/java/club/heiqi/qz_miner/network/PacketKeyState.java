@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.network;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.ChainConstants;
+import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -53,12 +54,20 @@ public class PacketKeyState implements IMessage {
 
         @Override
         public IMessage onMessage(PacketKeyState message, MessageContext ctx) {
-            EntityPlayerMP player = ctx.getServerHandler().playerEntity;
-            if (message.keyId == ChainConstants.KEY_CHAIN && MyMod.chainStateService != null) {
-                MyMod.chainStateService.setPlayerChainKeyPressed(player.getUniqueID(), message.pressed);
-            }
-            MyMod.LOG.debug("[Network] Player {} key state: keyId={}, pressed={}",
-                    player.getCommandSenderName(), message.keyId, message.pressed);
+            final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+            final int keyId = message.keyId;
+            final boolean pressed = message.pressed;
+            ServerMainThreadDispatcher.run(() -> {
+                if (player == null) {
+                    return;
+                }
+
+                if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainStateService != null) {
+                    MyMod.chainStateService.setPlayerChainKeyPressed(player.getUniqueID(), pressed);
+                }
+                MyMod.LOG.debug("[Network] Player {} key state: keyId={}, pressed={}",
+                    player.getCommandSenderName(), keyId, pressed);
+            });
             return null;
         }
     }

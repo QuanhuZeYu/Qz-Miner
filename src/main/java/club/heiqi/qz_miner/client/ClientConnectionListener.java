@@ -29,16 +29,18 @@ public class ClientConnectionListener {
 
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
-        if (MyMod.chainStateService == null) {
-            return;
-        }
+        ClientMainThreadDispatcher.run(() -> {
+            if (MyMod.chainStateService == null) {
+                return;
+            }
 
-        MyMod.chainStateService.setClientRequestedChainConfig(Config.chainRadius, Config.chainMaxBlocks);
-        if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
-            return;
-        }
+            MyMod.chainStateService.setClientRequestedChainConfig(Config.chainRadius, Config.chainMaxBlocks);
+            if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
+                return;
+            }
 
-        MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(Config.chainRadius, Config.chainMaxBlocks));
+            MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(Config.chainRadius, Config.chainMaxBlocks));
+        });
     }
 
     /**
@@ -71,6 +73,15 @@ public class ClientConnectionListener {
      * @param reason 清理原因
      */
     private void cleanupPreviewResources(String reason) {
+        ClientMainThreadDispatcher.run(() -> cleanupPreviewResourcesOnClientThread(reason));
+    }
+
+    /**
+     * 在客户端主线程执行预览资源清理。
+     *
+     * @param reason 清理原因
+     */
+    private void cleanupPreviewResourcesOnClientThread(String reason) {
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
         if (ClientProxy.chainPreviewController != null) {
             ClientProxy.chainPreviewController.stopPreviewForLifecycle();

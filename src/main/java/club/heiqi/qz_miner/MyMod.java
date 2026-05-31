@@ -19,6 +19,7 @@ import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
 import club.heiqi.qz_miner.network.NetworkMain;
 import club.heiqi.qz_miner.parallel.ParallelTickExecutor;
+import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -91,6 +92,7 @@ public class MyMod {
         }
         chainDropCollector = new ChainDropCollector();
         chainExecutor = new ChainExecutor();
+        ServerMainThreadDispatcher.bootstrap();
         ensureParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",
@@ -107,11 +109,14 @@ public class MyMod {
     @Mod.EventHandler
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
+        ServerMainThreadDispatcher.onServerStarting();
         proxy.serverStarting(event);
     }
 
     @Mod.EventHandler
     public void serverStopping(FMLServerStoppingEvent event) {
+        ServerMainThreadDispatcher.onServerStopping();
+        PlayerManager.clearAllPlayers();
         if (parallelTickExecutor != null) {
             parallelTickExecutor.shutdown();
             parallelTickExecutor = null;

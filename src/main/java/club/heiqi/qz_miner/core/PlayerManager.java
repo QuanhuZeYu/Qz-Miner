@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.event.PlayerDisconnectEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent.Reason;
 import club.heiqi.qz_miner.event.QzEvents;
+import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
@@ -52,6 +53,17 @@ public final class PlayerManager {
      * 清空所有玩家（由客户端 Mixin 调用，用于单人模式退出）。
      */
     public static void clearAllPlayers() {
+        if (instance == null || instance.players.isEmpty()) {
+            return;
+        }
+
+        ServerMainThreadDispatcher.run(PlayerManager::clearAllPlayersOnServerThread);
+    }
+
+    /**
+     * 在服务端主线程清空当前追踪的玩家。
+     */
+    private static void clearAllPlayersOnServerThread() {
         if (instance == null || instance.players.isEmpty()) {
             return;
         }
@@ -120,6 +132,15 @@ public final class PlayerManager {
      * 玩家断开连接（通过 Mixin 注入，比 Forge 原生事件更准确）。
      */
     public void onPlayerDisconnect(PlayerDisconnectEvent event) {
+        ServerMainThreadDispatcher.run(() -> onPlayerDisconnectOnServerThread(event));
+    }
+
+    /**
+     * 在服务端主线程处理玩家断线清理。
+     *
+     * @param event 玩家断线事件
+     */
+    private void onPlayerDisconnectOnServerThread(PlayerDisconnectEvent event) {
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
         players.remove(uuid);

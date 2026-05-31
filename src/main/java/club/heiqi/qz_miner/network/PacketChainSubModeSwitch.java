@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.network;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -43,17 +44,20 @@ public class PacketChainSubModeSwitch implements IMessage {
 
         @Override
         public IMessage onMessage(PacketChainSubModeSwitch message, MessageContext ctx) {
-            if (MyMod.chainStateService == null) {
-                return null;
-            }
+            final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+            final int subModeOrdinal = message.subModeOrdinal;
+            ServerMainThreadDispatcher.run(() -> {
+                if (MyMod.chainStateService == null || player == null) {
+                    return;
+                }
 
-            EntityPlayerMP player = ctx.getServerHandler().playerEntity;
-            ChainSubMode[] subModes = ChainSubMode.values();
-            ChainSubMode subMode = message.subModeOrdinal >= 0 && message.subModeOrdinal < subModes.length
-                ? subModes[message.subModeOrdinal]
-                : null;
+                ChainSubMode[] subModes = ChainSubMode.values();
+                ChainSubMode subMode = subModeOrdinal >= 0 && subModeOrdinal < subModes.length
+                    ? subModes[subModeOrdinal]
+                    : null;
 
-            MyMod.chainStateService.setPlayerSelectedSubMode(player.getUniqueID(), subMode);
+                MyMod.chainStateService.setPlayerSelectedSubMode(player.getUniqueID(), subMode);
+            });
             return null;
         }
     }
