@@ -2,7 +2,10 @@ package club.heiqi.qz_miner.mixins;
 
 import bartworks.system.material.BWTileEntityMetaGeneratedOre;
 import club.heiqi.qz_miner.compat.FortuneCompatHelper;
-import java.util.Random;
+import com.llamalad7.mixinextras.expression.Definition;
+import com.llamalad7.mixinextras.expression.Expression;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import com.llamalad7.mixinextras.sugar.Local;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -27,17 +30,17 @@ public abstract class MixinBWTileEntityMetaGeneratedOre {
     }
 
     /**
-     * 按配置解除 BW 普通矿时运 3 级上限。
+     * 按配置绕过 BW 普通矿的时运 3 级截断。
      *
-     * @param random 随机数实例
-     * @param currentBound 原始随机上界
-     * @param fortune 原始时运等级
-     * @return 调整后的随机结果
+     * @param original 原版判断结果
+     * @return 最终是否保留原版时运上限判断
      */
-    @Redirect(
+    @Definition(id = "fortuneLevel", local = @Local(type = int.class, argsOnly = true))
+    @Expression("fortuneLevel > 3")
+    @ModifyExpressionValue(
         method = "getDrops(I)Ljava/util/ArrayList;",
-        at = @At(value = "INVOKE", target = "Ljava/util/Random;nextInt(I)I", ordinal = 0))
-    private int qzMiner$removeOreFortuneCap(Random random, int currentBound, int fortune) {
-        return random.nextInt(FortuneCompatHelper.resolveCommonOreFortuneRollBound(currentBound, fortune));
+        at = @At(value = "MIXINEXTRAS:EXPRESSION"))
+    private boolean qzMiner$removeOreFortuneCap(boolean original) {
+        return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);
     }
 }

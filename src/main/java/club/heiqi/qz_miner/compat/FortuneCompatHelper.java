@@ -20,32 +20,12 @@ public final class FortuneCompatHelper {
     }
 
     /**
-     * 计算 GT 普通矿时运随机上界。
+     * 根据配置决定是否保留原版的时运 3 级上限判断。
      *
-     * @param currentBound 原逻辑计算出的随机上界
-     * @param originalFortune 原始时运等级
-     * @return 最终随机上界
+     * @param original 原版判断结果
+     * @return 最终是否保留原版判断
      */
-    public static int resolveGtOreFortuneRollBound(int currentBound, int originalFortune) {
-        if (!Config.enableUnlimitedOreFortune || originalFortune <= 3) {
-            return currentBound;
-        }
-
-        return originalFortune + 2;
-    }
-
-    /**
-     * 计算 BW/GT++ 普通矿时运随机上界。
-     *
-     * @param currentBound 原逻辑计算出的随机上界
-     * @param originalFortune 原始时运等级
-     * @return 最终随机上界
-     */
-    public static int resolveCommonOreFortuneRollBound(int currentBound, int originalFortune) {
-        if (!Config.enableUnlimitedOreFortune || originalFortune <= 3) {
-            return currentBound;
-        }
-
-        return originalFortune;
+    public static boolean shouldKeepFortuneCapCheck(boolean original) {
+        return original && !Config.enableUnlimitedOreFortune;
     }
 }
