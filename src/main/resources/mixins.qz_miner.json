@@ -1,6 +1,9 @@
 {
   "required": true,
   "minVersion": "0.8.5-GTNH",
+  "mixinextras": {
+    "minVersion": "0.5.0"
+  },
   "package": "club.heiqi.qz_miner.mixins",
   "plugin": "club.heiqi.qz_miner.mixins.QzMinerMixinPlugin",
   "refmap": "mixins.qz_miner.refmap.json",
