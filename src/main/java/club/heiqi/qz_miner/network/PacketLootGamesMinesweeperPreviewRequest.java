@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -62,20 +63,28 @@ public class PacketLootGamesMinesweeperPreviewRequest implements IMessage {
 
         @Override
         public IMessage onMessage(final PacketLootGamesMinesweeperPreviewRequest message, final MessageContext ctx) {
-            if (MyMod.networkMain == null) {
-                return null;
-            }
+            final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+            final int requestId = message.requestId;
+            final int targetX = message.targetX;
+            final int targetY = message.targetY;
+            final int targetZ = message.targetZ;
+            final int radius = message.radius;
+            final int maxTargets = message.maxTargets;
+            ServerMainThreadDispatcher.run(() -> {
+                if (MyMod.networkMain == null || player == null || player.worldObj == null) {
+                    return;
+                }
 
-            EntityPlayerMP player = ctx.getServerHandler().playerEntity;
-            ChainTarget target = new ChainTarget(message.targetX, message.targetY, message.targetZ);
-            int requestedRadius = Math.max(1, Math.min(Config.chainRadius, message.radius));
-            int requestedMaxTargets = Math.max(1, Math.min(Config.chainMaxBlocks, message.maxTargets));
-            List<ChainTarget> bombs = CompatAdapters.minesweeper().collectBombTargets(
-                player.worldObj,
-                target,
-                requestedRadius,
-                requestedMaxTargets);
-            MyMod.networkMain.network.sendTo(new PacketLootGamesMinesweeperPreviewResponse(message.requestId, target, bombs), player);
+                ChainTarget target = new ChainTarget(targetX, targetY, targetZ);
+                int requestedRadius = Math.max(1, Math.min(Config.chainRadius, radius));
+                int requestedMaxTargets = Math.max(1, Math.min(Config.chainMaxBlocks, maxTargets));
+                List<ChainTarget> bombs = CompatAdapters.minesweeper().collectBombTargets(
+                    player.worldObj,
+                    target,
+                    requestedRadius,
+                    requestedMaxTargets);
+                MyMod.networkMain.network.sendTo(new PacketLootGamesMinesweeperPreviewResponse(requestId, target, bombs), player);
+            });
             return null;
         }
     }
