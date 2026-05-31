@@ -1,12 +1,13 @@
-# 错误记录索引
+# 错误记录
 
-## [20260528]-连锁会话与掉落缓冲耦合导致概率吞掉落
+本文件作为错误记录索引。详细问题分析存放在 `docs/开发者文档/errors/` 目录下。
 
-- 文档：`docs/开发者文档/errors/ERROR-20260528-session-drop-buffer-coupling.md`
-- 关联问题：`GitHub Issue #232`
-- 摘要：旧实现将掉落缓冲绑定在 `ChainSession -> ChainRuntimeState`，导致会话提前清理、重启或生命周期切换时，已收集但尚未释放的掉落可能被误清空，表现为连锁/爆破模式概率吞掉落。
+## 记录规则
 
-## [20260528]-全项目代码框架设计风险排查
+- 文件命名：`ERROR-YYYYMMDD-简述.md`
+- 索引使用二级标题 `## [日期或编号]-[错误简述]`
+- 每条记录至少包含：错误现象、触发场景、根本原因、修复方案、预防措施
 
-- 文档：`docs/开发者文档/reviews/REVIEW-20260528-代码框架设计风险排查.md`
-- 摘要：对全项目（chain/ compat/ network/ mixins/ event/ parallel/ client/）进行系统性设计风险排查，发现 5 项严重风险、9 项高风险、17 项中风险、11 项低风险，覆盖线程安全、内存泄漏、网络攻击面、GPU 资源管理、反射脆弱性等维度。
+## 索引
+
+- [`ERROR-20260528-session-drop-buffer-coupling.md`](ERROR-20260528-session-drop-buffer-coupling.md) - 旧实现将掉落缓冲绑定在 `ChainSession -> ChainRuntimeState`，导致会话提前清理、重启或生命周期切换时，已收集但尚未释放的掉落可能被误清空，表现为连锁或爆破模式概率吞掉落。
