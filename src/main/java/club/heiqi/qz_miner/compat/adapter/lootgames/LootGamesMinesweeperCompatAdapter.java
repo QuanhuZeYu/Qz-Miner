@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.compat.adapter.lootgames;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -12,6 +11,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.compat.adapter.ClassNameCompatSupport;
 import club.heiqi.qz_miner.compat.adapter.MinesweeperCompatAdapter;
+import club.heiqi.qz_miner.compat.adapter.ReflectiveMemberSupport;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
@@ -21,23 +21,30 @@ import net.minecraft.world.World;
  */
 public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompatAdapter {
 
+    private static final int MAX_MASTER_SEARCH_DISTANCE = 128;
+    private static final int BORDER_META_HORIZONTAL = 0;
+    private static final int BORDER_META_VERTICAL = 1;
+    private static final int BORDER_META_TOP_LEFT = 2;
+    private static final int BORDER_META_TOP_RIGHT = 3;
+    private static final int BORDER_META_BOTTOM_RIGHT = 4;
+    private static final int BORDER_META_BOTTOM_LEFT = 5;
+
     private final Class<?> masterTileType;
+    private final Class<?> subordinateProviderType;
     private final Class<?> smartSubordinateBlockType;
     private final Class<?> boardBorderBlockType;
-    private final Constructor<?> pos2iConstructor;
+    private final Field gameField;
+    private final Field boardField;
+    private final Field boardSizeField;
+    private final Field boardFieldsField;
+    private final Field boardCellTypeField;
     private final Method masterTileGetGameMethod;
     private final Method gameIsBoardGeneratedMethod;
     private final Method gameGetBoardMethod;
+    private final Method gameCurrentBoardSizeMethod;
+    private final Method gameAllocatedBoardSizeMethod;
     private final Method boardSizeMethod;
     private final Method boardGetTypeMethod;
-    private final Method gameConvertToBlockPosMethod;
-    private final Method blockPosOfMethod;
-    private final Method blockPosGetXMethod;
-    private final Method blockPosGetYMethod;
-    private final Method blockPosGetZMethod;
-    private final Method blockStateOfMethod;
-    private final Method smartSubordinateGetMasterPosMethod;
-    private final Method boardBorderGetMasterPosMethod;
     private final Object bombType;
     private final boolean available;
     private volatile boolean runtimeDisabled;
@@ -50,54 +57,42 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
         Class<?> resolvedMasterTileType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.common.block.tile.MSMasterTile");
         Class<?> resolvedGameMineSweeperType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.minigame.minesweeper.GameMineSweeper");
         Class<?> resolvedBoardType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.minigame.minesweeper.MSBoard");
+        Class<?> resolvedBoardCellType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.minigame.minesweeper.MSBoard$MSField");
         Class<?> resolvedTypeEnumType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.minigame.minesweeper.Type");
-        Class<?> resolvedBlockPosType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.utils.future.BlockPos");
-        Class<?> resolvedBlockStateType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.utils.future.BlockState");
+        Class<?> resolvedSubordinateProviderType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.api.block.ISubordinateProvider");
         Class<?> resolvedSmartSubordinateBlockType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.api.block.SmartSubordinateBlock");
         Class<?> resolvedBoardBorderBlockType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.api.block.BoardBorderBlock");
-        Class<?> resolvedPos2iType = ClassNameCompatSupport.resolveClass("ru.timeconqueror.lootgames.api.util.Pos2i");
 
         this.masterTileType = resolvedMasterTileType;
+        this.subordinateProviderType = resolvedSubordinateProviderType;
         this.smartSubordinateBlockType = resolvedSmartSubordinateBlockType;
         this.boardBorderBlockType = resolvedBoardBorderBlockType;
-        this.pos2iConstructor = resolveConstructor(resolvedPos2iType, int.class, int.class);
+        this.gameField = resolveField(resolvedMasterTileType, "game");
+        this.boardField = resolveField(resolvedGameMineSweeperType, "board");
+        this.boardSizeField = resolveField(resolvedBoardType, "size");
+        this.boardFieldsField = resolveField(resolvedBoardType, "board");
+        this.boardCellTypeField = resolveField(resolvedBoardCellType, "type");
         this.masterTileGetGameMethod = resolveMethod(resolvedMasterTileType, "getGame");
         this.gameIsBoardGeneratedMethod = resolveMethod(resolvedGameMineSweeperType, "isBoardGenerated");
         this.gameGetBoardMethod = resolveMethod(resolvedGameMineSweeperType, "getBoard");
+        this.gameCurrentBoardSizeMethod = resolveMethod(resolvedGameMineSweeperType, "getCurrentBoardSize");
+        this.gameAllocatedBoardSizeMethod = resolveMethod(resolvedGameMineSweeperType, "getAllocatedBoardSize");
         this.boardSizeMethod = resolveMethod(resolvedBoardType, "size");
         this.boardGetTypeMethod = resolveMethod(resolvedBoardType, "getType", int.class, int.class);
-        this.gameConvertToBlockPosMethod = resolveMethod(resolvedGameMineSweeperType, "convertToBlockPos", resolvedPos2iType);
-        this.blockPosOfMethod = resolveMethod(resolvedBlockPosType, "of", int.class, int.class, int.class);
-        this.blockPosGetXMethod = resolveMethod(resolvedBlockPosType, "getX");
-        this.blockPosGetYMethod = resolveMethod(resolvedBlockPosType, "getY");
-        this.blockPosGetZMethod = resolveMethod(resolvedBlockPosType, "getZ");
-        this.blockStateOfMethod = resolveMethod(resolvedBlockStateType, "of", Block.class, int.class);
-        this.smartSubordinateGetMasterPosMethod = resolveMethod(resolvedSmartSubordinateBlockType, "getMasterPos", World.class, resolvedBlockPosType);
-        this.boardBorderGetMasterPosMethod = resolveMethod(resolvedBoardBorderBlockType, "getMasterPos", World.class, resolvedBlockPosType, resolvedBlockStateType);
         this.bombType = resolveStaticField(resolvedTypeEnumType, "BOMB");
         this.available = resolvedMasterTileType != null
             && resolvedGameMineSweeperType != null
             && resolvedBoardType != null
+            && resolvedBoardCellType != null
             && resolvedTypeEnumType != null
-            && resolvedBlockPosType != null
-            && resolvedBlockStateType != null
+            && resolvedSubordinateProviderType != null
             && resolvedSmartSubordinateBlockType != null
             && resolvedBoardBorderBlockType != null
-            && resolvedPos2iType != null
-            && pos2iConstructor != null
-            && masterTileGetGameMethod != null
+            && (gameField != null || masterTileGetGameMethod != null)
             && gameIsBoardGeneratedMethod != null
-            && gameGetBoardMethod != null
-            && boardSizeMethod != null
-            && boardGetTypeMethod != null
-            && gameConvertToBlockPosMethod != null
-            && blockPosOfMethod != null
-            && blockPosGetXMethod != null
-            && blockPosGetYMethod != null
-            && blockPosGetZMethod != null
-            && blockStateOfMethod != null
-            && smartSubordinateGetMasterPosMethod != null
-            && boardBorderGetMasterPosMethod != null
+            && (boardField != null || gameGetBoardMethod != null)
+            && (gameCurrentBoardSizeMethod != null || boardSizeField != null || boardSizeMethod != null)
+            && (boardFieldsField != null && boardCellTypeField != null || boardGetTypeMethod != null)
             && bombType != null;
     }
 
@@ -113,65 +108,69 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
 
     @Override
     public List<ChainTarget> collectBombTargets(World world, ChainTarget target, int radius, int maxTargets) {
-        Object masterTile = resolveMasterTile(world, target);
-        if (masterTile == null) {
+        MasterTileResolution resolution = resolveMasterTile(world, target);
+        if (resolution == null) {
             return Collections.emptyList();
         }
 
-        Object game = invoke(masterTileGetGameMethod, masterTile);
+        Object game = readField(gameField, resolution.masterTile);
+        if (game == null) {
+            game = invoke(masterTileGetGameMethod, resolution.masterTile);
+        }
         if (game == null || !asBoolean(invoke(gameIsBoardGeneratedMethod, game))) {
             return Collections.emptyList();
         }
 
-        Object board = invoke(gameGetBoardMethod, game);
-        int boardSize = asInt(invoke(boardSizeMethod, board));
+        Object board = readField(boardField, game);
+        if (board == null) {
+            board = invoke(gameGetBoardMethod, game);
+        }
+        int boardSize = readCurrentBoardSize(game, board);
         if (board == null || boardSize <= 0) {
             return Collections.emptyList();
         }
+        int allocatedBoardSize = readAllocatedBoardSize(game, boardSize);
         int cappedMaxTargets = Math.max(1, maxTargets);
         List<ChainTarget> result = new ArrayList<ChainTarget>(Math.min(boardSize * boardSize, cappedMaxTargets));
+        ChainTarget boardOrigin = resolveBoardOrigin(resolution.masterTarget, boardSize, allocatedBoardSize);
 
         for (int x = 0; x < boardSize && result.size() < cappedMaxTargets; x++) {
             for (int y = 0; y < boardSize && result.size() < cappedMaxTargets; y++) {
-                Object cellType = invoke(boardGetTypeMethod, board, Integer.valueOf(x), Integer.valueOf(y));
+                Object cellType = readBoardCellType(board, x, y);
                 if (cellType == null || !bombType.equals(cellType)) {
                     continue;
                 }
 
-                Object boardPosition = newInstance(pos2iConstructor, Integer.valueOf(x), Integer.valueOf(y));
-                Object bombPos = invoke(gameConvertToBlockPosMethod, game, boardPosition);
-                if (!isWithinPreviewRadius(target, bombPos, radius)) {
+                ChainTarget bombTarget = new ChainTarget(boardOrigin.getX() + x, boardOrigin.getY(), boardOrigin.getZ() + y);
+                if (!isWithinPreviewRadius(target, bombTarget, radius)) {
                     continue;
                 }
 
-                result.add(new ChainTarget(
-                    readCoordinate(bombPos, blockPosGetXMethod),
-                    readCoordinate(bombPos, blockPosGetYMethod),
-                    readCoordinate(bombPos, blockPosGetZMethod)));
+                result.add(bombTarget);
             }
         }
 
         return result;
     }
 
-    private boolean isWithinPreviewRadius(ChainTarget target, Object blockPos, int radius) {
-        if (target == null || blockPos == null) {
+    private boolean isWithinPreviewRadius(ChainTarget target, ChainTarget candidate, int radius) {
+        if (target == null || candidate == null) {
             return false;
         }
 
-        return Math.abs(readCoordinate(blockPos, blockPosGetXMethod) - target.getX()) <= radius
-            && Math.abs(readCoordinate(blockPos, blockPosGetYMethod) - target.getY()) <= radius
-            && Math.abs(readCoordinate(blockPos, blockPosGetZMethod) - target.getZ()) <= radius;
+        return Math.abs(candidate.getX() - target.getX()) <= radius
+            && Math.abs(candidate.getY() - target.getY()) <= radius
+            && Math.abs(candidate.getZ() - target.getZ()) <= radius;
     }
 
-    private Object resolveMasterTile(World world, ChainTarget target) {
+    private MasterTileResolution resolveMasterTile(World world, ChainTarget target) {
         if (!isAvailable() || world == null || target == null) {
             return null;
         }
 
         TileEntity tileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
         if (masterTileType.isInstance(tileEntity)) {
-            return tileEntity;
+            return new MasterTileResolution(tileEntity, target);
         }
 
         Block block = world.getBlock(target.getX(), target.getY(), target.getZ());
@@ -179,29 +178,104 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
             return null;
         }
 
-        Object pos = invoke(blockPosOfMethod, null, Integer.valueOf(target.getX()), Integer.valueOf(target.getY()), Integer.valueOf(target.getZ()));
-        Object masterPos = null;
-        if (smartSubordinateBlockType.isInstance(block)) {
-            masterPos = invoke(smartSubordinateGetMasterPosMethod, null, world, pos);
+        ChainTarget masterTarget = null;
+        if (isSubordinateProviderBlock(block)) {
+            masterTarget = resolveMasterTargetFromSmartSubordinate(world, target);
         } else if (boardBorderBlockType.isInstance(block)) {
-            int meta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-            Object blockState = invoke(blockStateOfMethod, null, block, Integer.valueOf(meta));
-            masterPos = invoke(boardBorderGetMasterPosMethod, null, world, pos, blockState);
+            masterTarget = resolveMasterTargetFromBoardBorder(world, target, block, world.getBlockMetadata(target.getX(), target.getY(), target.getZ()));
         }
 
-        if (masterPos == null) {
+        if (masterTarget == null) {
             return null;
         }
 
-        TileEntity masterTile = world.getTileEntity(
-            readCoordinate(masterPos, blockPosGetXMethod),
-            readCoordinate(masterPos, blockPosGetYMethod),
-            readCoordinate(masterPos, blockPosGetZMethod));
-        return masterTileType.isInstance(masterTile) ? masterTile : null;
+        TileEntity masterTile = world.getTileEntity(masterTarget.getX(), masterTarget.getY(), masterTarget.getZ());
+        return masterTileType.isInstance(masterTile) ? new MasterTileResolution(masterTile, masterTarget) : null;
     }
 
-    private int readCoordinate(Object blockPos, Method coordinateGetter) {
-        return asInt(invoke(coordinateGetter, blockPos));
+    private ChainTarget resolveMasterTargetFromSmartSubordinate(World world, ChainTarget target) {
+        int searchX = target.getX();
+        int searchZ = target.getZ();
+        int remainingSteps = MAX_MASTER_SEARCH_DISTANCE;
+        while (remainingSteps > 0 && (searchX == target.getX() && searchZ == target.getZ() || isSubordinateProviderBlock(world, searchX, target.getY(), searchZ))) {
+            searchX--;
+            remainingSteps--;
+        }
+        searchX++;
+
+        while (remainingSteps > 0 && (searchX == target.getX() && searchZ == target.getZ() || isSubordinateProviderBlock(world, searchX, target.getY(), searchZ))) {
+            searchZ--;
+            remainingSteps--;
+        }
+        searchZ++;
+
+        return new ChainTarget(searchX - 1, target.getY(), searchZ - 1);
+    }
+
+    private ChainTarget resolveMasterTargetFromBoardBorder(World world, ChainTarget target, Block startBlock, int startMeta) {
+        int searchX = target.getX();
+        int searchZ = target.getZ();
+        Block currentBlock = startBlock;
+        int currentMeta = startMeta;
+
+        for (int i = 0; i < MAX_MASTER_SEARCH_DISTANCE && boardBorderBlockType.isInstance(currentBlock); i++) {
+            if (currentMeta == BORDER_META_HORIZONTAL || currentMeta == BORDER_META_TOP_RIGHT) {
+                searchX--;
+            } else if (currentMeta == BORDER_META_BOTTOM_RIGHT || currentMeta == BORDER_META_BOTTOM_LEFT || currentMeta == BORDER_META_VERTICAL) {
+                searchZ--;
+            }
+
+            currentBlock = world.getBlock(searchX, target.getY(), searchZ);
+            currentMeta = world.getBlockMetadata(searchX, target.getY(), searchZ);
+        }
+
+        return new ChainTarget(searchX, target.getY(), searchZ);
+    }
+
+    private boolean isSubordinateProviderBlock(World world, int x, int y, int z) {
+        return isSubordinateProviderBlock(world.getBlock(x, y, z));
+    }
+
+    private boolean isSubordinateProviderBlock(Block block) {
+        return subordinateProviderType.isInstance(block)
+            || smartSubordinateBlockType.isInstance(block);
+    }
+
+    private ChainTarget resolveBoardOrigin(ChainTarget masterTarget, int boardSize, int allocatedBoardSize) {
+        int offset = Math.max(0, allocatedBoardSize - boardSize) / 2;
+        return new ChainTarget(masterTarget.getX() + 1 + offset, masterTarget.getY(), masterTarget.getZ() + 1 + offset);
+    }
+
+    private int readCurrentBoardSize(Object game, Object board) {
+        int currentBoardSize = asInt(invoke(gameCurrentBoardSizeMethod, game));
+        if (currentBoardSize > 0) {
+            return currentBoardSize;
+        }
+
+        int boardSize = asInt(readField(boardSizeField, board));
+        if (boardSize > 0) {
+            return boardSize;
+        }
+        return asInt(invoke(boardSizeMethod, board));
+    }
+
+    private Object readBoardCellType(Object board, int x, int y) {
+        Object boardFields = readField(boardFieldsField, board);
+        if (boardFields instanceof Object[][]) {
+            Object[][] cells = (Object[][]) boardFields;
+            if (x >= 0 && x < cells.length && y >= 0 && cells[x] != null && y < cells[x].length) {
+                Object type = readField(boardCellTypeField, cells[x][y]);
+                if (type != null) {
+                    return type;
+                }
+            }
+        }
+        return invoke(boardGetTypeMethod, board, Integer.valueOf(x), Integer.valueOf(y));
+    }
+
+    private int readAllocatedBoardSize(Object game, int currentBoardSize) {
+        int allocatedBoardSize = asInt(invoke(gameAllocatedBoardSizeMethod, game));
+        return allocatedBoardSize > 0 ? allocatedBoardSize : currentBoardSize;
     }
 
     private boolean asBoolean(Object value) {
@@ -212,16 +286,8 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
         return value instanceof Number ? ((Number) value).intValue() : Integer.MIN_VALUE;
     }
 
-    private Constructor<?> resolveConstructor(Class<?> ownerType, Class<?>... parameterTypes) {
-        if (ownerType == null) {
-            return null;
-        }
-
-        try {
-            return ownerType.getConstructor(parameterTypes);
-        } catch (NoSuchMethodException ignored) {
-            return null;
-        }
+    private Field resolveField(Class<?> ownerType, String fieldName) {
+        return ReflectiveMemberSupport.findFieldInHierarchy(ownerType, fieldName);
     }
 
     private Method resolveMethod(Class<?> ownerType, String methodName, Class<?>... parameterTypes) {
@@ -229,11 +295,7 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
             return null;
         }
 
-        try {
-            return ownerType.getMethod(methodName, parameterTypes);
-        } catch (NoSuchMethodException ignored) {
-            return null;
-        }
+        return ReflectiveMemberSupport.findMethodInHierarchy(ownerType, methodName, parameterTypes);
     }
 
     private Object resolveStaticField(Class<?> ownerType, String fieldName) {
@@ -242,21 +304,24 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
         }
 
         try {
-            Field field = ownerType.getField(fieldName);
+            Field field = resolveField(ownerType, fieldName);
+            if (field == null) {
+                return null;
+            }
             return field.get(null);
-        } catch (IllegalAccessException | NoSuchFieldException ignored) {
+        } catch (IllegalAccessException | LinkageError | SecurityException ignored) {
             return null;
         }
     }
 
-    private Object newInstance(Constructor<?> constructor, Object... arguments) {
-        if (constructor == null) {
+    private Object readField(Field field, Object target) {
+        if (field == null || target == null) {
             return null;
         }
 
         try {
-            return constructor.newInstance(arguments);
-        } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            return field.get(target);
+        } catch (IllegalAccessException | LinkageError | SecurityException e) {
             logReflectionFailure(e);
             return null;
         }
@@ -269,18 +334,29 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
 
         try {
             return method.invoke(target, arguments);
-        } catch (IllegalAccessException | InvocationTargetException e) {
+        } catch (IllegalAccessException | InvocationTargetException | LinkageError | SecurityException e) {
             logReflectionFailure(e);
             return null;
         }
     }
 
-    private void logReflectionFailure(Exception exception) {
+    private void logReflectionFailure(Throwable exception) {
         runtimeDisabled = true;
         if (reflectionFailureLogged) {
             return;
         }
         reflectionFailureLogged = true;
         MyMod.LOG.warn("[Compat][LootGames] Reflection invocation failed, disable minesweeper adapter call path", exception);
+    }
+
+    private static final class MasterTileResolution {
+
+        private final Object masterTile;
+        private final ChainTarget masterTarget;
+
+        private MasterTileResolution(Object masterTile, ChainTarget masterTarget) {
+            this.masterTile = masterTile;
+            this.masterTarget = masterTarget;
+        }
     }
 }

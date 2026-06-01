@@ -10,4 +10,5 @@
 
 ## 索引
 
+- [`ERROR-20260601-lootgames-server-client-signature.md`](ERROR-20260601-lootgames-server-client-signature.md) - LootGames 扫雷兼容在服务端使用 `Class#getMethod` 扫描方块类公开方法，触发客户端专属 `IIconRegister` 签名解析，导致 dedicated server 初始化崩溃。
 - [`ERROR-20260528-session-drop-buffer-coupling.md`](ERROR-20260528-session-drop-buffer-coupling.md) - 旧实现将掉落缓冲绑定在 `ChainSession -> ChainRuntimeState`，导致会话提前清理、重启或生命周期切换时，已收集但尚未释放的掉落可能被误清空，表现为连锁或爆破模式概率吞掉落。

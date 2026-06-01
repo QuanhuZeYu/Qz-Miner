@@ -85,13 +85,12 @@ public final class ReflectiveGregTechTileIdentityCompatAdapter implements TileId
             return null;
         }
 
-        try {
-            Method resolvedMethod = ownerType.getMethod(methodName);
-            Method previousMethod = methodCache.putIfAbsent(cacheKey, resolvedMethod);
-            return previousMethod == null ? resolvedMethod : previousMethod;
-        } catch (NoSuchMethodException ignored) {
+        Method resolvedMethod = ReflectiveMemberSupport.findMethodInHierarchy(ownerType, methodName);
+        if (resolvedMethod == null) {
             missingMethods.add(cacheKey);
             return null;
         }
+        Method previousMethod = methodCache.putIfAbsent(cacheKey, resolvedMethod);
+        return previousMethod == null ? resolvedMethod : previousMethod;
     }
 }
