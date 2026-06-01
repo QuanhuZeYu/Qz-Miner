@@ -77,13 +77,12 @@ public final class ReflectiveFieldTileIdentityCompatAdapter implements TileIdent
             return null;
         }
 
-        try {
-            Field resolvedField = ownerType.getField(fieldName);
-            Field previousField = fieldCache.putIfAbsent(cacheKey, resolvedField);
-            return previousField == null ? resolvedField : previousField;
-        } catch (NoSuchFieldException ignored) {
+        Field resolvedField = ReflectiveMemberSupport.findFieldInHierarchy(ownerType, fieldName);
+        if (resolvedField == null) {
             missingFields.add(cacheKey);
             return null;
         }
+        Field previousField = fieldCache.putIfAbsent(cacheKey, resolvedField);
+        return previousField == null ? resolvedField : previousField;
     }
 }
