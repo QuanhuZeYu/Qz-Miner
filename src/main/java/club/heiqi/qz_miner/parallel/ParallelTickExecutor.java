@@ -36,8 +36,6 @@ public final class ParallelTickExecutor {
     private static final int CORE_WORKER_THREADS = 1;
     private static final int MAX_WORKER_THREADS = 20;
     private static final long WORKER_KEEP_ALIVE_SECONDS = 30L;
-    private static final int SERVER_WORK_BUDGET_UNITS = 64;
-    private static final int CLIENT_WORK_BUDGET_UNITS = 640;
 
     private final CopyOnWriteArrayList<RegisteredTask> serverPreTasks = new CopyOnWriteArrayList<RegisteredTask>();
     private final CopyOnWriteArrayList<RegisteredTask> serverPostTasks = new CopyOnWriteArrayList<RegisteredTask>();
@@ -264,12 +262,16 @@ public final class ParallelTickExecutor {
         switch (stage) {
             case CLIENT_PRE:
             case CLIENT_POST:
-                return CLIENT_WORK_BUDGET_UNITS;
+                return getConfiguredWorkBudgetUnits(Config.parallelTickClientWorkBudgetUnits);
             case SERVER_PRE:
             case SERVER_POST:
             default:
-                return SERVER_WORK_BUDGET_UNITS;
+                return getConfiguredWorkBudgetUnits(Config.parallelTickServerWorkBudgetUnits);
         }
+    }
+
+    private int getConfiguredWorkBudgetUnits(int configuredUnits) {
+        return Math.max(1, configuredUnits);
     }
 
     private CopyOnWriteArrayList<RegisteredTask> getTasks(ParallelTickStage stage) {

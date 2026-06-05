@@ -132,7 +132,7 @@ public enum TraversalStepResult {
 
 - 新增 `ParallelTaskResult`。
 - 新增 `ParallelTickControl` 或把控制方法扩展到 `ParallelTickContext`。
-- 新增 `ParallelWorkBudget`，先使用固定每片工作预算，例如服务端规划 64 或现有 `MAX_SCAN_PER_SLICE`，客户端预览 640。
+- 新增 `ParallelWorkBudget`，每片工作预算由配置控制：服务端默认 `parallelTickServerWorkBudgetUnits = 64`，客户端默认 `parallelTickClientWorkBudgetUnits = 640`。
 - 将 `RegisteredTask` 增加 `cancelRequested`、`state`、`cancelReason`。
 - `unregister()` 改为设置取消请求并唤醒窗口，避免把 `Future.cancel(true)` 作为常规取消路径。
 - `runSlicesInCurrentTick(...)` 根据 `ParallelTaskResult` 处理继续、让出、完成、终止。
@@ -146,6 +146,8 @@ public enum TraversalStepResult {
 - 旧行为不应因接口替换而改变主要功能。
 
 当前状态：已完成并通过 `./gradlew.bat compileJava`。
+
+后续补充：单片工作预算已改为可配置项，服务端读取 `general.parallelTickServerWorkBudgetUnits`，客户端读取 `client.parallelTickClientWorkBudgetUnits`，执行器创建每片预算时会按当前配置值生效。
 
 ### 阶段 2：任务适配层
 
@@ -270,7 +272,7 @@ public enum TraversalStepResult {
 - 服务端：GT 线缆替换规划，确认连通关系和二阶段重连状态仍正确。
 - 客户端：按住连锁键预览后快速切换目标，确认旧 generation 不污染新预览。
 - 客户端：预览中退出世界或断线，确认无 GL 上下文错误，无预览任务继续写状态。
-- 配置：调大 `chainRadius`、`chainMaxBlocks`、`chainLoggingShellLayers` 做压力回归。
+- 配置：调大 `chainRadius`、`chainMaxBlocks`、`chainLoggingShellLayers`、`parallelTickServerWorkBudgetUnits`、`parallelTickClientWorkBudgetUnits` 做压力回归。
 
 ## 接手建议
 
