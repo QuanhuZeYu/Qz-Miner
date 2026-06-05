@@ -1,9 +1,11 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
+
 /**
  * 盒扫遍历器。
  */
-public class BoxScanTraverser implements ChainTraverser {
+public class BoxScanTraverser implements BudgetedChainTraverser {
 
     private static final int MAX_SCAN_COORDINATES_PER_BATCH = 256;
 
@@ -12,6 +14,7 @@ public class BoxScanTraverser implements ChainTraverser {
     private int enqueueY;
     private int enqueueZ;
     private boolean shellEnqueueInProgress;
+    private ChainTarget currentTarget;
 
     /**
      * 初始化盒扫状态，但不一次性装填整盒候选点。
@@ -21,6 +24,7 @@ public class BoxScanTraverser implements ChainTraverser {
     @Override
     public void seed(ChainSearchContext context) {
         resetEnqueueState();
+        currentTarget = null;
         context.getVisited().add(context.getOrigin());
         context.setScanDepth(0);
     }
@@ -73,6 +77,71 @@ public class BoxScanTraverser implements ChainTraverser {
 
         return context.getConfirmedCount() < context.getMaxTargets()
             && (!context.getCurrentFrontier().isEmpty() || context.getScanDepth() < context.getMaxRadius());
+    }
+
+    @Override
+    public TraversalStepResult step(ChainSearchContext context, ParallelTickControl control, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
+        if (context == null || control == null || matcher == null || consumer == null) {
+            return TraversalStepResult.COMPLETED;
+        }
+
+        while (true) {
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                currentTarget = null;
+                return TraversalStepResult.COMPLETED;
+            }
+            if (control.shouldYield()) {
+                return TraversalStepResult.YIELDED;
+            }
+
+            if (currentTarget == null && context.getCurrentFrontier().isEmpty()) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+
+                TraversalStepResult enqueueResult = enqueueNextShell(context, control);
+                if (enqueueResult != TraversalStepResult.CONTINUE) {
+                    return enqueueResult;
+                }
+                if (context.getCurrentFrontier().isEmpty()) {
+                    if (hasMoreShellWork(context)) {
+                        continue;
+                    }
+                    return TraversalStepResult.COMPLETED;
+                }
+            }
+
+            if (currentTarget == null) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                currentTarget = context.getCurrentFrontier().poll();
+                if (currentTarget == null) {
+                    continue;
+                }
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (!matcher.matches(currentTarget)) {
+                currentTarget = null;
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            consumer.accept(currentTarget);
+            context.incrementConfirmedCount();
+            currentTarget = null;
+        }
     }
 
     /**
@@ -145,6 +214,67 @@ public class BoxScanTraverser implements ChainTraverser {
         return true;
     }
 
+    /**
+     * 按预算推进下一层外壳扫描。
+     *
+     * @param context 搜索上下文
+     * @param control 当前并行 Tick 控制对象
+     * @return 当前预算化装填结果
+     */
+    private TraversalStepResult enqueueNextShell(ChainSearchContext context, ParallelTickControl control) {
+        if (context == null || context.getOrigin() == null) {
+            return TraversalStepResult.COMPLETED;
+        }
+
+        if (!shellEnqueueInProgress) {
+            int nextDepth = context.getScanDepth() + 1;
+            if (nextDepth > context.getMaxRadius()) {
+                return TraversalStepResult.COMPLETED;
+            }
+            beginShellEnqueue(context, nextDepth);
+        }
+
+        ChainTarget origin = context.getOrigin();
+        int minX = origin.getX() - enqueueDepth;
+        int maxX = origin.getX() + enqueueDepth;
+        int minY = origin.getY() - enqueueDepth;
+        int maxY = origin.getY() + enqueueDepth;
+        int minZ = origin.getZ() - enqueueDepth;
+        int maxZ = origin.getZ() + enqueueDepth;
+
+        for (int x = enqueueX; x <= maxX; x++) {
+            int yStart = x == enqueueX ? enqueueY : minY;
+            for (int y = yStart; y <= maxY; y++) {
+                int zStart = x == enqueueX && y == yStart ? enqueueZ : minZ;
+                for (int z = zStart; z <= maxZ; z++) {
+                    if (!control.tryConsumeWork(1)) {
+                        saveCursor(x, y, z);
+                        return yieldOrTerminate(control);
+                    }
+
+                    if (!isOnShell(origin, enqueueDepth, x, y, z)) {
+                        continue;
+                    }
+
+                    ChainTarget candidate = new ChainTarget(x, y, z);
+                    if (!context.getVisited().add(candidate)) {
+                        continue;
+                    }
+
+                    if (!context.canTraverse(candidate)) {
+                        continue;
+                    }
+
+                    context.getCurrentFrontier().add(candidate);
+                }
+            }
+        }
+
+        context.setScanDepth(enqueueDepth);
+        resetEnqueueState();
+        return TraversalStepResult.CONTINUE;
+    }
+
     private void beginShellEnqueue(ChainSearchContext context, int nextDepth) {
         ChainTarget origin = context.getOrigin();
         enqueueDepth = nextDepth;
@@ -178,6 +308,12 @@ public class BoxScanTraverser implements ChainTraverser {
         enqueueZ = nextZ;
     }
 
+    private void saveCursor(int x, int y, int z) {
+        enqueueX = x;
+        enqueueY = y;
+        enqueueZ = z;
+    }
+
     private void resetEnqueueState() {
         enqueueDepth = 0;
         enqueueX = 0;
@@ -188,6 +324,10 @@ public class BoxScanTraverser implements ChainTraverser {
 
     private boolean hasMoreShellWork(ChainSearchContext context) {
         return shellEnqueueInProgress || context.getScanDepth() < context.getMaxRadius();
+    }
+
+    private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
+        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
     }
 
     /**

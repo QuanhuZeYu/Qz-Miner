@@ -1,13 +1,14 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import net.minecraft.block.Block;
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
 /**
  * 洪泛遍历器。
  */
-public class FloodFillTraverser implements ChainTraverser {
+public class FloodFillTraverser implements BudgetedChainTraverser {
 
     private static final int[][] NEIGHBOR_OFFSETS = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    private final ChainSearchAlgorithm.BudgetState budgetState = new ChainSearchAlgorithm.BudgetState();
 
     @Override
     public void seed(ChainSearchContext context) {
@@ -30,5 +31,10 @@ public class FloodFillTraverser implements ChainTraverser {
     @Override
     public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
         return ChainSearchAlgorithm.step(context, maxNodes, matcher, consumer);
+    }
+
+    @Override
+    public TraversalStepResult step(ChainSearchContext context, ParallelTickControl control, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
+        return ChainSearchAlgorithm.step(context, control, budgetState, matcher, consumer);
     }
 }

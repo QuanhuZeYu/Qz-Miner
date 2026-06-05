@@ -1,26 +1,42 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.util.ArrayList;
-import java.util.List;
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
 /**
  * 伐木壳层遍历器。
  */
-public class LoggingFloodFillTraverser implements ChainTraverser {
+public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
-    private final List<ChainTarget> neighborOffsets;
+    private final int shellLayers;
+    private TraversalPhase budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
+    private ChainTarget currentTarget;
+    private ChainTarget pendingNeighbor;
+    private int offsetX;
+    private int offsetY;
+    private int offsetZ;
 
     public LoggingFloodFillTraverser(int shellLayers) {
-        this.neighborOffsets = createNeighborOffsets(shellLayers);
+        this.shellLayers = Math.max(1, shellLayers);
     }
 
     @Override
     public void seed(ChainSearchContext context) {
-        enqueueNeighbors(context, context.getOrigin());
+        resetBudgetState();
+        ChainTarget origin = context.getOrigin();
+        context.getVisited().add(origin);
+        beginNeighborGeneration(origin);
     }
 
     @Override
     public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
+        if (budgetPhase == TraversalPhase.GENERATE_NEIGHBORS
+            && currentTarget != null
+            && context.getCurrentFrontier().isEmpty()
+            && context.getNextFrontier().isEmpty()) {
+            enqueueNeighbors(context, currentTarget);
+            clearCurrentTarget();
+        }
+
         int processed = 0;
 
         if (context.getConfirmedCount() >= context.getMaxTargets()) {
@@ -64,43 +80,241 @@ public class LoggingFloodFillTraverser implements ChainTraverser {
         return !context.getCurrentFrontier().isEmpty();
     }
 
-    private void enqueueNeighbors(ChainSearchContext context, ChainTarget center) {
-        for (ChainTarget offset : neighborOffsets) {
-            ChainTarget next = new ChainTarget(
-                center.getX() + offset.getX(),
-                center.getY() + offset.getY(),
-                center.getZ() + offset.getZ());
+    @Override
+    public TraversalStepResult step(ChainSearchContext context, ParallelTickControl control, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
+        if (context == null || control == null || matcher == null || consumer == null) {
+            return TraversalStepResult.COMPLETED;
+        }
 
-            if (!context.getVisited().add(next)) {
+        while (true) {
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                resetBudgetState();
+                return TraversalStepResult.COMPLETED;
+            }
+            if (control.shouldYield()) {
+                return TraversalStepResult.YIELDED;
+            }
+
+            if (budgetPhase == TraversalPhase.ROTATE_FRONTIER) {
+                TraversalStepResult rotateResult = rotateFrontier(context, control);
+                if (rotateResult != TraversalStepResult.CONTINUE) {
+                    return rotateResult;
+                }
                 continue;
             }
 
-            if (!context.canTraverse(next)) {
+            if (budgetPhase == TraversalPhase.GENERATE_NEIGHBORS) {
+                TraversalStepResult neighborResult = generateNeighbors(context, control);
+                if (neighborResult != TraversalStepResult.CONTINUE) {
+                    return neighborResult;
+                }
                 continue;
             }
 
-            context.getNextFrontier().add(next);
+            if (currentTarget == null) {
+                if (context.getCurrentFrontier().isEmpty()) {
+                    if (!control.tryConsumeWork(1)) {
+                        return yieldOrTerminate(control);
+                    }
+                    if (!context.getNextFrontier().isEmpty()) {
+                        budgetPhase = TraversalPhase.ROTATE_FRONTIER;
+                        continue;
+                    }
+                    resetBudgetState();
+                    return TraversalStepResult.COMPLETED;
+                }
+
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                currentTarget = context.getCurrentFrontier().poll();
+                if (currentTarget == null) {
+                    continue;
+                }
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (!context.canTraverse(currentTarget)) {
+                clearCurrentTarget();
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (!matcher.matches(currentTarget)) {
+                clearCurrentTarget();
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            consumer.accept(currentTarget);
+            context.incrementConfirmedCount();
+
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                clearCurrentTarget();
+                return TraversalStepResult.COMPLETED;
+            }
+
+            beginNeighborGeneration(currentTarget);
         }
     }
 
-    private static List<ChainTarget> createNeighborOffsets(int shellLayers) {
-        int resolvedShellLayers = Math.max(1, shellLayers);
-        List<ChainTarget> offsets = new ArrayList<ChainTarget>();
-        for (int dx = -resolvedShellLayers; dx <= resolvedShellLayers; dx++) {
-            for (int dy = -resolvedShellLayers; dy <= resolvedShellLayers; dy++) {
-                for (int dz = -resolvedShellLayers; dz <= resolvedShellLayers; dz++) {
+    private TraversalStepResult rotateFrontier(ChainSearchContext context, ParallelTickControl control) {
+        while (!context.getNextFrontier().isEmpty()) {
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            ChainTarget target = context.getNextFrontier().poll();
+            if (target != null) {
+                context.getCurrentFrontier().add(target);
+            }
+        }
+        budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
+        return TraversalStepResult.CONTINUE;
+    }
+
+    private TraversalStepResult generateNeighbors(ChainSearchContext context, ParallelTickControl control) {
+        if (currentTarget == null) {
+            clearCurrentTarget();
+            return TraversalStepResult.CONTINUE;
+        }
+
+        while (hasMoreOffsets() || pendingNeighbor != null) {
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            if (control.shouldYield()) {
+                return TraversalStepResult.YIELDED;
+            }
+
+            if (pendingNeighbor != null) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                ChainTarget pending = pendingNeighbor;
+                pendingNeighbor = null;
+                if (!context.getVisited().add(pending)) {
+                    continue;
+                }
+                if (context.canTraverse(pending)) {
+                    context.getNextFrontier().add(pending);
+                }
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            int dx = offsetX;
+            int dy = offsetY;
+            int dz = offsetZ;
+            advanceOffsetCursor();
+
+            if (dx == 0 && dy == 0 && dz == 0) {
+                continue;
+            }
+
+            ChainTarget next = new ChainTarget(
+                currentTarget.getX() + dx,
+                currentTarget.getY() + dy,
+                currentTarget.getZ() + dz);
+            if (context.getVisited().contains(next)) {
+                continue;
+            }
+
+            pendingNeighbor = next;
+        }
+
+        clearCurrentTarget();
+        return TraversalStepResult.CONTINUE;
+    }
+
+    private void enqueueNeighbors(ChainSearchContext context, ChainTarget center) {
+        for (int dx = -shellLayers; dx <= shellLayers; dx++) {
+            for (int dy = -shellLayers; dy <= shellLayers; dy++) {
+                for (int dz = -shellLayers; dz <= shellLayers; dz++) {
                     if (dx == 0 && dy == 0 && dz == 0) {
                         continue;
                     }
 
-                    if (Math.max(Math.abs(dx), Math.max(Math.abs(dy), Math.abs(dz))) > resolvedShellLayers) {
+                    ChainTarget next = new ChainTarget(
+                        center.getX() + dx,
+                        center.getY() + dy,
+                        center.getZ() + dz);
+
+                    if (!context.getVisited().add(next)) {
                         continue;
                     }
 
-                    offsets.add(new ChainTarget(dx, dy, dz));
+                    if (!context.canTraverse(next)) {
+                        continue;
+                    }
+
+                    context.getNextFrontier().add(next);
                 }
             }
         }
-        return offsets;
+    }
+
+    private void beginNeighborGeneration(ChainTarget center) {
+        currentTarget = center;
+        pendingNeighbor = null;
+        offsetX = -shellLayers;
+        offsetY = -shellLayers;
+        offsetZ = -shellLayers;
+        budgetPhase = TraversalPhase.GENERATE_NEIGHBORS;
+    }
+
+    private boolean hasMoreOffsets() {
+        return offsetX <= shellLayers;
+    }
+
+    private void advanceOffsetCursor() {
+        offsetZ++;
+        if (offsetZ <= shellLayers) {
+            return;
+        }
+        offsetZ = -shellLayers;
+        offsetY++;
+        if (offsetY <= shellLayers) {
+            return;
+        }
+        offsetY = -shellLayers;
+        offsetX++;
+    }
+
+    private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
+        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
+    }
+
+    private void clearCurrentTarget() {
+        budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
+        currentTarget = null;
+        pendingNeighbor = null;
+        offsetX = -shellLayers;
+        offsetY = -shellLayers;
+        offsetZ = -shellLayers;
+    }
+
+    private void resetBudgetState() {
+        clearCurrentTarget();
+        budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
+    }
+
+    private enum TraversalPhase {
+        PROCESS_CURRENT_FRONTIER,
+        GENERATE_NEIGHBORS,
+        ROTATE_FRONTIER
     }
 }

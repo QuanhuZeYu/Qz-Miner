@@ -7,7 +7,7 @@ package club.heiqi.qz_miner.parallel;
 public interface ParallelTickSubscription {
 
     /**
-     * 注销任务。
+     * 请求取消任务。
      */
     void unregister();
 }

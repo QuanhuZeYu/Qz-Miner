@@ -3,6 +3,8 @@ package club.heiqi.qz_miner.chain.planner;
 import java.util.Arrays;
 import java.util.List;
 
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
+
 /**
  * 连锁搜索算法。
  *
@@ -107,6 +109,210 @@ public final class ChainSearchAlgorithm {
         }
 
         return !context.getCurrentFrontier().isEmpty();
+    }
+
+    /**
+     * 执行一次预算化搜索分片。
+     *
+     * @param context 搜索上下文
+     * @param control 当前并行 Tick 控制对象
+     * @param state 可恢复遍历状态
+     * @param matcher 目标匹配器
+     * @param consumer 已确认目标消费者
+     * @return 当前分片的结构化结果
+     */
+    public static TraversalStepResult step(
+        ChainSearchContext context,
+        ParallelTickControl control,
+        BudgetState state,
+        ChainTargetMatcher matcher,
+        ChainTargetConsumer consumer) {
+        if (context == null || control == null || state == null || matcher == null || consumer == null) {
+            return TraversalStepResult.COMPLETED;
+        }
+
+        while (true) {
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                state.reset();
+                return TraversalStepResult.COMPLETED;
+            }
+            if (control.shouldYield()) {
+                return TraversalStepResult.YIELDED;
+            }
+
+            if (state.phase == BudgetPhase.ROTATE_FRONTIER) {
+                rotateFrontier(context, control, state);
+                if (state.phase == BudgetPhase.ROTATE_FRONTIER) {
+                    return yieldOrTerminate(control);
+                }
+                continue;
+            }
+
+            if (state.phase == BudgetPhase.GENERATE_NEIGHBORS) {
+                TraversalStepResult neighborResult = generateNeighbors(context, control, state);
+                if (neighborResult != TraversalStepResult.CONTINUE) {
+                    return neighborResult;
+                }
+                continue;
+            }
+
+            if (state.currentTarget == null) {
+                if (context.getCurrentFrontier().isEmpty()) {
+                    if (!control.tryConsumeWork(1)) {
+                        return yieldOrTerminate(control);
+                    }
+                    if (!context.getNextFrontier().isEmpty()) {
+                        state.phase = BudgetPhase.ROTATE_FRONTIER;
+                        continue;
+                    }
+                    state.reset();
+                    return TraversalStepResult.COMPLETED;
+                }
+
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                state.currentTarget = context.getCurrentFrontier().poll();
+                if (state.currentTarget == null) {
+                    continue;
+                }
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (!context.canTraverse(state.currentTarget)) {
+                state.clearCurrentTarget();
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (!matcher.matches(state.currentTarget)) {
+                state.clearCurrentTarget();
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            consumer.accept(state.currentTarget);
+            context.incrementConfirmedCount();
+
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                state.clearCurrentTarget();
+                return TraversalStepResult.COMPLETED;
+            }
+
+            state.phase = BudgetPhase.GENERATE_NEIGHBORS;
+            state.neighborIndex = 0;
+            state.pendingNeighbor = null;
+        }
+    }
+
+    private static void rotateFrontier(ChainSearchContext context, ParallelTickControl control, BudgetState state) {
+        while (!context.getNextFrontier().isEmpty()) {
+            if (!control.tryConsumeWork(1)) {
+                return;
+            }
+            ChainTarget target = context.getNextFrontier().poll();
+            if (target != null) {
+                context.getCurrentFrontier().add(target);
+            }
+        }
+        state.phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
+    }
+
+    private static TraversalStepResult generateNeighbors(ChainSearchContext context, ParallelTickControl control, BudgetState state) {
+        if (state.currentTarget == null) {
+            state.clearCurrentTarget();
+            return TraversalStepResult.CONTINUE;
+        }
+
+        while (state.neighborIndex < NEIGHBOR_OFFSETS.size() || state.pendingNeighbor != null) {
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            if (control.shouldYield()) {
+                return TraversalStepResult.YIELDED;
+            }
+
+            if (state.pendingNeighbor != null) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                ChainTarget pending = state.pendingNeighbor;
+                state.pendingNeighbor = null;
+                state.neighborIndex++;
+                if (!context.getVisited().add(pending)) {
+                    continue;
+                }
+                if (context.canTraverse(pending)) {
+                    context.getNextFrontier().add(pending);
+                }
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            ChainTarget offset = NEIGHBOR_OFFSETS.get(state.neighborIndex);
+            ChainTarget next = new ChainTarget(
+                state.currentTarget.getX() + offset.getX(),
+                state.currentTarget.getY() + offset.getY(),
+                state.currentTarget.getZ() + offset.getZ());
+
+            if (context.getVisited().contains(next)
+                || getDistance(next, context.getOrigin()) > context.getMaxRadius()
+                || context.getConfirmedCount() >= context.getMaxTargets()) {
+                state.neighborIndex++;
+                continue;
+            }
+
+            state.pendingNeighbor = next;
+        }
+
+        state.clearCurrentTarget();
+        return TraversalStepResult.CONTINUE;
+    }
+
+    /**
+     * 预算化搜索的可恢复状态。
+     */
+    public static final class BudgetState {
+        private BudgetPhase phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
+        private ChainTarget currentTarget;
+        private ChainTarget pendingNeighbor;
+        private int neighborIndex;
+
+        private void clearCurrentTarget() {
+            phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
+            currentTarget = null;
+            pendingNeighbor = null;
+            neighborIndex = 0;
+        }
+
+        private void reset() {
+            clearCurrentTarget();
+            phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
+        }
+    }
+
+    private enum BudgetPhase {
+        PROCESS_CURRENT_FRONTIER,
+        GENERATE_NEIGHBORS,
+        ROTATE_FRONTIER
+    }
+
+    private static TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
+        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
     }
 
     private static int getDistance(ChainTarget a, ChainTarget b) {

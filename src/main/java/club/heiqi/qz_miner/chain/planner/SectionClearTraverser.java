@@ -1,9 +1,11 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
+
 /**
  * 区段清理遍历器：固定清理被挖方块所在的 16x16x16 区段。
  */
-public class SectionClearTraverser implements ChainTraverser {
+public class SectionClearTraverser implements BudgetedChainTraverser {
 
     private static final int SECTION_SIZE = 16;
 
@@ -14,6 +16,12 @@ public class SectionClearTraverser implements ChainTraverser {
     private int minZ;
     private int maxZ;
     private int maxDepth;
+    private int enqueueDepth;
+    private int enqueueX;
+    private int enqueueY;
+    private int enqueueZ;
+    private boolean shellEnqueueInProgress;
+    private ChainTarget currentTarget;
 
     /**
      * 构造区段清理遍历器。
@@ -30,6 +38,8 @@ public class SectionClearTraverser implements ChainTraverser {
         minZ = alignToSection(origin.getZ());
         maxZ = minZ + SECTION_SIZE - 1;
         maxDepth = resolveMaxDepth(origin);
+        resetEnqueueState();
+        currentTarget = null;
 
         context.getVisited().add(origin);
         context.setScanDepth(0);
@@ -73,6 +83,71 @@ public class SectionClearTraverser implements ChainTraverser {
             && (!context.getCurrentFrontier().isEmpty() || context.getScanDepth() < maxDepth);
     }
 
+    @Override
+    public TraversalStepResult step(ChainSearchContext context, ParallelTickControl control, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
+        if (context == null || control == null || matcher == null || consumer == null) {
+            return TraversalStepResult.COMPLETED;
+        }
+
+        while (true) {
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                currentTarget = null;
+                return TraversalStepResult.COMPLETED;
+            }
+            if (control.shouldYield()) {
+                return TraversalStepResult.YIELDED;
+            }
+
+            if (currentTarget == null && context.getCurrentFrontier().isEmpty()) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+
+                TraversalStepResult enqueueResult = enqueueNextShell(context, control);
+                if (enqueueResult != TraversalStepResult.CONTINUE) {
+                    return enqueueResult;
+                }
+                if (context.getCurrentFrontier().isEmpty()) {
+                    if (hasMoreShellWork(context)) {
+                        continue;
+                    }
+                    return TraversalStepResult.COMPLETED;
+                }
+            }
+
+            if (currentTarget == null) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                currentTarget = context.getCurrentFrontier().poll();
+                if (currentTarget == null) {
+                    continue;
+                }
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (!matcher.matches(currentTarget)) {
+                currentTarget = null;
+                continue;
+            }
+
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
+            if (control.isCancelRequested()) {
+                return TraversalStepResult.TERMINATED;
+            }
+            consumer.accept(currentTarget);
+            context.incrementConfirmedCount();
+            currentTarget = null;
+        }
+    }
+
     /**
      * 将区段中的下一层壳面加入候选队列。
      *
@@ -88,6 +163,63 @@ public class SectionClearTraverser implements ChainTraverser {
         context.setScanDepth(nextDepth);
         enqueueShell(context, nextDepth);
         return true;
+    }
+
+    /**
+     * 按预算推进区段壳层扫描。
+     *
+     * @param context 搜索上下文
+     * @param control 当前并行 Tick 控制对象
+     * @return 当前预算化装填结果
+     */
+    private TraversalStepResult enqueueNextShell(ChainSearchContext context, ParallelTickControl control) {
+        if (!shellEnqueueInProgress) {
+            int nextDepth = context.getScanDepth() + 1;
+            if (nextDepth > maxDepth) {
+                return TraversalStepResult.COMPLETED;
+            }
+            beginShellEnqueue(context, nextDepth);
+        }
+
+        ChainTarget origin = context.getOrigin();
+        int startX = Math.max(minX, origin.getX() - enqueueDepth);
+        int endX = Math.min(maxX, origin.getX() + enqueueDepth);
+        int startY = Math.max(minY, origin.getY() - enqueueDepth);
+        int endY = Math.min(maxY, origin.getY() + enqueueDepth);
+        int startZ = Math.max(minZ, origin.getZ() - enqueueDepth);
+        int endZ = Math.min(maxZ, origin.getZ() + enqueueDepth);
+
+        for (int x = enqueueX; x <= endX; x++) {
+            int yStart = x == enqueueX ? enqueueY : startY;
+            for (int y = yStart; y <= endY; y++) {
+                int zStart = x == enqueueX && y == yStart ? enqueueZ : startZ;
+                for (int z = zStart; z <= endZ; z++) {
+                    if (!control.tryConsumeWork(1)) {
+                        saveCursor(x, y, z);
+                        return yieldOrTerminate(control);
+                    }
+
+                    if (!isOnShell(origin, enqueueDepth, x, y, z)) {
+                        continue;
+                    }
+
+                    ChainTarget candidate = new ChainTarget(x, y, z);
+                    if (!context.getVisited().add(candidate)) {
+                        continue;
+                    }
+
+                    if (!context.canTraverse(candidate)) {
+                        continue;
+                    }
+
+                    context.getCurrentFrontier().add(candidate);
+                }
+            }
+        }
+
+        context.setScanDepth(enqueueDepth);
+        resetEnqueueState();
+        return TraversalStepResult.CONTINUE;
     }
 
     /**
@@ -127,6 +259,37 @@ public class SectionClearTraverser implements ChainTraverser {
                 }
             }
         }
+    }
+
+    private void beginShellEnqueue(ChainSearchContext context, int nextDepth) {
+        ChainTarget origin = context.getOrigin();
+        enqueueDepth = nextDepth;
+        enqueueX = Math.max(minX, origin.getX() - nextDepth);
+        enqueueY = Math.max(minY, origin.getY() - nextDepth);
+        enqueueZ = Math.max(minZ, origin.getZ() - nextDepth);
+        shellEnqueueInProgress = true;
+    }
+
+    private void saveCursor(int x, int y, int z) {
+        enqueueX = x;
+        enqueueY = y;
+        enqueueZ = z;
+    }
+
+    private void resetEnqueueState() {
+        enqueueDepth = 0;
+        enqueueX = 0;
+        enqueueY = 0;
+        enqueueZ = 0;
+        shellEnqueueInProgress = false;
+    }
+
+    private boolean hasMoreShellWork(ChainSearchContext context) {
+        return shellEnqueueInProgress || context.getScanDepth() < maxDepth;
+    }
+
+    private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
+        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
     }
 
     /**
