@@ -12,7 +12,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.common.util.ForgeDirection;
 
 /**
- * 按 GT 线缆真实连接关系遍历。
+ * 按 GT 线缆真实连接关系预算化遍历。
  */
 public class GregTechCableTraverser implements BudgetedChainTraverser {
 
@@ -45,58 +45,6 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
             }
             context.getCurrentFrontier().add(neighbor);
         }
-    }
-
-    @Override
-    public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
-        int processed = 0;
-
-        if (context.getConfirmedCount() >= context.getMaxTargets()) {
-            return false;
-        }
-
-        while (processed < maxNodes && !context.getCurrentFrontier().isEmpty()) {
-            ChainTarget current = context.getCurrentFrontier().poll();
-            if (current == null) {
-                break;
-            }
-
-            if (!context.canTraverse(current) || !matcher.matches(current)) {
-                processed++;
-                continue;
-            }
-
-            rememberConnectedSides(context, current);
-            consumer.accept(current);
-            context.incrementConfirmedCount();
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                processed++;
-                break;
-            }
-
-            for (ChainTarget next : resolveConnectedNeighbors(context, current)) {
-                if (!context.getVisited().add(next)) {
-                    continue;
-                }
-                if (!context.canTraverse(next)) {
-                    continue;
-                }
-                if (getDistance(next, context.getOrigin()) > context.getMaxRadius()) {
-                    continue;
-                }
-                context.getNextFrontier().add(next);
-            }
-
-            processed++;
-        }
-
-        if (context.getCurrentFrontier().isEmpty() && !context.getNextFrontier().isEmpty()) {
-            while (!context.getNextFrontier().isEmpty()) {
-                context.getCurrentFrontier().add(context.getNextFrontier().poll());
-            }
-        }
-
-        return !context.getCurrentFrontier().isEmpty();
     }
 
     @Override

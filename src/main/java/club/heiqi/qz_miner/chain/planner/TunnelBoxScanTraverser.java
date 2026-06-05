@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.planner;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
 /**
- * 3x3x半径的指向性隧道遍历器。
+ * 3x3x半径的指向性隧道预算化遍历器。
  */
 public class TunnelBoxScanTraverser implements BudgetedChainTraverser {
 
@@ -30,44 +30,6 @@ public class TunnelBoxScanTraverser implements BudgetedChainTraverser {
         currentTarget = null;
         context.getVisited().add(context.getOrigin());
         context.setScanDepth(0);
-    }
-
-    @Override
-    public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
-        int processed = 0;
-
-        if (context.getConfirmedCount() >= context.getMaxTargets()) {
-            return false;
-        }
-
-        while (processed < maxNodes) {
-            if (context.getCurrentFrontier().isEmpty()) {
-                if (!enqueueNextSlice(context)) {
-                    return false;
-                }
-            }
-
-            ChainTarget current = context.getCurrentFrontier().poll();
-            if (current == null) {
-                continue;
-            }
-
-            if (!matcher.matches(current)) {
-                processed++;
-                continue;
-            }
-
-            consumer.accept(current);
-            context.incrementConfirmedCount();
-            processed++;
-
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                break;
-            }
-        }
-
-        return context.getConfirmedCount() < context.getMaxTargets()
-            && (!context.getCurrentFrontier().isEmpty() || hasMoreSliceWork(context));
     }
 
     @Override
@@ -135,17 +97,6 @@ public class TunnelBoxScanTraverser implements BudgetedChainTraverser {
         }
     }
 
-    private boolean enqueueNextSlice(ChainSearchContext context) {
-        int nextDepth = context.getScanDepth();
-        if (!hasNextSliceDepth(nextDepth, context.getMaxRadius())) {
-            return false;
-        }
-
-        enqueueSlice(context, nextDepth);
-        context.setScanDepth(nextDepth + 1);
-        return true;
-    }
-
     /**
      * 按预算推进下一片隧道截面扫描。
      *
@@ -187,25 +138,6 @@ public class TunnelBoxScanTraverser implements BudgetedChainTraverser {
         context.setScanDepth(enqueueDepth + 1);
         resetSliceEnqueueState();
         return TraversalStepResult.CONTINUE;
-    }
-
-    private void enqueueSlice(ChainSearchContext context, int depth) {
-        ChainTarget origin = context.getOrigin();
-        for (int a = -1; a <= 1; a++) {
-            for (int b = -1; b <= 1; b++) {
-                ChainTarget candidate = createCandidate(origin, depth, a, b);
-
-                if (!context.getVisited().add(candidate)) {
-                    continue;
-                }
-
-                if (!context.canTraverse(candidate)) {
-                    continue;
-                }
-
-                context.getCurrentFrontier().add(candidate);
-            }
-        }
     }
 
     private ChainTarget createCandidate(ChainTarget origin, int depth, int a, int b) {

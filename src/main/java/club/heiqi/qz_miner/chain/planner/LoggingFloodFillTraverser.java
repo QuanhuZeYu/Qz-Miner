@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.planner;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
 /**
- * 伐木壳层遍历器。
+ * 伐木壳层预算化遍历器。
  */
 public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
@@ -25,59 +25,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
         ChainTarget origin = context.getOrigin();
         context.getVisited().add(origin);
         beginNeighborGeneration(origin);
-    }
-
-    @Override
-    public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
-        if (budgetPhase == TraversalPhase.GENERATE_NEIGHBORS
-            && currentTarget != null
-            && context.getCurrentFrontier().isEmpty()
-            && context.getNextFrontier().isEmpty()) {
-            enqueueNeighbors(context, currentTarget);
-            clearCurrentTarget();
-        }
-
-        int processed = 0;
-
-        if (context.getConfirmedCount() >= context.getMaxTargets()) {
-            return false;
-        }
-
-        while (processed < maxNodes && !context.getCurrentFrontier().isEmpty()) {
-            ChainTarget current = context.getCurrentFrontier().poll();
-            if (current == null) {
-                break;
-            }
-
-            if (!context.canTraverse(current)) {
-                processed++;
-                continue;
-            }
-
-            if (!matcher.matches(current)) {
-                processed++;
-                continue;
-            }
-
-            consumer.accept(current);
-            context.incrementConfirmedCount();
-
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                processed++;
-                break;
-            }
-
-            enqueueNeighbors(context, current);
-            processed++;
-        }
-
-        if (context.getCurrentFrontier().isEmpty() && !context.getNextFrontier().isEmpty()) {
-            while (!context.getNextFrontier().isEmpty()) {
-                context.getCurrentFrontier().add(context.getNextFrontier().poll());
-            }
-        }
-
-        return !context.getCurrentFrontier().isEmpty();
     }
 
     @Override
@@ -238,33 +185,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
         clearCurrentTarget();
         return TraversalStepResult.CONTINUE;
-    }
-
-    private void enqueueNeighbors(ChainSearchContext context, ChainTarget center) {
-        for (int dx = -shellLayers; dx <= shellLayers; dx++) {
-            for (int dy = -shellLayers; dy <= shellLayers; dy++) {
-                for (int dz = -shellLayers; dz <= shellLayers; dz++) {
-                    if (dx == 0 && dy == 0 && dz == 0) {
-                        continue;
-                    }
-
-                    ChainTarget next = new ChainTarget(
-                        center.getX() + dx,
-                        center.getY() + dy,
-                        center.getZ() + dz);
-
-                    if (!context.getVisited().add(next)) {
-                        continue;
-                    }
-
-                    if (!context.canTraverse(next)) {
-                        continue;
-                    }
-
-                    context.getNextFrontier().add(next);
-                }
-            }
-        }
     }
 
     private void beginNeighborGeneration(ChainTarget center) {

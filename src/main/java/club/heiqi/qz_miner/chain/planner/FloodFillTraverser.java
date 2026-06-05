@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.planner;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
 /**
- * 洪泛遍历器。
+ * 洪泛预算化遍历器。
  */
 public class FloodFillTraverser implements BudgetedChainTraverser {
 
@@ -26,11 +26,6 @@ public class FloodFillTraverser implements BudgetedChainTraverser {
 
             context.getCurrentFrontier().add(neighbor);
         }
-    }
-
-    @Override
-    public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
-        return ChainSearchAlgorithm.step(context, maxNodes, matcher, consumer);
     }
 
     @Override

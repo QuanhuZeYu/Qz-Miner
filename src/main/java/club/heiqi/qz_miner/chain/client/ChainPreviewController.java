@@ -13,7 +13,7 @@ import club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraversalSupport;
-import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
 import club.heiqi.qz_miner.chain.planner.TraversalStepResult;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainSession;
@@ -41,8 +41,6 @@ import net.minecraft.world.World;
  */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewController {
-
-    private static final int MAX_SCAN_PER_SLICE = 640;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private volatile ChainTarget currentTarget;
@@ -157,7 +155,7 @@ public class ChainPreviewController {
             return;
         }
         final ChainSearchContext searchContext = runtime.getSearchContext();
-        final ChainTraverser traverser = runtime.getTraverser();
+        final BudgetedChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
 
         if (blockMatcher.matches(player, target)) {
@@ -185,7 +183,6 @@ public class ChainPreviewController {
                     traverser,
                     searchContext,
                     control,
-                    MAX_SCAN_PER_SLICE,
                     matchedTarget -> !control.isCancelRequested()
                         && isPreviewStillValid(generation, target)
                         && blockMatcher.matches(player, matchedTarget),

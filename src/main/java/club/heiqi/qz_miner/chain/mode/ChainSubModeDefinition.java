@@ -8,7 +8,7 @@ import club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver;
 import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
 import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
@@ -57,7 +57,7 @@ public final class ChainSubModeDefinition {
         return trigger;
     }
 
-    public ChainTraverser resolveTraverser(ChainResolverContext context, ChainTraverser fallback) {
+    public BudgetedChainTraverser resolveTraverser(ChainResolverContext context, BudgetedChainTraverser fallback) {
         return traverserResolver == null ? fallback : traverserResolver.createTraverser(context);
     }
 

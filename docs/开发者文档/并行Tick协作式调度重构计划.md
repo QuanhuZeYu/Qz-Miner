@@ -165,7 +165,7 @@ public enum TraversalStepResult {
 - 旧任务晚返回时不能污染新 session 或新 preview generation。
 - `./gradlew.bat compileJava` 通过。
 
-当前状态：已完成并通过 `./gradlew.bat compileJava`；服务端规划与客户端预览仍暂用旧 `ChainTraverser.step(...)`，具体遍历预算化从阶段 3 开始。
+当前状态：已完成并通过 `./gradlew.bat compileJava`；阶段 6 已清理旧遍历接口，当前服务端规划与客户端预览通过预算化协议运行。
 
 ### 阶段 3：洪泛与 GT 线缆预算化
 
@@ -185,7 +185,7 @@ public enum TraversalStepResult {
 - 预算耗尽时返回 `YIELDED`，下片继续同一层轮转或同一节点邻居生成。
 - `./gradlew.bat compileJava` 通过。
 
-当前状态：已完成并通过 `./gradlew.bat compileJava`；`FloodFillTraverser` 和 `GregTechCableTraverser` 已接入预算化协议，旧 traverser 仍通过兼容路径运行。
+当前状态：已完成并通过 `./gradlew.bat compileJava`；`FloodFillTraverser` 和 `GregTechCableTraverser` 已接入预算化协议，旧兼容路径已在阶段 6 清理。
 
 ### 阶段 4：伐木大邻域预算化
 
@@ -208,7 +208,7 @@ public enum TraversalStepResult {
 
 ### 阶段 5：盒扫、隧道、区段清理统一预算化
 
-目标：让所有 `ChainTraverser` 使用同一预算协议，避免固定上界实现成为例外。
+目标：让所有 traverser 使用同一预算协议，避免固定上界实现成为例外。
 
 实施点：
 
@@ -241,13 +241,16 @@ public enum TraversalStepResult {
 - `./gradlew.bat compileJava` 通过。
 - 工作区 diff 可审阅，提交信息按仓库规范编写。
 
+当前状态：已完成并通过 `./gradlew.bat compileJava`；旧 `ChainTraverser.java` 已删除，`BudgetedChainTraverser` 已成为独立接口，源码 grep 已确认不再存在旧 `step(context, int maxNodes, ...)` 方法、`MAX_SCAN_PER_SLICE` 常量或 `maxNodes` 兼容路径。
+
 ## 关键文件
 
 - `src/main/java/club/heiqi/qz_miner/parallel/ParallelTickContext.java`
 - `src/main/java/club/heiqi/qz_miner/parallel/ParallelTickTask.java`
 - `src/main/java/club/heiqi/qz_miner/parallel/ParallelTickExecutor.java`
 - `src/main/java/club/heiqi/qz_miner/parallel/ParallelTickSubscription.java`
-- `src/main/java/club/heiqi/qz_miner/chain/planner/ChainTraverser.java`
+- `src/main/java/club/heiqi/qz_miner/chain/planner/BudgetedChainTraverser.java`
+- `src/main/java/club/heiqi/qz_miner/chain/planner/ChainTraversalSupport.java`
 - `src/main/java/club/heiqi/qz_miner/chain/planner/ChainSearchAlgorithm.java`
 - `src/main/java/club/heiqi/qz_miner/chain/planner/FloodFillTraverser.java`
 - `src/main/java/club/heiqi/qz_miner/chain/planner/LoggingFloodFillTraverser.java`
@@ -271,4 +274,4 @@ public enum TraversalStepResult {
 
 ## 接手建议
 
-阶段 1、阶段 2、阶段 3、阶段 4 和阶段 5 已完成。下一个 Agent 推荐进入阶段 6，先清理旧 `ChainTraverser.step(context, int maxNodes, ...)` 兼容接口，并用 grep 确认生产路径不再绕过预算化协议。每阶段都应独立编译验证，避免在并行调度、业务状态和遍历算法三层同时引入难以定位的回归。
+阶段 1、阶段 2、阶段 3、阶段 4、阶段 5 和阶段 6 已完成。下一个 Agent 推荐优先执行实机回归：大范围 `CHAIN`、大范围 `AREA` 空区、GT 线缆替换、客户端预览快速切换、预览中断线/退出世界。若后续新增 traverser，必须直接实现 `BudgetedChainTraverser` 并把所有推进动作纳入 `ParallelTickControl` 工作预算。

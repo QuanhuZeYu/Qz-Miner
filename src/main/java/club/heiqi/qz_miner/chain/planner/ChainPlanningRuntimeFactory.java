@@ -84,7 +84,7 @@ public final class ChainPlanningRuntimeFactory {
         ChainCandidateFilter candidateFilter = createCandidateFilter(searchContext);
         searchContext.setCandidateFilter(candidateFilter);
 
-        ChainTraverser traverser = definition.createTraverser(resolverContext);
+        BudgetedChainTraverser traverser = definition.createTraverser(resolverContext);
         ChainBlockMatcher matcher = definition.createMatcher(resolverContext);
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;

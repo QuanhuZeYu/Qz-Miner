@@ -8,14 +8,14 @@ public final class ChainPlanningRuntime {
     private final ChainSearchContext searchContext;
     private final ChainResolverContext resolverContext;
     private final ChainCandidateFilter candidateFilter;
-    private final ChainTraverser traverser;
+    private final BudgetedChainTraverser traverser;
     private final ChainBlockMatcher matcher;
 
     public ChainPlanningRuntime(
         ChainSearchContext searchContext,
         ChainResolverContext resolverContext,
         ChainCandidateFilter candidateFilter,
-        ChainTraverser traverser,
+        BudgetedChainTraverser traverser,
         ChainBlockMatcher matcher) {
         this.searchContext = searchContext;
         this.resolverContext = resolverContext;
@@ -36,7 +36,7 @@ public final class ChainPlanningRuntime {
         return candidateFilter;
     }
 
-    public ChainTraverser getTraverser() {
+    public BudgetedChainTraverser getTraverser() {
         return traverser;
     }
 

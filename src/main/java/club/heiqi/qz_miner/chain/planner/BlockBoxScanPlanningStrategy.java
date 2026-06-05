@@ -21,7 +21,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
  */
 public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
 
-    private static final int MAX_SCAN_PER_SLICE = 64;
     private final BlockSeedResolver blockSeedResolver = new WorldBlockSeedResolver();
 
     /**
@@ -77,7 +76,7 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
             return;
         }
         final ChainSearchContext searchContext = runtime.getSearchContext();
-        final ChainTraverser traverser = runtime.getTraverser();
+        final BudgetedChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
         traverser.seed(searchContext);
 
@@ -121,7 +120,6 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                     traverser,
                     searchContext,
                     control,
-                    MAX_SCAN_PER_SLICE,
                     target -> !control.isCancelRequested()
                         && currentState.isSessionActive(session)
                         && currentState.isChainKeyPressed()

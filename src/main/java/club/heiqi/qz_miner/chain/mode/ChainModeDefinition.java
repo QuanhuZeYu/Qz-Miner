@@ -8,7 +8,7 @@ import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainPlanningStrategy;
-import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
 import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 
@@ -65,8 +65,8 @@ public final class ChainModeDefinition {
      *
      * @return 遍历器
      */
-    public ChainTraverser createTraverser(ChainResolverContext context) {
-        ChainTraverser fallback = traverserResolver == null ? null : traverserResolver.createTraverser(context);
+    public BudgetedChainTraverser createTraverser(ChainResolverContext context) {
+        BudgetedChainTraverser fallback = traverserResolver == null ? null : traverserResolver.createTraverser(context);
         return ChainSubModeRegistry.createTraverser(context, fallback);
     }
 

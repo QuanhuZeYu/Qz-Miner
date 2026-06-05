@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.planner;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
 /**
- * 区段清理遍历器：固定清理被挖方块所在的 16x16x16 区段。
+ * 区段清理预算化遍历器：固定清理被挖方块所在的 16x16x16 区段。
  */
 public class SectionClearTraverser implements BudgetedChainTraverser {
 
@@ -43,44 +43,6 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
 
         context.getVisited().add(origin);
         context.setScanDepth(0);
-    }
-
-    @Override
-    public boolean step(ChainSearchContext context, int maxNodes, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
-        int processed = 0;
-
-        if (context.getConfirmedCount() >= context.getMaxTargets()) {
-            return false;
-        }
-
-        while (processed < maxNodes) {
-            if (context.getCurrentFrontier().isEmpty()) {
-                if (!enqueueNextShell(context)) {
-                    return false;
-                }
-            }
-
-            ChainTarget current = context.getCurrentFrontier().poll();
-            if (current == null) {
-                continue;
-            }
-
-            if (!matcher.matches(current)) {
-                processed++;
-                continue;
-            }
-
-            consumer.accept(current);
-            context.incrementConfirmedCount();
-            processed++;
-
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                break;
-            }
-        }
-
-        return context.getConfirmedCount() < context.getMaxTargets()
-            && (!context.getCurrentFrontier().isEmpty() || context.getScanDepth() < maxDepth);
     }
 
     @Override
@@ -149,23 +111,6 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
     }
 
     /**
-     * 将区段中的下一层壳面加入候选队列。
-     *
-     * @param context 搜索上下文
-     * @return 是否还存在未扫描的壳层
-     */
-    private boolean enqueueNextShell(ChainSearchContext context) {
-        int nextDepth = context.getScanDepth() + 1;
-        if (nextDepth > maxDepth) {
-            return false;
-        }
-
-        context.setScanDepth(nextDepth);
-        enqueueShell(context, nextDepth);
-        return true;
-    }
-
-    /**
      * 按预算推进区段壳层扫描。
      *
      * @param context 搜索上下文
@@ -220,45 +165,6 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
         context.setScanDepth(enqueueDepth);
         resetEnqueueState();
         return TraversalStepResult.CONTINUE;
-    }
-
-    /**
-     * 将指定壳层上的候选点加入当前队列。
-     *
-     * @param context 搜索上下文
-     * @param depth 当前壳层半径
-     */
-    private void enqueueShell(ChainSearchContext context, int depth) {
-        ChainTarget origin = context.getOrigin();
-
-        int startX = Math.max(minX, origin.getX() - depth);
-        int endX = Math.min(maxX, origin.getX() + depth);
-        int startY = Math.max(minY, origin.getY() - depth);
-        int endY = Math.min(maxY, origin.getY() + depth);
-        int startZ = Math.max(minZ, origin.getZ() - depth);
-        int endZ = Math.min(maxZ, origin.getZ() + depth);
-
-        for (int x = startX; x <= endX; x++) {
-            for (int y = startY; y <= endY; y++) {
-                for (int z = startZ; z <= endZ; z++) {
-                    if (!isOnShell(origin, depth, x, y, z)) {
-                        continue;
-                    }
-
-                    ChainTarget candidate = new ChainTarget(x, y, z);
-
-                    if (!context.getVisited().add(candidate)) {
-                        continue;
-                    }
-
-                    if (!context.canTraverse(candidate)) {
-                        continue;
-                    }
-
-                    context.getCurrentFrontier().add(candidate);
-                }
-            }
-        }
     }
 
     private void beginShellEnqueue(ChainSearchContext context, int nextDepth) {

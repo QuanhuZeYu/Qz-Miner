@@ -5,7 +5,14 @@ import club.heiqi.qz_miner.parallel.ParallelTickControl;
 /**
  * 可使用并行 Tick 控制对象预算化推进的连锁遍历器。
  */
-public interface BudgetedChainTraverser extends ChainTraverser {
+public interface BudgetedChainTraverser {
+
+    /**
+     * 初始化遍历状态。
+     *
+     * @param context 搜索上下文
+     */
+    void seed(ChainSearchContext context);
 
     /**
      * 执行一次预算化遍历分片。
