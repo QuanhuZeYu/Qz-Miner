@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -17,8 +18,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 洪泛搜索规划策略公共主流程。
  */
 public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanningStrategy {
-
-    private static final int MAX_SCAN_PER_SLICE = 64;
 
     private final ChainMode mode;
     private final BlockSeedResolver blockSeedResolver = new WorldBlockSeedResolver();
@@ -63,7 +62,7 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
             return;
         }
         final ChainSearchContext searchContext = runtime.getSearchContext();
-        final ChainTraverser traverser = runtime.getTraverser();
+        final BudgetedChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
         if (shouldIncludeOriginTarget() && blockMatcher.matches(player, origin)) {
             queue.add(origin);
@@ -74,39 +73,71 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
 
         ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
             getTaskPrefix() + playerUUID,
-            context -> {
+            control -> {
+                if (control.isCancelRequested()) {
+                    return ParallelTaskResult.TERMINATED;
+                }
+
                 EntityPlayer currentPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
                 if (!(currentPlayer instanceof EntityPlayerMP)) {
                     MyMod.chainStateService.stopPlayerExecution(playerUUID, getStopReasonPrefix() + "player-unavailable");
-                    return false;
+                    return ParallelTaskResult.TERMINATED;
                 }
 
                 ChainPlayerState currentState = MyMod.chainStateService.getPlayerState(playerUUID);
                 if (currentState == null) {
                     MyMod.chainStateService.stopPlayerExecution(playerUUID, getStopReasonPrefix() + "state-missing");
-                    return false;
+                    return ParallelTaskResult.TERMINATED;
                 }
 
                 if (!currentState.isSessionActive(session)) {
                     MyMod.LOG.debug("[ChainPlanner] Ignore stale {} session for player {}", getLogLabel(), playerUUID);
-                    return false;
+                    return ParallelTaskResult.TERMINATED;
                 }
 
                 if (!currentState.isChainKeyPressed()) {
                     MyMod.chainStateService.stopPlayerExecution(playerUUID, getStopReasonPrefix() + "key-released");
-                    return false;
+                    return ParallelTaskResult.TERMINATED;
+                }
+
+                if (control.shouldYield()) {
+                    return ParallelTaskResult.YIELDED;
                 }
 
                 ChainSession currentSession = session;
                 int previousMatchedCount = currentSession.getMatchedTargetCount();
 
-                boolean shouldContinue = traverser.step(
+                TraversalStepResult traversalResult = ChainTraversalSupport.step(
+                    traverser,
                     searchContext,
-                    MAX_SCAN_PER_SLICE,
-                    target -> blockMatcher.matches((EntityPlayerMP) currentPlayer, target),
-                    queue::add);
+                    control,
+                    target -> !control.isCancelRequested()
+                        && currentState.isSessionActive(session)
+                        && currentState.isChainKeyPressed()
+                        && blockMatcher.matches((EntityPlayerMP) currentPlayer, target),
+                    target -> {
+                        if (!control.isCancelRequested()
+                            && currentState.isSessionActive(session)
+                            && currentState.isChainKeyPressed()) {
+                            queue.add(target);
+                        }
+                    });
+                if (traversalResult == TraversalStepResult.TERMINATED) {
+                    return ParallelTaskResult.TERMINATED;
+                }
+
+                if (control.isCancelRequested() || !currentState.isSessionActive(session)) {
+                    return ParallelTaskResult.TERMINATED;
+                }
+
+                if (!currentState.isChainKeyPressed()) {
+                    MyMod.chainStateService.stopPlayerExecution(playerUUID, getStopReasonPrefix() + "key-released");
+                    return ParallelTaskResult.TERMINATED;
+                }
+
                 currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
                 boolean matchedCountChanged = previousMatchedCount != currentSession.getMatchedTargetCount();
+                boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE || traversalResult == TraversalStepResult.YIELDED;
 
                 if (!queue.isEmpty() && currentState.getExecutionStatus() == ChainExecutionStatus.PLANNING) {
                     currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, getPlannerReasonPrefix() + "found-targets");
@@ -130,7 +161,11 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                     }
                 }
 
-                return shouldContinue;
+                if (shouldContinue && control.shouldYield()) {
+                    return ParallelTaskResult.YIELDED;
+                }
+
+                return ChainTraversalSupport.toParallelTaskResult(traversalResult);
             });
 
         session.setPlannerSubscription(subscription);

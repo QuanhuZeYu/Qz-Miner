@@ -11,5 +11,5 @@ public interface ChainTraverserResolver {
      * @param context 解析上下文
      * @return 遍历器
      */
-    ChainTraverser createTraverser(ChainResolverContext context);
+    BudgetedChainTraverser createTraverser(ChainResolverContext context);
 }

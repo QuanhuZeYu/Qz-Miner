@@ -165,6 +165,7 @@ public final class ParallelTickExecutor {
                 currentStage = stage;
                 currentContext = null;
                 tickWindowOpen = false;
+                windowChanged.signalAll();
             } finally {
                 stateLock.unlock();
             }
@@ -195,6 +196,7 @@ public final class ParallelTickExecutor {
         waitForMinimumWindow(stage);
 
         stateLock.lock();
+        boolean interrupted = false;
         try {
             if (currentStage != stage) {
                 return;
@@ -207,13 +209,15 @@ public final class ParallelTickExecutor {
                 try {
                     workersIdle.await();
                 } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                    interrupted = true;
                     MyMod.LOG.warn("[ParallelTick] Interrupted while waiting workers to stop on tick {}", Long.valueOf(currentTickId), e);
-                    return;
                 }
             }
         } finally {
             stateLock.unlock();
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -247,10 +251,27 @@ public final class ParallelTickExecutor {
     }
 
     private void unregister(RegisteredTask registeredTask) {
-        if (getTasks(registeredTask.stage).remove(registeredTask)) {
-            registeredTask.shutdown();
-            MyMod.LOG.debug("[ParallelTick] Unregistered {} task: {}", registeredTask.stage, registeredTask.name);
+        if (getTasks(registeredTask.stage).contains(registeredTask)) {
+            if (registeredTask.requestCancel("subscription-unregister")) {
+                MyMod.LOG.debug("[ParallelTick] Cancellation requested for {} task: {}", registeredTask.stage, registeredTask.name);
+            }
         }
+    }
+
+    private int getWorkBudgetUnits(ParallelTickStage stage) {
+        switch (stage) {
+            case CLIENT_PRE:
+            case CLIENT_POST:
+                return getConfiguredWorkBudgetUnits(Config.parallelTickClientWorkBudgetUnits);
+            case SERVER_PRE:
+            case SERVER_POST:
+            default:
+                return getConfiguredWorkBudgetUnits(Config.parallelTickServerWorkBudgetUnits);
+        }
+    }
+
+    private int getConfiguredWorkBudgetUnits(int configuredUnits) {
+        return Math.max(1, configuredUnits);
     }
 
     private CopyOnWriteArrayList<RegisteredTask> getTasks(ParallelTickStage stage) {
@@ -273,6 +294,9 @@ public final class ParallelTickExecutor {
         private final ParallelTickStage stage;
         private final ParallelTickTask task;
         private volatile boolean active = true;
+        private volatile boolean cancelRequested = false;
+        private volatile String cancelReason = "";
+        private volatile ParallelTaskState state = ParallelTaskState.REGISTERED;
         private volatile Future<?> future;
         private long observedTickId = -1L;
 
@@ -294,6 +318,9 @@ public final class ParallelTickExecutor {
 
         private void shutdown() {
             active = false;
+            cancelRequested = true;
+            cancelReason = "executor-shutdown";
+            state = ParallelTaskState.TERMINATING;
             Future<?> currentFuture = future;
             if (currentFuture != null) {
                 currentFuture.cancel(true);
@@ -304,6 +331,40 @@ public final class ParallelTickExecutor {
             } finally {
                 stateLock.unlock();
             }
+        }
+
+        private boolean requestCancel(String reason) {
+            if (!active
+                || state == ParallelTaskState.COMPLETED
+                || state == ParallelTaskState.TERMINATED
+                || state == ParallelTaskState.FAILED) {
+                return false;
+            }
+
+            boolean newlyRequested = !cancelRequested;
+            if (newlyRequested) {
+                cancelRequested = true;
+                cancelReason = reason == null ? "unknown" : reason;
+            }
+            if (state != ParallelTaskState.RUNNING) {
+                state = ParallelTaskState.CANCEL_REQUESTED;
+            }
+
+            if (newlyRequested) {
+                try {
+                    task.onCancelRequested(cancelReason);
+                } catch (RuntimeException e) {
+                    MyMod.LOG.warn("[ParallelTick] Task cancel callback failed: {}", name, e);
+                }
+            }
+
+            stateLock.lock();
+            try {
+                windowChanged.signalAll();
+            } finally {
+                stateLock.unlock();
+            }
+            return newlyRequested;
         }
 
         @Override
@@ -321,7 +382,8 @@ public final class ParallelTickExecutor {
         private ParallelTickContext awaitNextWindow() {
             stateLock.lock();
             try {
-                while (running && active && (!tickWindowOpen || observedTickId == currentTickId)) {
+                while (running && active
+                    && (!tickWindowOpen || currentContext == null || currentStage != stage || observedTickId == currentTickId)) {
                     try {
                         windowChanged.await();
                     } catch (InterruptedException e) {
@@ -342,42 +404,116 @@ public final class ParallelTickExecutor {
         }
 
         private void runSlicesInCurrentTick(ParallelTickContext context) {
-            while (running && active && context.hasTimeLeft()) {
-                enterWorker();
+            while (running && active) {
+                if (!enterWorker(context)) {
+                    return;
+                }
+
+                ParallelTaskResult result = ParallelTaskResult.YIELDED;
                 try {
-                    boolean shouldContinue = task.run(context);
-                    if (!shouldContinue) {
-                        getTasks(stage).remove(this);
-                        active = false;
-                        MyMod.LOG.debug("[ParallelTick] {} task completed: {}", stage, name);
+                    ParallelWorkBudget budget = new ParallelWorkBudget(getWorkBudgetUnits(stage));
+                    ParallelTickControl control = new RegisteredTaskControl(this, context, budget);
+                    state = cancelRequested ? ParallelTaskState.TERMINATING : ParallelTaskState.RUNNING;
+                    result = task.run(control);
+                    if (result == null) {
+                        result = ParallelTaskResult.YIELDED;
+                    }
+                    if (cancelRequested && result != ParallelTaskResult.TERMINATED) {
+                        result = ParallelTaskResult.TERMINATED;
+                    }
+
+                    if (handleTaskResult(result)) {
                         return;
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     MyMod.LOG.warn("[ParallelTick] Task interrupted: {}", name, e);
-                    active = false;
-                    getTasks(stage).remove(this);
+                    if (cancelRequested) {
+                        finishTask(ParallelTaskState.TERMINATED);
+                    } else {
+                        finishTask(ParallelTaskState.FAILED);
+                    }
                     return;
                 } catch (Exception e) {
                     MyMod.LOG.error("[ParallelTick] Task failed: {}", name, e);
-                    active = false;
-                    getTasks(stage).remove(this);
+                    finishTask(ParallelTaskState.FAILED);
                     return;
                 } finally {
                     exitWorker();
                 }
 
-                if (!tickWindowOpen) {
+                if (result == ParallelTaskResult.YIELDED || !isWindowStillUsable(context)) {
                     return;
                 }
             }
         }
+
+        private boolean handleTaskResult(ParallelTaskResult result) {
+            switch (result) {
+                case CONTINUE:
+                    state = cancelRequested ? ParallelTaskState.CANCEL_REQUESTED : ParallelTaskState.REGISTERED;
+                    return false;
+                case YIELDED:
+                    state = cancelRequested ? ParallelTaskState.CANCEL_REQUESTED : ParallelTaskState.YIELDED;
+                    return true;
+                case COMPLETED:
+                    finishTask(ParallelTaskState.COMPLETED);
+                    MyMod.LOG.debug("[ParallelTick] {} task completed: {}", stage, name);
+                    return true;
+                case TERMINATED:
+                    finishTask(ParallelTaskState.TERMINATED);
+                    MyMod.LOG.debug("[ParallelTick] {} task terminated: {}, reason={}", stage, name, cancelReason);
+                    return true;
+                default:
+                    state = ParallelTaskState.YIELDED;
+                    return true;
+            }
+        }
+
+        private void finishTask(ParallelTaskState finalState) {
+            active = false;
+            state = finalState;
+            getTasks(stage).remove(this);
+            if (finalState == ParallelTaskState.TERMINATED) {
+                try {
+                    task.cleanupAfterTermination();
+                } catch (RuntimeException e) {
+                    state = ParallelTaskState.FAILED;
+                    MyMod.LOG.warn("[ParallelTick] Task termination cleanup failed: {}", name, e);
+                }
+            }
+        }
+
+        private boolean isWindowStillUsable(ParallelTickContext context) {
+            stateLock.lock();
+            try {
+                return running
+                    && active
+                    && tickWindowOpen
+                    && currentContext == context
+                    && currentTickId == context.getTickId()
+                    && currentStage == stage
+                    && context.hasTimeLeft();
+            } finally {
+                stateLock.unlock();
+            }
+        }
     }
 
-    private void enterWorker() {
+    private boolean enterWorker(ParallelTickContext context) {
         stateLock.lock();
         try {
+            if (!running
+                || !tickWindowOpen
+                || currentContext != context
+                || currentTickId != context.getTickId()
+                || currentStage != context.getStage()
+                || !context.hasTimeLeft()) {
+                return false;
+            }
+
             activeWorkers++;
+            return true;
         } finally {
             stateLock.unlock();
         }
@@ -392,6 +528,71 @@ public final class ParallelTickExecutor {
             }
         } finally {
             stateLock.unlock();
+        }
+    }
+
+    private final class RegisteredTaskControl implements ParallelTickControl {
+
+        private final RegisteredTask registeredTask;
+        private final ParallelTickContext context;
+        private final ParallelWorkBudget budget;
+
+        private RegisteredTaskControl(RegisteredTask registeredTask, ParallelTickContext context, ParallelWorkBudget budget) {
+            this.registeredTask = registeredTask;
+            this.context = context;
+            this.budget = budget;
+        }
+
+        @Override
+        public long getTickId() {
+            return context.getTickId();
+        }
+
+        @Override
+        public ParallelTickStage getStage() {
+            return context.getStage();
+        }
+
+        @Override
+        public boolean isWindowOpen() {
+            stateLock.lock();
+            try {
+                return running
+                    && tickWindowOpen
+                    && currentContext == context
+                    && currentTickId == context.getTickId()
+                    && currentStage == registeredTask.stage;
+            } finally {
+                stateLock.unlock();
+            }
+        }
+
+        @Override
+        public boolean isCancelRequested() {
+            return registeredTask.cancelRequested || !running;
+        }
+
+        @Override
+        public boolean shouldYield() {
+            return isCancelRequested() || !budget.hasRemaining() || !context.hasTimeLeft() || !isWindowOpen();
+        }
+
+        @Override
+        public boolean tryConsumeWork(int units) {
+            if (isCancelRequested() || !context.hasTimeLeft() || !isWindowOpen()) {
+                return false;
+            }
+            return budget.tryConsumeWork(units);
+        }
+
+        @Override
+        public long getElapsedNanoTime() {
+            return context.getElapsedNanoTime();
+        }
+
+        @Override
+        public String getCancelReason() {
+            return registeredTask.cancelReason;
         }
     }
 

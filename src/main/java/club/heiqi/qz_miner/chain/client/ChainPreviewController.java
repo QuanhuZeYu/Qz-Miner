@@ -12,9 +12,12 @@ import club.heiqi.qz_miner.chain.planner.ChainPlanningRuntime;
 import club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory;
 import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.chain.planner.ChainTraverser;
+import club.heiqi.qz_miner.chain.planner.ChainTraversalSupport;
+import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
+import club.heiqi.qz_miner.chain.planner.TraversalStepResult;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -38,8 +41,6 @@ import net.minecraft.world.World;
  */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewController {
-
-    private static final int MAX_SCAN_PER_SLICE = 640;
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private volatile ChainTarget currentTarget;
@@ -154,7 +155,7 @@ public class ChainPreviewController {
             return;
         }
         final ChainSearchContext searchContext = runtime.getSearchContext();
-        final ChainTraverser traverser = runtime.getTraverser();
+        final BudgetedChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
 
         if (blockMatcher.matches(player, target)) {
@@ -169,23 +170,47 @@ public class ChainPreviewController {
 
         previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
             "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
-            context -> {
-                if (!isPreviewStillValid(generation, target)) {
-                    return false;
+            control -> {
+                if (control.isCancelRequested() || !isPreviewStillValid(generation, target)) {
+                    return ParallelTaskResult.TERMINATED;
                 }
 
-                boolean shouldContinue = traverser.step(
+                if (control.shouldYield()) {
+                    return ParallelTaskResult.YIELDED;
+                }
+
+                TraversalStepResult traversalResult = ChainTraversalSupport.step(
+                    traverser,
                     searchContext,
-                    MAX_SCAN_PER_SLICE,
-                    matchedTarget -> blockMatcher.matches(player, matchedTarget),
-                    previewState::addPreviewTarget);
+                    control,
+                    matchedTarget -> !control.isCancelRequested()
+                        && isPreviewStillValid(generation, target)
+                        && blockMatcher.matches(player, matchedTarget),
+                    matchedTarget -> {
+                        if (!control.isCancelRequested() && isPreviewStillValid(generation, target)) {
+                            previewState.addPreviewTarget(matchedTarget);
+                        }
+                    });
+                if (traversalResult == TraversalStepResult.TERMINATED) {
+                    return ParallelTaskResult.TERMINATED;
+                }
+
+                if (control.isCancelRequested() || !isPreviewStillValid(generation, target)) {
+                    return ParallelTaskResult.TERMINATED;
+                }
+
                 previewState.incrementScannedCount();
+                boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE || traversalResult == TraversalStepResult.YIELDED;
 
                 if (!shouldContinue) {
                     previewState.setCompleted(true);
                 }
 
-                return shouldContinue;
+                if (shouldContinue && control.shouldYield()) {
+                    return ParallelTaskResult.YIELDED;
+                }
+
+                return ChainTraversalSupport.toParallelTaskResult(traversalResult);
             });
 
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());
