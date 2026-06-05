@@ -131,10 +131,6 @@ public class BlockBoxScanPlanningStrategy implements ChainPlanningStrategy {
                     currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
-                        currentState.setExecutionStatus(ChainExecutionStatus.IDLE, "area-planner-completed-empty-queue");
-                        if (currentState.isSessionActive(currentSession)) {
-                            currentState.clearSession();
-                        }
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
                         currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, "area-planner-completed-with-targets");
