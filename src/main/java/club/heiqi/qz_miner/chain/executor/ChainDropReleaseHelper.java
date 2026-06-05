@@ -165,10 +165,33 @@ public final class ChainDropReleaseHelper {
         List<ItemStack> drops = buffer.drain();
         MyMod.LOG.debug("[ChainDropCollector] Releasing {} buffered drop stack(s) for player {} reason={} at ({}, {}, {})",
             Integer.valueOf(drops.size()), playerIdentity, reason, Double.valueOf(x), Double.valueOf(y), Double.valueOf(z));
-        for (ItemStack itemStack : drops) {
-            world.spawnEntityInWorld(new EntityItem(world, x, y, z, itemStack));
+        for (int i = 0; i < drops.size(); i++) {
+            ItemStack itemStack = drops.get(i);
+            try {
+                if (!world.spawnEntityInWorld(new EntityItem(world, x, y, z, itemStack))) {
+                    restoreUnreleasedDrops(buffer, drops, i);
+                    MyMod.LOG.warn("[ChainDropCollector] Failed to spawn buffered drop stack for player {} reason={} restoredDrops={}",
+                        playerIdentity, reason, Integer.valueOf(drops.size() - i));
+                    return false;
+                }
+            } catch (RuntimeException e) {
+                restoreUnreleasedDrops(buffer, drops, i);
+                MyMod.LOG.warn("[ChainDropCollector] Exception while spawning buffered drop stack for player {} reason={} restoredDrops={}",
+                    playerIdentity, reason, Integer.valueOf(drops.size() - i), e);
+                return false;
+            }
         }
         return true;
+    }
+
+    private static void restoreUnreleasedDrops(ChainPlayerDropBuffer buffer, List<ItemStack> drops, int startIndex) {
+        if (buffer == null || drops == null) {
+            return;
+        }
+
+        for (int i = Math.max(0, startIndex); i < drops.size(); i++) {
+            buffer.add(drops.get(i));
+        }
     }
 
     private static WorldServer resolveRespawnWorld(EntityPlayer player) {

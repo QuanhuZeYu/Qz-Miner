@@ -121,10 +121,6 @@ public abstract class AbstractFloodFillPlanningStrategy implements ChainPlanning
                     currentSession.setMatchedTargetCount(searchContext.getConfirmedCount());
                     searchContext.getCurrentFrontier().clear();
                     if (queue.isEmpty()) {
-                        currentState.setExecutionStatus(ChainExecutionStatus.IDLE, getPlannerReasonPrefix() + "completed-empty-queue");
-                        if (currentState.isSessionActive(currentSession)) {
-                            currentState.clearSession();
-                        }
                         MyMod.chainStateService.syncPlayerState(playerUUID);
                     } else if (currentState.getExecutionStatus() != ChainExecutionStatus.RUNNING) {
                         currentState.setExecutionStatus(ChainExecutionStatus.RUNNING, getPlannerReasonPrefix() + "completed-with-targets");
