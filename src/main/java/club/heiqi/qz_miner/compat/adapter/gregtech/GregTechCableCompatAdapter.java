@@ -112,17 +112,11 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
             newCable.disconnect(side);
         }
         baseMetaPipeEntity.markDirty();
-        baseMetaPipeEntity.issueTextureUpdate();
-        baseMetaPipeEntity.issueBlockUpdate();
-        baseMetaPipeEntity.issueClientUpdate();
-        GregTechAPI.causeCableUpdate(baseMetaPipeEntity.getWorld(), baseMetaPipeEntity.xCoord, baseMetaPipeEntity.yCoord, baseMetaPipeEntity.zCoord);
+        refreshPipe(baseMetaPipeEntity);
         for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
             TileEntity neighborTileEntity = baseMetaPipeEntity.getTileEntityAtSide(side);
             if (neighborTileEntity instanceof BaseMetaPipeEntity neighborPipeEntity) {
-                neighborPipeEntity.issueClientUpdate();
-                neighborPipeEntity.issueTextureUpdate();
-                neighborPipeEntity.issueBlockUpdate();
-                GregTechAPI.causeCableUpdate(neighborPipeEntity.getWorld(), neighborPipeEntity.xCoord, neighborPipeEntity.yCoord, neighborPipeEntity.zCoord);
+                refreshPipe(neighborPipeEntity);
             }
         }
 
@@ -150,21 +144,27 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         }
 
         baseMetaPipeEntity.markDirty();
-        baseMetaPipeEntity.issueTextureUpdate();
-        baseMetaPipeEntity.issueBlockUpdate();
-        baseMetaPipeEntity.issueClientUpdate();
-        GregTechAPI.causeCableUpdate(baseMetaPipeEntity.getWorld(), baseMetaPipeEntity.xCoord, baseMetaPipeEntity.yCoord, baseMetaPipeEntity.zCoord);
+        refreshPipe(baseMetaPipeEntity);
         for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
             TileEntity neighborTileEntity = baseMetaPipeEntity.getTileEntityAtSide(side);
             if (neighborTileEntity instanceof BaseMetaPipeEntity neighborPipeEntity) {
-                neighborPipeEntity.issueClientUpdate();
-                neighborPipeEntity.issueTextureUpdate();
-                neighborPipeEntity.issueBlockUpdate();
-                GregTechAPI.causeCableUpdate(neighborPipeEntity.getWorld(), neighborPipeEntity.xCoord, neighborPipeEntity.yCoord, neighborPipeEntity.zCoord);
+                refreshPipe(neighborPipeEntity);
             }
         }
 
         return connected;
+    }
+
+    /**
+     * 刷新 GT 管线的客户端显示、邻居更新和网络图状态。
+     *
+     * @param pipeEntity 管线实体
+     */
+    private void refreshPipe(BaseMetaPipeEntity pipeEntity) {
+        pipeEntity.issueTextureUpdate();
+        pipeEntity.issueBlockUpdate();
+        pipeEntity.issueTileUpdate();
+        GregTechAPI.causeCableUpdate(pipeEntity.getWorld(), pipeEntity.xCoord, pipeEntity.yCoord, pipeEntity.zCoord);
     }
 
     private MTECable getCable(TileEntity tileEntity) {
