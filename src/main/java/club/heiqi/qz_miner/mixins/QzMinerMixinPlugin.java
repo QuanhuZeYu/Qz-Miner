@@ -52,9 +52,9 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
     private static Map<String, String> createOptionalMixinTargets() {
         Map<String, String> targets = new java.util.HashMap<String, String>();
-        targets.put("club.heiqi.qz_miner.mixins.MixinTileEntityOres", "gregtech.common.blocks.TileEntityOres");
-        targets.put("club.heiqi.qz_miner.mixins.MixinBWTileEntityMetaGeneratedOre", "bartworks.system.material.BWTileEntityMetaGeneratedOre");
-        targets.put("club.heiqi.qz_miner.mixins.MixinBlockBaseOre", "gtPlusPlus.core.block.base.BlockBaseOre");
+        targets.put("club.heiqi.qz_miner.mixins.MixinGTOreAdapter", "gregtech.common.ores.GTOreAdapter");
+        targets.put("club.heiqi.qz_miner.mixins.MixinBWOreAdapter", "gregtech.common.ores.BWOreAdapter");
+        targets.put("club.heiqi.qz_miner.mixins.MixinGTPPOreAdapter", "gregtech.common.ores.GTPPOreAdapter");
         return Collections.unmodifiableMap(targets);
     }
 

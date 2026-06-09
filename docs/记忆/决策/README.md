@@ -33,6 +33,7 @@
 
 ## 索引
 
+- [`DECISION-20260609-codegraph-memory-mode.md`](DECISION-20260609-codegraph-memory-mode.md) - 将 CodeGraph MCP 作为动态代码关系查询层，Markdown 记忆只保存稳定事实、决策和写回规则。
 - [`DECISION-20260605-并行Tick协作式暂停恢复终止.md`](DECISION-20260605-并行Tick协作式暂停恢复终止.md) - 并行 Tick 不能靠超时或强制取消收口，任务必须在内部以预算化安全点协作式暂停、恢复和终止。
 - [`DECISION-20260601-可选模组反射安全边界.md`](DECISION-20260601-可选模组反射安全边界.md) - 可选模组兼容层必须以不触发静态初始化、吞掉链接错误、避免扫描客户端签名方法作为服务端安全边界。
 - [`DECISION-20260531-协作记忆框架.md`](DECISION-20260531-协作记忆框架.md) - 采用分层 AI 协作记忆框架，拆分规则层、当前态层、长期事实层和决策层。

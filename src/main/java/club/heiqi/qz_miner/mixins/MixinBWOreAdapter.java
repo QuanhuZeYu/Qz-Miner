@@ -1,11 +1,12 @@
 package club.heiqi.qz_miner.mixins;
 
-import bartworks.system.material.BWTileEntityMetaGeneratedOre;
 import club.heiqi.qz_miner.compat.FortuneCompatHelper;
 import com.llamalad7.mixinextras.expression.Definition;
 import com.llamalad7.mixinextras.expression.Expression;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.sugar.Local;
+import gregtech.common.ores.BWOreAdapter;
+import gregtech.common.ores.OreInfo;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -13,20 +14,20 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 /**
  * 调整 BW 普通矿时运限制。
  */
-@Mixin(value = BWTileEntityMetaGeneratedOre.class, remap = false)
-public abstract class MixinBWTileEntityMetaGeneratedOre {
+@Mixin(value = BWOreAdapter.class, remap = false)
+public abstract class MixinBWOreAdapter {
 
     /**
-     * 允许放置的 BW 普通矿也参与时运判断。
+     * 允许放置的 BW 矿也参与时运判断。
      *
-     * @param tileEntity 矿石实体
+     * @param oreInfo 矿石信息
      * @return 是否视为自然矿
      */
     @Redirect(
-        method = "getDrops(I)Ljava/util/ArrayList;",
-        at = @At(value = "FIELD", target = "Lbartworks/system/material/BWTileEntityMetaGeneratedOre;mNatural:Z", ordinal = 0))
-    private boolean qzMiner$allowPlacedOreFortune(BWTileEntityMetaGeneratedOre tileEntity) {
-        return FortuneCompatHelper.shouldTreatOreAsNatural(tileEntity.mNatural);
+        method = "getOreDrops(Ljava/util/Random;Lgregtech/common/ores/OreInfo;ZI)Ljava/util/ArrayList;",
+        at = @At(value = "FIELD", target = "Lgregtech/common/ores/OreInfo;isNatural:Z"))
+    private boolean qzMiner$allowPlacedOreFortune(OreInfo<?> oreInfo) {
+        return FortuneCompatHelper.shouldTreatOreAsNatural(oreInfo.isNatural);
     }
 
     /**
@@ -38,7 +39,7 @@ public abstract class MixinBWTileEntityMetaGeneratedOre {
     @Definition(id = "fortuneLevel", local = @Local(type = int.class, argsOnly = true))
     @Expression("fortuneLevel > 3")
     @ModifyExpressionValue(
-        method = "getDrops(I)Ljava/util/ArrayList;",
+        method = "getBigOreDrops(Ljava/util/Random;Lgregtech/common/GTProxy$OreDropSystem;Lgregtech/common/ores/OreInfo;I)Ljava/util/ArrayList;",
         at = @At(value = "MIXINEXTRAS:EXPRESSION"))
     private boolean qzMiner$removeOreFortuneCap(boolean original) {
         return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);

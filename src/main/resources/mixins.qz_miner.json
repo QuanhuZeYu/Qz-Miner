@@ -10,9 +10,9 @@
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
   "mixins": [
-    "MixinTileEntityOres",
-    "MixinBWTileEntityMetaGeneratedOre",
-    "MixinBlockBaseOre"
+    "MixinGTOreAdapter",
+    "MixinBWOreAdapter",
+    "MixinGTPPOreAdapter"
   ],
   "client": [
     "client.MixinMinecraft"
