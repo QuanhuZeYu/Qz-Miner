@@ -234,8 +234,8 @@ public enum TraversalStepResult {
 
 - 删除或废弃 `ChainTraverser.step(context, int maxNodes, ...)` 的旧接口。
 - 更新类注释，明确每个遍历器都是可预算、可恢复、可取消的协作任务。
-- 更新 `docs/记忆/长期事实/架构边界.md`，记录并行 Tick 新稳定边界。
-- 如发现踩坑，写入 `docs/开发者文档/errors/README.md` 指向新的错误记录。
+- 更新 `docs/设定值层/边界.md`，记录并行 Tick 新稳定边界。
+- 如发现踩坑，按 `docs/反馈层/错误预防.md` 通则沉淀，详情落 `docs/反馈层/errors/`。
 
 验收：
 

@@ -2,3 +2,4 @@ node_modules
 package.json
 package-lock.json
 bun.lock
+session-handoff.md
