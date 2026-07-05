@@ -115,9 +115,10 @@ public class ChainWatchdog {
     }
 
     /**
-     * 服务端 tick 回调：遍历活跃镜像，对超时条目 publish WatchdogTimeout 并立即移除（F.4 C1）。
+     * 服务端 tick 回调：取当前服务端 tick 后委托 {@link #checkTimeouts} 核心逻辑。
      *
-     * <p>仅 START 阶段处理。{@code currentTick < 0}（无 Forge 运行时）跳过，不误触发。</p>
+     * <p>仅 START 阶段处理。{@link ChainTickSource#currentServerTick()} 在纯 JVM 单测环境返回 -1，
+     * 超时判定不可达，故核心逻辑提取到 {@link #checkTimeouts} 供单测注入 tick 绕过（P1-1 收口）。</p>
      *
      * @param event 服务端 tick 事件
      */
@@ -127,6 +128,22 @@ public class ChainWatchdog {
             return;
         }
         long currentTick = ChainTickSource.currentServerTick();
+        checkTimeouts(currentTick);
+    }
+
+    /**
+     * 核心超时检查逻辑（包级，供单测注入 tick 绕过 ChainTickSource）。
+     *
+     * <p>P1-1 收口：原 {@link #onServerTick} 内 {@link ChainTickSource#currentServerTick()} 纯 JVM 返回 -1，
+     * 超时判定（elapsed &gt;= threshold 分支）完全不可达，3 个声称场景（超时触发/推进刷新不触发/
+     * 镜像立即移除）零真测覆盖。提取本方法后单测可注入 forcedTick 直接驱动超时路径。</p>
+     *
+     * <p>语义不变（守 I2）：运行时仍由 {@link #onServerTick} 经 ChainTickSource 取 tick 后调用本方法，
+     * 单测注入的 tick 只用于驱动逻辑分支验证，不影响生产路径。F.4 C1 镜像立即移除保持不变。</p>
+     *
+     * @param currentTick 当前服务端 tick（单测可注入；运行时来自 ChainTickSource）
+     */
+    void checkTimeouts(long currentTick) {
         if (currentTick < 0) {
             // 无 Forge 运行时（如纯 JVM 单测）：跳过，不误触发
             return;
@@ -143,7 +160,7 @@ public class ChainWatchdog {
             long elapsed = currentTick - entry.lastProgressTick;
             if (elapsed >= threshold) {
                 long nanos = ChainTickSource.nowNanos();
-                long elapsedNanos = Math.max(0L, nanos); // 占位（精确 elapsedNanos 需记 lastNanos，本版简化）
+                long elapsedNanos = Math.max(0L, nanos); // 占位（精确 elapsedNanos 需记 lastNanos，P2-2 留阶段8）
                 bus.publish(new WatchdogTimeout(uuid, entry.generation, currentTick, nanos, elapsedNanos));
                 // F.4 C1：publish 后立即移除，避免后续 tick 重复 publish（看门狗风暴防护）
                 activePlayers.remove(uuid);

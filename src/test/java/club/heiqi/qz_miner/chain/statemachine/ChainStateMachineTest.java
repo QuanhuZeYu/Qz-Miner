@@ -895,4 +895,61 @@ public class ChainStateMachineTest {
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals("F.2 S1：removeSlot=false 应保槽保 gen 单调", 1, h.sm.getCurrentGeneration(PLAYER_A));
     }
+
+    // ============================ P2-1：IDLE 态 LOGOUT 删槽收口 ============================
+
+    /**
+     * P2-1 核心场景：玩家槽在 IDLE + LifecycleCleanup(forced=true, removeSlot=true) → 仍删槽。
+     *
+     * <p>原阶段7 实现只在非 IDLE 分支末尾 remove，IDLE early-return 命中后 LOGOUT 意图被吞 → 槽泄漏。
+     * 本用例模拟常见登出场景（玩家完成连锁回 IDLE 后登出）：先走完整闭环回 IDLE，
+     * 再发 forced LifecycleCleanup(removeSlot=true)，断言槽被删（getCurrentGeneration 重新 computeIfAbsent 返回 0）。</p>
+     *
+     * <p>守 I10：slots.remove 仍在状态机 handler 内（唯一写权威）。</p>
+     */
+    @Test
+    public void removeSlotTrueDeletesSlotEvenInIdle() {
+        Harness h = newHarness();
+        // 完整闭环回 IDLE，gen=1
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        drive(h, cleanup(1));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("前置：玩家槽在 IDLE 且 gen=1", 1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 模拟玩家登出：forced=true + removeSlot=true（IDLE 态的 LOGOUT 常见场景）
+        drive(h, forcedCleanup(PLAYER_A, 999, true));
+
+        // P2-1：IDLE 分支也应删槽
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("P2-1：IDLE 态 LOGOUT 应删槽，getCurrentGeneration 重新 computeIfAbsent 返回默认 gen=0",
+                0, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * P2-1 对照：玩家槽在 IDLE + LifecycleCleanup(forced=true, removeSlot=false) → 槽保留保 gen。
+     *
+     * <p>对照 {@link #removeSlotTrueDeletesSlotEvenInIdle}：IDLE 态下 removeSlot=false（如 RESPAWN/维度切换）
+     * 不应误删槽，gen 保持不变（保 gen 单调）。</p>
+     */
+    @Test
+    public void removeSlotFalseKeepsSlotInIdle() {
+        Harness h = newHarness();
+        // 完整闭环回 IDLE，gen=1
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        drive(h, cleanup(1));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 模拟玩家重生：forced=true + removeSlot=false（IDLE 态的 RESPAWN）
+        drive(h, forcedCleanup(PLAYER_A, 999, false));
+
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("P2-1 对照：IDLE 态 removeSlot=false 应保槽保 gen 单调",
+                1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
 }

@@ -160,4 +160,98 @@ public class ChainWatchdogTest {
         drive(h, phase(PLAYER, 1, 4, 0, 13L));
         Assert.assertEquals("回 IDLE 应移除追踪", 0, h.watchdog.activeCount());
     }
+
+    // ============================ P1-1 核心超时路径（checkTimeouts 注入 tick） ============================
+
+    /**
+     * P1-1 核心场景：N tick 无推进触发 WatchdogTimeout 且镜像立即移除（F.4 C1）。
+     *
+     * <p>提取 {@link ChainWatchdog#checkTimeouts} 包级方法后，单测可注入 forcedTick 绕过
+     * {@code ChainTickSource.currentServerTick()}（纯 JVM 返回 -1 的死路），直接驱动超时判定分支。</p>
+     */
+    @Test
+    public void timeoutPublishesWatchdogTimeoutAndRemovesEntry() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        // gen=1 进 RUNNING，serverTick=100 刷 lastProgressTick
+        drive(h, phase(PLAYER, 1, 1, 3, 100L));
+        Assert.assertEquals(1, h.watchdog.activeCount());
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // 推进超过阈值：100 + threshold + 1
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+
+        Assert.assertEquals("超时应 publish 一条 WatchdogTimeout", 1, captured.size());
+        WatchdogTimeout wt = captured.get(0);
+        Assert.assertEquals(PLAYER, wt.getPlayerUUID());
+        Assert.assertEquals("gen 应来自镜像条目", 1, wt.getGeneration());
+        Assert.assertEquals("F.4 C1：publish 后应立即移除镜像条目（防风暴）", 0, h.watchdog.activeCount());
+        Assert.assertNull(h.watchdog.getEntry(PLAYER));
+    }
+
+    /**
+     * P1-1 推进刷新：ChainPhaseChanged 刷新 lastProgressTick，未超时不触发。
+     *
+     * <p>验证推进信号（进态广播）正确刷新 {@link ChainWatchdog.WatchEntry#lastProgressTick}，
+     * 正常推进的连锁不会误触发看门狗。</p>
+     */
+    @Test
+    public void progressRefreshPreventsTimeout() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=1 进 RUNNING，serverTick=100
+        drive(h, phase(PLAYER, 1, 1, 3, 100L));
+        // 推进 threshold/2 tick，未超时
+        h.watchdog.checkTimeouts(100L + threshold / 2);
+        h.bus.drain();
+        Assert.assertTrue("未超时不应 publish", captured.isEmpty());
+
+        // 再喂 ChainPhaseChanged 刷新 lastProgressTick=100+threshold/2
+        drive(h, phase(PLAYER, 1, 3, 3, 100L + threshold / 2));
+        ChainWatchdog.WatchEntry entry = h.watchdog.getEntry(PLAYER);
+        Assert.assertNotNull(entry);
+        Assert.assertEquals("推进应刷新 lastProgressTick", 100L + threshold / 2, entry.lastProgressTick);
+
+        // 从新 lastProgressTick 算，推进到 100+threshold（elapsed = threshold/2 < threshold）未超时
+        h.watchdog.checkTimeouts(100L + threshold);
+        h.bus.drain();
+        Assert.assertTrue("推进刷新后未超时不应 publish", captured.isEmpty());
+        Assert.assertEquals("未超时镜像条目不应被移除", 1, h.watchdog.activeCount());
+    }
+
+    /**
+     * P1-1 防风暴：超时 publish 后镜像立即移除，后续 tick 不重复 publish（F.4 C1）。
+     *
+     * <p>验证 F.4 C1 裁决落地：publish WatchdogTimeout 后立即从镜像移除该条目，
+     * 避免下一 tick 重复 publish 致看门狗风暴。</p>
+     */
+    @Test
+    public void noRepeatedPublishAfterRemoval() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=1 进 RUNNING，serverTick=100
+        drive(h, phase(PLAYER, 1, 1, 3, 100L));
+
+        // 第一次超时：100 + threshold + 1
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+        Assert.assertEquals("第一次超时应 publish 一条", 1, captured.size());
+
+        // 后续 tick：镜像已移除，不应重复 publish
+        h.watchdog.checkTimeouts(100L + threshold + 2);
+        h.bus.drain();
+        Assert.assertEquals("F.4 C1：镜像移除后不应重复 publish（防风暴）", 1, captured.size());
+        Assert.assertEquals("镜像应保持空", 0, h.watchdog.activeCount());
+    }
 }

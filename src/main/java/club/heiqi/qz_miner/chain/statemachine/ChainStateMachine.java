@@ -295,7 +295,8 @@ public class ChainStateMachine {
      *   <li><b>forced=true</b>（F.1 W1）：玩家登出/重生/切维度等生命周期强制清理豁免 genCheck。
      *       守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</li>
      *   <li><b>forced=false</b>：执行完成快速收尾路径走 genCheck（gen 已知）。</li>
-     *   <li><b>removeSlot=true</b>（F.2 S1）：LOGOUT 删槽防泄漏，守 I10 唯一写权威（仅本 handler 内 remove）。</li>
+     *   <li><b>removeSlot=true</b>（F.2 S1 + P2-1 收口）：LOGOUT 删槽防泄漏，守 I10 唯一写权威（仅本 handler 内 remove）。
+     *       P2-1：IDLE 态 early-return 分支也执行 removeSlot（常见登出场景：玩家完成连锁回 IDLE 后登出）。</li>
      *   <li><b>removeSlot=false</b>：RESPAWN/维度切换/执行完成保槽保 gen 单调。</li>
      * </ul>
      *
@@ -313,6 +314,12 @@ public class ChainStateMachine {
             }
         }
         if (slot.phase == ChainPhase.IDLE) {
+            // P2-1 收口：IDLE 态 LOGOUT 仍需删槽防泄漏（常见登出场景：玩家完成连锁回 IDLE 后登出）。
+            // 原阶段7 实现只在非 IDLE 分支末尾 remove，IDLE early-return 命中后 LOGOUT 意图被吞 → 槽泄漏。
+            // 守 I10：slots.remove 仍在状态机 handler 内（唯一写权威）。
+            if (event.isRemoveSlot()) {
+                slots.remove(event.getPlayerUUID());
+            }
             // 已 IDLE，幂等丢弃
             logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
             return;
