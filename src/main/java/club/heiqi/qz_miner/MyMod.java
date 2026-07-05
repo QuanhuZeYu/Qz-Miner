@@ -55,6 +55,8 @@ public class MyMod {
     public static ParallelTickExecutor parallelTickExecutor;
     /** 阶段 2：连锁跨线程事件总线，publish 来自任意线程，drain 仅主线程。 */
     public static ChainEventBus chainEventBus;
+    /** 阶段 3：客户端独立事件总线（仅客户端实例化，仅空跑 drain 骨架，预览订阅留阶段6）。 */
+    public static ChainEventBus clientChainEventBus;
     /** 阶段 2：连锁状态机，currentPhase/currentGeneration 唯一写权威。 */
     public static ChainStateMachine chainStateMachine;
 

@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.chain.statemachine;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.MyMod;
@@ -12,47 +14,62 @@ import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 
 /**
- * 连锁框架状态机：{@code currentPhase} 与 {@code currentGeneration} 的唯一写权威。
+ * 连锁框架状态机：各玩家 `phase` 与 `generation` 的唯一写权威。
  *
- * <p>落地 NORTH_STAR §5 不变量 I10「合法转移表」：状态变更只经此类驱动，
- * 外部入口只能 {@link ChainEventBus#publish(ChainEvent)} 事件、不能直接 {@code transition} 切态。
- * 越界（非法源→目标组合）即丢弃事件并诊断日志，不得静默改态或抛异常中断 drain。</p>
+ * <p>落地 NORTH_STAR §5 不变量 I10「合法转移表」：状态变更只经此类驱动，且按玩家 UUID 分槽
+ * （per-player {@link #slots}）。外部入口只能 {@link ChainEventBus#publish(ChainEvent)} 事件、
+ * 不能直接 {@code transition} 切态。越界（非法源→目标组合）即丢弃事件并诊断日志，
+ * 不得静默改态或抛异常中断 drain。</p>
+ *
+ * <h3>per-player 容器（分歧1 A 裁决）</h3>
+ * <ul>
+ *   <li>{@link #slots} 是 {@code phase}/{@code generation} 唯一写权威容器，{@link #applyTransition}
+ *       仍是唯一写点，按 UUID 分槽；不同玩家的 phase/gen 互不串槽</li>
+ *   <li>{@link PlayerPhaseSlot} 私有静态内嵌值对象，构造期 IDLE/0</li>
+ * </ul>
  *
  * <h3>线程契约（守 I1/I4）</h3>
  * <ul>
  *   <li>本类所有 {@code onXxx} handler 仅被主线程 {@link ChainEventBus#drain()} 调用，
- *       契约上为单线程执行，无需自行加锁</li>
- *   <li>worker 线程只 {@code publish} 事件、不直接调任何 handler、不读写 {@code currentPhase} 字段（I10 对 I1 的延伸保证）</li>
+ *       契约上为单线程串行执行，{@link HashMap} 无需加锁（守 I4）</li>
+ *   <li>worker 线程只 {@code publish} 事件、不直接调任何 handler、不读写 {@link #slots} 字段（I10 对 I1 的延伸保证）</li>
  * </ul>
  *
  * <h3>代际陈旧判定</h3>
  * <ul>
  *   <li>派生事件（{@link PlanCompleted}/{@link PlanCancelled}/{@link ExecutionFinished}/
  *       {@link WatchdogTimeout}/{@link LifecycleCleanup}）携带 generation，
- *       与 {@code currentGeneration} 比较：{@code <} 丢弃+debug（陈旧规划事件迟到）；
+ *       与该玩家槽 {@code generation} 比较：{@code <} 丢弃+debug（陈旧规划事件迟到）；
  *       {@code ==} 处理；{@code >} 不转移+warn（不应出现）</li>
- *   <li>输入事件（{@link ChainKeyPressed}/{@link BlockBreakObserved}/{@link ModeSwitched}）豁免代际判定——
- *       它们是玩家直接动作，不归属某一具体代际，由转移规则本身约束其在何态被消费</li>
+ *   <li>输入事件（{@link ChainKeyPressed}/{@link BlockBreakObserved}/{@link RightClickObserved}/
+ *       {@link ModeSwitched}）豁免代际判定——它们是玩家直接动作，不归属某一具体代际，
+ *       由转移规则本身约束其在何态被消费</li>
  * </ul>
  *
- * <h3>阶段 2 范围</h3>
+ * <h3>阶段 3 范围（T4 扩右键观测）</h3>
  * <p>本阶段状态机只驱动 phase 转移，<b>不 publish 任何派生事件</b>（PlanStarted/ExecutionAdvanced 留阶段 4/5 发，
- * PlanProgress/ExecutionAdvanced 不在本阶段订阅）。订阅集仅含 8 个驱动事件。</p>
+ * PlanProgress/ExecutionAdvanced 不在本阶段订阅）。订阅集含 9 个驱动事件：
+ * T4 ARMED→PLANNING 由 {@link BlockBreakObserved} 或 {@link RightClickObserved} 双触发，两者均 {@code ++generation}。
+ * per-player 化（{@link #slots}）由本阶段引入，是阶段3触发链路迁移的前提。</p>
  */
 public class ChainStateMachine {
 
-    /** 注入的事件总线，构造期订阅 8 个驱动事件。 */
+    /** 注入的事件总线，构造期订阅 9 个驱动事件。 */
     private final ChainEventBus bus;
-    /** 当前连锁阶段，唯一写权威在本类。 */
-    private ChainPhase currentPhase = ChainPhase.IDLE;
-    /** 当前连锁代际，BlockBreakObserved 武装→规划时自增。 */
-    private int currentGeneration = 0;
+    /**
+     * per-player 状态槽容器：{@code phase}/{@code generation} 唯一写权威（守 I10）。
+     *
+     * <p>守 I4：drain 单线程串行调用 handler，{@link HashMap} 无需加锁。
+     * 容器内嵌值对象 {@link PlayerPhaseSlot}，{@link #applyTransition} 是唯一写点。</p>
+     */
+    private final Map<UUID, PlayerPhaseSlot> slots = new HashMap<UUID, PlayerPhaseSlot>();
 
     /**
-     * 构造状态机并订阅 8 个驱动事件。
+     * 构造状态机并订阅 9 个驱动事件。
      *
      * @param bus 注入的事件总线
      */
@@ -62,12 +79,14 @@ public class ChainStateMachine {
     }
 
     /**
-     * 订阅阶段 2 的 8 个驱动事件。PlanStarted/PlanProgress/ExecutionAdvanced 不在本阶段订阅。
+     * 订阅阶段 3 的 9 个驱动事件。PlanStarted/PlanProgress/ExecutionAdvanced 不在本阶段订阅。
+     * T4 由 {@link BlockBreakObserved} 与 {@link RightClickObserved} 双触发。
      */
     private void subscribe() {
         // 输入事件（豁免代际判定）
         bus.subscribe(ChainKeyPressed.class, this::onChainKeyPressed);
         bus.subscribe(BlockBreakObserved.class, this::onBlockBreakObserved);
+        bus.subscribe(RightClickObserved.class, this::onRightClickObserved);
         bus.subscribe(ModeSwitched.class, this::onModeSwitched);
         // 派生事件（需代际陈旧判定）
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
@@ -87,41 +106,64 @@ public class ChainStateMachine {
      * @param event 按键事件
      */
     private void onChainKeyPressed(ChainKeyPressed event) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
         ChainPhase to = null;
         if (event.isPressed()) {
             // T1: IDLE → ARMED
-            if (currentPhase == ChainPhase.IDLE) {
+            if (slot.phase == ChainPhase.IDLE) {
                 to = ChainPhase.ARMED;
             }
         } else {
             // T2: ARMED → IDLE
-            if (currentPhase == ChainPhase.ARMED) {
+            if (slot.phase == ChainPhase.ARMED) {
                 to = ChainPhase.IDLE;
             }
         }
         if (to != null) {
-            applyTransition(currentPhase, to, event, currentGeneration);
+            applyTransition(slot, slot.phase, to, event, slot.generation);
         } else {
             // 越界（矩阵 —）：丢弃 + debug
-            logIllegalDrop(event, currentPhase, event.isPressed() ? ChainPhase.ARMED : ChainPhase.IDLE);
+            logIllegalDrop(event, slot.phase, event.isPressed() ? ChainPhase.ARMED : ChainPhase.IDLE);
         }
     }
 
     /**
-     * 破坏方块观测事件：ARMED → PLANNING，并自增代际。
+     * 破坏方块观测事件：ARMED → PLANNING，并自增代际（T4 破坏观测入口）。
      *
      * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。</p>
      *
      * @param event 破坏观测事件
      */
     private void onBlockBreakObserved(BlockBreakObserved event) {
-        // T4: ARMED → PLANNING，++currentGeneration 后再转移
-        if (currentPhase == ChainPhase.ARMED) {
-            int nextGen = currentGeneration + 1;
-            applyTransition(currentPhase, ChainPhase.PLANNING, event, nextGen);
-            currentGeneration = nextGen;
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        // T4: ARMED → PLANNING，++generation 后再转移
+        if (slot.phase == ChainPhase.ARMED) {
+            int nextGen = slot.generation + 1;
+            applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
+            slot.generation = nextGen;
         } else {
-            logIllegalDrop(event, currentPhase, ChainPhase.PLANNING);
+            logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
+        }
+    }
+
+    /**
+     * 右键方块观测事件：ARMED → PLANNING，并自增代际（T4 右键观测入口，与破坏观测对称）。
+     *
+     * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。
+     * 命中偏移命中字段（hitX/Y/Z）携带供 INTERACT 模式 flood fill 方向判定，
+     * 是 oracle 决议扩 T4 双触发的根因（见 NORTH_STAR §5 I10）。</p>
+     *
+     * @param event 右键观测事件
+     */
+    private void onRightClickObserved(RightClickObserved event) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        // T4 右键入口：ARMED → PLANNING，++generation 后再转移，逻辑等同 onBlockBreakObserved
+        if (slot.phase == ChainPhase.ARMED) {
+            int nextGen = slot.generation + 1;
+            applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
+            slot.generation = nextGen;
+        } else {
+            logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
     }
 
@@ -133,11 +175,12 @@ public class ChainStateMachine {
      * @param event 模式切换事件
      */
     private void onModeSwitched(ModeSwitched event) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
         // T3: ARMED → IDLE
-        if (currentPhase == ChainPhase.ARMED) {
-            applyTransition(currentPhase, ChainPhase.IDLE, event, currentGeneration);
+        if (slot.phase == ChainPhase.ARMED) {
+            applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
         } else {
-            logIllegalDrop(event, currentPhase, ChainPhase.IDLE);
+            logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
         }
     }
 
@@ -151,14 +194,15 @@ public class ChainStateMachine {
      * @param event 规划完成事件
      */
     private void onPlanCompleted(PlanCompleted event) {
-        if (!genCheck(event)) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        if (!genCheck(slot, event)) {
             return;
         }
         // T5: PLANNING → RUNNING
-        if (currentPhase == ChainPhase.PLANNING) {
-            applyTransition(currentPhase, ChainPhase.RUNNING, event, currentGeneration);
+        if (slot.phase == ChainPhase.PLANNING) {
+            applyTransition(slot, slot.phase, ChainPhase.RUNNING, event, slot.generation);
         } else {
-            logIllegalDrop(event, currentPhase, ChainPhase.RUNNING);
+            logIllegalDrop(event, slot.phase, ChainPhase.RUNNING);
         }
     }
 
@@ -170,14 +214,15 @@ public class ChainStateMachine {
      * @param event 规划取消事件
      */
     private void onPlanCancelled(PlanCancelled event) {
-        if (!genCheck(event)) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        if (!genCheck(slot, event)) {
             return;
         }
         // T6: PLANNING → IDLE
-        if (currentPhase == ChainPhase.PLANNING) {
-            applyTransition(currentPhase, ChainPhase.IDLE, event, currentGeneration);
+        if (slot.phase == ChainPhase.PLANNING) {
+            applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
         } else {
-            logIllegalDrop(event, currentPhase, ChainPhase.IDLE);
+            logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
         }
     }
 
@@ -189,14 +234,15 @@ public class ChainStateMachine {
      * @param event 执行结束事件
      */
     private void onExecutionFinished(ExecutionFinished event) {
-        if (!genCheck(event)) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        if (!genCheck(slot, event)) {
             return;
         }
         // T7: RUNNING → FINISHING
-        if (currentPhase == ChainPhase.RUNNING) {
-            applyTransition(currentPhase, ChainPhase.FINISHING, event, currentGeneration);
+        if (slot.phase == ChainPhase.RUNNING) {
+            applyTransition(slot, slot.phase, ChainPhase.FINISHING, event, slot.generation);
         } else {
-            logIllegalDrop(event, currentPhase, ChainPhase.FINISHING);
+            logIllegalDrop(event, slot.phase, ChainPhase.FINISHING);
         }
     }
 
@@ -208,17 +254,18 @@ public class ChainStateMachine {
      * @param event 看门狗超时事件
      */
     private void onWatchdogTimeout(WatchdogTimeout event) {
-        if (!genCheck(event)) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        if (!genCheck(slot, event)) {
             return;
         }
         // T10: PLANNING / RUNNING / FINISHING → IDLE
-        if (currentPhase == ChainPhase.PLANNING
-                || currentPhase == ChainPhase.RUNNING
-                || currentPhase == ChainPhase.FINISHING) {
-            applyTransition(currentPhase, ChainPhase.IDLE, event, currentGeneration);
+        if (slot.phase == ChainPhase.PLANNING
+                || slot.phase == ChainPhase.RUNNING
+                || slot.phase == ChainPhase.FINISHING) {
+            applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
         } else {
             // ARMED/IDLE 不纳入 T10，越界丢弃
-            logIllegalDrop(event, currentPhase, ChainPhase.IDLE);
+            logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
         }
     }
 
@@ -230,54 +277,59 @@ public class ChainStateMachine {
      * @param event 生命周期清理事件
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
-        if (!genCheck(event)) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        if (!genCheck(slot, event)) {
             return;
         }
-        if (currentPhase == ChainPhase.IDLE) {
+        if (slot.phase == ChainPhase.IDLE) {
             // 已 IDLE，幂等丢弃
-            logIllegalDrop(event, currentPhase, ChainPhase.IDLE);
+            logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
             return;
         }
         // T8 + T9 合流：任意非 IDLE → IDLE
-        applyTransition(currentPhase, ChainPhase.IDLE, event, currentGeneration);
+        applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
     }
 
     // ============================ 共用逻辑 ============================
 
     /**
-     * 派生事件代际陈旧判定。仅对派生事件调用。
+     * 派生事件代际陈旧判定。仅对派生事件调用，按玩家槽比对。
      *
+     * @param slot  玩家槽
      * @param event 派生事件
      * @return true 表示 gen 匹配可继续处理；false 表示已丢弃/告警，调用方应直接 return
      */
-    private boolean genCheck(ChainEvent event) {
+    private boolean genCheck(PlayerPhaseSlot slot, ChainEvent event) {
         int gen = event.getGeneration();
-        if (gen < currentGeneration) {
+        if (gen < slot.generation) {
             // 陈旧规划事件迟到，丢弃 + debug
-            MyMod.LOG.debug("[ChainStateMachine] drop stale derived event {} gen={} < current={} phase={}",
-                    event.getClass().getSimpleName(), gen, currentGeneration, currentPhase);
+            MyMod.LOG.debug("[ChainStateMachine] drop stale derived event {} gen={} < current={} phase={} player={}",
+                    event.getClass().getSimpleName(), gen, slot.generation, slot.phase, event.getPlayerUUID());
             return false;
-        } else if (gen > currentGeneration) {
+        } else if (gen > slot.generation) {
             // 不应出现：未来代际事件，丢弃 + warn
-            MyMod.LOG.warn("[ChainStateMachine] future-gen derived event {} gen={} > current={} phase={}; drop",
-                    event.getClass().getSimpleName(), gen, currentGeneration, currentPhase);
+            MyMod.LOG.warn("[ChainStateMachine] future-gen derived event {} gen={} > current={} phase={} player={}; drop",
+                    event.getClass().getSimpleName(), gen, slot.generation, slot.phase, event.getPlayerUUID());
             return false;
         }
         return true;
     }
 
     /**
-     * 应用合法转移：改 currentPhase + debug 日志。非法转移不调用本方法（调用前已过滤）。
+     * 应用合法转移：改 {@code slot.phase} + debug 日志。非法转移不调用本方法（调用前已过滤）。
      *
-     * @param from        源态
-     * @param to          目标态
-     * @param event       触发事件
-     * @param nextGen     转移后的代际（ARMED→PLANNING 时为 +1 后的新值；其余沿用 currentGeneration）
+     * <p>守 I10：唯一写点。{@code slot.generation} 的写回在 {@code onBlockBreakObserved}/
+     * {@code onRightClickObserved} 中调用本方法后由调用方写回（T4 自增路径），
+     * 其它路径不写 generation。</p>
+     *
+     * @param slot    玩家槽
+     * @param from    源态
+     * @param to      目标态
+     * @param event   触发事件
+     * @param nextGen 转移后的代际（T4 时为 +1 后的新值；其余沿用 slot.generation）
      */
-    private void applyTransition(ChainPhase from, ChainPhase to, ChainEvent event, int nextGen) {
-        currentPhase = to;
-        // nextGen 仅在 T4 时与 currentGeneration 不同；T4 已在 onBlockBreakObserved 中先传 +1 再在调用后写回，
-        // 这里仅记日志；其它路径 nextGen == currentGeneration。
+    private void applyTransition(PlayerPhaseSlot slot, ChainPhase from, ChainPhase to, ChainEvent event, int nextGen) {
+        slot.phase = to;
         UUID player = event.getPlayerUUID();
         MyMod.LOG.debug("[ChainStateMachine] transition {} -> {} on {} gen={} player={}",
                 from, to, event.getClass().getSimpleName(), nextGen, player);
@@ -298,16 +350,32 @@ public class ChainStateMachine {
     // ============================ package-private getter 供单测 ============================
 
     /**
-     * @return 当前阶段（仅供同包单测读，不公开写入口）
+     * @param playerUUID 玩家 UUID
+     * @return 该玩家当前阶段（仅供同包单测读，不公开写入口）
      */
-    ChainPhase getCurrentPhase() {
-        return currentPhase;
+    ChainPhase getCurrentPhase(UUID playerUUID) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(playerUUID, k -> new PlayerPhaseSlot());
+        return slot.phase;
     }
 
     /**
-     * @return 当前代际（仅供同包单测读，不公开写入口）
+     * @param playerUUID 玩家 UUID
+     * @return 该玩家当前代际（仅供同包单测读，不公开写入口）
      */
-    int getCurrentGeneration() {
-        return currentGeneration;
+    int getCurrentGeneration(UUID playerUUID) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(playerUUID, k -> new PlayerPhaseSlot());
+        return slot.generation;
+    }
+
+    /**
+     * per-player 状态槽值对象：phase 起点 IDLE，generation 起点 0。
+     *
+     * <p>私有静态内嵌类，唯一写点在 {@link #applyTransition} 与 T4 handler 的 generation 写回（守 I10）。</p>
+     */
+    private static final class PlayerPhaseSlot {
+        /** 玩家当前连锁阶段，唯一写在 {@link #applyTransition}。 */
+        ChainPhase phase = ChainPhase.IDLE;
+        /** 玩家当前代际，T4 ARMED→PLANNING 自增，唯一写在 T4 handler。 */
+        int generation = 0;
     }
 }

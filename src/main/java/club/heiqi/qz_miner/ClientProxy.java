@@ -5,6 +5,8 @@ import java.util.List;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
+import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
+import club.heiqi.qz_miner.chain.eventbus.ClientChainEventBusDrainer;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
@@ -24,6 +26,11 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void init(FMLInitializationEvent event) {
         super.init(event);
+        // 守决策4：客户端独立事件总线，仅空跑 drain 骨架；不 publish 客户端事件、不持有独立状态机
+        // 预览订阅留阶段6接入；bindMainThread 锁定客户端主线程（ClientProxy.init 在客户端主线程执行）
+        MyMod.clientChainEventBus = new ChainEventBus();
+        MyMod.clientChainEventBus.bindMainThread(Thread.currentThread());
+        new ClientChainEventBusDrainer(MyMod.clientChainEventBus).bootstrap();
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
         chainPreviewRenderer = new ChainPreviewRenderer();

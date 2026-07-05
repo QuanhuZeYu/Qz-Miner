@@ -80,7 +80,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 | 源＼目标 | IDLE | ARMED | PLANNING | RUNNING | FINISHING |
 |---|---|---|---|---|---|
 | **IDLE** | LifecycleCleanup(self) | ChainKeyPressed(pressed=true) | — | — | — |
-| **ARMED** | ChainKeyPressed(pressed=false)／ModeSwitched／LifecycleCleanup | — | BlockBreakObserved | — | — |
+| **ARMED** | ChainKeyPressed(pressed=false)／ModeSwitched／LifecycleCleanup | — | BlockBreakObserved／RightClickObserved | — | — |
 | **PLANNING** | PlanCancelled／LifecycleCleanup／WatchdogTimeout | — | (陈旧事件 self) | PlanCompleted(gen匹配) | — |
 | **RUNNING** | WatchdogTimeout／LifecycleCleanup | — | — | (陈旧事件 self) | ExecutionFinished |
 | **FINISHING** | LifecycleCleanup／WatchdogTimeout | — | — | — | (陈旧事件 self) |
@@ -92,7 +92,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 | T1 | IDLE→ARMED | ChainKeyPressed(pressed=true) | 不变 | 无（PlanStarted 阶段4发） |
 | T2 | ARMED→IDLE | ChainKeyPressed(pressed=false) | 不变 | 无 |
 | T3 | ARMED→IDLE | ModeSwitched | 不变 | 无 |
-| T4 | ARMED→PLANNING | BlockBreakObserved | **++currentGeneration** 后转移 | 无 |
+| T4 | ARMED→PLANNING | BlockBreakObserved 或 RightClickObserved | **++currentGeneration** 后转移 | 无 |
 | T5 | PLANNING→RUNNING | PlanCompleted（gen 匹配） | 不变 | 无（ExecutionAdvanced 阶段5发） |
 | T6 | PLANNING→IDLE | PlanCancelled | 不变 | 无 |
 | T7 | RUNNING→FINISHING | ExecutionFinished | 不变 | 无（收尾逻辑阶段7发 LifecycleCleanup） |

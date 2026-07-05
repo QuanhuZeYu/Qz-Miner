@@ -1,6 +1,8 @@
 package club.heiqi.qz_miner.chain.planner;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
@@ -59,6 +61,17 @@ public class ChainInteractPlanner {
 
         ChainTarget origin = new ChainTarget(event.x, event.y, event.z);
         HitOffset hitOffset = resolveHitOffset(player, event);
+        // 守 I1：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
+        // 阶段3影子并行：保留 startPlanning，新链路仅推进状态机观测（T4 右键入口）
+        // 输入事件 generation 传 0 豁免代际判定；命中偏移携带是 T4 扩右键的根因
+        if (MyMod.chainEventBus != null) {
+            MyMod.chainEventBus.publish(new RightClickObserved(
+                    player.getUniqueID(), 0,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    event.x, event.y, event.z, player.dimension,
+                    normalizeFace(event.face),
+                    hitOffset.hitX, hitOffset.hitY, hitOffset.hitZ));
+        }
         if (definition.getPlanningStrategy() instanceof InteractFloodFillPlanningStrategy) {
             ((InteractFloodFillPlanningStrategy) definition.getPlanningStrategy()).startPlanning(
                 player,

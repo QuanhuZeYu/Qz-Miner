@@ -118,7 +118,7 @@
 - **I7**　玩家生命周期事件（退出/重生/切维度/克隆/单人退主菜单）统一经 `ChainStateService.cleanupPlayerState`；客户端断线/世界卸载经 `ClientMainThreadDispatcher` 停并行预览任务并释放 `ChainPreviewMeshCache` 持有的 GPU 资源。
 - **I8**　矿石时运上限修复拦截上游 `fortune > 3` 表达式（随 GTNH `GTOreAdapter`/`BWOreAdapter`/`GTPPOreAdapter` 迁移注入点），禁只重算 `Random.nextInt` 参数。
 - **I9**　`ParallelTickExecutor.endStage(...)` 是主线程屏障，必须等待所有 active worker 停到安全边界；进入新分片前确认窗口仍打开、阶段匹配、tick 未过期。
-- **I10**　连锁框架状态变更经唯一的 `ChainStateMachine` 合法转移表驱动（5 态 IDLE/ARMED/PLANNING/RUNNING/FINISHING）。状态机是 `currentPhase`/`currentGeneration` 的唯一写权威，外部入口只能 `bus.publish` 事件、不能直接 `transition`。越界（非法源→目标组合）即丢弃事件并诊断日志，不得静默改态或抛异常中断 drain。worker 线程只发事件不切态是 I10 对 I1 的延伸保证。
+- **I10**　连锁框架状态变更经唯一的 `ChainStateMachine` 合法转移表驱动（5 态 IDLE/ARMED/PLANNING/RUNNING/FINISHING），状态按玩家 UUID 分槽独立维护（per-player `Map<UUID, PlayerPhaseSlot>`）。状态机是各槽 `phase`/`generation` 的唯一写权威，外部入口只能 `bus.publish` 事件、不能直接 `transition`。越界（非法源→目标组合）即丢弃事件并诊断日志，不得静默改态或抛异常中断 drain。worker 线程只发事件不切态是 I10 对 I1 的延伸保证。T4 ARMED→PLANNING 推进源为 `BlockBreakObserved` 或 `RightClickObserved`（破坏观测/右键观测双事件入口），两者均 `++generation` 后转移。
 
 ---
 
@@ -152,7 +152,7 @@
 7. 生命周期清理走 `ChainStateService.cleanupPlayerState` 或 `ClientMainThreadDispatcher` 统一收口？（I7）
 8. 矿石时运相关改动拦的是 `fortune > 3` 表达式，不是 `nextInt`？（I8）
 9. 动了 `ParallelTickExecutor` 时，`endStage` 屏障仍等所有 worker 到安全边界？（I9）
-10. 连锁状态变更经 `ChainStateMachine` 合法转移？越界丢弃+诊断？worker 只 publish 不切态？（I10）
+10. 连锁状态变更经 `ChainStateMachine` 合法转移？越界丢弃+诊断？worker 只 publish 不切态？（I10；T4 由 `BlockBreakObserved` 或 `RightClickObserved` 触发，两者均 `++generation`；状态按玩家 UUID 分槽，applyTransition 仍是唯一写点）
 
 **十条全过，才动手。**
 
