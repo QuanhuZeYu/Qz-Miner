@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
@@ -352,6 +353,12 @@ public class ChainStateMachine {
         UUID player = event.getPlayerUUID();
         MyMod.LOG.debug("[ChainStateMachine] transition {} -> {} on {} gen={} player={}",
                 from, to, event.getClass().getSimpleName(), nextGen, player);
+        // 阶段6 G1：进态广播（B3 模式延伸），供快照下发订阅者接收"状态机已转移"信号。
+        // 守 I10：状态机 publish 是转移完成后的广播，不是外部改态入口；订阅者只读不可切态。
+        // 与 T4 路径在 applyTransition 外单独 publish 的 PlanStarted 职责不同（PlanStarted 携带规划上下文，
+        // ChainPhaseChanged 携带 from/to 通用进态信号），两者订阅集互不重叠，并行不冲突。
+        bus.publish(new ChainPhaseChanged(player, nextGen, from, to,
+                ChainTickSource.currentServerTick(), ChainTickSource.nowNanos()));
     }
 
     /**

@@ -5,12 +5,16 @@ import java.util.List;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
+import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
+import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjectionSubscriber;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ClientChainEventBusDrainer;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
+import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientConfigChangeListener;
@@ -22,6 +26,10 @@ public class ClientProxy extends CommonProxy {
 
     public static ChainPreviewController chainPreviewController;
     public static ChainPreviewRenderer chainPreviewRenderer;
+    /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
+    public static ClientPhaseProjection clientPhaseProjection;
+    /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
+    public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
 
     @Override
     public void init(FMLInitializationEvent event) {
@@ -31,6 +39,11 @@ public class ClientProxy extends CommonProxy {
         MyMod.clientChainEventBus = new ChainEventBus();
         MyMod.clientChainEventBus.bindMainThread(Thread.currentThread());
         new ClientChainEventBusDrainer(MyMod.clientChainEventBus).bootstrap();
+        // 阶段6 A2：客户端投影容器 + 订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged，
+        // ClientTickEvent.START drain 更新容器，守 I4 主线程收口）
+        clientPhaseProjection = new ClientPhaseProjection();
+        clientPhaseProjectionSubscriber = new ClientPhaseProjectionSubscriber(
+                MyMod.clientChainEventBus, clientPhaseProjection);
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
         chainPreviewRenderer = new ChainPreviewRenderer();
@@ -70,5 +83,32 @@ public class ClientProxy extends CommonProxy {
 
             chainPreviewController.applyLootGamesMinesweeperPreview(requestId, origin, targetSnapshot);
         });
+    }
+
+    /**
+     * 阶段6：处理连锁阶段快照下发。
+     *
+     * <p>本方法由 {@code PacketChainPhaseSnapshot.Handler} 在 Netty 线程调用。<b>不直接改投影容器</b>，
+     * 组装 {@link ChainPhaseChanged} 投影事件 publish 到 clientChainEventBus，
+     * 靠 ClientTickEvent.START drain 收口客户端主线程（守 I4：跨线程 publish 安全，主线程 drain 收口）。</p>
+     *
+     * <p>from 字段从当前 projection 读取（update 前的旧态，纯诊断用途；null 时填 IDLE 占位）。</p>
+     *
+     * @param phaseOrdinal 目标态 ordinal
+     * @param generation   转移后的新代际
+     * @param serverTick   发布时服务端 tick（诊断）
+     */
+    @Override
+    public void handleClientChainPhaseSnapshot(int phaseOrdinal, int generation, long serverTick) {
+        ChainPhase[] phases = ChainPhase.values();
+        ChainPhase toPhase = phaseOrdinal >= 0 && phaseOrdinal < phases.length
+                ? phases[phaseOrdinal]
+                : ChainPhase.IDLE;
+        ChainPhase fromPhase = clientPhaseProjection != null
+                ? clientPhaseProjection.getCurrentPhase()
+                : ChainPhase.IDLE;
+        // 守 I4：跨线程 publish 安全（ChainEventBus.publish 仅 offer），主线程 drain 收口
+        MyMod.clientChainEventBus.publish(new ChainPhaseChanged(
+                null, generation, fromPhase, toPhase, serverTick, System.nanoTime()));
     }
 }

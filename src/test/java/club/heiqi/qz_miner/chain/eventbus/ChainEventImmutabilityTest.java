@@ -8,6 +8,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
@@ -40,6 +41,7 @@ public class ChainEventImmutabilityTest {
             ExecutionFinished.class,
             LifecycleCleanup.class,
             WatchdogTimeout.class,
+            ChainPhaseChanged.class,
     };
 
     /**

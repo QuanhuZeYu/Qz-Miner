@@ -60,5 +60,11 @@ public final class NetworkMain {
                 PacketLootGamesMinesweeperPreviewResponse.class,
                 packetId++,
                 Side.CLIENT);
+        // 阶段6：连锁阶段快照下发（服务端 ChainStateProjectionBridge → 客户端投影容器）
+        network.registerMessage(
+                PacketChainPhaseSnapshot.Handler.class,
+                PacketChainPhaseSnapshot.class,
+                packetId++,
+                Side.CLIENT);
     }
 }

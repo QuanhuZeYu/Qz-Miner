@@ -17,6 +17,7 @@ import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
 import club.heiqi.qz_miner.chain.planner.ChainPlanningEventBridge;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.chain.planner.GregTechCableReplacePlanner;
+import club.heiqi.qz_miner.chain.state.projection.ChainStateProjectionBridge;
 import club.heiqi.qz_miner.chain.statemachine.ChainStateMachine;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
@@ -68,6 +69,8 @@ public class MyMod {
     public static ChainExecutionContextRegistry chainExecutionContextRegistry;
     /** 阶段5：执行事件桥（E2-a dry-run），订阅 PlanCompleted + ServerTickEvent 消费队列，完成 publish ExecutionFinished + 临时 LifecycleCleanup 桥（E4-b）。 */
     public static ChainExecutionEventBridge chainExecutionEventBridge;
+    /** 阶段6：连锁状态投影下发桥（A1），订阅 ChainPhaseChanged 后 sendTo 客户端投影容器。 */
+    public static ChainStateProjectionBridge chainStateProjectionBridge;
 
     /**
      * 确保并行 Tick 执行器可用。
@@ -112,9 +115,9 @@ public class MyMod {
         chainExecutor = new ChainExecutor();
         ServerMainThreadDispatcher.bootstrap();
         // 阶段 2：接入事件总线 + 状态机，空跑 drain（此时无 publish 点，每 tick poll 空队列零副作用）。
-        // init 在服务端主线程执行，bindMainThread 软校验锚锁定当前线程。
+        // P2-D（阶段6）：服务端 bus 锚服务端主线程，bindMainThread 挪到 serverStarting（在服务器线程执行）。
+        // 客户端 bus 锚客户端主线程（ClientProxy.init 锚定），消除单人模式软校验 warn。
         chainEventBus = new ChainEventBus();
-        chainEventBus.bindMainThread(Thread.currentThread());
         chainStateMachine = new ChainStateMachine(chainEventBus);
         // 阶段5：执行上下文注册表（E1-c），先于规划桥实例化（规划桥构造器注入 registry）
         chainExecutionContextRegistry = new ChainExecutionContextRegistry();
@@ -126,6 +129,9 @@ public class MyMod {
         // Drainer 先注册 FML bus，确保 ServerTickEvent 分发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
         // → executionBridge.onServerTick（消费 context），同 tick 完成登记+消费，无延迟（阶段8 接管真实破坏时手感不受影响）。
         chainExecutionEventBridge = new ChainExecutionEventBridge(chainEventBus, chainExecutionContextRegistry);
+        // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
+        // 守 I1：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
+        chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
         new ChainEventBusDrainer(chainEventBus).bootstrap();
         chainExecutionEventBridge.bootstrap();
         ensureParallelTickExecutor();
@@ -144,6 +150,12 @@ public class MyMod {
     @Mod.EventHandler
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
+        // P2-D（阶段6）：服务端 bus 锚服务端主线程。FMLServerStartingEvent 在服务器线程执行，
+        // 与 ServerTickEvent.drain 同线程，消除单人模式软校验 warn（init 在客户端线程执行，
+        // 与集成服务器线程不同，原本触发 ChainEventBus.drain 的软校验 warn）。
+        if (chainEventBus != null) {
+            chainEventBus.bindMainThread(Thread.currentThread());
+        }
         ServerMainThreadDispatcher.onServerStarting();
         proxy.serverStarting(event);
     }

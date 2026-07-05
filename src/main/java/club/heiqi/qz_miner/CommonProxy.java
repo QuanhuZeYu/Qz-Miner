@@ -40,6 +40,19 @@ public class CommonProxy {
     public void handleClientLootGamesMinesweeperPreview(int requestId, ChainTarget origin, List<ChainTarget> targets) {
     }
 
+    /**
+     * 阶段6：处理客户端连锁阶段快照下发（空实现，服务端不处理）。
+     *
+     * <p>客户端 ClientProxy 覆写此方法，把快照 publish 到 clientChainEventBus
+     * （守 I4：跨线程 publish 安全，主线程 drain 收口）。</p>
+     *
+     * @param phaseOrdinal 目标态 ordinal
+     * @param generation   转移后的新代际
+     * @param serverTick   发布时服务端 tick（诊断）
+     */
+    public void handleClientChainPhaseSnapshot(int phaseOrdinal, int generation, long serverTick) {
+    }
+
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}
 }
