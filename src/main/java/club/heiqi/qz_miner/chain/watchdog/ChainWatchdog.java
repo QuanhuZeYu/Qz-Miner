@@ -1,0 +1,187 @@
+package club.heiqi.qz_miner.chain.watchdog;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
+import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
+import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
+
+/**
+ * 连锁看门狗：异常兜底，N tick 无状态推进则 publish {@link WatchdogTimeout} 协作式回 IDLE（T10）。
+ *
+ * <h3>三路回 IDLE 中的角色（阶段7 收口）</h3>
+ * <p>本类是<b>异常兜底路径</b>，与执行完成快速路径（{@code ChainExecutionEventBridge}）、
+ * 生命周期清理（{@code ChainLifecycleBridge}）三路并存：</p>
+ * <ul>
+ *   <li>正常连锁完成走执行桥快速路径，不触发本类。</li>
+ *   <li>异常卡死（worker 卡住、规划/执行卡在某态）→ 本类 N tick 无推进触发 WatchdogTimeout
+ *       → 状态机 T10 回 IDLE。</li>
+ *   <li>玩家登出/重生/切维度走生命周期桥强制清理（forced=true 豁免 genCheck）。</li>
+ * </ul>
+ *
+ * <h3>推进信号源（奠基事实1）</h3>
+ * <p>本类订阅 {@link ChainPhaseChanged}（阶段6 G1 加入，状态机 {@code applyTransition} 每次转移后 publish）
+ * 建 per-player 活跃镜像。<b>不</b>自建钩子、<b>不</b>读状态机字段（守 I10 只读广播）。</p>
+ *
+ * <h3>F.3 ARMED 不计时（A-armed-skip）</h3>
+ * <p>遵循转移表 T10 现状：ARMED 态不纳入看门狗计时。ARMED 回收靠玩家松键 T2 或生命周期清理 T9，
+ * 不靠看门狗。故 to=ARMED 的 ChainPhaseChanged 不新增镜像条目；已有条目保持（避免误删）。</p>
+ *
+ * <h3>F.4 镜像立即移除（C1）</h3>
+ * <p>publish WatchdogTimeout 后立即从镜像移除该条目，避免后续 tick 重复 publish（防止看门狗风暴）。</p>
+ *
+ * <h3>守 NORTH_STAR 不变量</h3>
+ * <ul>
+ *   <li><b>I1</b>：本类只 publish/remove 自己容器，绝不切 phase、不碰 worker、不写世界。</li>
+ *   <li><b>I2</b>：协作式取消——只 publish WatchdogTimeout，不 Future.cancel、不强杀 worker、
+ *       不绕 endStage。worker 协作式停到安全边界，状态机 T10 自行切态。</li>
+ *   <li><b>I10</b>：本类不写 slots，状态机是唯一写权威。</li>
+ * </ul>
+ *
+ * <h3>线程契约</h3>
+ * <p>{@link #onPhaseChanged} 由主线程 drain 调用，{@link #onServerTick} 由主线程 ServerTickEvent.START 调用，
+ * 契约上单线程串行，{@link HashMap} 无需加锁（对齐 {@code ChainStateMachine.onLifecycleCleanup} 契约）。</p>
+ */
+public class ChainWatchdog {
+
+    /** 注入的事件总线（与状态机共享同一实例）。 */
+    private final ChainEventBus bus;
+    /**
+     * per-player 活跃追踪镜像：key=玩家 UUID，value=该玩家最后一次推进时的代际与 tick。
+     *
+     * <p>守 I4：订阅者仅主线程 drain/ServerTickEvent 调用，单线程假定无需自锁（对齐 onLifecycleCleanup 契约）。
+     * 非线程安全容器 {@link HashMap} 在单线程契约下安全。</p>
+     */
+    private final Map<UUID, WatchEntry> activePlayers = new HashMap<UUID, WatchEntry>();
+
+    /**
+     * 构造看门狗并订阅 {@link ChainPhaseChanged}（不注册 FML bus，留 {@link #bootstrap()} 显式触发）。
+     *
+     * <p>构造器纯净可测：只调用 {@link ChainEventBus#subscribe}（操作 ConcurrentHashMap），
+     * 不触碰 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE），
+     * 对齐 {@code ChainStateProjectionBridge} 纯净可测模式。</p>
+     *
+     * @param bus 事件总线
+     */
+    public ChainWatchdog(ChainEventBus bus) {
+        this.bus = bus;
+        bus.subscribe(ChainPhaseChanged.class, this::onPhaseChanged);
+    }
+
+    /**
+     * 向 FML 事件总线注册 ServerTickEvent 监听。
+     *
+     * <p>由 {@link MyMod#init} 在 ChainEventBusDrainer.bootstrap 之后调用（确保订阅顺序）。
+     * 提取独立方法是为了让单测构造时不触发 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE）。</p>
+     */
+    public void bootstrap() {
+        FMLCommonHandler.instance().bus().register(this);
+    }
+
+    /**
+     * 进态广播订阅者：维护 per-player 活跃镜像。
+     *
+     * <p>分支：</p>
+     * <ul>
+     *   <li>{@code to != IDLE && to != ARMED}（F.3 A-armed-skip）→ put 新条目（覆盖旧 gen，新一代接管）。</li>
+     *   <li>{@code to == IDLE} → remove（回 IDLE 结束追踪）。</li>
+     *   <li>{@code to == ARMED} → 不新增条目（A-armed-skip）；已有条目保持（避免误删玩家武装前的残留）。</li>
+     * </ul>
+     *
+     * @param event 进态广播事件
+     */
+    private void onPhaseChanged(ChainPhaseChanged event) {
+        UUID uuid = event.getPlayerUUID();
+        ChainPhase to = event.getToPhase();
+        if (to == ChainPhase.IDLE) {
+            activePlayers.remove(uuid);
+            return;
+        }
+        // F.3 A-armed-skip：ARMED 不启动计时（遵循 T10 现状），已有条目保持
+        if (to == ChainPhase.ARMED) {
+            return;
+        }
+        // to ∈ {PLANNING, RUNNING, FINISHING}：新增/刷新追踪条目（新一代覆盖旧 gen）
+        activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerTick()));
+    }
+
+    /**
+     * 服务端 tick 回调：遍历活跃镜像，对超时条目 publish WatchdogTimeout 并立即移除（F.4 C1）。
+     *
+     * <p>仅 START 阶段处理。{@code currentTick < 0}（无 Forge 运行时）跳过，不误触发。</p>
+     *
+     * @param event 服务端 tick 事件
+     */
+    @SubscribeEvent
+    public void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) {
+            return;
+        }
+        long currentTick = ChainTickSource.currentServerTick();
+        if (currentTick < 0) {
+            // 无 Forge 运行时（如纯 JVM 单测）：跳过，不误触发
+            return;
+        }
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        // snapshot 避免遍历期 ConcurrentModification（put/remove 在同线程 drain 后才发生，但防御性快照更稳）
+        // 实际单线程契约下可直接遍历，这里为可读性显式快照
+        UUID[] keys = activePlayers.keySet().toArray(new UUID[0]);
+        for (UUID uuid : keys) {
+            WatchEntry entry = activePlayers.get(uuid);
+            if (entry == null) {
+                continue;
+            }
+            long elapsed = currentTick - entry.lastProgressTick;
+            if (elapsed >= threshold) {
+                long nanos = ChainTickSource.nowNanos();
+                long elapsedNanos = Math.max(0L, nanos); // 占位（精确 elapsedNanos 需记 lastNanos，本版简化）
+                bus.publish(new WatchdogTimeout(uuid, entry.generation, currentTick, nanos, elapsedNanos));
+                // F.4 C1：publish 后立即移除，避免后续 tick 重复 publish（看门狗风暴防护）
+                activePlayers.remove(uuid);
+                MyMod.LOG.warn("[ChainWatchdog] timeout player={} gen={} elapsedTick={} threshold={}; publish WatchdogTimeout",
+                        uuid, Integer.valueOf(entry.generation), Long.valueOf(elapsed), Integer.valueOf(threshold));
+            }
+        }
+    }
+
+    /**
+     * per-player 追踪条目值对象（包级可见供单测断言）。
+     */
+    static final class WatchEntry {
+        /** 该玩家最后一次推进时的代际（新一代 ChainPhaseChanged 覆盖）。 */
+        final int generation;
+        /** 该玩家最后一次推进时的服务端 tick（用于判定无推进时长）。 */
+        long lastProgressTick;
+
+        WatchEntry(int generation, long lastProgressTick) {
+            this.generation = generation;
+            this.lastProgressTick = lastProgressTick;
+        }
+    }
+
+    // ============================ package-private getter 供单测 ============================
+
+    /**
+     * @param playerUUID 玩家 UUID
+     * @return 镜像内该玩家条目（仅供同包单测读），无则 null
+     */
+    WatchEntry getEntry(UUID playerUUID) {
+        return activePlayers.get(playerUUID);
+    }
+
+    /**
+     * @return 镜像当前条目数（仅供同包单测断言）
+     */
+    int activeCount() {
+        return activePlayers.size();
+    }
+}

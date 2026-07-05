@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBusDrainer;
 import club.heiqi.qz_miner.chain.execution.ChainExecutionContextRegistry;
 import club.heiqi.qz_miner.chain.execution.ChainExecutionEventBridge;
+import club.heiqi.qz_miner.chain.lifecycle.ChainLifecycleBridge;
 import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
@@ -19,6 +20,7 @@ import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.chain.planner.GregTechCableReplacePlanner;
 import club.heiqi.qz_miner.chain.state.projection.ChainStateProjectionBridge;
 import club.heiqi.qz_miner.chain.statemachine.ChainStateMachine;
+import club.heiqi.qz_miner.chain.watchdog.ChainWatchdog;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import club.heiqi.qz_miner.event.EventListener;
@@ -71,6 +73,10 @@ public class MyMod {
     public static ChainExecutionEventBridge chainExecutionEventBridge;
     /** 阶段6：连锁状态投影下发桥（A1），订阅 ChainPhaseChanged 后 sendTo 客户端投影容器。 */
     public static ChainStateProjectionBridge chainStateProjectionBridge;
+    /** 阶段7：连锁看门狗（A 异常兜底），N tick 无推进 publish WatchdogTimeout 协作式回 IDLE（T10）。 */
+    public static ChainWatchdog chainWatchdog;
+    /** 阶段7：连锁生命周期桥（B 生命周期收口），平行订阅 PlayerStateEvent 转 LifecycleCleanup（守 I7）。 */
+    public static ChainLifecycleBridge chainLifecycleBridge;
 
     /**
      * 确保并行 Tick 执行器可用。
@@ -132,8 +138,18 @@ public class MyMod {
         // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
         // 守 I1：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
+        // 阶段7：看门狗 + 生命周期桥接线（三路回 IDLE 收口）。
+        // 接线顺序：状态机 → registry → 规划桥 → 执行桥 → 投影桥 → Drainer.bootstrap() → 执行桥.bootstrap()
+        // → 看门狗.bootstrap() → 生命周期桥.bootstrap()。
+        // 看门狗订阅 ChainPhaseChanged（状态机进态广播），生命周期桥订阅 PlayerStateEvent（QzEvents 全局总线），
+        // 两者均在构造期完成订阅，bootstrap 仅注册 FML bus / 占位。Drainer 先注册 FML bus 确保 ServerTickEvent
+        // 分发顺序：drainer.onServerTick（drain，触发 ChainPhaseChanged/PlayerStateEvent 派生）→ 看门狗.onServerTick。
+        chainWatchdog = new ChainWatchdog(chainEventBus);
+        chainLifecycleBridge = new ChainLifecycleBridge(chainEventBus);
         new ChainEventBusDrainer(chainEventBus).bootstrap();
         chainExecutionEventBridge.bootstrap();
+        chainWatchdog.bootstrap();
+        chainLifecycleBridge.bootstrap();
         ensureParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",

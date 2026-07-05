@@ -124,6 +124,11 @@ public class ChainStateMachineTest {
         return new LifecycleCleanup(player, gen, TICK, NANOS, "test-cleanup");
     }
 
+    /** F.1 W1 forced=true LifecycleCleanup（gen 不匹配也强制回 IDLE）。 */
+    private LifecycleCleanup forcedCleanup(UUID player, int gen, boolean removeSlot) {
+        return new LifecycleCleanup(player, gen, TICK, NANOS, "forced-test", true, removeSlot);
+    }
+
     /** 新建一组 bus + sm，绑定当前线程作为主线程软校验锚。 */
     private static Harness newHarness() {
         ChainEventBus bus = new ChainEventBus();
@@ -798,5 +803,96 @@ public class ChainStateMachineTest {
         // 验证后续连锁能正常触发（玩家槽已回 IDLE，T1 合法）
         drive(h, key(true));
         Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    // ============================ 阶段7：F.1 W1 + F.2 S1 ============================
+
+    /**
+     * 阶段7 F.1 W1：forced=true LifecycleCleanup 豁免 genCheck。
+     *
+     * <p>slot gen=5（RUNNING），event gen=999 forced=true → 强制回 IDLE。
+     * 守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</p>
+     */
+    @Test
+    public void forcedLifecycleCleanupSkipsGenCheck() {
+        Harness h = newHarness();
+        // IDLE → ARMED → PLANNING → RUNNING(gen=1)，再手动用 gen=2 进 PLANNING 模拟 gen=5 场景
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // forced=true + gen=999（明显不匹配 slot gen=1）→ 应豁免 genCheck 强制回 IDLE
+        drive(h, forcedCleanup(PLAYER_A, 999, false));
+        Assert.assertEquals("F.1 W1：forced LifecycleCleanup 应豁免 genCheck 强制回 IDLE",
+                ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        // removeSlot=false 保槽，gen 不变
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * 阶段7 F.1 对照：forced=false 走 genCheck（陈旧 gen 被丢弃）。
+     *
+     * <p>对照 {@link #forcedLifecycleCleanupSkipsGenCheck}：同一 gen=999 但 forced=false → 走 genCheck
+     * 被判定未来 gen 丢弃，态不变。</p>
+     */
+    @Test
+    public void nonForcedLifecycleCleanupGoesGenCheck() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+
+        // forced=false（默认 5 参构造器）+ gen=999 → genCheck 判定未来 gen 丢弃
+        LifecycleCleanup stale = new LifecycleCleanup(PLAYER_A, 999, TICK, NANOS, "non-forced-test");
+        drive(h, stale);
+        Assert.assertEquals("非 forced 走 genCheck，未来 gen 应被丢弃，态不变",
+                ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    /**
+     * 阶段7 F.2 S1：removeSlot=true 转移后 slots.remove（玩家槽被删）。
+     *
+     * <p>删槽后 getCurrentPhase 会重新 computeIfAbsent 返回默认 IDLE/gen=0。
+     * 守 I10：slots.remove 唯一写权威在状态机 handler 内。</p>
+     */
+    @Test
+    public void removeSlotTrueDeletesSlot() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // forced=true + removeSlot=true → 回 IDLE 后删槽
+        drive(h, forcedCleanup(PLAYER_A, 0, true));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        // 删槽后重新 computeIfAbsent，gen 重置为 0（槽被删）
+        Assert.assertEquals("F.2 S1：removeSlot=true 应删槽，gen 重置", 0, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * 阶段7 F.2 S1 对照：removeSlot=false 转移后 slots 保留（保 gen 单调）。
+     *
+     * <p>对照 {@link #removeSlotTrueDeletesSlot}：removeSlot=false → 槽保留，gen 不变。
+     * RESPAWN/DIMENSION_CHANGE/CLONE/执行完成路径都走此分支保 gen 单调。</p>
+     */
+    @Test
+    public void removeSlotFalseKeepsSlotAndGen() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // forced=true + removeSlot=false → 回 IDLE 但保槽保 gen
+        drive(h, forcedCleanup(PLAYER_A, 0, false));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("F.2 S1：removeSlot=false 应保槽保 gen 单调", 1, h.sm.getCurrentGeneration(PLAYER_A));
     }
 }

@@ -290,14 +290,27 @@ public class ChainStateMachine {
     /**
      * 生命周期清理事件：FINISHING → IDLE（T8）或任意非 IDLE → IDLE（T9 兜底）。
      *
+     * <p>阶段7 三路回 IDLE 收口（F.1 W1 + F.2 S1）：</p>
+     * <ul>
+     *   <li><b>forced=true</b>（F.1 W1）：玩家登出/重生/切维度等生命周期强制清理豁免 genCheck。
+     *       守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</li>
+     *   <li><b>forced=false</b>：执行完成快速收尾路径走 genCheck（gen 已知）。</li>
+     *   <li><b>removeSlot=true</b>（F.2 S1）：LOGOUT 删槽防泄漏，守 I10 唯一写权威（仅本 handler 内 remove）。</li>
+     *   <li><b>removeSlot=false</b>：RESPAWN/维度切换/执行完成保槽保 gen 单调。</li>
+     * </ul>
+     *
      * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。</p>
      *
      * @param event 生命周期清理事件
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
         PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
-        if (!genCheck(slot, event)) {
-            return;
+        // F.1 W1：生命周期强制清理豁免 genCheck（forced=true），执行完成快速路径走 genCheck（forced=false）
+        // 守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束
+        if (!event.isForced()) {
+            if (!genCheck(slot, event)) {
+                return;
+            }
         }
         if (slot.phase == ChainPhase.IDLE) {
             // 已 IDLE，幂等丢弃
@@ -306,6 +319,11 @@ public class ChainStateMachine {
         }
         // T8 + T9 合流：任意非 IDLE → IDLE
         applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+        // F.2 S1：LOGOUT 删槽防泄漏；RESPAWN/维度切换/执行完成保槽保 gen 单调。
+        // 守 I10：slots 容器唯一写权威内的 remove（与 applyTransition 唯一写点同处 handler）。
+        if (event.isRemoveSlot()) {
+            slots.remove(event.getPlayerUUID());
+        }
     }
 
     // ============================ 共用逻辑 ============================

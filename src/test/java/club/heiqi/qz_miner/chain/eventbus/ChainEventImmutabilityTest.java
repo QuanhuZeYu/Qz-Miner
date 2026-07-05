@@ -80,4 +80,25 @@ public class ChainEventImmutabilityTest {
         Assert.assertEquals(player, m.getPlayerUUID());
         Assert.assertEquals(nanos, m.getTimestampNanos());
     }
+
+    /**
+     * 阶段7 LifecycleCleanup 扩字段（forced + removeSlot）保留断言。
+     *
+     * <p>全参构造器写入的 forced/removeSlot 经 getter 原样返回；
+     * 兼容 5 参构造器默认 forced=false/removeSlot=false。</p>
+     */
+    @Test
+    public void lifecycleCleanupForcedAndRemoveSlotPreserved() {
+        UUID player = UUID.randomUUID();
+        // 全参：forced=true + removeSlot=true
+        LifecycleCleanup full = new LifecycleCleanup(player, 3, 42L, 999L, "test", true, true);
+        Assert.assertTrue("forced 应原样返回", full.isForced());
+        Assert.assertTrue("removeSlot 应原样返回", full.isRemoveSlot());
+        Assert.assertEquals("test", full.getReason());
+
+        // 兼容 5 参构造器：默认 forced=false + removeSlot=false
+        LifecycleCleanup compat = new LifecycleCleanup(player, 3, 42L, 999L, "compat");
+        Assert.assertFalse("兼容构造器 forced 默认 false", compat.isForced());
+        Assert.assertFalse("兼容构造器 removeSlot 默认 false", compat.isRemoveSlot());
+    }
 }

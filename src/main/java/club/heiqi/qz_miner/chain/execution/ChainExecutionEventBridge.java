@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -21,7 +22,24 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * （主线程每 tick 消费队列），实现新链路完整执行闭环：
  * worker publish PlanCompleted → 主线程 drain：状态机 T5 进 RUNNING + 本桥登记 ExecutionContext →
  * 后续每 tick START 消费（{@code maxBreakPerTick} 控速）→ 队列空 publish ExecutionFinished
- * → 状态机 T7 RUNNING→FINISHING → 临时 publish LifecycleCleanup → 状态机 T8 FINISHING→IDLE。</p>
+ * → 状态机 T7 RUNNING→FINISHING → 同 tick publish LifecycleCleanup(reason="execution-complete") → 状态机 T8 FINISHING→IDLE。</p>
+ *
+ * <h3>阶段7 三路回 IDLE 收口（H2 三路并存裁决）</h3>
+ * <p>本桥是<b>执行完成快速收尾路径</b>，与<b>看门狗异常兜底</b>（{@code ChainWatchdog}）+
+ * <b>生命周期清理</b>（{@code ChainLifecycleBridge}）三路并存回 IDLE：</p>
+ * <ul>
+ *   <li>正常连锁完成走本桥快速路径（同 tick 完成 T7+T8，不卡 N tick 看门狗阈值，手感不受影响）。</li>
+ *   <li>异常卡死走看门狗（N tick 无推进 → publish WatchdogTimeout → 状态机 T10 回 IDLE）。</li>
+ *   <li>玩家登出/重生/切维度走生命周期桥（forced=true 豁免 genCheck 强制回 IDLE）。</li>
+ * </ul>
+ * <p>本桥 publish 的 LifecycleCleanup 用 {@code forced=false}（走 genCheck，gen 已知）+
+ * {@code removeSlot=false}（玩家在线保 gen 单调）。三路铁律：本桥<b>绝不删</b>，FINISHING 只能由
+ * 本桥 publish 的 LifecycleCleanup 走 T8 出口，删了会卡死 FINISHING 致二次连锁哑火。</p>
+ *
+ * <h3>两容器清理分工（阶段7 收口）</h3>
+ * <p>状态机管 {@code slots}（{@code ChainStateMachine.onLifecycleCleanup} 内 remove），
+ * 本桥管 {@code registry}（订阅 WatchdogTimeout/LifecycleCleanup 清理幽灵队列），
+ * 各清各的容器，互不夺权（守 I10）。</p>
  *
  * <h3>dry-run 铁律（E2-a，违 I1）</h3>
  * <ul>
@@ -46,11 +64,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * {@code ChainStateMachine.getCurrentGeneration}（package-private 跨包不可见，且时序竞态——
  * 执行中玩家重按键触发新一代会让状态机 gen 已自增，迟到旧 gen ExecutionFinished 被 genCheck 丢弃）。</p>
  *
- * <h3>E4-b 临时 LifecycleCleanup 桥（阶段7 回填）</h3>
- * <p>本桥 publish ExecutionFinished 后，<b>同 tick 紧接</b> publish LifecycleCleanup(gen) 走 T8
- * FINISHING→IDLE，让状态机跑完完整闭环（避免玩家槽卡 FINISHING 致二次连锁哑火）。
- * <b>这是临时桥</b>：阶段7「看门狗 + 生命周期收口」会换成正规生命周期源
- * （玩家退出/重生/切维度/I7 触发）。回填定位见决策文档 §"E4-b 临时 LifecycleCleanup 桥"。</p>
+ * <h3>E4-b 执行完成快速收尾桥（阶段7 三路并存正名）</h3>
+ * <p>本桥 publish ExecutionFinished 后，<b>同 tick 紧接</b> publish LifecycleCleanup(reason="execution-complete")
+ * 走 T8 FINISHING→IDLE，让状态机跑完完整闭环（避免玩家槽卡 FINISHING 致二次连锁哑火）。
+ * 阶段7 起本桥与看门狗异常兜底（{@code ChainWatchdog}）、生命周期清理（{@code ChainLifecycleBridge}）
+ * 三路并存回 IDLE，本路径是<b>正常完成快速路径</b>，绝不删（FINISHING 只有 T8 能出，删了卡死）。</p>
  */
 public class ChainExecutionEventBridge {
 
@@ -78,6 +96,10 @@ public class ChainExecutionEventBridge {
         this.bus = bus;
         this.registry = registry;
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
+        // 阶段7 B.4：订阅 WatchdogTimeout + LifecycleCleanup 清理 registry 幽灵队列（两容器清理分工）。
+        // 状态机管 slots，本桥管 registry，各清各的容器，互不夺权（守 I10）。
+        bus.subscribe(WatchdogTimeout.class, this::onWatchdogTimeout);
+        bus.subscribe(LifecycleCleanup.class, this::onLifecycleCleanup);
     }
 
     /**
@@ -199,10 +221,45 @@ public class ChainExecutionEventBridge {
         long tick = ChainTickSource.currentServerTick();
         long nanos = ChainTickSource.nowNanos();
         bus.publish(buildExecutionFinished(playerUUID, gen, tick, nanos, reason));
-        // 临时桥：阶段5 打通 T8 完整闭环，阶段7「看门狗+生命周期收口」换成正规生命周期源
-        // （玩家退出/重生/切维度/I7 触发）
+        // 阶段7 三路并存正名（H2 裁决）：执行完成快速收尾路径 publish LifecycleCleanup 走 T8 回 IDLE。
+        // forced=false（走 genCheck，执行完成 gen 已知）+ removeSlot=false（玩家在线保 gen 单调）。
+        // 三路铁律：本桥绝不删，FINISHING 只有 T8 能出，删了会卡死 FINISHING 致二次连锁哑火。
         bus.publish(new LifecycleCleanup(
-                playerUUID, gen, tick, nanos, "phase5-temporary-cleanup-bridge"));
+                playerUUID, gen, tick, nanos, "execution-complete", false, false));
+    }
+
+    /**
+     * 看门狗超时订阅者：清理 registry 幽灵队列（阶段7 B.4 两容器清理分工）。
+     *
+     * <p>看门狗 publish WatchdogTimeout 后状态机 T10 回 IDLE，但执行桥 registry 内的
+     * {@link ChainExecutionContext} 队列可能仍有未消费目标（异常卡死时 worker 仍 put）。
+     * 若不清理，下一 tick ServerTickEvent 仍会消费幽灵队列（{@code oracle A.4} 竞态）。
+     * 本桥订阅 WatchdogTimeout 后 {@code registry.remove(uuid)} 清幽灵队列。</p>
+     *
+     * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots；状态机 T10 自行处理 slots。</p>
+     *
+     * @param event 看门狗超时事件
+     */
+    private void onWatchdogTimeout(WatchdogTimeout event) {
+        registry.remove(event.getPlayerUUID());
+        MyMod.LOG.debug("[ChainExecution] registry cleanup on WatchdogTimeout player={} gen={}",
+                event.getPlayerUUID(), Integer.valueOf(event.getGeneration()));
+    }
+
+    /**
+     * 生命周期清理订阅者：清理 registry（阶段7 B.4 两容器清理分工）。
+     *
+     * <p>玩家登出/重生/切维度时 {@code ChainLifecycleBridge} publish LifecycleCleanup，
+     * 状态机 handler 处理 slots，本订阅者清理 registry（登出防泄漏，重生/维度切换清幽灵队列）。</p>
+     *
+     * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots。</p>
+     *
+     * @param event 生命周期清理事件
+     */
+    private void onLifecycleCleanup(LifecycleCleanup event) {
+        registry.remove(event.getPlayerUUID());
+        MyMod.LOG.debug("[ChainExecution] registry cleanup on LifecycleCleanup player={} reason={}",
+                event.getPlayerUUID(), event.getReason());
     }
 
     // ============================ 纯逻辑构造（供单测覆盖） ============================
