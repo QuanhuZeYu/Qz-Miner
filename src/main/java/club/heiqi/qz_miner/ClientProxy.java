@@ -104,11 +104,11 @@ public class ClientProxy extends CommonProxy {
         ChainPhase toPhase = phaseOrdinal >= 0 && phaseOrdinal < phases.length
                 ? phases[phaseOrdinal]
                 : ChainPhase.IDLE;
-        ChainPhase fromPhase = clientPhaseProjection != null
-                ? clientPhaseProjection.getCurrentPhase()
-                : ChainPhase.IDLE;
+        // P2-1 收口：from 字段在客户端是死代码（订阅者 ClientPhaseProjectionSubscriber 只消费 toPhase），
+        // 占位 IDLE 避免在 Netty 线程读 projection 容器（守 I4 精神：Netty 线程不碰容器）。
+        // 服务端 ChainPhaseChanged 的 from 有诊断价值（事件流即结构化日志），客户端投影事件不消费 from。
         // 守 I4：跨线程 publish 安全（ChainEventBus.publish 仅 offer），主线程 drain 收口
         MyMod.clientChainEventBus.publish(new ChainPhaseChanged(
-                null, generation, fromPhase, toPhase, serverTick, System.nanoTime()));
+                null, generation, ChainPhase.IDLE, toPhase, serverTick, System.nanoTime()));
     }
 }

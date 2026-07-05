@@ -250,3 +250,71 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 ### 工程量估算
 
 阶段5 约 **3 个新类**（`ChainExecutionEventBridge` 执行订阅者 + `ChainExecutionContext` 执行上下文 + `ChainExecutionContextRegistry` 跨线程注册表）+ bridge 微调（worker 完成时写 registry）+ MyMod 接线 + 2 个新单测类 + 扩 `ChainStateMachineTest` 若干用例，**约 350-450 行**（不含单测）。核心复杂度集中在 E1-c 的目标断链解法与 gen 传递链延续。
+
+## 阶段6 客户端纯投影决策（2026-07-06，P0-1/P1-1/P1-2/P2-1/P2-D 五决策拍板）
+
+### 阶段6 致命卡点（oracle 探明）
+
+1. **G1 结构入口卡点：状态机转移无对外广播钩子**——`ChainStateMachine.applyTransition` 是唯一写点，改 slot 后只打日志不 publish（仅 T4 路径在 applyTransition 外单独 publish PlanStarted）。`ChainEventBus.drain` 按 `event.getClass()` 精确匹配，订阅基类兜不住。→ 根治：applyTransition 末尾 publish 新事件 `ChainPhaseChanged`（延续阶段4 B3 进态广播模式，守 I10）
+2. **G2 影子期语义卡点：dry-run 使新 phase 瞬时闪回**——阶段5 新链路 dry-run（poll 只计数），E4-b 临时桥同 tick publish LifecycleCleanup 回 IDLE，新 phase 极短时间内跑完 PLANNING→RUNNING→FINISHING→IDLE。若投影直接驱动预览锁定/HUD 会瞬时闪烁。→ 根治（P0-1=A）：投影只可见不夺权，权威仍读旧 serverExecutionStatus，阶段8 才切换
+
+### 五架构分歧与用户裁决
+
+| 分歧 | 裁决 | 理由 |
+|---|---|---|
+| P0-1 投影是否夺权 | **A 不夺权（仅可见）** | G2 证明 dry-run 下新 phase 瞬时闪回，夺权致预览几乎不锁定、HUD 闪烁；与 A-shadow 影子边界自洽；阶段8 旧链路下线才切换权威 |
+| P1-1 客户端收口路径 | **A 走 clientChainEventBus** | 兑现阶段3 空跑骨架既定用途（ClientChainEventBusDrainer 注释"预览订阅留阶段6 接入"），与决策文档"dispatcher 收口内化进总线"一致 |
+| P1-2 投影容器粒度 | **A 单玩家** | 客户端进程只渲染本地玩家，收不到别人快照（服务端只 sendTo 本人），per-player Map 冗余 |
+| P2-1 ChainPhaseChanged 字段 | **A 携带 from+to** | 诊断成本低，事件流即结构化日志；客户端投影用 to，from 供日志/回放 |
+| P2-D 服务端 bus 锚点 | **B 挪到 serverStarting** | 服务端 bus drain 在服务器线程，锚点应对齐 drain 线程；init 在客户端主线程致单人模式软校验 warn 刷屏；serverStarting 每次开服触发，bindMainThread 幂等 |
+
+### 阶段6 实施要点
+
+#### G1 根治（ChainPhaseChanged 进态广播）
+- 新建 `chain.eventbus.event.ChainPhaseChanged`（不可变，from/to 双 ordinal，守阶段1 ChainEventImmutabilityTest 契约）
+- `ChainStateMachine.applyTransition` 末尾 publish（9 处 applyTransition 调用全覆盖；T4 路径 PlanStarted 与 ChainPhaseChanged 订阅集互不重叠——前者 ChainPlanningEventBridge，后者 ChainStateProjectionBridge，并行不冲突）
+
+#### A1 快照下发主线（服务端→客户端）
+- 新建 `network.PacketChainPhaseSnapshot`（Side.CLIENT，IMessage 模式对齐 PacketChainStateSync）
+- 新建 `chain.state.projection.ChainStateProjectionBridge`（服务端订阅者，只 sendTo 守 I1）
+- 唯一发送点钩在 `ChainPhaseChanged`（一条 phase 变化对应一次快照，语义单一）
+- `NetworkMain` 注册新包；`MyMod.init` 接线 projectionBridge
+
+#### A2 投影侧主线（客户端本地）
+- 新建 `chain.client.projection.ClientPhaseProjection`（单玩家容器，volatile 字段 + gen 陈旧判定 + clear）
+- 新建 `chain.client.projection.ClientPhaseProjectionSubscriber`（订阅 clientChainEventBus 上的 ChainPhaseChanged，复用类型作投影事件）
+- `ClientProxy.handleClientChainPhaseSnapshot`：Netty 线程只 publish 到 clientChainEventBus（不直接改容器，守 I4）
+- 链路：Netty 线程 → clientChainEventBus 队列 → ClientTickEvent.START drain（主线程）→ 订阅者 → update 容器
+
+#### B P2-D 整理（bindMainThread 挪 serverStarting）
+- `MyMod.init` 移除 bindMainThread（保留实例化）；`MyMod.serverStarting` 加 bindMainThread（null 检查 + 服务器线程执行）
+- 客户端 bus（ClientProxy.init）不动；消除单人模式软校验 warn，语义清晰
+
+#### C 旧入口关系裁决
+- `handleClientChainStateSync`（8 字段）：**保留到阶段8**（HUD/预览锁定/预览范围阶段6-7 仍依赖旧链路真实态）
+- `handleClientLootGamesMinesweeperPreview`：**长期保留**（扫雷雷坐标是预览侧 remote 数据源，非连锁转移，与新 phase 快照正交）
+- 新投影另立容器 `ClientPhaseProjection`，**不污染旧 ChainClientState**（避免双状态漂移加剧，阶段8 旧字段随旧包删）
+
+### G2 不夺权铁律（影子期特有，阶段6-7 守，阶段8 切换）
+- 严禁改动：`ChainPreviewController.shouldLockCurrentPreview`（仍读旧 serverExecutionStatus）/ `HudOverlay` 权威字段 / `handleClientChainStateSync` 八字段逻辑
+- 允许：投影容器可见（日志 debug + 可选诊断 HUD 行，不动主 HUD 权威字段）
+- 阶段8 旧链路下线时，新 ChainPhase 投影接管权威才切换读取源
+
+### 阶段6 测试覆盖（纯 JVM，3 新测类 12 用例）
+
+- `ChainPhaseChangedTest`（4 用例）：构造字段透传 + ordinal 5×5 往返 + final 修饰符 + 边界 IDLE→IDLE gen=0
+- `ClientPhaseProjectionTest`（5 用例）：初值 + 正常写入 + **gen 陈旧丢弃**（真测）+ 同代幂等覆盖 + clear 重置
+- `ChainStateProjectionBridgeTest`（3 用例）：null-path 跳过分支（networkMain/playerManager JVM 环境为 null，sendTo 真链路留 runClient21）
+- `ChainEventImmutabilityTest` 扩展：登记 ChainPhaseChanged 入反射测试集
+- 留实机（runClient21，阶段8）：跨进程快照真实下发 + 单人模式无软校验 warn + 旧链路 HUD/预览不受影响 + I7 退出清理
+
+### reviewer P2 项登记
+
+- **P2-1（阶段6 已收口）**：ClientProxy 在 Netty 线程读 projection.getCurrentPhase() 取 from（I4 灰区 + from 死代码）→ 删 from 读取，publish 时 from 占位 IDLE
+- **P2-2（不修，风险极低）**：bindMainThread 时序窗口（init bootstrap → serverStarting 之间无软校验，这段时间通常无 publish，玩家未进服）
+- **P2-3（文档级）**：ChainPhaseChangedTest 测试描述"反射改 final 抛异常"实际测的是 final 修饰符（轻量有效，与 ChainEventImmutabilityTest 风格一致）
+- **P2-4（留阶段8）**：缺"G2 不夺权"回归断言，留阶段8 切换权威源时重写测试一并处理
+
+### 工程量估算
+
+阶段6 约 **5 个新类**（ChainPhaseChanged 进态广播事件 + PacketChainPhaseSnapshot 快照下发包 + ChainStateProjectionBridge 服务端订阅者 + ClientPhaseProjection 客户端容器 + ClientPhaseProjectionSubscriber 客户端订阅者）+ 7 改动文件 + 3 新单测类 12 用例，**约 400-500 行**（不含单测）。核心复杂度集中在 G1 进态广播钩子与 I4 主线程收口链路设计。
