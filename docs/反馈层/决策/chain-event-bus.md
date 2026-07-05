@@ -318,3 +318,80 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 ### 工程量估算
 
 阶段6 约 **5 个新类**（ChainPhaseChanged 进态广播事件 + PacketChainPhaseSnapshot 快照下发包 + ChainStateProjectionBridge 服务端订阅者 + ClientPhaseProjection 客户端容器 + ClientPhaseProjectionSubscriber 客户端订阅者）+ 7 改动文件 + 3 新单测类 12 用例，**约 400-500 行**（不含单测）。核心复杂度集中在 G1 进态广播钩子与 I4 主线程收口链路设计。
+
+## 阶段7 看门狗+生命周期收口决策（2026-07-06，F.1/F.2/F.3/H2/F.4 五决策拍板）
+
+### 核心结论：三路并存（非替换）+ 两容器清理分工
+
+阶段7 **不是替换而是补齐**——决策文档 §E4-b"换正规源"措辞有误导（H2 澄清）。回 IDLE 需**三路正交并存**：
+
+| 路径 | 触发 | 事件 | forced | removeSlot | 职责 |
+|---|---|---|---|---|---|
+| 执行完成（快速） | 执行桥队列空（阶段5 临时桥正名） | LifecycleCleanup | false | false | 正常连锁收尾，**必须保留**（FINISHING 只有 T8 能出） |
+| 生命周期清理 | 玩家退出/重生/切维度（新建 ChainLifecycleBridge） | LifecycleCleanup | true | 仅 LOGOUT=true | I7 收口 |
+| 看门狗兜底 | N tick 无推进（新建 ChainWatchdog） | WatchdogTimeout | —（T10） | — | I2 异常收敛 |
+
+**两容器清理分工**：slots 在状态机 `onLifecycleCleanup` handler 内 remove（守 I10 唯一写权威）；registry 由执行桥订阅 WatchdogTimeout/LifecycleCleanup 清理（各清各的容器）。
+
+### 三个奠基事实（oracle 探明，全部源码验证）
+1. **推进信号现成**：阶段6 G1 的 ChainPhaseChanged（applyTransition:360 每次转移后 publish）是看门狗判定的唯一权威信号，不需自建钩子
+2. **生命周期源现成**：ChainStateService.onPlayerStateChanged:223-248 通过 PlayerStateEvent（5 类 reason）收口，LOGOUT→removeState=true 其余 false。新链路平行订阅即可
+3. **两容器泄漏**：slots 无 remove 路径 + registry 登出不清理 + FINISHING 态只有 T8 能出（临时桥存在的根因）
+
+### 五架构分歧与用户裁决
+
+| 分歧 | 裁决 | 理由 |
+|---|---|---|
+| F.1 genCheck 豁免（P0） | **W1 forced 标志豁免** | onLifecycleCleanup:299 走 genCheck，生命周期桥跨包拿不到 slot.generation 填错必被丢→登出清不掉。forced=true 豁免（玩家都登出了哪一代都得清），forced=false 走 genCheck（执行完成 gen 已知） |
+| F.2 removeSlot 字段（P1） | **S1 扩 removeSlot 字段** | LOGOUT=true 删槽防泄漏，RESPAWN/维度切换=false 保 gen 单调（对齐旧 removeState 语义） |
+| F.3 ARMED 覆盖（P1） | **A-armed-skip 不计时** | 遵循转移表 T10 现状，ARMED 是玩家主动意图态超时踢出会打断手感；改 T10 触及 I10 需宪章修订；ARMED 泄漏由 LOGOUT 清理兜底 |
+| H2 临时桥定性 | **保留+正名+三路并存** | FINISHING 只有 T8 能出，删了卡死致二次连锁哑火；reason 改 execution-complete，补 forced=false+removeSlot=false |
+| F.4 镜像移除（P2） | **C1 立即移除** | publish WatchdogTimeout 后立即从镜像移除，防看门狗风暴 |
+
+### 阶段7 实施要点
+
+#### A. 看门狗（新建 chain.watchdog.ChainWatchdog）
+- 订阅 ChainPhaseChanged 建 per-player 镜像（WatchEntry{gen, lastProgressTick}）
+- onPhaseChanged：to=IDLE 移除 / to=ARMED 不新增（F.3）/ to∈{PLANNING,RUNNING,FINISHING} put 覆盖
+- onServerTick.START：遍历镜像，elapsed >= Config.chainWatchdogTimeoutTicks(默认100) → publish WatchdogTimeout + 立即移除（F.4）
+- **P1-1 收口**：提取 checkTimeouts(long) 包级方法供单测注入 tick（原 onServerTick 内 ChainTickSource 纯 JVM 返回 -1 致超时路径不可达）
+- 守 I2（协作式，只 publish 不碰 worker）
+
+#### B. 生命周期桥（新建 chain.lifecycle.ChainLifecycleBridge）
+- 平行订阅 PlayerStateEvent（QzEvents.register，与 ChainStateService 各自独立消费）
+- handlePlayerLifecycle 包级可测接缝：LOGIN 不 publish / LOGOUT forced+remove / RESPAWN/DIMENSION_CHANGE/CLONE forced+keep
+- forced=true 豁免 genCheck（F.1），gen=0 占位（被豁免不校验）
+- 守 I7（复用现成生命周期源，主线程收口）
+
+#### C. 临时桥正名（H2，ChainExecutionEventBridge:224-228）
+- reason 从 phase5-temporary-cleanup-bridge 改 execution-complete
+- 补 forced=false（走 genCheck）+ removeSlot=false（玩家在线保 gen 单调）
+- **绝不删**（FINISHING 只有 T8 出口）
+
+#### D. onLifecycleCleanup 改造（ChainStateMachine:307-334）
+- F.1 forced 豁免 genCheck（:311-315）
+- F.2 removeSlot 分流（:331-333 非 IDLE / :320-322 IDLE 分支，**P2-1 收口**）
+- **P2-1 收口**：IDLE early-return 分支内也执行 removeSlot（原实现 IDLE 态 LOGOUT 删槽被 early-return 吞→槽泄漏）
+
+#### E. 执行桥订阅清理（ChainExecutionEventBridge:99/243-263，B.4）
+- 构造器订阅 WatchdogTimeout + LifecycleCleanup
+- onWatchdogTimeout/onLifecycleCleanup → registry.remove(uuid)
+- 解决看门狗回 IDLE 后执行桥消费幽灵队列（oracle A.4 竞态）+ 登出时 registry 泄漏
+
+### 阶段7 测试覆盖（纯 JVM，2 新测类 + 扩 2，共 17 新用例）
+
+- `ChainWatchdogTest`（10 用例）：ARMED 不计时 / 回 IDLE 移除 / gen 竞态 / currentTick<0 跳过 + **P1-1 收口 3 用例**（超时触发+镜像移除 / 推进刷新不触发 / 防风暴）
+- `ChainLifecycleBridgeTest`（5 用例）：5 类 reason 映射（LOGIN 不 publish / LOGOUT forced+remove / 其余 forced+keep）
+- 扩 `ChainStateMachineTest`（+6 用例）：forced 豁免 / non-forced 走 genCheck / removeSlot true/false（RUNNING + **IDLE 态 P2-1 收口**）
+- 扩 `ChainEventImmutabilityTest`（+1）：LifecycleCleanup forced+removeSlot final
+- 留实机（runClient21，阶段8）：看门狗触发（人为卡死）+ 玩家登出 slots 清理 + 重生保槽 + 三路并存手感
+
+### reviewer P 项登记
+
+- **P1-1（阶段7 已收口）**：ChainWatchdog 核心超时路径零测试覆盖（ChainTickSource 返回 -1 致不可达）→ 提取 checkTimeouts(long) 包级接缝 + 3 用例
+- **P2-1（阶段7 已收口）**：LOGOUT 删槽在 IDLE 态失效（early-return 吞掉 removeSlot 意图）→ IDLE 分支内补 removeSlot + 2 用例
+- **P2-2（留阶段8）**：ChainWatchdog elapsedNanos 占位字段语义不准（自承"本版简化"，诊断字段零功能影响）
+
+### 工程量估算
+
+阶段7 约 **2 个新类**（ChainWatchdog 看门狗 + ChainLifecycleBridge 生命周期桥）+ 5 改动文件（LifecycleCleanup 扩字段 / ChainStateMachine 改造 / ChainExecutionEventBridge 正名+订阅清理 / Config / MyMod）+ 2 新单测类 17 用例，**约 350-450 行**（不含单测）。核心复杂度集中在 F.1 genCheck 豁免与三路并存裁决。
