@@ -1,0 +1,263 @@
+package club.heiqi.qz_miner.chain.planner;
+
+import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.parallel.ParallelTaskResult;
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
+
+/**
+ * 阶段 4 规划事件桥（A-shadow 影子双 worker 核心）。
+ *
+ * <p>订阅 {@link PlanStarted}（状态机 T4 ARMED→PLANNING 转移后广播）→ 在主线程解析玩家与配置性状态 →
+ * 发起独立影子 traverser worker（复用 {@link BudgetedChainTraverser} + {@link ChainTraversalSupport}）→
+ * worker 完成 publish {@link PlanCompleted}（推进 PLANNING→RUNNING）/ 取消 publish {@link PlanCancelled}
+ * （回 PLANNING→IDLE）。</p>
+ *
+ * <h3>守 NORTH_STAR 不变量</h3>
+ * <ul>
+ *   <li><b>I1</b>：影子 worker 只读世界（traverser 只读）+ 只 publish 事件，<b>绝不</b>
+ *       {@code setExecutionStatus}、<b>绝不</b>写 {@code ChainSession}、<b>绝不</b>
+ *       {@code syncPlayerState}。旧链路 worker（{@link AbstractFloodFillPlanningStrategy}/{@link BlockBoxScanPlanningStrategy}）
+ *       仍保留切态能力，其 I1 偏离已登记于 NORTH_STAR §8（阶段 8 删旧链路时回填）。</li>
+ *   <li><b>I3</b>：复用 {@link ChainPlanningRuntimeFactory#createForServer} 与
+ *       {@link ChainTraversalSupport#step}，不新造遍历逻辑。</li>
+ *   <li><b>I4</b>：publish 跨线程入队、drain 主线程消费（{@link ChainEventBus} 天然满足），
+ *       bridge 不碰主线程语义状态。</li>
+ *   <li><b>I10</b>：bridge 只 publish 不 {@code transition}；陈旧 generation 的
+ *       {@link PlanCompleted} 由状态机 genCheck 丢弃，bridge 无需也无法读状态机内部 generation。</li>
+ * </ul>
+ *
+ * <h3>gen 传递链（根治时序竞态）</h3>
+ * <p>规划代际经 {@link PlanStarted#getGeneration()} 注入 worker 闭包，worker publish 时回填同一值。
+ * 这避免 worker 实时读状态机 generation 字段（跨包不可见 + 时序竞态——worker 启动早于状态机进 PLANNING），
+ * 状态机收到 {@link PlanCompleted} 时用 genCheck 判定陈旧/匹配。</p>
+ *
+ * <h3>P2-C 双状态漂移防护</h3>
+ * <p>影子并行期 {@code ChainStateService} 与 {@code ChainStateMachine} 双状态系统并存。
+ * bridge 只从 {@link ChainPlayerState} 读 <b>配置性字段</b>（mode/subMode/radius/maxBlocks），
+ * <b>绝不</b>读 {@code executionStatus}/{@code isChainKeyPressed} 做决策——新链路活性由状态机 generation 判定。</p>
+ */
+public class ChainPlanningEventBridge {
+
+    /** 注入的事件总线，构造期订阅 PlanStarted。 */
+    private final ChainEventBus bus;
+
+    /**
+     * 构造桥并订阅 {@link PlanStarted}。
+     *
+     * @param bus 事件总线（与状态机共享同一实例）
+     */
+    public ChainPlanningEventBridge(ChainEventBus bus) {
+        this.bus = bus;
+        bus.subscribe(PlanStarted.class, this::onPlanStarted);
+    }
+
+    /**
+     * 收到 PlanStarted 进态广播：主线程解析上下文 → 注册影子 traverser worker。
+     *
+     * <p>契约：仅主线程 drain 调用。本方法只读世界（种子解析）+ 注册 worker，
+     * 不切态、不写 ChainSession 主线程语义状态。</p>
+     *
+     * @param event 规划启动事件（携带 gen + origin/dimension/sideHit/hitOffset）
+     */
+    private void onPlanStarted(PlanStarted event) {
+        final UUID playerUUID = event.getPlayerUUID();
+        // 规划代际经事件注入闭包，根治"worker 实时读 gen 会死"的时序竞态（见类注释 gen 传递链）
+        final int planningGen = event.getGeneration();
+
+        // 主线程解析玩家实体（worker 启动后每次分片重新解析，此处仅在注册前快速失败）
+        EntityPlayer rawPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
+        if (!(rawPlayer instanceof EntityPlayerMP)) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-player-unavailable"));
+            return;
+        }
+        final EntityPlayerMP player = (EntityPlayerMP) rawPlayer;
+
+        // P2-C 防护：只读配置性字段，绝不读 executionStatus/isChainKeyPressed 做决策
+        ChainPlayerState playerState = MyMod.chainStateService == null ? null : MyMod.chainStateService.getPlayerState(playerUUID);
+        if (playerState == null) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-state-missing"));
+            return;
+        }
+        final ChainMode mode = playerState.getSelectedMode();
+        final ChainSubMode subMode = playerState.getSelectedSubMode();
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
+        if (definition == null) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-mode-undefined"));
+            return;
+        }
+
+        final ChainTarget origin = new ChainTarget(event.getX(), event.getY(), event.getZ());
+        // 影子种子解析：只读世界
+        BlockSeedResolver seedResolver = new WorldBlockSeedResolver();
+        BlockSeedSnapshot seedSnapshot = seedResolver.resolve(player, origin);
+        if (seedSnapshot == null) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-seed-unresolvable"));
+            return;
+        }
+
+        // 影子会话：仅供 runtime 工厂装配 traverser/matcher 用，阶段 4 不消费其 pendingBreakTargets
+        // 新链路自己的 queue 阶段 5 才消费，阶段 4 只为 traverser 推进
+        final int requestedRadius = playerState.getRequestedChainRadius();
+        final int requestedMaxBlocks = playerState.getRequestedChainMaxBlocks();
+        final ChainSession shadowSession = new ChainSession(
+                playerUUID, mode, subMode, origin,
+                event.getSideHit(), event.getHitX(), event.getHitY(), event.getHitZ(),
+                requestedRadius, requestedMaxBlocks);
+        shadowSession.beginPlanning();
+        final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(
+                player.worldObj, player, shadowSession, seedSnapshot);
+        if (runtime == null) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-runtime-null"));
+            return;
+        }
+        final ChainSearchContext searchContext = runtime.getSearchContext();
+        final BudgetedChainTraverser traverser = runtime.getTraverser();
+        final ChainBlockMatcher matcher = runtime.getMatcher();
+        // 影子 queue：阶段 4 只为 traverser 推进，目标消费留阶段 5
+        final ConcurrentLinkedQueue<ChainTarget> shadowQueue = new ConcurrentLinkedQueue<ChainTarget>();
+        traverser.seed(searchContext);
+
+        // 影子 worker 注册（对齐旧 worker 结构，但去掉切态/stopExecution/syncState，改为 publish）
+        MyMod.ensureParallelTickExecutor().registerPre(
+                "shadow-plan-" + playerUUID,
+                control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue));
+    }
+
+    /**
+     * 影子 worker 单分片执行：推进 traverser，完成/取消 publish 派生事件。
+     *
+     * <p>守 I1：worker 只读世界（traverser 只读）+ 只 publish，绝不 setExecutionStatus/写 session/syncPlayerState。
+     * 新链路活性由状态机 generation 判定，陈旧 gen 的 PlanCompleted 会被状态机 genCheck 丢弃。</p>
+     *
+     * @param control        并行 tick 控制
+     * @param playerUUID     玩家 UUID
+     * @param planningGen    本次规划代际（事件注入，非实时读状态机）
+     * @param traverser      预算化遍历器
+     * @param searchContext   搜索上下文（承载 confirmedCount）
+     * @param matcher        目标匹配器
+     * @param shadowQueue    影子 queue（阶段 4 只消费不入执行，阶段 5 才接执行）
+     * @return 分片结果
+     */
+    private ParallelTaskResult runShadowSlice(
+            ParallelTickControl control,
+            UUID playerUUID,
+            int planningGen,
+            BudgetedChainTraverser traverser,
+            ChainSearchContext searchContext,
+            ChainBlockMatcher matcher,
+            ConcurrentLinkedQueue<ChainTarget> shadowQueue) {
+        if (control.isCancelRequested()) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-cancel-requested"));
+            return ParallelTaskResult.TERMINATED;
+        }
+
+        // worker 每分片重新解析玩家（玩家可能登出/切维度）
+        EntityPlayer currentPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
+        if (!(currentPlayer instanceof EntityPlayerMP)) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-player-unavailable"));
+            return ParallelTaskResult.TERMINATED;
+        }
+
+        // P2-C：不检查 isSessionActive/isChainKeyPressed/isExecuting——新链路不依赖旧 ChainSession/ChainPlayerState 状态
+        // 陈旧 gen 由状态机 genCheck 兜底丢弃
+
+        if (control.shouldYield()) {
+            return ParallelTaskResult.YIELDED;
+        }
+
+        TraversalStepResult traversalResult = ChainTraversalSupport.step(
+                traverser,
+                searchContext,
+                control,
+                target -> !control.isCancelRequested()
+                        && matcher.matches((EntityPlayerMP) currentPlayer, target),
+                target -> {
+                    if (!control.isCancelRequested()) {
+                        // 阶段 4：影子 queue 仅推进 traverser 用，不驱动执行
+                        shadowQueue.add(target);
+                        searchContext.incrementConfirmedCount();
+                    }
+                });
+        if (traversalResult == TraversalStepResult.TERMINATED) {
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-traversal-terminated"));
+            return ParallelTaskResult.TERMINATED;
+        }
+
+        boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
+                || traversalResult == TraversalStepResult.YIELDED;
+        if (!shouldContinue) {
+            // 完成路径：publish PlanCompleted，状态机 T5 PLANNING→RUNNING（gen 匹配时）
+            bus.publish(buildPlanCompleted(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    searchContext.getConfirmedCount()));
+            return ParallelTaskResult.COMPLETED;
+        }
+
+        if (control.shouldYield()) {
+            return ParallelTaskResult.YIELDED;
+        }
+        return ChainTraversalSupport.toParallelTaskResult(traversalResult);
+    }
+
+    // ============================ 纯逻辑构造（供单测覆盖） ============================
+
+    /**
+     * 构造规划完成事件（纯逻辑，供单测覆盖）。
+     *
+     * @param playerUUID     玩家 UUID
+     * @param gen            规划代际（与 PlanStarted 注入闭包的值一致）
+     * @param tick           服务端 tick
+     * @param nanos          纳秒戳
+     * @param confirmedCount 已确认目标数
+     * @return 规划完成事件
+     */
+    public static PlanCompleted buildPlanCompleted(UUID playerUUID, int gen, long tick, long nanos, int confirmedCount) {
+        return new PlanCompleted(playerUUID, gen, tick, nanos, confirmedCount);
+    }
+
+    /**
+     * 构造规划取消事件（纯逻辑，供单测覆盖）。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param gen        规划代际
+     * @param tick       服务端 tick
+     * @param nanos      纳秒戳
+     * @param reason     取消原因（自由文本，用于诊断/HUD）
+     * @return 规划取消事件
+     */
+    public static PlanCancelled buildPlanCancelled(UUID playerUUID, int gen, long tick, long nanos, String reason) {
+        return new PlanCancelled(playerUUID, gen, tick, nanos, reason);
+    }
+}

@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBusDrainer;
 import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
+import club.heiqi.qz_miner.chain.planner.ChainPlanningEventBridge;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.chain.planner.GregTechCableReplacePlanner;
 import club.heiqi.qz_miner.chain.statemachine.ChainStateMachine;
@@ -59,6 +60,8 @@ public class MyMod {
     public static ChainEventBus clientChainEventBus;
     /** 阶段 2：连锁状态机，currentPhase/currentGeneration 唯一写权威。 */
     public static ChainStateMachine chainStateMachine;
+    /** 阶段 4：规划事件桥，订阅 PlanStarted 发起影子 traverser，完成 publish PlanCompleted 推进 PLANNING→RUNNING。 */
+    public static ChainPlanningEventBridge chainPlanningEventBridge;
 
     /**
      * 确保并行 Tick 执行器可用。
@@ -107,6 +110,8 @@ public class MyMod {
         chainEventBus = new ChainEventBus();
         chainEventBus.bindMainThread(Thread.currentThread());
         chainStateMachine = new ChainStateMachine(chainEventBus);
+        // 阶段 4：规划事件桥，在状态机之后实例化（状态机 publish PlanStarted，bridge 订阅之发起影子 traverser）
+        chainPlanningEventBridge = new ChainPlanningEventBridge(chainEventBus);
         new ChainEventBusDrainer(chainEventBus).bootstrap();
         ensureParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->

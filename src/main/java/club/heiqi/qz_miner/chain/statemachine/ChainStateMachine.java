@@ -14,7 +14,9 @@ import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 
 /**
@@ -50,11 +52,13 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  *       由转移规则本身约束其在何态被消费</li>
  * </ul>
  *
- * <h3>阶段 3 范围（T4 扩右键观测）</h3>
- * <p>本阶段状态机只驱动 phase 转移，<b>不 publish 任何派生事件</b>（PlanStarted/ExecutionAdvanced 留阶段 4/5 发，
- * PlanProgress/ExecutionAdvanced 不在本阶段订阅）。订阅集含 9 个驱动事件：
+ * <h3>阶段 4 范围（T4 扩右键观测 + publish PlanStarted 进态广播）</h3>
+ * <p>阶段 4 起 T4 ARMED→PLANNING 转移完成后，状态机 <b>publish {@link PlanStarted}</b> 作为进态广播，
+ * 供 {@code ChainPlanningEventBridge} 拿到 {@code generation} + origin/dimension/sideHit/hitOffset 上下文
+ * 后发起影子 traverser。这是状态机对外广播"我已进 PLANNING"，不是外部改态（守 I10）。
+ * 订阅集仍含 9 个驱动事件：
  * T4 ARMED→PLANNING 由 {@link BlockBreakObserved} 或 {@link RightClickObserved} 双触发，两者均 {@code ++generation}。
- * per-player 化（{@link #slots}）由本阶段引入，是阶段3触发链路迁移的前提。</p>
+ * 其余派生事件（{@link PlanCompleted}/{@link PlanCancelled} 等仍由功能订阅者发，如 bridge worker）。</p>
  */
 public class ChainStateMachine {
 
@@ -79,8 +83,8 @@ public class ChainStateMachine {
     }
 
     /**
-     * 订阅阶段 3 的 9 个驱动事件。PlanStarted/PlanProgress/ExecutionAdvanced 不在本阶段订阅。
-     * T4 由 {@link BlockBreakObserved} 与 {@link RightClickObserved} 双触发。
+     * 订阅 9 个驱动事件。PlanStarted/PlanProgress/ExecutionAdvanced 不订阅（状态机只发不消费 PlanStarted）。
+     * T4 由 {@link BlockBreakObserved} 与 {@link RightClickObserved} 双触发，转移完成后 publish {@link PlanStarted}。
      */
     private void subscribe() {
         // 输入事件（豁免代际判定）
@@ -140,6 +144,14 @@ public class ChainStateMachine {
         if (slot.phase == ChainPhase.ARMED) {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
+            // 阶段4：T4 转移后 publish PlanStarted 作为进态广播，供 bridge 拿 gen+上下文发起影子 traverser
+            // 破坏路径无命中偏移，hitX/Y/Z 填 0（Forge 1.7.10 BreakEvent 不暴露命中点偏移）
+            bus.publish(new PlanStarted(
+                    event.getPlayerUUID(), nextGen,
+                    event.getServerTick(), ChainTickSource.nowNanos(),
+                    event.getX(), event.getY(), event.getZ(),
+                    event.getDimensionId(), event.getSideHit(),
+                    0.0F, 0.0F, 0.0F));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
@@ -160,6 +172,13 @@ public class ChainStateMachine {
         if (slot.phase == ChainPhase.ARMED) {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
+            // 阶段4：T4 转移后 publish PlanStarted，右键路径携带实际命中偏移供 INTERACT flood fill 方向判定
+            bus.publish(new PlanStarted(
+                    event.getPlayerUUID(), nextGen,
+                    event.getServerTick(), ChainTickSource.nowNanos(),
+                    event.getX(), event.getY(), event.getZ(),
+                    event.getDimensionId(), event.getSideHit(),
+                    event.getHitX(), event.getHitY(), event.getHitZ()));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }

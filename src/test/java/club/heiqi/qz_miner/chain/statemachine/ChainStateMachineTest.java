@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.chain.statemachine;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.Assert;
@@ -14,6 +16,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
@@ -529,5 +532,179 @@ public class ChainStateMachineTest {
         Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_B));
         // A 仍是 gen=2
         Assert.assertEquals(2, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    // ============================ 30+：阶段4 P2-A 越界 + PlanStarted 进态广播 ============================
+
+    /**
+     * 阶段4 P2-A：BlockBreakObserved 在 PLANNING 越界丢弃（破坏中再触发破坏不应改态）。
+     * 锁定"破坏观测事件只在 ARMED 合法"的对称性。
+     */
+    @Test
+    public void p2aBreakInPlanningDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        // PLANNING 下再发破坏观测，应越界丢弃
+        drive(h, breakObserved(1));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 阶段4 P2-A：BlockBreakObserved 在 RUNNING 越界丢弃。 */
+    @Test
+    public void p2aBreakInRunningDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, breakObserved(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 阶段4 P2-A：BlockBreakObserved 在 FINISHING 越界丢弃。 */
+    @Test
+    public void p2aBreakInFinishingDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, breakObserved(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    /** 阶段4 P2-A：RightClickObserved 在 PLANNING 越界丢弃。 */
+    @Test
+    public void p2aRightClickInPlanningDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, rightClickObserved(0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, rightClickObserved(1));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 阶段4 P2-A：RightClickObserved 在 RUNNING 越界丢弃。 */
+    @Test
+    public void p2aRightClickInRunningDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, rightClickObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, rightClickObserved(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    /** 阶段4 P2-A：RightClickObserved 在 FINISHING 越界丢弃。 */
+    @Test
+    public void p2aRightClickInFinishingDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, rightClickObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, rightClickObserved(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    // ============================ gen 竞态回归 ============================
+
+    /**
+     * gen 竞态回归：ARMED→break(gen=0) 进 PLANNING gen=1，
+     * 再 publish PlanCompleted(gen=0)（模拟 worker 读旧 gen 早于状态机自增）→ 断言仍 PLANNING。
+     *
+     * <p>锁定"worker 实时读 gen 会死"根因：状态机 genCheck 丢弃陈旧 gen 的派生事件，
+     * 故阶段4 gen 必须经 PlanStarted 注入 worker 闭包而非 worker 实时读状态机。</p>
+     */
+    @Test
+    public void genRaceStalePlanCompletedDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+        // worker 若读旧 gen=0 publish，状态机 genCheck 判定 0 < 1 陈旧丢弃
+        drive(h, planCompleted(0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+        // 对照：匹配 gen=1 的 PlanCompleted 正常推进
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    // ============================ PlanStarted 进态广播（B3） ============================
+
+    /**
+     * B3：break 路径进 PLANNING 后状态机 publish PlanStarted(gen=1)，携带 origin/sideHit，hitX/Y/Z=0。
+     */
+    @Test
+    public void planStartedPublishedOnBreakWithOrigin() {
+        Harness h = newHarness();
+        List<PlanStarted> captured = new ArrayList<PlanStarted>();
+        h.bus.subscribe(PlanStarted.class, captured::add);
+        // 用带具体字段的破坏事件驱动
+        BlockBreakObserved breakEvent = new BlockBreakObserved(
+                PLAYER_A, 0, TICK, NANOS, 10, 20, 30, 7, 3);
+        drive(h, key(true));
+        drive(h, breakEvent);
+        Assert.assertEquals("应 publish 一条 PlanStarted", 1, captured.size());
+        PlanStarted ps = captured.get(0);
+        Assert.assertEquals(PLAYER_A, ps.getPlayerUUID());
+        Assert.assertEquals("gen 应为状态机自增后的新值", 1, ps.getGeneration());
+        Assert.assertEquals(10, ps.getX());
+        Assert.assertEquals(20, ps.getY());
+        Assert.assertEquals(30, ps.getZ());
+        Assert.assertEquals(7, ps.getDimensionId());
+        Assert.assertEquals(3, ps.getSideHit());
+        // 破坏路径无命中偏移
+        Assert.assertEquals(0.0F, ps.getHitX(), 0.0F);
+        Assert.assertEquals(0.0F, ps.getHitY(), 0.0F);
+        Assert.assertEquals(0.0F, ps.getHitZ(), 0.0F);
+    }
+
+    /**
+     * B3：右键路径进 PLANNING 后状态机 publish PlanStarted，hitX/Y/Z 携带实际值。
+     */
+    @Test
+    public void planStartedPublishedOnRightClickWithHitOffset() {
+        Harness h = newHarness();
+        List<PlanStarted> captured = new ArrayList<PlanStarted>();
+        h.bus.subscribe(PlanStarted.class, captured::add);
+        RightClickObserved rcEvent = new RightClickObserved(
+                PLAYER_A, 0, TICK, NANOS, 11, 22, 33, 5, 2, 0.25F, 0.5F, 0.75F);
+        drive(h, key(true));
+        drive(h, rcEvent);
+        Assert.assertEquals("应 publish 一条 PlanStarted", 1, captured.size());
+        PlanStarted ps = captured.get(0);
+        Assert.assertEquals(1, ps.getGeneration());
+        Assert.assertEquals(11, ps.getX());
+        Assert.assertEquals(22, ps.getY());
+        Assert.assertEquals(33, ps.getZ());
+        Assert.assertEquals(5, ps.getDimensionId());
+        Assert.assertEquals(2, ps.getSideHit());
+        // 右键路径携带实际命中偏移
+        Assert.assertEquals(0.25F, ps.getHitX(), 0.0F);
+        Assert.assertEquals(0.5F, ps.getHitY(), 0.0F);
+        Assert.assertEquals(0.75F, ps.getHitZ(), 0.0F);
+    }
+
+    /**
+     * B3：IDLE/越界态下破坏观测不发 PlanStarted（只合法转移才广播）。
+     */
+    @Test
+    public void planStartedNotPublishedWhenTransitionIllegal() {
+        Harness h = newHarness();
+        List<PlanStarted> captured = new ArrayList<PlanStarted>();
+        h.bus.subscribe(PlanStarted.class, captured::add);
+        // IDLE 下破坏观测越界丢弃，不发 PlanStarted
+        drive(h, breakObserved(0));
+        Assert.assertTrue("越界丢弃不应 publish PlanStarted", captured.isEmpty());
     }
 }

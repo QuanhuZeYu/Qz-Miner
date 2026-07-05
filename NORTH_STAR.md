@@ -170,7 +170,21 @@
 
 <deviation-log>
 
-（暂无活跃偏离。新增偏离按下方模板追加，已回填的即移除。）
+<deviation id="2026-07-05-planner-worker-sets-running">
+  <what>违反 I1，旧链路规划 worker 线程在
+    <code>AbstractFloodFillPlanningStrategy</code>（完成路径/发现目标路径）与
+    <code>BlockBoxScanPlanningStrategy</code> 对称路径直接
+    <code>setExecutionStatus(RUNNING)</code> 切执行态并 <code>syncPlayerState</code>。
+    并行线程触碰了主线程语义状态（执行态主权）。</what>
+  <why>旧链路执行态推进依赖 worker 切态，阶段 4 影子并行期旧链路须保留可用
+    （阶段 5 前 <code>ChainExecutor</code> 仍靠此驱动执行）。立即移除会让连锁在阶段 4-7 完全瘫痪，
+    影子验证无从开展。代价是影子并行期 CPU 翻倍且 worker 越权写状态。</why>
+  <scope>CHAIN/AREA/INTERACT 三模式旧规划 worker 的"发现首批目标即切 RUNNING"与"规划完成切 RUNNING"路径。
+    新链路 <code>ChainPlanningEventBridge</code> 影子 worker 不受此偏离影响（只 publish 不切态）。</scope>
+  <status>待回填：阶段 8 删除旧链路时一并移除这几处 worker 切态；新链路由状态机 T5
+    （<code>PlanCompleted</code> gen 匹配 → PLANNING→RUNNING）替代 worker 切态，
+    新链路 worker（<code>ChainPlanningEventBridge</code>）只 publish 不切态，已在阶段 4 落地。</status>
+</deviation>
 
 <!-- 偏离模板
 <deviation id="YYYY-MM-DD-简述">

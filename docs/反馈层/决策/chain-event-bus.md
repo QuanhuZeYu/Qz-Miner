@@ -62,7 +62,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 | 1 | 事件总线骨架（Bus + Event 基类 + 11 事件族 + 订阅 + JVM 单测） | ✅ 完成（49b13f2，9 单测 passed，reviewer 有条件通过） |
 | 2 | 状态机 + 5 态枚举 `ChainPhase` + 转移表 T1-T10 + 代际陈旧判定 + 24 转移单测 + I10 入宪章 | ✅ 完成（3dcf5b5→e69dd6b，24 单测 passed，reviewer 通过放行阶段3） |
 | 3 | 触发链路迁移（按键/破坏事件 → 输入事件 → ARMED 点火）+ 客户端总线 | ✅ 完成（0fd61a6，29 单测 passed，reviewer 通过放行阶段4） |
-| 4 | 规划接入（现有 traverser 挂到 PlanCompleted 事件发布） | 待开展 |
+| 4 | 规划接入（影子 traverser 挂到 PlanStarted→PlanCompleted 事件链） | 🔄 实施中（阶段4：A-shadow/B3/C3/D 落地，PlanStarted 进态广播 + ChainPlanningEventBridge 影子双 worker） |
 | 5 | 执行接入（队列消费订阅者，保留 maxBreakPerTick 控速） | 待开展 |
 | 6 | 客户端纯投影（快照下发包 + 预览订阅，双份预览模型） | 待开展 |
 | 7 | 看门狗 + 生命周期收口（纠偏层） | 待开展 |
@@ -118,6 +118,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 - 构造器订阅 9 个驱动事件（精确类型 `bus.subscribe`，含 `ChainKeyPressed`/`BlockBreakObserved`/`RightClickObserved`/`ModeSwitched`/`PlanCompleted`/`PlanCancelled`/`ExecutionFinished`/`WatchdogTimeout`/`LifecycleCleanup`）；`PlanStarted`/`PlanProgress`/`ExecutionAdvanced` 阶段2不订阅（喂狗逻辑阶段7加，规划/执行接入阶段4/5加）。
 - handler 契约：只被主线程 `drain` 调用，单线程假定无需自锁（守 I4）。
 - **阶段2不 publish 任何派生事件**——状态机是转移消费者，功能订阅者发派生事件。此分工贯穿阶段4/5/7。
+  （阶段4 起 T4 转移后 publish `PlanStarted` 作为进态广播，供 `ChainPlanningEventBridge` 拿 gen+上下文发起影子 traverser；其余派生事件仍由功能订阅者发。）
 - `MyMod.init` 已接线：`new ChainEventBus()` → `bindMainThread(Thread.currentThread())` → `new ChainStateMachine(bus)` → `new ChainEventBusDrainer(bus).bootstrap()`（阶段2末进入实机空跑 drain，此时无 publish 点，每 tick poll 空队列零副作用）。
 
 ## P2 项（reviewer 记录，不阻断，后续阶段补）
@@ -140,3 +141,33 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 ## 工程量估算
 
 约 13 个新类、~1750 行（阶段 1 已落 15 类 ~880 行）。复用的 traverser/掉落/兼容层不计。
+
+## 阶段4 规划接入决策（2026-07-05，A-shadow/B3/C3/D 四分歧拍板）
+
+### 四架构分歧与用户裁决
+
+| 分歧点 | 选项 | 用户裁决 | 理由 |
+|---|---|---|---|
+| A. 新链路 worker 与旧 worker 关系 | A-shadow（影子双 worker）/ A-replace（直接替换） | **A-shadow** | 影子并行期新旧 worker 共存，新链路 worker（`ChainPlanningEventBridge`）只读世界+只 publish 不切态；旧 worker 保留驱动执行直到阶段 8 下线。代价是 CPU 翻倍（阶段 8 消失） |
+| B. PlanStarted 由谁 publish | B1（bridge 发）/ B2（planner 发）/ B3（状态机 T4 后发） | **B3** | 状态机 publish PlanStarted 是"我已进 PLANNING"的进态广播，不是外部改态（守 I10）；bridge 拿 gen+上下文发起 traverser，避免 bridge 反向耦合状态机内部 generation |
+| C. GT 线缆 planner 接入时机 | C1（阶段4 接）/ C2（删）/ C3（推迟） | **C3** | `GregTechCableReplacePlanner` 阶段4 不动，决策文档登记缺口，留阶段 5+ 单独处理（GT 线缆刷新跟随上游 API，I7/信条七） |
+| D. 旧 worker I1 偏离处理 | D1（立即修）/ D（登记偏离保留） | **D** | 旧 worker 切态能力阶段 4-7 必须保留（旧链路驱动执行依赖），按 NORTH_STAR §8 修订纪律显式登记偏离，阶段 8 删旧链路时回填 |
+
+### oracle 两个致命卡点结论（gen 传递链根基）
+
+1. **gen 跨包不可见**：`ChainStateMachine.currentGeneration` 是 private 字段、`slots` 私有容器，bridge 跨包无法实时读。解法：gen 经 `PlanStarted` 事件注入 worker 闭包（`planningGen = event.getGeneration()`），worker publish 时回填同一值。状态机收到 `PlanCompleted` 用 genCheck 判定陈旧/匹配。
+2. **worker 早于状态机进 PLANNING 的时序竞态**：若 bridge 自行启动 worker 后才通知状态机进 PLANNING，worker 完成时状态机可能仍在 ARMED（gen 未自增），PlanCompleted gen 比对失败。B3（状态机 T4 转移**后** publish PlanStarted）根治：状态机先 ++gen 进 PLANNING，再广播，bridge 拿到的 gen 必然是已自增的新值。
+
+### 影子并行边界（阶段 4-7 共存，阶段 8 消失）
+
+- 新链路 worker（`ChainPlanningEventBridge`）守 I1：只读世界 + 只 publish，绝不 setExecutionStatus/写 session/syncPlayerState
+- 旧链路 worker（`AbstractFloodFillPlanningStrategy`/`BlockBoxScanPlanningStrategy`）保留切态能力，I1 偏离登记于 NORTH_STAR §8
+- P2-C 双状态漂移：bridge 只从 `ChainPlayerState` 读配置性字段（mode/subMode/radius/maxBlocks），绝不读 `executionStatus`/`isChainKeyPressed` 做决策
+
+### PlanStarted 字段扩展（B3 完整形态）
+
+PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/sideHit/hitX/hitY/hitZ`，字段集对齐 `RightClickObserved`。破坏路径（`BlockBreakObserved`）无命中偏移，hitX/Y/Z 填 0；右键路径填实际值供 INTERACT 模式 flood fill 方向判定。
+
+### PlanCompleted 字段对齐说明
+
+`PlanCompleted` 的业务字段实际命名为 `totalTargets`（`getTotalTargets()`），oracle 清单中称 `confirmedCount` 是语义指代——两者同义，bridge publish 时传 `searchContext.getConfirmedCount()` 作为 `totalTargets` 值。
