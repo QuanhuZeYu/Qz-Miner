@@ -178,3 +178,75 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 ### PlanCompleted 字段对齐说明
 
 `PlanCompleted` 的业务字段实际命名为 `totalTargets`（`getTotalTargets()`），oracle 清单中称 `confirmedCount` 是语义指代——两者同义，bridge publish 时传 `searchContext.getConfirmedCount()` 作为 `totalTargets` 值。
+
+## 阶段5 执行接入决策（2026-07-05，E1-c/E2-a/E3-a/E4-b 四分歧拍板）
+
+### 阶段5 入口致命卡点（oracle 探明）
+
+**shadowQueue 断链**：阶段4 `ChainPlanningEventBridge.onPlanStarted` 的 `shadowQueue` 是方法局部变量（`bridge:144`），worker 完成后随栈帧销毁；而 `PlanCompleted` 事件只携带 `int totalTargets`（`PlanCompleted.java:13`），**不带队列引用**。推论：阶段5 的执行订阅者在当前代码下根本拿不到新链路算出的目标集合。这是阶段5 第一件必须解决的结构问题（见分歧 E1）。
+
+### 四架构分歧与用户裁决
+
+| 分歧点 | 选项 | 用户裁决 | 理由 |
+|---|---|---|---|
+| E1. 新链路目标集合如何从 worker 传到执行订阅者 | E1-a（PlanCompleted 扩字段带队列）/ E1-c（独立 Registry） | **E1-c** | 保持 PlanCompleted 事件轻量（事件是信号不是数据管道）；队列可变大对象走事件流会破坏 ChainEvent 不可变契约（阶段1 已立 ChainEventImmutabilityTest）；Registry 按 UUID+gen 领取天然复用 gen 传递链做陈旧校验，阶段8 易删 |
+| E2. 阶段5 新链路执行模式 | E2-a（dry-run 不破坏）/ E2-b（真实破坏+旧链路让路） | **E2-a** | A-shadow 影子并行要求阶段5-7 新链路不破坏；真实破坏必与旧 ChainExecutor 双破坏同一方块（违 I5 掉落完整性/I1 执行态主权）；dry-run 零冲突零掉落风险，掉落仍全由旧链路产生，新链路只在日志可见 transition |
+| E3. ChainSession 规划字段阶段5 是否迁移 | E3-a（不迁移，阶段8 随旧链路删）/ E3-b（部分迁移）/ E3-c（全迁移） | **E3-a** | oracle 探明 plannerSubscription/matchedTargetCount/plannerRunning/plannerCompleted 全被旧链路依赖（ChainExecutor:85,117 读 plannerCompleted；旧 worker 写全部），迁移=砍旧链路=违背 A-shadow。与 NORTH_STAR §8 偏离登记（旧 worker 阶段8 回填）自洽 |
+| E4. 是否打通 T8 完整闭环 | E4-a（只到 T7 不碰 T8）/ E4-b（打通完整闭环） | **E4-b** | 否则玩家槽卡 FINISHING，下次按键 T1(IDLE→ARMED) 因源态非 IDLE 被丢弃，导致二次连锁哑火（极易误判为触发链路 bug）；打通后阶段5 可验证状态机跑完一整圈 IDLE→ARMED→PLANNING→RUNNING→FINISHING→IDLE |
+
+### 阶段5 实施要点（oracle A-G 清单浓缩）
+
+#### A. 队列消费订阅者（新建 `chain.execution.ChainExecutionEventBridge`）
+- 包选 `chain.execution`（与旧 `chain.executor.ChainExecutor` 包名区隔，阶段8 删旧时防误删）
+- 订阅 `PlanCompleted`（首次装载执行上下文，与状态机 T5 独立消费同一事件）+ `ServerTickEvent.START`（FML tick 驱动每 tick 消费）
+- 时序主脊：worker publish PlanCompleted → 主线程 drain：状态机 T5 进 RUNNING + 执行订阅者登记 ExecutionContext → 后续每 tick START 消费（maxBreakPerTick 控速，对齐 ChainExecutor:89）→ 队列空 publish ExecutionFinished → 状态机 T7 RUNNING→FINISHING
+- **不订阅 ExecutionAdvanced 驱动自己**（避免"自己发自己听"循环）；ExecutionAdvanced 是消费订阅者每 tick **对外广播的诊断产物**
+- MyMod 接线顺序：状态机(:112) → 执行订阅者（保持"状态先转移"直觉；执行订阅者只登记不立刻消费，顺序不影响正确性）
+
+#### B. ChainSession 弱化（阶段5 不动旧字段）
+- 旧字段（plannerSubscription/plannerRunning/plannerCompleted/matchedTargetCount/pendingBreakTargets/nextExecutorAllowedMillis）定义在 `ChainRuntimeState`，ChainSession 仅委托；全被旧链路依赖，阶段5 一个都不迁移
+- 新链路自建独立结构 `chain.execution.ChainExecutionContext`（持有 `ConcurrentLinkedQueue<ChainTarget> targets` + `int generation` + `UUID playerUUID` + 独立节流字段），由执行订阅者按 UUID 维护 `Map<UUID, ChainExecutionContext>`
+- **不塞进状态机 slots**：PlayerPhaseSlot 严格只持 phase/generation（守 I10 唯一写权威），塞队列会让状态机退化成胖容器（决策文档要根治的反模式）
+- **决策文档措辞校准**：原"阶段5 开始迁移 ChainSession 规划字段"应理解为"阶段5 起新链路不再新增对旧字段依赖"（方向性），物理删除留阶段8 随旧链路一起
+
+#### C. 执行完成 publish ExecutionFinished
+- 由 `ChainExecutionEventBridge` publish（它持 ExecutionContext，唯一知道队列何时空+当前 gen）
+- 触发时机：队列 `poll()` 返回 null 即空（对齐旧 ChainExecutor:94,117）；**不用 confirmedCount==brokenCount 判定**（dry-run 无 broken 计数，totalTargets 与实际入队数可能因匹配器二次过滤不等）
+- **空规划边界**（卡点）：PlanCompleted 报 totalTargets=0 时，上下文队列初始即空，须在登记后立即 publish ExecutionFinished(reason="empty-plan")，不能卡 RUNNING
+- gen 来源：经 `PlanCompleted.getGeneration()` 注入 ExecutionContext，publish ExecutionFinished 时回填同一 gen（gen 全程走事件流，绝不实时读状态机——阶段4 已验证的唯一根治解）
+- ExecutionFinished 签名现状够用 `(playerUUID, generation, serverTick, timestampNanos, String reason)`，无需扩字段
+
+#### D. 影子并行边界（阶段5-7 共存，阶段8 删除）
+- **新链路只碰自己的 ChainExecutionContext.targets**，绝不 import `session.getPendingBreakTargets`、绝不调 `actionExecutor.execute`（代码评审逐行确认）
+- 旧 worker 填 pendingBreakTargets 路径仍活着（AbstractFloodFill:122、BlockBoxScan:131），阶段5 不动
+- 新链路 dry-run 不真实破坏 → 与旧 ChainExecutor 零冲突（旧独占实际掉落）
+- 真实接管留阶段8
+
+### E4-b 临时 LifecycleCleanup 桥（阶段7 回填）
+
+阶段5 执行订阅者 publish ExecutionFinished 后，**同 tick 紧接 publish LifecycleCleanup(gen)** 走 T8 FINISHING→IDLE 回 IDLE，让状态机跑完完整闭环。
+
+- **这是临时桥**：阶段7「看门狗+生命周期收口」会把这条临时 LifecycleCleanup 换成正规生命周期源（玩家退出/重生/切维度/I7 触发）或看门狗源
+- 登记位置：本决策段（非 NORTH_STAR §8，因不破坏任何不变量——publish 不切态、状态机仍唯一写权威、LifecycleCleanup 是合法 T8 触发事件）
+- 阶段7 实施时须搜索本段"临时 LifecycleCleanup 桥"定位回填点
+
+### oracle 阶段5 致命卡点清单
+
+1. **目标集合断链**（shadowQueue 局部变量）→ E1-c Registry 根治
+2. **ExecutionFinished 的 gen 跨包不可见** → 走 PlanCompleted→ExecutionContext→ExecutionFinished 事件流（绝不像阶段4 那样实时读状态机 gen，否则被 genCheck 丢弃）
+3. **双消费/双破坏** → 新链路只碰 ChainExecutionContext.targets，dry-run 不破坏
+4. **FINISHING 卡死致二次连锁哑火** → E4-b 临时 LifecycleCleanup 桥规避
+5. **空规划（totalTargets=0）卡 RUNNING** → 登记上下文时立即处理初始空队列
+6. **gen 竞态——执行中玩家重按键触发新一代** → gen 传递链保护（迟到的旧 gen ExecutionFinished 被 genCheck 丢弃），需单测覆盖
+7. **ServerTickEvent 双订阅者顺序**（旧 ChainExecutor + 新执行订阅者）→ 操作不同队列、dry-run 不冲突，仅日志交错，无功能风险
+
+### 阶段5 测试覆盖（纯 JVM，不依赖 worldObj/player）
+
+- `ChainExecutionContextTest`（新建）：登记后按 UUID+gen 领取正确队列、陈旧 gen 领取被拒、空队列初始即完成判定（卡点5）
+- `ChainExecutionEventBridgeTest`（新建，仿 ChainPlanningEventBridgeTest）：`buildExecutionFinished(uuid,gen,tick,nanos,reason)` gen 原样回填（gen 传递链锚点）、reason 透传/null 不抛
+- `ChainStateMachineTest` 扩展：T5→T7→T8 全链路、RUNNING 态收陈旧 gen ExecutionFinished 丢弃（卡点6）、gen 竞态回归（仿阶段4 genRaceStalePlanCompletedDropped）、空规划边界
+- 留实机（runClient21/runServer25，阶段8）：真实 worker 产队列、真实破坏（dry-run 阶段5 本就不破坏）、maxBreakPerTick 控速手感、双链路共存无双挖
+
+### 工程量估算
+
+阶段5 约 **3 个新类**（`ChainExecutionEventBridge` 执行订阅者 + `ChainExecutionContext` 执行上下文 + `ChainExecutionContextRegistry` 跨线程注册表）+ bridge 微调（worker 完成时写 registry）+ MyMod 接线 + 2 个新单测类 + 扩 `ChainStateMachineTest` 若干用例，**约 350-450 行**（不含单测）。核心复杂度集中在 E1-c 的目标断链解法与 gen 传递链延续。

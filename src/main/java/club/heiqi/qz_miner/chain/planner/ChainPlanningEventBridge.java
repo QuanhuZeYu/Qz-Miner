@@ -2,10 +2,13 @@ package club.heiqi.qz_miner.chain.planner;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.RejectedExecutionException;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.chain.execution.ChainExecutionContext;
+import club.heiqi.qz_miner.chain.execution.ChainExecutionContextRegistry;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
@@ -56,14 +59,22 @@ public class ChainPlanningEventBridge {
 
     /** 注入的事件总线，构造期订阅 PlanStarted。 */
     private final ChainEventBus bus;
+    /**
+     * 阶段5：注入的执行上下文注册表（E1-c 解决 shadowQueue 局部变量断链）。
+     *
+     * <p>worker 完成路径 put shadowQueue + planningGen，主线程执行订阅者收到 PlanCompleted 后 get 领取。</p>
+     */
+    private final ChainExecutionContextRegistry executionContextRegistry;
 
     /**
      * 构造桥并订阅 {@link PlanStarted}。
      *
-     * @param bus 事件总线（与状态机共享同一实例）
+     * @param bus                      事件总线（与状态机共享同一实例）
+     * @param executionContextRegistry 阶段5 执行上下文注册表（worker 完成时 put shadowQueue）
      */
-    public ChainPlanningEventBridge(ChainEventBus bus) {
+    public ChainPlanningEventBridge(ChainEventBus bus, ChainExecutionContextRegistry executionContextRegistry) {
         this.bus = bus;
+        this.executionContextRegistry = executionContextRegistry;
         bus.subscribe(PlanStarted.class, this::onPlanStarted);
     }
 
@@ -144,9 +155,21 @@ public class ChainPlanningEventBridge {
         traverser.seed(searchContext);
 
         // 影子 worker 注册（对齐旧 worker 结构，但去掉切态/stopExecution/syncState，改为 publish）
-        MyMod.ensureParallelTickExecutor().registerPre(
-                "shadow-plan-" + playerUUID,
-                control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue));
+        try {
+            MyMod.ensureParallelTickExecutor().registerPre(
+                    "shadow-plan-" + playerUUID,
+                    control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue));
+        } catch (RejectedExecutionException e) {
+            // worker pool 20 槽已满（SynchronousQueue 无法交接 + 池达 MAX_WORKER_THREADS），
+            // 影子 worker 未注册成功；此代际已 PLANNING 但无人推进，必须主动 publish PlanCancelled，
+            // 否则会卡 PLANNING 直到阶段7 看门狗兜底——此处收口让状态机干净回 IDLE
+            MyMod.LOG.error("[ChainPlanning] Shadow worker pool exhausted for player {}, cancelling plan gen {}",
+                    playerUUID, Integer.valueOf(planningGen), e);
+            bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    "shadow-pool-exhausted"));
+            return;
+        }
     }
 
     /**
@@ -218,6 +241,11 @@ public class ChainPlanningEventBridge {
         boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
                 || traversalResult == TraversalStepResult.YIELDED;
         if (!shouldContinue) {
+            // 阶段5 E1-c：worker 完成路径先 put shadowQueue 到 registry（解决局部变量断链），
+            // 再 publish PlanCompleted——执行订阅者 onPlanCompleted 才能从 registry 领取到目标队列。
+            // 时序：worker 线程 put（ConcurrentHashMap happens-before）→ publish 入队 →
+            // 主线程 drain 取事件 → get registry（可见性由 ConcurrentHashMap 保证）。
+            executionContextRegistry.put(new ChainExecutionContext(playerUUID, planningGen, shadowQueue));
             // 完成路径：publish PlanCompleted，状态机 T5 PLANNING→RUNNING（gen 匹配时）
             bus.publish(buildPlanCompleted(playerUUID, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),

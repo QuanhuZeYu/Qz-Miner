@@ -23,14 +23,21 @@ public final class ChainTickSource {
      * 获取当前服务端 tick 计数。
      *
      * <p>供 {@code publish} 路径填 {@code ChainEvent.serverTick}。
-     * 若当前未运行服务端实例（如客户端早期 init 阶段），返回 {@code -1L} 占位，
-     * 调用方不应基于此做主线程契约推断。</p>
+     * 若当前未运行服务端实例（如客户端早期 init 阶段），或 Forge 运行时未启动
+     * （如纯 JVM 单测环境 {@code FMLCommonHandler.instance()} 触发 {@code ExceptionInInitializerError}），
+     * 均返回 {@code -1L} 占位，调用方不应基于此做主线程契约推断。</p>
      *
-     * @return 当前服务端 {@code getTickCounter()}，无服务端实例时返回 {@code -1L}
+     * @return 当前服务端 {@code getTickCounter()}，无服务端实例或无 Forge 运行时时返回 {@code -1L}
      */
     public static long currentServerTick() {
-        MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
-        return server == null ? -1L : server.getTickCounter();
+        try {
+            MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
+            return server == null ? -1L : server.getTickCounter();
+        } catch (LinkageError | RuntimeException e) {
+            // 无 Forge 运行时（如纯 JVM 单测）FMLCommonHandler 触发 ExceptionInInitializerError（LinkageError 子类）；
+            // 诊断字段回退占位值，不阻断事件流（守 I4 ChainTickSource 仅诊断字段语义）
+            return -1L;
+        }
     }
 
     /**

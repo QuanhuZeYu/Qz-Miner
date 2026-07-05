@@ -9,6 +9,8 @@ import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
 import club.heiqi.qz_miner.chain.executor.ChainExecutor;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBusDrainer;
+import club.heiqi.qz_miner.chain.execution.ChainExecutionContextRegistry;
+import club.heiqi.qz_miner.chain.execution.ChainExecutionEventBridge;
 import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
@@ -62,6 +64,10 @@ public class MyMod {
     public static ChainStateMachine chainStateMachine;
     /** 阶段 4：规划事件桥，订阅 PlanStarted 发起影子 traverser，完成 publish PlanCompleted 推进 PLANNING→RUNNING。 */
     public static ChainPlanningEventBridge chainPlanningEventBridge;
+    /** 阶段5：执行上下文注册表（E1-c），worker 完成 put shadowQueue，执行订阅者 get 领取。 */
+    public static ChainExecutionContextRegistry chainExecutionContextRegistry;
+    /** 阶段5：执行事件桥（E2-a dry-run），订阅 PlanCompleted + ServerTickEvent 消费队列，完成 publish ExecutionFinished + 临时 LifecycleCleanup 桥（E4-b）。 */
+    public static ChainExecutionEventBridge chainExecutionEventBridge;
 
     /**
      * 确保并行 Tick 执行器可用。
@@ -110,9 +116,18 @@ public class MyMod {
         chainEventBus = new ChainEventBus();
         chainEventBus.bindMainThread(Thread.currentThread());
         chainStateMachine = new ChainStateMachine(chainEventBus);
+        // 阶段5：执行上下文注册表（E1-c），先于规划桥实例化（规划桥构造器注入 registry）
+        chainExecutionContextRegistry = new ChainExecutionContextRegistry();
         // 阶段 4：规划事件桥，在状态机之后实例化（状态机 publish PlanStarted，bridge 订阅之发起影子 traverser）
-        chainPlanningEventBridge = new ChainPlanningEventBridge(chainEventBus);
+        // 注入 registry：worker 完成路径 put shadowQueue，解决"shadowQueue 局部变量断链"卡点
+        chainPlanningEventBridge = new ChainPlanningEventBridge(chainEventBus, chainExecutionContextRegistry);
+        // 阶段5：执行事件桥，订阅 PlanCompleted + ServerTickEvent 消费（dry-run，E2-a 不破坏）。
+        // 接线顺序：状态机 → registry → 规划桥 → 执行桥（构造，订阅 PlanCompleted）→ Drainer.bootstrap() → 执行桥.bootstrap()。
+        // Drainer 先注册 FML bus，确保 ServerTickEvent 分发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
+        // → executionBridge.onServerTick（消费 context），同 tick 完成登记+消费，无延迟（阶段8 接管真实破坏时手感不受影响）。
+        chainExecutionEventBridge = new ChainExecutionEventBridge(chainEventBus, chainExecutionContextRegistry);
         new ChainEventBusDrainer(chainEventBus).bootstrap();
+        chainExecutionEventBridge.bootstrap();
         ensureParallelTickExecutor();
         QzEvents.register(PlayerStateEvent.class, (EventListener<PlayerStateEvent>) e ->
                 LOG.debug("[EventSystem] Received PlayerStateEvent: player={}, reason={}",

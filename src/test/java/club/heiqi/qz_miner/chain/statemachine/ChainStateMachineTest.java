@@ -707,4 +707,96 @@ public class ChainStateMachineTest {
         drive(h, breakObserved(0));
         Assert.assertTrue("越界丢弃不应 publish PlanStarted", captured.isEmpty());
     }
+
+    // ============================ 阶段5：执行接入卡点回归 ============================
+
+    /**
+     * 卡点6 回归：RUNNING(gen=1) 收陈旧 gen ExecutionFinished(gen=0) → 丢弃不转移。
+     *
+     * <p>模拟执行中玩家重按键触发新一代规划（worker 已被新一代取代），
+     * 迟到的旧 gen ExecutionFinished 被状态机 genCheck 丢弃，不切 FINISHING。
+     * 锁定"gen 传递链保护"——ExecutionFinished 的 gen 必须来自 ExecutionContext
+     * （经 PlanCompleted 注入），绝不能实时读状态机 generation（否则竞态下 genCheck 误判）。</p>
+     *
+     * <p>对照阶段4 {@link #genRaceStalePlanCompletedDropped()}：陈旧 PlanCompleted 在 PLANNING 被丢弃，
+     * 本用例验证陈旧 ExecutionFinished 在 RUNNING 被丢弃（对称防护）。</p>
+     */
+    @Test
+    public void staleExecutionFinishedInRunningDropped() {
+        Harness h = newHarness();
+        // IDLE → ARMED → PLANNING → RUNNING(gen=1)
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 假设迟到的旧 worker publish 了陈旧 gen=0 的 ExecutionFinished（worker 早于状态机 ++gen 读到旧值）
+        drive(h, execFinished(0));
+        Assert.assertEquals("陈旧 gen ExecutionFinished 应被丢弃，态不变",
+                ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 对照：匹配 gen=1 的 ExecutionFinished 正常 T7 RUNNING→FINISHING
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    /**
+     * 卡点6 对称防护：FINISHING(gen=1) 收陈旧 gen=0 LifecycleCleanup → 丢弃不转移。
+     *
+     * <p>验证 E4-b 临时 LifecycleCleanup 桥走 T8 时也受 genCheck 保护，
+     * 陈旧 gen 不会误触发 T8 FINISHING→IDLE。</p>
+     */
+    @Test
+    public void staleLifecycleCleanupInFinishingDropped() {
+        Harness h = newHarness();
+        // IDLE → ARMED → PLANNING → RUNNING → FINISHING(gen=1)
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+
+        // 陈旧 gen=0 LifecycleCleanup 应被丢弃
+        drive(h, cleanup(0));
+        Assert.assertEquals("陈旧 gen LifecycleCleanup 应被丢弃，态不变",
+                ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+
+        // 匹配 gen=1 LifecycleCleanup 正常 T8 FINISHING→IDLE（E4-b 桥验证）
+        drive(h, cleanup(1));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    /**
+     * E4-b 完整闭环回归：T5→T7→T8 全链路，模拟执行订阅者 publish 的两条事件
+     * （ExecutionFinished + 临时 LifecycleCleanup）能驱动状态机从 RUNNING 经 FINISHING 回 IDLE。
+     *
+     * <p>本用例对齐 {@code ChainExecutionEventBridge.publishExecutionFinishedWithCleanup} 的两条 publish，
+     * 验证状态机两次 drain（同 tick 紧接）能完成 T7+T8 合法转移，玩家槽不留卡 FINISHING。</p>
+     */
+    @Test
+    public void phase5TemporaryCleanupBridgeDrivesFullT7T8Chain() {
+        Harness h = newHarness();
+        // IDLE → ARMED → PLANNING → RUNNING(gen=1)
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+
+        // 模拟执行订阅者 publishExecutionFinishedWithCleanup：两条事件入队，drain 顺序处理
+        // gen=1 必须来自 ExecutionContext（经 PlanCompleted 注入），事件流回填
+        h.bus.publish(new ExecutionFinished(PLAYER_A, 1, TICK, NANOS, "executor-consumed-all-targets"));
+        h.bus.publish(new LifecycleCleanup(PLAYER_A, 1, TICK, NANOS, "phase5-temporary-cleanup-bridge"));
+        h.bus.drain();
+
+        // T7 RUNNING→FINISHING → T8 FINISHING→IDLE
+        Assert.assertEquals("E4-b 桥应驱动状态机回 IDLE，避免玩家槽卡 FINISHING 致二次连锁哑火",
+                ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 验证后续连锁能正常触发（玩家槽已回 IDLE，T1 合法）
+        drive(h, key(true));
+        Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+    }
 }
