@@ -136,11 +136,10 @@ public class ChainStateMachine {
      */
     private void onBlockBreakObserved(BlockBreakObserved event) {
         PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
-        // T4: ARMED → PLANNING，++generation 后再转移
+        // T4: ARMED → PLANNING，++generation 后再转移（generation 写回由 applyTransition 统一执行）
         if (slot.phase == ChainPhase.ARMED) {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
-            slot.generation = nextGen;
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
@@ -161,7 +160,6 @@ public class ChainStateMachine {
         if (slot.phase == ChainPhase.ARMED) {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
-            slot.generation = nextGen;
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
@@ -318,9 +316,9 @@ public class ChainStateMachine {
     /**
      * 应用合法转移：改 {@code slot.phase} + debug 日志。非法转移不调用本方法（调用前已过滤）。
      *
-     * <p>守 I10：唯一写点。{@code slot.generation} 的写回在 {@code onBlockBreakObserved}/
-     * {@code onRightClickObserved} 中调用本方法后由调用方写回（T4 自增路径），
-     * 其它路径不写 generation。</p>
+     * <p>守 I10：唯一写点。{@code phase} 与 {@code generation} 均唯一写在本方法内，
+     * T4 ARMED→PLANNING 由调用方传 {@code nextGen = slot.generation + 1} 后由本方法写回新代际，
+     * 其余路径调用方传 {@code nextGen == slot.generation}，写回幂等无副作用。</p>
      *
      * @param slot    玩家槽
      * @param from    源态
@@ -330,6 +328,8 @@ public class ChainStateMachine {
      */
     private void applyTransition(PlayerPhaseSlot slot, ChainPhase from, ChainPhase to, ChainEvent event, int nextGen) {
         slot.phase = to;
+        // T4 时 nextGen = slot.generation + 1，其余路径 nextGen == slot.generation，写回幂等
+        slot.generation = nextGen;
         UUID player = event.getPlayerUUID();
         MyMod.LOG.debug("[ChainStateMachine] transition {} -> {} on {} gen={} player={}",
                 from, to, event.getClass().getSimpleName(), nextGen, player);
@@ -370,12 +370,12 @@ public class ChainStateMachine {
     /**
      * per-player 状态槽值对象：phase 起点 IDLE，generation 起点 0。
      *
-     * <p>私有静态内嵌类，唯一写点在 {@link #applyTransition} 与 T4 handler 的 generation 写回（守 I10）。</p>
+     * <p>私有静态内嵌类，phase 与 generation 均唯一写在 {@link #applyTransition}（守 I10）。</p>
      */
     private static final class PlayerPhaseSlot {
         /** 玩家当前连锁阶段，唯一写在 {@link #applyTransition}。 */
         ChainPhase phase = ChainPhase.IDLE;
-        /** 玩家当前代际，T4 ARMED→PLANNING 自增，唯一写在 T4 handler。 */
+        /** 玩家当前代际，T4 ARMED→PLANNING 自增，唯一写在 {@link #applyTransition}。 */
         int generation = 0;
     }
 }

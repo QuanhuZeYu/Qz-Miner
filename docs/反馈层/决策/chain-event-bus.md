@@ -61,7 +61,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 |---|---|---|
 | 1 | 事件总线骨架（Bus + Event 基类 + 11 事件族 + 订阅 + JVM 单测） | ✅ 完成（49b13f2，9 单测 passed，reviewer 有条件通过） |
 | 2 | 状态机 + 5 态枚举 `ChainPhase` + 转移表 T1-T10 + 代际陈旧判定 + 24 转移单测 + I10 入宪章 | ✅ 完成（3dcf5b5→e69dd6b，24 单测 passed，reviewer 通过放行阶段3） |
-| 3 | 触发链路迁移（按键/破坏事件 → 输入事件 → ARMED 点火）+ 客户端总线 | 待开展 |
+| 3 | 触发链路迁移（按键/破坏事件 → 输入事件 → ARMED 点火）+ 客户端总线 | ✅ 完成（0fd61a6，29 单测 passed，reviewer 通过放行阶段4） |
 | 4 | 规划接入（现有 traverser 挂到 PlanCompleted 事件发布） | 待开展 |
 | 5 | 执行接入（队列消费订阅者，保留 maxBreakPerTick 控速） | 待开展 |
 | 6 | 客户端纯投影（快照下发包 + 预览订阅，双份预览模型） | 待开展 |
@@ -114,19 +114,28 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 ### 状态机类设计要点
 
 - 类 `ChainStateMachine` 放新包 `chain.statemachine`（非 `chain.eventbus`，因为 eventbus 严格 side-agnostic 便于阶段3客户端复用，状态机是服务端权威逻辑客户端不复用）。
-- `currentPhase`/`currentGeneration` 全 private，唯一写点 `applyTransition`/`onBlockBreakObserved` 内部，无任何 public setter 或 transition 入口（守 I1 唯一写权威）。
-- 构造器订阅 8 个驱动事件（精确类型 `bus.subscribe`）；`PlanStarted`/`PlanProgress`/`ExecutionAdvanced` 阶段2不订阅（喂狗逻辑阶段7加，规划/执行接入阶段4/5加）。
+- `currentPhase`/`currentGeneration` 全 private，phase 与 generation 均唯一写在 `applyTransition`，无任何 public setter 或 transition 入口（守 I1/I10 唯一写权威）。
+- 构造器订阅 9 个驱动事件（精确类型 `bus.subscribe`，含 `ChainKeyPressed`/`BlockBreakObserved`/`RightClickObserved`/`ModeSwitched`/`PlanCompleted`/`PlanCancelled`/`ExecutionFinished`/`WatchdogTimeout`/`LifecycleCleanup`）；`PlanStarted`/`PlanProgress`/`ExecutionAdvanced` 阶段2不订阅（喂狗逻辑阶段7加，规划/执行接入阶段4/5加）。
 - handler 契约：只被主线程 `drain` 调用，单线程假定无需自锁（守 I4）。
 - **阶段2不 publish 任何派生事件**——状态机是转移消费者，功能订阅者发派生事件。此分工贯穿阶段4/5/7。
 - `MyMod.init` 已接线：`new ChainEventBus()` → `bindMainThread(Thread.currentThread())` → `new ChainStateMachine(bus)` → `new ChainEventBusDrainer(bus).bootstrap()`（阶段2末进入实机空跑 drain，此时无 publish 点，每 tick poll 空队列零副作用）。
 
 ## P2 项（reviewer 记录，不阻断，后续阶段补）
 
+### 阶段1 遗留 P2
+
 - `drain()` 加单次处理上限，防 tick 超时（无界 while 循环）
 - `mainThread` 未绑定时软校验失效，建议未绑定时也 warn
 - `ChainEventBus` 改构造器注入 Logger，降低 MyMod 类耦合
 - 补 mainThread 软校验/publish(null)/subscribe 顺序边界测试
 - 新总线继承旧 EventBus M2（无 unsubscribe，强引用泄漏），记录后续待办
+
+### 阶段3 reviewer P2
+
+- **P2-A**：补 `BlockBreakObserved` 与 `RightClickObserved` 在 PLANNING/RUNNING/FINISHING 三个态的越界丢弃单测（3-6 用例），阶段2 越界覆盖集中在 IDLE，三态丢弃对称性需补强
+- **P2-B**：阶段7 看门狗/生命周期收口为 `ChainStateMachine.slots` 增加 `slots.remove(uuid)` 防止玩家登出后槽永驻 HashMap；走 `LifecycleCleanup` 事件或 `ChainStateService.cleanupPlayerState` 钩子，不能直接给状态机加外部 `clear(uuid)` 入口绕唯一写权威（违 I7/I10）；建议发 `SlotReleased` 内部事件或暴露 package-private `releaseSlot(uuid)` 仅状态机自调用
+- **P2-C**：影子并行期 `ChainStateService` 与 `ChainStateMachine` 双状态系统并存（`chainKeyPressed`/`executing` 字段语义 vs `phase`/`gen` 字段语义），阶段8 旧链路下线前在决策文档登记双状态漂移观察项，避免阶段4/5 接入 traverser 时误读其中之一作权威源
+- **P2-D**：`ClientProxy.java:32` 锚定 `MyMod.clientChainEventBus` 在客户端运行的 `MyMod.init` 同时也把服务端 `chainEventBus` 锚到客户端主线程（`MyMod.java:108`），因 `ChainEventBusDrainer` 订阅 ServerTickEvent 在客户端不触发，软校验锚设置无害但语义不清，阶段6 客户端预览接入时一并整理
 
 ## 工程量估算
 

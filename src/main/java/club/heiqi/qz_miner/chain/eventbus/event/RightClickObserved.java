@@ -24,7 +24,7 @@ public final class RightClickObserved extends ChainEvent {
     /** 所在维度 ID。 */
     private final int dimensionId;
     /** 命中方向（Forge side，0-5）。 */
-    private final int face;
+    private final int sideHit;
     /** 命中方块内 X 偏移（0-1）。 */
     private final float hitX;
     /** 命中方块内 Y 偏移（0-1）。 */
@@ -41,20 +41,20 @@ public final class RightClickObserved extends ChainEvent {
      * @param y              坐标 Y
      * @param z              坐标 Z
      * @param dimensionId    维度 ID
-     * @param face           命中方向（0-5）
+     * @param sideHit        命中方向（0-5）
      * @param hitX           命中方块内 X 偏移
      * @param hitY           命中方块内 Y 偏移
      * @param hitZ           命中方块内 Z 偏移
      */
     public RightClickObserved(UUID playerUUID, int generation, long serverTick, long timestampNanos,
-                              int x, int y, int z, int dimensionId, int face,
+                              int x, int y, int z, int dimensionId, int sideHit,
                               float hitX, float hitY, float hitZ) {
         super(playerUUID, generation, serverTick, timestampNanos);
         this.x = x;
         this.y = y;
         this.z = z;
         this.dimensionId = dimensionId;
-        this.face = face;
+        this.sideHit = sideHit;
         this.hitX = hitX;
         this.hitY = hitY;
         this.hitZ = hitZ;
@@ -69,7 +69,7 @@ public final class RightClickObserved extends ChainEvent {
     /** @return 维度 ID */
     public int getDimensionId() { return dimensionId; }
     /** @return 命中方向（0-5） */
-    public int getFace() { return face; }
+    public int getSideHit() { return sideHit; }
     /** @return 命中方块内 X 偏移 */
     public float getHitX() { return hitX; }
     /** @return 命中方块内 Y 偏移 */
