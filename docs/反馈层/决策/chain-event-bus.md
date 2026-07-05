@@ -138,6 +138,13 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 - **P2-C**：影子并行期 `ChainStateService` 与 `ChainStateMachine` 双状态系统并存（`chainKeyPressed`/`executing` 字段语义 vs `phase`/`gen` 字段语义），阶段8 旧链路下线前在决策文档登记双状态漂移观察项，避免阶段4/5 接入 traverser 时误读其中之一作权威源
 - **P2-D**：`ClientProxy.java:32` 锚定 `MyMod.clientChainEventBus` 在客户端运行的 `MyMod.init` 同时也把服务端 `chainEventBus` 锚到客户端主线程（`MyMod.java:108`），因 `ChainEventBusDrainer` 订阅 ServerTickEvent 在客户端不触发，软校验锚设置无害但语义不清，阶段6 客户端预览接入时一并整理
 
+### 阶段4 reviewer P1/P2
+
+- **P1-1（已收口）**：`NORTH_STAR.md` §8 偏离登记 scope 段已补具体回填行号 `AbstractFloodFillPlanningStrategy.java:143,157`（CHAIN/INTERACT）+ `BlockBoxScanPlanningStrategy.java:152,168`（AREA），便于阶段8 精确定位
+- **P1-2（阶段5 执行接入启动前必收口）**：`ChainPlanningEventBridge.java:147` `MyMod.ensureParallelTickExecutor().registerPre(...)` 未 catch `RejectedExecutionException`；worker pool 20 槽（`ParallelTickExecutor.java:37`）满时状态机已进 PLANNING（gen 已自增）但影子 worker 未注册成功，不会 publish `PlanCompleted`/`PlanCancelled`，此代际卡 PLANNING 直到阶段7 看门狗兜底。现状缓解：`ChainEventBus.drain` 的 subscriber catch（`ChainEventBus.java:105-109`）吞异常并 warn，不会让 drain 崩；20 槽对常规服容量充足。阶段5 启动前在 bridge `:147` 补 try/catch，失败时主动 `bus.publish(buildPlanCancelled(playerUUID, planningGen, ..., "shadow-pool-exhausted"))` 让状态机干净回 IDLE
+- **P2-1**：`ChainPlanningEventBridgeTest.java:18-19` 已注释标注 worker 真链路依赖 worldObj/player/session 运行时装配，留 runClient21/runServer25；可后续用 mock ChainEventBus + stub 验证 onPlanStarted 的 5 条短路路径，优先级低
+- **P2-2**：worker publish PlanCompleted（`:222`）后 return COMPLETED（`:225`），ParallelTickExecutor 自注销与事件 drain 时序设计正确，worker 完成自注销无泄漏，无需改动，仅记录
+
 ## 工程量估算
 
 约 13 个新类、~1750 行（阶段 1 已落 15 类 ~880 行）。复用的 traverser/掉落/兼容层不计。

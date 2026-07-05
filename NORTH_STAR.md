@@ -180,6 +180,8 @@
     （阶段 5 前 <code>ChainExecutor</code> 仍靠此驱动执行）。立即移除会让连锁在阶段 4-7 完全瘫痪，
     影子验证无从开展。代价是影子并行期 CPU 翻倍且 worker 越权写状态。</why>
   <scope>CHAIN/AREA/INTERACT 三模式旧规划 worker 的"发现首批目标即切 RUNNING"与"规划完成切 RUNNING"路径。
+    具体落点：<code>AbstractFloodFillPlanningStrategy.java:143,157</code>（CHAIN/INTERACT）、
+    <code>BlockBoxScanPlanningStrategy.java:152,168</code>（AREA）。
     新链路 <code>ChainPlanningEventBridge</code> 影子 worker 不受此偏离影响（只 publish 不切态）。</scope>
   <status>待回填：阶段 8 删除旧链路时一并移除这几处 worker 切态；新链路由状态机 T5
     （<code>PlanCompleted</code> gen 匹配 → PLANNING→RUNNING）替代 worker 切态，
