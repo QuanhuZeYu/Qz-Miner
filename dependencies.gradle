@@ -53,4 +53,6 @@ dependencies {
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Angelica"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("lwjgl3ify"))
     runtimeOnlyNonPublishable("ganymedes01.etfuturum:Et-Futurum-Requiem:${elytraModpackVersion["Et-Futurum-Requiem"]}")
+
+    testImplementation("junit:junit:4.13.2")
 }
