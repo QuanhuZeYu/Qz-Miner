@@ -60,13 +60,65 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 1 | 事件总线骨架（Bus + Event 基类 + 11 事件族 + 订阅 + JVM 单测） | ✅ 完成（49b13f2，9 单测 passed，reviewer 有条件通过） |
-| 2 | 状态机 + 5 态转移表（扩展 ChainPhaseTransitions）+ 转移单测 | 待开展 |
+| 2 | 状态机 + 5 态枚举 `ChainPhase` + 转移表 T1-T10 + 代际陈旧判定 + 24 转移单测 + I10 入宪章 | ✅ 完成（3dcf5b5→e69dd6b，24 单测 passed，reviewer 通过放行阶段3） |
 | 3 | 触发链路迁移（按键/破坏事件 → 输入事件 → ARMED 点火）+ 客户端总线 | 待开展 |
 | 4 | 规划接入（现有 traverser 挂到 PlanCompleted 事件发布） | 待开展 |
 | 5 | 执行接入（队列消费订阅者，保留 maxBreakPerTick 控速） | 待开展 |
 | 6 | 客户端纯投影（快照下发包 + 预览订阅，双份预览模型） | 待开展 |
 | 7 | 看门狗 + 生命周期收口（纠偏层） | 待开展 |
 | 8 | 删除旧框架类 + 实机验证（runClient21/runServer25） | 待开展 |
+
+## 阶段2状态机转移表（I10 落地，oracle 清单回写）
+
+> 权威源：`NORTH_STAR.md` §5 I10 + `docs/设定值层/硬约束总目录.md` 状态机组。代码落点 `chain.statemachine.ChainStateMachine`。
+> 此表供后续阶段（触发链路/规划/执行/看门狗接入）溯源，避免又只靠代码 `// T1` 注释核对。
+
+### 5×5 合法转移矩阵
+
+行=源态，列=目标态，单元格=触发该转移的事件；`—`=非法丢弃；`self`=幂等或陈旧 no-op。
+
+| 源＼目标 | IDLE | ARMED | PLANNING | RUNNING | FINISHING |
+|---|---|---|---|---|---|
+| **IDLE** | LifecycleCleanup(self) | ChainKeyPressed(pressed=true) | — | — | — |
+| **ARMED** | ChainKeyPressed(pressed=false)／ModeSwitched／LifecycleCleanup | — | BlockBreakObserved | — | — |
+| **PLANNING** | PlanCancelled／LifecycleCleanup／WatchdogTimeout | — | (陈旧事件 self) | PlanCompleted(gen匹配) | — |
+| **RUNNING** | WatchdogTimeout／LifecycleCleanup | — | — | (陈旧事件 self) | ExecutionFinished |
+| **FINISHING** | LifecycleCleanup／WatchdogTimeout | — | — | — | (陈旧事件 self) |
+
+### T1-T10 合法转移清单
+
+| # | 源→目标 | 触发事件 | generation | 阶段2 publish 派生事件 |
+|---|---|---|---|---|
+| T1 | IDLE→ARMED | ChainKeyPressed(pressed=true) | 不变 | 无（PlanStarted 阶段4发） |
+| T2 | ARMED→IDLE | ChainKeyPressed(pressed=false) | 不变 | 无 |
+| T3 | ARMED→IDLE | ModeSwitched | 不变 | 无 |
+| T4 | ARMED→PLANNING | BlockBreakObserved | **++currentGeneration** 后转移 | 无 |
+| T5 | PLANNING→RUNNING | PlanCompleted（gen 匹配） | 不变 | 无（ExecutionAdvanced 阶段5发） |
+| T6 | PLANNING→IDLE | PlanCancelled | 不变 | 无 |
+| T7 | RUNNING→FINISHING | ExecutionFinished | 不变 | 无（收尾逻辑阶段7发 LifecycleCleanup） |
+| T8 | FINISHING→IDLE | LifecycleCleanup | 不变 | 无 |
+| T9 | 任意非 IDLE→IDLE（兜底） | LifecycleCleanup（任意非 IDLE 态） | 不变 | 无（I7 退出/重生/切维度统一清理） |
+| T10 | PLANNING/RUNNING/FINISHING→IDLE（兜底） | WatchdogTimeout（ARMED 不纳入，无异步活性） | 不变 | 无（I2 协作式收敛兜底） |
+
+### generation 规则
+
+- `currentGeneration` 为 `int`（对齐 `ChainEvent.generation`），状态机私有，唯一写权威。
+- `++currentGeneration` 时机：**T4 ARMED→PLANNING 点火时**（不是 IDLE→ARMED）。理由：generation 标识一次真实连锁会话，ARMED 仅待命无异步规划事件、无跨代迟到风险；真正产生迟到风险的是规划线程启动后，进入 PLANNING 瞬间 ++ 让本次规划及其后续 Plan*/Execution* 都盖新 gen。按键重按下不 ++，避免无谓膨胀。
+- 代际陈旧判定**只对派生事件**（PlanCompleted/PlanCancelled/ExecutionFinished/WatchdogTimeout/LifecycleCleanup）比对：`gen < current` → 丢弃+debug；`==` → 处理；`gen > current` → 丢弃+warn（不应出现，状态机自增外部盖不出更大值）。
+- 输入事件（ChainKeyPressed/BlockBreakObserved/ModeSwitched）**豁免代际判定**：ChainKeyPressed 是新会话源头，发布时还不知道新 generation；真正需陈旧判定的是上一代规划线程迟到的派生事件。
+
+### 越界收口
+
+非法转移（矩阵 `—`）一律**丢弃事件 + `MyMod.LOG.debug`**（含源态/would-be 目标态/事件类型/gen/playerUUID），不抛异常、不改态。与阶段1 `ChainEventBus.drain()` 的 catch 隔离语义一致（`ChainEventBus.java:105-109`）。
+
+### 状态机类设计要点
+
+- 类 `ChainStateMachine` 放新包 `chain.statemachine`（非 `chain.eventbus`，因为 eventbus 严格 side-agnostic 便于阶段3客户端复用，状态机是服务端权威逻辑客户端不复用）。
+- `currentPhase`/`currentGeneration` 全 private，唯一写点 `applyTransition`/`onBlockBreakObserved` 内部，无任何 public setter 或 transition 入口（守 I1 唯一写权威）。
+- 构造器订阅 8 个驱动事件（精确类型 `bus.subscribe`）；`PlanStarted`/`PlanProgress`/`ExecutionAdvanced` 阶段2不订阅（喂狗逻辑阶段7加，规划/执行接入阶段4/5加）。
+- handler 契约：只被主线程 `drain` 调用，单线程假定无需自锁（守 I4）。
+- **阶段2不 publish 任何派生事件**——状态机是转移消费者，功能订阅者发派生事件。此分工贯穿阶段4/5/7。
+- `MyMod.init` 已接线：`new ChainEventBus()` → `bindMainThread(Thread.currentThread())` → `new ChainStateMachine(bus)` → `new ChainEventBusDrainer(bus).bootstrap()`（阶段2末进入实机空跑 drain，此时无 publish 点，每 tick poll 空队列零副作用）。
 
 ## P2 项（reviewer 记录，不阻断，后续阶段补）
 
