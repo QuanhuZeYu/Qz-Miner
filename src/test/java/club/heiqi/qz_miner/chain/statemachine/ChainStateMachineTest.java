@@ -24,7 +24,8 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
  * 通过 {@link ChainEventBus#publish} + {@link ChainEventBus#drain} 驱动，
  * 断言 {@link ChainStateMachine#getCurrentPhase()} 与 {@link ChainStateMachine#getCurrentGeneration()}。</p>
  *
- * <p>注意：本测试中 {@code bus.drain()} 会在软校验中 warn 主线程不匹配，属预期日志噪声，不影响断言。</p>
+ * <p>注意：{@code newHarness()} 已 {@code bindMainThread(Thread.currentThread())}，
+ * drain 软校验不触发 warn，无预期日志噪声。</p>
  */
 public class ChainStateMachineTest {
 
@@ -365,6 +366,22 @@ public class ChainStateMachineTest {
         Harness h = newHarness();
         drive(h, key(true));
         drive(h, breakObserved(0));
+        drive(h, watchdog(1));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase());
+        Assert.assertEquals(1, h.sm.getCurrentGeneration());
+    }
+
+    /** 24. WatchdogTimeout 从 FINISHING 兜底回 IDLE（T10，补 FINISHING→IDLE 源态覆盖）。 */
+    @Test
+    public void watchdogFromFinishing() {
+        Harness h = newHarness();
+        // IDLE → ARMED → PLANNING → RUNNING → FINISHING
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase());
+        // FINISHING → IDLE via WatchdogTimeout（gen=1 匹配当前代际）
         drive(h, watchdog(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase());
         Assert.assertEquals(1, h.sm.getCurrentGeneration());

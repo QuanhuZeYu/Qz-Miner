@@ -7,8 +7,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * 主线程 drain 接入点：在 {@link TickEvent.ServerTickEvent#START} 阶段调用 {@link ChainEventBus#drain()}。
  *
- * <p>阶段 1 仅定义类，{@link #bootstrap()} 不在 {@link club.heiqi.qz_miner.MyMod#init} 调用，
- * 休眠等待阶段 2 状态机接入。</p>
+ * <p>阶段 2 起 {@link club.heiqi.qz_miner.MyMod#init} 已调用 {@link #bootstrap()}，
+ * 将本实例注册到 {@link TickEvent.ServerTickEvent}，每 tick {@code START} 阶段调用一次 {@link ChainEventBus#drain()}。</p>
  */
 public class ChainEventBusDrainer {
 
@@ -23,7 +23,8 @@ public class ChainEventBusDrainer {
     }
 
     /**
-     * 向 FML 事件总线注册自身。阶段 1 定义但<b>不调用</b>，保持休眠。
+     * 向 FML 事件总线注册自身。阶段 2 起由 {@link club.heiqi.qz_miner.MyMod#init} 调用，
+     * 每 tick {@code START} 阶段触发一次 {@link ChainEventBus#drain()}。
      */
     public void bootstrap() {
         FMLCommonHandler.instance().bus().register(this);

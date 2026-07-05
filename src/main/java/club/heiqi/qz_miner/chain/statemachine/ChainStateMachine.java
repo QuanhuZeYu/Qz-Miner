@@ -258,8 +258,8 @@ public class ChainStateMachine {
                     event.getClass().getSimpleName(), gen, currentGeneration, currentPhase);
             return false;
         } else if (gen > currentGeneration) {
-            // 不应出现：未来代际事件，不转移 + warn
-            MyMod.LOG.warn("[ChainStateMachine] future-gen derived event {} gen={} > current={} phase={}; ignore",
+            // 不应出现：未来代际事件，丢弃 + warn
+            MyMod.LOG.warn("[ChainStateMachine] future-gen derived event {} gen={} > current={} phase={}; drop",
                     event.getClass().getSimpleName(), gen, currentGeneration, currentPhase);
             return false;
         }
