@@ -34,4 +34,3 @@
 - `ore-fortune-cap-fix.md` — 确认 GT / BW / GT++ 时运上限修复必须拦截 `fortune > 3`，不再通过重算 `nextInt` 参数实现
 - `optional-mod-reflect-safety.md` — 可选模组兼容层必须以不触发静态初始化、吞掉链接错误、避免扫描客户端签名方法作为服务端安全边界
 - `parallel-tick-cooperative-cancellation.md` — 并行 Tick 不能靠超时或强制取消收口，任务必须在内部以预算化安全点协作式暂停、恢复和终止
-- `codegraph-usage-mode.md` — CodeGraph MCP 作为动态代码关系查询层，Markdown 记忆只保存稳定事实、决策和写回规则
