@@ -80,15 +80,31 @@ public class ChainDropCollector {
 
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
             if (!(player instanceof EntityPlayerMP)) {
+                // 玩家缺失分支（LOGOUT/异步延迟导致 playerManager 暂时拿不到 EntityPlayerMP）：
+                // 与玩家存在分支对称，二级 respawn/出生点 → 三级 已记忆兜底 → 全链失败累加，
+                // 达 DROP_RELEASE_MAX_RETRIES 才 discard 兜底，防 buffer 残留每帧非空无限刷屏。
+                String missingPlayerUUID = playerState.getPlayerUUID().toString();
+
+                // 二级：玩家重生点或世界出生点（玩家非 MP 实例时退一步用 player 句柄尝试）
                 if (player != null && ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(player, dropBuffer, "world-tick-missing-player")) {
+                    playerState.resetDropReleaseFailure();
                     continue;
                 }
-                if (ChainDropReleaseHelper.releaseAtRememberedTarget(dropBuffer, playerState.getPlayerUUID().toString(), "world-tick-missing-player")) {
+                // 三级：已记忆的兜底坐标（onHarvestDrops 起手 rememberRespawnOrWorldSpawn 预存）
+                if (ChainDropReleaseHelper.releaseAtRememberedTarget(dropBuffer, missingPlayerUUID, "world-tick-missing-player")) {
                     // 阶段8 块3：删旧 syncPlayerState（八字段同步链已删，掉落释放后无状态需同步客户端）。
+                    playerState.resetDropReleaseFailure();
                     continue;
                 }
-                MyMod.LOG.warn("[ChainDropCollector] Missing EntityPlayerMP for {}, keeping {} pending drop stack(s)",
-                    playerState.getPlayerUUID(), dropBuffer.size());
+                // 全链失败：累加失败计数，达上限 discard 兜底（与玩家存在分支对称，守信条四终点）
+                int failures = playerState.incrementDropReleaseFailure();
+                if (failures >= DROP_RELEASE_MAX_RETRIES) {
+                    ChainDropReleaseHelper.discard(missingPlayerUUID, dropBuffer, "world-tick-missing-exhausted");
+                    playerState.resetDropReleaseFailure();
+                } else {
+                    MyMod.LOG.warn("[ChainDropCollector] Missing EntityPlayerMP for {}, keeping {} pending drop stack(s) (consecutive failures={}/{})",
+                        playerState.getPlayerUUID(), dropBuffer.size(), failures, DROP_RELEASE_MAX_RETRIES);
+                }
                 continue;
             }
 
