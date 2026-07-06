@@ -10,18 +10,28 @@ import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
+import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.state.ChainSession;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * 阶段5 执行事件桥：新链路队列消费订阅者（dry-run，E2-a）。
+ * 阶段5 起：执行事件桥（新链路队列消费订阅者）。阶段8 块2 起接管真实破坏（旧 ChainExecutor 已于块1 删除）。
  *
  * <p>订阅 {@link PlanCompleted}（领取执行上下文）+ {@link TickEvent.ServerTickEvent#START}
  * （主线程每 tick 消费队列），实现新链路完整执行闭环：
- * worker publish PlanCompleted → 主线程 drain：状态机 T5 进 RUNNING + 本桥登记 ExecutionContext →
- * 后续每 tick START 消费（{@code maxBreakPerTick} 控速）→ 队列空 publish ExecutionFinished
+ * worker publish PlanCompleted → 主线程 drain：状态机 T5 进 RUNNING + 本桥登记 ExecutionContext
+ * （G1 此时 setExecuting(true) 开掉落收集窗口）→ 后续每 tick START 消费（{@code maxBreakPerTick} 控速，
+ * 真实破坏经 {@link ChainActionExecutor#execute}）→ 队列空 publish ExecutionFinished（G1 setExecuting(false) 关窗口）
  * → 状态机 T7 RUNNING→FINISHING → 同 tick publish LifecycleCleanup(reason="execution-complete") → 状态机 T8 FINISHING→IDLE。</p>
  *
  * <h3>阶段7 三路回 IDLE 收口（H2 三路并存裁决）</h3>
@@ -41,17 +51,22 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * 本桥管 {@code registry}（订阅 WatchdogTimeout/LifecycleCleanup 清理幽灵队列），
  * 各清各的容器，互不夺权（守 I10）。</p>
  *
- * <h3>dry-run 铁律（E2-a，违 I1）</h3>
+ * <h3>阶段8 块2：真实破坏桥 + G1 掉落窗口接线</h3>
  * <ul>
- *   <li><b>绝不</b> import {@code ChainSession.getPendingBreakTargets}（只消费自己的 ChainExecutionContext.targets）。</li>
- *   <li><b>绝不</b> 调 {@code actionExecutor.execute} 或任何破坏方块 API。poll 出目标 <b>只计数</b>。</li>
- *   <li>注释明确标 dry-run，阶段8 才接管真实破坏。掉落仍全由旧 ChainExecutor 产生。</li>
+ *   <li><b>真实破坏</b>：consumeContext 调 {@link ChainActionExecutor#execute}（tryHarvestBlock/activateBlockOrUseItem），
+ *       由 session 携带的 mode/subMode 经 ChainModeRegistry 解析执行器。守 I1：consumeContext 由
+ *       onServerTick 在 {@code ServerTickEvent.START} 主线程调用，破坏在主线程。</li>
+ *   <li><b>G1 掉落窗口</b>：四点 setExecuting 接线（onPlanCompleted 登记 true / publishExecutionFinishedWithCleanup
+ *       完成 false / onWatchdogTimeout 兜底 false / onLifecycleCleanup 幂等 false），让
+ *       {@code ChainDropCollector}:32 收集开关 + :58 释放开关正确工作（I5 生命线）。</li>
  * </ul>
  *
  * <h3>守 NORTH_STAR 不变量</h3>
  * <ul>
- *   <li><b>I1</b>：本桥全程不真实破坏方块（dry-run），不写世界、不切态、不写 ChainSession。
- *       新链路与旧 ChainExecutor 零冲突，旧链路独占实际掉落。</li>
+ *   <li><b>I1</b>：consumeContext 在主线程 ServerTickEvent.START 调 tryHarvestBlock/activateBlockOrUseItem；
+ *       session 仅是配置载体（mode/subMode/origin/interactFace），不破坏世界。</li>
+ *   <li><b>I5</b>：G1 四点 setExecuting 全覆盖，ChainDropCollector 收集/释放窗口正确；
+ *       flushPlayerDrops 保留在 ChainStateService（I5 兜底）。</li>
  *   <li><b>I4</b>：消费在主线程 ServerTickEvent.START，publish 经事件总线入队→主线程 drain。
  *       跨线程只发生在 worker put registry 与主线程 get registry，{@link java.util.concurrent.ConcurrentHashMap}
  *       保证可见性。</li>
@@ -148,19 +163,22 @@ public class ChainExecutionEventBridge {
         }
 
         // 正常登记：留后续 ServerTickEvent 消费（不立刻消费，避免本 drain 帧内嵌套执行）
+        // G1（I5 生命线）：登记时即开掉落收集窗口（executionStatus=RUNNING），
+        // 让 ChainDropCollector:32 isExecuting() 通过、:58 暂存到 buffer（执行中不释放）。
+        // 时序铁律：必须在本处登记帧设，不能在 consumeContext 内设——consumeContext 在
+        // onServerTick START 才触发，迟于 onPlanCompleted 的登记帧。登记在先，setExecuting 必须同步在先。
+        setExecutionWindow(playerUUID, true, "plan-completed");
     }
 
     /**
-     * 服务端 tick 回调，仅 START 阶段消费所有活跃执行上下文（dry-run）。
+     * 服务端 tick 回调，仅 START 阶段消费所有活跃执行上下文（真实破坏，守 I1 主线程）。
      *
-     * <p>对每个 context：{@code int executed=0; while(executed < maxBreakPerTick) { target=queue.poll();
-     * if(target==null) break; executed++; }}。poll 出的目标 <b>不真实破坏</b>，只计数（E2-a dry-run 铁律）。</p>
-     *
-     * <p>队列空（isCompleted）→ publish ExecutionFinished(reason="executor-consumed-all-targets")
-     * + 临时 publish LifecycleCleanup（E4-b 桥，走 T8 回 IDLE）+ registry.remove(uuid)。</p>
+     * <p>对每个 context：经 {@link #consumeContext} 走真实破坏三元组（玩家解析 → 执行器解析 →
+     * canExecute/execute 循环 + 控速）。队列空（isCompleted）→ publish
+     * ExecutionFinished(reason="executor-consumed-all-targets") + 临时 LifecycleCleanup（E4-b 桥）+ registry.remove。</p>
      *
      * <p>注：Drainer 先于本桥注册到 FML bus，本回调在 drainer.onServerTick（drain）之后触发。
-     * drain 同步触发 onPlanCompleted 登记 context，随后本回调同 tick 消费，无延迟。</p>
+     * drain 同步触发 onPlanCompleted 登记 context（含 G1 setExecuting(true) 开窗口），随后本回调同 tick 消费，无延迟。</p>
      *
      * @param event 服务端 tick 事件
      */
@@ -177,22 +195,76 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 消费单个执行上下文（dry-run：poll + 计数，不破坏）。
+     * 消费单个执行上下文（阶段8 块2 起真实破坏，守 I1）。
      *
-     * @param context        执行上下文
-     * @param maxBreakPerTick 本 tick 最大消费数（控速，对齐旧 ChainExecutor:89）
+     * <p>真实破坏三元组（对齐旧 ChainExecutor:52-110）：</p>
+     * <ol>
+     *   <li>解析玩家（{@code MyMod.playerManager.getPlayer}），非 EntityPlayerMP → publish ExecutionFinished + return。</li>
+     *   <li>解析执行器（{@code context.getSession()} → mode → ChainModeDefinition → resolveActionExecutor(subMode)），
+     *       null → publish ExecutionFinished + return。</li>
+     *   <li>控速检查（{@code context.isExecutorReady(now)}）+ while 循环 {@code canExecute}/{@code execute}。</li>
+     * </ol>
+     *
+     * <p>守 I1：本方法由 {@link #onServerTick} 在 {@link TickEvent.ServerTickEvent#START} 主线程调用，
+     * {@link ChainActionExecutor#execute} 调 {@code tryHarvestBlock}/{@code activateBlockOrUseItem} 均在主线程。
+     * session 仅作配置载体（mode/subMode/interactFace/hit），不破坏世界。</p>
+     *
+     * @param context         执行上下文
+     * @param maxBreakPerTick 本 tick 最大破坏数（控速，对齐旧 ChainExecutor:89）
      */
     private void consumeContext(ChainExecutionContext context, int maxBreakPerTick) {
         UUID playerUUID = context.getPlayerUUID();
         int gen = context.getGeneration();
+
+        // 三元组1：解析玩家
+        EntityPlayer rawPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
+        if (!(rawPlayer instanceof EntityPlayerMP)) {
+            publishExecutionFinishedWithCleanup(playerUUID, gen, "player-unavailable");
+            registry.remove(playerUUID);
+            return;
+        }
+        EntityPlayerMP player = (EntityPlayerMP) rawPlayer;
+
+        // 三元组2：解析执行器
+        ChainSession session = context.getSession();
+        ChainActionExecutor actionExecutor = null;
+        if (session != null && session.getRequest() != null) {
+            ChainMode mode = session.getRequest().getMode();
+            ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
+            if (definition != null) {
+                ChainSubMode subMode = session.getRequest().getSubMode();
+                actionExecutor = definition.resolveActionExecutor(subMode);
+            }
+        }
+        if (actionExecutor == null) {
+            publishExecutionFinishedWithCleanup(playerUUID, gen, "executor-unresolved");
+            registry.remove(playerUUID);
+            return;
+        }
+
+        // 三元组3：控速 + while 循环真实破坏
+        long nowMillis = System.currentTimeMillis();
+        if (!context.isExecutorReady(nowMillis)) {
+            return;
+        }
         int executed = 0;
-        // dry-run：poll 出目标只计数，不调用 actionExecutor.execute（E2-a 铁律）
         while (executed < maxBreakPerTick) {
             ChainTarget target = context.getTargets().poll();
             if (target == null) {
                 break;
             }
+            if (!actionExecutor.canExecute(player, session, target)) {
+                continue;
+            }
+            if (!actionExecutor.execute(player, session, target)) {
+                continue;
+            }
             executed++;
+        }
+
+        if (executed > 0) {
+            // 控速：本 tick 破坏过方块，设下次允许戳为 now+50（对齐旧 ChainExecutor:110）
+            context.setNextExecutorAllowedMillis(System.currentTimeMillis() + 50L);
         }
 
         if (context.isCompleted()) {
@@ -201,7 +273,7 @@ public class ChainExecutionEventBridge {
             publishExecutionFinishedWithCleanup(playerUUID, gen, "executor-consumed-all-targets");
             registry.remove(playerUUID);
         }
-        // 若未消费完，留下一 tick 继续消费（dry-run 控速）
+        // 若未消费完，留下一 tick 继续消费（控速）
     }
 
     /**
@@ -221,6 +293,9 @@ public class ChainExecutionEventBridge {
         long tick = ChainTickSource.currentServerTick();
         long nanos = ChainTickSource.nowNanos();
         bus.publish(buildExecutionFinished(playerUUID, gen, tick, nanos, reason));
+        // G1（I5 生命线）：正常完成关掉落收集窗口（executionStatus=IDLE）。
+        // ChainDropCollector:58 检测到 IDLE 后下个 WorldTick 释放 buffer 中聚合的掉落。
+        setExecutionWindow(playerUUID, false, "execution-finished:" + reason);
         // 阶段7 三路并存正名（H2 裁决）：执行完成快速收尾路径 publish LifecycleCleanup 走 T8 回 IDLE。
         // forced=false（走 genCheck，执行完成 gen 已知）+ removeSlot=false（玩家在线保 gen 单调）。
         // 三路铁律：本桥绝不删，FINISHING 只有 T8 能出，删了会卡死 FINISHING 致二次连锁哑火。
@@ -242,6 +317,9 @@ public class ChainExecutionEventBridge {
      */
     private void onWatchdogTimeout(WatchdogTimeout event) {
         registry.remove(event.getPlayerUUID());
+        // G1（I5 生命线，必须）：看门狗只 publish WatchdogTimeout + 清 registry，
+        // 若漏设 executionStatus 会卡 RUNNING → ChainDropCollector:58 暂存条件永不满足 → buffer 永不释放。
+        setExecutionWindow(event.getPlayerUUID(), false, "watchdog-timeout");
         MyMod.LOG.debug("[ChainExecution] registry cleanup on WatchdogTimeout player={} gen={}",
                 event.getPlayerUUID(), Integer.valueOf(event.getGeneration()));
     }
@@ -258,11 +336,46 @@ public class ChainExecutionEventBridge {
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
         registry.remove(event.getPlayerUUID());
+        // G1（I5 生命线，幂等）：clearRuntimeState 已通过 setExecutionStatus(IDLE) 收口，
+        // 此处再幂等 setExecuting(false) 补缺口——若事件由本桥自己 publish（execution-complete）
+        // 已经设过，幂等无副作用；若由 ChainLifecycleBridge publish（玩家登出/重生/切维度），
+        // cleanupPlayerState→clearRuntimeState 路径也会 setExecutionStatus(IDLE)，本处仍是幂等。
+        setExecutionWindow(event.getPlayerUUID(), false, "lifecycle-cleanup:" + event.getReason());
         MyMod.LOG.debug("[ChainExecution] registry cleanup on LifecycleCleanup player={} reason={}",
                 event.getPlayerUUID(), event.getReason());
     }
 
     // ============================ 纯逻辑构造（供单测覆盖） ============================
+
+    /**
+     * G1 掉落窗口接线（I5 生命线）。
+     *
+     * <p>通过 {@code MyMod.chainStateService.getPlayerState(uuid).setExecuting(...)} 控
+     * {@link ChainDropCollector} 的收集开关（:32 isExecuting）与释放开关
+     * （:58 executionStatus!=IDLE 时暂存、回 IDLE 才释放）。调用点四处：
+     * {@link #onPlanCompleted}（登记时 true）、{@link #publishExecutionFinishedWithCleanup}
+     * （publish 后 false）、{@link #onWatchdogTimeout}（必须 false）、
+     * {@link #onLifecycleCleanup}（幂等 false）。</p>
+     *
+     * <p>所有调用都防御 null（chainStateService / getPlayerState 均可能为 null，
+     * 玩家登出后 getPlayerState 返回 null，本桥不应在生命周期清理时抛 NPE）。</p>
+     *
+     * @param playerUUID 玩家 UUID
+     * @param executing  true 开窗口（RUNNING）/ false 关窗口（IDLE）
+     * @param reason     诊断原因（写入日志，便于排查时序）
+     */
+    private void setExecutionWindow(UUID playerUUID, boolean executing, String reason) {
+        if (MyMod.chainStateService == null) {
+            return;
+        }
+        ChainPlayerState playerState = MyMod.chainStateService.getPlayerState(playerUUID);
+        if (playerState == null) {
+            return;
+        }
+        playerState.setExecuting(executing);
+        MyMod.LOG.debug("[ChainExecution] G1 drop window player={} executing={} reason={}",
+                playerUUID, Boolean.valueOf(executing), reason);
+    }
 
     /**
      * 构造执行结束事件（纯逻辑，供单测覆盖）。

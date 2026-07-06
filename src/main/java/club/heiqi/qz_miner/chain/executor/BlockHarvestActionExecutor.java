@@ -28,7 +28,7 @@ public class BlockHarvestActionExecutor implements ChainActionExecutor {
             player.theItemInWorldManager.tryHarvestBlock(target.getX(), target.getY(), target.getZ());
             return true;
         } catch (Exception e) {
-            MyMod.LOG.error("[ChainExecutor] Failed to harvest block for player {} at ({}, {}, {})",
+            MyMod.LOG.error("[BlockHarvestActionExecutor] Failed to harvest block for player {} at ({}, {}, {})",
                 player.getUniqueID(), target.getX(), target.getY(), target.getZ(), e);
             return false;
         }

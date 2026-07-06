@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
@@ -76,7 +77,7 @@ public class ChainExecutionEventBridgeTest {
         // 模拟 worker：经 PlanCompleted.getGeneration() 注入 context
         PlanCompleted planCompleted = new PlanCompleted(PLAYER, planningGen, TICK, NANOS, 64);
         ChainExecutionContext context = new ChainExecutionContext(
-                PLAYER, planCompleted.getGeneration(), new ConcurrentLinkedQueue<ChainTarget>());
+                PLAYER, planCompleted.getGeneration(), new ConcurrentLinkedQueue<ChainTarget>(), null);
         // 执行桥 publish ExecutionFinished 时回填 context.getGeneration()
         ExecutionFinished execFinished = ChainExecutionEventBridge.buildExecutionFinished(
                 context.getPlayerUUID(), context.getGeneration(), TICK, NANOS, "test");
@@ -96,7 +97,7 @@ public class ChainExecutionEventBridgeTest {
         bus.bindMainThread(Thread.currentThread());
         ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
         // 手动 put 空 context 模拟 worker 完成路径（totalTargets=0）
-        registry.put(new ChainExecutionContext(PLAYER, 3, new ConcurrentLinkedQueue<ChainTarget>()));
+        registry.put(new ChainExecutionContext(PLAYER, 3, new ConcurrentLinkedQueue<ChainTarget>(), null));
 
         List<ExecutionFinished> finishedCaptured = new ArrayList<ExecutionFinished>();
         List<LifecycleCleanup> cleanupCaptured = new ArrayList<LifecycleCleanup>();
@@ -135,7 +136,7 @@ public class ChainExecutionEventBridgeTest {
         // registry 内 context gen=3
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         queue.add(new ChainTarget(1, 2, 3));
-        registry.put(new ChainExecutionContext(PLAYER, 3, queue));
+        registry.put(new ChainExecutionContext(PLAYER, 3, queue, null));
 
         List<ExecutionFinished> finishedCaptured = new ArrayList<ExecutionFinished>();
         @SuppressWarnings("unused")
@@ -162,7 +163,7 @@ public class ChainExecutionEventBridgeTest {
         ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         queue.add(new ChainTarget(1, 2, 3));
-        registry.put(new ChainExecutionContext(PLAYER, 2, queue));
+        registry.put(new ChainExecutionContext(PLAYER, 2, queue, null));
 
         List<ExecutionFinished> finishedCaptured = new ArrayList<ExecutionFinished>();
         @SuppressWarnings("unused")
@@ -196,5 +197,56 @@ public class ChainExecutionEventBridgeTest {
         bus.drain();
 
         Assert.assertTrue("registry 无此玩家应不 publish", finishedCaptured.isEmpty());
+    }
+
+    // ============================ G1 掉落窗口接线（阶段8 块2） ============================
+    //
+    // G1 四接线点均通过 MyMod.chainStateService.getPlayerState(uuid).setExecuting(...) 接线。
+    // 纯 JVM 单测无 Forge 运行时，MyMod.chainStateService 为 null，setExecutionWindow 早 return
+    // （null 防御）。此处验证：
+    //   1. 四接线点的代码路径可达且不抛（null 安全）；
+    //   2. registry 在各收口路径正确 remove（与 G1 联动）。
+    // 真实 setExecuting 时序（true/false 切换）由 runServer25 实机验证（I5 E 系列）。
+
+    /**
+     * G1 看门狗收口：publish WatchdogTimeout → bridge.onWatchdogTimeout 清 registry +
+     * setExecuting(false)（null chainStateService 安全跳过）。
+     */
+    @Test
+    public void watchdogTimeoutClearsRegistryAndIsReachable() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        registry.put(new ChainExecutionContext(PLAYER, 2,
+                new ConcurrentLinkedQueue<ChainTarget>(), null));
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new WatchdogTimeout(PLAYER, 2, TICK, NANOS, NANOS));
+        bus.drain();
+
+        Assert.assertNull("看门狗后 registry 应清理", registry.get(PLAYER, 2));
+    }
+
+    /**
+     * G1 生命周期清理收口：publish LifecycleCleanup → bridge.onLifecycleCleanup 清 registry +
+     * 幂等 setExecuting(false)（null chainStateService 安全跳过）。
+     */
+    @Test
+    public void lifecycleCleanupClearsRegistryAndIsReachable() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        registry.put(new ChainExecutionContext(PLAYER, 1,
+                new ConcurrentLinkedQueue<ChainTarget>(), null));
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new LifecycleCleanup(PLAYER, 1, TICK, NANOS, "player-logout", true, true));
+        bus.drain();
+
+        Assert.assertNull("生命周期清理后 registry 应清理", registry.get(PLAYER, 1));
     }
 }

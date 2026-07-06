@@ -25,8 +25,9 @@ import club.heiqi.qz_miner.event.QzEvents;
  * <h3>影子并行边界（阶段7 不破坏旧链路）</h3>
  * <p>本桥与 {@code ChainStateService.onPlayerStateChanged} 各自独立消费同一 {@link PlayerStateEvent}
  * （同一 {@code ServerMainThreadDispatcher} 主线程收口）。{@code ChainStateService} 全部保留不动
- * （管旧链路玩家态、掉落聚合），本桥只 publish LifecycleCleanup 供新链路状态机收口 slots。
- * 旧 {@code ChainExecutor} 仍驱动实际掉落，新链路 dry-run 不变。</p>
+ * （管玩家态、掉落聚合），本桥只 publish LifecycleCleanup 供新链路状态机收口 slots。
+ * 阶段8 块2 起新链路真实破坏桥（{@code ChainExecutionEventBridge}）驱动实际破坏，
+ * 旧 {@code ChainExecutor} 已于块1 删除。</p>
  *
  * <h3>奠基事实2（生命周期源现成）</h3>
  * <p>{@code ChainStateService.onPlayerStateChanged} 通过 {@link PlayerStateEvent}（5 类 reason：

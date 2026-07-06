@@ -87,11 +87,10 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setChainKeyPressed(pressed);
 
-        if (!pressed && state.isExecuting()) {
-            stopPlayerExecution(playerUUID, "key-released");
-            return;
-        }
-
+        // 阶段8 块2：删旧 stopPlayerExecution 收口（G1 掉落窗口保护）。
+        // 旧逻辑：松键+isExecuting → stopPlayerExecution（setExecuting false）会破坏 G1 掉落窗口——
+        // RUNNING 时松键 setExecuting false 致 ChainDropCollector:32 跳过收集。
+        // 新链路 ARMED 模型：RUNNING 时松键不中断连锁，跑完为止（已裁定可接受）。
         syncPlayerState(playerUUID);
         MyMod.LOG.debug("[ChainState] Player {} chain key pressed={}", playerUUID, pressed);
     }
@@ -100,11 +99,8 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedMode(mode);
 
-        if (state.isExecuting()) {
-            stopPlayerExecution(playerUUID, "mode-changed");
-            return;
-        }
-
+        // 阶段8 块2：删旧 isExecuting + stopPlayerExecution 收口（理由同上，保护 G1 掉落窗口）。
+        // 新链路：RUNNING 时切模式不中断连锁。
         syncPlayerState(playerUUID);
         MyMod.LOG.debug("[ChainState] Player {} selected mode={}", playerUUID, mode);
     }
@@ -119,11 +115,8 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedSubMode(subMode);
 
-        if (state.isExecuting()) {
-            stopPlayerExecution(playerUUID, "sub-mode-changed");
-            return;
-        }
-
+        // 阶段8 块2：删旧 isExecuting + stopPlayerExecution 收口（保护 G1 掉落窗口）。
+        // 新链路：RUNNING 时切子模式不中断连锁。
         syncPlayerState(playerUUID);
         MyMod.LOG.debug("[ChainState] Player {} selected sub mode={}", playerUUID, state.getSelectedSubMode());
     }
@@ -192,32 +185,6 @@ public final class ChainStateService {
                 Config.chainMaxBlocks,
                 state.getMatchedTargetCount()),
             (EntityPlayerMP) player);
-    }
-
-    public void stopPlayerExecution(UUID playerUUID, String reason) {
-        ChainPlayerState state = getPlayerState(playerUUID);
-        if (state == null) {
-            return;
-        }
-
-        if (!state.isExecuting()
-            && !state.hasPlannerSubscription()
-            && state.getPendingBreakTargetCount() <= 0
-            && state.getDropBuffer().isEmpty()) {
-            return;
-        }
-
-        int queuedTargets = state.getPendingBreakTargetCount();
-        int pendingDrops = state.getDropBuffer().size();
-
-        MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
-            playerUUID,
-            reason,
-            state.getExecutionStatus(),
-            queuedTargets,
-            pendingDrops);
-        state.stopExecutionPreservingDrops(reason);
-        syncPlayerState(playerUUID);
     }
 
     private void onPlayerStateChanged(PlayerStateEvent event) {

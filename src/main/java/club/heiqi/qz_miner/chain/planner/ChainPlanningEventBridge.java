@@ -158,7 +158,7 @@ public class ChainPlanningEventBridge {
         try {
             MyMod.ensureParallelTickExecutor().registerPre(
                     "shadow-plan-" + playerUUID,
-                    control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue));
+                    control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue, shadowSession));
         } catch (RejectedExecutionException e) {
             // worker pool 20 槽已满（SynchronousQueue 无法交接 + 池达 MAX_WORKER_THREADS），
             // 影子 worker 未注册成功；此代际已 PLANNING 但无人推进，必须主动 publish PlanCancelled，
@@ -185,6 +185,7 @@ public class ChainPlanningEventBridge {
      * @param searchContext   搜索上下文（承载 confirmedCount）
      * @param matcher        目标匹配器
      * @param shadowQueue    影子 queue（阶段 4 只消费不入执行，阶段 5 才接执行）
+     * @param shadowSession  影子会话（阶段8 块2 起注入 ChainExecutionContext 供真实破坏桥解析 mode/subMode）
      * @return 分片结果
      */
     private ParallelTaskResult runShadowSlice(
@@ -194,7 +195,8 @@ public class ChainPlanningEventBridge {
             BudgetedChainTraverser traverser,
             ChainSearchContext searchContext,
             ChainBlockMatcher matcher,
-            ConcurrentLinkedQueue<ChainTarget> shadowQueue) {
+            ConcurrentLinkedQueue<ChainTarget> shadowQueue,
+            ChainSession shadowSession) {
         if (control.isCancelRequested()) {
             bus.publish(buildPlanCancelled(playerUUID, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
@@ -245,7 +247,7 @@ public class ChainPlanningEventBridge {
             // 再 publish PlanCompleted——执行订阅者 onPlanCompleted 才能从 registry 领取到目标队列。
             // 时序：worker 线程 put（ConcurrentHashMap happens-before）→ publish 入队 →
             // 主线程 drain 取事件 → get registry（可见性由 ConcurrentHashMap 保证）。
-            executionContextRegistry.put(new ChainExecutionContext(playerUUID, planningGen, shadowQueue));
+            executionContextRegistry.put(new ChainExecutionContext(playerUUID, planningGen, shadowQueue, shadowSession));
             // 完成路径：publish PlanCompleted，状态机 T5 PLANNING→RUNNING（gen 匹配时）
             bus.publish(buildPlanCompleted(playerUUID, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
