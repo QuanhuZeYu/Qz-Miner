@@ -254,4 +254,34 @@ public class ChainWatchdogTest {
         Assert.assertEquals("F.4 C1：镜像移除后不应重复 publish（防风暴）", 1, captured.size());
         Assert.assertEquals("镜像应保持空", 0, h.watchdog.activeCount());
     }
+
+    /**
+     * P2-2：超时 publish 的 elapsedNanos 是真实 delta（nowNanos - lastNanos），非占位绝对值。
+     *
+     * <p>阶段8 块3 收口：原占位 {@code Math.max(0, nanos)} 是 System.nanoTime() 绝对值（几十亿纳秒级），
+     * P2-2 改为真 delta（进态到超时的时间差，毫秒级以内）。本测断言 elapsedNanos 落在合理小区间
+     * （&lt; 1 秒 = 1e9 纳秒），区分占位与真值。</p>
+     */
+    @Test
+    public void elapsedNanosIsRealDeltaNotPlaceholder() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=1 进 RUNNING，记录 lastNanos
+        drive(h, phase(PLAYER, 1, 1, 3, 100L));
+
+        // 触发超时
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+
+        Assert.assertEquals("应 publish 一条 WatchdogTimeout", 1, captured.size());
+        long elapsedNanos = captured.get(0).getElapsedNanos();
+        // 真 delta 是进态到超时的真实时间差（单测内应远小于 1 秒）；
+        // 旧占位是 System.nanoTime() 绝对值（远大于 1e9），本断言可区分
+        Assert.assertTrue("P2-2：elapsedNanos 应是真实 delta（< 1e9 ns），实际=" + elapsedNanos,
+                elapsedNanos >= 0L && elapsedNanos < 1_000_000_000L);
+    }
 }

@@ -111,7 +111,8 @@ public class ChainWatchdog {
             return;
         }
         // to ∈ {PLANNING, RUNNING, FINISHING}：新增/刷新追踪条目（新一代覆盖旧 gen）
-        activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerTick()));
+        // P2-2：同时记录 nowNanos 作为 lastNanos，checkTimeouts 据此算真 elapsedNanos delta
+        activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerTick(), ChainTickSource.nowNanos()));
     }
 
     /**
@@ -160,7 +161,8 @@ public class ChainWatchdog {
             long elapsed = currentTick - entry.lastProgressTick;
             if (elapsed >= threshold) {
                 long nanos = ChainTickSource.nowNanos();
-                long elapsedNanos = Math.max(0L, nanos); // 占位（精确 elapsedNanos 需记 lastNanos，P2-2 留阶段8）
+                // P2-2：真实 elapsedNanos delta = nowNanos - 进态时记录的 lastNanos（不再占位）
+                long elapsedNanos = Math.max(0L, nanos - entry.lastNanos);
                 bus.publish(new WatchdogTimeout(uuid, entry.generation, currentTick, nanos, elapsedNanos));
                 // F.4 C1：publish 后立即移除，避免后续 tick 重复 publish（看门狗风暴防护）
                 activePlayers.remove(uuid);
@@ -177,11 +179,14 @@ public class ChainWatchdog {
         /** 该玩家最后一次推进时的代际（新一代 ChainPhaseChanged 覆盖）。 */
         final int generation;
         /** 该玩家最后一次推进时的服务端 tick（用于判定无推进时长）。 */
-        long lastProgressTick;
+        final long lastProgressTick;
+        /** 该玩家最后一次进态时记录的纳秒戳（P2-2：checkTimeouts 据此算真 elapsedNanos delta）。 */
+        final long lastNanos;
 
-        WatchEntry(int generation, long lastProgressTick) {
+        WatchEntry(int generation, long lastProgressTick, long lastNanos) {
             this.generation = generation;
             this.lastProgressTick = lastProgressTick;
+            this.lastNanos = lastNanos;
         }
     }
 
