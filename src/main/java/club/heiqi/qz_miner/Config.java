@@ -54,12 +54,12 @@ public class Config {
     public void load() {
         greeting = config.getString("greeting", Configuration.CATEGORY_GENERAL, greeting, "How shall I greet?");
         chainRadius = config.getInt("chainRadius", Configuration.CATEGORY_GENERAL, chainRadius, 1, Integer.MAX_VALUE, "连锁范围半径（方盒子半径，搜索顺序仍为中心扩散）");
-        chainMaxBlocks = config.getInt("chainMaxBlocks", Configuration.CATEGORY_GENERAL, chainMaxBlocks, 1, Integer.MAX_VALUE, "最大连锁数量");
+        chainMaxBlocks = config.getInt("chainMaxBlocks", Configuration.CATEGORY_GENERAL, chainMaxBlocks, 1, Integer.MAX_VALUE, "最大连锁数量；超大值（如 >65536）会显著拖慢规划并加剧 abort 频率，建议根据机器性能调整");
         chainLoggingShellLayers = config.getInt("chainLoggingShellLayers", Configuration.CATEGORY_GENERAL, chainLoggingShellLayers, 1, Integer.MAX_VALUE, "CHAIN 伐木子模式每次向外扩展的壳层数；1 表示围绕当前原木检查一圈 3x3x3 邻域");
-        maxBreakPerTick = config.getInt("maxBreakPerTick", Configuration.CATEGORY_GENERAL, maxBreakPerTick, 1, Integer.MAX_VALUE, "每 Tick 最多执行的连锁挖掘数量");
+        maxBreakPerTick = config.getInt("maxBreakPerTick", Configuration.CATEGORY_GENERAL, maxBreakPerTick, 1, Integer.MAX_VALUE, "每 Tick 最多执行的连锁挖掘数量；64 在大范围连锁首 tick 可能逼近 50ms 预算，卡顿明显时调低");
         chainWatchdogTimeoutTicks = config.getInt("chainWatchdogTimeoutTicks", Configuration.CATEGORY_GENERAL, chainWatchdogTimeoutTicks, 20, Integer.MAX_VALUE, "连锁看门狗超时阈值（tick）：玩家连锁 N tick 无真实工作推进则协作式回 IDLE（异常兜底，默认 50 ≈ 2.5 秒，B 方案落地后纯做卡死回收速度旋钮）");
         parallelTickMinDurationMs = config.getInt("parallelTickMinDurationMs", Configuration.CATEGORY_GENERAL, parallelTickMinDurationMs, 10, Integer.MAX_VALUE, "同步执行器每刻最短执行时间（毫秒），默认 15，最低 10");
-        parallelTickServerWorkBudgetUnits = config.getInt("parallelTickServerWorkBudgetUnits", Configuration.CATEGORY_GENERAL, parallelTickServerWorkBudgetUnits, 1, Integer.MAX_VALUE, "服务端并行 Tick 任务单个分片的工作预算单位；越大推进越快但单片耗时可能更高，默认 64");
+        parallelTickServerWorkBudgetUnits = config.getInt("parallelTickServerWorkBudgetUnits", Configuration.CATEGORY_GENERAL, parallelTickServerWorkBudgetUnits, 1, Integer.MAX_VALUE, "服务端并行 Tick 任务单个分片的工作预算单位；越大推进越快但单片耗时可能更高，默认 640");
         enableUnlimitedOreFortune = config.getBoolean("enableUnlimitedOreFortune", Configuration.CATEGORY_GENERAL, enableUnlimitedOreFortune, "是否解除 GT/BW/GT++ 普通矿的 3 级时运上限；关闭时保持原版逻辑");
         enableFortuneForPlacedOre = config.getBoolean("enableFortuneForPlacedOre", Configuration.CATEGORY_GENERAL, enableFortuneForPlacedOre, "是否允许非自然生成的 GT/BW 矿石也享受时运；关闭时保持原版仅自然矿可时运");
         clientEnablePreviewRender = config.getBoolean("clientEnablePreviewRender", CATEGORY_CLIENT, clientEnablePreviewRender, "是否启用客户端连锁预览计算与渲染；关闭后将不再执行任何预览相关渲染操作");
