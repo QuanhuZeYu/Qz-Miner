@@ -396,6 +396,26 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 
 阶段7 约 **2 个新类**（ChainWatchdog 看门狗 + ChainLifecycleBridge 生命周期桥）+ 5 改动文件（LifecycleCleanup 扩字段 / ChainStateMachine 改造 / ChainExecutionEventBridge 正名+订阅清理 / Config / MyMod）+ 2 新单测类 17 用例，**约 350-450 行**（不含单测）。核心复杂度集中在 F.1 genCheck 豁免与三路并存裁决。
 
+### 演进（2026-07-06 B 方案：看门狗推进信号语义修正）
+
+> 本段记录阶段7 落地后实机验证发现的「奠基事实1 简化假设缺陷」及修正方案 B。代码落点 `ChainWatchdog.java`，配套 Config 默认值调整。
+
+1. **原 §337 简化假设缺陷**：「ChainPhaseChanged 是看门狗判定的唯一权威信号，不需自建钩子」的简化假设在实机暴露缺陷——PLANNING/RUNNING 阶段的正常工作发生在两次状态机转移之间，期间零 ChainPhaseChanged 广播，导致长规划/长执行被误判卡死（实机 62.5% PLANNING 超时误杀）。
+
+2. **修正（B 方案）**：接线原本预留但从未 publish 的 `PlanProgress`（worker 分片 yield 时 publish）与 `ExecutionAdvanced`（每 tick 破坏后 publish）作为看门狗补充推进信号，语义从「状态机转移」对齐到「真实工作推进」。`ChainWatchdog` 构造器补订阅这两路事件（`ChainWatchdog.java:89-90`）。
+
+3. **信号源分工**（守 I10 只读广播）：
+   - `ChainPhaseChanged` 仍是「进态唯一权威」——`onPhaseChanged` 负责 put/remove 条目（to=IDLE remove / to=ARMED 不新增 / to∈{PLANNING,RUNNING,FINISHING} put 覆盖）。
+   - `PlanProgress`/`ExecutionAdvanced` 是「进态间工作推进补充」——`onProgress` 只刷新已存在条目，不新增（existing==null return）。
+
+4. **双向 gen 隔离防护**：`onProgress` 对 `existing.generation != eventGen` 的事件一律 return，旧 gen 迟到事件不刷新新 gen 条目（防给已回 IDLE 后的新代际续命掩盖真卡死），新 gen 事件也不刷新旧 gen 条目（防反向接管）。世代隔离双向对称。
+
+5. **守 NORTH_STAR 不变量**：看门狗仍守 I2（协作式，只 publish WatchdogTimeout 不 Future.cancel/不碰 worker）与 I10（只订阅只 publish 不 transition，零 worker 依赖，零 slots 写）。
+
+6. **Config 默认值调整**：`chainWatchdogTimeoutTicks` 100→50（B 落地后纯做「卡死回收速度」旋钮，不再为长任务背锅；长任务由 PlanProgress/ExecutionAdvanced 喂狗续命，50 tick 内卡死才回收）。配套 `Config.java` 6 项默认值上调（`parallelTickServerWorkBudgetUnits` 64→640 等，commit 24337f3）让大范围规划在 50 tick 阈值内收敛。
+
+7. **测试覆盖**：`ChainWatchdogTest` 补 3 条 B 方案用例（PlanProgress 喂狗 / 陈旧 gen 隔离 / ExecutionAdvanced 喂狗）+ 3 条漏路径补强（onProgress 无条目 return / ARMED 期不收推进信号 / 双向 gen 隔离反向），共 17 用例。
+
 ## 阶段8 决策（2026-07-06，块1 删旧执行驱动 + GT 线缆新事件源）
 
 > 阶段8 是新连锁框架 v2 迁移的最后阶段。oracle 已出完整清单 + 主 agent 抽检验证 + 用户拍板 6 决策。

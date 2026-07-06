@@ -148,7 +148,7 @@ public class ChainWatchdogTest {
 
     /** Config 阈值默认值断言（防回归）。 */
     @Test
-    public void defaultThresholdIs100() {
+    public void defaultThresholdIs50() {
         Assert.assertEquals("默认看门狗阈值应为 50 tick（B 方案落地后收紧）", 50, Config.chainWatchdogTimeoutTicks);
     }
 
@@ -397,5 +397,103 @@ public class ChainWatchdogTest {
         h.bus.drain();
         Assert.assertTrue("RUNNING 持续 ExecutionAdvanced 喂狗不应触发 WatchdogTimeout", captured.isEmpty());
         Assert.assertEquals("镜像条目不应被移除", 1, h.watchdog.activeCount());
+    }
+
+    // ============================ P2-1 漏路径补强（B 方案边界不变量） ============================
+
+    /**
+     * 漏路径1：onProgress 在 existing==null 时 return 不新建条目。
+     *
+     * <p>场景：玩家无活跃条目（IDLE/ARMED 期）时收到迟到的 PlanProgress/ExecutionAdvanced。
+     * 守信号源分工：进态广播建条目，工作推进信号只续命不新建。本测断言 onProgress 不误建条目，
+     * 且后续 checkTimeouts 也不误触发。</p>
+     */
+    @Test
+    public void progressEventWithNoActiveEntryDoesNotCreateEntry() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // 玩家全程未进 PLANNING/RUNNING/FINISHING（无 ChainPhaseChanged 驱动建条目）
+        Assert.assertEquals(0, h.watchdog.activeCount());
+        Assert.assertNull(h.watchdog.getEntry(PLAYER));
+
+        // 迟到的 PlanProgress（existing==null）
+        driveProgress(h, new PlanProgress(PLAYER, 1, 100L, 100L * 1_000_000L, 0, 0));
+        Assert.assertEquals("onProgress 不应为无条目玩家误建条目", 0, h.watchdog.activeCount());
+        Assert.assertNull(h.watchdog.getEntry(PLAYER));
+
+        // 迟到的 ExecutionAdvanced（existing==null）
+        driveProgress(h, new ExecutionAdvanced(PLAYER, 1, 100L, 100L * 1_000_000L, 1, 10));
+        Assert.assertEquals("onProgress 不应为无条目玩家误建条目", 0, h.watchdog.activeCount());
+        Assert.assertNull(h.watchdog.getEntry(PLAYER));
+
+        // 之后 checkTimeouts 也不误触发（镜像为空）
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+        Assert.assertTrue("无条目不应 publish WatchdogTimeout", captured.isEmpty());
+    }
+
+    /**
+     * 漏路径2：onPhaseChanged to==ARMED 期间收到推进信号不误建/误刷。
+     *
+     * <p>场景：玩家进 ARMED（onPhaseChanged to==ARMED 应 return 不新增条目，F.3 A-armed-skip），
+     * 此时收到 PlanProgress。期望 onProgress 因 existing==null return，activePlayers 仍无条目。
+     * 本测固化「ARMED 期间 activePlayers 不应有残留」不变量。</p>
+     */
+    @Test
+    public void armedPhaseDoesNotAcceptProgressSignal() {
+        Harness h = newHarness();
+        // IDLE(0) → ARMED(1)：F.3 A-armed-skip 不新增条目
+        drive(h, phase(PLAYER, 0, 0, 1, 10L));
+        Assert.assertEquals("ARMED 不应启动计时", 0, h.watchdog.activeCount());
+        Assert.assertNull(h.watchdog.getEntry(PLAYER));
+
+        // ARMED 期间收到 PlanProgress（gen=0 与 ARMED 进态 gen 一致也无条目可刷）
+        driveProgress(h, new PlanProgress(PLAYER, 0, 20L, 20L * 1_000_000L, 0, 0));
+        Assert.assertEquals("ARMED 期 onProgress 不应误建条目", 0, h.watchdog.activeCount());
+        Assert.assertNull("ARMED 期 activePlayers 不应有该玩家残留", h.watchdog.getEntry(PLAYER));
+
+        // 同样收 ExecutionAdvanced 也不误建
+        driveProgress(h, new ExecutionAdvanced(PLAYER, 0, 25L, 25L * 1_000_000L, 1, 10));
+        Assert.assertEquals("ARMED 期 onProgress 不应误建条目", 0, h.watchdog.activeCount());
+        Assert.assertNull(h.watchdog.getEntry(PLAYER));
+    }
+
+    /**
+     * 漏路径3：双向 gen 隔离的反向——新 gen 事件不刷新旧 gen 条目。
+     *
+     * <p>已有 {@link #staleGenPlanProgressDoesNotRefresh} 测的是 gen=2 条目收 gen=1 事件（旧 gen 不刷新新 gen 条目）。
+     * 本测补反向：gen=1 条目收 gen=2 事件。期望 onProgress 因 {@code existing.generation(1) != eventGen(2)}
+     * return，gen=1 条目保持原 lastProgressTick，threshold 后仍按 gen=1 触发超时。</p>
+     */
+    @Test
+    public void newerGenPlanProgressDoesNotRefreshOlderGenEntry() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=1 进 PLANNING，serverTick=100
+        drive(h, phase(PLAYER, 1, 1, 2, 100L));
+        ChainWatchdog.WatchEntry entryBefore = h.watchdog.getEntry(PLAYER);
+        Assert.assertEquals(1, entryBefore.generation);
+        Assert.assertEquals(100L, entryBefore.lastProgressTick);
+
+        // publish 新 gen=2 的 PlanProgress（gen 不匹配，反向隔离）
+        driveProgress(h, new PlanProgress(PLAYER, 2, 100L + threshold, (100L + threshold) * 1_000_000L, 0, 0));
+
+        // 条目应保持原 gen=1、lastProgressTick=100，未被新 gen 刷新
+        ChainWatchdog.WatchEntry entryAfter = h.watchdog.getEntry(PLAYER);
+        Assert.assertEquals("新 gen 的 PlanProgress 不应刷新旧 gen 条目",
+                100L, entryAfter.lastProgressTick);
+        Assert.assertEquals("generation 应保持 1（新 gen 事件不接管旧条目）", 1, entryAfter.generation);
+
+        // threshold 后应按 gen=1 触发超时（说明新 gen 没误刷新）
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+        Assert.assertEquals("新 gen 未刷新旧 gen，应按 gen=1 触发 WatchdogTimeout", 1, captured.size());
+        Assert.assertEquals("超时事件 gen 应来自镜像条目（=1）", 1, captured.get(0).getGeneration());
     }
 }
