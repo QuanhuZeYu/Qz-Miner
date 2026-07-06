@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
@@ -293,6 +294,14 @@ public class ChainExecutionEventBridge {
         if (executed > 0) {
             // 控速：本 tick 破坏过方块，设下次允许戳为 now+50（对齐旧 ChainExecutor:110）
             context.setNextExecutorAllowedMillis(System.currentTimeMillis() + 50L);
+            // B 方案：每 tick 有破坏则 publish ExecutionAdvanced 喂看门狗（天然节流：仅 executed>0 时发），
+            // 让 RUNNING 阶段两次状态机转移之间有真实工作推进信号，避免长执行被误判卡死。
+            // gen 来源用 context.getGeneration()（事件流注入），不实时读状态机。
+            // remainingTargets 用 context.getTargets().size()——ConcurrentLinkedQueue.size() 是 O(n)，
+            // 但执行队列通常不大，可接受；ChainExecutionContext 无 getTotalTargets/remaining 字段。
+            bus.publish(new ExecutionAdvanced(playerUUID, gen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    executed, context.getTargets().size()));
         }
 
         if (context.isCompleted()) {

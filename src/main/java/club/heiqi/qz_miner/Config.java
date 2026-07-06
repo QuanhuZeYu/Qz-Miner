@@ -11,23 +11,24 @@ public class Config {
     public static String configPath;
     public static Configuration config;
     public static String greeting = "Hello World";
-    public static int chainRadius = 4;
-    public static int chainMaxBlocks = 256;
+    public static int chainRadius = 8;
+    public static int chainMaxBlocks = 1024;
     public static int chainLoggingShellLayers = 1;
-    public static int maxBreakPerTick = 16;
+    public static int maxBreakPerTick = 64;
     /**
-     * 连锁看门狗超时阈值（tick）：玩家连锁 N tick 无状态推进则看门狗 publish WatchdogTimeout
-     * 协作式回 IDLE（异常兜底，非正常收尾路径）。默认 100 tick ≈ 5 秒。
+     * 连锁看门狗超时阈值（tick）：玩家连锁 N tick 无真实工作推进则看门狗 publish WatchdogTimeout
+     * 协作式回 IDLE（异常兜底，非正常收尾路径）。默认 50 tick ≈ 2.5 秒（B 方案落地后纯做卡死回收速度旋钮，
+     * 推进信号已对齐真实工作推进语义，不再为长规划/长执行背锅）。
      */
-    public static int chainWatchdogTimeoutTicks = 100;
+    public static int chainWatchdogTimeoutTicks = 50;
     public static int parallelTickMinDurationMs = 15;
-    public static int parallelTickServerWorkBudgetUnits = 64;
+    public static int parallelTickServerWorkBudgetUnits = 640;
     public static boolean enableUnlimitedOreFortune = false;
     public static boolean enableFortuneForPlacedOre = false;
     public static boolean clientEnablePreviewRender = true;
     public static int parallelTickClientWorkBudgetUnits = 640;
-    public static int clientPreviewMaxRadius = 4;
-    public static int clientPreviewMaxTargets = 256;
+    public static int clientPreviewMaxRadius = 16;
+    public static int clientPreviewMaxTargets = 1024;
     public static double clientPreviewAlphaFadeStartRadius = 2.0D;
     public static double clientPreviewAlphaFadeEndRadius = 6.0D;
     public static double clientPreviewAlphaStartValue = 0.78D;
@@ -56,7 +57,7 @@ public class Config {
         chainMaxBlocks = config.getInt("chainMaxBlocks", Configuration.CATEGORY_GENERAL, chainMaxBlocks, 1, Integer.MAX_VALUE, "最大连锁数量");
         chainLoggingShellLayers = config.getInt("chainLoggingShellLayers", Configuration.CATEGORY_GENERAL, chainLoggingShellLayers, 1, Integer.MAX_VALUE, "CHAIN 伐木子模式每次向外扩展的壳层数；1 表示围绕当前原木检查一圈 3x3x3 邻域");
         maxBreakPerTick = config.getInt("maxBreakPerTick", Configuration.CATEGORY_GENERAL, maxBreakPerTick, 1, Integer.MAX_VALUE, "每 Tick 最多执行的连锁挖掘数量");
-        chainWatchdogTimeoutTicks = config.getInt("chainWatchdogTimeoutTicks", Configuration.CATEGORY_GENERAL, chainWatchdogTimeoutTicks, 20, Integer.MAX_VALUE, "连锁看门狗超时阈值（tick）：玩家连锁 N tick 无状态推进则协作式回 IDLE（异常兜底，默认 100 ≈ 5 秒）");
+        chainWatchdogTimeoutTicks = config.getInt("chainWatchdogTimeoutTicks", Configuration.CATEGORY_GENERAL, chainWatchdogTimeoutTicks, 20, Integer.MAX_VALUE, "连锁看门狗超时阈值（tick）：玩家连锁 N tick 无真实工作推进则协作式回 IDLE（异常兜底，默认 50 ≈ 2.5 秒，B 方案落地后纯做卡死回收速度旋钮）");
         parallelTickMinDurationMs = config.getInt("parallelTickMinDurationMs", Configuration.CATEGORY_GENERAL, parallelTickMinDurationMs, 10, Integer.MAX_VALUE, "同步执行器每刻最短执行时间（毫秒），默认 15，最低 10");
         parallelTickServerWorkBudgetUnits = config.getInt("parallelTickServerWorkBudgetUnits", Configuration.CATEGORY_GENERAL, parallelTickServerWorkBudgetUnits, 1, Integer.MAX_VALUE, "服务端并行 Tick 任务单个分片的工作预算单位；越大推进越快但单片耗时可能更高，默认 64");
         enableUnlimitedOreFortune = config.getBoolean("enableUnlimitedOreFortune", Configuration.CATEGORY_GENERAL, enableUnlimitedOreFortune, "是否解除 GT/BW/GT++ 普通矿的 3 级时运上限；关闭时保持原版逻辑");
