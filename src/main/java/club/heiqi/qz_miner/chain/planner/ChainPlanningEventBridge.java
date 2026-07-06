@@ -120,9 +120,15 @@ public class ChainPlanningEventBridge {
         }
 
         final ChainTarget origin = new ChainTarget(event.getX(), event.getY(), event.getZ());
-        // 影子种子解析：只读世界
-        BlockSeedResolver seedResolver = new WorldBlockSeedResolver();
-        BlockSeedSnapshot seedSnapshot = seedResolver.resolve(player, origin);
+        // 种子解析：破坏路径（BlockBreakObserved）在 drainer 推迟到下一 tick drain 时方块已被原版 removeBlock 成空气，
+        // 必须用事件携带的 seedBlock/seedMeta（破坏时刻捕获）构造种子；右键/左键路径块仍在世界，走兜底 WorldBlockSeedResolver。
+        BlockSeedSnapshot seedSnapshot;
+        if (event.getSeedBlock() != null) {
+            seedSnapshot = new BlockSeedSnapshot(origin, event.getSeedBlock(), event.getSeedMeta(), null);
+        } else {
+            BlockSeedResolver seedResolver = new WorldBlockSeedResolver();
+            seedSnapshot = seedResolver.resolve(player, origin);
+        }
         if (seedSnapshot == null) {
             bus.publish(buildPlanCancelled(playerUUID, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),

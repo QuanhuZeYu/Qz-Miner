@@ -151,12 +151,15 @@ public class ChainStateMachine {
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
             // 阶段4：T4 转移后 publish PlanStarted 作为进态广播，供 bridge 拿 gen+上下文发起影子 traverser
             // 破坏路径无命中偏移，hitX/Y/Z 填 0（Forge 1.7.10 BreakEvent 不暴露命中点偏移）
+            // 种子透传：破坏路径方块在下一 tick drain 时已被原版 removeBlock 成空气，
+            // 必须把 BlockBreakObserved 携带的 seedBlock/seedMeta 透传给 PlanStarted，供 bridge 跳过 resolver
             bus.publish(new PlanStarted(
                     event.getPlayerUUID(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
-                    0.0F, 0.0F, 0.0F));
+                    0.0F, 0.0F, 0.0F,
+                    event.getSeedBlock(), event.getSeedMeta()));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
@@ -178,12 +181,14 @@ public class ChainStateMachine {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
             // 阶段4：T4 转移后 publish PlanStarted，右键路径携带实际命中偏移供 INTERACT flood fill 方向判定
+            // 右键路径块仍在世界，seed 传 null/0 由 bridge 走 WorldBlockSeedResolver 兜底
             bus.publish(new PlanStarted(
                     event.getPlayerUUID(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
-                    event.getHitX(), event.getHitY(), event.getHitZ()));
+                    event.getHitX(), event.getHitY(), event.getHitZ(),
+                    null, 0));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
@@ -209,12 +214,14 @@ public class ChainStateMachine {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
             // 阶段8：T4 转移后 publish PlanStarted，左键路径携带事件自带命中偏移（GT 线缆路径默认 0）
+            // 左键路径块仍在世界，seed 传 null/0 由 bridge 走 WorldBlockSeedResolver 兜底
             bus.publish(new PlanStarted(
                     event.getPlayerUUID(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
-                    event.getHitX(), event.getHitY(), event.getHitZ()));
+                    event.getHitX(), event.getHitY(), event.getHitZ(),
+                    null, 0));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }
@@ -274,6 +281,10 @@ public class ChainStateMachine {
         // T6: PLANNING → IDLE
         if (slot.phase == ChainPhase.PLANNING) {
             applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+            // 永久 reason 日志：PlanCancelled 携带的可空取消原因落盘，便于实机诊断（shadow-seed-unresolvable 等）
+            // log4j {} 占位打印 null 不抛异常
+            MyMod.LOG.info("[ChainStateMachine] PlanCancelled reason={} gen={} player={}",
+                    event.getReason(), Integer.valueOf(event.getGeneration()), event.getPlayerUUID());
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
         }

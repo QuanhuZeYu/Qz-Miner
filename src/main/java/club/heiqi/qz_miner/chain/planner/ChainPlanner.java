@@ -48,10 +48,15 @@ public class ChainPlanner {
         // 输入事件 generation 传 0 豁免代际判定
         // sideHit 占位 0：Forge 1.7.10 BlockEvent.BreakEvent 不暴露命中方向（仅 metadata），右键路径才有 face
         if (MyMod.chainEventBus != null) {
+            // 破坏时刻捕获种子方块 + metadata：BlockEvent.BreakEvent 在 tryHarvestBlock 同步 removeBlock 之前触发，
+            // 但 drainer 推迟到下一 tick START drain，届时方块已成空气，WorldBlockSeedResolver 会读空 null。
+            // 故 publish 时把 event.block / event.blockMetadata 透传给 BlockBreakObserved，
+            // 由 ChainPlanningEventBridge.onPlanStarted 优先用事件携带 seed 构造种子，跳过 resolver。
             MyMod.chainEventBus.publish(new BlockBreakObserved(
                     player.getUniqueID(), 0,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
-                    event.x, event.y, event.z, player.dimension, 0));
+                    event.x, event.y, event.z, player.dimension, 0,
+                    event.block, event.blockMetadata));
         }
     }
 }
