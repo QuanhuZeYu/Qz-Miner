@@ -13,6 +13,7 @@ import net.minecraftforge.common.util.ForgeDirection;
 
 /**
  * 按 GT 线缆真实连接关系预算化遍历。
+ * 与 FloodFill 系不同，本遍历器 origin 参与连锁（左键取消原版破坏，origin 仍在世界）。
  */
 public class GregTechCableTraverser implements BudgetedChainTraverser {
 
@@ -36,6 +37,14 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
 
         rememberConnectedSides(context, origin);
         context.getVisited().add(origin);
+        // GT 线缆左键触发（LeftClickObserved）取消了原版破坏，origin 仍在世界，
+        // 必须参与统一替换。这与 FloodFill 系（CHAIN/AREA 走破坏后事件、origin 已被
+        // 原版破坏而排除）语义相反——见 docs/反馈层/决策/chain-origin-inclusion-semantics.md。
+        // origin 入 frontier 后由 step() 统一走 canTraverse/matcher/consumer，
+        // 邻居去重由 visited 保证（step 处理 origin 展开邻居时不会重复入队）。
+        if (context.canTraverse(origin)) {
+            context.getCurrentFrontier().add(origin);
+        }
         for (ChainTarget neighbor : resolveConnectedNeighbors(context, origin)) {
             if (!context.getVisited().add(neighbor)) {
                 continue;
