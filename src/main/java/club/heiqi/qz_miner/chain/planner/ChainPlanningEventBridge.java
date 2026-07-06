@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.execution.ChainExecutionContext;
 import club.heiqi.qz_miner.chain.execution.ChainExecutionContextRegistry;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
@@ -257,6 +258,14 @@ public class ChainPlanningEventBridge {
                     "shadow-traversal-terminated"));
             return ParallelTaskResult.TERMINATED;
         }
+        // B 方案：每分片发一次 PlanProgress 喂看门狗（天然节流：每分片≈64 工作单位），
+        // 让 PLANNING 阶段两次状态机转移之间有真实工作推进信号，避免长规划被误判卡死。
+        // 仅在非 TERMINATED 路径发（TERMINATED 已 publish PlanCancelled，不算推进）。
+        // ChainSearchContext 无 getProcessedCount，processedCount 传 confirmedCount（诊断字段，
+        // 看门狗只读 serverTick/nanos 刷新，不读这两个值，语义略不精确但无功能影响）。
+        bus.publish(new PlanProgress(playerUUID, planningGen,
+                ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                searchContext.getConfirmedCount(), searchContext.getConfirmedCount()));
 
         boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
                 || traversalResult == TraversalStepResult.YIELDED;

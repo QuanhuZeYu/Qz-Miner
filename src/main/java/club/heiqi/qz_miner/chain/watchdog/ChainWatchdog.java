@@ -6,9 +6,12 @@ import java.util.UUID;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -31,6 +34,13 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <h3>推进信号源（奠基事实1）</h3>
  * <p>本类订阅 {@link ChainPhaseChanged}（阶段6 G1 加入，状态机 {@code applyTransition} 每次转移后 publish）
  * 建 per-player 活跃镜像。<b>不</b>自建钩子、<b>不</b>读状态机字段（守 I10 只读广播）。</p>
+ *
+ * <p>另订阅 {@link PlanProgress}（worker 分片 yield 时 publish）与 {@link ExecutionAdvanced}
+ * （每 tick 破坏后 publish）作为 PLANNING/RUNNING 阶段的真实工作推进信号——
+ * 因为 PLANNING/RUNNING 两次状态机转移之间无 ChainPhaseChanged 广播，长规划/长执行会被
+ * 「N tick 无状态推进」误判卡死。补订阅这两路后，看门狗推进信号对齐「真实工作推进」语义
+ * 而非「状态机转移」，根治误杀。新条目仍归 onPhaseChanged 的 T4 进 PLANNING 管，
+ * 本订阅只刷新既有条目（守信号源分工）。</p>
  *
  * <h3>F.3 ARMED 不计时（A-armed-skip）</h3>
  * <p>遵循转移表 T10 现状：ARMED 态不纳入看门狗计时。ARMED 回收靠玩家松键 T2 或生命周期清理 T9，
@@ -75,6 +85,9 @@ public class ChainWatchdog {
     public ChainWatchdog(ChainEventBus bus) {
         this.bus = bus;
         bus.subscribe(ChainPhaseChanged.class, this::onPhaseChanged);
+        // B 方案：补订阅真实工作推进信号，根治 PLANNING/RUNNING 阶段长任务误判卡死
+        bus.subscribe(PlanProgress.class, this::onProgress);
+        bus.subscribe(ExecutionAdvanced.class, this::onProgress);
     }
 
     /**
@@ -113,6 +126,42 @@ public class ChainWatchdog {
         // to ∈ {PLANNING, RUNNING, FINISHING}：新增/刷新追踪条目（新一代覆盖旧 gen）
         // P2-2：同时记录 nowNanos 作为 lastNanos，checkTimeouts 据此算真 elapsedNanos delta
         activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerTick(), ChainTickSource.nowNanos()));
+    }
+
+    /**
+     * 真实工作推进信号订阅者：PLANNING 阶段的 {@link PlanProgress} 与 RUNNING 阶段的
+     * {@link ExecutionAdvanced} 共用本方法刷新既有条目（B 方案）。
+     *
+     * <p>仅刷新既有条目，不新增条目——新条目仍归 {@link #onPhaseChanged} 的 T4 进 PLANNING 管
+     * （守信号源分工：进态广播建条目 + 代际覆盖，工作推进信号只续命）。</p>
+     *
+     * <p>分支：</p>
+     * <ul>
+     *   <li>{@code existing == null} → return（无条目说明未在 PLANNING/RUNNING/FINISHING 追踪，
+     *       不为 ARMED/IDLE 期迟到的事件误建条目）。</li>
+     *   <li>{@code existing.generation != eventGen} → return（陈旧 gen 防护：旧代际迟到的
+     *       PlanProgress/ExecutionAdvanced 不误刷新新代际条目，避免给已回 IDLE 后的新一代「续命」
+     *       掩盖真卡死——世代隔离）。</li>
+     *   <li>否则覆盖刷新：用事件的 serverTick 与 timestampNanos 重建不可变 WatchEntry
+     *       （HashMap 单线程契约下安全，守 :52 注释；WatchEntry 保持不可变，最省改动）。</li>
+     * </ul>
+     *
+     * @param event 工作推进信号（PlanProgress 或 ExecutionAdvanced）
+     */
+    private void onProgress(ChainEvent event) {
+        UUID uuid = event.getPlayerUUID();
+        int eventGen = event.getGeneration();
+        WatchEntry existing = activePlayers.get(uuid);
+        if (existing == null) {
+            // 无条目：不为 ARMED/IDLE 期迟到的事件误建条目（守信号源分工）
+            return;
+        }
+        if (existing.generation != eventGen) {
+            // 陈旧 gen 防护：旧代际迟到事件不误刷新新代际条目
+            return;
+        }
+        // 同代际推进刷新：用事件的 serverTick/timestampNanos 重建不可变条目
+        activePlayers.put(uuid, new WatchEntry(existing.generation, event.getServerTick(), event.getTimestampNanos()));
     }
 
     /**

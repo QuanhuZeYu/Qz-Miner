@@ -8,8 +8,11 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
@@ -37,6 +40,12 @@ public class ChainWatchdogTest {
 
     private static void drive(Harness h, ChainPhaseChanged e) {
         h.bus.publish(e);
+        h.bus.drain();
+    }
+
+    /** 推进信号（PlanProgress/ExecutionAdvanced）经 bus publish + drain 触发 onProgress 订阅者。 */
+    private static void driveProgress(Harness h, ChainEvent event) {
+        h.bus.publish(event);
         h.bus.drain();
     }
 
@@ -140,7 +149,7 @@ public class ChainWatchdogTest {
     /** Config 阈值默认值断言（防回归）。 */
     @Test
     public void defaultThresholdIs100() {
-        Assert.assertEquals("默认看门狗阈值应为 100 tick", 100, Config.chainWatchdogTimeoutTicks);
+        Assert.assertEquals("默认看门狗阈值应为 50 tick（B 方案落地后收紧）", 50, Config.chainWatchdogTimeoutTicks);
     }
 
     /** PLANNING/RUNNING/FINISHING 三态均启动计时（to != IDLE && to != ARMED）。 */
@@ -283,5 +292,110 @@ public class ChainWatchdogTest {
         // 旧占位是 System.nanoTime() 绝对值（远大于 1e9），本断言可区分
         Assert.assertTrue("P2-2：elapsedNanos 应是真实 delta（< 1e9 ns），实际=" + elapsedNanos,
                 elapsedNanos >= 0L && elapsedNanos < 1_000_000_000L);
+    }
+
+    // ============================ B 方案：PlanProgress / ExecutionAdvanced 推进信号 ============================
+
+    /**
+     * B 方案核心场景1：PLANNING 阶段持续 publish PlanProgress 喂狗，threshold 后不触发 WatchdogTimeout。
+     *
+     * <p>复现实机 62.5% PLANNING 超时误杀根因：PLANNING 两次状态机转移之间无 ChainPhaseChanged，
+     * 长规划被误判卡死。补订阅 PlanProgress 后，worker 分片推进信号刷新 lastProgressTick，正常规划不误杀。</p>
+     */
+    @Test
+    public void planProgressFeedsWatchdogDuringPlanning() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=1 进 PLANNING，serverTick=100
+        drive(h, phase(PLAYER, 1, 1, 2, 100L));
+        Assert.assertEquals(1, h.watchdog.activeCount());
+
+        // 持续 publish PlanProgress（gen 匹配），模拟 worker 每分片推进
+        for (long t = 100L; t < 100L + threshold + 5; t += 5L) {
+            driveProgress(h, new PlanProgress(PLAYER, 1, t, t * 1_000_000L, 0, 0));
+        }
+        // 此时 lastProgressTick 应被刷新到最后一次 PlanProgress 的 serverTick（=100+threshold）
+        ChainWatchdog.WatchEntry entry = h.watchdog.getEntry(PLAYER);
+        Assert.assertNotNull(entry);
+        Assert.assertEquals("PlanProgress 应刷新 lastProgressTick", 100L + threshold, entry.lastProgressTick);
+
+        // checkTimeouts 在 threshold 后不应触发（因为持续喂狗刷新了 lastProgressTick）
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+        Assert.assertTrue("PLANNING 持续 PlanProgress 喂狗不应触发 WatchdogTimeout", captured.isEmpty());
+        Assert.assertEquals("镜像条目不应被移除", 1, h.watchdog.activeCount());
+    }
+
+    /**
+     * B 方案核心场景2：陈旧 gen 的 PlanProgress 不刷新新代际条目（世代隔离防护）。
+     *
+     * <p>gen=2 的条目收到 gen=1 的迟到 PlanProgress 不应被刷新，否则会给已回 IDLE 后的新代际「续命」
+     * 掩盖真卡死。本测断言陈旧 gen 事件被 onProgress 直接 return，条目保持原 lastProgressTick，
+     * threshold 后仍触发超时。</p>
+     */
+    @Test
+    public void staleGenPlanProgressDoesNotRefresh() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=2 进 PLANNING，serverTick=100
+        drive(h, phase(PLAYER, 2, 1, 2, 100L));
+        ChainWatchdog.WatchEntry entryBefore = h.watchdog.getEntry(PLAYER);
+        Assert.assertEquals(2, entryBefore.generation);
+        Assert.assertEquals(100L, entryBefore.lastProgressTick);
+
+        // publish 陈旧 gen=1 的 PlanProgress（gen 不匹配）
+        driveProgress(h, new PlanProgress(PLAYER, 1, 100L + threshold, (100L + threshold) * 1_000_000L, 0, 0));
+
+        // 条目应保持原 lastProgressTick=100，未被陈旧 gen 刷新
+        ChainWatchdog.WatchEntry entryAfter = h.watchdog.getEntry(PLAYER);
+        Assert.assertEquals("陈旧 gen 的 PlanProgress 不应刷新 lastProgressTick",
+                100L, entryAfter.lastProgressTick);
+        Assert.assertEquals("generation 应保持 2", 2, entryAfter.generation);
+
+        // threshold 后应触发超时（说明陈旧 gen 没误刷新）
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+        Assert.assertEquals("陈旧 gen 未刷新，应触发 WatchdogTimeout", 1, captured.size());
+        Assert.assertEquals("超时事件 gen 应来自镜像条目（=2）", 2, captured.get(0).getGeneration());
+    }
+
+    /**
+     * B 方案核心场景3：RUNNING 阶段持续 publish ExecutionAdvanced 喂狗，threshold 后不触发。
+     *
+     * <p>与 PLANNING 同构：RUNNING 两次状态机转移之间靠 ExecutionAdvanced（每 tick 破坏后 publish）
+     * 刷新 lastProgressTick，长执行不误杀。</p>
+     */
+    @Test
+    public void executionAdvancedFeedsWatchdogDuringRunning() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // gen=1 进 RUNNING，serverTick=200
+        drive(h, phase(PLAYER, 1, 2, 3, 200L));
+        Assert.assertEquals(1, h.watchdog.activeCount());
+
+        // 持续 publish ExecutionAdvanced（gen 匹配），模拟每 tick 破坏推进
+        for (long t = 200L; t < 200L + threshold + 5; t += 3L) {
+            driveProgress(h, new ExecutionAdvanced(PLAYER, 1, t, t * 1_000_000L, 1, 10));
+        }
+        ChainWatchdog.WatchEntry entry = h.watchdog.getEntry(PLAYER);
+        Assert.assertNotNull(entry);
+        // 最后一次 t = 200 + (threshold+3) 左右的 3 倍数；断言已被刷新远超初始 200
+        Assert.assertTrue("ExecutionAdvanced 应刷新 lastProgressTick，实际=" + entry.lastProgressTick,
+                entry.lastProgressTick > 200L + threshold / 2);
+
+        // threshold 后不应触发（持续喂狗）
+        h.watchdog.checkTimeouts(entry.lastProgressTick + 1);
+        h.bus.drain();
+        Assert.assertTrue("RUNNING 持续 ExecutionAdvanced 喂狗不应触发 WatchdogTimeout", captured.isEmpty());
+        Assert.assertEquals("镜像条目不应被移除", 1, h.watchdog.activeCount());
     }
 }
