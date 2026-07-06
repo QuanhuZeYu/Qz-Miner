@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentMap;
  *
  * <h3>阶段7 回填点</h3>
  * <p>{@link #remove(UUID)} 留阶段7「看门狗 + 生命周期收口」调用（玩家退出/重生/切维度/I7 触发），
- * 防止玩家登出后槽永驻。阶段5 不主动 remove（dry-run 消费完由执行订阅者清理）。</p>
+ * 防止玩家登出后槽永驻。执行订阅者真实破坏消费完后由其自行清理。</p>
  */
 public final class ChainExecutionContextRegistry {
 
@@ -108,7 +108,7 @@ public final class ChainExecutionContextRegistry {
      * 快照当前所有活跃执行上下文（供 ServerTickEvent 遍历消费）。
      *
      * <p>返回 {@link ConcurrentMap#values()} 的弱一致快照，遍历期间 worker 的 put 不影响遍历语义。
-     * 阶段5 dry-run 消费场景下，每 tick 主线程遍历此快照 poll 目标队列。</p>
+     * 阶段8 块2 起真实破坏消费场景下，每 tick 主线程遍历此快照 poll 目标队列真实破坏。</p>
      *
      * @return 当前所有活跃执行上下文的只读视图
      */

@@ -256,13 +256,13 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 ### 阶段6 致命卡点（oracle 探明）
 
 1. **G1 结构入口卡点：状态机转移无对外广播钩子**——`ChainStateMachine.applyTransition` 是唯一写点，改 slot 后只打日志不 publish（仅 T4 路径在 applyTransition 外单独 publish PlanStarted）。`ChainEventBus.drain` 按 `event.getClass()` 精确匹配，订阅基类兜不住。→ 根治：applyTransition 末尾 publish 新事件 `ChainPhaseChanged`（延续阶段4 B3 进态广播模式，守 I10）
-2. **G2 影子期语义卡点：dry-run 使新 phase 瞬时闪回**——阶段5 新链路 dry-run（poll 只计数），E4-b 临时桥同 tick publish LifecycleCleanup 回 IDLE，新 phase 极短时间内跑完 PLANNING→RUNNING→FINISHING→IDLE。若投影直接驱动预览锁定/HUD 会瞬时闪烁。→ 根治（P0-1=A）：投影只可见不夺权，权威仍读旧 serverExecutionStatus，阶段8 才切换
+2. **G2 影子期语义卡点：dry-run 使新 phase 瞬时闪回**——阶段5 新链路 dry-run（poll 只计数），E4-b 临时桥同 tick publish LifecycleCleanup 回 IDLE，新 phase 极短时间内跑完 PLANNING→RUNNING→FINISHING→IDLE。若投影直接驱动预览锁定/HUD 会瞬时闪烁。→ 根治（P0-1=A）：投影只可见不夺权，权威仍读旧 serverExecutionStatus，阶段8 才切换。（**阶段8 块3 已解除**：块2 真实破坏桥就位后 dry-run 闪回前提消失，G2 夺权已落地，详见阶段8 块3 决策段）
 
 ### 五架构分歧与用户裁决
 
 | 分歧 | 裁决 | 理由 |
 |---|---|---|
-| P0-1 投影是否夺权 | **A 不夺权（仅可见）** | G2 证明 dry-run 下新 phase 瞬时闪回，夺权致预览几乎不锁定、HUD 闪烁；与 A-shadow 影子边界自洽；阶段8 旧链路下线才切换权威 |
+| P0-1 投影是否夺权 | **A 不夺权（仅可见）**（阶段6-7）→ **阶段8 块3 已夺权** | G2 证明 dry-run 下新 phase 瞬时闪回，夺权致预览几乎不锁定、HUD 闪烁；与 A-shadow 影子边界自洽；阶段8 块2 真实破坏桥就位后 dry-run 闪回前提消失，块3 解除铁律改读 ClientPhaseProjection |
 | P1-1 客户端收口路径 | **A 走 clientChainEventBus** | 兑现阶段3 空跑骨架既定用途（ClientChainEventBusDrainer 注释"预览订阅留阶段6 接入"），与决策文档"dispatcher 收口内化进总线"一致 |
 | P1-2 投影容器粒度 | **A 单玩家** | 客户端进程只渲染本地玩家，收不到别人快照（服务端只 sendTo 本人），per-player Map 冗余 |
 | P2-1 ChainPhaseChanged 字段 | **A 携带 from+to** | 诊断成本低，事件流即结构化日志；客户端投影用 to，from 供日志/回放 |
@@ -435,3 +435,64 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 - **I5**：ChainDropCollector 必留（I5 掉落聚合活跃组件）
 - **I7**：cleanupPlayerState/flushPlayerDrops/onPlayerStateChanged 必留（宪章钦定）
 - **I10**：T4 三事件入口对称扩展，状态机唯一写权威不变；LeftClickObserved 是 publish 事件不切态
+
+## 阶段8 块3 决策（2026-07-06，G2 夺权 + 删八字段 + F3 config 包 + 瘦身 + P2 收口）
+
+> 块3 是阶段8 最后一批代码。完成后进入实机验证（runClient21/runServer25）。
+> 块2（真实破坏 + G1 掉落窗口）已完成功能恢复，块3 让客户端 HUD/预览权威切到新投影
+> （G2 不夺权铁律解除）+ 清理旧字段/死代码。
+
+### 用户拍板决策（本批块3 实施）
+
+| 决策点 | 选择 | 理由 |
+|---|---|---|
+| **G2 夺权** | HUD/预览锁定改读 ClientPhaseProjection（不再读旧 serverExecutionStatus） | 块2 真实破坏就位后 dry-run 瞬时闪回前提消失，投影可夺权；旧 serverExecutionStatus 随八字段链删除 |
+| **删八字段同步链** | PacketChainStateSync 整链删除 | phase 由 ClientPhaseProjection 承载，radius/maxBlocks/matchedCount 由新 config 包承载，八字段同步链成死代码 |
+| **F3-a matchedCount 修复** | 新建 PacketChainConfigSync（radius+maxBlocks+matchedCount），服务端订阅 PlanCompleted 下发 | matchedCount 真值 = PlanCompleted.totalTargets（= searchContext.getConfirmedCount()）；旧八字段链在 syncPlayerState 时读 ChainPlayerState.matchedCount，新链路无此写入点 |
+| **F1 锁定边界** | PLANNING/RUNNING/FINISHING 锁定；ARMED 不锁 | ARMED 玩家仍可自由选目标；FINISHING 是收尾态仍需锁（防转视角切走） |
+| **F2 HUD 文案** | RUNNING/FINISHING 复用 running；PLANNING 用 planning；ARMED/IDLE 复用 idle | FINISHING 是瞬时收尾，独立文案无价值；ARMED 无活跃连锁需提示 |
+| **A1 瘦身** | ChainRuntimeState 5 旧字段 + stopExecutionPreservingDrops 三层死代码 + ChainSession 9 委托方法 | 新链路目标/节流/matchedCount 由 ChainExecutionContext 承载，旧字段零调用方 |
+| **P2-2** | ChainWatchdog elapsedNanos 真实化 | 原占位是 System.nanoTime() 绝对值无时序意义，改为 nowNanos - lastNanos 真 delta |
+
+### G2 夺权落地（阶段8 块3 解除铁律）
+
+- **阶段6-7 G2 不夺权铁律**：投影只可见不夺权，HUD/预览锁定权威仍读旧 serverExecutionStatus（P0-1=A 决议）
+- **阶段8 块3 解除**：块2 真实破坏桥就位后 dry-run 瞬时闪回前提消失，投影夺权安全
+- 夺权点：
+  - `ChainPreviewController.shouldLockCurrentPreview`：读 `ClientProxy.clientPhaseProjection.getCurrentPhase()`，F1 锁 PLANNING/RUNNING/FINISHING
+  - `HudOverlay` phase 显示：读 ClientPhaseProjection，F2 文案策略
+- P2-4 回归断言：`ClientPhaseProjectionTest.g2ProjectionLockPhasesContract` 固化 F1 phase→lock 映射契约
+
+### F3-a matchedCount 新建链路
+
+- 新建 `network.PacketChainConfigSync`（Side.CLIENT，3 字段：chainRadius/chainMaxBlocks/matchedTargetCount）
+- 新建 `chain.state.projection.ChainConfigProjectionBridge`（服务端订阅者）：
+  - 订阅 `PlanCompleted`：matchedCount = totalTargets（真值来源），radius/maxBlocks 取 Config
+  - 订阅 `PlayerStateEvent` LOGIN：下发基础 config（matchedCount=0），确保 HUD 初始有值
+- 客户端 `ClientProxy.handleClientChainConfigSync`：写 ChainClientState 三字段（serverChainRadius/serverChainMaxBlocks/serverMatchedTargetCount）
+- radius/maxBlocks 来源：`Config.chainRadius`/`Config.chainMaxBlocks`（服务端全局上限）
+
+### 八字段同步链删除清单
+
+- `PacketChainStateSync.java`：整类删除
+- `ClientProxy/CommonProxy.handleClientChainStateSync`：删方法
+- `ChainStateService.syncPlayerState`：删方法 + 5 调用方处理（cleanupPlayerState/setPlayerChainKeyPressed/setPlayerSelectedMode/setPlayerSelectedSubMode/LOGIN）
+- `ChainDropCollector:69/:80`：删 syncPlayerState 调用（掉落释放后无状态需同步）
+- `NetworkMain`：删 PacketChainStateSync 注册
+- `ChainClientState`：删 serverChainKeyPressed/serverExecuting/serverExecutionStatus 三字段 + getter/setter（保留 config 三字段 + 客户端本地字段）
+
+### A1 瘦身清单
+
+- `ChainRuntimeState`：删 5 旧字段（pendingBreakTargets/plannerRunning/plannerCompleted/matchedTargetCount/nextExecutorAllowedMillis）+ 相关 getter/setter + stopExecutionPreservingDrops；保留 traversalTargets（ChainPlanningRuntimeFactory 装配用）+ plannerSubscription（clear 摘除）
+- `ChainSession`：删 9 委托方法（beginPlanning/markPlanningCompleted/getPendingBreakTargets/getMatchedTargetCount/setMatchedTargetCount/isPlannerCompleted/isPlannerRunning/isExecutorReady/scheduleNextExecutorRun）+ stopExecutionPreservingDrops；保留 config getters + traversalTargets + plannerSubscription 句柄
+- `ChainPlayerState`：删 getMatchedTargetCount/getPendingBreakTargetCount/hasPlannerSubscription/stopExecutionPreservingDrops + setExecutionStatus 日志精简
+- `ChainPlanningEventBridge:141`：删 shadowSession.beginPlanning() 调用
+- stopExecutionPreservingDrops 三层死代码删除（ChainRuntimeState/ChainSession/ChainPlayerState），无外部调用方
+
+### 块3 不变量守护
+
+- **I1**：ChainConfigProjectionBridge 只 sendTo 不碰世界；HUD/预览是客户端渲染
+- **I4**：config 包经 ClientProxy handler 收口（Netty 线程只写 volatile int 字段）
+- **I5**：不碰 ChainDropCollector/flushPlayerDrops（块2 已守）
+- **I7**：cleanupPlayerState/onPlayerStateChanged 保留（删 syncPlayerState 不影响生命周期收口）
+- **I10**：本批不碰状态机

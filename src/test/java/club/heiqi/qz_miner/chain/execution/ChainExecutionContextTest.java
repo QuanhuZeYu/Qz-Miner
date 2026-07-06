@@ -54,7 +54,7 @@ public class ChainExecutionContextTest {
         ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1, queue, null);
         Assert.assertFalse(context.isCompleted());
 
-        // 模拟 dry-run 执行订阅者消费：poll + 计数（不破坏）
+        // 模拟真实破坏执行订阅者消费：poll + 计数（单测只计数不破坏，生产路径由 ChainActionExecutor 破坏）
         int executed = 0;
         while (executed < 16) {
             ChainTarget t = context.getTargets().poll();
@@ -77,7 +77,7 @@ public class ChainExecutionContextTest {
         Assert.assertSame(queue, context.getTargets());
     }
 
-    /** nextExecutorAllowedMillis 节流字段默认 0，可读写（dry-run 不强制读，留阶段8 复用）。 */
+    /** nextExecutorAllowedMillis 节流字段默认 0，可读写（阶段8 块2 起真实破坏桥控速复用）。 */
     @Test
     public void throttleFieldDefaultZeroAndMutable() {
         ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1,
