@@ -44,7 +44,7 @@ public final class NoOpCableCompatAdapter implements CableCompatAdapter {
     }
 
     @Override
-    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
+    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex, int protectedMainHandSlot) {
         return false;
     }
 

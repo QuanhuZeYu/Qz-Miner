@@ -68,9 +68,10 @@ public interface CableCompatAdapter {
      * @param tileEntity 原线缆 TileEntity
      * @param replacementStack 替换用物品栈
      * @param replacementSlotIndex 替换物品所在背包槽位
+     * @param protectedMainHandSlot 受保护的主手槽位（返还旧线缆时跳过；-1 表示不保护）
      * @return 是否替换成功
      */
-    boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex);
+    boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex, int protectedMainHandSlot);
 
     /**
      * 按给定方向快照恢复线缆连接。

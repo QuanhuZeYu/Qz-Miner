@@ -97,10 +97,11 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
      * @param tileEntity           目标管线基座 {@link BaseMetaPipeEntity}
      * @param replacementStack     替换用线缆物品
      * @param replacementSlotIndex 替换物品所在槽位
+     * @param protectedMainHandSlot 受保护的主手槽位（返还旧线缆时跳过；-1 表示不保护）
      * @return 替换成功返回 true；前置校验失败/异种判定不通过/异常回滚均返回 false
      */
     @Override
-    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex) {
+    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex, int protectedMainHandSlot) {
         // 前置校验：玩家、管线基座、替换物品任一为空即拒绝
         BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
         if (player == null || baseMetaPipeEntity == null || replacementStack == null) {
@@ -160,7 +161,7 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         }
 
         // 成功后才消耗替换物品
-        consumeReplacementStack(player, replacementStack, replacementSlotIndex, oldMetaId);
+        consumeReplacementStack(player, replacementStack, replacementSlotIndex, oldMetaId, protectedMainHandSlot);
         return true;
     }
 
@@ -257,16 +258,16 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         return metaTileEntity instanceof MTECable cable ? cable : null;
     }
 
-    private void consumeReplacementStack(EntityPlayerMP player, ItemStack replacementStack, int replacementSlotIndex, short oldMetaId) {
+    private void consumeReplacementStack(EntityPlayerMP player, ItemStack replacementStack, int replacementSlotIndex, short oldMetaId, int protectedMainHandSlot) {
         if (player.capabilities.isCreativeMode) {
             return;
         }
 
         ItemStack oldCableStack = new ItemStack(replacementStack.getItem(), 1, oldMetaId);
-        boolean addedToInventory = addOldCableToExistingStack(player, oldCableStack);
-
+        // 三级降级：并入已有堆叠（跳过主手）→ 空槽（跳过主手）→ 掉地兜底
+        boolean addedToInventory = addOldCableToExistingStack(player, oldCableStack, protectedMainHandSlot);
         if (!addedToInventory) {
-            addedToInventory = player.inventory.addItemStackToInventory(oldCableStack);
+            addedToInventory = addOldCableToEmptySlot(player, oldCableStack, protectedMainHandSlot);
         }
         if (!addedToInventory) {
             player.dropPlayerItemWithRandomChoice(oldCableStack, false);
@@ -278,14 +279,30 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         }
     }
 
-    private boolean addOldCableToExistingStack(EntityPlayerMP player, ItemStack oldCableStack) {
+    private boolean addOldCableToExistingStack(EntityPlayerMP player, ItemStack oldCableStack, int protectedMainHandSlot) {
         for (int i = 0; i < player.inventory.mainInventory.length; i++) {
+            if (i == protectedMainHandSlot) continue;
             ItemStack slot = player.inventory.mainInventory[i];
             if (slot != null
                 && slot.getItem() == oldCableStack.getItem()
                 && slot.getItemDamage() == oldCableStack.getItemDamage()
                 && slot.stackSize < slot.getMaxStackSize()) {
                 slot.stackSize++;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 将旧线缆放入背包空槽（跳过主手 slot）。
+     * 主手 slot 受会话锁保护，避免旧线缆占用主手导致类型锚点错乱。
+     */
+    private boolean addOldCableToEmptySlot(EntityPlayerMP player, ItemStack oldCableStack, int protectedMainHandSlot) {
+        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
+            if (i == protectedMainHandSlot) continue;
+            if (player.inventory.mainInventory[i] == null) {
+                player.inventory.mainInventory[i] = oldCableStack;
                 return true;
             }
         }
