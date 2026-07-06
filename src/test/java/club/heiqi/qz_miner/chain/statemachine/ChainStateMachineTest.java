@@ -66,7 +66,7 @@ public class ChainStateMachineTest {
     }
 
     private BlockBreakObserved breakObserved(UUID player, int gen) {
-        return new BlockBreakObserved(player, gen, TICK, NANOS, 1, 2, 3, 0, 1);
+        return new BlockBreakObserved(player, gen, TICK, NANOS, 1, 2, 3, 0, 1, null, 0);
     }
 
     private RightClickObserved rightClickObserved(int gen) {
@@ -737,7 +737,7 @@ public class ChainStateMachineTest {
         h.bus.subscribe(PlanStarted.class, captured::add);
         // 用带具体字段的破坏事件驱动
         BlockBreakObserved breakEvent = new BlockBreakObserved(
-                PLAYER_A, 0, TICK, NANOS, 10, 20, 30, 7, 3);
+                PLAYER_A, 0, TICK, NANOS, 10, 20, 30, 7, 3, null, 0);
         drive(h, key(true));
         drive(h, breakEvent);
         Assert.assertEquals("应 publish 一条 PlanStarted", 1, captured.size());

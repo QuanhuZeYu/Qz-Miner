@@ -29,7 +29,7 @@ public class ChainEventBusTest {
     }
 
     private BlockBreakObserved breakEvent() {
-        return new BlockBreakObserved(PLAYER, 1, 0L, System.nanoTime(), 0, 0, 0, 0, 0);
+        return new BlockBreakObserved(PLAYER, 1, 0L, System.nanoTime(), 0, 0, 0, 0, 0, null, 0);
     }
 
     /**
