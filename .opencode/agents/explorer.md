@@ -1,10 +1,8 @@
 ---
 description: 代码侦察（传感层）。快速定位代码、追链路、返回压缩上下文。只读不改。
 mode: subagent
-model: anthropic/claude-opus-4-8
-thinking:
-  type: enabled
-  budgetTokens: 10000
+model: zhipu/glm-5.2
+variant: max
 permission:
   edit: deny
   bash: deny
