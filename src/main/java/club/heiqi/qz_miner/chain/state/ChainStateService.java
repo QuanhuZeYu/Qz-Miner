@@ -4,13 +4,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.ChainDropReleaseHelper;
 import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
-import club.heiqi.qz_miner.network.PacketChainStateSync;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
@@ -76,7 +74,8 @@ public final class ChainStateService {
         }
 
         state.clearRuntimeState(reason);
-        syncPlayerState(playerUUID);
+        // 阶段8 块3：删旧 syncPlayerState 调用（八字段同步链已删）。
+        // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN/PlanCompleted 下发，无需此处兜底。
     }
 
     public ChainClientState getClientState() {
@@ -87,12 +86,11 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setChainKeyPressed(pressed);
 
-        if (!pressed && state.isExecuting()) {
-            stopPlayerExecution(playerUUID, "key-released");
-            return;
-        }
-
-        syncPlayerState(playerUUID);
+        // 阶段8 块2：删旧 stopPlayerExecution 收口（G1 掉落窗口保护）。
+        // 旧逻辑：松键+isExecuting → stopPlayerExecution（setExecuting false）会破坏 G1 掉落窗口——
+        // RUNNING 时松键 setExecuting false 致 ChainDropCollector:32 跳过收集。
+        // 新链路 ARMED 模型：RUNNING 时松键不中断连锁，跑完为止（已裁定可接受）。
+        // 阶段8 块3：删旧 syncPlayerState 调用（八字段同步链已删，chainKeyPressed 是服务端内部信号，不同步回客户端）。
         MyMod.LOG.debug("[ChainState] Player {} chain key pressed={}", playerUUID, pressed);
     }
 
@@ -100,12 +98,9 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedMode(mode);
 
-        if (state.isExecuting()) {
-            stopPlayerExecution(playerUUID, "mode-changed");
-            return;
-        }
-
-        syncPlayerState(playerUUID);
+        // 阶段8 块2：删旧 isExecuting + stopPlayerExecution 收口（理由同上，保护 G1 掉落窗口）。
+        // 新链路：RUNNING 时切模式不中断连锁。
+        // 阶段8 块3：删旧 syncPlayerState 调用（mode 是客户端本地选择，不需服务端同步回客户端）。
         MyMod.LOG.debug("[ChainState] Player {} selected mode={}", playerUUID, mode);
     }
 
@@ -119,12 +114,9 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedSubMode(subMode);
 
-        if (state.isExecuting()) {
-            stopPlayerExecution(playerUUID, "sub-mode-changed");
-            return;
-        }
-
-        syncPlayerState(playerUUID);
+        // 阶段8 块2：删旧 isExecuting + stopPlayerExecution 收口（保护 G1 掉落窗口）。
+        // 新链路：RUNNING 时切子模式不中断连锁。
+        // 阶段8 块3：删旧 syncPlayerState 调用（subMode 是客户端本地选择，不需服务端同步回客户端）。
         MyMod.LOG.debug("[ChainState] Player {} selected sub mode={}", playerUUID, state.getSelectedSubMode());
     }
 
@@ -156,76 +148,25 @@ public final class ChainStateService {
             clientState.getRequestedChainRadius(), clientState.getRequestedChainMaxBlocks());
     }
 
-    public void syncPlayerState(UUID playerUUID) {
-        if (MyMod.networkMain == null || MyMod.playerManager == null) {
-            return;
-        }
-
-        ChainPlayerState state = getPlayerState(playerUUID);
-        if (state == null) {
-            return;
-        }
-
-        EntityPlayer player = MyMod.playerManager.getPlayer(playerUUID);
-        if (!(player instanceof EntityPlayerMP)) {
-            return;
-        }
-
-        MyMod.LOG.debug(
-            "[ChainSync] Sending chain state sync to player {} pressed={} executing={} mode={} status={} queuedTargets={} pendingDrops={}",
-            playerUUID,
-            state.isChainKeyPressed(),
-            state.isExecuting(),
-            state.getSelectedMode(),
-            state.getExecutionStatus(),
-            state.getPendingBreakTargetCount(),
-            state.getDropBuffer().size());
-
-        MyMod.networkMain.network.sendTo(
-            new PacketChainStateSync(
-                state.isChainKeyPressed(),
-                state.isExecuting(),
-                state.getSelectedMode(),
-                state.getSelectedSubMode(),
-                state.getExecutionStatus(),
-                Config.chainRadius,
-                Config.chainMaxBlocks,
-                state.getMatchedTargetCount()),
-            (EntityPlayerMP) player);
-    }
-
-    public void stopPlayerExecution(UUID playerUUID, String reason) {
-        ChainPlayerState state = getPlayerState(playerUUID);
-        if (state == null) {
-            return;
-        }
-
-        if (!state.isExecuting()
-            && !state.hasPlannerSubscription()
-            && state.getPendingBreakTargetCount() <= 0
-            && state.getDropBuffer().isEmpty()) {
-            return;
-        }
-
-        int queuedTargets = state.getPendingBreakTargetCount();
-        int pendingDrops = state.getDropBuffer().size();
-
-        MyMod.LOG.debug("[ChainState] Stopping player execution for {} reason={} status={} queuedTargets={} pendingDrops={}",
-            playerUUID,
-            reason,
-            state.getExecutionStatus(),
-            queuedTargets,
-            pendingDrops);
-        state.stopExecutionPreservingDrops(reason);
-        syncPlayerState(playerUUID);
-    }
+    /**
+     * 阶段8 块3：删除旧 syncPlayerState（八字段同步链已删）。
+     *
+     * <p>原方法组装 {@code PacketChainStateSync} 下发 8 字段（chainKeyPressed/executing/mode/subMode/
+     * executionStatus/radius/maxBlocks/matchedCount）到客户端。阶段8 块3 后：</p>
+     * <ul>
+     *   <li>phase 由 {@code ClientPhaseProjection} 承载（阶段6 投影主线，块3 G2 夺权）。</li>
+     *   <li>radius/maxBlocks/matchedCount 由 {@code ChainConfigProjectionBridge} 订阅 PlanCompleted/LOGIN 下发新 config 包。</li>
+     *   <li>mode/subMode/chainKeyPressed 是客户端本地选择/服务端内部信号，不同步回客户端。</li>
+     * </ul>
+     */
 
     private void onPlayerStateChanged(PlayerStateEvent event) {
         UUID playerUUID = event.player.getUniqueID();
         switch (event.reason) {
             case LOGIN:
                 getOrCreatePlayerState(playerUUID);
-                syncPlayerState(playerUUID);
+                // 阶段8 块3：删旧 syncPlayerState（八字段链已删）。
+                // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN 下发基础 config 包。
                 break;
             case RESPAWN:
                 getOrCreatePlayerState(playerUUID);

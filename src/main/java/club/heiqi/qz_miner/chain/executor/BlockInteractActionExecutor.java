@@ -46,7 +46,7 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
             }
             return activated;
         } catch (Exception e) {
-            MyMod.LOG.error("[ChainExecutor] Failed to interact block for player {} at ({}, {}, {})",
+            MyMod.LOG.error("[BlockInteractActionExecutor] Failed to interact block for player {} at ({}, {}, {})",
                 player.getUniqueID(), target.getX(), target.getY(), target.getZ(), e);
             return false;
         }

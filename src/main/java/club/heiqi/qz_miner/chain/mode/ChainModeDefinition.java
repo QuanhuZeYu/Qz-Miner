@@ -7,18 +7,20 @@ import java.util.List;
 import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
-import club.heiqi.qz_miner.chain.planner.ChainPlanningStrategy;
 import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
 import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 
 /**
  * 连锁模式定义。
+ *
+ * <p>阶段8：旧 {@code ChainPlanningStrategy} 接口及 5 实现已删除，
+ * {@code planningStrategy} 字段及 {@code getPlanningStrategy()} getter 同步移除。
+ * 规划接入新链路由 {@code ChainPlanningEventBridge} 影子 traverser 接管（块2 真实破坏桥就位后生效）。</p>
  */
 public final class ChainModeDefinition {
 
     private final ChainMode mode;
-    private final ChainPlanningStrategy planningStrategy;
     private final ChainActionExecutor actionExecutor;
     private final List<ChainSubMode> subModes;
     private final ChainSubMode defaultSubMode;
@@ -29,7 +31,6 @@ public final class ChainModeDefinition {
 
     public ChainModeDefinition(
         ChainMode mode,
-        ChainPlanningStrategy planningStrategy,
         ChainActionExecutor actionExecutor,
         ChainTraverserResolver traverserResolver,
         ChainBlockMatcherResolver matcherResolver,
@@ -38,7 +39,6 @@ public final class ChainModeDefinition {
         ChainSubMode defaultSubMode,
         List<ChainSubMode> subModes) {
         this.mode = mode;
-        this.planningStrategy = planningStrategy;
         this.actionExecutor = actionExecutor;
         this.traverserResolver = traverserResolver;
         this.matcherResolver = matcherResolver;
@@ -50,10 +50,6 @@ public final class ChainModeDefinition {
 
     public ChainMode getMode() {
         return mode;
-    }
-
-    public ChainPlanningStrategy getPlanningStrategy() {
-        return planningStrategy;
     }
 
     public ChainActionExecutor getActionExecutor() {

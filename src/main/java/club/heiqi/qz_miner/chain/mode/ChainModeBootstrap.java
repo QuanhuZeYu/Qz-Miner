@@ -6,14 +6,13 @@ import java.util.List;
 import club.heiqi.qz_miner.chain.executor.BlockHarvestActionExecutor;
 import club.heiqi.qz_miner.chain.executor.BlockInteractActionExecutor;
 import club.heiqi.qz_miner.chain.executor.GregTechCableReplaceActionExecutor;
-import club.heiqi.qz_miner.chain.planner.BlockBoxScanPlanningStrategy;
-import club.heiqi.qz_miner.chain.planner.BlockFloodFillPlanningStrategy;
-import club.heiqi.qz_miner.chain.planner.GregTechCablePlanningStrategy;
-import club.heiqi.qz_miner.chain.planner.InteractFloodFillPlanningStrategy;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 
 /**
  * 连锁模式注册引导。
+ *
+ * <p>阶段8：旧 {@code ChainPlanningStrategy} 系列已删除，{@code ChainModeDefinition}
+ * 构造器同步去掉 strategy 参数。模式定义只保留 traverser/matcher resolver + actionExecutor。</p>
  */
 public final class ChainModeBootstrap {
 
@@ -38,7 +37,6 @@ public final class ChainModeBootstrap {
     private static ChainModeDefinition createChainDefinition() {
         return new ChainModeDefinition(
             ChainMode.CHAIN,
-            new BlockFloodFillPlanningStrategy(),
             new BlockHarvestActionExecutor(),
             ChainModeResolvers.CHAIN_TRAVERSER,
             ChainModeResolvers.CHAIN_MATCHER,
@@ -56,7 +54,6 @@ public final class ChainModeBootstrap {
     private static ChainModeDefinition createAreaDefinition() {
         return new ChainModeDefinition(
             ChainMode.AREA,
-            new BlockBoxScanPlanningStrategy(),
             new BlockHarvestActionExecutor(),
             ChainModeResolvers.AREA_TRAVERSER,
             ChainModeResolvers.SAME_BLOCK_OR_HARVESTABLE_MATCHER,
@@ -79,7 +76,6 @@ public final class ChainModeBootstrap {
     private static ChainModeDefinition createInteractDefinition() {
         return new ChainModeDefinition(
             ChainMode.INTERACT,
-            new InteractFloodFillPlanningStrategy(),
             new BlockInteractActionExecutor(),
             ChainModeResolvers.DEFAULT_FLOOD_FILL_TRAVERSER,
             ChainModeResolvers.INTERACT_MATCHER,
@@ -105,7 +101,6 @@ public final class ChainModeBootstrap {
 
         return new ChainModeDefinition(
             ChainMode.SPECIAL,
-            new GregTechCablePlanningStrategy(),
             new GregTechCableReplaceActionExecutor(),
             ChainModeResolvers.DEFAULT_FLOOD_FILL_TRAVERSER,
             ChainModeResolvers.HARVESTABLE_MATCHER,

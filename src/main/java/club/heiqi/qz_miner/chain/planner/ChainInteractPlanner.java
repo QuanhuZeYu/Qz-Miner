@@ -1,8 +1,8 @@
 package club.heiqi.qz_miner.chain.planner;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
-import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
@@ -16,6 +16,9 @@ import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
 /**
  * INTERACT 模式右键触发规划器。
+ *
+ * <p>阶段8：旧链路 {@code startPlanning} 调用已删除，仅 publish {@link RightClickObserved}
+ * 走新链路 T4 右键观测入口（状态机统一推进 ARMED→PLANNING）。</p>
  */
 public class ChainInteractPlanner {
 
@@ -52,25 +55,18 @@ public class ChainInteractPlanner {
             return;
         }
 
-        ChainModeDefinition definition = ChainModeRegistry.getDefinition(playerState.getSelectedMode());
-        if (definition == null || definition.getPlanningStrategy() == null) {
-            return;
-        }
-
-        ChainTarget origin = new ChainTarget(event.x, event.y, event.z);
         HitOffset hitOffset = resolveHitOffset(player, event);
-        if (definition.getPlanningStrategy() instanceof InteractFloodFillPlanningStrategy) {
-            ((InteractFloodFillPlanningStrategy) definition.getPlanningStrategy()).startPlanning(
-                player,
-                playerState,
-                origin,
-                normalizeFace(event.face),
-                hitOffset.hitX,
-                hitOffset.hitY,
-                hitOffset.hitZ);
-            return;
+        // 守 I1：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
+        // 阶段8：旧 startPlanning 已删，仅 publish 走新链路 T4 右键观测入口
+        // 输入事件 generation 传 0 豁免代际判定；命中偏移携带是 T4 扩右键的根因
+        if (MyMod.chainEventBus != null) {
+            MyMod.chainEventBus.publish(new RightClickObserved(
+                    player.getUniqueID(), 0,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    event.x, event.y, event.z, player.dimension,
+                    normalizeFace(event.face),
+                    hitOffset.hitX, hitOffset.hitY, hitOffset.hitZ));
         }
-        definition.getPlanningStrategy().startPlanning(player, playerState, origin);
     }
 
     /**

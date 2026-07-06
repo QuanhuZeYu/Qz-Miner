@@ -15,8 +15,10 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraversalSupport;
 import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
 import club.heiqi.qz_miner.chain.planner.TraversalStepResult;
-import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+import club.heiqi.qz_miner.ClientProxy;
+import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -307,8 +309,12 @@ public class ChainPreviewController {
     /**
      * 判断当前是否应锁定已启动的预览计算。
      *
-     * 只要服务端已经进入规划或执行阶段，就继续保留当前预览，
-     * 避免客户端转动视角导致正在进行的连锁预览被切走。
+     * <p>阶段8 块3 G2 夺权：锁定权威切换到 {@link ClientPhaseProjection}（不再读旧
+     * {@code serverExecutionStatus}）。只要服务端投影阶段处于 PLANNING/RUNNING/FINISHING，
+     * 就继续保留当前预览，避免客户端转动视角导致正在进行的连锁预览被切走。</p>
+     *
+     * <p>F1 锁定边界：ARMED 不锁——玩家已武装但尚未点火，仍可自由选目标；
+     * IDLE 不锁——无活跃连锁。</p>
      *
      * @return 是否锁定当前预览
      */
@@ -321,8 +327,16 @@ public class ChainPreviewController {
             return false;
         }
 
-        ChainExecutionStatus status = MyMod.chainStateService.getClientState().getServerExecutionStatus();
-        return status == ChainExecutionStatus.PLANNING || status == ChainExecutionStatus.RUNNING;
+        // G2 夺权：读客户端阶段投影（单玩家容器，ClientProxy 初始化；单人服务端侧可能为 null）
+        ClientPhaseProjection projection = ClientProxy.clientPhaseProjection;
+        if (projection == null) {
+            return false;
+        }
+        ChainPhase phase = projection.getCurrentPhase();
+        // F1：PLANNING/RUNNING/FINISHING 锁定；ARMED/IDLE 不锁
+        return phase == ChainPhase.PLANNING
+            || phase == ChainPhase.RUNNING
+            || phase == ChainPhase.FINISHING;
     }
 
     private void stopPreview() {

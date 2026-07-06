@@ -89,5 +89,9 @@ public class ClientConnectionListener {
         if (ClientProxy.chainPreviewRenderer != null) {
             ClientProxy.chainPreviewRenderer.disposeForLifecycle();
         }
+        // 阶段6：玩家断线/切维度/世界卸载时清客户端投影容器（守 I7：客户端生命周期清理）
+        if (ClientProxy.clientPhaseProjection != null) {
+            ClientProxy.clientPhaseProjection.clear();
+        }
     }
 }

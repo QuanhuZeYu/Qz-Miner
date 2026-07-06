@@ -7,7 +7,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
-import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
+import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -54,17 +54,22 @@ public class HudOverlay {
         int x = 4;
         int y = resolution.getScaledHeight() - 20;
 
-        ChainExecutionStatus executionStatus = MyMod.chainStateService.getClientState().getServerExecutionStatus();
+        // 阶段8 块3 G2 夺权：phase 显示读客户端阶段投影（ClientPhaseProjection），不再读旧 serverExecutionStatus
+        ChainPhase phase = ClientProxy.clientPhaseProjection == null
+            ? ChainPhase.IDLE
+            : ClientProxy.clientPhaseProjection.getCurrentPhase();
         ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
         ChainModeDefinition modeDefinition = ChainModeRegistry.getDefinition(selectedMode);
         ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
         boolean showAreaInfo = modeDefinition != null && modeDefinition.shouldShowAreaInfo();
         String statusText;
-        if (executionStatus == ChainExecutionStatus.RUNNING) {
+        // F2 文案策略：RUNNING/FINISHING 复用 running 文案；PLANNING 用 planning 文案；ARMED/IDLE 复用 idle 文案
+        if (phase == ChainPhase.RUNNING || phase == ChainPhase.FINISHING) {
             statusText = "\u00a7a" + ClientI18n.tr("hud.qz_miner.status.running");
-        } else if (executionStatus == ChainExecutionStatus.PLANNING) {
+        } else if (phase == ChainPhase.PLANNING) {
             statusText = "\u00a7e" + ClientI18n.tr("hud.qz_miner.status.planning");
         } else {
+            // ARMED / IDLE 复用 idle 文案（ARMED 玩家仍可自由选目标，无活跃连锁需提示）
             statusText = "\u00a7e" + ClientI18n.tr("hud.qz_miner.status.idle");
         }
         mc.fontRenderer.drawStringWithShadow(statusText, x, y, 0xFFFFFF);

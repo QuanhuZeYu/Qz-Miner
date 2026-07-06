@@ -41,11 +41,6 @@ public final class NetworkMain {
                 packetId++,
                 Side.SERVER);
         network.registerMessage(
-                PacketChainStateSync.Handler.class,
-                PacketChainStateSync.class,
-                packetId++,
-                Side.CLIENT);
-        network.registerMessage(
                 PacketChainConfigRequest.Handler.class,
                 PacketChainConfigRequest.class,
                 packetId++,
@@ -58,6 +53,18 @@ public final class NetworkMain {
         network.registerMessage(
                 PacketLootGamesMinesweeperPreviewResponse.Handler.class,
                 PacketLootGamesMinesweeperPreviewResponse.class,
+                packetId++,
+                Side.CLIENT);
+        // 阶段6：连锁阶段快照下发（服务端 ChainStateProjectionBridge → 客户端投影容器）
+        network.registerMessage(
+                PacketChainPhaseSnapshot.Handler.class,
+                PacketChainPhaseSnapshot.class,
+                packetId++,
+                Side.CLIENT);
+        // 阶段8 块3 F3-a：连锁配置同步下发（服务端 ChainConfigProjectionBridge → 客户端 ChainClientState 三字段）
+        network.registerMessage(
+                PacketChainConfigSync.Handler.class,
+                PacketChainConfigSync.class,
                 packetId++,
                 Side.CLIENT);
     }

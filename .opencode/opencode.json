@@ -2,22 +2,5 @@
   "$schema": "https://opencode.ai/config.json",
   "instructions": [
     "AGENTS.md"
-  ],
-  "mcp": {
-    "codegraph": {
-      "type": "local",
-      "command": [
-        "cmd.exe",
-        "/d",
-        "/s",
-        "/c",
-        "npx -y @astudioplus/codegraph-mcp --graph-only --exclude .git --exclude .gradle --exclude build --exclude run --exclude node_modules --max-files 10000"
-      ],
-      "environment": {
-        "CODEGRAPH_TELEMETRY": "off"
-      },
-      "enabled": true,
-      "timeout": 30000
-    }
-  }
+  ]
 }
