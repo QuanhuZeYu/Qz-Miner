@@ -13,8 +13,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 阶段6 A1：连锁状态投影下发桥（服务端订阅者）。
  *
  * <p>订阅 {@link ChainPhaseChanged}（状态机 applyTransition 进态广播）→ 解析玩家 → 组装
- * {@link PacketChainPhaseSnapshot} 下发到客户端投影容器。客户端投影<b>只可见不夺权</b>
- * （P0-1=A 决议），HUD/预览锁定权威仍读旧 {@code serverExecutionStatus}，阶段8 才切换。</p>
+ * {@link PacketChainPhaseSnapshot} 下发到客户端投影容器。阶段8 块3 起投影夺权：
+ * HUD/预览锁定权威已从旧 {@code serverExecutionStatus} 切到 {@code ClientPhaseProjection}。</p>
  *
  * <h3>守 NORTH_STAR 不变量</h3>
  * <ul>
@@ -25,9 +25,10 @@ import net.minecraft.entity.player.EntityPlayerMP;
  *   <li><b>I10</b>：本桥是只读订阅者，不改状态机态。</li>
  * </ul>
  *
- * <h3>影子并行边界</h3>
- * <p>本桥与旧 {@code ChainStateService.syncPlayerState} 八字段同步并存，旧链路 HUD/预览锁定权威
- * 不受影响（守 G2 铁律）。新快照包与旧 {@code PacketChainStateSync} 并行下发，阶段8 才切换权威源。</p>
+ * <h3>阶段8 块3 现状</h3>
+ * <p>旧 {@code ChainStateService.syncPlayerState} 八字段同步链（{@code PacketChainStateSync}）
+ * 已于块3 删除，本桥是唯一的 phase 下发链路。{@code ChainConfigProjectionBridge}（config 包：
+ * radius/maxBlocks/matchedCount）与本桥正交，各自下发各自字段。</p>
  */
 public class ChainStateProjectionBridge {
 
@@ -47,9 +48,8 @@ public class ChainStateProjectionBridge {
     /**
      * 收到进态广播：解析玩家 → 组装快照包 → sendTo 客户端。
      *
-     * <p>契约：仅主线程 drain 调用。玩家解析模式对齐 {@code ChainStateService.syncPlayerState}
-     * （用 {@code MyMod.playerManager.getPlayer}，非 {@code EntityPlayerMP} 跳过——
-     * 单人内部服务器仍是 MP，跳过纯防御）。</p>
+     * <p>契约：仅主线程 drain 调用。玩家解析用 {@code MyMod.playerManager.getPlayer}
+     * （非 {@code EntityPlayerMP} 跳过——单人内部服务器仍是 MP，跳过纯防御）。</p>
      *
      * <p>守 I1：只 sendTo，绝不调 applyTransition/transition（加注释明示）。</p>
      *

@@ -492,7 +492,7 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 ### 块3 不变量守护
 
 - **I1**：ChainConfigProjectionBridge 只 sendTo 不碰世界；HUD/预览是客户端渲染
-- **I4**：config 包经 ClientProxy handler 收口（Netty 线程只写 volatile int 字段）
+- **I4**：config 包经 ClientProxy handler 收口（Netty 线程只写 volatile int 字段）。**偏离登记（reviewer P2-C）**：config 包三字段（radius/maxBlocks/matchedCount）是简单 volatile int，Handler 在 Netty 线程直写 ChainClientState 三字段，未走 ClientMainThreadDispatcher/clientChainEventBus drain 收口（与阶段6 phase 包的 publish+drain 模式不一致）。技术安全论证：volatile int 在 JMM 下 Netty 写 + 主线程读保证 happens-before 可见性，无复合操作/无 EnumMap。但字面偏离 NORTH_STAR I4"经 dispatcher 收口后再触碰主线程语义状态"的精神。保留直写的工程取舍：config 包是低频简单字段（PlanCompleted/LOGIN 时下发），drain 收口的复杂度收益不匹配。后续若统一为 publish+drain 模式（仿 PacketChainPhaseSnapshot），此处偏离自动消除。
 - **I5**：不碰 ChainDropCollector/flushPlayerDrops（块2 已守）
 - **I7**：cleanupPlayerState/onPlayerStateChanged 保留（删 syncPlayerState 不影响生命周期收口）
 - **I10**：本批不碰状态机

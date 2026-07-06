@@ -10,8 +10,8 @@ import cpw.mods.fml.relauncher.SideOnly;
  * <p>客户端只有本地玩家，单实例容器。{@code currentPhase}/{@code currentGeneration}/
  * {@code lastUpdateServerTick} 三个 volatile 字段供 HUD/诊断读取"服务端状态机最新态"。</p>
  *
- * <p><b>投影只可见不夺权</b>（P0-1=A 决议）：HUD/预览锁定权威仍读旧 {@code serverExecutionStatus}
- * （守 G2 铁律），阶段8 才切换权威源。</p>
+ * <p><b>阶段8 块3 起投影夺权</b>：HUD/预览锁定权威已从旧 {@code serverExecutionStatus}
+ * 切到本投影（G2 不夺权铁律解除）。阶段6-7 影子期的"只可见不夺权"已结束。</p>
  *
  * <h3>守 NORTH_STAR 不变量</h3>
  * <ul>
