@@ -41,11 +41,6 @@ public final class NetworkMain {
                 packetId++,
                 Side.SERVER);
         network.registerMessage(
-                PacketChainStateSync.Handler.class,
-                PacketChainStateSync.class,
-                packetId++,
-                Side.CLIENT);
-        network.registerMessage(
                 PacketChainConfigRequest.Handler.class,
                 PacketChainConfigRequest.class,
                 packetId++,

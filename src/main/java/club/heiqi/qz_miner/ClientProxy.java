@@ -13,7 +13,6 @@ import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
@@ -53,24 +52,6 @@ public class ClientProxy extends CommonProxy {
         HudOverlay hudOverlay = new HudOverlay();
         hudOverlay.register();
         new KeyListener(hudOverlay).register();
-    }
-
-    @Override
-    public void handleClientChainStateSync(boolean chainKeyPressed, boolean executing, ChainMode mode, ChainSubMode subMode, ChainExecutionStatus executionStatus, int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
-        ClientMainThreadDispatcher.run(() -> {
-            if (MyMod.chainStateService == null) {
-                return;
-            }
-
-            MyMod.chainStateService.getClientState().setServerChainKeyPressed(chainKeyPressed);
-            MyMod.chainStateService.getClientState().setServerExecuting(executing);
-            MyMod.chainStateService.getClientState().setServerExecutionStatus(executionStatus);
-            MyMod.chainStateService.getClientState().setSelectedMode(mode);
-            MyMod.chainStateService.getClientState().setSelectedSubMode(subMode);
-            MyMod.chainStateService.getClientState().setServerChainRadius(chainRadius);
-            MyMod.chainStateService.getClientState().setServerChainMaxBlocks(chainMaxBlocks);
-            MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedTargetCount);
-        });
     }
 
     /**

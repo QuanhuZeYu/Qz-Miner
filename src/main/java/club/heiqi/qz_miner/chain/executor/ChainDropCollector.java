@@ -66,7 +66,7 @@ public class ChainDropCollector {
                     continue;
                 }
                 if (ChainDropReleaseHelper.releaseAtRememberedTarget(dropBuffer, playerState.getPlayerUUID().toString(), "world-tick-missing-player")) {
-                    MyMod.chainStateService.syncPlayerState(playerState.getPlayerUUID());
+                    // 阶段8 块3：删旧 syncPlayerState（八字段同步链已删，掉落释放后无状态需同步客户端）。
                     continue;
                 }
                 MyMod.LOG.warn("[ChainDropCollector] Missing EntityPlayerMP for {}, keeping {} pending drop stack(s)",
@@ -77,7 +77,7 @@ public class ChainDropCollector {
             MyMod.LOG.debug("[ChainDropCollector] Ready to release aggregated drops for player {}, pending aggregated stacks={}",
                 playerState.getPlayerUUID(), dropBuffer.size());
             if (ChainDropReleaseHelper.releaseAtPlayer((EntityPlayerMP) player, dropBuffer, "world-tick")) {
-                MyMod.chainStateService.syncPlayerState(playerState.getPlayerUUID());
+                // 阶段8 块3：删旧 syncPlayerState（八字段同步链已删，掉落释放后无状态需同步客户端）。
             }
         }
     }

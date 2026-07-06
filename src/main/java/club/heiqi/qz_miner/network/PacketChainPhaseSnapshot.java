@@ -21,8 +21,8 @@ import io.netty.buffer.ByteBuf;
  *   <li><b>I10</b>：客户端投影容器与状态机物理隔离，客户端没有状态机实例，投影只可见不可切态。</li>
  * </ul>
  *
- * <p>影子并行边界（阶段6-7 共存）：本包与旧 {@link PacketChainStateSync} 并行下发，
- * 旧包八字段同步（HUD/预览锁定权威仍读旧链路态）保留到阶段8 切换。</p>
+ * <p>阶段8 块3：旧 {@code PacketChainStateSync} 八字段同步链已删除（G2 夺权后 phase 由本包 + 投影承载，
+ * radius/maxBlocks/matchedCount 由 {@link PacketChainConfigSync} 承载）。本包成为 phase 下发唯一主线。</p>
  */
 public class PacketChainPhaseSnapshot implements IMessage {
 
