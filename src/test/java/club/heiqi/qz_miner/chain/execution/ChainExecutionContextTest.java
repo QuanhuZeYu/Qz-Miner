@@ -26,28 +26,43 @@ public class ChainExecutionContextTest {
     private static final UUID PLAYER_A = UUID.fromString("00000000-0000-0000-0000-0000000000AA");
     private static final UUID PLAYER_B = UUID.fromString("00000000-0000-0000-0000-0000000000BB");
 
-    // ============================ ChainExecutionContext.isCompleted ============================
+    // ============================ ChainExecutionContext.isCompleted（流式语义） ============================
 
-    /** 空队列构造时 isCompleted() 返回 true（卡点5 空规划边界判定基础）。 */
+    /**
+     * 流式语义：planningComplete=false && queue 空 → isCompleted() 返回 false。
+     *
+     * <p>worker 仍在搜、queue 瞬时为空时，主线程消费订阅者<b>不应</b>误判 ExecutionFinished 提前 publish
+     * （否则卡死 RUNNING）。需要等 worker markPlanningComplete 后才可判定完成。</p>
+     */
     @Test
-    public void emptyTargetsIsCompleted() {
+    public void emptyTargetsButNotPlanningCompleteIsIncomplete() {
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1, queue, null);
-        Assert.assertTrue("空队列初始即完成", context.isCompleted());
+        Assert.assertFalse("planningComplete=false 时空 queue 不应判定完成", context.isCompleted());
     }
 
-    /** 非空队列构造时 isCompleted() 返回 false。 */
+    /** 流式语义：planningComplete=true && queue 空 → isCompleted() 返回 true（空规划边界 / 全消费完成）。 */
     @Test
-    public void nonEmptyTargetsIsNotCompleted() {
+    public void emptyTargetsAndPlanningCompleteIsCompleted() {
+        ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1, queue, null);
+        context.markPlanningComplete();
+        Assert.assertTrue("planningComplete=true 且空 queue 应判定完成", context.isCompleted());
+    }
+
+    /** 流式语义：planningComplete=true && queue 非空 → isCompleted() 返回 false（仍有目标待消费）。 */
+    @Test
+    public void nonEmptyTargetsEvenAfterPlanningCompleteIsNotCompleted() {
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         queue.add(new ChainTarget(1, 2, 3));
         ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1, queue, null);
-        Assert.assertFalse("非空队列未完成", context.isCompleted());
+        context.markPlanningComplete();
+        Assert.assertFalse("planningComplete=true 但 queue 非空仍不应判定完成", context.isCompleted());
     }
 
-    /** poll 全部目标后 isCompleted() 变 true（消费完成判定）。 */
+    /** 流式语义：poll 全部目标后 + markPlanningComplete 才 isCompleted() 变 true（消费完成判定）。 */
     @Test
-    public void pollAllTargetsBecomesCompleted() {
+    public void pollAllTargetsAndMarkPlanningCompleteBecomesCompleted() {
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         queue.add(new ChainTarget(1, 2, 3));
         queue.add(new ChainTarget(4, 5, 6));
@@ -64,7 +79,20 @@ public class ChainExecutionContextTest {
             executed++;
         }
         Assert.assertEquals("应消费 2 个目标", 2, executed);
-        Assert.assertTrue("消费完后应判定完成", context.isCompleted());
+        // 仅消费完但未 markPlanningComplete：仍不应判定完成（流式铁律）
+        Assert.assertFalse("消费完但未 markPlanningComplete 不应判定完成", context.isCompleted());
+        context.markPlanningComplete();
+        Assert.assertTrue("消费完且 markPlanningComplete 后应判定完成", context.isCompleted());
+    }
+
+    /** markPlanningComplete 后 isPlanningComplete() 返回 true（worker 完成路径铁律锚点）。 */
+    @Test
+    public void markPlanningCompleteFlipsFlag() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        Assert.assertFalse("构造时 planningComplete=false", context.isPlanningComplete());
+        context.markPlanningComplete();
+        Assert.assertTrue("markPlanningComplete 后 isPlanningComplete()=true", context.isPlanningComplete());
     }
 
     /** getter 字段一致性（playerUUID/generation 引用）。 */

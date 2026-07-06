@@ -1033,4 +1033,52 @@ public class ChainStateMachineTest {
         Assert.assertEquals("P2-1 对照：IDLE 态 removeSlot=false 应保槽保 gen 单调",
                 1, h.sm.getCurrentGeneration(PLAYER_A));
     }
+
+    // ============================ E2 松键即停：forced LifecycleCleanup 各活跃态强制回 IDLE ============================
+
+    /**
+     * E2 松键即停：PLANNING 态收 forced=true LifecycleCleanup → T9 兜底回 IDLE。
+     *
+     * <p>松键修复路径：PacketKeyState pressed=false 时 publish LifecycleCleanup(reason="user-abort",
+     * forced=true, removeSlot=false)。worker 仍在影子遍历 PLANNING 期间，松键应能立即终止活跃连锁
+     * （守 I7：哪一代都得清；复用 T9 PLANNING→IDLE 不改转移表）。</p>
+     */
+    @Test
+    public void forcedLifecycleCleanupFromPlanningReturnsIdle() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 模拟松键：forced=true + removeSlot=false（玩家在线保 gen 单调）
+        drive(h, forcedCleanup(PLAYER_A, 1, false));
+        Assert.assertEquals("E2：PLANNING 收 forced LifecycleCleanup 应走 T9 回 IDLE",
+                ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("removeSlot=false 保 gen 单调", 1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * E2 松键即停：FINISHING 态收 forced=true LifecycleCleanup → T8 回 IDLE。
+     *
+     * <p> ExecutionFinished 已 T7 RUNNING→FINISHING，但本桥 publish 的非 forced LifecycleCleanup
+     * 迟到或玩家在此瞬间松键，forced 路径应能强制收口（守 I7）。</p>
+     */
+    @Test
+    public void forcedLifecycleCleanupFromFinishingReturnsIdle() {
+        Harness h = newHarness();
+        // IDLE → ARMED → PLANNING → RUNNING → FINISHING(gen=1)
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        // 模拟松键：forced=true + removeSlot=false
+        drive(h, forcedCleanup(PLAYER_A, 1, false));
+        Assert.assertEquals("E2：FINISHING 收 forced LifecycleCleanup 应走 T8 回 IDLE",
+                ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("removeSlot=false 保 gen 单调", 1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
 }
