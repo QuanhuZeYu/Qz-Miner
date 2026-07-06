@@ -9,6 +9,11 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 
 /**
  * 服务端玩家连锁状态。
+ *
+ * <p>字段 {@link #dropReleaseConsecutiveFailures}：掉落释放连续失败计数，
+ * world-tick 释放路径用，累计超 {@code DROP_RELEASE_MAX_RETRIES} 上限触发 discard 兜底
+ * （守 NORTH_STAR 信条四四级降级链终点）；{@link #clearRuntimeState(String)} 收口清零，
+ * 防跨生命周期残留脏计数（守 I7）。</p>
  */
 public class ChainPlayerState extends AbstractChainModeState {
 
@@ -19,6 +24,20 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile int requestedChainRadius = -1;
     private volatile int requestedChainMaxBlocks = -1;
     private volatile ChainSession session;
+
+    /**
+     * world-tick 掉落释放连续失败计数（守信条四四级降级链终点）。
+     *
+     * <p>由 {@link club.heiqi.qz_miner.chain.executor.ChainDropCollector#onWorldTick} 释放路径在
+     * 全链（当前位置→重生/出生点→已记忆兜底）均失败时 {@link #incrementDropReleaseFailure()} 累加，
+     * 达 {@code DROP_RELEASE_MAX_RETRIES} 上限触发 {@code ChainDropReleaseHelper.discard} 兜底丢弃。
+     * 释放成功任一级即 {@link #resetDropReleaseFailure()} 清零。</p>
+     *
+     * <p>独立于 {@link #executionStatus}/phase/generation，不复用状态机写入口（类比
+     * {@link #seedDropCaptureArmed} 独立字段自行管理）。{@link #clearRuntimeState(String)} 收口清零，
+     * 守 I7 生命周期收口，防跨玩家/跨会话残留脏计数。</p>
+     */
+    private volatile int dropReleaseConsecutiveFailures;
 
     /**
      * 起点方块掉落捕获一次性 armed 标志。
@@ -200,6 +219,9 @@ public class ChainPlayerState extends AbstractChainModeState {
                 clearSession();
             }
         }
+        // 守 I7：掉落释放失败计数随运行时状态一并清零，防跨生命周期残留脏计数
+        // （玩家重生/切维度/克隆后下一轮释放从 0 起算，避免误触发 discard 兜底）。
+        resetDropReleaseFailure();
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
     }
 
@@ -244,5 +266,27 @@ public class ChainPlayerState extends AbstractChainModeState {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 累加 world-tick 掉落释放连续失败计数并返回累加后的值。
+     *
+     * <p>由 {@link club.heiqi.qz_miner.chain.executor.ChainDropCollector#onWorldTick} 在四级降级链
+     * 全部失败后调用，达 {@code DROP_RELEASE_MAX_RETRIES} 上限即由调用方触发
+     * {@code ChainDropReleaseHelper.discard} 兜底丢弃。</p>
+     *
+     * @return 累加后的连续失败次数
+     */
+    public int incrementDropReleaseFailure() {
+        return ++dropReleaseConsecutiveFailures;
+    }
+
+    /**
+     * 重置 world-tick 掉落释放连续失败计数为 0。
+     *
+     * <p>释放成功任一级降级后调用；{@link #clearRuntimeState(String)} 生命周期收口时也调用（守 I7）。</p>
+     */
+    public void resetDropReleaseFailure() {
+        dropReleaseConsecutiveFailures = 0;
     }
 }
