@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
+import club.heiqi.qz_miner.chain.eventbus.event.LeftClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
@@ -49,7 +50,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  *       与该玩家槽 {@code generation} 比较：{@code <} 丢弃+debug（陈旧规划事件迟到）；
  *       {@code ==} 处理；{@code >} 不转移+warn（不应出现）</li>
  *   <li>输入事件（{@link ChainKeyPressed}/{@link BlockBreakObserved}/{@link RightClickObserved}/
- *       {@link ModeSwitched}）豁免代际判定——它们是玩家直接动作，不归属某一具体代际，
+ *       {@link LeftClickObserved}/{@link ModeSwitched}）豁免代际判定——它们是玩家直接动作，不归属某一具体代际，
  *       由转移规则本身约束其在何态被消费</li>
  * </ul>
  *
@@ -58,7 +59,8 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  * 供 {@code ChainPlanningEventBridge} 拿到 {@code generation} + origin/dimension/sideHit/hitOffset 上下文
  * 后发起影子 traverser。这是状态机对外广播"我已进 PLANNING"，不是外部改态（守 I10）。
  * 订阅集仍含 9 个驱动事件：
- * T4 ARMED→PLANNING 由 {@link BlockBreakObserved} 或 {@link RightClickObserved} 双触发，两者均 {@code ++generation}。
+ * T4 ARMED→PLANNING 由 {@link BlockBreakObserved} 或 {@link RightClickObserved} 或 {@link LeftClickObserved}
+ * 三事件入口触发，三者均 {@code ++generation}。
  * 其余派生事件（{@link PlanCompleted}/{@link PlanCancelled} 等仍由功能订阅者发，如 bridge worker）。</p>
  */
 public class ChainStateMachine {
@@ -85,13 +87,15 @@ public class ChainStateMachine {
 
     /**
      * 订阅 9 个驱动事件。PlanStarted/PlanProgress/ExecutionAdvanced 不订阅（状态机只发不消费 PlanStarted）。
-     * T4 由 {@link BlockBreakObserved} 与 {@link RightClickObserved} 双触发，转移完成后 publish {@link PlanStarted}。
+     * T4 由 {@link BlockBreakObserved}、{@link RightClickObserved} 与 {@link LeftClickObserved} 三事件入口触发，
+     * 转移完成后 publish {@link PlanStarted}。
      */
     private void subscribe() {
         // 输入事件（豁免代际判定）
         bus.subscribe(ChainKeyPressed.class, this::onChainKeyPressed);
         bus.subscribe(BlockBreakObserved.class, this::onBlockBreakObserved);
         bus.subscribe(RightClickObserved.class, this::onRightClickObserved);
+        bus.subscribe(LeftClickObserved.class, this::onLeftClickObserved);
         bus.subscribe(ModeSwitched.class, this::onModeSwitched);
         // 派生事件（需代际陈旧判定）
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
@@ -163,7 +167,7 @@ public class ChainStateMachine {
      *
      * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。
      * 命中偏移命中字段（hitX/Y/Z）携带供 INTERACT 模式 flood fill 方向判定，
-     * 是 oracle 决议扩 T4 双触发的根因（见 NORTH_STAR §5 I10）。</p>
+     * 是 oracle 决议扩 T4 触发入口（破坏/右键/左键三入口）的根因（见 NORTH_STAR §5 I10）。</p>
      *
      * @param event 右键观测事件
      */
@@ -174,6 +178,37 @@ public class ChainStateMachine {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
             // 阶段4：T4 转移后 publish PlanStarted，右键路径携带实际命中偏移供 INTERACT flood fill 方向判定
+            bus.publish(new PlanStarted(
+                    event.getPlayerUUID(), nextGen,
+                    event.getServerTick(), ChainTickSource.nowNanos(),
+                    event.getX(), event.getY(), event.getZ(),
+                    event.getDimensionId(), event.getSideHit(),
+                    event.getHitX(), event.getHitY(), event.getHitZ()));
+        } else {
+            logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
+        }
+    }
+
+    /**
+     * 左键方块观测事件：ARMED → PLANNING，并自增代际（T4 左键观测入口，GT 线缆替换模式专用）。
+     *
+     * <p>阶段8 D1：GT 线缆左键替换观测入口，与破坏观测/右键观测三事件入口对称扩展 T4
+     * （见 NORTH_STAR §5 I10）。逻辑等同 {@link #onRightClickObserved}——
+     * ARMED 态 ++gen → PLANNING → publish {@link PlanStarted} 携带命中偏移。
+     * GT 线缆左键路径 {@code hitX/Y/Z} 默认填 0（1.7.10 {@code PlayerInteractEvent}
+     * 左键分支未暴露命中偏移），flood fill 不依赖此值。</p>
+     *
+     * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。</p>
+     *
+     * @param event 左键观测事件
+     */
+    private void onLeftClickObserved(LeftClickObserved event) {
+        PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        // T4 左键入口：ARMED → PLANNING，++generation 后再转移，逻辑等同 onRightClickObserved/onBlockBreakObserved
+        if (slot.phase == ChainPhase.ARMED) {
+            int nextGen = slot.generation + 1;
+            applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
+            // 阶段8：T4 转移后 publish PlanStarted，左键路径携带事件自带命中偏移（GT 线缆路径默认 0）
             bus.publish(new PlanStarted(
                     event.getPlayerUUID(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),

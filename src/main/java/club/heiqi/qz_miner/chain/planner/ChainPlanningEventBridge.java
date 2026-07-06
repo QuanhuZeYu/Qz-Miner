@@ -35,8 +35,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * <ul>
  *   <li><b>I1</b>：影子 worker 只读世界（traverser 只读）+ 只 publish 事件，<b>绝不</b>
  *       {@code setExecutionStatus}、<b>绝不</b>写 {@code ChainSession}、<b>绝不</b>
- *       {@code syncPlayerState}。旧链路 worker（{@link AbstractFloodFillPlanningStrategy}/{@link BlockBoxScanPlanningStrategy}）
- *       仍保留切态能力，其 I1 偏离已登记于 NORTH_STAR §8（阶段 8 删旧链路时回填）。</li>
+ *       {@code syncPlayerState}。阶段8 块1 已删除旧链路 worker（{@code AbstractFloodFillPlanningStrategy}/
+ *       {@code BlockBoxScanPlanningStrategy} 等），I1 偏离随之清偿（NORTH_STAR §8 偏离条目已移除）。</li>
  *   <li><b>I3</b>：复用 {@link ChainPlanningRuntimeFactory#createForServer} 与
  *       {@link ChainTraversalSupport#step}，不新造遍历逻辑。</li>
  *   <li><b>I4</b>：publish 跨线程入队、drain 主线程消费（{@link ChainEventBus} 天然满足），

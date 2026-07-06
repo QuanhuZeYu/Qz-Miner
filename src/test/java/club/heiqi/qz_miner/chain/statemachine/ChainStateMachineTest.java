@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
+import club.heiqi.qz_miner.chain.eventbus.event.LeftClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
@@ -74,6 +75,15 @@ public class ChainStateMachineTest {
 
     private RightClickObserved rightClickObserved(UUID player, int gen) {
         return new RightClickObserved(player, gen, TICK, NANOS, 1, 2, 3, 0, 1, 0.5F, 0.5F, 0.5F);
+    }
+
+    private LeftClickObserved leftClickObserved(int gen) {
+        return leftClickObserved(PLAYER_A, gen);
+    }
+
+    private LeftClickObserved leftClickObserved(UUID player, int gen) {
+        // GT 线缆路径 hitX/Y/Z 默认 0（1.7.10 PlayerInteractEvent 左键分支未暴露命中偏移）
+        return new LeftClickObserved(player, gen, TICK, NANOS, 1, 2, 3, 0, 1, 0.0F, 0.0F, 0.0F);
     }
 
     private ModeSwitched modeSwitched(int gen) {
@@ -508,6 +518,77 @@ public class ChainStateMachineTest {
         drive(h2, breakObserved(PLAYER_A, 0));
         Assert.assertEquals(ChainPhase.IDLE, h2.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(0, h2.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * 阶段8 D1：LeftClickObserved→T4 + gen++：ARMED 下左键观测（GT 线缆替换模式专用），
+     * 对称破坏观测/右键观测，三事件入口之一。
+     */
+    @Test
+    public void leftClickArmedToPlanningBumpsGen() {
+        Harness h = newHarness();
+        drive(h, key(PLAYER_A, 0, true));
+        drive(h, leftClickObserved(PLAYER_A, 0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+        // 左键进入 PLANNING 后，派生事件按新 gen 正常推进（与破坏/右键入口对称）
+        drive(h, planCompleted(1));
+        Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
+    }
+
+    /**
+     * 阶段8 D1：LeftClickObserved 在 IDLE 越界丢弃（与破坏/右键入口对称）。
+     */
+    @Test
+    public void leftClickInIdleIsDropped() {
+        Harness h = newHarness();
+        drive(h, leftClickObserved(PLAYER_A, 0));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(0, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * 阶段8 D1：LeftClickObserved 在 PLANNING 越界丢弃（与破坏/右键入口 P2-A 对称）。
+     */
+    @Test
+    public void leftClickInPlanningDropped() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, leftClickObserved(0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, leftClickObserved(1));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * 阶段8 D1：B3 PlanStarted 进态广播——左键路径（GT 线缆替换）携带 hitX/Y/Z=0（默认值）。
+     *
+     * <p>对照 {@link #planStartedPublishedOnBreakWithOrigin}（hitX/Y/Z=0）与
+     * {@link #planStartedPublishedOnRightClickWithHitOffset}（hitX/Y/Z 实际值）。
+     * GT 线缆左键路径 1.7.10 未暴露命中偏移，填 0，flood fill 不依赖此值。</p>
+     */
+    @Test
+    public void planStartedPublishedOnLeftClickWithZeroHitOffset() {
+        Harness h = newHarness();
+        List<PlanStarted> captured = new ArrayList<PlanStarted>();
+        h.bus.subscribe(PlanStarted.class, captured::add);
+        LeftClickObserved lcEvent = new LeftClickObserved(
+                PLAYER_A, 0, TICK, NANOS, 11, 22, 33, 5, 2, 0.0F, 0.0F, 0.0F);
+        drive(h, key(true));
+        drive(h, lcEvent);
+        Assert.assertEquals("应 publish 一条 PlanStarted", 1, captured.size());
+        PlanStarted ps = captured.get(0);
+        Assert.assertEquals(1, ps.getGeneration());
+        Assert.assertEquals(11, ps.getX());
+        Assert.assertEquals(22, ps.getY());
+        Assert.assertEquals(33, ps.getZ());
+        Assert.assertEquals(5, ps.getDimensionId());
+        Assert.assertEquals(2, ps.getSideHit());
+        // GT 线缆左键路径命中偏移默认 0
+        Assert.assertEquals(0.0F, ps.getHitX(), 0.0F);
+        Assert.assertEquals(0.0F, ps.getHitY(), 0.0F);
+        Assert.assertEquals(0.0F, ps.getHitZ(), 0.0F);
     }
 
     /** 29. 不同玩家 gen 独立自增：A 两次触发 gen=2，B 一次触发 gen=1。 */

@@ -6,7 +6,6 @@ import org.apache.logging.log4j.Logger;
 import club.heiqi.qz_miner.core.PlayerManager;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
-import club.heiqi.qz_miner.chain.executor.ChainExecutor;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBusDrainer;
 import club.heiqi.qz_miner.chain.execution.ChainExecutionContextRegistry;
@@ -56,7 +55,6 @@ public class MyMod {
     public static ChainInteractPlanner chainInteractPlanner;
     public static GregTechCableReplacePlanner gregTechCableReplacePlanner;
     public static ChainDropCollector chainDropCollector;
-    public static ChainExecutor chainExecutor;
     public static NetworkMain networkMain;
     public static ParallelTickExecutor parallelTickExecutor;
     /** 阶段 2：连锁跨线程事件总线，publish 来自任意线程，drain 仅主线程。 */
@@ -118,7 +116,6 @@ public class MyMod {
             gregTechCableReplacePlanner = new GregTechCableReplacePlanner();
         }
         chainDropCollector = new ChainDropCollector();
-        chainExecutor = new ChainExecutor();
         ServerMainThreadDispatcher.bootstrap();
         // 阶段 2：接入事件总线 + 状态机，空跑 drain（此时无 publish 点，每 tick poll 空队列零副作用）。
         // P2-D（阶段6）：服务端 bus 锚服务端主线程，bindMainThread 挪到 serverStarting（在服务器线程执行）。

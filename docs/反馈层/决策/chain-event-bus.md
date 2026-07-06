@@ -80,7 +80,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 | 源＼目标 | IDLE | ARMED | PLANNING | RUNNING | FINISHING |
 |---|---|---|---|---|---|
 | **IDLE** | LifecycleCleanup(self) | ChainKeyPressed(pressed=true) | — | — | — |
-| **ARMED** | ChainKeyPressed(pressed=false)／ModeSwitched／LifecycleCleanup | — | BlockBreakObserved／RightClickObserved | — | — |
+| **ARMED** | ChainKeyPressed(pressed=false)／ModeSwitched／LifecycleCleanup | — | BlockBreakObserved／RightClickObserved／LeftClickObserved | — | — |
 | **PLANNING** | PlanCancelled／LifecycleCleanup／WatchdogTimeout | — | (陈旧事件 self) | PlanCompleted(gen匹配) | — |
 | **RUNNING** | WatchdogTimeout／LifecycleCleanup | — | — | (陈旧事件 self) | ExecutionFinished |
 | **FINISHING** | LifecycleCleanup／WatchdogTimeout | — | — | — | (陈旧事件 self) |
@@ -92,7 +92,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 | T1 | IDLE→ARMED | ChainKeyPressed(pressed=true) | 不变 | 无（PlanStarted 阶段4发） |
 | T2 | ARMED→IDLE | ChainKeyPressed(pressed=false) | 不变 | 无 |
 | T3 | ARMED→IDLE | ModeSwitched | 不变 | 无 |
-| T4 | ARMED→PLANNING | BlockBreakObserved 或 RightClickObserved | **++currentGeneration** 后转移 | 无 |
+| T4 | ARMED→PLANNING | BlockBreakObserved 或 RightClickObserved 或 LeftClickObserved | **++currentGeneration** 后转移 | 无 |
 | T5 | PLANNING→RUNNING | PlanCompleted（gen 匹配） | 不变 | 无（ExecutionAdvanced 阶段5发） |
 | T6 | PLANNING→IDLE | PlanCancelled | 不变 | 无 |
 | T7 | RUNNING→FINISHING | ExecutionFinished | 不变 | 无（收尾逻辑阶段7发 LifecycleCleanup） |
@@ -105,7 +105,7 @@ P1 分支作废（代码不合并，转移表逻辑作为新状态机的参考�
 - `currentGeneration` 为 `int`（对齐 `ChainEvent.generation`），状态机私有，唯一写权威。
 - `++currentGeneration` 时机：**T4 ARMED→PLANNING 点火时**（不是 IDLE→ARMED）。理由：generation 标识一次真实连锁会话，ARMED 仅待命无异步规划事件、无跨代迟到风险；真正产生迟到风险的是规划线程启动后，进入 PLANNING 瞬间 ++ 让本次规划及其后续 Plan*/Execution* 都盖新 gen。按键重按下不 ++，避免无谓膨胀。
 - 代际陈旧判定**只对派生事件**（PlanCompleted/PlanCancelled/ExecutionFinished/WatchdogTimeout/LifecycleCleanup）比对：`gen < current` → 丢弃+debug；`==` → 处理；`gen > current` → 丢弃+warn（不应出现，状态机自增外部盖不出更大值）。
-- 输入事件（ChainKeyPressed/BlockBreakObserved/ModeSwitched）**豁免代际判定**：ChainKeyPressed 是新会话源头，发布时还不知道新 generation；真正需陈旧判定的是上一代规划线程迟到的派生事件。
+- 输入事件（ChainKeyPressed/BlockBreakObserved/RightClickObserved/LeftClickObserved/ModeSwitched）**豁免代际判定**：ChainKeyPressed 是新会话源头，发布时还不知道新 generation；真正需陈旧判定的是上一代规划线程迟到的派生事件。
 
 ### 越界收口
 
@@ -395,3 +395,43 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 ### 工程量估算
 
 阶段7 约 **2 个新类**（ChainWatchdog 看门狗 + ChainLifecycleBridge 生命周期桥）+ 5 改动文件（LifecycleCleanup 扩字段 / ChainStateMachine 改造 / ChainExecutionEventBridge 正名+订阅清理 / Config / MyMod）+ 2 新单测类 17 用例，**约 350-450 行**（不含单测）。核心复杂度集中在 F.1 genCheck 豁免与三路并存裁决。
+
+## 阶段8 决策（2026-07-06，块1 删旧执行驱动 + GT 线缆新事件源）
+
+> 阶段8 是新连锁框架 v2 迁移的最后阶段。oracle 已出完整清单 + 主 agent 抽检验证 + 用户拍板 6 决策。
+> 块1（删旧执行驱动 + GT 线缆新事件源）完成后**功能哑火是预期**——旧链路删除、新链路仍 dry-run，
+> 块2（真实破坏 + G1 夺权）后续批接才恢复真实连锁手感。
+
+### 用户拍板的 6 决策（本批块1 实施范围标记 ✅）
+
+| 决策点 | 选择 | 理由 | 本批 |
+|---|---|---|---|
+| **D1** GT 线缆左键接入方式 | 补 `LeftClickObserved` 事件源（T4 第三入口），**不**保留旧 startPlanning | 旧链路删除后 GT 线缆左键必须有新事件源走新链路；GT 线缆左键是特殊触发（LEFT_CLICK_BLOCK），与 CHAIN 的 BlockBreakObserved 和 INTERACT 的 RightClickObserved 正交，对称扩展 T4 是唯一根治 | ✅ 块1 |
+| **I10 修订** T4 入口表述 | "双事件入口" → "三事件入口"（+LeftClickObserved） | D1 落地后宪章表述必须同步修订，否则代码与宪章漂移；属不变量表述修订，用户已确认 | ✅ 块1 |
+| **A1** 共用类外科瘦身 | 瘦身但保留 I7/I5 宪章钦定的 cleanupPlayerState/flushPlayerDrops/onPlayerStateChanged | 这些方法是 NORTH_STAR:64/96/118 钦定的生命周期/掉落收口，删除即破坏 I5/I7 | 块2 |
+| **G1** ChainStateProjectionBridge 夺权 | 块2（与真实破坏耦合） | 投影接管权威源依赖真实破坏桥就位 | 块2 |
+| **E1** 真实破坏桥 | 块2（替换 dry-run 执行桥） | 块1 删 ChainExecutor 后无执行驱动，必须块2 重建真实破坏桥 | 块2 |
+| **F1-3** 共用类字段处理 | 块2（与 G1/E1 同批） | 涉及 ChainStateService/Session/PlayerState 旧字段语义切换 | 块2 |
+
+### 块1 实施清单（5 步，每步编译验证）
+
+1. **D1 补 LeftClickObserved 事件源**（纯加）：新建事件类、状态机订阅 + handler（对称 onRightClickObserved）、GT planner 改 publish、I10 表述修订、决策文档回写、ChainEventImmutabilityTest 登记、ChainStateMachineTest 扩 T4 左键用例
+2. **删 ChainExecutor 整类**：123 行旧执行驱动 + MyMod 摘线（import/字段/实例化）；**勿删** ChainDropCollector（I5）/ ChainActionExecutor 接口及实现（块2 用）
+3. **删 3 planner 的 startPlanning**：GT 已在步骤1 改完，CHAIN/INTERACT 补删 startPlanning 调用 + definition 解析（保留 publish BlockBreakObserved/RightClickObserved）
+4. **T-strategy 删 strategy 接口 + 5 实现**：ChainModeDefinition 删 strategy 字段/getter、ChainModeBootstrap 四处实参左移、ChainModeRegistry 删 strategy 非空校验、删 6 个 strategy 类（接口 + 基类 + 4 实现）
+5. **§8 偏离登记移除**：删除 `2026-07-05-planner-worker-sets-running` 偏离条目（scope 已随 strategy 类删除而清偿，按 §修订纪律「已还清即移除」）
+
+### 块1 功能哑火说明
+
+块1 完成后：
+- 旧链路（ChainExecutor + strategy 系）已删，旧执行驱动消失
+- 新链路仍 dry-run（ChainExecutionEventBridge 阶段5 E2-a 模式，不真实破坏）
+- 推论：按住连锁键挖方块**只挖一个、不连锁**——这是预期，块2 真实破坏桥就位后恢复
+- 状态机闭环仍正常（事件链路通），看门狗/生命周期收口仍有效（守 I7/I2）
+
+### 块1 不变量守护
+
+- **I1**：本批不碰世界写入（删除 ChainExecutor 后真实破坏主权暂缺，块2 恢复）
+- **I5**：ChainDropCollector 必留（I5 掉落聚合活跃组件）
+- **I7**：cleanupPlayerState/flushPlayerDrops/onPlayerStateChanged 必留（宪章钦定）
+- **I10**：T4 三事件入口对称扩展，状态机唯一写权威不变；LeftClickObserved 是 publish 事件不切态

@@ -40,9 +40,6 @@ public final class ChainModeRegistry {
             MyMod.LOG.warn("[ChainModeRegistry] Ignore unregistered mode definition: mode={}", definition.getMode());
             return;
         }
-        if (definition.getPlanningStrategy() == null) {
-            MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing planning strategy", definition.getMode());
-        }
         if (definition.getActionExecutor() == null) {
             MyMod.LOG.warn("[ChainModeRegistry] Mode {} missing action executor", definition.getMode());
         }

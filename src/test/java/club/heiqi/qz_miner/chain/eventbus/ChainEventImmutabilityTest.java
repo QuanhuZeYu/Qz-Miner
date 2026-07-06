@@ -11,12 +11,14 @@ import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
+import club.heiqi.qz_miner.chain.eventbus.event.LeftClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
+import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
@@ -32,6 +34,8 @@ public class ChainEventImmutabilityTest {
             ChainEvent.class,
             ChainKeyPressed.class,
             BlockBreakObserved.class,
+            RightClickObserved.class,
+            LeftClickObserved.class,
             ModeSwitched.class,
             PlanStarted.class,
             PlanProgress.class,
