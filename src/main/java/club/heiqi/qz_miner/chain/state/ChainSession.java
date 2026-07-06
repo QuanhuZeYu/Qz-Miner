@@ -10,6 +10,14 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
  * 单次连锁任务会话。
+ *
+ * <p>阶段8 块3 瘦身：删除旧链路委托方法（beginPlanning/markPlanningCompleted/getPendingBreakTargets/
+ * getMatchedTargetCount/setMatchedTargetCount/isPlannerCompleted/isPlannerRunning/isExecutorReady/
+ * scheduleNextExecutorRun/stopExecutionPreservingDrops）。新链路目标队列/节流/matchedCount 由
+ * {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，session 仅作配置载体
+ * （mode/subMode/origin/interactFace/hitOffset/radius/maxBlocks）+ 装配 traverser 的 traversalTargets。
+ * 真实破坏桥（{@link club.heiqi.qz_miner.chain.execution.ChainExecutionEventBridge}）只读 session 配置字段，
+ * 不读运行态字段（块3 已删）。</p>
  */
 public class ChainSession {
 
@@ -115,49 +123,10 @@ public class ChainSession {
     }
 
     /**
-     * 标记会话进入规划阶段，并重置执行节流。
-     */
-    public void beginPlanning() {
-        runtimeState.setPlannerRunning(true);
-        runtimeState.setPlannerCompleted(false);
-        runtimeState.resetExecutorThrottle();
-    }
-
-    /**
-     * 标记会话规划结束，并释放规划订阅句柄。
-     */
-    public void markPlanningCompleted() {
-        runtimeState.setPlannerSubscription(null);
-        runtimeState.setPlannerRunning(false);
-        runtimeState.setPlannerCompleted(true);
-    }
-
-    /**
-     * 获取规划遍历使用的候选队列。
+     * 获取规划遍历使用的候选队列（ChainPlanningRuntimeFactory 装配 traverser 用）。
      */
     public ConcurrentLinkedQueue<ChainTarget> getTraversalTargets() {
         return runtimeState.getTraversalTargets();
-    }
-
-    /**
-     * 获取待执行破坏目标队列。
-     */
-    public ConcurrentLinkedQueue<ChainTarget> getPendingBreakTargets() {
-        return runtimeState.getPendingBreakTargets();
-    }
-
-    /**
-     * 获取当前已匹配目标数。
-     */
-    public int getMatchedTargetCount() {
-        return runtimeState.getMatchedTargetCount();
-    }
-
-    /**
-     * 更新当前已匹配目标数。
-     */
-    public void setMatchedTargetCount(int matchedTargetCount) {
-        runtimeState.setMatchedTargetCount(matchedTargetCount);
     }
 
     /**
@@ -174,42 +143,7 @@ public class ChainSession {
         return runtimeState.getPlannerSubscription() != null;
     }
 
-    /**
-     * 判断当前规划是否已经完成。
-     */
-    public boolean isPlannerCompleted() {
-        return runtimeState.isPlannerCompleted();
-    }
-
-    /**
-     * 判断当前规划是否仍在运行。
-     */
-    public boolean isPlannerRunning() {
-        return runtimeState.isPlannerRunning();
-    }
-
-    /**
-     * 判断执行器当前是否允许继续消费目标。
-     */
-    public boolean isExecutorReady(long nowMillis) {
-        return runtimeState.isExecutorReady(nowMillis);
-    }
-
-    /**
-     * 为下一次执行消费设置节流时间。
-     */
-    public void scheduleNextExecutorRun(long nowMillis, long intervalMillis) {
-        runtimeState.scheduleNextExecutorRun(nowMillis, intervalMillis);
-    }
-
     public void clearRuntimeState(String reason) {
         runtimeState.clear(reason);
-    }
-
-    /**
-     * 停止执行但保留玩家级掉落缓冲。
-     */
-    public void stopExecutionPreservingDrops(String reason) {
-        runtimeState.stopExecutionPreservingDrops(reason);
     }
 }

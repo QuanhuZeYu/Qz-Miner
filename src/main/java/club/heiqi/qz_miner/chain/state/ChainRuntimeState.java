@@ -2,7 +2,6 @@ package club.heiqi.qz_miner.chain.state;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
@@ -10,17 +9,19 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
  * 单次连锁运行时状态。
+ *
+ * <p>阶段8 块3 瘦身：删除旧链路依赖的 5 字段（pendingBreakTargets/plannerRunning/plannerCompleted/
+ * matchedTargetCount/nextExecutorAllowedMillis）+ stopExecutionPreservingDrops 三层死代码。
+ * 新链路的目标队列由 {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，
+ * 节流戳由 context.nextExecutorAllowedMillis 承载，matchedCount 由 PlanCompleted 事件承载。
+ * 本类仅保留 traversalTargets（ChainPlanningRuntimeFactory 装配 traverser 用）+ plannerSubscription
+ * （规划订阅句柄，clear 时摘除）。</p>
  */
 public final class ChainRuntimeState {
 
     private final UUID playerUUID;
     private volatile ParallelTickSubscription plannerSubscription;
     private final ConcurrentLinkedQueue<ChainTarget> traversalTargets = new ConcurrentLinkedQueue<ChainTarget>();
-    private final ConcurrentLinkedQueue<ChainTarget> pendingBreakTargets = new ConcurrentLinkedQueue<ChainTarget>();
-    private volatile boolean plannerRunning;
-    private volatile boolean plannerCompleted;
-    private volatile int matchedTargetCount;
-    private final AtomicLong nextExecutorAllowedMillis = new AtomicLong();
 
     public ChainRuntimeState(UUID playerUUID) {
         this.playerUUID = playerUUID;
@@ -34,8 +35,7 @@ public final class ChainRuntimeState {
         if (this.plannerSubscription == null && plannerSubscription != null) {
             MyMod.LOG.debug("[ChainRuntime] Player {} plannerSubscription attached", playerUUID);
         } else if (this.plannerSubscription != null && plannerSubscription == null) {
-            MyMod.LOG.debug("[ChainRuntime] Player {} plannerSubscription cleared queuedTargets={}",
-                playerUUID, pendingBreakTargets.size());
+            MyMod.LOG.debug("[ChainRuntime] Player {} plannerSubscription cleared", playerUUID);
         }
         this.plannerSubscription = plannerSubscription;
     }
@@ -44,90 +44,21 @@ public final class ChainRuntimeState {
         return traversalTargets;
     }
 
-    public ConcurrentLinkedQueue<ChainTarget> getPendingBreakTargets() {
-        return pendingBreakTargets;
-    }
-
-    public boolean isPlannerRunning() {
-        return plannerRunning;
-    }
-
-    public void setPlannerRunning(boolean plannerRunning) {
-        if (this.plannerRunning != plannerRunning) {
-            MyMod.LOG.debug("[ChainRuntime] Player {} plannerRunning {} -> {} traversalTargets={} pendingBreakTargets={}",
-                playerUUID, this.plannerRunning, plannerRunning, traversalTargets.size(), pendingBreakTargets.size());
-        }
-        this.plannerRunning = plannerRunning;
-    }
-
-    public boolean isPlannerCompleted() {
-        return plannerCompleted;
-    }
-
-    public void setPlannerCompleted(boolean plannerCompleted) {
-        if (this.plannerCompleted != plannerCompleted) {
-            MyMod.LOG.debug("[ChainRuntime] Player {} plannerCompleted {} -> {} traversalTargets={} pendingBreakTargets={}",
-                playerUUID, this.plannerCompleted, plannerCompleted, traversalTargets.size(), pendingBreakTargets.size());
-        }
-        this.plannerCompleted = plannerCompleted;
-    }
-
-    public int getMatchedTargetCount() {
-        return matchedTargetCount;
-    }
-
-    public void setMatchedTargetCount(int matchedTargetCount) {
-        this.matchedTargetCount = Math.max(0, matchedTargetCount);
-    }
-
-    public void resetExecutorThrottle() {
-        nextExecutorAllowedMillis.set(0L);
-    }
-
-    public boolean isExecutorReady(long nowMillis) {
-        return nowMillis >= nextExecutorAllowedMillis.get();
-    }
-
-    public void scheduleNextExecutorRun(long nowMillis, long intervalMillis) {
-        nextExecutorAllowedMillis.set(nowMillis + Math.max(0L, intervalMillis));
-    }
-
-    public void clear(String reason) {
-        int queuedTargets = pendingBreakTargets.size();
-        if (plannerSubscription != null) {
-            plannerSubscription.unregister();
-            setPlannerSubscription(null);
-        }
-        traversalTargets.clear();
-        pendingBreakTargets.clear();
-        plannerRunning = false;
-        plannerCompleted = false;
-        matchedTargetCount = 0;
-        resetExecutorThrottle();
-        MyMod.LOG.debug("[ChainRuntime] Cleared runtime state for player {}, reason={}, queuedTargets={}",
-            playerUUID, reason, queuedTargets);
-    }
-
     /**
-     * 停止本次连锁执行。
+     * 清理运行时状态（生命周期收口时调用）。
      *
-     * 运行态不再持有掉落缓存，因此这里只清理本次会话的规划与执行状态。
+     * <p>摘除规划订阅句柄 + 清空 traversal 队列。阶段8 块3 后不再持有 pendingBreak/matched/throttle 等
+     * 旧字段（已迁移到 ChainExecutionContext）。</p>
      *
-     * @param reason 停止原因
+     * @param reason 清理原因
      */
-    public void stopExecutionPreservingDrops(String reason) {
-        int queuedTargets = pendingBreakTargets.size();
+    public void clear(String reason) {
         if (plannerSubscription != null) {
             plannerSubscription.unregister();
             setPlannerSubscription(null);
         }
         traversalTargets.clear();
-        pendingBreakTargets.clear();
-        plannerRunning = false;
-        plannerCompleted = false;
-        matchedTargetCount = 0;
-        resetExecutorThrottle();
-        MyMod.LOG.debug("[ChainRuntime] Stopped execution for player {}, reason={}, queuedTargets={}",
-            playerUUID, reason, queuedTargets);
+        MyMod.LOG.debug("[ChainRuntime] Cleared runtime state for player {}, reason={}",
+            playerUUID, reason);
     }
 }

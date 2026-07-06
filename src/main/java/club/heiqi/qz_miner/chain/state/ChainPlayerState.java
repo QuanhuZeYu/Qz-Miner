@@ -57,20 +57,15 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void setExecutionStatus(ChainExecutionStatus executionStatus, String reason) {
         ChainExecutionStatus newStatus = executionStatus == null ? ChainExecutionStatus.IDLE : executionStatus;
-        ChainSession currentSession = this.session;
         if (this.executionStatus != newStatus) {
-            int queuedTargets = currentSession == null ? 0 : currentSession.getPendingBreakTargets().size();
             int pendingDropsCount = dropBuffer.size();
-            boolean waitingForPlanner = currentSession != null && currentSession.isPlannerRunning();
             MyMod.LOG.debug(
-                "[ChainState] Player {} executionStatus {} -> {} reason={} queuedTargets={} pendingDrops={} waitingForPlanner={}",
+                "[ChainState] Player {} executionStatus {} -> {} reason={} pendingDrops={}",
                 playerUUID,
                 this.executionStatus,
                 newStatus,
                 reason,
-                queuedTargets,
-                pendingDropsCount,
-                waitingForPlanner);
+                pendingDropsCount);
         }
         this.executionStatus = newStatus;
     }
@@ -115,20 +110,8 @@ public class ChainPlayerState extends AbstractChainModeState {
         return session;
     }
 
-    int getMatchedTargetCount() {
-        ChainSession currentSession = this.session;
-        return currentSession == null ? 0 : currentSession.getMatchedTargetCount();
-    }
-
-    int getPendingBreakTargetCount() {
-        ChainSession currentSession = this.session;
-        return currentSession == null ? 0 : currentSession.getPendingBreakTargets().size();
-    }
-
-    boolean hasPlannerSubscription() {
-        ChainSession currentSession = this.session;
-        return currentSession != null && currentSession.hasPlannerSubscription();
-    }
+    // 阶段8 块3：删旧 getMatchedTargetCount/getPendingBreakTargetCount/hasPlannerSubscription
+    // （ChainSession 委托方法已删，这些读取链已断；syncPlayerState 已删无调用方）。
 
     public boolean isSessionActive(ChainSession session) {
         return session != null && this.session == session;
@@ -198,26 +181,6 @@ public class ChainPlayerState extends AbstractChainModeState {
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
     }
 
-    /**
-     * 停止当前连锁执行。
-     *
-     * 玩家级掉落缓冲会由独立释放流程处理，因此此处只负责结束会话运行态。
-     *
-     * @param reason 停止原因
-     */
-    public void stopExecutionPreservingDrops(String reason) {
-        setExecutionStatus(ChainExecutionStatus.IDLE, reason);
-        ChainSession currentSession = this.session;
-        if (currentSession == null) {
-            return;
-        }
-
-        GregTechCableSessionState.clear(currentSession);
-        currentSession.stopExecutionPreservingDrops(reason);
-        if (this.session == currentSession) {
-            clearSession();
-        }
-        MyMod.LOG.debug("[ChainState] Stopped execution for player {}, reason={}, pendingDrops={}",
-            playerUUID, reason, dropBuffer.size());
-    }
+    // 阶段8 块3：删旧 stopExecutionPreservingDrops（三层死代码：ChainRuntimeState/ChainSession/ChainPlayerState）。
+    // 新链路无外部调用方（G1 掉落窗口由 ChainDropCollector + executionStatus 守，不依赖 stopExecution 收口）。
 }
