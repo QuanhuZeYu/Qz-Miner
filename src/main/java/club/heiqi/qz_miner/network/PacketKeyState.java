@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.ChainConstants;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
+import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
@@ -76,6 +77,18 @@ public class PacketKeyState implements IMessage {
                             player.getUniqueID(), 0,
                             ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                             pressed));
+                    // E2 松键即停修复：松键（pressed=false）额外 publish LifecycleCleanup(reason="user-abort",
+                    // forced=true, removeSlot=false)。复用 forced=true 豁免 genCheck，无论当前处于
+                    // PLANNING/RUNNING/FINISHING/ARMED/IDLE 哪个态都能由状态机 T9/T8/IDLE early-return 收口
+                    // （活跃态→IDLE 走 T9，IDLE 幂等丢弃）。removeSlot=false：玩家在线保 gen 单调，
+                    // 后续连锁可正常武装。执行桥 onLifecycleCleanup 关掉落窗口 + 清 registry，
+                    // 中断活跃执行链（边搜边破坏的活跃连锁松键即停）。
+                    if (!pressed) {
+                        MyMod.chainEventBus.publish(new LifecycleCleanup(
+                                player.getUniqueID(), 0,
+                                ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                                "user-abort", true, false));
+                    }
                 }
                 MyMod.LOG.debug("[Network] Player {} key state: keyId={}, pressed={}",
                     player.getCommandSenderName(), keyId, pressed);

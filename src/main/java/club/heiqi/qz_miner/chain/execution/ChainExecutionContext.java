@@ -61,7 +61,27 @@ public final class ChainExecutionContext {
     private volatile long nextExecutorAllowedMillis;
 
     /**
+     * 流式执行标志：worker 是否已完成影子遍历（所有 confirmed target 已 shadowQueue.add）。
+     *
+     * <p>流式语义（C 修复）：</p>
+     * <ul>
+     *   <li>{@code false}：worker 仍在搜，主线程消费订阅者可边 poll 边破坏 worker 边 add 的目标，
+     *       但<b>不应</b>因 queue 瞬时为空判定 ExecutionFinished 提前 publish（避免卡 RUNNING）。</li>
+     *   <li>{@code true}：worker 已完成遍历 + publish PlanCompleted，主线程此后 queue 空 → publish ExecutionFinished。</li>
+     * </ul>
+     *
+     * <p>线程可见性：worker 线程写（{@link #markPlanningComplete}），主线程消费订阅者读
+     * （{@link #isPlanningComplete} / {@link #isCompleted}）。volatile 提供 happens-before，
+     * 与 {@link ChainExecutionContextRegistry#put}（ConcurrentHashMap）一同保证
+     * worker 在 markPlanningComplete 之前的所有 shadowQueue.add 操作对主线程可见。</p>
+     */
+    private volatile boolean planningComplete;
+
+    /**
      * 构造执行上下文。
+     *
+     * <p>构造时 {@code planningComplete=false}（worker 尚未完成遍历）。
+     * 由 worker 完成路径显式 {@link #markPlanningComplete()} 翻为 true。</p>
      *
      * @param playerUUID 触发玩家
      * @param generation 代际（必须与触发本次执行的 {@link club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted}
@@ -75,6 +95,17 @@ public final class ChainExecutionContext {
         this.targets = targets;
         this.session = session;
         this.nextExecutorAllowedMillis = 0L;
+        this.planningComplete = false;
+    }
+
+    /** 标记 worker 影子遍历完成（worker 完成路径调用，主线程消费订阅者据此判定可否 publish ExecutionFinished）。 */
+    public void markPlanningComplete() {
+        this.planningComplete = true;
+    }
+
+    /** @return worker 是否已完成影子遍历（false 表示仍在搜，主线程消费 queue 空 不应 publish ExecutionFinished） */
+    public boolean isPlanningComplete() {
+        return planningComplete;
     }
 
     /** @return 触发玩家 UUID */
@@ -116,15 +147,23 @@ public final class ChainExecutionContext {
     }
 
     /**
-     * 队列是否已消费完。
+     * 执行是否已完成（流式语义）。
      *
-     * <p>供执行订阅者判定是否 publish {@link club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished}。
-     * 空规划边界（卡点5）：构造时若 targets 初始即空，登记后立即判定完成并 publish ExecutionFinished。</p>
+     * <p>流式语义（C 修复）：返回 {@code planningComplete && targets.isEmpty()}，
+     * <b>必须</b>同时满足「worker 已完成遍历」和「目标队列已消费空」两个条件：
+     * 避免 worker 仍在搜、queue 瞬时为空就被误判 ExecutionFinished 提前 publish
+     * （否则卡死 RUNNING，玩家槽哑火）。</p>
      *
-     * @return true 表示目标队列已空（消费完成或初始空规划）
+     * <ul>
+     *   <li>空规划边界（卡点5）：worker 完成时 markPlanningComplete + queue 初始即空 → 立即判定完成。</li>
+     *   <li>流式中途：planningComplete=false → 即便 queue 此刻空也返回 false（留 worker 继续搜）。</li>
+     *   <li>正常消费完成：planningComplete=true 且 queue poll 空 → 返回 true（触发 publish ExecutionFinished）。</li>
+     * </ul>
+     *
+     * @return true 表示 worker 已完成遍历且目标队列已空（可 publish ExecutionFinished）
      */
     public boolean isCompleted() {
-        return targets.isEmpty();
+        return planningComplete && targets.isEmpty();
     }
 
     /**

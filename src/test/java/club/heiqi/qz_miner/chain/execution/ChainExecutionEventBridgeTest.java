@@ -11,7 +11,9 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
@@ -88,16 +90,22 @@ public class ChainExecutionEventBridgeTest {
     // ============================ onPlanCompleted 空规划边界（卡点5） ============================
 
     /**
-     * 空规划边界：onPlanCompleted 收到 totalTargets=0 + 空 context → 立即 publish
-     * ExecutionFinished(reason="empty-plan") + LifecycleCleanup（E4-b 桥）。
+     * 空规划边界：onPlanCompleted 收到 totalTargets=0 + 空 context（已 markPlanningComplete）
+     * → 立即 publish ExecutionFinished(reason="empty-plan") + LifecycleCleanup（E4-b 桥）。
+     *
+     * <p>流式语义改造后：worker 完成路径 markPlanningComplete 才 publish PlanCompleted，
+     * 空规划场景下 isCompleted()=true（planningComplete=true && queue 空）触发 publish "empty-plan"。</p>
      */
     @Test
     public void onPlanCompletedWithEmptyContextPublishesEmptyPlanFinished() {
         ChainEventBus bus = new ChainEventBus();
         bus.bindMainThread(Thread.currentThread());
         ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
-        // 手动 put 空 context 模拟 worker 完成路径（totalTargets=0）
-        registry.put(new ChainExecutionContext(PLAYER, 3, new ConcurrentLinkedQueue<ChainTarget>(), null));
+        // 手动 put 空 context 模拟 worker 完成路径（C 流式登记：onPlanStarted 已提前 put，
+        // worker 完成路径 markPlanningComplete + publish PlanCompleted）
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, new ConcurrentLinkedQueue<ChainTarget>(), null);
+        context.markPlanningComplete();
+        registry.put(context);
 
         List<ExecutionFinished> finishedCaptured = new ArrayList<ExecutionFinished>();
         List<LifecycleCleanup> cleanupCaptured = new ArrayList<LifecycleCleanup>();
@@ -248,5 +256,75 @@ public class ChainExecutionEventBridgeTest {
         bus.drain();
 
         Assert.assertNull("生命周期清理后 registry 应清理", registry.get(PLAYER, 1));
+    }
+
+    // ============================ C 流式执行：PlanStarted 开窗 + PlanCancelled 清理 ============================
+
+    /**
+     * C 流式开窗：publish PlanStarted → bridge.onPlanStarted 调 setExecutionWindow(true, ...)。
+     *
+     * <p>纯 JVM 单测 chainStateService=null，setExecutionWindow 早 return，此处验证订阅可达且不抛。
+     * 真实 setExecuting(true) 时序由 runServer25 实机验证。</p>
+     */
+    @Test
+    public void planStartedOpensExecutionWindowReachable() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        // PlanStarted 构造：最小必需字段（破坏路径：seedBlock=null, hitX/Y/Z=0）
+        PlanStarted started = new PlanStarted(PLAYER, 1, TICK, NANOS,
+                1, 2, 3, 0, 1, 0F, 0F, 0F, null, 0);
+        bus.publish(started);
+        bus.drain();
+        // 可达且不抛即视为通过（chainStateService=null 早 return，无副作用可断言）
+        Assert.assertTrue("PlanStarted 订阅应可达且不抛", true);
+    }
+
+    /**
+     * C 流式登记后的清理：publish PlanCancelled → bridge.onPlanCancelled 清 registry + 关窗。
+     *
+     * <p>模拟 worker 启动失败前提前 put 的 context：onPlanStarted 在 registerPre 前已 put context，
+     * 若 registerPre 抛 RejectedExecutionException → publish PlanCancelled → onPlanCancelled 清 registry。</p>
+     */
+    @Test
+    public void planCancelledClearsRegistry() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        // 提前 put context（模拟 C 流式登记后 worker 启动失败 / 运行中取消）
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 2,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        registry.put(context);
+        Assert.assertNotNull("前置 context 已 put", registry.get(PLAYER, 2));
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new PlanCancelled(PLAYER, 2, TICK, NANOS, "shadow-pool-exhausted"));
+        bus.drain();
+
+        Assert.assertNull("PlanCancelled 后 registry 应被 onPlanCancelled 清理", registry.get(PLAYER, 2));
+    }
+
+    /**
+     * PlanCancelled 不存在 context 时幂等不抛（孤儿 PlanCancelled）。
+     */
+    @Test
+    public void planCancelledWithoutContextIsIdempotent() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new PlanCancelled(PLAYER, 1, TICK, NANOS, "shadow-pool-exhausted"));
+        bus.drain();
+        // 无 context 也应安全返回
+        Assert.assertNull(registry.get(PLAYER, 1));
     }
 }

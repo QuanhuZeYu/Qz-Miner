@@ -161,11 +161,20 @@ public class ChainPlanningEventBridge {
         final ConcurrentLinkedQueue<ChainTarget> shadowQueue = new ConcurrentLinkedQueue<ChainTarget>();
         traverser.seed(searchContext);
 
+        // C 流式登记（修复边搜边破坏丢失）：worker 启动前先把 context 提前登记进 registry，
+        // 让主线程执行订阅者 onServerTick 立即可见此 context——边搜边消费。
+        // 构造时 planningComplete=false：worker 未完成时 queue 瞬时为空 != 执行完成，主线程消费订阅者
+        // 据此跳过 publish ExecutionFinished（守 isCompleted 流式语义）。
+        // 注意 put 早于 registerPre：若 registerPre 抛 RejectedExecutionException，PlanCancelled 路径
+        // 由执行桥 onPlanCancelled 订阅者清 registry（见 ChainExecutionEventBridge）。
+        final ChainExecutionContext context = new ChainExecutionContext(playerUUID, planningGen, shadowQueue, shadowSession);
+        executionContextRegistry.put(context);
+
         // 影子 worker 注册（对齐旧 worker 结构，但去掉切态/stopExecution/syncState，改为 publish）
         try {
             MyMod.ensureParallelTickExecutor().registerPre(
                     "shadow-plan-" + playerUUID,
-                    control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue, shadowSession));
+                    control -> runShadowSlice(control, playerUUID, planningGen, traverser, searchContext, matcher, shadowQueue, shadowSession, context));
         } catch (RejectedExecutionException e) {
             // worker pool 20 槽已满（SynchronousQueue 无法交接 + 池达 MAX_WORKER_THREADS），
             // 影子 worker 未注册成功；此代际已 PLANNING 但无人推进，必须主动 publish PlanCancelled，
@@ -193,6 +202,7 @@ public class ChainPlanningEventBridge {
      * @param matcher        目标匹配器
      * @param shadowQueue    影子 queue（阶段 4 只消费不入执行，阶段 5 才接执行）
      * @param shadowSession  影子会话（阶段8 块2 起注入 ChainExecutionContext 供真实破坏桥解析 mode/subMode）
+     * @param context        C 流式登记的执行上下文（worker 完成时 markPlanningComplete 而非再 put）
      * @return 分片结果
      */
     private ParallelTaskResult runShadowSlice(
@@ -203,7 +213,8 @@ public class ChainPlanningEventBridge {
             ChainSearchContext searchContext,
             ChainBlockMatcher matcher,
             ConcurrentLinkedQueue<ChainTarget> shadowQueue,
-            ChainSession shadowSession) {
+            ChainSession shadowSession,
+            ChainExecutionContext context) {
         if (control.isCancelRequested()) {
             bus.publish(buildPlanCancelled(playerUUID, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
@@ -250,11 +261,13 @@ public class ChainPlanningEventBridge {
         boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
                 || traversalResult == TraversalStepResult.YIELDED;
         if (!shouldContinue) {
-            // 阶段5 E1-c：worker 完成路径先 put shadowQueue 到 registry（解决局部变量断链），
-            // 再 publish PlanCompleted——执行订阅者 onPlanCompleted 才能从 registry 领取到目标队列。
-            // 时序：worker 线程 put（ConcurrentHashMap happens-before）→ publish 入队 →
-            // 主线程 drain 取事件 → get registry（可见性由 ConcurrentHashMap 保证）。
-            executionContextRegistry.put(new ChainExecutionContext(playerUUID, planningGen, shadowQueue, shadowSession));
+            // C 流式执行修复：worker 完成路径不再 registry.put（context 已在 onPlanStarted 提前登记），
+            // 改为 markPlanningComplete 翻 planningComplete=true。主线程消费订阅者据此判定可 publish
+            // ExecutionFinished（planningComplete=true && queue 空）。
+            // 时序：volatile 写先于 bus.publish(PlanCompleted)（程序序），主线程读 planningComplete 时
+            // 由 volatile happens-before 保证 PlanCompleted 已入 bus queue，故下 tick drain 顺序：
+            // PlanCompleted 先（T5 PLANNING→RUNNING）→ 后续 ExecutionFinished（T7 RUNNING→FINISHING）。
+            context.markPlanningComplete();
             // 完成路径：publish PlanCompleted，状态机 T5 PLANNING→RUNNING（gen 匹配时）
             bus.publish(buildPlanCompleted(playerUUID, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),

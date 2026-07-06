@@ -8,7 +8,9 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
@@ -56,8 +58,10 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *   <li><b>真实破坏</b>：consumeContext 调 {@link ChainActionExecutor#execute}（tryHarvestBlock/activateBlockOrUseItem），
  *       由 session 携带的 mode/subMode 经 ChainModeRegistry 解析执行器。守 I1：consumeContext 由
  *       onServerTick 在 {@code ServerTickEvent.START} 主线程调用，破坏在主线程。</li>
- *   <li><b>G1 掉落窗口</b>：四点 setExecuting 接线（onPlanCompleted 登记 true / publishExecutionFinishedWithCleanup
- *       完成 false / onWatchdogTimeout 兜底 false / onLifecycleCleanup 幂等 false），让
+ *   <li><b>G1 掉落窗口</b>：五点 setExecuting 接线（onPlanStarted 流式开窗 true /
+ *       onPlanCompleted 登记 true / publishExecutionFinishedWithCleanup
+ *       完成 false / onWatchdogTimeout 兜底 false / onLifecycleCleanup 幂等 false /
+ *       onPlanCancelled 取消 false），让
  *       {@code ChainDropCollector}:32 收集开关 + :58 释放开关正确工作（I5 生命线）。</li>
  * </ul>
  *
@@ -110,7 +114,9 @@ public class ChainExecutionEventBridge {
     public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry) {
         this.bus = bus;
         this.registry = registry;
+        bus.subscribe(PlanStarted.class, this::onPlanStarted);
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
+        bus.subscribe(PlanCancelled.class, this::onPlanCancelled);
         // 阶段7 B.4：订阅 WatchdogTimeout + LifecycleCleanup 清理 registry 幽灵队列（两容器清理分工）。
         // 状态机管 slots，本桥管 registry，各清各的容器，互不夺权（守 I10）。
         bus.subscribe(WatchdogTimeout.class, this::onWatchdogTimeout);
@@ -125,6 +131,28 @@ public class ChainExecutionEventBridge {
      */
     public void bootstrap() {
         FMLCommonHandler.instance().bus().register(this);
+    }
+
+    /**
+     * C 流式执行：PlanStarted 进态广播 → 立即开掉落收集窗口。
+     *
+     * <p>修复边搜边破坏丢失：withstreaming 改造后，{@link ChainPlanningEventBridge#onPlanStarted}
+     * 在注册 worker 前已 registry.put(context)（planningComplete=false），主线程执行订阅者
+     * 在下一 tick 的 {@link #onServerTick} 即可 snapshot 到 context 并开始 poll shadowQueue 破坏。
+     * worker 边搜边 shadowQueue.add，主线程边消费边破坏——破坏产生的掉落必须由
+     * {@code ChainDropCollector} 收集，而收集开关是 {@code isExecuting()}（I5 生命线）。
+     * 若窗口仍按旧 {@link #onPlanCompleted} 才打开，PLANNING 期间 worker 已 add 但消费未启的
+     * 边界也会有同步破坏掉落（主线程边搜边消费）， collector 守卫 isExecuting()=false 会丢弃 → 丢感。</p>
+     *
+     * <p>守 I5：窗口提前到 PlanStarted，保证 PLANNING 期间边搜边破坏的掉落全部进 buffer。
+     * 后续 {@link #onPlanCompleted} 仍幂等 setExecutionWindow(true, "plan-completed") 保窗，
+     * {@link #publishExecutionFinishedWithCleanup} / {@link #onPlanCancelled} /
+     * {@link #onWatchdogTimeout} / {@link #onLifecycleCleanup} 关窗。</p>
+     *
+     * @param event 规划启动事件
+     */
+    private void onPlanStarted(PlanStarted event) {
+        setExecutionWindow(event.getPlayerUUID(), true, "plan-started-stream");
     }
 
     /**
@@ -304,6 +332,33 @@ public class ChainExecutionEventBridge {
     }
 
     /**
+     * C 流式登记后的清理：PlanCancelled 时 context 可能已 put 进 registry。
+     *
+     * <p>修复边搜边破坏引入的清理路径：{@link ChainPlanningEventBridge#onPlanStarted} 改为提前 registry.put
+     * 后，worker 启动失败（shadow-pool-exhausted / shadow-player-unavailable 等返回前分支除外，
+     * 它们在 put 之前）以及 worker 运行中 cancelled / 全部搜完前 traversal-terminated 都会 publish
+     * PlanCancelled。若不订阅清理，registry 内残留 planningComplete=false 的幽灵 context 会被
+     * onServerTick 每次 tick snapshot 出来 poll（queue 空 isCompleted=false，无害但占内存并对状态机
+     * 无推进）。本订阅者守 I5：关掉落窗口 + 清 registry（避免下 tick 消费幽灵 context）。</p>
+     *
+     * <p>守 I10：只清本桥管的 registry，不碰状态机 slots（状态机 T6 PLANNING→IDLE 自行处理）。</p>
+     *
+     * @param event 规划取消事件
+     */
+    private void onPlanCancelled(PlanCancelled event) {
+        UUID playerUUID = event.getPlayerUUID();
+        int gen = event.getGeneration();
+        ChainExecutionContext ctx = registry.get(playerUUID, gen);
+        if (ctx != null) {
+            registry.remove(playerUUID);
+        }
+        // I5 生命线：关掉落窗口（PlanStarted 已开，此处幂等关）
+        setExecutionWindow(playerUUID, false, "plan-cancelled:" + event.getReason());
+        MyMod.LOG.debug("[ChainExecution] registry cleanup on PlanCancelled player={} gen={} reason={}",
+                playerUUID, Integer.valueOf(gen), event.getReason());
+    }
+
+    /**
      * 看门狗超时订阅者：清理 registry 幽灵队列（阶段7 B.4 两容器清理分工）。
      *
      * <p>看门狗 publish WatchdogTimeout 后状态机 T10 回 IDLE，但执行桥 registry 内的
@@ -352,10 +407,11 @@ public class ChainExecutionEventBridge {
      *
      * <p>通过 {@code MyMod.chainStateService.getPlayerState(uuid).setExecuting(...)} 控
      * {@link ChainDropCollector} 的收集开关（:32 isExecuting）与释放开关
-     * （:58 executionStatus!=IDLE 时暂存、回 IDLE 才释放）。调用点四处：
-     * {@link #onPlanCompleted}（登记时 true）、{@link #publishExecutionFinishedWithCleanup}
+     * （:58 executionStatus!=IDLE 时暂存、回 IDLE 才释放）。调用点五处：
+     * {@link #onPlanStarted}（流式开窗 true）、{@link #onPlanCompleted}（登记 true）、
+     * {@link #publishExecutionFinishedWithCleanup}
      * （publish 后 false）、{@link #onWatchdogTimeout}（必须 false）、
-     * {@link #onLifecycleCleanup}（幂等 false）。</p>
+     * {@link #onLifecycleCleanup}（幂等 false）、{@link #onPlanCancelled}（取消 false）。</p>
      *
      * <p>所有调用都防御 null（chainStateService / getPlayerState 均可能为 null，
      * 玩家登出后 getPlayerState 返回 null，本桥不应在生命周期清理时抛 NPE）。</p>
