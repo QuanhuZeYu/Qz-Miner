@@ -34,7 +34,14 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         // RECONNECT 两阶段已停用（单阶段 replaceCableWithoutConnections 已完整恢复连接），
         // phase 恒为 REPLACE，不再有 reconnect 任务，此处仅需校验目标仍是线缆。
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
-        return CompatAdapters.cable().isCable(tileEntity);
+        if (!CompatAdapters.cable().isCable(tileEntity)) {
+            return false;
+        }
+        // P2-3：防御性主手校验（planner 已拦截，此处补 canExecute 入口，防会话锁与主手不一致）
+        if (!CompatAdapters.cable().isCableStack(player.inventory.getCurrentItem())) {
+            return false;
+        }
+        return true;
     }
 
     /**

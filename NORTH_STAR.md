@@ -181,6 +181,13 @@
 </deviation>
 -->
 
+<deviation id="D-GTCABLE-ATOM">
+  <what>GT 线缆连锁替换（ChainMode.SPECIAL）绕过"不卡主线程 tick"信条与 maxBreakPerTick 上限 + 50ms 节流戳，在 ChainExecutionEventBridge.consumeContext 的 GT 分支内单 tick while 到队列空（B2 单 tick 原子执行）。</what>
+  <why>电压安全：多 tick 渐进替换会产生高低压线缆共存的中间态，GT 电流过载会导致机器爆炸/线缆烧毁。单 tick 原子保证下个 tick GT 网络重算时已是全新链路，无混压窗口。代价是极端大链路可能逼近 50ms tick 预算，由 Config.cableReplaceMaxPerTick（默认 1024）预校验上限兜底。</why>
+  <scope>仅 ChainMode.SPECIAL 的 GT 线缆替换（GregTechCableReplaceActionExecutor.shouldWaitForPlannerCompletion=true 分叉）；CHAIN/AREA/INTERACT 流式执行不受影响。护栏：B1 等规划完成门（context.isPlanningComplete）保证执行前链路完整，B3 预校验门（precheckCableReplacement）超值链路不放行 + 背包不足不放行。</scope>
+  <status>显式牺牲"不卡 tick"换"单 tick 原子安全"。未来可探索"多 tick 冻结电压"方案回填（需 GT API 支持暂停网络重算）。关联决策：docs/反馈层/决策/gt-cable-replacement-model.md。</status>
+</deviation>
+
 </deviation-log>
 
 ---

@@ -14,6 +14,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
+import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
@@ -21,8 +22,11 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.ChatComponentText;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -271,7 +275,74 @@ public class ChainExecutionEventBridge {
             return;
         }
 
-        // 三元组3：控速 + while 循环真实破坏
+        // 三元组3：按执行模式分叉
+        boolean waitForPlanner = actionExecutor.shouldWaitForPlannerCompletion(session);
+
+        if (waitForPlanner) {
+            // ===== GT 线缆特例：单 tick 原子替换（B1+B2+B3）=====
+            // B1 门：等规划完整链路，不流式边搜边替换（防中间态混压）
+            if (!context.isPlanningComplete()) {
+                // worker 仍在搜，留下一 tick 再判
+                return;
+            }
+
+            // B3 预校验放行门
+            String precheckFail = precheckCableReplacement(player, session, context);
+            if (precheckFail != null) {
+                // 预校验失败：取消连锁 + 聊天提示 + 清锁
+                notifyPlayer(player, "[QzMiner] " + precheckFail);
+                publishExecutionFinishedWithCleanup(playerUUID, gen, "cable-precheck-failed");
+                GregTechCableSessionState.clear(playerUUID);
+                registry.remove(playerUUID);
+                return;
+            }
+
+            // B2 单 tick 原子执行：while 到空，绕过 maxBreakPerTick + 50ms 节流
+            int totalTargets = context.getTargets().size();
+            int executed = 0;
+            int failed = 0;
+            while (true) {
+                ChainTarget target = context.getTargets().poll();
+                if (target == null) {
+                    break;
+                }
+                if (!actionExecutor.canExecute(player, session, target)) {
+                    continue;
+                }
+                try {
+                    if (!actionExecutor.execute(player, session, target)) {
+                        failed++;
+                        continue;
+                    }
+                } catch (RuntimeException e) {
+                    // F4 防护：单根异常不崩 drain 帧，best-effort 继续
+                    MyMod.LOG.error("[CableReplace] 单 tick 批量替换异常 player={} pos=({},{},{})",
+                        playerUUID, Integer.valueOf(target.getX()), Integer.valueOf(target.getY()), Integer.valueOf(target.getZ()), e);
+                    failed++;
+                    continue;
+                }
+                executed++;
+                // 单 tick 原子执行仍需喂看门狗推进信号（虽然不跨 tick，但防 drain 帧内被误判）
+            }
+
+            // best-effort 提示
+            if (failed > 0) {
+                notifyPlayer(player, "[QzMiner] 线缆替换完成：" + executed + "/" + totalTargets + " 根成功，" + failed + " 根失败");
+            }
+
+            // 喂看门狗推进信号（即便单 tick 完成，也 publish 一次防状态机卡 RUNNING）
+            bus.publish(new ExecutionAdvanced(playerUUID, gen,
+                ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                executed, 0));
+
+            // 完成：publish ExecutionFinished + 清会话锁（F2 补齐：正常完成路径显式清锁）
+            publishExecutionFinishedWithCleanup(playerUUID, gen, "cable-atomic-complete:" + executed);
+            GregTechCableSessionState.clear(playerUUID);
+            registry.remove(playerUUID);
+            return;
+        }
+
+        // ===== 非 GT：原 maxBreakPerTick + 50ms 节流逻辑（流式，不动）=====
         long nowMillis = System.currentTimeMillis();
         if (!context.isExecutorReady(nowMillis)) {
             return;
@@ -457,5 +528,66 @@ public class ChainExecutionEventBridge {
      */
     public static ExecutionFinished buildExecutionFinished(UUID playerUUID, int gen, long tick, long nanos, String reason) {
         return new ExecutionFinished(playerUUID, gen, tick, nanos, reason);
+    }
+
+    /**
+     * B3 预校验：GT 线缆单 tick 原子替换前的放行门。
+     * 三项校验：主手是线缆 / 链路不超单 tick 上限 / 背包同种线缆充足。
+     *
+     * @param player  触发玩家（主线程）
+     * @param session 会话（保留参数以备后续扩展）
+     * @param context 执行上下文（读 targets 队列）
+     * @return null 表示放行；非 null 为失败原因（聊天提示用）
+     */
+    private String precheckCableReplacement(EntityPlayerMP player, ChainSession session, ChainExecutionContext context) {
+        // 1. 主手是线缆（planner 已拦截，此处复核防会话锁与主手不一致）
+        ItemStack mainHand = player.inventory.getCurrentItem();
+        if (!CompatAdapters.cable().isCableStack(mainHand)) {
+            return "主手未持有线缆，无法替换";
+        }
+        int targetMetaId = mainHand.getItemDamage();
+
+        // 2. 链路不超单 tick 上限（F3 truncated 也由此兜住：chainMaxBlocks=1024=cableReplaceMaxPerTick）
+        int queueSize = context.getTargets().size();
+        if (queueSize > Config.cableReplaceMaxPerTick) {
+            return "线缆链路过大（" + queueSize + " 超过单 tick 上限 " + Config.cableReplaceMaxPerTick + "），已取消避免电压不匹配";
+        }
+
+        // 3. 背包同种线缆总数 >= 链路目标数
+        int available = countMatchingCables(player, targetMetaId);
+        if (available < queueSize) {
+            return "线缆不足：需要 " + queueSize + " 根，背包仅有 " + available + " 根";
+        }
+
+        return null;
+    }
+
+    /**
+     * 统计背包中指定 metaTileId 的线缆物品总数（含主手，含堆叠 size）。
+     *
+     * @param player        触发玩家
+     * @param targetMetaId  目标线缆 metaTileId（= 主手线缆 getItemDamage）
+     * @return 背包中匹配线缆的总数
+     */
+    private int countMatchingCables(EntityPlayerMP player, int targetMetaId) {
+        int count = 0;
+        for (ItemStack stack : player.inventory.mainInventory) {
+            if (stack != null
+                && CompatAdapters.cable().isCableStack(stack)
+                && stack.getItemDamage() == targetMetaId) {
+                count += stack.stackSize;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 聊天提示玩家（主线程安全）。
+     *
+     * @param player  目标玩家（主线程）
+     * @param message 提示内容
+     */
+    private void notifyPlayer(EntityPlayerMP player, String message) {
+        player.addChatComponentMessage(new ChatComponentText(message));
     }
 }

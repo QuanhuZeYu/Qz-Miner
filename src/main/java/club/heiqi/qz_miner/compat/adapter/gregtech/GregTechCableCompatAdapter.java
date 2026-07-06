@@ -288,6 +288,8 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
                 && slot.getItemDamage() == oldCableStack.getItemDamage()
                 && slot.stackSize < slot.getMaxStackSize()) {
                 slot.stackSize++;
+                // P2-2：并入堆叠后走 markDirty 通知背包同步（InventoryPlayer 实现 IInventory，markDirty 可用）
+                player.inventory.markDirty();
                 return true;
             }
         }
@@ -302,7 +304,8 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         for (int i = 0; i < player.inventory.mainInventory.length; i++) {
             if (i == protectedMainHandSlot) continue;
             if (player.inventory.mainInventory[i] == null) {
-                player.inventory.mainInventory[i] = oldCableStack;
+                // P2-1：走 setInventorySlotContents 而非直写数组，触发 markDirty（InventoryPlayer 实现该方法）
+                player.inventory.setInventorySlotContents(i, oldCableStack);
                 return true;
             }
         }
