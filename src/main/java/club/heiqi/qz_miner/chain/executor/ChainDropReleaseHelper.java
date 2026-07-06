@@ -179,7 +179,7 @@ public final class ChainDropReleaseHelper {
                     // 便于下次实机定性真因（实体上限/远程世界/其他）。
                     int chunkX = (int) Math.floor(x / 16.0);
                     int chunkZ = (int) Math.floor(z / 16.0);
-                    MyMod.LOG.warn("[ChainDropCollector] Failed to spawn buffered drop stack for player {} reason={} restoredDrops={} chunkExists=({},{}) loadedEntityList.size()={} world.isRemote={} at=({},{},{})",
+                    MyMod.LOG.debug("[ChainDropCollector] Failed to spawn buffered drop stack for player {} reason={} restoredDrops={} chunkExists=({},{}) loadedEntityList.size()={} world.isRemote={} at=({},{},{})",
                         playerIdentity, reason, Integer.valueOf(drops.size() - i),
                         Integer.valueOf(chunkX), Integer.valueOf(chunkZ),
                         Integer.valueOf(world.loadedEntityList.size()), Boolean.valueOf(world.isRemote),

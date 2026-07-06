@@ -135,6 +135,10 @@ public class ChainDropCollector {
             if (failures >= DROP_RELEASE_MAX_RETRIES) {
                 ChainDropReleaseHelper.discard(playerUUID, dropBuffer, "world-tick-release-exhausted");
                 playerState.resetDropReleaseFailure();
+            } else {
+                // 玩家存在分支对称 WARN 摘要（与玩家缺失分支 :105-106 一致，含 consecutive failures 计数）
+                MyMod.LOG.warn("[ChainDropCollector] All 4-level release failed for player {}, keeping {} pending drop stack(s) (consecutive failures={}/{})",
+                    playerState.getPlayerUUID(), dropBuffer.size(), failures, DROP_RELEASE_MAX_RETRIES);
             }
             // 未达上限时 buffer 仍非空（restoreUnreleasedDrops 已回填），下帧重试；达上限后 buffer 已清空，自然跳过。
         }
