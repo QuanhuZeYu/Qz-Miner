@@ -17,6 +17,7 @@ import club.heiqi.qz_miner.chain.planner.ChainInteractPlanner;
 import club.heiqi.qz_miner.chain.planner.ChainPlanningEventBridge;
 import club.heiqi.qz_miner.chain.planner.ChainPlanner;
 import club.heiqi.qz_miner.chain.planner.GregTechCableReplacePlanner;
+import club.heiqi.qz_miner.chain.state.projection.ChainConfigProjectionBridge;
 import club.heiqi.qz_miner.chain.state.projection.ChainStateProjectionBridge;
 import club.heiqi.qz_miner.chain.statemachine.ChainStateMachine;
 import club.heiqi.qz_miner.chain.watchdog.ChainWatchdog;
@@ -71,6 +72,8 @@ public class MyMod {
     public static ChainExecutionEventBridge chainExecutionEventBridge;
     /** 阶段6：连锁状态投影下发桥（A1），订阅 ChainPhaseChanged 后 sendTo 客户端投影容器。 */
     public static ChainStateProjectionBridge chainStateProjectionBridge;
+    /** 阶段8 块3 F3-a：连锁配置下发桥，订阅 PlanCompleted + PlayerStateEvent LOGIN 后 sendTo 客户端 ChainClientState 三字段。 */
+    public static ChainConfigProjectionBridge chainConfigProjectionBridge;
     /** 阶段7：连锁看门狗（A 异常兜底），N tick 无推进 publish WatchdogTimeout 协作式回 IDLE（T10）。 */
     public static ChainWatchdog chainWatchdog;
     /** 阶段7：连锁生命周期桥（B 生命周期收口），平行订阅 PlayerStateEvent 转 LifecycleCleanup（守 I7）。 */
@@ -135,6 +138,9 @@ public class MyMod {
         // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
         // 守 I1：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
+        // 阶段8 块3 F3-a：配置下发桥，订阅 PlanCompleted（matchedCount 真值 = totalTargets）+ LOGIN（基础 config）。
+        // 守 I1：只 sendTo 下发配置，不碰世界；接替旧八字段链删除后的 radius/maxBlocks/matchedCount 客户端同步。
+        chainConfigProjectionBridge = new ChainConfigProjectionBridge(chainEventBus);
         // 阶段7：看门狗 + 生命周期桥接线（三路回 IDLE 收口）。
         // 接线顺序：状态机 → registry → 规划桥 → 执行桥 → 投影桥 → Drainer.bootstrap() → 执行桥.bootstrap()
         // → 看门狗.bootstrap() → 生命周期桥.bootstrap()。

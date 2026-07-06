@@ -73,6 +73,30 @@ public class ClientProxy extends CommonProxy {
         });
     }
 
+    /**
+     * 阶段8 块3 F3-a：处理客户端连锁配置同步下发。
+     *
+     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。写 ChainClientState 的
+     * {@code serverChainRadius}/{@code serverChainMaxBlocks}/{@code serverMatchedTargetCount} 三字段
+     * （这三字段随旧八字段链删除后由新 config 包接替写入）。</p>
+     *
+     * <p>守 I4：三字段均为 volatile int，Netty 线程写 + 客户端主线程读 volatile 保证可见性，
+     * 不直接碰渲染层（HUD 在主线程 RenderGameOverlayEvent 读，天然主线程收口）。</p>
+     *
+     * @param chainRadius        服务端连锁半径上限
+     * @param chainMaxBlocks     服务端连锁目标数上限
+     * @param matchedTargetCount 已匹配目标数
+     */
+    @Override
+    public void handleClientChainConfigSync(int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+        if (MyMod.chainStateService == null) {
+            return;
+        }
+        MyMod.chainStateService.getClientState().setServerChainRadius(chainRadius);
+        MyMod.chainStateService.getClientState().setServerChainMaxBlocks(chainMaxBlocks);
+        MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedTargetCount);
+    }
+
     @Override
     public void handleClientLootGamesMinesweeperPreview(int requestId, ChainTarget origin, List<ChainTarget> targets) {
         final List<ChainTarget> targetSnapshot = targets == null ? new ArrayList<ChainTarget>() : new ArrayList<ChainTarget>(targets);

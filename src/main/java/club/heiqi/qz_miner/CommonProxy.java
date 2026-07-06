@@ -53,6 +53,19 @@ public class CommonProxy {
     public void handleClientChainPhaseSnapshot(int phaseOrdinal, int generation, long serverTick) {
     }
 
+    /**
+     * 阶段8 块3 F3-a：处理客户端连锁配置同步下发（空实现，服务端不处理）。
+     *
+     * <p>客户端 ClientProxy 覆写此方法，写 ChainClientState 的 serverChainRadius/
+     * serverChainMaxBlocks/serverMatchedTargetCount 三字段（守 I4：Netty 线程只写 volatile 字段）。</p>
+     *
+     * @param chainRadius        服务端连锁半径上限
+     * @param chainMaxBlocks     服务端连锁目标数上限
+     * @param matchedTargetCount 已匹配目标数
+     */
+    public void handleClientChainConfigSync(int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+    }
+
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}
 }

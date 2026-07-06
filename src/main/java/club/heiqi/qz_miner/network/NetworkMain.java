@@ -66,5 +66,11 @@ public final class NetworkMain {
                 PacketChainPhaseSnapshot.class,
                 packetId++,
                 Side.CLIENT);
+        // 阶段8 块3 F3-a：连锁配置同步下发（服务端 ChainConfigProjectionBridge → 客户端 ChainClientState 三字段）
+        network.registerMessage(
+                PacketChainConfigSync.Handler.class,
+                PacketChainConfigSync.class,
+                packetId++,
+                Side.CLIENT);
     }
 }
