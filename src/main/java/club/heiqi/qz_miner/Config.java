@@ -11,10 +11,10 @@ public class Config {
     public static String configPath;
     public static Configuration config;
     public static String greeting = "Hello World";
-    public static int chainRadius = 4;
-    public static int chainMaxBlocks = 256;
+    public static int chainRadius = 8;
+    public static int chainMaxBlocks = 1024;
     public static int chainLoggingShellLayers = 1;
-    public static int maxBreakPerTick = 16;
+    public static int maxBreakPerTick = 64;
     /**
      * 连锁看门狗超时阈值（tick）：玩家连锁 N tick 无真实工作推进则看门狗 publish WatchdogTimeout
      * 协作式回 IDLE（异常兜底，非正常收尾路径）。默认 50 tick ≈ 2.5 秒（B 方案落地后纯做卡死回收速度旋钮，
@@ -22,13 +22,13 @@ public class Config {
      */
     public static int chainWatchdogTimeoutTicks = 50;
     public static int parallelTickMinDurationMs = 15;
-    public static int parallelTickServerWorkBudgetUnits = 64;
+    public static int parallelTickServerWorkBudgetUnits = 640;
     public static boolean enableUnlimitedOreFortune = false;
     public static boolean enableFortuneForPlacedOre = false;
     public static boolean clientEnablePreviewRender = true;
     public static int parallelTickClientWorkBudgetUnits = 640;
-    public static int clientPreviewMaxRadius = 4;
-    public static int clientPreviewMaxTargets = 256;
+    public static int clientPreviewMaxRadius = 16;
+    public static int clientPreviewMaxTargets = 1024;
     public static double clientPreviewAlphaFadeStartRadius = 2.0D;
     public static double clientPreviewAlphaFadeEndRadius = 6.0D;
     public static double clientPreviewAlphaStartValue = 0.78D;
