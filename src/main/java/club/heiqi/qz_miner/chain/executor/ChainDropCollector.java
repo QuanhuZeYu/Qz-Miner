@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.executor;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.state.ChainExecutionStatus;
 import club.heiqi.qz_miner.chain.state.ChainPlayerDropBuffer;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
@@ -29,14 +30,21 @@ public class ChainDropCollector {
         }
 
         ChainPlayerState playerState = MyMod.chainStateService.getPlayerState(event.harvester.getUniqueID());
-        if (playerState == null || !playerState.isExecuting()) {
+        if (playerState == null) {
+            return;
+        }
+        boolean executing = playerState.isExecuting();
+        // 起点方块掉落捕获：原版 tryHarvestBlock 同 tick 同步触发 HarvestDropsEvent 早于 collector 执行窗口，
+        // armed 一次后此处也收；consume 必须只调一次（一次性语义）。
+        boolean seedArmed = playerState.consumeSeedDropCaptureIfArmed(ChainTickSource.currentServerTick());
+        if (!executing && !seedArmed) {
             return;
         }
 
         ChainPlayerDropBuffer dropBuffer = playerState.getDropBuffer();
         ChainDropReleaseHelper.rememberRespawnOrWorldSpawn(event.harvester, dropBuffer);
-        MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent player={} status={} rawDropStacks={} pendingBefore={}",
-            event.harvester.getUniqueID(), playerState.getExecutionStatus(), event.drops.size(), dropBuffer.size());
+        MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent player={} status={} executing={} seedArmed={} rawDropStacks={} pendingBefore={}",
+            event.harvester.getUniqueID(), playerState.getExecutionStatus(), executing, seedArmed, event.drops.size(), dropBuffer.size());
         dropBuffer.addAll(event.drops);
         MyMod.LOG.debug("[ChainDropCollector] HarvestDropsEvent merged player={} pendingAfter={}",
             event.harvester.getUniqueID(), dropBuffer.size());

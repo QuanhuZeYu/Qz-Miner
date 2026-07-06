@@ -35,7 +35,7 @@ public class ChainPlanner {
             return;
         }
 
-        ChainPlayerState playerState = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
+        final ChainPlayerState playerState = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
         if (!playerState.isChainKeyPressed() || playerState.isExecuting()) {
             return;
         }
@@ -57,6 +57,11 @@ public class ChainPlanner {
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     event.x, event.y, event.z, player.dimension, 0,
                     event.block, event.blockMetadata));
+            // 起点方块掉落捕获：原版 tryHarvestBlock 在本 tick 同步 removeBlock+触发 HarvestDropsEvent，
+            // 早于 collector 窗口打开（onPlanCompleted 时 setExecutionWindow(true)，下 tick drain）；
+            // 用一次 armed 标志让 collector 在守卫 isExecuting()=false 时也收起点方块掉落进 buffer。
+            // 同 tick 戳校验兜底跨 tick 陈旧；consumed 一次即清零防 onPlanCompleted 后误判。
+            playerState.armSeedDropCapture(ChainTickSource.currentServerTick());
         }
     }
 }

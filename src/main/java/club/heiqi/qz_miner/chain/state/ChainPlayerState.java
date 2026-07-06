@@ -20,6 +20,28 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile int requestedChainMaxBlocks = -1;
     private volatile ChainSession session;
 
+    /**
+     * 起点方块掉落捕获一次性 armed 标志。
+     *
+     * <p>背景：Forge 1.7.10 {@code ItemInWorldManager.tryHarvestBlock} 在同 tick 内同步执行
+     * {@code BreakEvent}（ChainPlanner 看到）→ {@code removeBlock} → {@code harvestBlock}
+     * → {@code HarvestDropsEvent}（ChainDropCollector 看到）。但 collector 执行窗口要等
+     * {@code onPlanCompleted} 下 tick drain 才开（{@code setExecutionWindow(true)}），
+     * 早于窗口的起点方块掉落会被 {@code isExecuting()} 守卫拦截止，结果走 vanilla 未收。</p>
+     *
+     * <p>方案：ChainPlanner.onBlockBreak publish {@link club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved}
+     * 后立即 {@link #armSeedDropCapture(long)} arm 一次；collector 守卫扩展为
+     * {@code (isExecuting() || consumeSeedDropCaptureIfArmed(tick))}，armed 时也收一次。</p>
+     *
+     * <p>守 NORTH_STAR I10（状态机唯一写权威）：本字段独立于 {@link #executionStatus}/phase/generation，
+     * 不复用 {@link #setExecuting(boolean)} 写入口；{@code volatile} 保证主线程 publish 侧 arm 与
+     * 主线程 collector 侧 consume 的可见性（同 tick 同步链路，无跨线程竞争）。</p>
+     */
+    private volatile boolean seedDropCaptureArmed;
+
+    /** arm 时的服务端 tick 戳，配合 {@link #seedDropCaptureArmed} 做同 tick 戳校验防跨 tick 陈旧标志。 */
+    private volatile long seedArmTick;
+
     public ChainPlayerState(UUID playerUUID) {
         this.playerUUID = playerUUID;
     }
@@ -183,4 +205,44 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     // 阶段8 块3：删旧 stopExecutionPreservingDrops（三层死代码：ChainRuntimeState/ChainSession/ChainPlayerState）。
     // 新链路无外部调用方（G1 掉落窗口由 ChainDropCollector + executionStatus 守，不依赖 stopExecution 收口）。
+
+    /**
+     * Arm 起点方块掉落捕获一次性标志。
+     *
+     * <p>仅由 {@code ChainPlanner.onBlockBreak} 在 publish {@link club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved}
+     * 后立即调用，记录 arm 时的服务端 tick 戳。collector 侧 {@link #consumeSeedDropCaptureIfArmed(long)}
+     * 在同 tick 戳消费一次即清零。</p>
+     *
+     * <p>守 I10：不复用 {@link #setExecuting(boolean)}/{@link #setExecutionStatus} 写入口，
+     * 独立字段，状态机唯一写权威不受影响。</p>
+     *
+     * @param currentServerTick arm 时的服务端 tick 计数
+     */
+    public void armSeedDropCapture(long currentServerTick) {
+        this.seedDropCaptureArmed = true;
+        this.seedArmTick = currentServerTick;
+        MyMod.LOG.debug("[ChainState] Player {} seedDropCapture armed at tick {}", playerUUID, currentServerTick);
+    }
+
+    /**
+     * 消费起点方块掉落捕获标志：仅当 armed 且 tick 戳相同才返回 true 并清零（一次性）。
+     *
+     * <p>由 {@code ChainDropCollector.onHarvestDrops} 守卫调用。同 tick 戳校验是兜底：
+     * 若 HarvestDropsEvent 不是同 tick 触发（例如延迟触发），下一个 tick 戳不同则返回 false，
+     * 陈旧标志自然失效，不需主动清零。</p>
+     *
+     * <p>一次性语义：调用一次即清零，执行链 worker 同 tick 处理多次 或 onPlanCompleted 后
+     * collector 再次开窗口 都不会因为残留 armed 误判。</p>
+     *
+     * @param currentServerTick 消费时的服务端 tick 计数
+     * @return 仅当 armed 且 tick 相同时返回 true 并清零；否则 false（不动状态）
+     */
+    public boolean consumeSeedDropCaptureIfArmed(long currentServerTick) {
+        if (seedDropCaptureArmed && seedArmTick == currentServerTick) {
+            seedDropCaptureArmed = false;
+            MyMod.LOG.debug("[ChainState] Player {} seedDropCapture consumed at tick {}", playerUUID, currentServerTick);
+            return true;
+        }
+        return false;
+    }
 }
