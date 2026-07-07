@@ -88,7 +88,7 @@
 - 写盘 agent（fixer）必须串行，不得并行多个 fixer；读与写不同批并行
 
 ### 守 token
-- 派发只传路径 / 行号 / 线索（如 `ChainExecutor.java:120`），不贴整文件
+- 派发只传路径 / 行号 / 线索（如 `ChainExecutionEventBridge.java:308`），不贴整文件
 - 真机日志排查（`run/client/logs/fml-client-latest.log`、native 崩溃 `hs_err_pid*.log`）、批量文件检索一律派 subagent，主 agent 不亲自全量读
 
 ### Session 复用与中断恢复

@@ -15,6 +15,8 @@
 - **动网络/生命周期/掉落前**：确认没破坏 I4-I7。
 - **做可选模组兼容前**：确认守 I6 反射安全边界。
 - **跟随 GTNH 上游迁移前**：确认 I8 注入点仍有效。
+- **动并行/线程屏障前**：确认 I9 `ParallelTickExecutor.endStage` 屏障仍等所有 worker 到安全边界。
+- **动状态机转移/阶段收口前**：确认守 I10 合法转移表（`ChainStateMachine` 唯一写权威，越界丢弃+诊断，worker 只 publish 不切态）。
 - **评审代码时**：用《关键不变量》当 checklist，任何一条被破坏都应阻断合并。
 - **架构争论时**：回到《一句话中心思想》，多数争论本质是忘了"我们当初为什么这么定"。
 
@@ -43,7 +45,7 @@
 ### 信条一：世界写入主权在主线程
 - **是什么**：方块破坏、掉落实体生成、世界状态修改只在服务端主线程。并行规划线程只读世界、只产规划结果、只标记规划完成。
 - **为什么**：MC 1.7.10 世界非线程安全；并行线程直接写世界是 native crash 与状态损坏的直接来源。
-- **代价**：主线程是吞吐瓶颈，需用节流执行（`ChainExecutor`）控速。
+- **代价**：主线程是吞吐瓶颈，需用节流执行（`ChainExecutionEventBridge`）控速。
 
 ### 信条二：协作式优于强制式
 - **是什么**：并行 Tick 任务的暂停/恢复/终止，由任务在内部预算化安全点自行判断（`ParallelTickControl`）；禁超时强杀、禁 `Future.cancel(true)` 常规取消、禁主线程绕过 `endStage` 屏障。
@@ -99,7 +101,7 @@
 
 - **并行段 = ②**：职责是"快速且可安全中断地算出要挖哪些方块"。只读世界。
 - **主线程段 = ③④**：职责是"真实破坏、生成掉落、修改世界"。
-- **交接契约 = 预算化候选队列 + 规划完成标记**：并行段写候选、标记完成；执行段消费候选、判断结束。最终结束统一由主线程 `ChainExecutor` 判断，并行段不得在空队列时切 `IDLE` 或清 session（见 `errors/ERROR-20260605-chain-drop-final-target-race.md`）。
+- **交接契约 = 预算化候选队列 + 规划完成标记**：并行段写候选、标记完成；执行段消费候选、判断结束。最终结束统一由主线程 `ChainExecutionEventBridge` 判断，并行段不得在空队列时切 `IDLE` 或清 session（见 `errors/ERROR-20260605-chain-drop-final-target-race.md`）。
 
 主模式 `CHAIN / AREA / INTERACT / SPECIAL` 共用此数据流，差异在规划层的遍历器与匹配器策略。
 
@@ -178,6 +180,13 @@
   <status>待回填：回填方案与优先级</status>
 </deviation>
 -->
+
+<deviation id="D-GTCABLE-ATOM">
+  <what>GT 线缆连锁替换（ChainMode.SPECIAL）绕过"不卡主线程 tick"信条与 maxBreakPerTick 上限 + 50ms 节流戳，在 ChainExecutionEventBridge.consumeContext 的 GT 分支内单 tick while 到队列空（B2 单 tick 原子执行）。</what>
+  <why>电压安全：多 tick 渐进替换会产生高低压线缆共存的中间态，GT 电流过载会导致机器爆炸/线缆烧毁。单 tick 原子保证下个 tick GT 网络重算时已是全新链路，无混压窗口。代价是极端大链路可能逼近 50ms tick 预算，由 Config.cableReplaceMaxPerTick（默认 1024）预校验上限兜底。</why>
+  <scope>仅 ChainMode.SPECIAL 的 GT 线缆替换（GregTechCableReplaceActionExecutor.shouldWaitForPlannerCompletion=true 分叉）；CHAIN/AREA/INTERACT 流式执行不受影响。护栏：B1 等规划完成门（context.isPlanningComplete）保证执行前链路完整，B3 预校验门（precheckCableReplacement）超值链路不放行 + 背包不足不放行。</scope>
+  <status>显式牺牲"不卡 tick"换"单 tick 原子安全"。未来可探索"多 tick 冻结电压"方案回填（需 GT API 支持暂停网络重算）。关联决策：docs/反馈层/决策/gt-cable-replacement-model.md。</status>
+</deviation>
 
 </deviation-log>
 

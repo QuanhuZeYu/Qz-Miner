@@ -22,6 +22,7 @@ public final class GregTechCableSessionState {
     }
 
     private static final Map<UUID, Integer> LOCKED_REPLACEMENT_META_TILE_IDS = new ConcurrentHashMap<UUID, Integer>();
+    private static final Map<UUID, Integer> LOCKED_MAIN_HAND_SLOT = new ConcurrentHashMap<UUID, Integer>();
     private static final Map<UUID, Map<ChainTarget, List<ForgeDirection>>> PENDING_RECONNECT_SIDES = new ConcurrentHashMap<UUID, Map<ChainTarget, List<ForgeDirection>>>();
     private static final Map<UUID, ExecutionPhase> EXECUTION_PHASES = new ConcurrentHashMap<UUID, ExecutionPhase>();
 
@@ -32,6 +33,12 @@ public final class GregTechCableSessionState {
         return playerUUID == null ? null : LOCKED_REPLACEMENT_META_TILE_IDS.get(playerUUID);
     }
 
+    /**
+     * 锁定替换用线缆种类（替换基准，即主手线缆 metaTileId）。
+     *
+     * @param session 会话
+     * @param metaTileId 替换基准线缆种类
+     */
     public static void lockReplacementMetaTileId(ChainSession session, int metaTileId) {
         UUID playerUUID = session == null ? null : session.getPlayerUUID();
         if (playerUUID == null) {
@@ -39,6 +46,29 @@ public final class GregTechCableSessionState {
         }
         LOCKED_REPLACEMENT_META_TILE_IDS.put(playerUUID, metaTileId);
         EXECUTION_PHASES.putIfAbsent(playerUUID, ExecutionPhase.REPLACE);
+    }
+
+    /**
+     * 锁定主手 slot，用于返还旧线缆时跳过该 slot 避免占用主手。
+     *
+     * @param session 会话
+     * @param slotIndex 主手槽位
+     */
+    public static void lockMainHandSlot(ChainSession session, int slotIndex) {
+        UUID playerUUID = session == null ? null : session.getPlayerUUID();
+        if (playerUUID == null) return;
+        LOCKED_MAIN_HAND_SLOT.put(playerUUID, slotIndex);
+    }
+
+    /**
+     * 获取锁定的主手 slot（返还旧线缆时跳过）。返回 null 表示未锁定。
+     *
+     * @param session 会话
+     * @return 锁定的主手槽位，未锁返回 null
+     */
+    public static Integer getLockedMainHandSlot(ChainSession session) {
+        UUID playerUUID = session == null ? null : session.getPlayerUUID();
+        return playerUUID == null ? null : LOCKED_MAIN_HAND_SLOT.get(playerUUID);
     }
 
     public static void clear(ChainSession session) {
@@ -51,6 +81,7 @@ public final class GregTechCableSessionState {
             return;
         }
         LOCKED_REPLACEMENT_META_TILE_IDS.remove(playerUUID);
+        LOCKED_MAIN_HAND_SLOT.remove(playerUUID);
         PENDING_RECONNECT_SIDES.remove(playerUUID);
         EXECUTION_PHASES.remove(playerUUID);
     }

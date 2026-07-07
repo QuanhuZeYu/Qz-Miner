@@ -81,8 +81,10 @@
 
 ### 2.3 结构门禁
 - 文档纪律门禁 `scripts/check-doc-discipline.ps1` 的说明与断言清单见 `docs/传感层/门禁脚本说明.md`
+- 文档事实漂移门禁 `scripts/check-doc-fact-drift.ps1` 的说明与断言清单见 `docs/传感层/门禁脚本说明.md`（断言A 带 `.java` 后缀路径 / 断言B 裸 CamelCase 类名 + 历史叙事豁免）
 - 传感层不重复罗列每条门禁规则，只保留入口指针；门禁命中即视为传感信号，触发纠偏层
 - 涉及 docs 改动后或合并前必跑文档纪律门禁
+- **涉及 src 类删除/新增/改包路径的改动，合并前必跑 `scripts/check-doc-fact-drift.ps1`，现状锚失真即阻断合并**
 
 ## 三、纠偏层 Actuator — 检测到误差如何纠正
 

@@ -7,9 +7,7 @@ import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraftforge.common.util.ForgeDirection;
 
-import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -33,15 +31,27 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
             return false;
         }
 
-        GregTechCableSessionState.ExecutionPhase phase = GregTechCableSessionState.getExecutionPhase(session);
+        // RECONNECT 两阶段已停用（单阶段 replaceCableWithoutConnections 已完整恢复连接），
+        // phase 恒为 REPLACE，不再有 reconnect 任务，此处仅需校验目标仍是线缆。
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
         if (!CompatAdapters.cable().isCable(tileEntity)) {
             return false;
         }
-        return phase != GregTechCableSessionState.ExecutionPhase.RECONNECT
-            || !GregTechCableSessionState.getReconnectSides(session, target).isEmpty();
+        // P2-3：防御性主手校验（planner 已拦截，此处补 canExecute 入口，防会话锁与主手不一致）
+        if (!CompatAdapters.cable().isCableStack(player.inventory.getCurrentItem())) {
+            return false;
+        }
+        return true;
     }
 
+    /**
+     * 执行 GT 线缆替换。
+     *
+     * <p>RECONNECT 两阶段已停用：单阶段 {@code replaceCableWithoutConnections}
+     * 已通过直写 {@code mConnections} 位掩码完整恢复连接，无需第二阶段 reconnect。
+     * 若 phase 仍为 RECONNECT（历史残留），直接返回 false 放弃，避免重新引入 connect() 危险 API。
+     * Batch 2 将清理 SessionState 中的 RECONNECT 相关字段。
+     */
     @Override
     public boolean execute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
         if (player == null || session == null || target == null) {
@@ -55,13 +65,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
 
         GregTechCableSessionState.ExecutionPhase phase = GregTechCableSessionState.getExecutionPhase(session);
         if (phase == GregTechCableSessionState.ExecutionPhase.RECONNECT) {
-            List<ForgeDirection> reconnectSides = GregTechCableSessionState.getReconnectSides(session, target);
-            if (reconnectSides.isEmpty()) {
-                return false;
-            }
-            boolean reconnected = CompatAdapters.cable().reconnectCableSides(tileEntity, reconnectSides);
-            GregTechCableSessionState.clearReconnectSides(session, target);
-            return reconnected;
+            return false;
         }
 
         LockedCableSlot lockedCableSlot = findLockedCableSlot(player, session);
@@ -69,98 +73,70 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
             return false;
         }
 
-        List<ForgeDirection> connectedSides = CompatAdapters.cable().captureConnectedSides(tileEntity);
+        Integer protectedMainHandSlot = GregTechCableSessionState.getLockedMainHandSlot(session);
+        int protectedSlot = protectedMainHandSlot == null ? -1 : protectedMainHandSlot.intValue();
 
-        int previousSlot = player.inventory.currentItem;
-        try {
-            if (lockedCableSlot.slotIndex < 9) {
-                player.inventory.currentItem = lockedCableSlot.slotIndex;
-            }
-            boolean replaced = CompatAdapters.cable().replaceCableWithoutConnections(
-                player,
-                tileEntity,
-                lockedCableSlot.stack,
-                lockedCableSlot.slotIndex);
-            if (replaced && !connectedSides.isEmpty()) {
-                GregTechCableSessionState.rememberReconnectSides(session, target, connectedSides);
-            }
-            return replaced;
-        } finally {
-            player.inventory.currentItem = previousSlot;
-        }
+        // 单阶段原子替换：内部直写 mConnections + causeCableUpdate
+        // 删临时切手：replaceCable 不依赖 currentItem，只用 replacementStack/replacementSlotIndex
+        // protectedSlot 传给 adapter 保护主手 slot 不被返还的旧线缆占用
+        return CompatAdapters.cable().replaceCableWithoutConnections(
+            player, tileEntity, lockedCableSlot.stack, lockedCableSlot.slotIndex, protectedSlot);
     }
 
+    /**
+     * 不再入队 follow-up reconnect 目标。
+     *
+     * <p>RECONNECT 两阶段已停用：单阶段替换已完整恢复连接。
+     * 保留方法签名以兼容 {@link ChainActionExecutor} 接口，Batch 2 将随接口清理一并移除。
+     *
+     * @return 恒为 false
+     */
     @Override
     public boolean enqueueFollowUpTargets(EntityPlayerMP player, ChainSession session, ConcurrentLinkedQueue<ChainTarget> queue) {
-        if (player == null || session == null || queue == null) {
-            return false;
-        }
-        if (GregTechCableSessionState.getExecutionPhase(session) != GregTechCableSessionState.ExecutionPhase.REPLACE) {
-            return false;
-        }
-
-        List<ChainTarget> reconnectTargets = GregTechCableSessionState.getReconnectTargetsSnapshot(session);
-        if (reconnectTargets.isEmpty()) {
-            return false;
-        }
-
-        GregTechCableSessionState.setExecutionPhase(session, GregTechCableSessionState.ExecutionPhase.RECONNECT);
-        queue.addAll(reconnectTargets);
-        return true;
+        return false;
     }
 
+    /**
+     * 选择替换用线缆槽位。
+     * 替换类型基准 = 主手线缆 metaTileId（首次锁定，后续读会话锁）。
+     * 消耗顺序：主手外正序（slot 0→8→9→35）同种优先 → 主手最后兜底。
+     * 主手 slot 在返还旧线缆时受会话锁保护，避免旧线缆占用主手。
+     */
     private LockedCableSlot findLockedCableSlot(EntityPlayerMP player, ChainSession session) {
-        Integer lockedMetaTileId = GregTechCableSessionState.getLockedReplacementMetaTileId(session);
+        int mainHandSlot = player.inventory.currentItem;
+        ItemStack mainHandStack = player.inventory.getCurrentItem();
 
-        if (lockedMetaTileId != null) {
-            LockedCableSlot lockedSlot = findMatchingCable(player, lockedMetaTileId.intValue(), true);
-            if (lockedSlot != null) {
-                return lockedSlot;
-            }
-            lockedSlot = findMatchingCable(player, lockedMetaTileId.intValue(), false);
-            if (lockedSlot != null) {
-                return lockedSlot;
-            }
-        }
-
-        LockedCableSlot firstCable = findFirstCable(player, true);
-        if (firstCable == null) {
-            firstCable = findFirstCable(player, false);
-        }
-        if (firstCable == null) {
+        // 主手非线缆 → 不应到达此处（planner 已拦截），防御性返回 null
+        if (!CompatAdapters.cable().isCableStack(mainHandStack)) {
             return null;
         }
+        int mainHandMetaId = mainHandStack.getItemDamage();
 
-        GregTechCableSessionState.lockReplacementMetaTileId(session, firstCable.metaTileId);
-        return firstCable;
-    }
+        // 首次锁定：把主手线缆种类 + 主手 slot 锁进会话
+        Integer lockedMetaId = GregTechCableSessionState.getLockedReplacementMetaTileId(session);
+        if (lockedMetaId == null) {
+            GregTechCableSessionState.lockReplacementMetaTileId(session, mainHandMetaId);
+            GregTechCableSessionState.lockMainHandSlot(session, mainHandSlot);
+            lockedMetaId = mainHandMetaId;
+        }
+        int targetMetaId = lockedMetaId.intValue();
 
-    private LockedCableSlot findMatchingCable(EntityPlayerMP player, int metaTileId, boolean hotbarOnly) {
-        int start = hotbarOnly ? 8 : player.inventory.mainInventory.length - 1;
-        int endExclusive = hotbarOnly ? -1 : 8;
-        for (int i = start; i > endExclusive; i--) {
+        // 正序遍历主手外（跳过 mainHandSlot），找同种线缆优先消耗
+        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
+            if (i == mainHandSlot) continue;  // 主手最后兜底
             ItemStack stack = player.inventory.mainInventory[i];
-            if (!CompatAdapters.cable().isCableStack(stack)) {
-                continue;
-            }
-            if (stack.getItemDamage() == metaTileId) {
-                return new LockedCableSlot(i, stack, metaTileId);
+            if (!CompatAdapters.cable().isCableStack(stack)) continue;
+            if (stack.getItemDamage() == targetMetaId) {
+                return new LockedCableSlot(i, stack, targetMetaId);
             }
         }
-        return null;
-    }
 
-    private LockedCableSlot findFirstCable(EntityPlayerMP player, boolean hotbarOnly) {
-        int start = hotbarOnly ? 8 : player.inventory.mainInventory.length - 1;
-        int endExclusive = hotbarOnly ? -1 : 8;
-        for (int i = start; i > endExclusive; i--) {
-            ItemStack stack = player.inventory.mainInventory[i];
-            if (!CompatAdapters.cable().isCableStack(stack)) {
-                continue;
-            }
-            return new LockedCableSlot(i, stack, stack.getItemDamage());
+        // 主手外无同种 → 主手兜底
+        if (mainHandStack.getItemDamage() == targetMetaId) {
+            return new LockedCableSlot(mainHandSlot, mainHandStack, targetMetaId);
         }
-        return null;
+
+        return null;  // 料不够
     }
 
     private static final class LockedCableSlot {

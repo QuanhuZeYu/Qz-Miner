@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -49,6 +50,13 @@ public class GregTechCableReplacePlanner {
         }
 
         if (!CompatAdapters.cable().isCable(player.worldObj.getTileEntity(event.x, event.y, event.z))) {
+            return;
+        }
+
+        // 用户边界1：主手非线缆则不触发连锁（直接 return，不 setCanceled、不 publish）
+        // 避免空手/镐子等误触发连锁却无法替换
+        ItemStack heldStack = player.inventory.getCurrentItem();
+        if (!CompatAdapters.cable().isCableStack(heldStack)) {
             return;
         }
 

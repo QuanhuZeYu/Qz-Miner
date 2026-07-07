@@ -16,6 +16,12 @@ public class Config {
     public static int chainLoggingShellLayers = 1;
     public static int maxBreakPerTick = 64;
     /**
+     * GT 线缆连锁替换单 tick 原子上限：链路目标数超过此值则预校验失败不放行。
+     * 安全约束：GT 线缆必须 1 tick 内全部替换完，否则中间态混压导致机器爆炸/线缆烧毁。
+     * 默认 1024 与 chainMaxBlocks 对齐；实机后可按主线程 tick 预算调整。
+     */
+    public static int cableReplaceMaxPerTick = 1024;
+    /**
      * 连锁看门狗超时阈值（tick）：玩家连锁 N tick 无真实工作推进则看门狗 publish WatchdogTimeout
      * 协作式回 IDLE（异常兜底，非正常收尾路径）。默认 50 tick ≈ 2.5 秒（B 方案落地后纯做卡死回收速度旋钮，
      * 推进信号已对齐真实工作推进语义，不再为长规划/长执行背锅）。
@@ -57,6 +63,7 @@ public class Config {
         chainMaxBlocks = config.getInt("chainMaxBlocks", Configuration.CATEGORY_GENERAL, chainMaxBlocks, 1, Integer.MAX_VALUE, "最大连锁数量；超大值（如 >65536）会显著拖慢规划并加剧 abort 频率，建议根据机器性能调整");
         chainLoggingShellLayers = config.getInt("chainLoggingShellLayers", Configuration.CATEGORY_GENERAL, chainLoggingShellLayers, 1, Integer.MAX_VALUE, "CHAIN 伐木子模式每次向外扩展的壳层数；1 表示围绕当前原木检查一圈 3x3x3 邻域");
         maxBreakPerTick = config.getInt("maxBreakPerTick", Configuration.CATEGORY_GENERAL, maxBreakPerTick, 1, Integer.MAX_VALUE, "每 Tick 最多执行的连锁挖掘数量；64 在大范围连锁首 tick 可能逼近 50ms 预算，卡顿明显时调低");
+        cableReplaceMaxPerTick = config.getInt("cableReplaceMaxPerTick", Configuration.CATEGORY_GENERAL, cableReplaceMaxPerTick, 1, Integer.MAX_VALUE, "GT 线缆连锁替换单 tick 原子上限；超过此值的链路预校验失败不放行（防电压不匹配爆炸）；默认 1024");
         chainWatchdogTimeoutTicks = config.getInt("chainWatchdogTimeoutTicks", Configuration.CATEGORY_GENERAL, chainWatchdogTimeoutTicks, 20, Integer.MAX_VALUE, "连锁看门狗超时阈值（tick）：玩家连锁 N tick 无真实工作推进则协作式回 IDLE（异常兜底，默认 50 ≈ 2.5 秒，B 方案落地后纯做卡死回收速度旋钮）");
         parallelTickMinDurationMs = config.getInt("parallelTickMinDurationMs", Configuration.CATEGORY_GENERAL, parallelTickMinDurationMs, 10, Integer.MAX_VALUE, "同步执行器每刻最短执行时间（毫秒），默认 15，最低 10");
         parallelTickServerWorkBudgetUnits = config.getInt("parallelTickServerWorkBudgetUnits", Configuration.CATEGORY_GENERAL, parallelTickServerWorkBudgetUnits, 1, Integer.MAX_VALUE, "服务端并行 Tick 任务单个分片的工作预算单位；越大推进越快但单片耗时可能更高，默认 640");
