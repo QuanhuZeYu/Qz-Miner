@@ -247,11 +247,15 @@ public class KeyedLatestTaskLaneTest {
     }
 
     /**
-     * 随机并发：记录返回 true 的提交集合；生产停止后串行最终提交必须可达，
+     * 随机并发：记录返回 true 的提交集合；生产停止后串行最终线性化成功提交必须最终执行，
      * 且最终执行值必须属于曾 accepted 的集合（含最终提交）。
+     *
+     * <p>契约：成功提交在线性化点成为该 key 最新 pending，可被后续成功提交覆盖；
+     * lane 开放、生产静止且持续 drain 时，最后一次线性化成功的值最终执行。
+     * 不保证每个返回 true 的 submit 都最终执行。</p>
      */
     @Test
-    public void afterProductionStopsLastAcceptedValueIsEventuallyReachable() throws Exception {
+    public void afterProductionStopsLastLinearizedSubmitEventuallyExecutes() throws Exception {
         KeyedLatestTaskLane<String> lane = new KeyedLatestTaskLane<String>(8, 64);
         lane.start();
         final AtomicReference<Integer> lastExecuted = new AtomicReference<Integer>();
@@ -281,7 +285,7 @@ public class KeyedLatestTaskLaneTest {
         Assert.assertTrue(producersDone.await(5, TimeUnit.SECONDS));
         Assert.assertFalse("at least one concurrent submit must be accepted", acceptedValues.isEmpty());
 
-        // 生产停止后的串行「最后一次返回 true 的提交」必须最终可达
+        // 生产静止后的串行「最后一次线性化成功提交」最终执行
         final int lastAccepted = next.incrementAndGet();
         Assert.assertTrue(lane.submit("endpoint", new Runnable() {
             @Override
@@ -298,7 +302,7 @@ public class KeyedLatestTaskLaneTest {
         Assert.assertTrue(totalDrained >= 1);
         Assert.assertNotNull(lastExecuted.get());
         Assert.assertEquals(
-                "last accepted submit after production stop must be the final executed value",
+                "last linearized submit after production stop must be the final executed value",
                 lastAccepted,
                 lastExecuted.get().intValue());
         Assert.assertTrue(

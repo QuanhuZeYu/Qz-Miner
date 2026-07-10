@@ -16,6 +16,9 @@ import net.minecraftforge.event.world.WorldEvent;
 
 /**
  * 客户端连接事件监听。
+ *
+ * <p>连接 / 断线 / 世界卸载入口先推进 {@link ClientConnectionLifecycle} token，
+ * 再调度初始化或清理。单人集成服也推进 token；{@code isSingleplayer} 只影响 C2S request。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ClientConnectionListener {
@@ -30,6 +33,8 @@ public class ClientConnectionListener {
 
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        // 入口立即推进 active token（单人集成服同样推进），再调度初始化
+        ClientConnectionLifecycle.advanceActive();
         ClientMainThreadDispatcher.run(() -> {
             final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
             if (MyMod.chainStateService == null) {
@@ -53,6 +58,8 @@ public class ClientConnectionListener {
      */
     @SubscribeEvent
     public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+        // 入口立即推进 inactive token，再调度清理
+        ClientConnectionLifecycle.advanceInactive();
         cleanupPreviewResources("client-disconnect");
     }
 
@@ -67,6 +74,8 @@ public class ClientConnectionListener {
             return;
         }
 
+        // 推进 token 保持当前 active 标志：旧世界任务失效，同连接切维度后未来 S2C 仍可捕获新 active token
+        ClientConnectionLifecycle.advanceKeepActive();
         cleanupPreviewResources("client-world-unload");
     }
 

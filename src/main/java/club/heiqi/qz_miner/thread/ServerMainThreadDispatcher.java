@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.thread;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import club.heiqi.qz_miner.MyMod;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -15,7 +16,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * <p>普通 FIFO（{@link #run}/{@link #tryRun}）语义保持不变；
  * keyed latest-wins 泳道（{@link #tryRunLatest}）与 FIFO 完全隔离，
- * 仅在 ServerTick START 每 tick 最多 drain 64 槽，END 不 drain。</p>
+ * 仅在 ServerTick START 每 tick 最多 drain 64 槽，END 不 drain。
+ * START keyed drain 外层有主线程不可重入 guard：嵌套 START 跳过 keyed lane，
+ * 普通 FIFO 不受影响。</p>
  */
 public final class ServerMainThreadDispatcher {
 
@@ -23,6 +26,8 @@ public final class ServerMainThreadDispatcher {
     private static final KeyedLatestTaskLane<Object> KEYED_LANE =
             new KeyedLatestTaskLane<Object>(KeyedLatestTaskLane.DEFAULT_CAPACITY, KeyedLatestTaskLane.DEFAULT_DRAIN_BUDGET);
     private static final ServerMainThreadDispatcher INSTANCE = new ServerMainThreadDispatcher();
+    /** START keyed drain 不可重入：嵌套 drainKeyedLane 直接跳过。 */
+    private static final AtomicBoolean KEYED_DRAIN_ACTIVE = new AtomicBoolean(false);
 
     private static volatile boolean registered;
     private static volatile boolean stopping;
@@ -125,19 +130,31 @@ public final class ServerMainThreadDispatcher {
     public void onServerTick(TickEvent.ServerTickEvent event) {
         serverThread = Thread.currentThread();
         if (event.phase == TickEvent.Phase.START) {
-            drainKeyedLane();
+            drainKeyedLaneGuarded();
         }
         // 普通 FIFO 语义不变：继续在每个 ServerTick 相位排空
         drainPendingTasks();
     }
 
-    private void drainKeyedLane() {
-        KEYED_LANE.drain(new KeyedLatestTaskLane.ErrorHandler() {
-            @Override
-            public void onError(RuntimeException error) {
-                MyMod.LOG.error("[ThreadDispatch] Server keyed task failed", error);
-            }
-        });
+    /**
+     * 带不可重入 guard 的 keyed drain：嵌套调用跳过 keyed lane。
+     *
+     * @return 本层实际 drain 的槽位数；因 reentry 跳过时为 0
+     */
+    static int drainKeyedLaneGuarded() {
+        if (!KEYED_DRAIN_ACTIVE.compareAndSet(false, true)) {
+            return 0;
+        }
+        try {
+            return KEYED_LANE.drain(new KeyedLatestTaskLane.ErrorHandler() {
+                @Override
+                public void onError(RuntimeException error) {
+                    MyMod.LOG.error("[ThreadDispatch] Server keyed task failed", error);
+                }
+            });
+        } finally {
+            KEYED_DRAIN_ACTIVE.set(false);
+        }
     }
 
     private void drainPendingTasks() {
@@ -158,5 +175,14 @@ public final class ServerMainThreadDispatcher {
      */
     static KeyedLatestTaskLane<Object> keyedLaneForTests() {
         return KEYED_LANE;
+    }
+
+    /**
+     * 测试钩子：keyed drain 是否处于外层执行中。
+     *
+     * @return reentry guard 是否占用
+     */
+    static boolean keyedDrainActiveForTests() {
+        return KEYED_DRAIN_ACTIVE.get();
     }
 }

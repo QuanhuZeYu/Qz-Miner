@@ -181,7 +181,7 @@ public class ServerChainConfigRequestDispatchTest {
         }
         Assert.assertNotNull(written.get());
         Assert.assertArrayEquals(
-                "last accepted submit after production stop must be the final written value",
+                "last linearized submit after production stop must be the final written value",
                 new int[] {lastRadius, lastMax},
                 written.get());
         Assert.assertTrue(acceptedPairs.contains(lastRadius + ":" + lastMax));

@@ -3,8 +3,6 @@ package club.heiqi.qz_miner;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
@@ -17,18 +15,37 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientChainConfigSyncDispatch;
 import club.heiqi.qz_miner.client.ClientConfigChangeListener;
+import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
+import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 
 public class ClientProxy extends CommonProxy {
 
     private static final long CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS = TimeUnit.SECONDS.toNanos(10L);
-    private static final AtomicBoolean CONFIG_SYNC_REJECT_DIAG_EMITTED = new AtomicBoolean();
-    private static final AtomicLong CONFIG_SYNC_REJECT_COUNT = new AtomicLong();
-    private static final AtomicLong CONFIG_SYNC_REJECT_LAST_DIAG_NS = new AtomicLong();
+    private static final RateLimitedRejectDiagnostics CONFIG_SYNC_REJECT_DIAG =
+            new RateLimitedRejectDiagnostics(CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS);
+
+    private static final ClientChainConfigSyncDispatch.LifecycleGate LIFECYCLE_GATE =
+            new ClientChainConfigSyncDispatch.LifecycleGate() {
+                @Override
+                public boolean isActive(Object token) {
+                    return token instanceof ClientConnectionLifecycle.Token
+                            && ((ClientConnectionLifecycle.Token) token).isActive();
+                }
+
+                @Override
+                public boolean isCurrentAndActive(Object token) {
+                    if (!(token instanceof ClientConnectionLifecycle.Token)) {
+                        return false;
+                    }
+                    return ClientConnectionLifecycle.isCurrentAndActive(
+                            (ClientConnectionLifecycle.Token) token);
+                }
+            };
 
     public static ChainPreviewController chainPreviewController;
     public static ChainPreviewRenderer chainPreviewRenderer;
@@ -64,8 +81,9 @@ public class ClientProxy extends CommonProxy {
     /**
      * 阶段8 块3 F3-a：处理客户端连锁配置同步下发。
      *
-     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。先捕获三个 final int，
-     * 再经 {@link ClientMainThreadDispatcher} 投递后写 ChainClientState。
+     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。先捕获三个 final int
+     * 与当前 {@link ClientConnectionLifecycle} token，再经 {@link ClientMainThreadDispatcher}
+     * 投递后写 ChainClientState。inactive token 直接丢弃且不做 dispatcher rejection warn；
      * dispatcher 拒绝时做限频诊断，不跨 lifecycle 重试。</p>
      *
      * <p>守 I4：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。</p>
@@ -79,10 +97,13 @@ public class ClientProxy extends CommonProxy {
         final int receivedRadius = chainRadius;
         final int receivedMaxBlocks = chainMaxBlocks;
         final int receivedMatchedTargetCount = matchedTargetCount;
+        final ClientConnectionLifecycle.Token capturedToken = ClientConnectionLifecycle.capture();
         boolean accepted = ClientChainConfigSyncDispatch.dispatch(
                 receivedRadius,
                 receivedMaxBlocks,
                 receivedMatchedTargetCount,
+                capturedToken,
+                LIFECYCLE_GATE,
                 new ClientChainConfigSyncDispatch.Dispatcher() {
                     @Override
                     public boolean dispatch(Runnable task) {
@@ -106,20 +127,23 @@ public class ClientProxy extends CommonProxy {
     }
 
     private static void noteConfigSyncDispatchRejected() {
-        long count = CONFIG_SYNC_REJECT_COUNT.incrementAndGet();
-        long now = System.nanoTime();
-        long previous = CONFIG_SYNC_REJECT_LAST_DIAG_NS.get();
-        boolean first = CONFIG_SYNC_REJECT_DIAG_EMITTED.compareAndSet(false, true);
-        if (!first && previous != 0L && now - previous < CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS) {
-            return;
-        }
-        if (!CONFIG_SYNC_REJECT_LAST_DIAG_NS.compareAndSet(previous, now) && !first) {
-            return;
-        }
-        MyMod.LOG.warn(
-                "[ChainConfigSync] Client dispatcher rejected {} packet(s); dropped without cross-lifecycle retry",
-                Long.valueOf(count));
-        CONFIG_SYNC_REJECT_COUNT.addAndGet(-count);
+        CONFIG_SYNC_REJECT_DIAG.note(System.nanoTime(), new RateLimitedRejectDiagnostics.BatchLogger() {
+            @Override
+            public void log(long batchCount) {
+                MyMod.LOG.warn(
+                        "[ChainConfigSync] Client dispatcher rejected {} packet(s); dropped without cross-lifecycle retry",
+                        Long.valueOf(batchCount));
+            }
+        });
+    }
+
+    /**
+     * 测试钩子：拒绝诊断聚合器。
+     *
+     * @return 配置同步拒绝诊断
+     */
+    static RateLimitedRejectDiagnostics configSyncRejectDiagnosticsForTests() {
+        return CONFIG_SYNC_REJECT_DIAG;
     }
 
     @Override

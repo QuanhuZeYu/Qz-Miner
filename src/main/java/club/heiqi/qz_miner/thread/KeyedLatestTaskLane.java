@@ -15,7 +15,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * 更新协议可线性化：{@code ConcurrentHashMap.replace(key, observed, next)} /
  * {@code remove(key)}，禁止对已脱离 map 的槽位写回。start/stop 使用不可复用的
  * lane identity 隔离旧生命周期；关闭后清空并拒绝旧提交。drain 每次最多消费
- * {@code drainBudget} 个槽，并保证生产停止后已接受值最终可达。</p>
+ * {@code drainBudget} 个槽。</p>
+ *
+ * <p><b>latest-wins 线性化契约</b>：成功提交在其线性化点成为该 key 的最新 pending，
+ * 可被后续成功提交覆盖。lane 保持开放、生产静止且持续 drain 时，最后一次在线性化点
+ * 成功的值最终执行。{@link #stop()} 清空 pending 是正常 close 语义，不保证关闭瞬间
+ * 仍挂起的值可达。禁止将契约表述为「每个返回 true 的 submit 最终都执行」。</p>
  *
  * @param <K> 槽位键类型
  */
