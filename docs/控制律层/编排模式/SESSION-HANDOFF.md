@@ -97,7 +97,7 @@
 
 - [ ] **无持续价值的中间过程已丢弃**：工具原始输出、已完成无后续的尝试、无教训的失败——这些本就不该进 handoff，任务完成时确认它们没残留
 - [ ] **回流项已逐条反向举证**：每条打算回流到项目层（决策/错误预防/交接.md 未收敛项）的事实，必须答上"持续价值三问"（见下），答不上就丢
-- [ ] **session-handoff.md 已处理**：任务全完成→清空为模板初始态；尚有后续会话→只保留 `INTERRUPTED`/`TIMEOUT`/`INCOMPLETE` 的 task 记录供恢复，终态记录标记 `DO NOT RESUME`，不得出现在可恢复列表
+- [ ] **session-handoff.md 已处理**：任务全完成→删除无持续价值的记录并回到模板初始态；尚有后续会话→可保留有持续价值的 task 审计记录，只有 `INTERRUPTED`/`TIMEOUT`/`INCOMPLETE` 进入可恢复列表并保留原 `task_id`，`COMPLETED`/`FAILED`/`UNKNOWN` 终态记录标记 `DO NOT RESUME` 且不得进入可恢复列表
 - [ ] **门禁已跑**：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-discipline.ps1` 通过（handoff 不入 git、无流水账命名）
 
 ### 持续价值三问（回流反向举证）

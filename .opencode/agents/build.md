@@ -104,7 +104,7 @@ permission:
 | 纠偏 | 踩过的坑、被否决的方案及原因、返工点 |
 | 反馈 | 待验证项（真机/测试）、待回写文档、下一步动作 |
 
-丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试；handoff 只保留三种可恢复态的未完成 task，终态标记 `DO NOT RESUME`。
+丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试；handoff 可保留有持续价值的 task 审计记录，但只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 进入可恢复列表并可传原 `task_id`，`COMPLETED`、`FAILED`、`UNKNOWN`/缺状态等终态记录标记 `DO NOT RESUME`。任务整体完成后按 `SESSION-HANDOFF.md §9` 清理无持续价值记录并回到模板初始态。
 
 **怎么接**（新会话冷启动）：
 
