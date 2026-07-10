@@ -13,7 +13,8 @@ public class CommonProxy {
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
     // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
-        MyMod.CONFIG.init(event.getSuggestedConfigurationFile());
+        // YAML 权威在 config/qz_miner.yaml；旧 suggested cfg 仅作一次性导入源
+        MyMod.CONFIG.init(event.getModConfigurationDirectory(), event.getSuggestedConfigurationFile());
 
         MyMod.LOG.info(Config.greeting);
         MyMod.LOG.info("I am " + MyMod.MOD_NAME + " at version " + Tags.VERSION);

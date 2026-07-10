@@ -1,45 +1,47 @@
 package club.heiqi.qz_miner.client.configGUI;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.MyMod;
-import cpw.mods.fml.client.config.GuiConfig;
-import cpw.mods.fml.client.config.IConfigElement;
 import net.minecraft.client.gui.GuiScreen;
-import net.minecraftforge.common.config.ConfigElement;
-import net.minecraftforge.common.config.Configuration;
+
+import club.heiqi.config.runtime.ConfigManager;
+import club.heiqi.config.ui.ConfigScreen;
+import club.heiqi.config.ui.ConfigUI;
+import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.uilib.ui.scene.host.lwjgl.LwjglInputSource;
+import club.heiqi.uilib.ui.scene.host.lwjgl.LwjglStateReader;
+import club.heiqi.uilib.ui.scene.input.PlatformInputSource;
+import club.heiqi.uilib.ui.screen.McScreenBridge;
 
 /**
- * Forge 原生配置页。
+ * UILib 4.5 配置页宿主（{@link McScreenBridge}）。
  *
- * <p>该界面作为 UILib 缺失时的兜底实现，避免配置入口强依赖可选 UI 库。</p>
+ * <p>满足 IModGuiFactory 单参 {@code (GuiScreen)} 构造契约；使用长寿命
+ * {@link ConfigBootstrap#manager()}，不在开屏时重复 bootstrap / 重复订阅。</p>
  */
-public class QzMinerConfigGUI extends GuiConfig {
+public class QzMinerConfigGUI extends McScreenBridge {
 
     /**
-     * 创建模组配置界面。
+     * Forge guiFactory 反射入口。
      *
      * @param parentScreen 父界面
      */
     public QzMinerConfigGUI(GuiScreen parentScreen) {
-        super(parentScreen, createConfigElements(), MyMod.MODID, MyMod.MODID, false, false, MyMod.MOD_NAME + " 配置");
+        super(parentScreen, buildSurface());
     }
 
-    /**
-     * 构建 Forge 配置 GUI 使用的配置项。
-     *
-     * @return 配置 GUI 元素列表
-     */
-    private static List<IConfigElement> createConfigElements() {
-        List<IConfigElement> elements = new ArrayList<IConfigElement>();
-        if (Config.config == null) {
-            return elements;
+    private static ConfigScreen buildSurface() {
+        ConfigManager manager = ConfigBootstrap.manager();
+        if (manager == null) {
+            MyMod.LOG.error("ConfigManager missing when opening config GUI; building ephemeral defaults surface");
+            // 防御：不应发生；若发生则用空路径 bootstrap 会在 preInit 已失败后仍尽量不 NPE
+            throw new IllegalStateException("ConfigBootstrap.manager() is null; preInit must run first");
         }
+        PlatformInputSource input = new LwjglInputSource(new LwjglStateReader());
+        return ConfigUI.buildScreen(manager, input);
+    }
 
-        elements.add(new ConfigElement(Config.config.getCategory(Configuration.CATEGORY_GENERAL)));
-        elements.add(new ConfigElement(Config.config.getCategory(Config.CATEGORY_CLIENT)));
-        return elements;
+    @Override
+    public boolean doesGuiPauseGame() {
+        return true;
     }
 }

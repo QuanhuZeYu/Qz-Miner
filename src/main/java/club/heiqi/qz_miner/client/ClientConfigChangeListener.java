@@ -1,48 +1,63 @@
 package club.heiqi.qz_miner.client;
 
+import club.heiqi.config.ConfigChangeEvent;
+import club.heiqi.config.ConfigChangeListener;
+import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ConfigValueBridge;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import cpw.mods.fml.client.FMLClientHandler;
-import cpw.mods.fml.client.event.ConfigChangedEvent;
-import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * 客户端配置变更监听。
+ * 客户端配置变更：订阅 UILib {@code BATCH_SAVE} 回灌静态字段并网络同步。
+ *
+ * <p>在客户端生命周期只订阅一次，避免每次开配置页累积监听器。
+ * 已移除 Forge {@code ConfigChangedEvent} 保存链。</p>
  */
 @SideOnly(Side.CLIENT)
-public class ClientConfigChangeListener {
+public class ClientConfigChangeListener implements ConfigChangeListener {
+
+    private static boolean subscribed;
 
     /**
-     * 保存后同步本地状态与服务端请求配置。
-     */
-    public static void reloadAndSyncAfterConfigSaved() {
-        Config.saveAndReload();
-        syncClientRequestedChainConfig();
-    }
-
-    /**
-     * 注册配置变更监听。
+     * 注册 BATCH_SAVE 单次订阅（幂等）。
      */
     public void register() {
-        FMLCommonHandler.instance().bus().register(this);
+        if (subscribed) {
+            return;
+        }
+        ConfigManager manager = ConfigBootstrap.manager();
+        if (manager == null) {
+            MyMod.LOG.warn("ConfigManager not ready; BATCH_SAVE listener not subscribed");
+            return;
+        }
+        manager.eventBus().subscribe(this);
+        subscribed = true;
+        MyMod.LOG.info("Subscribed Config BATCH_SAVE listener once");
     }
 
     /**
-     * 从配置界面保存后重新加载配置，并同步到服务端。
-     *
-     * @param event 配置变更事件
+     * 测试钩子：重置单次订阅标记。
      */
-    @SubscribeEvent
-    public void onConfigChangeEvent(ConfigChangedEvent.OnConfigChangedEvent event) {
-        if (!MyMod.MODID.equalsIgnoreCase(event.modID)) {
+    public static void resetSubscriptionForTests() {
+        subscribed = false;
+    }
+
+    @Override
+    public void onConfigChanged(ConfigChangeEvent event) {
+        if (event == null || event.getType() != ConfigChangeEvent.ChangeType.BATCH_SAVE) {
             return;
         }
-
-        reloadAndSyncAfterConfigSaved();
+        ConfigManager manager = ConfigBootstrap.manager();
+        if (manager == null) {
+            return;
+        }
+        ConfigValueBridge.applyFromAuthority(manager.authority());
+        syncClientRequestedChainConfig();
     }
 
     /**

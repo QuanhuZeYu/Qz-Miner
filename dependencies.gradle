@@ -44,7 +44,10 @@ dependencies {
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
-    devOnlyNonPublishable("com.github.QuanhuZeYu:Qz-UILib:4.2.0:dev") { transitive = false }
+    // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
+    // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
+    devOnlyNonPublishable("com.github.QuanhuZeYu:Qz-UILib:4.5.1:dev") { transitive = false }
+    testImplementation("com.github.QuanhuZeYu:Qz-UILib:4.5.1:dev") { transitive = false }
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))

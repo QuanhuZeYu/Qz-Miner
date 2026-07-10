@@ -8,7 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 
 /**
- * Qz Miner 客户端配置 GUI 工厂。
+ * Qz Miner 客户端配置 GUI 工厂（硬依赖 UILib 4.5 配置页）。
  */
 public class QzMinerConfigGUIFactory implements IModGuiFactory {
 
@@ -21,13 +21,13 @@ public class QzMinerConfigGUIFactory implements IModGuiFactory {
     public void initialize(Minecraft minecraftInstance) {}
 
     /**
-     * 返回当前环境可用的配置界面。
+     * 返回 UILib 配置界面类。
      *
-     * @return 配置界面类
+     * @return {@link QzMinerConfigGUI}
      */
     @Override
     public Class<? extends GuiScreen> mainConfigGuiClass() {
-        return ConfigGuiAdapters.getMainConfigGuiClass();
+        return QzMinerConfigGUI.class;
     }
 
     /**
