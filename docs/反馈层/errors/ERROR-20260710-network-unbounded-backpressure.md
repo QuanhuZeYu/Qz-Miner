@@ -22,6 +22,8 @@
 
 ## 修复方案
 
+**范围声明：本次修复仅覆盖配置 C2S（`PacketChainConfigRequest`）及其配套 S2C lifecycle 守卫。普通 FIFO 上的其他 C2S（如 `PacketLootGamesMinesweeperPreviewRequest`、`PacketKeyState` 等）未收口，不能推导「全网络背压已完成」。**
+
 - 提取 `KeyedLatestTaskLane`：与 FIFO 隔离的 keyed latest-wins 泳道；`ConcurrentHashMap<K,Runnable>` 上 `replace(key, observed, next)` / `remove(key)` 可线性化更新；固定容量（新 key 满拒、已有 key 可更新）；START 每 tick 最多 64 槽，END 不 drain；start/stop 不可复用 identity。
 - **线性化契约**：成功提交在线性化点成为该 key 最新 pending，可被后续成功提交覆盖；lane 开放、生产静止且持续 drain 时，最后一次线性化成功的值最终执行。`stop()` 清空 pending 是正常 close 语义。禁止将契约表述为「每个返回 true 的 submit 最终都执行」。
 - `ServerMainThreadDispatcher` START keyed drain 外层主线程不可重入 guard：嵌套 START 跳过 keyed lane，普通 FIFO 语义不变。
@@ -33,6 +35,7 @@
 ## 预防措施
 
 - 可被远程放大的入包路径默认按端点 latest-wins + 容量/预算，而非无界 FIFO。
+- 单条路径收口不得表述为全网络背压完成；其余普通 FIFO C2S 仍须按端点独立评估。
 - keyed 更新必须可线性化（replace/remove），禁写已脱离 map 的槽位；契约表述以「最后线性化成功值最终执行」为准，勿写「每个 submit true 最终可达」。
 - START keyed drain 必须不可重入，避免嵌套耗尽预算。
 - 消费前必须重取会话并校验实例身份；禁止仅用 UUID 或仅用 identityHashCode 假定端点仍有效。
