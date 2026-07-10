@@ -48,8 +48,8 @@ public class CommonProxy {
     /**
      * 阶段8 块3 F3-a：处理客户端连锁配置同步下发（空实现，服务端不处理）。
      *
-     * <p>客户端 ClientProxy 覆写此方法，写 ChainClientState 的 serverChainRadius/
-     * serverChainMaxBlocks/serverMatchedTargetCount 三字段（守 I4：Netty 线程只写 volatile 字段）。</p>
+     * <p>服务端保持 no-op。客户端 ClientProxy 覆写后必须先经 ClientMainThreadDispatcher，
+     * 再写 ChainClientState 三字段；volatile 可见性不能替代 I4 主线程收口。</p>
      *
      * @param chainRadius        服务端连锁半径上限
      * @param chainMaxBlocks     服务端连锁目标数上限

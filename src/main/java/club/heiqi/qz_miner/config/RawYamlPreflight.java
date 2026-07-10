@@ -37,7 +37,9 @@ public final class RawYamlPreflight {
         if (file == null) {
             throw new IllegalArgumentException("file must not be null");
         }
-        ConfigNode root = Config.load(ConfigSource.fromFile(file), ConfigFormat.YAML);
+        ConfigNode root = file.isFile() && file.length() == 0L
+                ? Config.parse("{}", ConfigFormat.YAML)
+                : Config.load(ConfigSource.fromFile(file), ConfigFormat.YAML);
         return validate(root, schema);
     }
 

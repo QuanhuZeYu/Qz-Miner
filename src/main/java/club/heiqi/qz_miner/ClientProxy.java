@@ -14,9 +14,10 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
-import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
-import club.heiqi.qz_miner.client.ClientConnectionListener;
+import club.heiqi.qz_miner.client.ClientChainConfigSyncDispatch;
 import club.heiqi.qz_miner.client.ClientConfigChangeListener;
+import club.heiqi.qz_miner.client.ClientConnectionListener;
+import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -57,12 +58,10 @@ public class ClientProxy extends CommonProxy {
     /**
      * 阶段8 块3 F3-a：处理客户端连锁配置同步下发。
      *
-     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。写 ChainClientState 的
-     * {@code serverChainRadius}/{@code serverChainMaxBlocks}/{@code serverMatchedTargetCount} 三字段
-     * （这三字段随旧八字段链删除后由新 config 包接替写入）。</p>
+     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。先捕获三个 final int，
+     * 再经 {@link ClientMainThreadDispatcher} 投递后写 ChainClientState。</p>
      *
-     * <p>守 I4：三字段均为 volatile int，Netty 线程写 + 客户端主线程读 volatile 保证可见性，
-     * 不直接碰渲染层（HUD 在主线程 RenderGameOverlayEvent 读，天然主线程收口）。</p>
+     * <p>守 I4：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。</p>
      *
      * @param chainRadius        服务端连锁半径上限
      * @param chainMaxBlocks     服务端连锁目标数上限
@@ -70,12 +69,30 @@ public class ClientProxy extends CommonProxy {
      */
     @Override
     public void handleClientChainConfigSync(int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
-        if (MyMod.chainStateService == null) {
-            return;
-        }
-        MyMod.chainStateService.getClientState().setServerChainRadius(chainRadius);
-        MyMod.chainStateService.getClientState().setServerChainMaxBlocks(chainMaxBlocks);
-        MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedTargetCount);
+        final int receivedRadius = chainRadius;
+        final int receivedMaxBlocks = chainMaxBlocks;
+        final int receivedMatchedTargetCount = matchedTargetCount;
+        ClientChainConfigSyncDispatch.dispatch(
+                receivedRadius,
+                receivedMaxBlocks,
+                receivedMatchedTargetCount,
+                new ClientChainConfigSyncDispatch.Dispatcher() {
+                    @Override
+                    public void dispatch(Runnable task) {
+                        ClientMainThreadDispatcher.run(task);
+                    }
+                },
+                new ClientChainConfigSyncDispatch.Publication() {
+                    @Override
+                    public void publish(int radius, int maxBlocks, int matchedCount) {
+                        if (MyMod.chainStateService == null) {
+                            return;
+                        }
+                        MyMod.chainStateService.getClientState().setServerChainRadius(radius);
+                        MyMod.chainStateService.getClientState().setServerChainMaxBlocks(maxBlocks);
+                        MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedCount);
+                    }
+                });
     }
 
     @Override

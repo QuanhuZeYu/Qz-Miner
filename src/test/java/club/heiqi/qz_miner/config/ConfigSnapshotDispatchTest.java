@@ -54,7 +54,7 @@ public class ConfigSnapshotDispatchTest {
         Assert.assertSame("late old task must not replace current cache",
                 second, ConfigBootstrap.currentValidatedSnapshot());
         Assert.assertSame(second, harness.clientPublished.get(0));
-        Assert.assertSame(first, harness.clientPublished.get(1));
+        Assert.assertEquals("late old client publication must be skipped", 1, harness.clientPublished.size());
     }
 
     @Test
@@ -109,10 +109,83 @@ public class ConfigSnapshotDispatchTest {
         Assert.assertEquals(18, Config.chainRadius);
     }
 
+    @Test
+    public void clientAndServerBothRejectOlderSnapshotWhenTasksRunInReverseOrder() {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        Harness harness = new Harness(manager, true);
+        manager.eventBus().subscribe(harness);
+
+        saveRadiusAndClientPreview(manager, 14, 7);
+        saveRadiusAndClientPreview(manager, 28, 11);
+        ValidatedSnapshot second = harness.captured.get(1);
+
+        harness.client.runAt(1);
+        harness.server.runAt(1);
+        harness.client.runAt(0);
+        harness.server.runAt(0);
+
+        Assert.assertEquals(11, Config.clientPreviewMaxRadius);
+        Assert.assertEquals(28, Config.chainRadius);
+        Assert.assertEquals(1, harness.clientPublished.size());
+        Assert.assertEquals(1, harness.serverPublished.size());
+        Assert.assertSame(second, harness.clientPublished.get(0));
+        Assert.assertSame("same current snapshot must feed both sides", second, harness.serverPublished.get(0));
+    }
+
+    @Test
+    public void invalidServerArgumentsAreRejectedBeforeClientIsQueued() {
+        ConfigBootstrap.bootstrap(tempDir, null);
+        ValidatedSnapshot current = ConfigBootstrap.currentValidatedSnapshot();
+        QueueDispatcher client = new QueueDispatcher();
+        try {
+            ConfigSnapshotDispatch.dispatch(current, client, recordingPublication(new ArrayList<ValidatedSnapshot>()),
+                    true, null, recordingPublication(new ArrayList<ValidatedSnapshot>()));
+            Assert.fail("missing server dispatcher must fail preflight");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server"));
+        }
+        Assert.assertEquals("full preflight must happen before any partial queueing", 0, client.tasks.size());
+    }
+
+    @Test
+    public void serverDispatcherFailureKeepsAcceptedClientTaskAsBestEffortAndPropagates() {
+        ConfigBootstrap.bootstrap(tempDir, null);
+        ValidatedSnapshot current = ConfigBootstrap.currentValidatedSnapshot();
+        QueueDispatcher client = new QueueDispatcher();
+        final List<ValidatedSnapshot> published = new ArrayList<ValidatedSnapshot>();
+        try {
+            ConfigSnapshotDispatch.dispatch(current, client, recordingPublication(published), true,
+                    new ThrowingDispatcher(), recordingPublication(new ArrayList<ValidatedSnapshot>()));
+            Assert.fail("dispatcher failure must propagate");
+        } catch (IllegalStateException expected) {
+            Assert.assertEquals("forced dispatcher failure", expected.getMessage());
+        }
+        Assert.assertEquals("accepted client task cannot be rolled back", 1, client.tasks.size());
+        client.runAt(0);
+        Assert.assertSame(current, published.get(0));
+    }
+
     private static void saveRadius(ConfigManager manager, int radius) {
         DraftBuffer draft = manager.openDraft();
         draft.setDraft("general.chainRadius", Double.valueOf(radius));
         Assert.assertTrue(manager.save(draft).isSuccess());
+    }
+
+    private static void saveRadiusAndClientPreview(ConfigManager manager, int radius, int previewRadius) {
+        DraftBuffer draft = manager.openDraft();
+        draft.setDraft("general.chainRadius", Double.valueOf(radius));
+        draft.setDraft("client.clientPreviewMaxRadius", Double.valueOf(previewRadius));
+        Assert.assertTrue(manager.save(draft).isSuccess());
+    }
+
+    private static ConfigSnapshotDispatch.Publication recordingPublication(
+            final List<ValidatedSnapshot> published) {
+        return new ConfigSnapshotDispatch.Publication() {
+            @Override
+            public void publish(ValidatedSnapshot snapshot) {
+                published.add(snapshot);
+            }
+        };
     }
 
     private static final class Harness implements ConfigChangeListener {
@@ -165,6 +238,13 @@ public class ConfigSnapshotDispatchTest {
 
         void runAt(int index) {
             tasks.get(index).run();
+        }
+    }
+
+    private static final class ThrowingDispatcher implements ConfigSnapshotDispatch.Dispatcher {
+        @Override
+        public void dispatch(Runnable task) {
+            throw new IllegalStateException("forced dispatcher failure");
         }
     }
 

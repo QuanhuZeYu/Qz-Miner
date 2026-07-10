@@ -20,7 +20,7 @@ import net.minecraft.server.MinecraftServer;
 /**
  * 客户端配置变更：订阅 UILib {@code BATCH_SAVE}，分侧发布运行字段并网络同步。
  *
- * <p>持有注册时的 final {@link ConfigManager}，按 manager 实例保证一次订阅（不用与 manager 脱节的全局 boolean）。
+ * <p>持有注册时的 final {@link ConfigManager}，静态记录准确的 manager+listener 订阅对。
  * BATCH_SAVE 可能同步触发：在回调线程立即抓取不可变 {@link ValidatedSnapshot}，再经
  * {@link ClientMainThreadDispatcher} 异步发布 client 字段；general 仅在集成服运行时经
  * {@link ServerMainThreadDispatcher} 写服务端主线程。远程多人客户端不写 general static 充当服务端权威。</p>
@@ -31,7 +31,10 @@ import net.minecraft.server.MinecraftServer;
 @SideOnly(Side.CLIENT)
 public class ClientConfigChangeListener implements ConfigChangeListener {
 
-    private static volatile ConfigManager subscribedManager;
+    private static final Object SUBSCRIPTION_LOCK = new Object();
+
+    private static ConfigManager subscribedManager;
+    private static ClientConfigChangeListener subscribedListener;
 
     private final ConfigManager manager;
 
@@ -64,27 +67,34 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
      * 按 manager 实例幂等订阅。
      */
     public void register() {
-        if (subscribedManager == manager) {
-            return;
-        }
-        if (subscribedManager != null && subscribedManager != manager) {
-            MyMod.LOG.warn("Replacing BATCH_SAVE subscription for new ConfigManager instance");
-            try {
-                subscribedManager.eventBus().unsubscribe(this);
-            } catch (RuntimeException ignored) {
-                // 旧 listener 可能是另一实例；新实例仍 subscribe
+        synchronized (SUBSCRIPTION_LOCK) {
+            if (subscribedManager == manager && subscribedListener == this) {
+                return;
             }
+            if (subscribedManager != null && subscribedListener != null) {
+                MyMod.LOG.warn("Replacing BATCH_SAVE subscription for ConfigManager/listener instance");
+                subscribedManager.eventBus().unsubscribe(subscribedListener);
+                subscribedManager = null;
+                subscribedListener = null;
+            }
+            manager.eventBus().subscribe(this);
+            subscribedManager = manager;
+            subscribedListener = this;
+            MyMod.LOG.info("Subscribed Config BATCH_SAVE listener for manager/listener instance");
         }
-        manager.eventBus().subscribe(this);
-        subscribedManager = manager;
-        MyMod.LOG.info("Subscribed Config BATCH_SAVE listener for manager instance");
     }
 
     /**
      * 测试钩子。
      */
     public static void resetSubscriptionForTests() {
-        subscribedManager = null;
+        synchronized (SUBSCRIPTION_LOCK) {
+            if (subscribedManager != null && subscribedListener != null) {
+                subscribedManager.eventBus().unsubscribe(subscribedListener);
+            }
+            subscribedManager = null;
+            subscribedListener = null;
+        }
     }
 
     @Override

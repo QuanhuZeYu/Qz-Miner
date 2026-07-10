@@ -30,8 +30,8 @@ public class ClientConnectionListener {
 
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
-        final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
         ClientMainThreadDispatcher.run(() -> {
+            final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
             if (MyMod.chainStateService == null) {
                 return;
             }

@@ -30,6 +30,7 @@ public final class ConfigBootstrap {
     private static volatile File yamlFile;
     private static volatile ValidatedSnapshot currentValidatedSnapshot;
     private static volatile BackupCopier backupCopier = BackupCopier.DEFAULT;
+    private static volatile CfgRetirer cfgRetirer = CfgRetirer.DEFAULT;
 
     private ConfigBootstrap() {
     }
@@ -59,6 +60,28 @@ public final class ConfigBootstrap {
     }
 
     /**
+     * 仅当给定快照仍是 current 时执行一次受控短发布。
+     *
+     * <p>current 替换与 publication 共用 {@code ConfigBootstrap.class} monitor，避免异步任务在
+     * check 与发布之间被更新快照穿透。action 只能做 Config 静态回灌、客户端状态更新或单向网络入队，
+     * 不得等待外部线程，也不得触发新的配置提交。</p>
+     *
+     * @param snapshot 异步任务捕获的快照
+     * @param action 受控短发布动作
+     * @return 快照仍为 current 且已执行发布时为 true；陈旧任务为 false
+     */
+    public static synchronized boolean publishIfCurrent(ValidatedSnapshot snapshot, Runnable action) {
+        if (snapshot == null || action == null) {
+            throw new IllegalArgumentException("snapshot/action must not be null");
+        }
+        if (snapshot != currentValidatedSnapshot) {
+            return false;
+        }
+        action.run();
+        return true;
+    }
+
+    /**
      * 启动 YAML 权威。
      *
      * @param configDir Forge config 目录
@@ -83,7 +106,7 @@ public final class ConfigBootstrap {
 
         yamlFile = targetYaml;
         ConfigSchema schema = QzMinerConfigSchema.create();
-        if (isNonEmptyFile(yamlFile)) {
+        if (isFile(yamlFile)) {
             StrictLoad existing = loadStrict(yamlFile, schema, "existing YAML");
             if (existing.isValid()) {
                 commitManager(existing.manager, existing.snapshot);
@@ -104,8 +127,8 @@ public final class ConfigBootstrap {
             if (imported.status == ImportResult.Status.OK) {
                 StrictLoad migration = migrateLegacy(yamlFile, schema, imported.values);
                 if (migration.isValid()) {
-                    commitManager(migration.manager, migration.snapshot);
                     retireCfgStrict(legacyCfg, "imported");
+                    commitManager(migration.manager, migration.snapshot);
                     MyMod.LOG.info("Migrated legacy cfg to YAML: {} values -> {}",
                             Integer.valueOf(imported.values.size()), yamlFile.getAbsolutePath());
                     return manager;
@@ -117,8 +140,8 @@ public final class ConfigBootstrap {
 
             cleanupPartialYamlIfAny(yamlFile);
             StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "legacy migration recovery");
-            commitManager(defaults.manager, defaults.snapshot);
             retireCfgStrict(legacyCfg, "import-failed");
+            commitManager(defaults.manager, defaults.snapshot);
             return manager;
         }
 
@@ -169,10 +192,15 @@ public final class ConfigBootstrap {
         yamlFile = null;
         currentValidatedSnapshot = null;
         backupCopier = BackupCopier.DEFAULT;
+        cfgRetirer = CfgRetirer.DEFAULT;
     }
 
     static synchronized void setBackupCopierForTests(BackupCopier copier) {
         backupCopier = copier == null ? BackupCopier.DEFAULT : copier;
+    }
+
+    static synchronized void setCfgRetirerForTests(CfgRetirer retirer) {
+        cfgRetirer = retirer == null ? CfgRetirer.DEFAULT : retirer;
     }
 
     private static StrictLoad migrateLegacy(File file, ConfigSchema schema, Map<String, Object> values) {
@@ -306,7 +334,7 @@ public final class ConfigBootstrap {
         File target = new File(cfgFile.getParentFile(), cfgFile.getName() + "." + System.currentTimeMillis() + "."
                 + UUID.randomUUID().toString().substring(0, 8) + "." + reason + ".imported.bak");
         try {
-            Files.move(cfgFile.toPath(), target.toPath());
+            cfgRetirer.move(cfgFile, target);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to retire legacy cfg: " + cfgFile.getAbsolutePath(), e);
         }
@@ -316,6 +344,10 @@ public final class ConfigBootstrap {
 
     private static boolean isNonEmptyFile(File file) {
         return file != null && file.isFile() && file.length() > 0;
+    }
+
+    private static boolean isFile(File file) {
+        return file != null && file.isFile();
     }
 
     private static String message(Throwable error) {
@@ -342,6 +374,19 @@ public final class ConfigBootstrap {
 
         /** @param source 源文件 @param target 唯一备份目标 */
         void copy(File source, File target) throws IOException;
+    }
+
+    /** cfg 退役移动小边界，供提交前失败语义做确定性纯 JVM 测试。 */
+    interface CfgRetirer {
+        CfgRetirer DEFAULT = new CfgRetirer() {
+            @Override
+            public void move(File source, File target) throws IOException {
+                Files.move(source.toPath(), target.toPath());
+            }
+        };
+
+        /** @param source 旧 cfg @param target 唯一退役目标 */
+        void move(File source, File target) throws IOException;
     }
 
     /** 严格加载结果。 */

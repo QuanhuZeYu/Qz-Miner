@@ -126,6 +126,24 @@ public class ConfigBootstrapTest {
     }
 
     @Test
+    public void emptyYamlUsesSchemaDefaultsAndLeavesLegacyCfgUntouched() throws Exception {
+        File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
+        Files.write(yaml.toPath(), new byte[0]);
+        File cfg = writeLegacyCfg(99, 2.0D, 6.0D);
+        byte[] cfgBefore = Files.readAllBytes(cfg.toPath());
+
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, cfg);
+
+        Assert.assertNotNull(manager);
+        Assert.assertSame(manager, ConfigBootstrap.manager());
+        Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
+        Assert.assertEquals(QzMinerConfigDefaults.GREETING, Config.greeting);
+        Assert.assertTrue(ConfigSemanticValidator.captureAndValidate(manager).isValid());
+        Assert.assertTrue("empty YAML authority must not retire cfg", cfg.isFile());
+        Assert.assertArrayEquals(cfgBefore, Files.readAllBytes(cfg.toPath()));
+    }
+
+    @Test
     public void secondBootstrapSamePathIsIdempotent() {
         ConfigManager first = ConfigBootstrap.bootstrap(tempDir, null);
         ConfigManager second = ConfigBootstrap.bootstrap(tempDir, null);
@@ -246,6 +264,36 @@ public class ConfigBootstrapTest {
     }
 
     @Test
+    public void successfulMigrationRetireFailurePublishesNothingAndRetryUsesYamlAuthority() throws Exception {
+        File cfg = writeLegacyCfg(33, 2.0D, 6.0D);
+        setStaticSentinels();
+        Object[] before = captureRuntimeConfigValues();
+        forceCfgRetireFailure();
+
+        assertBootstrapRetireFailure(cfg, before);
+
+        ConfigBootstrap.setCfgRetirerForTests(null);
+        ConfigManager retried = ConfigBootstrap.bootstrap(tempDir, cfg);
+        Assert.assertNotNull(retried);
+        Assert.assertSame(retried, ConfigBootstrap.manager());
+        Assert.assertEquals("retry must load migrated YAML instead of cached half-init/default cfg path",
+                33, Config.chainRadius);
+        Assert.assertTrue("authoritative YAML retry must ignore remaining cfg", cfg.isFile());
+    }
+
+    @Test
+    public void failedMigrationRecoveryRetireFailurePublishesNothing() throws Exception {
+        File cfg = writeLegacyCfg(33, 5.0D, 5.0D);
+        setStaticSentinels();
+        Object[] before = captureRuntimeConfigValues();
+        forceCfgRetireFailure();
+
+        assertBootstrapRetireFailure(cfg, before);
+        Assert.assertTrue("default recovery YAML should exist for a later authoritative retry",
+                new File(tempDir, ConfigBootstrap.YAML_FILE_NAME).isFile());
+    }
+
+    @Test
     public void migrationPartialYamlIsBackedUpBeforeDefaultRebuildAndRevalidated() throws Exception {
         File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
         Files.write(yaml.toPath(), "general:\n  chainRadius: 'partial'\n".getBytes(StandardCharsets.UTF_8));
@@ -285,6 +333,80 @@ public class ConfigBootstrapTest {
             }
         }
         return false;
+    }
+
+    private void forceCfgRetireFailure() {
+        ConfigBootstrap.setCfgRetirerForTests(new ConfigBootstrap.CfgRetirer() {
+            @Override
+            public void move(File source, File target) throws IOException {
+                throw new IOException("forced cfg retire failure");
+            }
+        });
+    }
+
+    private void assertBootstrapRetireFailure(File cfg, Object[] before) {
+        try {
+            ConfigBootstrap.bootstrap(tempDir, cfg);
+            Assert.fail("cfg retire failure must fail the first bootstrap");
+        } catch (IllegalStateException expected) {
+            Assert.assertTrue(expected.getMessage().contains("retire legacy cfg"));
+        }
+        Assert.assertNull("manager must not publish before cfg retirement", ConfigBootstrap.manager());
+        try {
+            ConfigBootstrap.currentValidatedSnapshot();
+            Assert.fail("current snapshot must remain fail-fast after retirement failure");
+        } catch (IllegalStateException expected) {
+            Assert.assertTrue(expected.getMessage().contains("not initialized"));
+        }
+        Assert.assertArrayEquals("all 19 Config runtime fields must remain untouched", before,
+                captureRuntimeConfigValues());
+        Assert.assertTrue("failed retirement must preserve cfg", cfg.isFile());
+    }
+
+    private static void setStaticSentinels() {
+        Config.greeting = "sentinel";
+        Config.chainRadius = 901;
+        Config.chainMaxBlocks = 902;
+        Config.chainLoggingShellLayers = 903;
+        Config.maxBreakPerTick = 904;
+        Config.cableReplaceMaxPerTick = 905;
+        Config.chainWatchdogTimeoutTicks = 906;
+        Config.parallelTickMinDurationMs = 907;
+        Config.parallelTickServerWorkBudgetUnits = 908;
+        Config.enableUnlimitedOreFortune = true;
+        Config.enableFortuneForPlacedOre = true;
+        Config.clientEnablePreviewRender = false;
+        Config.parallelTickClientWorkBudgetUnits = 909;
+        Config.clientPreviewMaxRadius = 910;
+        Config.clientPreviewMaxTargets = 911;
+        Config.clientPreviewAlphaFadeStartRadius = 912.0D;
+        Config.clientPreviewAlphaFadeEndRadius = 913.0D;
+        Config.clientPreviewAlphaStartValue = 0.91D;
+        Config.clientPreviewAlphaEndValue = 0.92D;
+    }
+
+    private static Object[] captureRuntimeConfigValues() {
+        return new Object[] {
+                Config.greeting,
+                Integer.valueOf(Config.chainRadius),
+                Integer.valueOf(Config.chainMaxBlocks),
+                Integer.valueOf(Config.chainLoggingShellLayers),
+                Integer.valueOf(Config.maxBreakPerTick),
+                Integer.valueOf(Config.cableReplaceMaxPerTick),
+                Integer.valueOf(Config.chainWatchdogTimeoutTicks),
+                Integer.valueOf(Config.parallelTickMinDurationMs),
+                Integer.valueOf(Config.parallelTickServerWorkBudgetUnits),
+                Boolean.valueOf(Config.enableUnlimitedOreFortune),
+                Boolean.valueOf(Config.enableFortuneForPlacedOre),
+                Boolean.valueOf(Config.clientEnablePreviewRender),
+                Integer.valueOf(Config.parallelTickClientWorkBudgetUnits),
+                Integer.valueOf(Config.clientPreviewMaxRadius),
+                Integer.valueOf(Config.clientPreviewMaxTargets),
+                Double.valueOf(Config.clientPreviewAlphaFadeStartRadius),
+                Double.valueOf(Config.clientPreviewAlphaFadeEndRadius),
+                Double.valueOf(Config.clientPreviewAlphaStartValue),
+                Double.valueOf(Config.clientPreviewAlphaEndValue)
+        };
     }
 
     private static void resetStaticDefaults() {
