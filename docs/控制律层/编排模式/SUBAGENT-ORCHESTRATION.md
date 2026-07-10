@@ -91,10 +91,20 @@
 - 派发只传路径 / 行号 / 线索（如 `ChainExecutionEventBridge.java:308`），不贴整文件
 - 真机日志排查（`run/client/logs/fml-client-latest.log`、native 崩溃 `hs_err_pid*.log`）、批量文件检索一律派 subagent，主 agent 不亲自全量读
 
+### 任务状态机与 task_id 生命周期
+
+每个派发任务都必须带状态，状态转移为：
+
+`NEW → RUNNING → COMPLETED | INTERRUPTED | TIMEOUT | INCOMPLETE | FAILED`
+
+- `COMPLETED`、`FAILED`、`UNKNOWN` 或缺少状态都是终态；终态绝不传旧 `task_id`，也不以旧 session 继续执行。
+- 只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 三种状态可以恢复原 `task_id`。恢复必须保持同一目标、角色和范围，且同一任务的恢复次数累计最多 5 次。
+- 审查已完成但结论为不通过，任务状态仍为 `COMPLETED`；按审查修复项新开 fixer。已完成的 fixer 经复审后发现问题，同样新开 fixer，禁止恢复已完成任务。
+
 ### Session 复用与中断恢复
-- 优先复用交接记录里登记的可复用专家 session（如 `ora-1`/`exp-2`/`fix-2`），省去重复建上下文的 token；复用必须在 task 的 `task_id` 显式传别名
-- 子 agent 中断（空结果/超时/未完成）必须用原 `task_id` 恢复原 session，不新开重做
-- Oracle 成本高，除中断恢复外一律新开 session
+- 禁止优先复用交接记录里登记的专家 session；只有上项三种可恢复状态才允许用原 `task_id` 恢复原 session。
+- 子 agent 中断（空结果/超时/未完成）必须先按状态机登记为对应可恢复态，再用原 `task_id` 恢复，不新开同一任务重做。
+- Oracle 成本高，但除三种中断恢复外一律新开 session；终态任务一律新开后续任务。
 
 ### 执行失败：5 次恢复重试预算（主 agent 对子 agent 失败的纪律）
 
@@ -105,7 +115,7 @@
 | 步骤 | 主 agent 动作 |
 |---|---|
 | **传感（先于纠偏）** | 先分析子 agent 回执（或空回执）：是哪类失败——工具调用报错（编译/test 失败）/工具超时/上下文不足/任务描述歧义/未给清所需权限。没回执看仓库现状（git log/状态/diff）反推子 agent 走到哪 |
-| **恢复 session 复用** | 必须**用原子 agent 的 `task_id` 恢复原 session**（不新开重做，省建上下文 token，守本节"Session 复用与中断恢复"）。task 工具传 `task_id` 让子 agent 继续原会话的完整记忆 |
+| **恢复 session** | 仅对 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 使用原子 agent 的 `task_id` 恢复原 session；终态不得传旧 `task_id`。恢复必须保持目标/角色/范围一致，并计入同一任务最多 5 次的累计恢复预算 |
 | **纠偏只补误差点** | 恢复会话的 prompt 只补本轮失败点的缺失信息：补漏改的 file:line、补没说清的约束、补被遗漏的不变量、补测试/验证命令。**不重新描述整个任务**（子 agent 已有上下文）。守本文件 §4.5 范围防越界 |
 | **5 次硬预算** | 同一子 agent 同一目标最多 5 次恢复重试。每次恢复前必须有新的纠偏信息传给子 agent，不能凭空"再试一次看看" |
 | **5 次后仍失败才升级** | 5 次恢复后子 agent 仍未完成，主 agent 才可：（a）升级到 `@oracle` 重新诊断方案是否走偏；（b）亲自接手最小剩余改动（守主 agent 直接做边界）；（c）向用户报告并 question 拍板下一步 |
@@ -114,7 +124,7 @@
 
 **反模式**：
 - 子 agent 一次空返回主 agent 就换路或放弃 —— 禁，先用完 5 次恢复预算
-- 恢复时新开 session 重做 —— 禁，必须用原 `task_id` 恢复
+- 可恢复态却新开 session 重做 —— 禁，必须用原 `task_id` 恢复；终态却传旧 `task_id` —— 禁
 - 恢复 prompt 重新描述整个任务 —— 禁，只补误差点缺失信息（守 token + 用已有上下文）
 - 5 次后空手向用户"做不到" —— 禁，必须先尝试 (a) 升级 oracle 重诊断 或 (b) 主 agent 亲自接手最小改动，并向用户给出传感读数（已尝试什么、剩什么没试、为何 5 次不收敛）
 

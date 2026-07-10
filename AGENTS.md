@@ -65,6 +65,7 @@
 
 ### 1.5 Subagent 编排
 - 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`（唯一权威，含闭环本能/盘查纪律/分工/并行串行/中断恢复/独立审核/子agent失败主agent 5 次恢复重试/5 分钟红线）
+- 任务状态机中 `COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均为终态，completed 永不复用且绝不传旧 `task_id`；仅 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可恢复原 `task_id`，同目标/角色/范围累计最多 5 次。审查不通过仍为 `COMPLETED`，返工新开 fixer。
 - 决策点用中文 question 向用户拍板，subagent 不替用户做架构决定
 
 ## 二、传感层 Sensor — 如何测量产出是否达标
@@ -99,6 +100,7 @@
 ### 3.3 控制器自身修改
 - AGENTS.md 的修改必须经过用户确认
 - 不可随意更改本文件内容
+- Oracle 仅可终裁保持 agent 框架与宪章自洽所必需的框架进化；必要进化必须由全新 fixer 实施、全新 reviewer 复审，且不得改业务不变量。用户保留产品方向、不可逆 Git/发布/生产操作、密钥/认证/授权，以及 agent 的 model/variant/permission/mode/MCP/provider 等事项。
 
 ## 四、反馈层 Feedback — 误差如何回流修正系统
 

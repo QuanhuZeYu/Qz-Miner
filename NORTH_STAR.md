@@ -165,6 +165,7 @@
 - 本文件是**活的宪章**，可以改，但改的成本应当被有意抬高，以免随意妥协。
 - **允许偏离**，但偏离必须显式：在下方《偏离登记》追加一条，写明"违反了哪条信条/不变量、为什么、影响范围、何时回填"。隐性偏离（不登记就绕过）是唯一不可接受的行为。
 - 信条（第 3 节）和不变量（第 5 节）的改动，应被视为重大架构变更，需要比改代码更慎重的讨论，并经用户确认。
+- 保持 agent 框架与本宪章自洽所必需的修订，由 Oracle 终裁范围，交由全新 fixer 实施、全新 reviewer 复审；不得借此改动业务不变量。
 - 每次大版本，回看《偏离登记》：要么把偏离转正（改宪章），要么把债还掉（改代码）。
 - 已还清的偏离即从《偏离登记》移除，不再保留；登记只承载尚未回填的活跃偏离。
 
@@ -186,13 +187,6 @@
   <why>电压安全：多 tick 渐进替换会产生高低压线缆共存的中间态，GT 电流过载会导致机器爆炸/线缆烧毁。单 tick 原子保证下个 tick GT 网络重算时已是全新链路，无混压窗口。代价是极端大链路可能逼近 50ms tick 预算，由 Config.cableReplaceMaxPerTick（默认 1024）预校验上限兜底。</why>
   <scope>仅 ChainMode.SPECIAL 的 GT 线缆替换（GregTechCableReplaceActionExecutor.shouldWaitForPlannerCompletion=true 分叉）；CHAIN/AREA/INTERACT 流式执行不受影响。护栏：B1 等规划完成门（context.isPlanningComplete）保证执行前链路完整，B3 预校验门（precheckCableReplacement）超值链路不放行 + 背包不足不放行。</scope>
   <status>显式牺牲"不卡 tick"换"单 tick 原子安全"。未来可探索"多 tick 冻结电压"方案回填（需 GT API 支持暂停网络重算）。关联决策：docs/反馈层/决策/gt-cable-replacement-model.md。</status>
-</deviation>
-
-<deviation id="D-YAML-CONFIG-AUTHORITY">
-  <what>撤销 I6「可选模组」对 Qz-UILib（`qz_uilib`）的软可选前提：本 mod 将 `qz_uilib` 升为 `required-after:qz_uilib@[4.5.3-beta-1,)` 硬依赖；配置权威从 Forge `.cfg` 全面迁至 `config/qz_miner.yaml`（UILib 4.5.x Schema + ConfigManager）；客户端配置页只走 ConfigUI/McScreenBridge，不再保留 UILib 缺失时的 Forge GuiConfig 降级路径。其余可选模组（LootGames、GT 等）仍严格受 I6 反射安全约束。</what>
-  <why>用户最终决定：配置权威与现代配置 UI 依赖 UILib 4.5.3-beta-1 的提交前 DraftValidator 事务与成功磁盘回载 RELOAD 通知；继续把 UILib 当可选会迫使维护双轨 cfg/YAML 与已删除的 ForgeConfigTemplateScreen 降级，成本与漂移风险高于硬依赖。代价：发布包仍不内嵌 UILib（`devOnlyNonPublishable`），运行时需 modpack 安装 `qz_uilib`，缺库时 FML 直接拒载而非静默降级。</why>
-  <scope>仅配置加载/保存/配置 GUI 与 `@Mod(dependencies)`；连锁线程/掉落/状态机/时运路径不变。原始 YAML 在 Authority 宽松转换前做 NodeType 预检，语义非法草稿在写盘前返回 INVALID；成功提交同步生成 currentValidatedSnapshot 派生载荷后分侧发布。网络配置同步仍走 PacketChainConfigRequest，远程客户端不写 general static。</scope>
-  <status>活跃偏离：I6 对 UILib 的「能力不可用则降级」不适用本依赖；回填条件为用户改回可选或拆出无 UILib 的 headless 配置路径。关联决策：docs/反馈层/决策/config-yaml-authority.md。</status>
 </deviation>
 
 </deviation-log>

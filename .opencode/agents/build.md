@@ -68,7 +68,8 @@ permission:
 
 - 只读 agent 可并行派发（同一消息多个 task 调用）；写盘 agent（fixer）串行；读与写不同批并行
 - 派发只传路径 / 行号 / 线索，不贴整文件（守 token）
-- 子 agent 中断用原 `task_id` 恢复原 session，不新开重做
+- 子 agent 任务遵守 `NEW/RUNNING/COMPLETED/INTERRUPTED/TIMEOUT/INCOMPLETE/FAILED/UNKNOWN` 状态机；`COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均为终态，绝不复用或传递旧 `task_id`
+- 仅 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可用原 `task_id` 恢复，须保持目标/角色/范围一致，累计恢复最多 5 次；审查不通过仍为 `COMPLETED`，返工新开 fixer，已完成 fixer 的复审问题也新开 fixer
 - 决策点用中文 question 向用户拍板，不替用户做架构决定
 
 ## 你直接做（不派发）— 例外，不是默认
@@ -98,12 +99,12 @@ permission:
 | 层 | 转储什么 |
 |---|---|
 | 设定值 | 本会话目标、对齐的宪章条目（I?）、未决架构决定 |
-| 传感 | 已探明代码事实清单（`file:line`）、外部调研结论与来源、可复用子 agent 的 `task_id` |
+| 传感 | 已探明代码事实清单（`file:line`）、外部调研结论与来源、可恢复未完成 task 的 `task_id` |
 | 控制律 | 已执行改动（哪些文件改了什么）、闭环进度（规划/实施/复审到哪） |
 | 纠偏 | 踩过的坑、被否决的方案及原因、返工点 |
 | 反馈 | 待验证项（真机/测试）、待回写文档、下一步动作 |
 
-丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试。
+丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试；handoff 只保留三种可恢复态的未完成 task，终态标记 `DO NOT RESUME`。
 
 **怎么接**（新会话冷启动）：
 

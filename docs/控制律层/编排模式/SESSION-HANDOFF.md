@@ -51,7 +51,15 @@
 - 已完成且无后续价值的中间过程
 - 无教训价值的失败尝试（有教训的归"纠偏"层）
 
-派发过的子 agent session（`task_id` 别名）必须登记，新会话可复用上下文，省 token。
+派发过的子 agent task 必须登记状态；只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可保留原 `task_id` 供恢复，终态不得复用旧上下文。
+
+### 4.1 任务记录与恢复
+
+每条 task 记录统一使用字段：`task_id|agent|goal|state|attempts|last_evidence|next_action`。
+
+- `state` 必须来自 `NEW`、`RUNNING`、`COMPLETED`、`INTERRUPTED`、`TIMEOUT`、`INCOMPLETE`、`FAILED`、`UNKNOWN`；缺状态按 `UNKNOWN` 处理。
+- 只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可以在 `next_action` 中登记 resume，并保留原 `task_id`；恢复须保持目标、角色、范围一致，`attempts` 累计最多 5 次。
+- `COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均填写 `DO NOT RESUME`。审查不通过仍是 `COMPLETED`，返工必须登记为新的 fixer task。
 
 ## 5. 开新会话标准动作（冷启动核对）
 
@@ -89,7 +97,7 @@
 
 - [ ] **无持续价值的中间过程已丢弃**：工具原始输出、已完成无后续的尝试、无教训的失败——这些本就不该进 handoff，任务完成时确认它们没残留
 - [ ] **回流项已逐条反向举证**：每条打算回流到项目层（决策/错误预防/交接.md 未收敛项）的事实，必须答上"持续价值三问"（见下），答不上就丢
-- [ ] **session-handoff.md 已处理**：任务全完成→清空为模板初始态；尚有后续会话→保留供下个会话续接
+- [ ] **session-handoff.md 已处理**：任务全完成→清空为模板初始态；尚有后续会话→只保留 `INTERRUPTED`/`TIMEOUT`/`INCOMPLETE` 的 task 记录供恢复，终态记录标记 `DO NOT RESUME`，不得出现在可恢复列表
 - [ ] **门禁已跑**：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-discipline.ps1` 通过（handoff 不入 git、无流水账命名）
 
 ### 持续价值三问（回流反向举证）

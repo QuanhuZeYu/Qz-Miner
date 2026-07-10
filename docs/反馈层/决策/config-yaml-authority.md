@@ -27,7 +27,7 @@
 
 ## 不变量影响
 
-- **I6**：对 `qz_uilib` 的软可选前提经 `NORTH_STAR.md` 偏离 `D-YAML-CONFIG-AUTHORITY` 显式撤销；其他可选模组反射边界不变。
+- **I6**：Qz-UILib 是硬依赖，不属于 I6 可选模组反射适用域；其他可选模组继续守 I6 反射安全边界。
 - **I4**：配置网络 Handler 只捕获原始数据，最终整包校验与状态写入均在对应主线程；C2S 经 keyed lane 背压（START drain 不可重入），S2C 经客户端 lifecycle **连接 identity** token + dispatcher 收口。
 - **I7**：服务端停止时玩家清理先于 dispatcher 关闭，避免 stop 后 FIFO 拒绝导致生命周期清理丢失；客户端断线/卸载经 lifecycle gate 清预览/GPU/phase/pending。
 - 服务端代码禁止引用 `club.heiqi.config.ui`、屏幕桥接壳、LWJGL；仅 client GUI 包可引用。
