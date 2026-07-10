@@ -4,7 +4,7 @@ mode: subagent
 model: grok/grok-4.5
 permission:
   edit: deny
-  bash: deny
+  bash: allow
   task: deny
   webfetch: allow
   websearch: allow

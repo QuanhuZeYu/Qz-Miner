@@ -5,7 +5,7 @@ model: grok/grok-4.5
 reasoningEffort: high
 permission:
   edit: deny
-  bash: deny
+  bash: allow
   task: deny
 ---
 

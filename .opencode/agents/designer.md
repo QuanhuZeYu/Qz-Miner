@@ -5,7 +5,7 @@ model: openai/gpt-5.6-sol
 variant: medium
 permission:
   edit: deny
-  bash: deny
+  bash: allow
   task: deny
 ---
 
