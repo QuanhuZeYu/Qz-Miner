@@ -20,9 +20,35 @@ import net.minecraftforge.event.world.WorldEvent;
  * <p>connect/disconnect 以 {@code event.handler}（{@code INetHandler}）对象 identity
  * 绑定 {@link ClientConnectionLifecycle}；world load/unload 绑定远端 world 对象。
  * 初始化与清理均携带转移 token，主线程 gate 后执行；旧连接/旧世界迟到事件 no-op。</p>
+ *
+ * <h3>接管收敛（I7）</h3>
+ * <ul>
+ *   <li>仅 {@code TransitionResult.transitioned=true} 时调度连接初始化 / world 接管</li>
+ *   <li>相同 active handler 重复 connect：不 reset 投影、不重复发 C2S</li>
+ *   <li>相同 world 重复 load：不重复清理</li>
+ *   <li>新 connection B 接管：B 主线程 init 在 B token gate 内先统一 takeover cleanup，
+ *       再 reset 连接投影并发 C2S；旧 A disconnect cleanup 在 B 建立后 no-op 也不残留</li>
+ *   <li>新 world B 替换 active A：仅 {@code replacedPreviousLifecycle=true} 时在 B world gate
+ *       内接管清理（不发连接级 C2S、不重置无关连接状态）；首次 bind 不调度清理</li>
+ * </ul>
+ *
+ * <p>生产 callback 目前在 lifecycle monitor 内：须短小、禁阻塞、禁反向 lifecycle 入口。
+ * 网络 C2S 仍在 connect 初始化路径内发送（P2 残余：I/O 在 monitor 内；未扩大本轮架构）。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ClientConnectionListener {
+
+    /**
+     * 测试钩子：非 null 时替代真实资源清理（不停订阅关系）。
+     * 生产路径保持 null。
+     */
+    volatile java.util.function.Consumer<String> cleanupHookForTests;
+
+    /**
+     * 测试钩子：非 null 时替代真实连接初始化（reset 投影 + C2S）。
+     * 生产路径保持 null。
+     */
+    volatile Runnable initHookForTests;
 
     /**
      * 注册客户端连接与世界生命周期监听。
@@ -33,23 +59,23 @@ public class ClientConnectionListener {
     }
 
     /**
-     * 连上服务器：以 event.handler 建 connection token，主线程仅在该连接仍 current+active 时
-     * reset 连接投影并（非单人）发 C2S。A init 排队后若已切到 B，A init no-op。
+     * 连上服务器：以 event.handler 建 connection token；仅 transitioned 时调度主线程
+     * 接管清理 + 连接初始化。重复 connect no-op。
      *
      * @param event 客户端连服事件
      */
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
-        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(event.handler);
+        final ClientConnectionLifecycle.TransitionResult result =
+                ClientConnectionLifecycle.connect(event.handler);
+        if (!shouldScheduleConnectionInit(result)) {
+            return;
+        }
+        final ClientConnectionLifecycle.Token token = result.token();
         ClientMainThreadDispatcher.run(new Runnable() {
             @Override
             public void run() {
-                ClientConnectionLifecycle.runIfConnectionCurrentAndActive(token, new Runnable() {
-                    @Override
-                    public void run() {
-                        initializeConnectionState();
-                    }
-                });
+                runConnectionTakeoverAndInit(token);
             }
         });
     }
@@ -74,6 +100,7 @@ public class ClientConnectionListener {
                 ClientConnectionLifecycle.runIfInactiveDisconnectCurrent(cleanupToken, new Runnable() {
                     @Override
                     public void run() {
+                        // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
                         cleanupLifecycleResources("client-disconnect");
                     }
                 });
@@ -82,7 +109,8 @@ public class ClientConnectionListener {
     }
 
     /**
-     * 客户端远端世界加载：绑定 world identity；首次绑定不废弃连接级 config token。
+     * 客户端远端世界加载：绑定 world identity；仅 transitioned 且 replaced 时调度接管清理。
+     * 首次 bind 不调度清理；重复 load no-op。
      *
      * @param event 世界加载事件
      */
@@ -91,7 +119,18 @@ public class ClientConnectionListener {
         if (event.world == null || !event.world.isRemote) {
             return;
         }
-        ClientConnectionLifecycle.bindWorld(event.world);
+        final ClientConnectionLifecycle.TransitionResult result =
+                ClientConnectionLifecycle.bindWorld(event.world);
+        if (!shouldScheduleWorldTakeoverCleanup(result)) {
+            return;
+        }
+        final ClientConnectionLifecycle.Token token = result.token();
+        ClientMainThreadDispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                runWorldTakeoverCleanup(token);
+            }
+        });
     }
 
     /**
@@ -117,6 +156,7 @@ public class ClientConnectionListener {
                 ClientConnectionLifecycle.runIfWorldUnbindCurrent(cleanupToken, new Runnable() {
                     @Override
                     public void run() {
+                        // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
                         cleanupLifecycleResources("client-world-unload");
                     }
                 });
@@ -125,12 +165,78 @@ public class ClientConnectionListener {
     }
 
     /**
+     * 是否应调度连接初始化：仅 transitioned=true。
+     *
+     * @param result connect 转移结果
+     * @return 应调度时为 true
+     */
+    static boolean shouldScheduleConnectionInit(ClientConnectionLifecycle.TransitionResult result) {
+        return result != null && result.transitioned();
+    }
+
+    /**
+     * 是否应调度 world 接管清理：transitioned 且替换了先前 active world。
+     *
+     * <p>首次 world bind（replaced=false）不调度，避免首 load 空清理；
+     * 幂等 cleanup 本身安全，但以 replaced flag 收敛重复。</p>
+     *
+     * @param result bindWorld 转移结果
+     * @return 应调度时为 true
+     */
+    static boolean shouldScheduleWorldTakeoverCleanup(ClientConnectionLifecycle.TransitionResult result) {
+        return result != null && result.transitioned() && result.replacedPreviousLifecycle();
+    }
+
+    /**
+     * 在 connection current+active gate 内执行统一接管清理 + 连接初始化。
+     *
+     * <p>受控主线程 callback 在 lifecycle monitor 内：先 takeover cleanup（停预览/释 GPU/
+     * 清 phase/pending），再 reset 投影并发 C2S。禁阻塞、禁反向 lifecycle 入口。
+     * 不清订阅关系。</p>
+     *
+     * @param token connect 返回的 active token
+     * @return gate 放行并执行时为 true
+     */
+    boolean runConnectionTakeoverAndInit(ClientConnectionLifecycle.Token token) {
+        return ClientConnectionLifecycle.runIfConnectionCurrentAndActive(token, new Runnable() {
+            @Override
+            public void run() {
+                // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
+                cleanupLifecycleResources("connection-takeover");
+                initializeConnectionState();
+            }
+        });
+    }
+
+    /**
+     * 在 world current+active gate 内执行统一接管清理。
+     *
+     * <p>不发送连接级 C2S、不重置无关连接投影。受控主线程 callback 在 lifecycle monitor 内。</p>
+     *
+     * @param token bindWorld 返回的 active world token
+     * @return gate 放行并执行时为 true
+     */
+    boolean runWorldTakeoverCleanup(ClientConnectionLifecycle.Token token) {
+        return ClientConnectionLifecycle.runIfWorldCurrentAndActive(token, new Runnable() {
+            @Override
+            public void run() {
+                // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
+                cleanupLifecycleResources("world-takeover");
+            }
+        });
+    }
+
+    /**
      * 连接初始化：requested 取本地 validated snapshot；server 投影回落 snapshot 且 matchedCount=0，
      * 防止新服务器首包前沿用旧值。非单人发 C2S。
      *
-     * <p>须在 connection-active gate 内调用。</p>
+     * <p>须在 connection-active gate 内调用。网络发送仍在本路径（P2：monitor 内 I/O）。</p>
      */
-    private void initializeConnectionState() {
+    void initializeConnectionState() {
+        if (initHookForTests != null) {
+            initHookForTests.run();
+            return;
+        }
         if (MyMod.chainStateService == null) {
             return;
         }
@@ -151,11 +257,17 @@ public class ClientConnectionListener {
     /**
      * 统一清理：停预览、释放 GPU、清 phase、清 client event bus pending。
      *
-     * <p>须在对应 lifecycle gate 内调用；禁反向调用 lifecycle 入口。</p>
+     * <p>须在对应 lifecycle gate 内调用；禁反向调用 lifecycle 入口。
+     * disconnect / unload / connection-takeover / world-takeover 共用，避免重复逻辑。
+     * 不清 event-bus 订阅关系。</p>
      *
      * @param reason 清理原因
      */
-    private void cleanupLifecycleResources(String reason) {
+    void cleanupLifecycleResources(String reason) {
+        if (cleanupHookForTests != null) {
+            cleanupHookForTests.accept(reason);
+            return;
+        }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
         if (ClientProxy.chainPreviewController != null) {
             ClientProxy.chainPreviewController.stopPreviewForLifecycle();
@@ -166,7 +278,7 @@ public class ClientConnectionListener {
         if (ClientProxy.clientPhaseProjection != null) {
             ClientProxy.clientPhaseProjection.clear();
         }
-        // 防旧 phase 在 cleanup 后仍 drain 回写投影
+        // 防旧 phase 在 cleanup 后仍 drain 回写投影；不清订阅
         if (MyMod.clientChainEventBus != null) {
             MyMod.clientChainEventBus.clearPending();
         }

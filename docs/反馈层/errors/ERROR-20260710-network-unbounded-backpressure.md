@@ -28,7 +28,7 @@
 - `ServerChainConfigRequestDispatch`：key = UUID + 弱引用对象 identity（相等要求 UUID 相等且双方 referent 存活且 `==`，hash 仅分桶、不单独决定相等）；pending 弱持有端点；过期弱键实现 `StaleDetectableKey`，在 submit/drain/生命周期点可 purge 释放容量；消费时主线程重取在线玩家并要求实例身份匹配后再整包校验/写入；诊断限频汇总。
 - `PacketChainConfigRequest.Handler` 只捕获原始 int 与端点，不直接每包入普通 FIFO。
 - 服务端停止先同步清理玩家，再关闭 dispatcher。
-- S2C：`ClientConnectionLifecycle` 绑定真实连接 identity（`INetHandler` 对象 `==`）与 world identity；不可复用 connection/world generation。三 S2C Handler 传 `ctx.netHandler`；ClientProxy `captureForConnection`；不匹配/inactive 直接丢弃且不做 dispatcher rejection warn。主线程任务**先整包数值校验，再**经 `publishIfConnectionCurrentAndActive` / world-active gate 在与 lifecycle 共享的 monitor 内复核并 publication（禁 check 后裸调用）。disconnect/unload 仅成功转移才排队 cleanup，旧连接迟到 no-op。不跨 lifecycle 重试。拒绝诊断仅 CAS 获胜线程写一条限频日志。详见 `docs/反馈层/决策/client-connection-identity.md`。
+- S2C：`ClientConnectionLifecycle` 绑定真实连接 identity（`INetHandler` 对象 `==`）与 world identity；不可复用 connection/world generation。`connect`/`bindWorld` 返回 `TransitionResult`：仅 `transitioned` 调度 init/接管；`replacedPreviousLifecycle` 驱动 world 接管清理。新 connection/world 主线程任务在 gate 内先统一 takeover cleanup（停预览/释 GPU/清 phase/pending），再 reset 连接投影（仅 connect 路径发 C2S）；旧 disconnect/unload cleanup 在新生命周期建立后 no-op 也不残留。重复 connect/load 不重复 init/清理。三 S2C Handler 传 `ctx.netHandler`；ClientProxy `captureForConnection`；不匹配/inactive 直接丢弃且不做 dispatcher rejection warn。主线程任务**先整包数值校验，再**经 `publishIfConnectionCurrentAndActive` / world-active gate 在与 lifecycle 共享的 monitor 内复核并 publication（禁 check 后裸调用）。不跨 lifecycle 重试。拒绝诊断仅 CAS 获胜线程写一条限频日志。详见 `docs/反馈层/决策/client-connection-identity.md`。
 
 ## 预防措施
 

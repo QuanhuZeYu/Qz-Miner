@@ -32,6 +32,13 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li>world unbind cleanup：仅该次 unbind 产生的 world-inactive token 仍为 current 时执行</li>
  * </ul>
  *
+ * <h3>接管收敛</h3>
+ * <p>{@link #connect}/{@link #bindWorld} 返回 {@link TransitionResult}：
+ * 仅 {@code transitioned=true} 时 Listener 调度 init/接管清理；
+ * {@code replacedPreviousLifecycle=true} 表示替换了先前 active connection/world，
+ * 新生命周期主线程任务须先执行统一 takeover cleanup（停预览/释 GPU/清 phase/pending），
+ * 使旧 A disconnect/unload cleanup 在 B 建立后 no-op 也不残留资源。</p>
+ *
  * <p>旧连接迟到 disconnect、重复 close、旧 world unload、旧包在新生命周期下均为 no-op。</p>
  */
 public final class ClientConnectionLifecycle {
@@ -117,6 +124,48 @@ public final class ClientConnectionLifecycle {
     }
 
     /**
+     * connect / bindWorld 转移结果。
+     *
+     * <ul>
+     *   <li>{@code transitioned=false}：相同 active handler 重复 connect / 相同 world 重复 load / null 入参 → 不得调度 init/接管</li>
+     *   <li>{@code transitioned=true, replacedPreviousLifecycle=false}：首次 connect 或首次 world bind</li>
+     *   <li>{@code transitioned=true, replacedPreviousLifecycle=true}：不同 connection 接管，或 active world 被替换</li>
+     * </ul>
+     */
+    public static final class TransitionResult {
+        private final boolean transitioned;
+        private final boolean replacedPreviousLifecycle;
+        private final Token token;
+
+        private TransitionResult(boolean transitioned, boolean replacedPreviousLifecycle, Token token) {
+            this.transitioned = transitioned;
+            this.replacedPreviousLifecycle = replacedPreviousLifecycle;
+            this.token = token;
+        }
+
+        /**
+         * @return 是否发生生命周期转移（仅 true 时调度 init / world 接管）
+         */
+        public boolean transitioned() {
+            return transitioned;
+        }
+
+        /**
+         * @return 是否替换了先前 active connection / world（接管清理信号）
+         */
+        public boolean replacedPreviousLifecycle() {
+            return replacedPreviousLifecycle;
+        }
+
+        /**
+         * @return 转移后的 current token；未转移时为当时 current
+         */
+        public Token token() {
+            return token;
+        }
+    }
+
+    /**
      * disconnect 结果：仅成功转移时 {@link #transitioned} 为 true，并携带 cleanup token。
      */
     public static final class DisconnectResult {
@@ -189,27 +238,29 @@ public final class ClientConnectionLifecycle {
      * 连接成功：以 handler 对象 identity（{@code ==}）绑定 active connection token。
      *
      * <ul>
-     *   <li>相同 active handler 重复事件：no-op，返回当前 token</li>
-     *   <li>不同 handler：创建新 active connection token（新 connectionGeneration）</li>
+     *   <li>相同 active handler 重复事件：no-op，{@code transitioned=false}</li>
+     *   <li>不同 handler（或自 inactive 新连）：创建新 active connection token，
+     *       {@code transitioned=true}；若替换了先前 active connection 则 {@code replacedPreviousLifecycle=true}</li>
      * </ul>
      *
      * @param handler 连接 identity（生产为 {@code event.handler} / {@code INetHandler}）
-     * @return 当前 connection token；handler 为 null 时返回 current 且不推进
+     * @return 转移结果；handler 为 null 时 {@code transitioned=false}
      */
-    public static Token connect(Object handler) {
+    public static TransitionResult connect(Object handler) {
         if (handler == null) {
-            return CURRENT.get();
+            return new TransitionResult(false, false, CURRENT.get());
         }
         synchronized (LIFECYCLE_MONITOR) {
             Token current = CURRENT.get();
             if (current.connectionActive && current.connectionIdentity == handler) {
-                return current;
+                return new TransitionResult(false, false, current);
             }
+            boolean replaced = current.connectionActive;
             long connGen = nextPositiveId(NEXT_CONNECTION_GENERATION);
             long worldGen = nextPositiveId(NEXT_WORLD_GENERATION);
             Token next = new Token(connGen, worldGen, true, false, handler, null);
             CURRENT.set(next);
-            return next;
+            return new TransitionResult(true, replaced, next);
         }
     }
 
@@ -248,23 +299,24 @@ public final class ClientConnectionLifecycle {
      *
      * <p>首次绑定推进 worldGeneration 并设 worldActive，不改变 connectionGeneration
      * （连接级 config token 不被误废弃）。世界替换推进 worldGeneration，旧 world token 失效。
-     * 连接非 active 时 no-op。相同 world 重复 load no-op。</p>
+     * 连接非 active 时 no-op。相同 world 重复 load no-op（{@code transitioned=false}）。</p>
      *
      * @param world 客户端 world 对象
-     * @return 绑定后的 current token
+     * @return 转移结果；world 为 null 或连接非 active 时 {@code transitioned=false}
      */
-    public static Token bindWorld(Object world) {
+    public static TransitionResult bindWorld(Object world) {
         if (world == null) {
-            return CURRENT.get();
+            return new TransitionResult(false, false, CURRENT.get());
         }
         synchronized (LIFECYCLE_MONITOR) {
             Token current = CURRENT.get();
             if (!current.connectionActive) {
-                return current;
+                return new TransitionResult(false, false, current);
             }
             if (current.worldActive && current.worldIdentity == world) {
-                return current;
+                return new TransitionResult(false, false, current);
             }
+            boolean replaced = current.worldActive;
             long worldGen = nextPositiveId(NEXT_WORLD_GENERATION);
             Token next = new Token(
                     current.connectionGeneration,
@@ -274,7 +326,7 @@ public final class ClientConnectionLifecycle {
                     current.connectionIdentity,
                     world);
             CURRENT.set(next);
-            return next;
+            return new TransitionResult(true, replaced, next);
         }
     }
 
@@ -485,7 +537,8 @@ public final class ClientConnectionLifecycle {
     /**
      * 连接级 gate：connection current+active 时在 monitor 内执行短回调。
      *
-     * <p>用于 connect init（reset 投影 + 发 C2S）。</p>
+     * <p>用于 connect init（接管清理 + reset 投影 + 发 C2S）。
+     * 生产 callback 在 lifecycle monitor 内：须短小、禁阻塞、禁反向 lifecycle 入口。</p>
      *
      * @param captured connect 返回的 token
      * @param action 短小动作

@@ -22,6 +22,9 @@ import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
  *
  * <p>用普通 Object 模拟 INetHandler / World 对象 identity（{@code ==}），
  * 不实例化 GuiScreen / Minecraft / NetHandlerPlayClient。</p>
+ *
+ * <p>接管收敛：连接 B / world B 在主线程 gate 内统一 cleanup；
+ * 旧 A cleanup 在 B 建立后 no-op；重复 connect/load 不重复 init/清理。</p>
  */
 public class ClientConnectionLifecycleTest {
 
@@ -48,17 +51,27 @@ public class ClientConnectionLifecycleTest {
 
     @Test
     public void sameActiveHandlerConnectIsNoOp() {
-        ClientConnectionLifecycle.Token t1 = ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token t2 = ClientConnectionLifecycle.connect(handlerA);
-        Assert.assertSame(t1, t2);
-        Assert.assertTrue(t1.isConnectionActive());
-        Assert.assertEquals(t1.connectionGeneration(), t2.connectionGeneration());
+        ClientConnectionLifecycle.TransitionResult r1 = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.TransitionResult r2 = ClientConnectionLifecycle.connect(handlerA);
+        Assert.assertTrue(r1.transitioned());
+        Assert.assertFalse(r1.replacedPreviousLifecycle());
+        Assert.assertFalse(r2.transitioned());
+        Assert.assertFalse(r2.replacedPreviousLifecycle());
+        Assert.assertSame(r1.token(), r2.token());
+        Assert.assertTrue(r1.token().isConnectionActive());
+        Assert.assertEquals(r1.token().connectionGeneration(), r2.token().connectionGeneration());
     }
 
     @Test
     public void differentHandlerConnectCreatesNewActiveToken() {
-        ClientConnectionLifecycle.Token a = ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token b = ClientConnectionLifecycle.connect(handlerB);
+        ClientConnectionLifecycle.TransitionResult ra = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.TransitionResult rb = ClientConnectionLifecycle.connect(handlerB);
+        Assert.assertTrue(ra.transitioned());
+        Assert.assertFalse(ra.replacedPreviousLifecycle());
+        Assert.assertTrue(rb.transitioned());
+        Assert.assertTrue(rb.replacedPreviousLifecycle());
+        ClientConnectionLifecycle.Token a = ra.token();
+        ClientConnectionLifecycle.Token b = rb.token();
         Assert.assertNotSame(a, b);
         Assert.assertTrue(b.isConnectionActive());
         Assert.assertTrue(a.connectionGeneration() != b.connectionGeneration());
@@ -108,7 +121,7 @@ public class ClientConnectionLifecycleTest {
      */
     @Test
     public void queuedInitForAAfterBConnectIsNoOp() {
-        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.connect(handlerA).token();
         final AtomicInteger inits = new AtomicInteger(0);
 
         ClientConnectionLifecycle.disconnect(handlerA);
@@ -144,7 +157,7 @@ public class ClientConnectionLifecycleTest {
         Assert.assertTrue(discA.transitioned());
         final ClientConnectionLifecycle.Token cleanupA = discA.token();
 
-        ClientConnectionLifecycle.Token tokenB = ClientConnectionLifecycle.connect(handlerB);
+        ClientConnectionLifecycle.Token tokenB = ClientConnectionLifecycle.connect(handlerB).token();
         ClientConnectionLifecycle.bindWorld(worldB);
         final AtomicInteger cleanups = new AtomicInteger(0);
         final AtomicInteger phases = new AtomicInteger(0);
@@ -186,8 +199,11 @@ public class ClientConnectionLifecycleTest {
 
     @Test
     public void firstWorldBindKeepsConnectionGeneration() {
-        ClientConnectionLifecycle.Token conn = ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token afterBind = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.Token conn = ClientConnectionLifecycle.connect(handlerA).token();
+        ClientConnectionLifecycle.TransitionResult bind = ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertTrue(bind.transitioned());
+        Assert.assertFalse(bind.replacedPreviousLifecycle());
+        ClientConnectionLifecycle.Token afterBind = bind.token();
         Assert.assertEquals(conn.connectionGeneration(), afterBind.connectionGeneration());
         Assert.assertTrue(afterBind.isWorldActive());
         Assert.assertTrue(ClientConnectionLifecycle.isConnectionCurrentAndActive(conn));
@@ -197,12 +213,26 @@ public class ClientConnectionLifecycleTest {
     @Test
     public void worldReplaceAdvancesWorldGenerationKeepsConnection() {
         ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token wA = ClientConnectionLifecycle.bindWorld(worldA);
-        ClientConnectionLifecycle.Token wB = ClientConnectionLifecycle.bindWorld(worldB);
+        ClientConnectionLifecycle.Token wA = ClientConnectionLifecycle.bindWorld(worldA).token();
+        ClientConnectionLifecycle.TransitionResult replace = ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertTrue(replace.transitioned());
+        Assert.assertTrue(replace.replacedPreviousLifecycle());
+        ClientConnectionLifecycle.Token wB = replace.token();
         Assert.assertEquals(wA.connectionGeneration(), wB.connectionGeneration());
         Assert.assertTrue(wA.worldGeneration() != wB.worldGeneration());
         Assert.assertFalse(ClientConnectionLifecycle.isWorldCurrentAndActive(wA));
         Assert.assertTrue(ClientConnectionLifecycle.isWorldCurrentAndActive(wB));
+    }
+
+    @Test
+    public void sameWorldBindIsNoOp() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.TransitionResult first = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.TransitionResult repeat = ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertTrue(first.transitioned());
+        Assert.assertFalse(repeat.transitioned());
+        Assert.assertFalse(repeat.replacedPreviousLifecycle());
+        Assert.assertSame(first.token(), repeat.token());
     }
 
     @Test
@@ -230,7 +260,7 @@ public class ClientConnectionLifecycleTest {
     @Test
     public void sameConnectionDimensionChangeInvalidatesOldWorldToken() {
         ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token oldWorld = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.Token oldWorld = ClientConnectionLifecycle.bindWorld(worldA).token();
         ClientConnectionLifecycle.WorldUnbindResult unbind =
                 ClientConnectionLifecycle.unbindWorld(worldA);
         Assert.assertTrue(unbind.transitioned());
@@ -238,7 +268,7 @@ public class ClientConnectionLifecycleTest {
         Assert.assertFalse(ClientConnectionLifecycle.capture().isWorldActive());
         Assert.assertFalse(ClientConnectionLifecycle.isWorldCurrentAndActive(oldWorld));
 
-        ClientConnectionLifecycle.Token newWorld = ClientConnectionLifecycle.bindWorld(worldB);
+        ClientConnectionLifecycle.Token newWorld = ClientConnectionLifecycle.bindWorld(worldB).token();
         Assert.assertTrue(newWorld.isWorldActive());
         Assert.assertEquals(oldWorld.connectionGeneration(), newWorld.connectionGeneration());
     }
@@ -305,7 +335,7 @@ public class ClientConnectionLifecycleTest {
             }
         }));
 
-        ClientConnectionLifecycle.Token withWorld = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.Token withWorld = ClientConnectionLifecycle.bindWorld(worldA).token();
         Assert.assertTrue(ClientConnectionLifecycle.runIfWorldCurrentAndActive(withWorld, new Runnable() {
             @Override
             public void run() {
@@ -318,7 +348,7 @@ public class ClientConnectionLifecycleTest {
     @Test
     public void phasePacketOldWorldDroppedAfterWorldReplace() {
         ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token oldWorld = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.Token oldWorld = ClientConnectionLifecycle.bindWorld(worldA).token();
         ClientConnectionLifecycle.bindWorld(worldB);
         final AtomicInteger pubs = new AtomicInteger(0);
         Assert.assertFalse(ClientConnectionLifecycle.runIfWorldCurrentAndActive(oldWorld, new Runnable() {
@@ -333,7 +363,7 @@ public class ClientConnectionLifecycleTest {
     @Test
     public void previewPacketOldConnectionDropped() {
         ClientConnectionLifecycle.connect(handlerA);
-        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.bindWorld(worldA).token();
         ClientConnectionLifecycle.connect(handlerB);
         ClientConnectionLifecycle.bindWorld(worldB);
         final AtomicInteger apps = new AtomicInteger(0);
@@ -398,7 +428,7 @@ public class ClientConnectionLifecycleTest {
 
     @Test
     public void actionExceptionDoesNotHoldLifecycleLock() throws Exception {
-        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA).token();
         try {
             ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(token, new Runnable() {
                 @Override
@@ -410,7 +440,6 @@ public class ClientConnectionLifecycleTest {
         } catch (RuntimeException expected) {
             Assert.assertEquals("boom", expected.getMessage());
         }
-        // 异常后仍可推进
         ClientConnectionLifecycle.DisconnectResult disc =
                 ClientConnectionLifecycle.disconnect(handlerA);
         Assert.assertTrue(disc.transitioned());
@@ -419,7 +448,7 @@ public class ClientConnectionLifecycleTest {
 
     @Test
     public void publicationHoldingGateBlocksDisconnectUntilComplete() throws Exception {
-        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA);
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA).token();
         final List<String> order = new ArrayList<String>();
         final Object orderLock = new Object();
         final CountDownLatch insidePublication = new CountDownLatch(1);
@@ -492,7 +521,7 @@ public class ClientConnectionLifecycleTest {
 
     @Test
     public void oldPublicationCannotWriteAfterDisconnectReconnect() throws Exception {
-        final ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.connect(handlerA);
+        final ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.connect(handlerA).token();
         final AtomicInteger publications = new AtomicInteger(0);
         final CountDownLatch ready = new CountDownLatch(1);
         final CountDownLatch reconnectDone = new CountDownLatch(1);
@@ -522,7 +551,7 @@ public class ClientConnectionLifecycleTest {
         oldPub.start();
         Assert.assertTrue(ready.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
         ClientConnectionLifecycle.disconnect(handlerA);
-        ClientConnectionLifecycle.Token newToken = ClientConnectionLifecycle.connect(handlerB);
+        ClientConnectionLifecycle.Token newToken = ClientConnectionLifecycle.connect(handlerB).token();
         reconnectDone.countDown();
         oldPub.join(LATCH_TIMEOUT_MS);
         Assert.assertFalse(oldPub.isAlive());
@@ -572,6 +601,251 @@ public class ClientConnectionLifecycleTest {
             }
         }));
         Assert.assertEquals(1, cleanups.get());
+    }
+
+    // ---------- Listener 调用链：接管清理 / 重复事件 ----------
+
+    /**
+     * A 资源已建立 → connect B 先于 A disconnect → 运行 B init：
+     * 统一 takeover cleanup 收敛 A 残留，并完成 B reset；随后 A cleanup no-op 且不清 B 新状态。
+     */
+    @Test
+    public void connectionBTakeoverCleansAResourcesBeforeADisconnectCleanup() {
+        ClientConnectionListener listener = new ClientConnectionListener();
+        final List<String> cleanups = new ArrayList<String>();
+        final AtomicInteger inits = new AtomicInteger(0);
+        final AtomicInteger resourceMarker = new AtomicInteger(1);
+        final AtomicInteger configProjection = new AtomicInteger(99);
+
+        listener.cleanupHookForTests = new java.util.function.Consumer<String>() {
+            @Override
+            public void accept(String reason) {
+                cleanups.add(reason);
+                resourceMarker.set(0);
+            }
+        };
+        listener.initHookForTests = new Runnable() {
+            @Override
+            public void run() {
+                inits.incrementAndGet();
+                configProjection.set(0);
+            }
+        };
+
+        // 序一：A 建立资源 → B connect 先于 A disconnect → B init 接管清理
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertEquals(1, resourceMarker.get());
+
+        ClientConnectionLifecycle.TransitionResult connectB =
+                ClientConnectionLifecycle.connect(handlerB);
+        Assert.assertTrue(connectB.transitioned());
+        Assert.assertTrue(connectB.replacedPreviousLifecycle());
+        Assert.assertTrue(ClientConnectionListener.shouldScheduleConnectionInit(connectB));
+
+        Assert.assertTrue(listener.runConnectionTakeoverAndInit(connectB.token()));
+        Assert.assertEquals(1, cleanups.size());
+        Assert.assertEquals("connection-takeover", cleanups.get(0));
+        Assert.assertEquals(0, resourceMarker.get());
+        Assert.assertEquals(1, inits.get());
+        Assert.assertEquals(0, configProjection.get());
+
+        ClientConnectionLifecycle.DisconnectResult lateA =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertFalse(lateA.transitioned());
+
+        // 序二：A disconnect 排队 cleanup → B connect → B init 接管；A cleanup no-op 不清 B
+        ClientConnectionLifecycle.resetForTests();
+        cleanups.clear();
+        resourceMarker.set(1);
+        configProjection.set(42);
+        inits.set(0);
+
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.DisconnectResult discA =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertTrue(discA.transitioned());
+        final ClientConnectionLifecycle.Token cleanupA = discA.token();
+
+        ClientConnectionLifecycle.TransitionResult bAgain =
+                ClientConnectionLifecycle.connect(handlerB);
+        Assert.assertTrue(bAgain.transitioned());
+        Assert.assertTrue(listener.runConnectionTakeoverAndInit(bAgain.token()));
+        Assert.assertEquals(1, cleanups.size());
+        Assert.assertEquals("connection-takeover", cleanups.get(0));
+        Assert.assertEquals(0, resourceMarker.get());
+        Assert.assertEquals(1, inits.get());
+
+        resourceMarker.set(7);
+        configProjection.set(3);
+        boolean aCleaned = ClientConnectionLifecycle.runIfInactiveDisconnectCurrent(cleanupA, new Runnable() {
+            @Override
+            public void run() {
+                cleanups.add("a-late-cleanup");
+                resourceMarker.set(0);
+                configProjection.set(-1);
+            }
+        });
+        Assert.assertFalse(aCleaned);
+        Assert.assertEquals(1, cleanups.size());
+        Assert.assertEquals(7, resourceMarker.get());
+        Assert.assertEquals(3, configProjection.get());
+    }
+
+    /**
+     * world A 资源 → Load B 先于 Unload A → B takeover 清理；
+     * 随后 A unload cleanup no-op 且不清 B 新状态。
+     */
+    @Test
+    public void worldBTakeoverCleansAResourcesBeforeAUnloadCleanup() {
+        ClientConnectionListener listener = new ClientConnectionListener();
+        final List<String> cleanups = new ArrayList<String>();
+        final AtomicInteger resourceMarker = new AtomicInteger(1);
+
+        listener.cleanupHookForTests = new java.util.function.Consumer<String>() {
+            @Override
+            public void accept(String reason) {
+                cleanups.add(reason);
+                resourceMarker.set(0);
+            }
+        };
+
+        // 序一：A active → Load B 直接替换 → takeover cleanup；迟到 Unload A no-op
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.TransitionResult bindA =
+                ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertTrue(bindA.transitioned());
+        Assert.assertFalse(bindA.replacedPreviousLifecycle());
+        Assert.assertFalse(ClientConnectionListener.shouldScheduleWorldTakeoverCleanup(bindA));
+
+        ClientConnectionLifecycle.TransitionResult bindB =
+                ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertTrue(bindB.transitioned());
+        Assert.assertTrue(bindB.replacedPreviousLifecycle());
+        Assert.assertTrue(ClientConnectionListener.shouldScheduleWorldTakeoverCleanup(bindB));
+
+        Assert.assertTrue(listener.runWorldTakeoverCleanup(bindB.token()));
+        Assert.assertEquals(1, cleanups.size());
+        Assert.assertEquals("world-takeover", cleanups.get(0));
+        Assert.assertEquals(0, resourceMarker.get());
+
+        ClientConnectionLifecycle.WorldUnbindResult lateUnloadA =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        Assert.assertFalse(lateUnloadA.transitioned());
+
+        // 序二：A unbind 排队 cleanup → bind B → A cleanup no-op 不清 B
+        ClientConnectionLifecycle.resetForTests();
+        cleanups.clear();
+        resourceMarker.set(1);
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.WorldUnbindResult unbindA =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        Assert.assertTrue(unbindA.transitioned());
+        final ClientConnectionLifecycle.Token cleanupA = unbindA.token();
+
+        ClientConnectionLifecycle.TransitionResult bAfterUnbind =
+                ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertTrue(bAfterUnbind.transitioned());
+        // A 已 unbind，B 是空槽首次 bind：replaced=false，不调度 world-takeover
+        Assert.assertFalse(bAfterUnbind.replacedPreviousLifecycle());
+        Assert.assertFalse(ClientConnectionListener.shouldScheduleWorldTakeoverCleanup(bAfterUnbind));
+
+        resourceMarker.set(9);
+        boolean aCleaned = ClientConnectionLifecycle.runIfWorldUnbindCurrent(cleanupA, new Runnable() {
+            @Override
+            public void run() {
+                cleanups.add("a-late-world-cleanup");
+                resourceMarker.set(0);
+            }
+        });
+        Assert.assertFalse(aCleaned);
+        Assert.assertEquals(0, cleanups.size());
+        Assert.assertEquals(9, resourceMarker.get());
+    }
+
+    /**
+     * 同 handler 重复 connect：transitioned=false，不调度 init；
+     * 有效 S2C 后投影不被回退、不重复 C2S/init。
+     */
+    @Test
+    public void repeatConnectDoesNotRescheduleInitOrRollbackProjection() {
+        ClientConnectionListener listener = new ClientConnectionListener();
+        final AtomicInteger inits = new AtomicInteger(0);
+        final AtomicInteger cleanups = new AtomicInteger(0);
+        final AtomicInteger projection = new AtomicInteger(-1);
+
+        listener.cleanupHookForTests = new java.util.function.Consumer<String>() {
+            @Override
+            public void accept(String reason) {
+                cleanups.incrementAndGet();
+            }
+        };
+        listener.initHookForTests = new Runnable() {
+            @Override
+            public void run() {
+                inits.incrementAndGet();
+                projection.set(0);
+            }
+        };
+
+        ClientConnectionLifecycle.TransitionResult first =
+                ClientConnectionLifecycle.connect(handlerA);
+        Assert.assertTrue(ClientConnectionListener.shouldScheduleConnectionInit(first));
+        Assert.assertTrue(listener.runConnectionTakeoverAndInit(first.token()));
+        Assert.assertEquals(1, inits.get());
+        Assert.assertEquals(1, cleanups.get());
+        Assert.assertEquals(0, projection.get());
+
+        projection.set(42);
+
+        ClientConnectionLifecycle.TransitionResult repeat =
+                ClientConnectionLifecycle.connect(handlerA);
+        Assert.assertFalse(repeat.transitioned());
+        Assert.assertFalse(ClientConnectionListener.shouldScheduleConnectionInit(repeat));
+        Assert.assertEquals(1, inits.get());
+        Assert.assertEquals(42, projection.get());
+        Assert.assertEquals(1, cleanups.get());
+    }
+
+    /**
+     * 重复 world load：transitioned=false，不重复 cleanup。
+     */
+    @Test
+    public void repeatWorldLoadDoesNotRescheduleCleanup() {
+        ClientConnectionListener listener = new ClientConnectionListener();
+        final AtomicInteger cleanups = new AtomicInteger(0);
+        listener.cleanupHookForTests = new java.util.function.Consumer<String>() {
+            @Override
+            public void accept(String reason) {
+                cleanups.incrementAndGet();
+            }
+        };
+
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.TransitionResult first =
+                ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertFalse(ClientConnectionListener.shouldScheduleWorldTakeoverCleanup(first));
+
+        ClientConnectionLifecycle.TransitionResult replace =
+                ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertTrue(ClientConnectionListener.shouldScheduleWorldTakeoverCleanup(replace));
+        Assert.assertTrue(listener.runWorldTakeoverCleanup(replace.token()));
+        Assert.assertEquals(1, cleanups.get());
+
+        ClientConnectionLifecycle.TransitionResult repeat =
+                ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertFalse(repeat.transitioned());
+        Assert.assertFalse(ClientConnectionListener.shouldScheduleWorldTakeoverCleanup(repeat));
+        Assert.assertEquals(1, cleanups.get());
+    }
+
+    @Test
+    public void nullHandlerConnectDoesNotTransition() {
+        ClientConnectionLifecycle.TransitionResult r = ClientConnectionLifecycle.connect(null);
+        Assert.assertFalse(r.transitioned());
+        Assert.assertFalse(r.replacedPreviousLifecycle());
+        Assert.assertFalse(ClientConnectionListener.shouldScheduleConnectionInit(r));
     }
 
     private static void record(List<String> order, Object lock, String event) {
