@@ -188,7 +188,15 @@ public final class ConfigBootstrap {
         MyMod.LOG.info("Applied current validated general config on serverStarting");
     }
 
-    /** 测试钩子：重置静态持有。 */
+    /** 测试钩子：将 commit epoch 设为接近溢出，供零发布失败测试。不回退单调性。 */
+    static synchronized void setCommitEpochForTests(long epoch) {
+        if (epoch < 0L) {
+            throw new IllegalArgumentException("epoch must be non-negative");
+        }
+        COMMIT_EPOCH.set(epoch);
+    }
+
+    /** 测试钩子：重置静态持有（不回退 epoch 单调性）。 */
     public static synchronized void resetForTests() {
         manager = null;
         yamlFile = null;
@@ -293,14 +301,19 @@ public final class ConfigBootstrap {
         if (targetYaml == null || loaded == null || snapshot == null) {
             throw new IllegalArgumentException("target YAML/loaded manager/snapshot must not be null");
         }
-        ConfigValueBridge.applyAll(snapshot);
+        // 先构造可能失败的 CommittedSnapshot（epoch overflow），再 applyAll/发布 yaml/current/manager
         CommittedSnapshot committed = newCommittedSnapshot(snapshot);
+        ConfigValueBridge.applyAll(snapshot);
         yamlFile = targetYaml;
         currentCommittedSnapshot = committed;
         manager = loaded;
     }
 
     private static CommittedSnapshot newCommittedSnapshot(ValidatedSnapshot snapshot) {
+        long previous = COMMIT_EPOCH.get();
+        if (previous == Long.MAX_VALUE) {
+            throw new ConfigAuthorityInvariantError("Config commit epoch overflow");
+        }
         long epoch = COMMIT_EPOCH.incrementAndGet();
         if (epoch <= 0L) {
             throw new ConfigAuthorityInvariantError("Config commit epoch overflow");

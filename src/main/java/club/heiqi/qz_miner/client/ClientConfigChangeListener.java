@@ -29,6 +29,10 @@ import net.minecraft.server.MinecraftServer;
  *
  * <p>UILib 4.5.2 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交。
  * 回调同步捕获并发布 currentValidatedSnapshot，不做事后恢复或二次写盘。</p>
+ *
+ * <p>listener 替换完成后在 {@code SUBSCRIPTION_LOCK} 内用
+ * {@link ConfigBootstrap#captureCommittedSnapshot(ConfigManager)} 重新捕获 Authority
+ * （覆盖“已保存但 current 尚未 capture”的 COW 交接窗口），再锁外 dispatch。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ClientConfigChangeListener implements ConfigChangeListener {
@@ -119,6 +123,10 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
 
     /**
      * 按 manager 实例幂等订阅。
+     *
+     * <p>替换路径：unsubscribe/subscribe/active 切换完成后，在锁内
+     * {@link ConfigBootstrap#captureCommittedSnapshot} 重新捕获 Authority，再锁外 dispatch。
+     * 不仅 seed current，以覆盖 COW 事件快照下“已保存但 current 尚未 capture”的窗口。</p>
      */
     public void register() {
         CommittedSnapshot seed = null;
@@ -139,7 +147,8 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
             subscribedListener = this;
             MyMod.LOG.info("Subscribed Config BATCH_SAVE listener for manager/listener instance");
             if (replacing && manager == ConfigBootstrap.manager()) {
-                seed = ConfigBootstrap.currentCommittedSnapshot();
+                // 重新捕获 Authority，而非仅 seed 可能尚未更新的 current
+                seed = ConfigBootstrap.captureCommittedSnapshot(manager);
             }
         }
         if (seed != null) {

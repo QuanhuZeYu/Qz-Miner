@@ -10,12 +10,18 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * 服务端主线程调度器。
  *
- * 1.7.10 服务端没有像客户端那样直接暴露统一的主线程任务入口，
- * 因此这里通过 ServerTick 事件在服务端主线程排空待执行任务。
+ * <p>1.7.10 服务端没有像客户端那样直接暴露统一的主线程任务入口，
+ * 因此这里通过 ServerTick 事件在服务端主线程排空待执行任务。</p>
+ *
+ * <p>普通 FIFO（{@link #run}/{@link #tryRun}）语义保持不变；
+ * keyed latest-wins 泳道（{@link #tryRunLatest}）与 FIFO 完全隔离，
+ * 仅在 ServerTick START 每 tick 最多 drain 64 槽，END 不 drain。</p>
  */
 public final class ServerMainThreadDispatcher {
 
     private static final ConcurrentLinkedQueue<Runnable> PENDING_TASKS = new ConcurrentLinkedQueue<Runnable>();
+    private static final KeyedLatestTaskLane<Object> KEYED_LANE =
+            new KeyedLatestTaskLane<Object>(KeyedLatestTaskLane.DEFAULT_CAPACITY, KeyedLatestTaskLane.DEFAULT_DRAIN_BUDGET);
     private static final ServerMainThreadDispatcher INSTANCE = new ServerMainThreadDispatcher();
 
     private static volatile boolean registered;
@@ -37,22 +43,24 @@ public final class ServerMainThreadDispatcher {
     }
 
     /**
-     * 标记服务端启动，刷新线程引用并清空旧队列。
+     * 标记服务端启动，刷新线程引用、清空旧 FIFO，并开启新 keyed lane identity。
      */
     public static void onServerStarting() {
         stopping = false;
         serverThread = Thread.currentThread();
         PENDING_TASKS.clear();
+        KEYED_LANE.start();
     }
 
     /**
-     * 标记服务端停止，优先执行剩余主线程任务。
+     * 标记服务端停止：先排空 FIFO，再关闭 keyed lane（清空并拒绝旧提交）。
      */
     public static void onServerStopping() {
         stopping = true;
         serverThread = Thread.currentThread();
         INSTANCE.drainPendingTasks();
         PENDING_TASKS.clear();
+        KEYED_LANE.stop();
     }
 
     /**
@@ -65,7 +73,7 @@ public final class ServerMainThreadDispatcher {
     }
 
     /**
-     * 尝试在服务端主线程执行任务。
+     * 尝试在服务端主线程执行任务（普通 FIFO，语义不变）。
      *
      * @param task 待执行任务
      * @return 服务端已启动且任务已执行或入队时为 true
@@ -94,10 +102,42 @@ public final class ServerMainThreadDispatcher {
         return true;
     }
 
+    /**
+     * 提交 keyed latest-wins 任务：同 key 只占一个槽，更新覆盖旧值。
+     *
+     * <p>与普通 FIFO 完全隔离；仅在 ServerTick START 按预算 drain。</p>
+     *
+     * @param key  槽位键（调用方负责端点身份）
+     * @param task 最新任务
+     * @return 已接受时为 true；关闭、容量满（新 key）或空参时为 false
+     */
+    public static boolean tryRunLatest(Object key, Runnable task) {
+        if (key == null || task == null) {
+            return false;
+        }
+        if (stopping || serverThread == null) {
+            return false;
+        }
+        return KEYED_LANE.submit(key, task);
+    }
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         serverThread = Thread.currentThread();
+        if (event.phase == TickEvent.Phase.START) {
+            drainKeyedLane();
+        }
+        // 普通 FIFO 语义不变：继续在每个 ServerTick 相位排空
         drainPendingTasks();
+    }
+
+    private void drainKeyedLane() {
+        KEYED_LANE.drain(new KeyedLatestTaskLane.ErrorHandler() {
+            @Override
+            public void onError(RuntimeException error) {
+                MyMod.LOG.error("[ThreadDispatch] Server keyed task failed", error);
+            }
+        });
     }
 
     private void drainPendingTasks() {
@@ -109,5 +149,14 @@ public final class ServerMainThreadDispatcher {
                 MyMod.LOG.error("[ThreadDispatch] Server main thread task failed", e);
             }
         }
+    }
+
+    /**
+     * 测试钩子：直接访问 keyed lane（纯 JVM 测试用）。
+     *
+     * @return 内部 keyed lane
+     */
+    static KeyedLatestTaskLane<Object> keyedLaneForTests() {
+        return KEYED_LANE;
     }
 }

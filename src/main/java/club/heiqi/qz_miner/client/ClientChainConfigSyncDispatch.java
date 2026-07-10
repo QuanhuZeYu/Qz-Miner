@@ -5,6 +5,9 @@ package club.heiqi.qz_miner.client;
  *
  * <p>该类不依赖 Minecraft 或客户端状态类型，便于纯 JVM 测试证明 publication 只在 dispatcher
  * 任务执行后发生。生产调用方在 ClientProxy 中注入 ClientMainThreadDispatcher。</p>
+ *
+ * <p>{@link #dispatch} 返回 dispatcher 是否接受任务；拒绝时不跨 lifecycle 重试，
+ * 由调用方做限频/一次性诊断。非法整包仍在客户端主线程任务内拒绝。</p>
  */
 public final class ClientChainConfigSyncDispatch {
 
@@ -38,8 +41,9 @@ public final class ClientChainConfigSyncDispatch {
      * @param matchedCount 已匹配目标数
      * @param dispatcher 客户端主线程调度边界
      * @param publication 客户端状态发布动作
+     * @return dispatcher 已接受任务时为 true；拒绝时为 false（不重试）
      */
-    public static void dispatch(
+    public static boolean dispatch(
             final int radius,
             final int maxBlocks,
             final int matchedCount,
@@ -48,7 +52,7 @@ public final class ClientChainConfigSyncDispatch {
         if (dispatcher == null || publication == null) {
             throw new IllegalArgumentException("dispatcher/publication must not be null");
         }
-        dispatcher.dispatch(new Runnable() {
+        return dispatcher.dispatch(new Runnable() {
             @Override
             public void run() {
                 if (!isValidPacket(radius, maxBlocks, matchedCount)) {
@@ -59,6 +63,10 @@ public final class ClientChainConfigSyncDispatch {
         });
     }
 
+    /**
+     * 整包合法性：radius/maxBlocks 大于零且 matchedCount 非负。
+     * 不检查 matchedCount&lt;=maxBlocks（规划启动后服务端配置可能下调）。
+     */
     private static boolean isValidPacket(int radius, int maxBlocks, int matchedCount) {
         return radius > 0 && maxBlocks > 0 && matchedCount >= 0;
     }

@@ -35,6 +35,9 @@ public final class ConfigSnapshotDispatch {
      *
      * <p>pending 只保留最大 epoch；draining 是唯一 drain owner。publication 不持有 bootstrap、manager
      * 或 mailbox monitor。关闭后 queued drain 只清理 owner，不再执行 publication。</p>
+     *
+     * <p>{@code processedEpoch} 是已处理水位：stale current 未 publication 也会推进；
+     * publication 失败不推进。命名刻意不是 applied，避免与“已成功发布”混淆。</p>
      */
     public static final class Mailbox implements AutoCloseable {
 
@@ -45,7 +48,7 @@ public final class ConfigSnapshotDispatch {
         private final AtomicBoolean draining = new AtomicBoolean();
         private final AtomicBoolean retryRequested = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
-        private final AtomicLong appliedEpoch = new AtomicLong();
+        private final AtomicLong processedEpoch = new AtomicLong();
 
         /**
          * @param side 诊断侧名称
@@ -71,7 +74,7 @@ public final class ConfigSnapshotDispatch {
             if (committed == null) {
                 throw new IllegalArgumentException("committed snapshot must not be null");
             }
-            if (closed.get() || committed.epoch <= appliedEpoch.get()) {
+            if (closed.get() || committed.epoch <= processedEpoch.get()) {
                 return false;
             }
             boolean offered = offerLatest(committed);
@@ -83,9 +86,11 @@ public final class ConfigSnapshotDispatch {
             return offered;
         }
 
-        /** @return 已成功 publication 的最大 epoch */
-        public long appliedEpoch() {
-            return appliedEpoch.get();
+        /**
+         * @return 已处理（含 stale 跳过）的最大 epoch；publication 失败不推进
+         */
+        public long processedEpoch() {
+            return processedEpoch.get();
         }
 
         /** @return mailbox 是否已关闭 */
@@ -170,11 +175,12 @@ public final class ConfigSnapshotDispatch {
                         ownerReleased = true;
                         return;
                     }
-                    if (committed.epoch <= appliedEpoch.get()) {
+                    if (committed.epoch <= processedEpoch.get()) {
                         continue;
                     }
                     if (!ConfigBootstrap.isCurrent(committed)) {
-                        advanceAppliedEpoch(committed.epoch);
+                        // stale current：不 publication，但推进已处理水位
+                        advanceProcessedEpoch(committed.epoch);
                         continue;
                     }
                     try {
@@ -187,11 +193,12 @@ public final class ConfigSnapshotDispatch {
                             continue;
                         }
                         offerLatest(committed);
+                        // publication 失败不推进 processedEpoch
                         releaseAfterPublicationFailure(committed.epoch);
                         ownerReleased = true;
                         return;
                     }
-                    advanceAppliedEpoch(committed.epoch);
+                    advanceProcessedEpoch(committed.epoch);
                 }
             } finally {
                 if (!ownerReleased) {
@@ -230,14 +237,14 @@ public final class ConfigSnapshotDispatch {
             draining.set(false);
         }
 
-        private void advanceAppliedEpoch(long epoch) {
+        private void advanceProcessedEpoch(long epoch) {
             long previous;
             do {
-                previous = appliedEpoch.get();
+                previous = processedEpoch.get();
                 if (epoch <= previous) {
                     return;
                 }
-            } while (!appliedEpoch.compareAndSet(previous, epoch));
+            } while (!processedEpoch.compareAndSet(previous, epoch));
         }
     }
 

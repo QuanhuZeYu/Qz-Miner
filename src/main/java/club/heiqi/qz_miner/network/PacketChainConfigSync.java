@@ -66,7 +66,8 @@ public class PacketChainConfigSync implements IMessage {
     /**
      * Netty 线程 Handler：只捕获包内纯数据并转交 proxy，由 ClientProxy 负责主线程校验与收口。
      *
-     * <p>守 I4：common packet 类不依赖 client-only dispatcher，避免 dedicated server 类加载风险。</p>
+     * <p>守 I4：common packet 类不依赖 client-only dispatcher，避免 dedicated server 类加载风险。
+     * 不逐包打成功 debug，避免日志放大。</p>
      */
     public static class Handler implements IMessageHandler<PacketChainConfigSync, IMessage> {
 
@@ -75,8 +76,6 @@ public class PacketChainConfigSync implements IMessage {
             final int chainRadius = message.chainRadius;
             final int chainMaxBlocks = message.chainMaxBlocks;
             final int matchedTargetCount = message.matchedTargetCount;
-            MyMod.LOG.debug("[ChainConfigSync] Received chainRadius={} chainMaxBlocks={} matchedTargetCount={}",
-                    Integer.valueOf(chainRadius), Integer.valueOf(chainMaxBlocks), Integer.valueOf(matchedTargetCount));
             MyMod.proxy.handleClientChainConfigSync(chainRadius, chainMaxBlocks, matchedTargetCount);
             return null;
         }

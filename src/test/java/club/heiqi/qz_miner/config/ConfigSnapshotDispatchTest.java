@@ -52,7 +52,7 @@ public class ConfigSnapshotDispatchTest {
         Assert.assertEquals(1, dispatcher.tasks.size());
         dispatcher.runAt(0);
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(24)), published);
-        Assert.assertEquals(second.epoch, mailbox.appliedEpoch());
+        Assert.assertEquals(second.epoch, mailbox.processedEpoch());
     }
 
     @Test
@@ -92,7 +92,7 @@ public class ConfigSnapshotDispatchTest {
         Assert.assertFalse(worker.isAlive());
         Assert.assertEquals(java.util.Arrays.asList(Integer.valueOf(12), Integer.valueOf(25)), published);
         Assert.assertEquals(1, maxDepth.get());
-        Assert.assertEquals(latest.epoch, mailbox.appliedEpoch());
+        Assert.assertEquals(latest.epoch, mailbox.processedEpoch());
     }
 
     @Test
@@ -135,7 +135,7 @@ public class ConfigSnapshotDispatchTest {
         dispatcher.runQueued();
 
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(28)), published);
-        Assert.assertEquals(latest.epoch, mailbox.appliedEpoch());
+        Assert.assertEquals(latest.epoch, mailbox.processedEpoch());
     }
 
     @Test
@@ -170,7 +170,43 @@ public class ConfigSnapshotDispatchTest {
         holder[0].submit(failed);
 
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(32)), published);
-        Assert.assertTrue(holder[0].appliedEpoch() > failed.epoch);
+        // 失败的 epoch 本身不单独推进；后续成功 publication 推进到更新的 epoch
+        Assert.assertTrue(holder[0].processedEpoch() > failed.epoch);
+        Assert.assertEquals(ConfigBootstrap.currentCommittedSnapshot().epoch, holder[0].processedEpoch());
+    }
+
+    @Test
+    public void publicationFailureAloneDoesNotAdvanceProcessedEpoch() {
+        final List<Integer> published = new ArrayList<Integer>();
+        Mailbox mailbox = new Mailbox("client", new DirectDispatcher(), new ConfigSnapshotDispatch.Publication() {
+            @Override
+            public void publish(ValidatedSnapshot snapshot) {
+                throw new IllegalStateException("forced publication failure");
+            }
+        });
+        CommittedSnapshot failed = commitRadius(41);
+        mailbox.submit(failed);
+
+        Assert.assertEquals(0, published.size());
+        Assert.assertEquals(0L, mailbox.processedEpoch());
+    }
+
+    @Test
+    public void staleCurrentAdvancesProcessedEpochWithoutPublication() {
+        QueueDispatcher dispatcher = new QueueDispatcher();
+        final List<Integer> published = new ArrayList<Integer>();
+        Mailbox mailbox = mailbox("client", dispatcher, published);
+        CommittedSnapshot stale = commitRadius(42);
+        // 先入队 stale，再 capture 更新 current，使 drain 时 stale 已非 current
+        mailbox.submit(stale);
+        Assert.assertEquals(1, dispatcher.tasks.size());
+        CommittedSnapshot latest = commitRadius(43);
+        Assert.assertNotNull(latest);
+        Assert.assertFalse(ConfigBootstrap.isCurrent(stale));
+        dispatcher.runAt(0);
+
+        Assert.assertTrue(published.isEmpty());
+        Assert.assertEquals(stale.epoch, mailbox.processedEpoch());
     }
 
     @Test
@@ -196,7 +232,7 @@ public class ConfigSnapshotDispatchTest {
         mailbox.submit(recovered);
 
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(34)), published);
-        Assert.assertEquals(recovered.epoch, mailbox.appliedEpoch());
+        Assert.assertEquals(recovered.epoch, mailbox.processedEpoch());
     }
 
     @Test
@@ -216,8 +252,8 @@ public class ConfigSnapshotDispatchTest {
 
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(36)), client);
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(36)), server);
-        Assert.assertEquals(latest.epoch, clientMailbox.appliedEpoch());
-        Assert.assertEquals(latest.epoch, serverMailbox.appliedEpoch());
+        Assert.assertEquals(latest.epoch, clientMailbox.processedEpoch());
+        Assert.assertEquals(latest.epoch, serverMailbox.processedEpoch());
     }
 
     @Test

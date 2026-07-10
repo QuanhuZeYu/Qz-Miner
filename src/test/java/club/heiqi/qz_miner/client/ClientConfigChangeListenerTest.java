@@ -51,22 +51,61 @@ public class ClientConfigChangeListenerTest {
     }
 
     @Test
-    public void replacementClosesOldQueuedTaskAndSeedsCurrentIntoNewMailbox() {
+    public void replacementClosesOldQueuedTaskAndRecapturesAuthorityIntoNewMailbox() {
         ListenerHarness old = new ListenerHarness(manager);
         ListenerHarness replacement = new ListenerHarness(manager);
         old.listener.register();
         saveRadius(23);
         Assert.assertEquals(1, old.clientDispatcher.tasks.size());
+        long epochBeforeReplacement = ConfigBootstrap.currentCommittedSnapshot().epoch;
 
         replacement.listener.register();
-        Assert.assertEquals("replacement must seed the already committed current wrapper",
+        Assert.assertEquals("replacement must recapture Authority into the new mailbox",
                 1, replacement.clientDispatcher.tasks.size());
+        // recapture 产生新 epoch，不小于替换前 current
+        Assert.assertTrue(ConfigBootstrap.currentCommittedSnapshot().epoch >= epochBeforeReplacement);
         replacement.clientDispatcher.runAt(0);
         old.clientDispatcher.runAt(0);
 
         Assert.assertEquals(0, old.publicationCount.get());
         Assert.assertEquals(0, old.chainStateWriteCount.get());
         Assert.assertEquals(0, old.networkSendCount.get());
+        Assert.assertEquals(1, replacement.publicationCount.get());
+    }
+
+    /**
+     * 覆盖 COW 交接窗口：保存已成功但 current 尚未 capture 时，replacement 仍能捕获 Authority。
+     *
+     * <p>边界：UILib event bus 的精确 COW 快照屏障无法从 Miner 测试钩住；
+     * 本测试用“无 active listener 时 save 写 Authority、current 保持旧 epoch，
+     * 再经 replacement register 锁内 recapture”模拟最接近的可控场景。</p>
+     */
+    @Test
+    public void replacementRecapturesSavedAuthorityEvenWhenCurrentWasNotYetCaptured() {
+        ListenerHarness seedHolder = new ListenerHarness(manager);
+        seedHolder.listener.register();
+        long epochBeforeSave = ConfigBootstrap.currentCommittedSnapshot().epoch;
+        // 卸下 listener，使后续 save 不经 BATCH_SAVE capture
+        ClientConfigChangeListener.resetSubscriptionForTests();
+        DraftBuffer draft = manager.openDraft();
+        draft.setDraft("general.chainRadius", Double.valueOf(77));
+        Assert.assertTrue(manager.save(draft).isSuccess());
+        Assert.assertEquals(epochBeforeSave, ConfigBootstrap.currentCommittedSnapshot().epoch);
+
+        // 先占位订阅（不 recapture），再 replacement 触发锁内 captureCommittedSnapshot
+        ListenerHarness first = new ListenerHarness(manager);
+        first.listener.register();
+        Assert.assertEquals(0, first.clientDispatcher.tasks.size());
+
+        ListenerHarness replacement = new ListenerHarness(manager);
+        replacement.listener.register();
+
+        Assert.assertEquals(1, replacement.clientDispatcher.tasks.size());
+        Assert.assertTrue(
+                "replacement recapture must advance current past the pre-save epoch",
+                ConfigBootstrap.currentCommittedSnapshot().epoch > epochBeforeSave);
+        Assert.assertEquals(77, ConfigBootstrap.currentValidatedSnapshot().chainRadius);
+        replacement.clientDispatcher.runAt(0);
         Assert.assertEquals(1, replacement.publicationCount.get());
     }
 

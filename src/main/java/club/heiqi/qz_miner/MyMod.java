@@ -183,8 +183,9 @@ public class MyMod {
 
     @Mod.EventHandler
     public void serverStopping(FMLServerStoppingEvent event) {
+        // 先完成玩家生命周期清理，再关闭 dispatcher，避免 stop 后 FIFO 拒绝清理任务
+        PlayerManager.clearAllPlayersOnServerStopping();
         ServerMainThreadDispatcher.onServerStopping();
-        PlayerManager.clearAllPlayers();
         if (parallelTickExecutor != null) {
             parallelTickExecutor.shutdown();
             parallelTickExecutor = null;

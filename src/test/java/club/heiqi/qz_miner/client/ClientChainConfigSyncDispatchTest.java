@@ -10,6 +10,7 @@ public class ClientChainConfigSyncDispatchTest {
     public void validPacketPublishesAtomicallyInsideDispatchedTask() {
         Harness harness = dispatch(12, 345, 67);
 
+        Assert.assertTrue(harness.accepted);
         Assert.assertArrayEquals(new int[] {91, 92, 93}, harness.state);
         harness.queued.run();
 
@@ -44,6 +45,39 @@ public class ClientChainConfigSyncDispatchTest {
         assertRejected(12, 345, -1);
     }
 
+    @Test
+    public void matchedCountAboveMaxBlocksIsStillAccepted() {
+        // 规划启动后服务端配置可能下调；禁止 matchedCount<=maxBlocks 硬拒绝
+        Harness harness = dispatch(12, 10, 50);
+        harness.queued.run();
+        Assert.assertArrayEquals(new int[] {12, 10, 50}, harness.state);
+        Assert.assertEquals(1, harness.publications);
+    }
+
+    @Test
+    public void dispatcherRejectionPropagatesAsFalseWithoutPublication() {
+        final Harness harness = new Harness();
+        boolean accepted = ClientChainConfigSyncDispatch.dispatch(
+                12,
+                345,
+                67,
+                new ClientChainConfigSyncDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return false;
+                    }
+                },
+                new ClientChainConfigSyncDispatch.Publication() {
+                    @Override
+                    public void publish(int publishedRadius, int publishedMaxBlocks, int publishedMatchedCount) {
+                        harness.publications++;
+                    }
+                });
+        Assert.assertFalse(accepted);
+        Assert.assertEquals(0, harness.publications);
+        Assert.assertArrayEquals(new int[] {91, 92, 93}, harness.state);
+    }
+
     private static void assertRejected(int radius, int maxBlocks, int matchedCount) {
         Harness harness = dispatch(radius, maxBlocks, matchedCount);
 
@@ -56,7 +90,7 @@ public class ClientChainConfigSyncDispatchTest {
 
     private static Harness dispatch(int radius, int maxBlocks, int matchedCount) {
         final Harness harness = new Harness();
-        ClientChainConfigSyncDispatch.dispatch(
+        harness.accepted = ClientChainConfigSyncDispatch.dispatch(
                 radius,
                 maxBlocks,
                 matchedCount,
@@ -84,5 +118,6 @@ public class ClientChainConfigSyncDispatchTest {
         private final int[] state = new int[] {91, 92, 93};
         private Runnable queued;
         private int publications;
+        private boolean accepted;
     }
 }

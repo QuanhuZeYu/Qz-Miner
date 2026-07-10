@@ -329,6 +329,27 @@ public class ConfigBootstrapTest {
     }
 
     @Test
+    public void epochOverflowBeforeApplyAllPublishesNothing() throws Exception {
+        setStaticSentinels();
+        Object[] before = captureRuntimeConfigValues();
+        long epochBefore = 0L;
+        // 若此前已有 bootstrap 测试推进过 epoch，只记录；钩子设到天花板
+        ConfigBootstrap.setCommitEpochForTests(Long.MAX_VALUE);
+
+        try {
+            ConfigBootstrap.bootstrap(tempDir, null);
+            Assert.fail("epoch overflow must fail before any publication");
+        } catch (ConfigAuthorityInvariantError expected) {
+            Assert.assertTrue(expected.getMessage().contains("epoch overflow"));
+        }
+
+        assertBootstrapStateUnpublished(before);
+        // reset 不回退 epoch；套件隔离用测试钩子抬到可用正值（非 reset 回退）
+        ConfigBootstrap.resetForTests();
+        ConfigBootstrap.setCommitEpochForTests(Math.max(epochBefore, 1_000_000_000L));
+    }
+
+    @Test
     public void resetForTestsNeverRollsCommitEpochBack() {
         ConfigBootstrap.bootstrap(tempDir, null);
         long firstEpoch = ConfigBootstrap.currentCommittedSnapshot().epoch;
