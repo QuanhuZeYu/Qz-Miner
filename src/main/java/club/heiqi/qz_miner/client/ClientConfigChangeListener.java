@@ -20,14 +20,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.server.MinecraftServer;
 
 /**
- * 客户端配置变更：订阅 UILib {@code BATCH_SAVE}，分侧发布运行字段并网络同步。
+ * 客户端配置变更：订阅 UILib {@code BATCH_SAVE}/{@code RELOAD}，分侧发布运行字段并网络同步。
  *
  * <p>持有注册时的 final {@link ConfigManager}，静态记录准确的 manager+listener 订阅对。
- * BATCH_SAVE 可能同步触发：在回调线程立即抓取不可变 {@link ValidatedSnapshot}，再经
+ * BATCH_SAVE/RELOAD 可能同步触发：在回调线程立即抓取不可变 {@link ValidatedSnapshot}，再经
  * {@link ClientMainThreadDispatcher} 异步发布 client 字段；general 仅在集成服运行时经
  * {@link ServerMainThreadDispatcher} 写服务端主线程。远程多人客户端不写 general static 充当服务端权威。</p>
  *
- * <p>UILib 4.5.2 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交。
+ * <p>UILib 4.5.3-beta-1 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交或成功回载。
  * 回调同步捕获并发布 currentValidatedSnapshot，不做事后恢复或二次写盘。</p>
  *
  * <p>listener 替换完成后在 {@code SUBSCRIPTION_LOCK} 内用
@@ -87,7 +87,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
                     @Override
                     public void publish(ValidatedSnapshot snapshot) {
                         ConfigValueBridge.applyGeneralFromSnapshot(snapshot);
-                        MyMod.LOG.debug("Applied general config on server main thread after BATCH_SAVE");
+                        MyMod.LOG.debug("Applied general config on server main thread after config change notification");
                     }
                 });
     }
@@ -136,7 +136,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
             }
             boolean replacing = subscribedManager != null && subscribedListener != null;
             if (subscribedManager != null && subscribedListener != null) {
-                MyMod.LOG.warn("Replacing BATCH_SAVE subscription for ConfigManager/listener instance");
+                MyMod.LOG.warn("Replacing config change subscription for ConfigManager/listener instance");
                 subscribedListener.closeMailboxes();
                 subscribedManager.eventBus().unsubscribe(subscribedListener);
                 subscribedManager = null;
@@ -145,7 +145,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
             manager.eventBus().subscribe(this);
             subscribedManager = manager;
             subscribedListener = this;
-            MyMod.LOG.info("Subscribed Config BATCH_SAVE listener for manager/listener instance");
+            MyMod.LOG.info("Subscribed Config BATCH_SAVE/RELOAD listener for manager/listener instance");
             if (replacing && manager == ConfigBootstrap.manager()) {
                 // 重新捕获 Authority，而非仅 seed 可能尚未更新的 current
                 seed = ConfigBootstrap.captureCommittedSnapshot(manager);
@@ -172,9 +172,10 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
 
     @Override
     public void onConfigChanged(ConfigChangeEvent event) {
-        if (event == null || event.getType() != ConfigChangeEvent.ChangeType.BATCH_SAVE) {
+        if (event == null || !isSupportedChangeType(event.getType())) {
             return;
         }
+        MyMod.LOG.debug("Captured config change notification type={}", event.getType());
         CommittedSnapshot committed;
         synchronized (SUBSCRIPTION_LOCK) {
             if (subscribedManager != manager
@@ -185,6 +186,17 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
             committed = ConfigBootstrap.captureCommittedSnapshot(manager);
         }
         dispatchCommitted(committed);
+    }
+
+    /**
+     * 只接受会改变已提交 Authority 的通知；字段级草稿事件不触发运行态回灌。
+     *
+     * @param type UILib 配置事件类型
+     * @return BATCH_SAVE 或 RELOAD 时为 true
+     */
+    private static boolean isSupportedChangeType(ConfigChangeEvent.ChangeType type) {
+        return type == ConfigChangeEvent.ChangeType.BATCH_SAVE
+                || type == ConfigChangeEvent.ChangeType.RELOAD;
     }
 
     private void dispatchCommitted(CommittedSnapshot committed) {

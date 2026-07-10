@@ -1,13 +1,13 @@
-# 决策：配置权威迁至 YAML + UILib 4.5.2 硬依赖
+# 决策：配置权威迁至 YAML + UILib 4.5.3-beta-1 硬依赖
 
 ## 结论
 
 - 配置权威文件：`config/qz_miner.yaml`（UILib `ConfigManager` + YAML Persistence）。
 - 旧 Forge `config/qz_miner.cfg` 仅作一次性导入源；导入成功后退役为时间戳 `.imported.bak`；导入失败时重建/持久化 schema 默认 YAML。成功迁移与失败恢复都必须先严格退役 cfg、再发布 manager/current/Config static；`yamlFile` 也只随成功 manager commit 发布。提交前失败保持全部 bootstrap/static 状态不变，后续启动以已存在 YAML 为权威并忽略仍在的 cfg。
-- Qz-UILib 升至 `4.5.2:dev`，`@Mod` 依赖改为 `required-after:qz_uilib`；发布包仍用 `devOnlyNonPublishable`，不内嵌 UILib。
+- Qz-UILib 当前接入 Maven Local 的 `4.5.3-beta-1:dev`，`@Mod` 依赖改为 `required-after:qz_uilib`；发布包仍用 `devOnlyNonPublishable`，不内嵌 UILib。
 - 客户端配置页：`ConfigSchema` → 长寿命 `ConfigManager` → `ConfigUI.buildScreen` → `McScreenBridge`。
 - **单 YAML Authority**；只要 YAML 路径已是文件即取得最高优先级，零长度 YAML 作为结构化空 MAP，表示所有字段缺失并使用 schema 默认，不读取或退役 cfg。原始文件先经 `RawYamlPreflight` 按 Schema NodeType 检查，再进入 Authority 宽松转换；显式 null、错误 section/字段类型拒绝，未知字段不拒绝。
-- UILib 4.5.2 三参 bootstrap 注入无副作用 DraftValidator；finite、整数、范围与 alpha 跨字段非法在写盘前返回 INVALID，保留草稿，Authority/YAML/current/runtime/event/network 均不变。
+- UILib 4.5.3-beta-1 三参 bootstrap 注入无副作用 DraftValidator；finite、整数、范围与 alpha 跨字段非法在写盘前返回 INVALID，保留草稿，Authority/YAML/current/runtime/event/network 均不变；成功 `reloadDraftFromDisk()` 发布 `RELOAD`，与 `BATCH_SAVE` 共用捕获和分侧 mailbox 回灌。
 - `ValidatedSnapshot` 是 Authority 的只读派生载荷；每次 bootstrap/capture 成功后以不回退的 `epoch` 包装成 `CommittedSnapshot` 并 volatile 发布。`commitManager` 先构造可能失败的 `CommittedSnapshot`（epoch overflow），再 `applyAll`/发布 yaml/current/manager，保证溢出零发布。client/server 各持有可关闭的无锁 latest-wins 单消费者 mailbox；publication 在所有 bootstrap/manager/mailbox monitor 外执行，开始前无锁复核全局 current identity。调度拒绝或异常保留 pending 并诊断，后续 submit 可恢复；publication 失败不推进 `processedEpoch`，stale current 未 publication 也会推进该水位。listener 替换/reset 先关闭旧 mailbox 再精确退订；替换完成后在 `SUBSCRIPTION_LOCK` 内 `captureCommittedSnapshot` 重新捕获 Authority（覆盖 COW 下已保存但 current 尚未 capture 的窗口），再锁外 dispatch。
 - 运行字段分侧发布：client 经 `ClientMainThreadDispatcher`，general 仅在服务端主线程（集成服 BATCH_SAVE → `ServerMainThreadDispatcher`；远程客户端不写 general static）；`serverStarting` 只发布 current snapshot 的 general。
 - C2S：`PacketChainConfigRequest` Handler 只捕获原始 int 与端点身份，经 `ServerChainConfigRequestDispatch` → `ServerMainThreadDispatcher.tryRunLatest` 进入与 FIFO 隔离的 keyed latest-wins 泳道（固定容量、START 每 tick 最多 64 槽、END 不 drain）。key = UUID + 弱引用对象 identity（UUID 相等且 referent 存活且 `==`；hash 仅分桶）；泳道 ConcurrentHashMap.replace/remove 线性化；pending 弱持有端点；过期弱键可 purge；消费时主线程重取在线玩家并要求实例身份匹配后再整包校验/夹上限/写入。非法、容量拒绝、过期会话诊断限频汇总，不逐包成功 debug。
@@ -16,7 +16,7 @@
 - 服务端停止：`serverStopping` 先同步 `PlayerManager.clearAllPlayersOnServerStopping()` 完成玩家生命周期清理，再 `ServerMainThreadDispatcher.onServerStopping()`；其他 `clearAllPlayers` 路径语义不变。
 - 删除 Forge `GuiConfig` 降级页与 `ConfigChangedEvent` 保存链；全部 19 字段（含 `greeting`）保留；默认单一源 `QzMinerConfigDefaults`。
 - 现有 YAML 的语法/raw/语义错误统一先 required backup、再删除、默认重建并复验；cfg 导入产物也重载执行 raw+语义复验。备份失败 fail-fast，绝不删除原文件或回退 cfg 运行。
-- `@Mod`：`required-after:qz_uilib@[4.5.2,);`
+- `@Mod`：`required-after:qz_uilib@[4.5.3-beta-1,);`
 
 ## 为什么
 
@@ -44,3 +44,4 @@
 - 2026-07-10：生命周期/背压纠偏——S2C `ClientConnectionLifecycle` token 守卫；keyed START drain 不可重入；latest-wins 契约改为「最后线性化成功值最终执行」；拒绝诊断 CAS 独占批次。
 - 2026-07-10：S2C 终审纠偏——advance/publication 统一 monitor 线性化；`advanceKeepActive` 禁止分离 get/set；publication 经 `publishIfCurrentAndActive` 消除 gate TOCTOU；任务顺序固定为先整包校验再 gate 内 publication。
 - 2026-07-10：S2C identity 闭环——token 绑定 `INetHandler`/`World` 对象 `==`；三 S2C 传 `ctx.netHandler`；connect init / disconnect cleanup 携 generation gate；见 `client-connection-identity.md`。
+- 2026-07-11：Qz-Miner 接入 Maven Local 的 Qz-UILib `4.5.3-beta-1:dev`；`ClientConfigChangeListener` 同时处理 `BATCH_SAVE`/`RELOAD`，成功磁盘回载经同一 Authority capture 与分侧 mailbox 回灌。

@@ -7,7 +7,7 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
  * 将已严格校验的快照发布到 {@link Config} 静态字段（分 general / client）。
  *
  * <p>不在此夹取/round 非法值；调用方必须先经 {@link ConfigSemanticValidator}。
- * preInit 可全量发布；运行时 BATCH_SAVE 必须分侧 + 主线程 dispatcher（见 ClientConfigChangeListener）。</p>
+ * preInit 可全量发布；运行时 BATCH_SAVE/RELOAD 必须分侧 + 主线程 dispatcher（见 ClientConfigChangeListener）。</p>
  *
  * <p>server-safe，零 MC UI / LWJGL。</p>
  */

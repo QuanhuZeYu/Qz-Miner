@@ -11,7 +11,7 @@ import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
  *
  * <p>权威源为 UILib {@link ConfigManager}（YAML {@code config/qz_miner.yaml}）。
  * 静态字段初值来自 {@link QzMinerConfigDefaults}；启动经 {@link #init} 全量回灌；
- * 运行时 BATCH_SAVE 分侧发布（client 主线程 / general 主线程），见 ClientConfigChangeListener。</p>
+ * 运行时 BATCH_SAVE/RELOAD 分侧发布（client 主线程 / general 主线程），见 ClientConfigChangeListener。</p>
  */
 public class Config {
 

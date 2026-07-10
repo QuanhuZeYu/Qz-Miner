@@ -151,7 +151,7 @@ public final class ConfigBootstrap {
     }
 
     /**
-     * 成功 BATCH_SAVE 回调内同步捕获并替换当前派生快照。
+     * 成功 BATCH_SAVE/RELOAD 通知内同步捕获并替换当前派生快照。
      *
      * @param sourceManager 触发回调的 manager
      * @return 本次完整提交令牌
@@ -159,20 +159,20 @@ public final class ConfigBootstrap {
      */
     public static synchronized CommittedSnapshot captureCommittedSnapshot(ConfigManager sourceManager) {
         if (sourceManager == null || sourceManager != manager) {
-            MyMod.LOG.error("BATCH_SAVE manager identity mismatch: expected={}, actual={}", manager, sourceManager);
-            throw new ConfigAuthorityInvariantError("BATCH_SAVE manager identity mismatch");
+            MyMod.LOG.error("Config change manager identity mismatch: expected={}, actual={}", manager, sourceManager);
+            throw new ConfigAuthorityInvariantError("Config change manager identity mismatch");
         }
         ParseOutcome outcome;
         try {
             outcome = ConfigSemanticValidator.captureAndValidate(sourceManager);
         } catch (RuntimeException e) {
-            MyMod.LOG.error("BATCH_SAVE committed snapshot capture failed", e);
-            throw new ConfigAuthorityInvariantError("BATCH_SAVE committed snapshot capture failed", e);
+            MyMod.LOG.error("Config change committed snapshot capture failed", e);
+            throw new ConfigAuthorityInvariantError("Config change committed snapshot capture failed", e);
         }
         if (!outcome.isValid()) {
-            MyMod.LOG.error("BATCH_SAVE committed Authority violates DraftValidator: {}", outcome.result.summary());
+            MyMod.LOG.error("Config change committed Authority violates DraftValidator: {}", outcome.result.summary());
             throw new ConfigAuthorityInvariantError(
-                    "BATCH_SAVE committed Authority is invalid: " + outcome.result.summary());
+                    "Config change committed Authority is invalid: " + outcome.result.summary());
         }
         CommittedSnapshot committed = newCommittedSnapshot(outcome.snapshot);
         currentCommittedSnapshot = committed;
