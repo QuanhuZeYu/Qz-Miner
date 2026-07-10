@@ -26,7 +26,7 @@
 - `ServerChainConfigRequestDispatch`：key = UUID + 弱引用对象 identity（相等要求 UUID 相等且双方 referent 存活且 `==`，hash 仅分桶、不单独决定相等）；pending 弱持有端点；过期弱键实现 `StaleDetectableKey`，在 submit/drain/生命周期点可 purge 释放容量；消费时主线程重取在线玩家并要求实例身份匹配后再整包校验/写入；诊断限频汇总。
 - `PacketChainConfigRequest.Handler` 只捕获原始 int 与端点，不直接每包入普通 FIFO。
 - 服务端停止先同步清理玩家，再关闭 dispatcher。
-- S2C：`ClientConnectionLifecycle` 不可复用 token；Handler/ClientProxy 捕获当时 token；inactive 直接丢弃且不做 dispatcher rejection warn；排队任务在客户端主线程整包校验后、publication 前要求 token 仍为 current 且 active。不跨 lifecycle 重试。拒绝诊断仅 CAS 获胜线程写一条限频日志。
+- S2C：`ClientConnectionLifecycle` 不可复用 token；Handler/ClientProxy 捕获当时 token；inactive 直接丢弃且不做 dispatcher rejection warn。主线程任务**先整包数值校验，再**经 `publishIfCurrentAndActive` 在与 advance 共享的 monitor 内复核 token 并 publication（禁 check 后裸调用）。`advanceKeepActive` 在同一 monitor 内读取线性化时刻 active 标志，disconnect 先提交后 unload 不得复活 active。不跨 lifecycle 重试。拒绝诊断仅 CAS 获胜线程写一条限频日志。
 
 ## 预防措施
 
@@ -35,6 +35,6 @@
 - START keyed drain 必须不可重入，避免嵌套耗尽预算。
 - 消费前必须重取会话并校验实例身份；禁止仅用 UUID 或仅用 identityHashCode 假定端点仍有效。
 - 弱键过期须可回收，避免 GC 后永久占容量。
-- 客户端 S2C 状态写入须绑定连接生命周期 token，跨 connect/disconnect/world-unload 的排队任务 no-op。
+- 客户端 S2C 状态写入须绑定连接生命周期 token，跨 connect/disconnect/world-unload 的排队任务 no-op；advance 与 publication 必须共享线性化边界，禁分离 get/set 与 check 后裸 publication。
 - 诊断限频/汇总，禁逐包成功 debug / 非法 warn；并发窗口只允许一条日志。
 - 守 I4/I7。

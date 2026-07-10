@@ -9,8 +9,16 @@ package club.heiqi.qz_miner.client;
  *
  * <p>{@link #dispatch} 返回 dispatcher 是否接受任务；拒绝时不跨 lifecycle 重试，
  * 由调用方做限频/一次性诊断。inactive token 在入队前直接丢弃并返回 true（表示非 dispatcher
- * 拒绝，调用方不做 rejection warn）。非法整包仍在客户端主线程任务内拒绝。
- * 排队任务在整包校验后、publication 前要求 captured token 仍为 current 且 active。</p>
+ * 拒绝，调用方不做 rejection warn）。</p>
+ *
+ * <h3>主线程任务顺序（契约）</h3>
+ * <ol>
+ *   <li><strong>先</strong>整包数值校验（radius/maxBlocks&gt;0 且 matchedCount≥0）</li>
+ *   <li><strong>再</strong>在 lifecycle 线性化边界内复核 token 仍为 current 且 active，并 publication</li>
+ * </ol>
+ *
+ * <p>校验与 gate 不得颠倒；gate 内 check+publication 必须原子（见
+ * {@link LifecycleGate#publishIfCurrentAndActive}），禁止 check 后裸调用 publication。</p>
  */
 public final class ClientChainConfigSyncDispatch {
 
@@ -37,9 +45,11 @@ public final class ClientChainConfigSyncDispatch {
     }
 
     /**
-     * 生命周期守卫：入队前与 publication 前校验 token。
+     * 生命周期守卫：入队前 active 检查与 publication 线性化 gate。
      *
-     * <p>生产实现委托 {@link ClientConnectionLifecycle}；测试可注入假实现。</p>
+     * <p>生产实现委托 {@link ClientConnectionLifecycle}；测试可注入假实现。
+     * publication 路径必须走 {@link #publishIfCurrentAndActive}，不得
+     * {@link #isCurrentAndActive} 后裸写状态。</p>
      */
     public interface LifecycleGate {
         /**
@@ -49,10 +59,26 @@ public final class ClientChainConfigSyncDispatch {
         boolean isActive(Object token);
 
         /**
+         * 只读快照：captured 是否仍为 current 且 active。
+         *
+         * <p>不得用于「check 后裸 publication」；生产 publication 用
+         * {@link #publishIfCurrentAndActive}。</p>
+         *
          * @param token 入队时捕获的 token
          * @return 仍为 current 且 active 时为 true
          */
         boolean isCurrentAndActive(Object token);
+
+        /**
+         * 在 lifecycle 线性化边界内：token 仍 current 且 active 时执行 publication。
+         *
+         * <p>{@code publication} 必须短小、已知本地，禁阻塞、禁反向获取 lifecycle 入口。</p>
+         *
+         * @param token 入队时捕获的 token
+         * @param publication 短小本地 publication
+         * @return 已执行时为 true
+         */
+        boolean publishIfCurrentAndActive(Object token, Runnable publication);
     }
 
     /**
@@ -79,6 +105,9 @@ public final class ClientChainConfigSyncDispatch {
      *
      * <p>capturedToken 非 null 且 gate 判定 inactive 时直接丢弃、不入队、返回 true
      * （调用方不得当作 dispatcher 拒绝做 warn）。</p>
+     *
+     * <p>主线程任务内：先整包校验，再经 {@link LifecycleGate#publishIfCurrentAndActive}
+     * 在 lifecycle 线性化边界内复核并 publication。</p>
      *
      * @param radius 服务端半径
      * @param maxBlocks 服务端目标上限
@@ -110,13 +139,21 @@ public final class ClientChainConfigSyncDispatch {
         return dispatcher.dispatch(new Runnable() {
             @Override
             public void run() {
-                if (capturedToken != null && !gate.isCurrentAndActive(capturedToken)) {
-                    return;
-                }
+                // 1) 先整包数值校验（gate 外，避免非法包进入 lifecycle monitor）
                 if (!isValidPacket(radius, maxBlocks, matchedCount)) {
                     return;
                 }
-                publication.publish(radius, maxBlocks, matchedCount);
+                if (capturedToken == null) {
+                    publication.publish(radius, maxBlocks, matchedCount);
+                    return;
+                }
+                // 2) 再在 lifecycle 线性化边界内复核 token 并 publication（禁 check 后裸调用）
+                gate.publishIfCurrentAndActive(capturedToken, new Runnable() {
+                    @Override
+                    public void run() {
+                        publication.publish(radius, maxBlocks, matchedCount);
+                    }
+                });
             }
         });
     }

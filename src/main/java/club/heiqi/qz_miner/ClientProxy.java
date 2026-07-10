@@ -45,6 +45,15 @@ public class ClientProxy extends CommonProxy {
                     return ClientConnectionLifecycle.isCurrentAndActive(
                             (ClientConnectionLifecycle.Token) token);
                 }
+
+                @Override
+                public boolean publishIfCurrentAndActive(Object token, Runnable publication) {
+                    if (!(token instanceof ClientConnectionLifecycle.Token)) {
+                        return false;
+                    }
+                    return ClientConnectionLifecycle.publishIfCurrentAndActive(
+                            (ClientConnectionLifecycle.Token) token, publication);
+                }
             };
 
     public static ChainPreviewController chainPreviewController;
@@ -83,10 +92,13 @@ public class ClientProxy extends CommonProxy {
      *
      * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。先捕获三个 final int
      * 与当前 {@link ClientConnectionLifecycle} token，再经 {@link ClientMainThreadDispatcher}
-     * 投递后写 ChainClientState。inactive token 直接丢弃且不做 dispatcher rejection warn；
+     * 投递。主线程任务内：先整包校验，再在 lifecycle 线性化边界内复核 token 并写
+     * ChainClientState 三字段。inactive token 直接丢弃且不做 dispatcher rejection warn；
      * dispatcher 拒绝时做限频诊断，不跨 lifecycle 重试。</p>
      *
-     * <p>守 I4：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。</p>
+     * <p>守 I4：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。
+     * publication 若在 disconnect 推进前取得线性化边界，属于旧生命周期内完成，不算跨生命周期写；
+     * disconnect 不因此重置 ChainClientState 旧字段（现有契约未要求状态清零）。</p>
      *
      * @param chainRadius        服务端连锁半径上限
      * @param chainMaxBlocks     服务端连锁目标数上限
