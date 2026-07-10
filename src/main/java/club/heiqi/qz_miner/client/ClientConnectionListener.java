@@ -34,9 +34,35 @@ import net.minecraftforge.event.world.WorldEvent;
  *
  * <p>生产 callback 目前在 lifecycle monitor 内：须短小、禁阻塞、禁反向 lifecycle 入口。
  * 网络 C2S 仍在 connect 初始化路径内发送（P2 残余：I/O 在 monitor 内；未扩大本轮架构）。</p>
+ *
+ * <p>可测性：{@code @SubscribeEvent} 方法只做字段提取后委托 package-private
+ * {@link #handleConnected}/{@link #handleDisconnected}/{@link #handleWorldLoad}/
+ * {@link #handleWorldUnload}；纯 JVM 测试经同一委托入口 + 可注入主线程调度边界，
+ * 覆盖 transition 判断、dispatcher 排队、token gate 与 takeover/init/cleanup 分支。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ClientConnectionListener {
+
+    /**
+     * 主线程任务调度边界。
+     *
+     * <p>生产委托 {@link ClientMainThreadDispatcher}；测试可注入队列实现以确定性 drain。</p>
+     */
+    interface TaskDispatcher {
+        /**
+         * @param task 待在客户端主线程语义下执行的任务
+         */
+        void run(Runnable task);
+    }
+
+    private static final TaskDispatcher PRODUCTION_DISPATCHER = new TaskDispatcher() {
+        @Override
+        public void run(Runnable task) {
+            ClientMainThreadDispatcher.run(task);
+        }
+    };
+
+    private final TaskDispatcher dispatcher;
 
     /**
      * 测试钩子：非 null 时替代真实资源清理（不停订阅关系）。
@@ -51,6 +77,22 @@ public class ClientConnectionListener {
     volatile Runnable initHookForTests;
 
     /**
+     * 生产默认构造：调度经 {@link ClientMainThreadDispatcher}。
+     */
+    public ClientConnectionListener() {
+        this(PRODUCTION_DISPATCHER);
+    }
+
+    /**
+     * 可注入主线程调度边界（测试用；生产走无参构造）。
+     *
+     * @param dispatcher 主线程调度；null 时回落生产 dispatcher
+     */
+    ClientConnectionListener(TaskDispatcher dispatcher) {
+        this.dispatcher = dispatcher != null ? dispatcher : PRODUCTION_DISPATCHER;
+    }
+
+    /**
      * 注册客户端连接与世界生命周期监听。
      */
     public void register() {
@@ -59,20 +101,67 @@ public class ClientConnectionListener {
     }
 
     /**
-     * 连上服务器：以 event.handler 建 connection token；仅 transitioned 时调度主线程
-     * 接管清理 + 连接初始化。重复 connect no-op。
+     * 连上服务器：字段提取后委托 {@link #handleConnected(Object)}。
      *
      * @param event 客户端连服事件
      */
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        handleConnected(event.handler);
+    }
+
+    /**
+     * 断线：字段提取后委托 {@link #handleDisconnected(Object)}。
+     *
+     * @param event 客户端断线事件
+     */
+    @SubscribeEvent
+    public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+        handleDisconnected(event.handler);
+    }
+
+    /**
+     * 世界加载：字段提取后委托 {@link #handleWorldLoad(Object, boolean)}。
+     *
+     * @param event 世界加载事件
+     */
+    @SubscribeEvent
+    public void onWorldLoad(WorldEvent.Load event) {
+        if (event.world == null) {
+            return;
+        }
+        handleWorldLoad(event.world, event.world.isRemote);
+    }
+
+    /**
+     * 世界卸载：字段提取后委托 {@link #handleWorldUnload(Object, boolean)}。
+     *
+     * @param event 世界卸载事件
+     */
+    @SubscribeEvent
+    public void onWorldUnload(WorldEvent.Unload event) {
+        if (event.world == null) {
+            return;
+        }
+        handleWorldUnload(event.world, event.world.isRemote);
+    }
+
+    /**
+     * 连上服务器：以 handler 建 connection token；仅 transitioned 时调度主线程
+     * 接管清理 + 连接初始化。重复 connect no-op。
+     *
+     * <p>生产 {@link #onClientConnected} 与纯 JVM 测试共用本入口。</p>
+     *
+     * @param handler 连接 identity（生产为 {@code event.handler}）
+     */
+    void handleConnected(Object handler) {
         final ClientConnectionLifecycle.TransitionResult result =
-                ClientConnectionLifecycle.connect(event.handler);
+                ClientConnectionLifecycle.connect(handler);
         if (!shouldScheduleConnectionInit(result)) {
             return;
         }
         final ClientConnectionLifecycle.Token token = result.token();
-        ClientMainThreadDispatcher.run(new Runnable() {
+        dispatcher.run(new Runnable() {
             @Override
             public void run() {
                 runConnectionTakeoverAndInit(token);
@@ -84,17 +173,18 @@ public class ClientConnectionListener {
      * 断线：仅 handler 为当前连接且 active 时转 inactive 并排队 cleanup。
      * 迟到/重复 disconnect no-op，不调度新清理。
      *
-     * @param event 客户端断线事件
+     * <p>生产 {@link #onClientDisconnected} 与纯 JVM 测试共用本入口。</p>
+     *
+     * @param handler 断线事件的 handler
      */
-    @SubscribeEvent
-    public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
+    void handleDisconnected(Object handler) {
         ClientConnectionLifecycle.DisconnectResult result =
-                ClientConnectionLifecycle.disconnect(event.handler);
+                ClientConnectionLifecycle.disconnect(handler);
         if (!result.transitioned()) {
             return;
         }
         final ClientConnectionLifecycle.Token cleanupToken = result.token();
-        ClientMainThreadDispatcher.run(new Runnable() {
+        dispatcher.run(new Runnable() {
             @Override
             public void run() {
                 ClientConnectionLifecycle.runIfInactiveDisconnectCurrent(cleanupToken, new Runnable() {
@@ -112,20 +202,22 @@ public class ClientConnectionListener {
      * 客户端远端世界加载：绑定 world identity；仅 transitioned 且 replaced 时调度接管清理。
      * 首次 bind 不调度清理；重复 load no-op。
      *
-     * @param event 世界加载事件
+     * <p>生产 {@link #onWorldLoad} 与纯 JVM 测试共用本入口。</p>
+     *
+     * @param world 世界 identity
+     * @param remote 是否客户端远端世界（{@code world.isRemote}）
      */
-    @SubscribeEvent
-    public void onWorldLoad(WorldEvent.Load event) {
-        if (event.world == null || !event.world.isRemote) {
+    void handleWorldLoad(Object world, boolean remote) {
+        if (world == null || !remote) {
             return;
         }
         final ClientConnectionLifecycle.TransitionResult result =
-                ClientConnectionLifecycle.bindWorld(event.world);
+                ClientConnectionLifecycle.bindWorld(world);
         if (!shouldScheduleWorldTakeoverCleanup(result)) {
             return;
         }
         final ClientConnectionLifecycle.Token token = result.token();
-        ClientMainThreadDispatcher.run(new Runnable() {
+        dispatcher.run(new Runnable() {
             @Override
             public void run() {
                 runWorldTakeoverCleanup(token);
@@ -137,20 +229,22 @@ public class ClientConnectionListener {
      * 客户端世界卸载：仅当前 world identity 且连接仍 current 时解绑并清理。
      * 旧 world / 重复 unload / disconnect 后 unload no-op。
      *
-     * @param event 世界卸载事件
+     * <p>生产 {@link #onWorldUnload} 与纯 JVM 测试共用本入口。</p>
+     *
+     * @param world 卸载的 world
+     * @param remote 是否客户端远端世界
      */
-    @SubscribeEvent
-    public void onWorldUnload(WorldEvent.Unload event) {
-        if (event.world == null || !event.world.isRemote) {
+    void handleWorldUnload(Object world, boolean remote) {
+        if (world == null || !remote) {
             return;
         }
         ClientConnectionLifecycle.WorldUnbindResult result =
-                ClientConnectionLifecycle.unbindWorld(event.world);
+                ClientConnectionLifecycle.unbindWorld(world);
         if (!result.transitioned()) {
             return;
         }
         final ClientConnectionLifecycle.Token cleanupToken = result.token();
-        ClientMainThreadDispatcher.run(new Runnable() {
+        dispatcher.run(new Runnable() {
             @Override
             public void run() {
                 ClientConnectionLifecycle.runIfWorldUnbindCurrent(cleanupToken, new Runnable() {
