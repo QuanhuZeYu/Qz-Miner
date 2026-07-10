@@ -2,7 +2,7 @@
 description: UI/UX 设计方案产出者（设定值层·设计侧），对齐 Qz-Miner 客户端配置/预览界面约束，实现交 fixer，只读
 mode: subagent
 model: openai/gpt-5.6-sol
-variant: xhigh
+variant: medium
 permission:
   edit: deny
   bash: deny
