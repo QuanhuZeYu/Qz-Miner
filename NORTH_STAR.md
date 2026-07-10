@@ -188,6 +188,13 @@
   <status>显式牺牲"不卡 tick"换"单 tick 原子安全"。未来可探索"多 tick 冻结电压"方案回填（需 GT API 支持暂停网络重算）。关联决策：docs/反馈层/决策/gt-cable-replacement-model.md。</status>
 </deviation>
 
+<deviation id="D-YAML-CONFIG-AUTHORITY">
+  <what>撤销 I6「可选模组」对 Qz-UILib（`qz_uilib`）的软可选前提：本 mod 将 `qz_uilib` 升为 `required-after` 硬依赖；配置权威从 Forge `.cfg` 全面迁至 `config/qz_miner.yaml`（UILib 4.5.x Schema + ConfigManager）；客户端配置页只走 ConfigUI/McScreenBridge，不再保留 UILib 缺失时的 Forge GuiConfig 降级路径。其余可选模组（LootGames、GT 等）仍严格受 I6 反射安全约束。</what>
+  <why>用户最终决定：配置权威与现代配置 UI 依赖 UILib 4.5.1 新栈；继续把 UILib 当可选会迫使维护双轨 cfg/YAML 与已删除的 ForgeConfigTemplateScreen 降级，成本与漂移风险高于硬依赖。代价：发布包仍不内嵌 UILib（`devOnlyNonPublishable`），运行时需 modpack 安装 `qz_uilib`，缺库时 FML 直接拒载而非静默降级。</why>
+  <scope>仅配置加载/保存/配置 GUI 与 `@Mod(dependencies)`；连锁线程/网络/掉落/状态机/时运路径不变。I4 网络收口语义不变（配置同步仍走既有 PacketChainConfigRequest）。</scope>
+  <status>活跃偏离：I6 对 UILib 的「能力不可用则降级」不适用本依赖；回填条件为用户改回可选或拆出无 UILib 的 headless 配置路径。关联决策：docs/反馈层/决策/config-yaml-authority.md。</status>
+</deviation>
+
 </deviation-log>
 
 ---
