@@ -3,7 +3,6 @@ package club.heiqi.qz_miner.config;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,12 +17,10 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.config.LegacyCfgImporter.ImportResult;
 
 /**
- * 配置启动加载：YAML 权威、旧 cfg 一次性导入、坏文件备份与默认持久化。
+ * YAML 单权威启动器：严格 raw/语义预检、旧 cfg 一次导入与备份后默认恢复。
  *
- * <p>磁盘事务 fail-fast：备份成功是删除/退役的前置；默认 YAML save 非 OK 或语义校验失败禁止启动。
- * manager 仅最终验证后一次赋值；同路径幂等，不同路径二次调用 fail-fast。</p>
- *
- * <p>server-safe：不引用 config.ui / McScreenBridge / LWJGL。</p>
+ * <p>ValidatedSnapshot 仅是 Authority 的派生发布载荷，不写回 Authority/YAML，
+ * 也不作为非法 Authority 的恢复源。</p>
  */
 public final class ConfigBootstrap {
 
@@ -31,33 +28,42 @@ public final class ConfigBootstrap {
 
     private static volatile ConfigManager manager;
     private static volatile File yamlFile;
-    private static volatile ValidatedSnapshot lastValidSnapshot;
+    private static volatile ValidatedSnapshot currentValidatedSnapshot;
+    private static volatile BackupCopier backupCopier = BackupCopier.DEFAULT;
 
     private ConfigBootstrap() {
     }
 
+    /** @return 当前 ConfigManager；未初始化返回 null */
     public static ConfigManager manager() {
         return manager;
     }
 
+    /** @return 当前 YAML 文件；未初始化返回 null */
     public static File yamlFile() {
         return yamlFile;
     }
 
     /**
-     * @return 最近一次严格校验通过的快照；未初始化为 null
+     * 获取当前已验证派生快照。
+     *
+     * @return 当前快照
+     * @throws IllegalStateException 尚未初始化
      */
-    public static ValidatedSnapshot lastValidSnapshot() {
-        return lastValidSnapshot;
+    public static ValidatedSnapshot currentValidatedSnapshot() {
+        ValidatedSnapshot snapshot = currentValidatedSnapshot;
+        if (snapshot == null) {
+            throw new IllegalStateException("currentValidatedSnapshot is not initialized");
+        }
+        return snapshot;
     }
 
     /**
-     * 启动加载配置权威。
+     * 启动 YAML 权威。
      *
      * @param configDir Forge config 目录
-     * @param legacyCfg 旧 Forge cfg，仅一次性导入
-     * @return 已验证的 ConfigManager
-     * @throws IllegalStateException 无法保障源数据备份或默认 YAML 落盘/校验
+     * @param legacyCfg 旧 cfg 一次导入源
+     * @return 已严格验证的 manager
      */
     public static synchronized ConfigManager bootstrap(File configDir, File legacyCfg) {
         if (configDir == null) {
@@ -71,226 +77,197 @@ public final class ConfigBootstrap {
             throw new IllegalStateException("ConfigBootstrap already initialized for "
                     + yamlFile + "; cannot re-bootstrap for " + targetYaml);
         }
-
         if (!configDir.exists() && !configDir.mkdirs()) {
             throw new IllegalStateException("Failed to create config directory: " + configDir.getAbsolutePath());
         }
 
         yamlFile = targetYaml;
         ConfigSchema schema = QzMinerConfigSchema.create();
-
-        boolean yamlExists = yamlFile.isFile() && yamlFile.length() > 0;
-        boolean cfgExists = legacyCfg != null && legacyCfg.isFile() && legacyCfg.length() > 0;
-
-        if (yamlExists) {
-            ConfigManager loaded = tryBootstrap(yamlFile, schema);
-            if (loaded != null) {
-                ValidatedSnapshot snap = requireValidSnapshot(loaded, "existing YAML");
-                commitManager(loaded, snap);
+        if (isNonEmptyFile(yamlFile)) {
+            StrictLoad existing = loadStrict(yamlFile, schema, "existing YAML");
+            if (existing.isValid()) {
+                commitManager(existing.manager, existing.snapshot);
                 MyMod.LOG.info("Loaded YAML config authority: {}", yamlFile.getAbsolutePath());
                 return manager;
             }
-            // 坏 YAML：required copy → required delete → 默认重建
-            requiredBackup(yamlFile, "corrupt");
-            requiredDelete(yamlFile, "corrupt YAML");
-            ConfigManager defaults = persistDefaultsStrict(yamlFile, schema, "corrupt YAML recovery");
-            ValidatedSnapshot snap = requireValidSnapshot(defaults, "corrupt recovery defaults");
-            commitManager(defaults, snap);
+            MyMod.LOG.error("Existing YAML rejected; rebuilding defaults: {}", existing.error);
+            requiredBackup(yamlFile, "invalid");
+            requiredDelete(yamlFile, "invalid YAML");
+            StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "invalid YAML recovery");
+            commitManager(defaults.manager, defaults.snapshot);
             return manager;
         }
 
-        if (cfgExists) {
-            // 导入前必须先备份原 cfg
+        if (isNonEmptyFile(legacyCfg)) {
             requiredBackup(legacyCfg, "pre-import");
-            ImportResult importResult = LegacyCfgImporter.importValues(legacyCfg);
-            if (importResult.status != ImportResult.Status.OK) {
-                MyMod.LOG.warn("Legacy cfg import status={}: {}", importResult.status, importResult.message);
-                cleanupPartialYamlIfAny(yamlFile);
-                ConfigManager defaults = persistDefaultsStrict(yamlFile, schema, "legacy cfg import " + importResult.status);
-                ValidatedSnapshot snap = requireValidSnapshot(defaults, "import-failed defaults");
-                commitManager(defaults, snap);
-                // 原 cfg 已备份；可退役避免反复导入（YAML 已存在下次直接走 YAML）
-                tryRetireCfg(legacyCfg, "import-" + importResult.status.name().toLowerCase());
-                return manager;
-            }
-
-            ConfigManager draftManager = createEmptyManager(yamlFile, schema);
-            if (draftManager == null) {
-                cleanupPartialYamlIfAny(yamlFile);
-                ConfigManager defaults = persistDefaultsStrict(yamlFile, schema, "empty manager after import");
-                ValidatedSnapshot snap = requireValidSnapshot(defaults, "bootstrap-failed defaults");
-                commitManager(defaults, snap);
-                tryRetireCfg(legacyCfg, "bootstrap-failed");
-                return manager;
-            }
-
-            DraftBuffer draft = draftManager.openDraft();
-            for (Map.Entry<String, Object> entry : importResult.values.entrySet()) {
-                if (schema.containsPath(entry.getKey())) {
-                    draft.setDraft(entry.getKey(), entry.getValue());
+            ImportResult imported = LegacyCfgImporter.importValues(legacyCfg);
+            if (imported.status == ImportResult.Status.OK) {
+                StrictLoad migration = migrateLegacy(yamlFile, schema, imported.values);
+                if (migration.isValid()) {
+                    commitManager(migration.manager, migration.snapshot);
+                    retireCfgStrict(legacyCfg, "imported");
+                    MyMod.LOG.info("Migrated legacy cfg to YAML: {} values -> {}",
+                            Integer.valueOf(imported.values.size()), yamlFile.getAbsolutePath());
+                    return manager;
                 }
-            }
-            SaveOutcome outcome = draftManager.save(draft);
-            if (outcome.isSuccess() && yamlFile.isFile() && yamlFile.length() > 0) {
-                ConfigManager reloaded = tryBootstrap(yamlFile, schema);
-                if (reloaded != null) {
-                    try {
-                        ValidatedSnapshot snap = requireValidSnapshot(reloaded, "imported YAML");
-                        commitManager(reloaded, snap);
-                        tryRetireCfg(legacyCfg, "imported");
-                        MyMod.LOG.info("Migrated legacy cfg to YAML: {} values → {}",
-                                Integer.valueOf(importResult.values.size()), yamlFile.getAbsolutePath());
-                        return manager;
-                    } catch (IllegalStateException semantic) {
-                        MyMod.LOG.warn("Imported YAML failed semantic validation: {}", semantic.getMessage());
-                    }
-                }
+                MyMod.LOG.error("Legacy cfg migration rejected; rebuilding defaults: {}", migration.error);
             } else {
-                MyMod.LOG.warn("Legacy cfg migration save failed ({}): {}",
-                        outcome.status(), outcome.errorMessage());
+                MyMod.LOG.error("Legacy cfg import rejected ({}): {}", imported.status, imported.message);
             }
 
             cleanupPartialYamlIfAny(yamlFile);
-            ConfigManager defaults = persistDefaultsStrict(yamlFile, schema, "legacy migration save/validate failed");
-            ValidatedSnapshot snap = requireValidSnapshot(defaults, "migration-failed defaults");
-            commitManager(defaults, snap);
-            tryRetireCfg(legacyCfg, "import-save-failed");
+            StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "legacy migration recovery");
+            commitManager(defaults.manager, defaults.snapshot);
+            retireCfgStrict(legacyCfg, "import-failed");
             return manager;
         }
 
-        // 无 YAML 无 cfg
-        ConfigManager defaults = persistDefaultsStrict(yamlFile, schema, "first run defaults");
-        ValidatedSnapshot snap = requireValidSnapshot(defaults, "first run defaults");
-        commitManager(defaults, snap);
+        StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "first run defaults");
+        commitManager(defaults.manager, defaults.snapshot);
         return manager;
     }
 
     /**
-     * 服务端启动时从当前 Authority 再发布 general（集成服在主菜单保存后启动）。
+     * 成功 BATCH_SAVE 回调内同步捕获并替换当前派生快照。
+     *
+     * @param sourceManager 触发回调的 manager
+     * @return 本次完整提交快照
+     * @throws InternalError manager 身份或提交后语义不变量被破坏
      */
-    public static void reapplyGeneralOnServerStarting() {
-        ValidatedSnapshot snap = lastValidSnapshot;
-        ConfigManager m = manager;
-        if (m == null) {
-            return;
+    public static synchronized ValidatedSnapshot captureCommittedSnapshot(ConfigManager sourceManager) {
+        if (sourceManager == null || sourceManager != manager) {
+            MyMod.LOG.error("BATCH_SAVE manager identity mismatch: expected={}, actual={}", manager, sourceManager);
+            throw new InternalError("BATCH_SAVE manager identity mismatch");
         }
-        ParseOutcome outcome = ConfigSemanticValidator.parseAndValidate(m.authority());
+        ParseOutcome outcome;
+        try {
+            outcome = ConfigSemanticValidator.captureAndValidate(sourceManager);
+        } catch (RuntimeException e) {
+            MyMod.LOG.error("BATCH_SAVE committed snapshot capture failed", e);
+            throw new InternalError("BATCH_SAVE committed snapshot capture failed", e);
+        }
         if (!outcome.isValid()) {
-            MyMod.LOG.error("Authority invalid at serverStarting; keeping lastValid general: {}",
-                    outcome.result.summary());
-            if (snap != null) {
-                ConfigValueBridge.applyGeneralFromSnapshot(snap);
-            }
-            return;
+            MyMod.LOG.error("BATCH_SAVE committed Authority violates DraftValidator: {}", outcome.result.summary());
+            throw new InternalError("BATCH_SAVE committed Authority is invalid: " + outcome.result.summary());
         }
-        lastValidSnapshot = outcome.snapshot;
-        ConfigValueBridge.applyGeneralFromSnapshot(outcome.snapshot);
-        MyMod.LOG.info("Re-applied general config from Authority on serverStarting");
-    }
-
-    /**
-     * 更新 last-valid 快照（BATCH_SAVE 成功路径）。
-     */
-    public static synchronized void updateLastValidSnapshot(ValidatedSnapshot snapshot) {
-        if (snapshot == null) {
-            throw new IllegalArgumentException("snapshot must not be null");
-        }
-        lastValidSnapshot = snapshot;
-    }
-
-    /**
-     * 测试钩子：重置静态持有。
-     */
-    public static synchronized void resetForTests() {
-        manager = null;
-        yamlFile = null;
-        lastValidSnapshot = null;
-    }
-
-    private static void commitManager(ConfigManager loaded, ValidatedSnapshot snap) {
-        ConfigValueBridge.applyAll(snap);
-        lastValidSnapshot = snap;
-        manager = loaded;
-    }
-
-    private static ValidatedSnapshot requireValidSnapshot(ConfigManager loaded, String reason) {
-        ParseOutcome outcome = ConfigSemanticValidator.parseAndValidate(loaded.authority());
-        if (!outcome.isValid()) {
-            throw new IllegalStateException("Config semantic validation failed (" + reason + "): "
-                    + outcome.result.summary());
-        }
+        currentValidatedSnapshot = outcome.snapshot;
         return outcome.snapshot;
     }
 
-    private static ConfigManager tryBootstrap(File file, ConfigSchema schema) {
+    /** 服务端启动只发布当前派生快照中的 general 字段。 */
+    public static void reapplyGeneralOnServerStarting() {
+        if (manager == null) {
+            return;
+        }
+        ConfigValueBridge.applyGeneralFromSnapshot(currentValidatedSnapshot());
+        MyMod.LOG.info("Applied current validated general config on serverStarting");
+    }
+
+    /** 测试钩子：重置静态持有。 */
+    public static synchronized void resetForTests() {
+        manager = null;
+        yamlFile = null;
+        currentValidatedSnapshot = null;
+        backupCopier = BackupCopier.DEFAULT;
+    }
+
+    static synchronized void setBackupCopierForTests(BackupCopier copier) {
+        backupCopier = copier == null ? BackupCopier.DEFAULT : copier;
+    }
+
+    private static StrictLoad migrateLegacy(File file, ConfigSchema schema, Map<String, Object> values) {
         try {
-            return ConfigManager.bootstrap(file, schema);
+            ConfigManager migrationManager = newManager(file, schema);
+            DraftBuffer draft = migrationManager.openDraft();
+            for (Map.Entry<String, Object> entry : values.entrySet()) {
+                if (schema.containsPath(entry.getKey())) {
+                    draft.setDraft(entry.getKey(), entry.getValue());
+                }
+            }
+            SaveOutcome outcome = migrationManager.save(draft);
+            if (!outcome.isSuccess()) {
+                return StrictLoad.failed("migration save " + outcome.status() + ": " + outcome.errorMessage());
+            }
+            if (!isNonEmptyFile(file)) {
+                return StrictLoad.failed("migration save produced no YAML");
+            }
+            return loadStrict(file, schema, "migrated YAML");
         } catch (ConfigException e) {
-            MyMod.LOG.error("YAML config parse failed: {}", file.getAbsolutePath(), e);
-            return null;
+            return StrictLoad.failed("migration bootstrap failed: " + message(e));
         } catch (RuntimeException e) {
-            MyMod.LOG.error("YAML config bootstrap failed: {}", file.getAbsolutePath(), e);
-            return null;
+            return StrictLoad.failed("migration failed: " + message(e));
         }
     }
 
-    /**
-     * 持久化 schema 默认并严格复验落盘文件；任一失败 fail-fast。
-     */
-    static ConfigManager persistDefaultsStrict(File file, ConfigSchema schema, String reason) {
+    /** 持久化默认值，并对落盘结果执行 raw + 语义复验。 */
+    static StrictLoad persistDefaultsStrict(File file, ConfigSchema schema, String reason) {
         MyMod.LOG.info("Persisting default YAML config ({}): {}", reason, file.getAbsolutePath());
         File parent = file.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IllegalStateException("Failed to create parent for YAML: " + parent.getAbsolutePath());
         }
-        ConfigManager created = tryBootstrap(file, schema);
-        if (created == null) {
-            throw new IllegalStateException("Unable to create default ConfigManager for " + file + " (" + reason + ")");
+        try {
+            ConfigManager created = newManager(file, schema);
+            SaveOutcome outcome = created.save(created.openDraft());
+            if (!outcome.isSuccess()) {
+                throw new IllegalStateException("Failed to persist default YAML (" + reason + "): "
+                        + outcome.status() + " " + outcome.errorMessage());
+            }
+        } catch (ConfigException e) {
+            throw new IllegalStateException("Unable to create default ConfigManager (" + reason + ")", e);
         }
-        DraftBuffer draft = created.openDraft();
-        SaveOutcome outcome = created.save(draft);
-        if (!outcome.isSuccess()) {
-            throw new IllegalStateException("Failed to persist default YAML (" + reason + "): status="
-                    + outcome.status() + " msg=" + outcome.errorMessage());
+        if (!isNonEmptyFile(file)) {
+            throw new IllegalStateException("Default YAML missing or empty after save (" + reason + ")");
         }
-        if (!file.isFile() || file.length() <= 0) {
-            throw new IllegalStateException("Default YAML missing or empty after save (" + reason + "): "
-                    + file.getAbsolutePath());
-        }
-        // 重新 bootstrap 复验可解析
-        ConfigManager reloaded = tryBootstrap(file, schema);
-        if (reloaded == null) {
-            throw new IllegalStateException("Default YAML not re-loadable after save (" + reason + "): "
-                    + file.getAbsolutePath());
+        StrictLoad reloaded = loadStrict(file, schema, "default rebuild: " + reason);
+        if (!reloaded.isValid()) {
+            throw new IllegalStateException("Default YAML failed raw/semantic revalidation (" + reason + "): "
+                    + reloaded.error);
         }
         return reloaded;
     }
 
-    private static ConfigManager createEmptyManager(File file, ConfigSchema schema) {
-        File parent = file.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IllegalStateException("Failed to create parent for YAML: " + parent.getAbsolutePath());
-        }
-        return tryBootstrap(file, schema);
-    }
-
-    private static void cleanupPartialYamlIfAny(File file) {
-        if (file != null && file.exists()) {
-            try {
-                requiredBackup(file, "partial");
-            } catch (IllegalStateException e) {
-                MyMod.LOG.warn("Could not backup partial YAML before delete: {}", e.getMessage());
+    private static StrictLoad loadStrict(File file, ConfigSchema schema, String reason) {
+        try {
+            RawYamlPreflight.Result raw = RawYamlPreflight.validate(file, schema);
+            if (!raw.isValid()) {
+                return StrictLoad.failed(reason + " raw preflight: " + raw.summary());
             }
-            if (!file.delete() && file.exists()) {
-                throw new IllegalStateException("Failed to delete partial YAML: " + file.getAbsolutePath());
+            ConfigManager loaded = newManager(file, schema);
+            ParseOutcome semantic = ConfigSemanticValidator.captureAndValidate(loaded);
+            if (!semantic.isValid()) {
+                return StrictLoad.failed(reason + " semantic validation: " + semantic.result.summary());
             }
+            return StrictLoad.valid(loaded, semantic.snapshot);
+        } catch (ConfigException e) {
+            return StrictLoad.failed(reason + " syntax/read failure: " + message(e));
+        } catch (RuntimeException e) {
+            return StrictLoad.failed(reason + " bootstrap failure: " + message(e));
         }
     }
 
-    /**
-     * 唯一备份名：毫秒 + 短 UUID；冲突则递增后缀。禁止 REPLACE 覆盖历史备份。
-     * 备份失败抛异常（删除/退役前置）。
-     */
+    private static ConfigManager newManager(File file, ConfigSchema schema) throws ConfigException {
+        return ConfigManager.bootstrap(file, schema, ConfigSemanticValidator.draftValidator());
+    }
+
+    private static void commitManager(ConfigManager loaded, ValidatedSnapshot snapshot) {
+        if (loaded == null || snapshot == null) {
+            throw new IllegalArgumentException("loaded manager/snapshot must not be null");
+        }
+        manager = loaded;
+        currentValidatedSnapshot = snapshot;
+        ConfigValueBridge.applyAll(snapshot);
+    }
+
+    static void cleanupPartialYamlIfAny(File file) {
+        if (file == null || !file.exists()) {
+            return;
+        }
+        requiredBackup(file, "partial");
+        requiredDelete(file, "partial YAML");
+    }
+
+    /** 备份是删除与退役的硬前置；失败即抛出。 */
     static File requiredBackup(File file, String reason) {
         if (file == null || !file.exists()) {
             throw new IllegalStateException("Cannot backup missing file (" + reason + "): " + file);
@@ -299,67 +276,96 @@ public final class ConfigBootstrap {
         String base = file.getName() + "." + System.currentTimeMillis() + "."
                 + UUID.randomUUID().toString().substring(0, 8) + "." + reason + ".bak";
         File target = new File(parent, base);
-        int n = 0;
+        int index = 0;
         while (target.exists()) {
-            n++;
-            target = new File(parent, base + "." + n);
+            target = new File(parent, base + "." + (++index));
         }
         try {
-            Files.copy(file.toPath(), target.toPath());
+            backupCopier.copy(file, target);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to backup config (" + reason + "): "
-                    + file.getAbsolutePath() + " → " + target.getAbsolutePath(), e);
+                    + file.getAbsolutePath() + " -> " + target.getAbsolutePath(), e);
         }
-        if (!target.isFile() || target.length() <= 0) {
+        if (!isNonEmptyFile(target)) {
             throw new IllegalStateException("Backup file empty or missing after copy: " + target.getAbsolutePath());
         }
-        MyMod.LOG.info("Backed up config ({}): {} → {}", reason, file.getAbsolutePath(), target.getAbsolutePath());
+        MyMod.LOG.info("Backed up config ({}): {} -> {}", reason, file.getAbsolutePath(), target.getAbsolutePath());
         return target;
     }
 
     static void requiredDelete(File file, String reason) {
-        if (file == null) {
-            return;
-        }
-        if (!file.exists()) {
-            return;
-        }
-        if (!file.delete()) {
+        if (file != null && file.exists() && !file.delete()) {
             throw new IllegalStateException("Failed to delete " + reason + ": " + file.getAbsolutePath());
         }
     }
 
-    /**
-     * 退役 cfg（已备份后尽力移动；失败只 warn，因备份已存在）。
-     */
-    static void tryRetireCfg(File cfgFile, String reason) {
+    private static void retireCfgStrict(File cfgFile, String reason) {
         if (cfgFile == null || !cfgFile.exists()) {
             return;
         }
-        File parent = cfgFile.getParentFile();
-        String base = cfgFile.getName() + "." + System.currentTimeMillis() + "."
-                + UUID.randomUUID().toString().substring(0, 8) + "." + reason + ".imported.bak";
-        File target = new File(parent, base);
-        int n = 0;
-        while (target.exists()) {
-            n++;
-            target = new File(parent, base + "." + n);
-        }
+        File target = new File(cfgFile.getParentFile(), cfgFile.getName() + "." + System.currentTimeMillis() + "."
+                + UUID.randomUUID().toString().substring(0, 8) + "." + reason + ".imported.bak");
         try {
             Files.move(cfgFile.toPath(), target.toPath());
-            MyMod.LOG.info("Retired legacy cfg ({}): {} → {}", reason,
-                    cfgFile.getAbsolutePath(), target.getAbsolutePath());
         } catch (IOException e) {
-            MyMod.LOG.warn("Failed to retire legacy cfg (backup already exists): {}",
-                    cfgFile.getAbsolutePath(), e);
+            throw new IllegalStateException("Failed to retire legacy cfg: " + cfgFile.getAbsolutePath(), e);
+        }
+        MyMod.LOG.info("Retired legacy cfg ({}): {} -> {}", reason,
+                cfgFile.getAbsolutePath(), target.getAbsolutePath());
+    }
+
+    private static boolean isNonEmptyFile(File file) {
+        return file != null && file.isFile() && file.length() > 0;
+    }
+
+    private static String message(Throwable error) {
+        String value = error.getMessage();
+        return value == null || value.isEmpty() ? error.getClass().getSimpleName() : value;
+    }
+
+    private static boolean samePath(File first, File second) {
+        try {
+            return first.getCanonicalFile().equals(second.getCanonicalFile());
+        } catch (IOException e) {
+            return first.getAbsolutePath().equals(second.getAbsolutePath());
         }
     }
 
-    private static boolean samePath(File a, File b) {
-        try {
-            return a.getCanonicalFile().equals(b.getCanonicalFile());
-        } catch (IOException e) {
-            return a.getAbsolutePath().equals(b.getAbsolutePath());
+    /** 备份复制小边界，供失败语义做确定性纯 JVM 测试。 */
+    interface BackupCopier {
+        BackupCopier DEFAULT = new BackupCopier() {
+            @Override
+            public void copy(File source, File target) throws IOException {
+                Files.copy(source.toPath(), target.toPath());
+            }
+        };
+
+        /** @param source 源文件 @param target 唯一备份目标 */
+        void copy(File source, File target) throws IOException;
+    }
+
+    /** 严格加载结果。 */
+    static final class StrictLoad {
+        final ConfigManager manager;
+        final ValidatedSnapshot snapshot;
+        final String error;
+
+        private StrictLoad(ConfigManager manager, ValidatedSnapshot snapshot, String error) {
+            this.manager = manager;
+            this.snapshot = snapshot;
+            this.error = error;
+        }
+
+        static StrictLoad valid(ConfigManager manager, ValidatedSnapshot snapshot) {
+            return new StrictLoad(manager, snapshot, null);
+        }
+
+        static StrictLoad failed(String error) {
+            return new StrictLoad(null, null, error);
+        }
+
+        boolean isValid() {
+            return manager != null && snapshot != null && error == null;
         }
     }
 }

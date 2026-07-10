@@ -39,7 +39,7 @@ public class ConfigValueBridgeTest {
     public void applyAllMapsAllNineteenFields() throws Exception {
         File yaml = new File(tempDir, "qz_miner.yaml");
         ConfigSchema schema = QzMinerConfigSchema.create();
-        ConfigManager manager = ConfigManager.bootstrap(yaml, schema);
+        ConfigManager manager = ConfigManager.bootstrap(yaml, schema, ConfigSemanticValidator.draftValidator());
         DraftBuffer draft = manager.openDraft();
         draft.setDraft("general.greeting", "HiAll");
         draft.setDraft("general.chainRadius", Double.valueOf(32.0));
@@ -62,12 +62,9 @@ public class ConfigValueBridgeTest {
         draft.setDraft("client.clientPreviewAlphaEndValue", Double.valueOf(0.1));
         Assert.assertTrue(manager.save(draft).isSuccess());
 
-        ConfigSemanticValidator.ParseOutcome outcome =
-                ConfigSemanticValidator.parseAndValidate(manager.authority());
+        ConfigSemanticValidator.ParseOutcome outcome = ConfigSemanticValidator.captureAndValidate(manager);
         Assert.assertTrue(outcome.result.summary(), outcome.isValid());
         ValidatedSnapshot snap = outcome.snapshot;
-        Assert.assertEquals(19, snap.typedByPath.size());
-
         ConfigValueBridge.applyAll(snap);
 
         Assert.assertEquals("HiAll", Config.greeting);
@@ -105,11 +102,11 @@ public class ConfigValueBridgeTest {
     @Test
     public void nonIntegerDoesNotRoundViaValidator() throws Exception {
         File yaml = new File(tempDir, "bad.yaml");
-        ConfigManager manager = ConfigManager.bootstrap(yaml, QzMinerConfigSchema.create());
+        ConfigManager manager = ConfigManager.bootstrap(
+                yaml, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
         DraftBuffer draft = manager.openDraft();
         draft.setDraft("general.chainRadius", Double.valueOf(12.6));
-        Assert.assertTrue(manager.save(draft).isSuccess());
-        Assert.assertFalse(ConfigSemanticValidator.parseAndValidate(manager.authority()).isValid());
+        Assert.assertEquals(club.heiqi.config.runtime.SaveOutcome.Status.INVALID, manager.save(draft).status());
         // 静态字段保持默认，未应用非法值
         Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
     }
@@ -117,8 +114,9 @@ public class ConfigValueBridgeTest {
     private ValidatedSnapshot defaultsSnapshot() {
         try {
             File yaml = new File(tempDir, "def.yaml");
-            ConfigManager manager = ConfigManager.bootstrap(yaml, QzMinerConfigSchema.create());
-            return ConfigSemanticValidator.parseAndValidate(manager.authority()).snapshot;
+            ConfigManager manager = ConfigManager.bootstrap(
+                    yaml, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
+            return ConfigSemanticValidator.captureAndValidate(manager).snapshot;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

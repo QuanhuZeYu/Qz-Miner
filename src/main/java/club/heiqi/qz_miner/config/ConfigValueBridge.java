@@ -66,16 +66,4 @@ public final class ConfigValueBridge {
         Config.clientPreviewAlphaStartValue = snapshot.clientPreviewAlphaStartValue;
         Config.clientPreviewAlphaEndValue = snapshot.clientPreviewAlphaEndValue;
     }
-
-    /**
-     * @deprecated 使用 {@link #applyAll(ValidatedSnapshot)}；保留名给旧调用方迁移期
-     */
-    @Deprecated
-    public static void applyFromAuthority(club.heiqi.config.runtime.Authority authority) {
-        ConfigSemanticValidator.ParseOutcome outcome = ConfigSemanticValidator.parseAndValidate(authority);
-        if (!outcome.isValid()) {
-            throw new IllegalStateException("Authority failed semantic validation: " + outcome.result.summary());
-        }
-        applyAll(outcome.snapshot);
-    }
 }

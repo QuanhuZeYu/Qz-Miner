@@ -4,8 +4,6 @@ import java.io.File;
 
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
-import club.heiqi.qz_miner.config.ConfigSemanticValidator;
-import club.heiqi.qz_miner.config.ConfigValueBridge;
 import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 
 /**
@@ -68,34 +66,10 @@ public class Config {
     }
 
     /**
-     * 从当前 Authority 严格校验后全量回灌（测试 / 诊断）。
-     */
-    public void load() {
-        ConfigManager manager = ConfigBootstrap.manager();
-        if (manager == null) {
-            return;
-        }
-        ConfigSemanticValidator.ParseOutcome outcome =
-                ConfigSemanticValidator.parseAndValidate(manager.authority());
-        if (!outcome.isValid()) {
-            MyMod.LOG.error("load() skipped: semantic validation failed: {}", outcome.result.summary());
-            return;
-        }
-        ConfigValueBridge.applyAll(outcome.snapshot);
-        ConfigBootstrap.updateLastValidSnapshot(outcome.snapshot);
-    }
-
-    /**
      * @return 权威 YAML 路径；未初始化时返回空字符串
      */
     public static String getConfigPath() {
         return configPath == null ? "" : configPath;
     }
 
-    /**
-     * 从 Authority 全量回灌（诊断兼容）。
-     */
-    public static void reloadFromAuthority() {
-        MyMod.CONFIG.load();
-    }
 }

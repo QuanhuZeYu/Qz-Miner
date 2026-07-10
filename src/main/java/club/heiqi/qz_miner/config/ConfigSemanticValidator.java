@@ -1,61 +1,252 @@
 package club.heiqi.qz_miner.config;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
-import club.heiqi.config.runtime.Authority;
+import club.heiqi.config.runtime.ConfigManager;
+import club.heiqi.config.runtime.DraftBuffer;
+import club.heiqi.config.runtime.DraftValidator;
+import club.heiqi.config.runtime.DraftView;
+import club.heiqi.config.runtime.ValidationResult;
 
 /**
- * 配置语义严格校验（回灌前 / BATCH_SAVE 补偿用）。
+ * Qz-Miner 配置的共用语义读取器与 UILib 提交前校验器。
  *
- * <p>UILib 4.5.1 {@code DraftBuffer.validateAll} 仅覆盖 required / NUMBER min-max / STRING 长度 /
- * CHOICE 选项，<b>不</b>校验 finite、整数字段 {@code value == Math.rint(value)}、以及 alpha 交叉约束。
- * 本类在 schema 范围校验之上补严格语义；非法值不夹取、不 round，直接拒绝。</p>
+ * <p>启动校验通过 {@link ConfigManager#openDraft()} 捕获 Authority 全表后进入同一读取器；
+ * ConfigUI 保存则由 UILib 直接传入 {@link DraftView}。非法值不夹取、不 round。</p>
  */
 public final class ConfigSemanticValidator {
+
+    private static final DraftValidator DRAFT_VALIDATOR = new DraftValidator() {
+        @Override
+        public ValidationResult validate(DraftView draft) {
+            return readAndValidate(draft).result.asValidationResult();
+        }
+    };
 
     private ConfigSemanticValidator() {
     }
 
-    /**
-     * 校验结果。
-     */
-    public static final class Result {
-        private final List<String> errors;
+    /** @return 无状态 DraftValidator 单例 */
+    public static DraftValidator draftValidator() {
+        return DRAFT_VALIDATOR;
+    }
 
-        Result(List<String> errors) {
-            this.errors = Collections.unmodifiableList(new ArrayList<String>(errors));
+    /**
+     * 原子捕获 manager 当前 Authority 全表并执行共用语义读取。
+     *
+     * @param manager 配置 manager
+     * @return 校验与快照结果
+     */
+    public static ParseOutcome captureAndValidate(ConfigManager manager) {
+        if (manager == null) {
+            return ParseOutcome.invalid(singleError(DraftValidator.GLOBAL_ERROR_PATH, "manager is null"));
+        }
+        DraftBuffer draft = manager.openDraft();
+        Map<String, Object> values = draft.draftSnapshot();
+        Collection<String> paths = draft.fieldPaths();
+        return readAndValidate(new FrozenDraftView(values, paths));
+    }
+
+    /**
+     * 从 DraftView 读取全部字段并校验。
+     *
+     * @param draft 只读草稿视图
+     * @return 校验与快照结果
+     */
+    static ParseOutcome readAndValidate(DraftView draft) {
+        if (draft == null) {
+            return ParseOutcome.invalid(singleError(DraftValidator.GLOBAL_ERROR_PATH, "draft is null"));
+        }
+        Map<String, Object> typed = new LinkedHashMap<String, Object>();
+        Map<String, String> errors = new LinkedHashMap<String, String>();
+
+        putString(typed, errors, draft, "general.greeting");
+        putIntNumber(typed, errors, draft, "general.chainRadius", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.chainMaxBlocks", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.chainLoggingShellLayers", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.maxBreakPerTick", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.cableReplaceMaxPerTick", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.chainWatchdogTimeoutTicks", 20, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.parallelTickMinDurationMs", 10, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "general.parallelTickServerWorkBudgetUnits", 1, Integer.MAX_VALUE);
+        putBoolean(typed, errors, draft, "general.enableUnlimitedOreFortune");
+        putBoolean(typed, errors, draft, "general.enableFortuneForPlacedOre");
+
+        putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
+        putIntNumber(typed, errors, draft, "client.parallelTickClientWorkBudgetUnits", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "client.clientPreviewMaxRadius", 1, Integer.MAX_VALUE);
+        putIntNumber(typed, errors, draft, "client.clientPreviewMaxTargets", 1, Integer.MAX_VALUE);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaFadeStartRadius", 0.0D, Double.MAX_VALUE);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaFadeEndRadius", 0.0D, Double.MAX_VALUE);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaStartValue", 0.0D, 1.0D);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaEndValue", 0.0D, 1.0D);
+
+        validateCrossFields(typed, errors);
+        if (!errors.isEmpty()) {
+            return ParseOutcome.invalid(errors);
+        }
+        return ParseOutcome.valid(new ValidatedSnapshot(typed));
+    }
+
+    private static void validateCrossFields(Map<String, Object> typed, Map<String, String> errors) {
+        String fadeStartPath = "client.clientPreviewAlphaFadeStartRadius";
+        String fadeEndPath = "client.clientPreviewAlphaFadeEndRadius";
+        if (typed.containsKey(fadeStartPath) && typed.containsKey(fadeEndPath)) {
+            double fadeStart = ((Double) typed.get(fadeStartPath)).doubleValue();
+            double fadeEnd = ((Double) typed.get(fadeEndPath)).doubleValue();
+            if (fadeEnd < fadeStart + QzMinerConfigDefaults.ALPHA_FADE_MIN_SPAN) {
+                String message = "fadeEnd must be >= fadeStart + " + QzMinerConfigDefaults.ALPHA_FADE_MIN_SPAN;
+                errors.put(fadeStartPath, message);
+                errors.put(fadeEndPath, message);
+            }
         }
 
+        String alphaStartPath = "client.clientPreviewAlphaStartValue";
+        String alphaEndPath = "client.clientPreviewAlphaEndValue";
+        if (typed.containsKey(alphaStartPath) && typed.containsKey(alphaEndPath)) {
+            double alphaStart = ((Double) typed.get(alphaStartPath)).doubleValue();
+            double alphaEnd = ((Double) typed.get(alphaEndPath)).doubleValue();
+            if (alphaEnd > alphaStart) {
+                String message = "alphaEnd must be <= alphaStart";
+                errors.put(alphaStartPath, message);
+                errors.put(alphaEndPath, message);
+            }
+        }
+    }
+
+    private static void putString(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft, String path) {
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof String)) {
+            errors.put(path, path + " must be STRING, got " + typeName(raw));
+            return;
+        }
+        typed.put(path, raw);
+    }
+
+    private static void putBoolean(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft, String path) {
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof Boolean)) {
+            errors.put(path, path + " must be BOOLEAN, got " + typeName(raw));
+            return;
+        }
+        typed.put(path, raw);
+    }
+
+    private static void putIntNumber(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft, String path, int min, int max) {
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof Number)) {
+            errors.put(path, path + " must be NUMBER, got " + typeName(raw));
+            return;
+        }
+        double value = ((Number) raw).doubleValue();
+        if (!Double.isFinite(value)) {
+            errors.put(path, path + " must be finite, got " + value);
+        } else if (value != Math.rint(value)) {
+            errors.put(path, path + " must be integer-valued, got " + value);
+        } else if (value < min || value > max) {
+            errors.put(path, path + " out of range [" + min + "," + max + "], got " + value);
+        } else {
+            typed.put(path, Double.valueOf(value));
+        }
+    }
+
+    private static void putDoubleNumber(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft, String path, double min, double max) {
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof Number)) {
+            errors.put(path, path + " must be NUMBER, got " + typeName(raw));
+            return;
+        }
+        double value = ((Number) raw).doubleValue();
+        if (!Double.isFinite(value)) {
+            errors.put(path, path + " must be finite, got " + value);
+        } else if (value < min || value > max) {
+            errors.put(path, path + " out of range [" + min + "," + max + "], got " + value);
+        } else {
+            typed.put(path, Double.valueOf(value));
+        }
+    }
+
+    private static Map<String, String> singleError(String path, String message) {
+        Map<String, String> errors = new LinkedHashMap<String, String>();
+        errors.put(path, message);
+        return errors;
+    }
+
+    private static String typeName(Object raw) {
+        return raw == null ? "null" : raw.getClass().getSimpleName();
+    }
+
+    /** 语义校验结果。 */
+    public static final class Result {
+        private final Map<String, String> errors;
+
+        Result(Map<String, String> errors) {
+            this.errors = Collections.unmodifiableMap(new LinkedHashMap<String, String>(errors));
+        }
+
+        /** @return 是否通过 */
         public boolean isValid() {
             return errors.isEmpty();
         }
 
-        public List<String> errors() {
+        /** @return path 到错误消息 */
+        public Map<String, String> errors() {
             return errors;
         }
 
+        /** @return 确定性摘要 */
         public String summary() {
             if (errors.isEmpty()) {
                 return "ok";
             }
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < errors.size(); i++) {
-                if (i > 0) {
-                    sb.append("; ");
+            StringBuilder out = new StringBuilder();
+            for (String message : errors.values()) {
+                if (out.length() > 0) {
+                    out.append("; ");
                 }
-                sb.append(errors.get(i));
+                out.append(message);
             }
-            return sb.toString();
+            return out.toString();
+        }
+
+        ValidationResult asValidationResult() {
+            return ValidationResult.of(errors);
         }
     }
 
-    /**
-     * 已通过严格校验的不可变快照（运行字段发布用）。
-     */
+    /** 读取与快照生成结果。 */
+    public static final class ParseOutcome {
+        public final Result result;
+        public final ValidatedSnapshot snapshot;
+
+        private ParseOutcome(Result result, ValidatedSnapshot snapshot) {
+            this.result = result;
+            this.snapshot = snapshot;
+        }
+
+        /** @return 是否通过且已生成快照 */
+        public boolean isValid() {
+            return result.isValid() && snapshot != null;
+        }
+
+        static ParseOutcome valid(ValidatedSnapshot snapshot) {
+            return new ParseOutcome(new Result(Collections.<String, String>emptyMap()), snapshot);
+        }
+
+        static ParseOutcome invalid(Map<String, String> errors) {
+            return new ParseOutcome(new Result(errors), null);
+        }
+    }
+
+    /** 已严格校验的只读派生发布载荷。 */
     public static final class ValidatedSnapshot {
         public final String greeting;
         public final int chainRadius;
@@ -76,204 +267,61 @@ public final class ConfigSemanticValidator {
         public final double clientPreviewAlphaFadeEndRadius;
         public final double clientPreviewAlphaStartValue;
         public final double clientPreviewAlphaEndValue;
-        /** path → typed 值（String/Double/Boolean），供恢复 Authority 草稿。 */
-        public final Map<String, Object> typedByPath;
 
         ValidatedSnapshot(Map<String, Object> typed) {
-            this.typedByPath = Collections.unmodifiableMap(new LinkedHashMap<String, Object>(typed));
-            this.greeting = (String) typed.get("general.greeting");
-            this.chainRadius = exactInt((Double) typed.get("general.chainRadius"));
-            this.chainMaxBlocks = exactInt((Double) typed.get("general.chainMaxBlocks"));
-            this.chainLoggingShellLayers = exactInt((Double) typed.get("general.chainLoggingShellLayers"));
-            this.maxBreakPerTick = exactInt((Double) typed.get("general.maxBreakPerTick"));
-            this.cableReplaceMaxPerTick = exactInt((Double) typed.get("general.cableReplaceMaxPerTick"));
-            this.chainWatchdogTimeoutTicks = exactInt((Double) typed.get("general.chainWatchdogTimeoutTicks"));
-            this.parallelTickMinDurationMs = exactInt((Double) typed.get("general.parallelTickMinDurationMs"));
-            this.parallelTickServerWorkBudgetUnits =
-                    exactInt((Double) typed.get("general.parallelTickServerWorkBudgetUnits"));
-            this.enableUnlimitedOreFortune = (Boolean) typed.get("general.enableUnlimitedOreFortune");
-            this.enableFortuneForPlacedOre = (Boolean) typed.get("general.enableFortuneForPlacedOre");
-            this.clientEnablePreviewRender = (Boolean) typed.get("client.clientEnablePreviewRender");
-            this.parallelTickClientWorkBudgetUnits =
-                    exactInt((Double) typed.get("client.parallelTickClientWorkBudgetUnits"));
-            this.clientPreviewMaxRadius = exactInt((Double) typed.get("client.clientPreviewMaxRadius"));
-            this.clientPreviewMaxTargets = exactInt((Double) typed.get("client.clientPreviewMaxTargets"));
-            this.clientPreviewAlphaFadeStartRadius =
-                    ((Double) typed.get("client.clientPreviewAlphaFadeStartRadius")).doubleValue();
-            this.clientPreviewAlphaFadeEndRadius =
-                    ((Double) typed.get("client.clientPreviewAlphaFadeEndRadius")).doubleValue();
-            this.clientPreviewAlphaStartValue =
-                    ((Double) typed.get("client.clientPreviewAlphaStartValue")).doubleValue();
-            this.clientPreviewAlphaEndValue =
-                    ((Double) typed.get("client.clientPreviewAlphaEndValue")).doubleValue();
+            greeting = (String) typed.get("general.greeting");
+            chainRadius = exactInt(typed, "general.chainRadius");
+            chainMaxBlocks = exactInt(typed, "general.chainMaxBlocks");
+            chainLoggingShellLayers = exactInt(typed, "general.chainLoggingShellLayers");
+            maxBreakPerTick = exactInt(typed, "general.maxBreakPerTick");
+            cableReplaceMaxPerTick = exactInt(typed, "general.cableReplaceMaxPerTick");
+            chainWatchdogTimeoutTicks = exactInt(typed, "general.chainWatchdogTimeoutTicks");
+            parallelTickMinDurationMs = exactInt(typed, "general.parallelTickMinDurationMs");
+            parallelTickServerWorkBudgetUnits = exactInt(typed, "general.parallelTickServerWorkBudgetUnits");
+            enableUnlimitedOreFortune = ((Boolean) typed.get("general.enableUnlimitedOreFortune")).booleanValue();
+            enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
+            clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
+            parallelTickClientWorkBudgetUnits = exactInt(typed, "client.parallelTickClientWorkBudgetUnits");
+            clientPreviewMaxRadius = exactInt(typed, "client.clientPreviewMaxRadius");
+            clientPreviewMaxTargets = exactInt(typed, "client.clientPreviewMaxTargets");
+            clientPreviewAlphaFadeStartRadius = number(typed, "client.clientPreviewAlphaFadeStartRadius");
+            clientPreviewAlphaFadeEndRadius = number(typed, "client.clientPreviewAlphaFadeEndRadius");
+            clientPreviewAlphaStartValue = number(typed, "client.clientPreviewAlphaStartValue");
+            clientPreviewAlphaEndValue = number(typed, "client.clientPreviewAlphaEndValue");
         }
 
-        private static int exactInt(Double d) {
-            return (int) d.doubleValue();
+        private static int exactInt(Map<String, Object> typed, String path) {
+            return (int) number(typed, path);
+        }
+
+        private static double number(Map<String, Object> typed, String path) {
+            return ((Number) typed.get(path)).doubleValue();
         }
     }
 
-    /**
-     * 从 Authority 读取已知字段，严格校验后返回快照。
-     *
-     * @param authority 权威源
-     * @return 校验结果；成功时 snapshot 非 null
-     */
-    public static ParseOutcome parseAndValidate(Authority authority) {
-        if (authority == null) {
-            return ParseOutcome.invalid(Collections.singletonList("authority is null"));
-        }
-        Map<String, Object> typed = new LinkedHashMap<String, Object>();
-        List<String> errors = new ArrayList<String>();
+    /** DraftBuffer 捕获结果的只读 DraftView 适配。 */
+    private static final class FrozenDraftView implements DraftView {
+        private final Map<String, Object> values;
+        private final Collection<String> paths;
 
-        putString(typed, errors, authority, "general.greeting");
-        putIntNumber(typed, errors, authority, "general.chainRadius", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.chainMaxBlocks", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.chainLoggingShellLayers", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.maxBreakPerTick", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.cableReplaceMaxPerTick", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.chainWatchdogTimeoutTicks", 20, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.parallelTickMinDurationMs", 10, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "general.parallelTickServerWorkBudgetUnits", 1, Integer.MAX_VALUE);
-        putBool(typed, errors, authority, "general.enableUnlimitedOreFortune");
-        putBool(typed, errors, authority, "general.enableFortuneForPlacedOre");
-
-        putBool(typed, errors, authority, "client.clientEnablePreviewRender");
-        putIntNumber(typed, errors, authority, "client.parallelTickClientWorkBudgetUnits", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "client.clientPreviewMaxRadius", 1, Integer.MAX_VALUE);
-        putIntNumber(typed, errors, authority, "client.clientPreviewMaxTargets", 1, Integer.MAX_VALUE);
-        putDoubleNumber(typed, errors, authority, "client.clientPreviewAlphaFadeStartRadius", 0.0D, Double.MAX_VALUE);
-        putDoubleNumber(typed, errors, authority, "client.clientPreviewAlphaFadeEndRadius", 0.0D, Double.MAX_VALUE);
-        putDoubleNumber(typed, errors, authority, "client.clientPreviewAlphaStartValue", 0.0D, 1.0D);
-        putDoubleNumber(typed, errors, authority, "client.clientPreviewAlphaEndValue", 0.0D, 1.0D);
-
-        if (errors.isEmpty()) {
-            double fadeStart = ((Double) typed.get("client.clientPreviewAlphaFadeStartRadius")).doubleValue();
-            double fadeEnd = ((Double) typed.get("client.clientPreviewAlphaFadeEndRadius")).doubleValue();
-            double alphaStart = ((Double) typed.get("client.clientPreviewAlphaStartValue")).doubleValue();
-            double alphaEnd = ((Double) typed.get("client.clientPreviewAlphaEndValue")).doubleValue();
-            if (fadeEnd < fadeStart + QzMinerConfigDefaults.ALPHA_FADE_MIN_SPAN) {
-                errors.add("client.clientPreviewAlphaFadeEndRadius must be >= fadeStart + "
-                        + QzMinerConfigDefaults.ALPHA_FADE_MIN_SPAN + " (got " + fadeEnd + " vs " + fadeStart + ")");
-            }
-            if (alphaEnd > alphaStart) {
-                errors.add("client.clientPreviewAlphaEndValue must be <= alphaStart (got "
-                        + alphaEnd + " > " + alphaStart + ")");
-            }
+        FrozenDraftView(Map<String, Object> values, Collection<String> paths) {
+            this.values = Collections.unmodifiableMap(new LinkedHashMap<String, Object>(values));
+            this.paths = Collections.unmodifiableList(new ArrayList<String>(paths));
         }
 
-        if (!errors.isEmpty()) {
-            return ParseOutcome.invalid(errors);
-        }
-        return ParseOutcome.valid(new ValidatedSnapshot(typed));
-    }
-
-    /**
-     * parse 结果容器。
-     */
-    public static final class ParseOutcome {
-        public final Result result;
-        public final ValidatedSnapshot snapshot;
-
-        private ParseOutcome(Result result, ValidatedSnapshot snapshot) {
-            this.result = result;
-            this.snapshot = snapshot;
+        @Override
+        public Object getDraft(String path) {
+            return values.get(path);
         }
 
-        public boolean isValid() {
-            return result.isValid() && snapshot != null;
+        @Override
+        public Map<String, Object> draftSnapshot() {
+            return values;
         }
 
-        static ParseOutcome valid(ValidatedSnapshot snapshot) {
-            return new ParseOutcome(new Result(Collections.<String>emptyList()), snapshot);
+        @Override
+        public Collection<String> fieldPaths() {
+            return paths;
         }
-
-        static ParseOutcome invalid(List<String> errors) {
-            return new ParseOutcome(new Result(errors), null);
-        }
-    }
-
-    private static void putString(Map<String, Object> typed, List<String> errors,
-            Authority authority, String path) {
-        Object raw = authority.get(path);
-        if (raw == null) {
-            // schema 缺字段应由 Authority 补默认；仍 null 则用 Defaults
-            typed.put(path, QzMinerConfigDefaults.GREETING);
-            return;
-        }
-        if (!(raw instanceof String)) {
-            errors.add(path + " must be STRING, got " + typeName(raw));
-            return;
-        }
-        typed.put(path, raw);
-    }
-
-    private static void putBool(Map<String, Object> typed, List<String> errors,
-            Authority authority, String path) {
-        Object raw = authority.get(path);
-        if (raw == null) {
-            errors.add(path + " missing boolean");
-            return;
-        }
-        if (!(raw instanceof Boolean)) {
-            errors.add(path + " must be BOOLEAN, got " + typeName(raw));
-            return;
-        }
-        typed.put(path, raw);
-    }
-
-    private static void putIntNumber(Map<String, Object> typed, List<String> errors,
-            Authority authority, String path, int min, int max) {
-        Object raw = authority.get(path);
-        if (raw == null) {
-            errors.add(path + " missing number");
-            return;
-        }
-        if (!(raw instanceof Number)) {
-            errors.add(path + " must be NUMBER, got " + typeName(raw));
-            return;
-        }
-        double v = ((Number) raw).doubleValue();
-        if (!Double.isFinite(v)) {
-            errors.add(path + " must be finite, got " + v);
-            return;
-        }
-        // 整数语义：禁止 12.6 / 2.999 等非整数；不 Math.round 掩盖
-        if (v != Math.rint(v)) {
-            errors.add(path + " must be integer-valued, got " + v);
-            return;
-        }
-        if (v < min || v > max) {
-            errors.add(path + " out of range [" + min + "," + max + "], got " + v);
-            return;
-        }
-        typed.put(path, Double.valueOf(v));
-    }
-
-    private static void putDoubleNumber(Map<String, Object> typed, List<String> errors,
-            Authority authority, String path, double min, double max) {
-        Object raw = authority.get(path);
-        if (raw == null) {
-            errors.add(path + " missing number");
-            return;
-        }
-        if (!(raw instanceof Number)) {
-            errors.add(path + " must be NUMBER, got " + typeName(raw));
-            return;
-        }
-        double v = ((Number) raw).doubleValue();
-        if (!Double.isFinite(v)) {
-            errors.add(path + " must be finite, got " + v);
-            return;
-        }
-        if (v < min || v > max) {
-            errors.add(path + " out of range [" + min + "," + max + "], got " + v);
-            return;
-        }
-        typed.put(path, Double.valueOf(v));
-    }
-
-    private static String typeName(Object raw) {
-        return raw == null ? "null" : raw.getClass().getSimpleName();
     }
 }

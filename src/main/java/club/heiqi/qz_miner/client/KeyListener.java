@@ -1,7 +1,8 @@
 package club.heiqi.qz_miner.client;
 
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.chain.ChainConstants;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
@@ -167,7 +168,8 @@ public class KeyListener {
             return;
         }
 
-        MyMod.chainStateService.setClientRequestedChainConfig(Config.chainRadius, Config.chainMaxBlocks);
+        ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
+        MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
         MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(
             MyMod.chainStateService.getClientState().getRequestedChainRadius(),
             MyMod.chainStateService.getClientState().getRequestedChainMaxBlocks()));

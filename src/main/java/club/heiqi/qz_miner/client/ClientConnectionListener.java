@@ -1,8 +1,9 @@
 package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.ClientProxy;
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -29,17 +30,19 @@ public class ClientConnectionListener {
 
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
         ClientMainThreadDispatcher.run(() -> {
             if (MyMod.chainStateService == null) {
                 return;
             }
 
-            MyMod.chainStateService.setClientRequestedChainConfig(Config.chainRadius, Config.chainMaxBlocks);
+            MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
             if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
                 return;
             }
 
-            MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(Config.chainRadius, Config.chainMaxBlocks));
+            MyMod.networkMain.network.sendToServer(
+                    new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
         });
     }
 
