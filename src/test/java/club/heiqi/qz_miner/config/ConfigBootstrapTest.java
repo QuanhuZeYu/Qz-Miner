@@ -13,10 +13,7 @@ import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.Config;
 
 /**
- * 启动加载：默认 YAML、坏 YAML 恢复、无 cfg 默认路径（纯 JVM + 临时目录）。
- *
- * <p>Legacy cfg 成功导入依赖 Forge {@code Configuration}，在纯 JVM 下通常不可用；
- * 该路径留给实机 / 集成验证。本测试覆盖 YAML 权威与恢复语义。</p>
+ * Bootstrap 磁盘事务 / 幂等 / 坏 YAML 恢复（纯 JVM）。
  */
 public class ConfigBootstrapTest {
 
@@ -44,14 +41,15 @@ public class ConfigBootstrapTest {
         Assert.assertNotNull(manager);
         File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
         Assert.assertTrue("default YAML should be written", yaml.isFile() && yaml.length() > 0);
-        Assert.assertEquals(8, Config.chainRadius);
-        Assert.assertEquals("Hello World", Config.greeting);
+        Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
+        Assert.assertEquals(QzMinerConfigDefaults.GREETING, Config.greeting);
         Assert.assertTrue(Config.clientEnablePreviewRender);
         Assert.assertSame(manager, ConfigBootstrap.manager());
+        Assert.assertNotNull(ConfigBootstrap.lastValidSnapshot());
     }
 
     @Test
-    public void existingValidYamlBootstrapsWithoutDefaultsOverwrite() throws Exception {
+    public void existingValidYamlBootstraps() throws Exception {
         File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
         String body = ""
                 + "general:\n"
@@ -89,49 +87,107 @@ public class ConfigBootstrapTest {
     }
 
     @Test
-    public void corruptYamlIsBackedUpAndDefaultsRestored() throws Exception {
+    public void corruptYamlIsBackedUpWithUniqueNameAndDefaultsRestored() throws Exception {
         File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
         Files.write(yaml.toPath(), "this: [is: not: valid: yaml:::".getBytes(StandardCharsets.UTF_8));
 
         ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
 
         Assert.assertNotNull(manager);
-        Assert.assertEquals(8, Config.chainRadius);
-        Assert.assertEquals("Hello World", Config.greeting);
-        // 原坏文件应被备份；权威 YAML 应重新可解析
-        Assert.assertTrue(yaml.isFile());
-        boolean foundBackup = false;
+        Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
+        Assert.assertEquals(QzMinerConfigDefaults.GREETING, Config.greeting);
+        Assert.assertTrue(yaml.isFile() && yaml.length() > 0);
+
+        int backups = 0;
         File[] children = tempDir.listFiles();
         Assert.assertNotNull(children);
         for (File child : children) {
             if (child.getName().contains("corrupt") && child.getName().endsWith(".bak")) {
-                foundBackup = true;
-                break;
+                backups++;
             }
         }
-        Assert.assertTrue("corrupt yaml backup expected", foundBackup);
+        Assert.assertTrue("corrupt yaml unique backup expected", backups >= 1);
+    }
+
+    @Test
+    public void secondBootstrapSamePathIsIdempotent() {
+        ConfigManager first = ConfigBootstrap.bootstrap(tempDir, null);
+        ConfigManager second = ConfigBootstrap.bootstrap(tempDir, null);
+        Assert.assertSame(first, second);
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void secondBootstrapDifferentPathFailsFast() throws Exception {
+        ConfigBootstrap.bootstrap(tempDir, null);
+        File other = Files.createTempDirectory("qz-miner-other-").toFile();
+        try {
+            ConfigBootstrap.bootstrap(other, null);
+        } finally {
+            deleteRecursively(other);
+        }
+    }
+
+    @Test
+    public void requiredBackupNeverOverwritesExisting() throws Exception {
+        File src = new File(tempDir, "sample.yaml");
+        Files.write(src.toPath(), "a: 1\n".getBytes(StandardCharsets.UTF_8));
+        File b1 = ConfigBootstrap.requiredBackup(src, "t");
+        // 强制同毫秒冲突：再备份应得到不同路径
+        File b2 = ConfigBootstrap.requiredBackup(src, "t");
+        Assert.assertTrue(b1.isFile());
+        Assert.assertTrue(b2.isFile());
+        Assert.assertFalse(b1.getAbsolutePath().equals(b2.getAbsolutePath()));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void semanticInvalidExistingYamlFailsAtBootstrap() throws Exception {
+        File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
+        String body = ""
+                + "general:\n"
+                + "  greeting: Bad\n"
+                + "  chainRadius: 12.6\n"
+                + "  chainMaxBlocks: 1024\n"
+                + "  chainLoggingShellLayers: 1\n"
+                + "  maxBreakPerTick: 64\n"
+                + "  cableReplaceMaxPerTick: 1024\n"
+                + "  chainWatchdogTimeoutTicks: 50\n"
+                + "  parallelTickMinDurationMs: 15\n"
+                + "  parallelTickServerWorkBudgetUnits: 640\n"
+                + "  enableUnlimitedOreFortune: false\n"
+                + "  enableFortuneForPlacedOre: false\n"
+                + "client:\n"
+                + "  clientEnablePreviewRender: true\n"
+                + "  parallelTickClientWorkBudgetUnits: 640\n"
+                + "  clientPreviewMaxRadius: 16\n"
+                + "  clientPreviewMaxTargets: 1024\n"
+                + "  clientPreviewAlphaFadeStartRadius: 2.0\n"
+                + "  clientPreviewAlphaFadeEndRadius: 6.0\n"
+                + "  clientPreviewAlphaStartValue: 0.78\n"
+                + "  clientPreviewAlphaEndValue: 0.15\n";
+        Files.write(yaml.toPath(), body.getBytes(StandardCharsets.UTF_8));
+        ConfigBootstrap.bootstrap(tempDir, null);
     }
 
     private static void resetStaticDefaults() {
-        Config.greeting = "Hello World";
-        Config.chainRadius = 8;
-        Config.chainMaxBlocks = 1024;
-        Config.chainLoggingShellLayers = 1;
-        Config.maxBreakPerTick = 64;
-        Config.cableReplaceMaxPerTick = 1024;
-        Config.chainWatchdogTimeoutTicks = 50;
-        Config.parallelTickMinDurationMs = 15;
-        Config.parallelTickServerWorkBudgetUnits = 640;
-        Config.enableUnlimitedOreFortune = false;
-        Config.enableFortuneForPlacedOre = false;
-        Config.clientEnablePreviewRender = true;
-        Config.parallelTickClientWorkBudgetUnits = 640;
-        Config.clientPreviewMaxRadius = 16;
-        Config.clientPreviewMaxTargets = 1024;
-        Config.clientPreviewAlphaFadeStartRadius = 2.0D;
-        Config.clientPreviewAlphaFadeEndRadius = 6.0D;
-        Config.clientPreviewAlphaStartValue = 0.78D;
-        Config.clientPreviewAlphaEndValue = 0.15D;
+        Config.greeting = QzMinerConfigDefaults.GREETING;
+        Config.chainRadius = QzMinerConfigDefaults.CHAIN_RADIUS;
+        Config.chainMaxBlocks = QzMinerConfigDefaults.CHAIN_MAX_BLOCKS;
+        Config.chainLoggingShellLayers = QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS;
+        Config.maxBreakPerTick = QzMinerConfigDefaults.MAX_BREAK_PER_TICK;
+        Config.cableReplaceMaxPerTick = QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK;
+        Config.chainWatchdogTimeoutTicks = QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS;
+        Config.parallelTickMinDurationMs = QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS;
+        Config.parallelTickServerWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS;
+        Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
+        Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
+        Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+        Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
+        Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
+        Config.clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;
+        Config.clientPreviewAlphaFadeStartRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS;
+        Config.clientPreviewAlphaFadeEndRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS;
+        Config.clientPreviewAlphaStartValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE;
+        Config.clientPreviewAlphaEndValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE;
         Config.configPath = "";
     }
 

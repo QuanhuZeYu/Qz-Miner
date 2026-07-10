@@ -42,7 +42,7 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     version = Tags.VERSION,
     name = MyMod.MOD_NAME,
     acceptedMinecraftVersions = "[1.7.10]",
-    dependencies = "required-after:qz_uilib;",
+    dependencies = "required-after:qz_uilib@[4.5.1,);",
     guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory")
 public class MyMod {
 
@@ -176,6 +176,8 @@ public class MyMod {
             chainEventBus.bindMainThread(Thread.currentThread());
         }
         ServerMainThreadDispatcher.onServerStarting();
+        // 主菜单保存后集成服启动：在 dispatcher 就绪后从 Authority 再发布 general
+        club.heiqi.qz_miner.config.ConfigBootstrap.reapplyGeneralOnServerStarting();
         proxy.serverStarting(event);
     }
 

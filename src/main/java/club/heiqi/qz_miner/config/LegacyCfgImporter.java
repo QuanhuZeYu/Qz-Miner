@@ -12,7 +12,8 @@ import net.minecraftforge.common.config.Property;
 /**
  * 一次性从旧 Forge {@code .cfg} 读取字段映射（唯一允许引用 {@link Configuration} 的迁移类）。
  *
- * <p>只读、禁止 {@link Configuration#save()}。键为 schema 全路径（如 {@code general.chainRadius}）。</p>
+ * <p>只读、禁止 {@link Configuration#save()}。Property getter 传入 {@link QzMinerConfigDefaults}
+ * 真实默认（尤其 clientEnablePreviewRender=true 与 alpha 非零）。</p>
  */
 public final class LegacyCfgImporter {
 
@@ -23,105 +24,151 @@ public final class LegacyCfgImporter {
     }
 
     /**
-     * 瞬态读取 cfg 中已声明属性，映射为 schema path → typed 值。
-     *
-     * <p>不存在的属性不写入 map（由调用方用 schema 默认补齐）。读取失败返回空 map。</p>
+     * 导入结果：区分读取失败 vs 合法文件无已知键。
+     */
+    public static final class ImportResult {
+        public enum Status {
+            /** 成功读取（values 可能为空若文件无已知键，仍 OK） */
+            OK,
+            /** 文件不存在或空 */
+            MISSING,
+            /** load/解析异常 */
+            FAILED
+        }
+
+        public final Status status;
+        public final Map<String, Object> values;
+        public final String message;
+
+        ImportResult(Status status, Map<String, Object> values, String message) {
+            this.status = status;
+            this.values = values == null
+                    ? Collections.<String, Object>emptyMap()
+                    : Collections.unmodifiableMap(new LinkedHashMap<String, Object>(values));
+            this.message = message;
+        }
+
+        public static ImportResult ok(Map<String, Object> values) {
+            return new ImportResult(Status.OK, values, null);
+        }
+
+        public static ImportResult missing(String message) {
+            return new ImportResult(Status.MISSING, Collections.<String, Object>emptyMap(), message);
+        }
+
+        public static ImportResult failed(String message) {
+            return new ImportResult(Status.FAILED, Collections.<String, Object>emptyMap(), message);
+        }
+    }
+
+    /**
+     * 瞬态读取 cfg 中已声明属性。
      *
      * @param cfgFile 旧配置文件
-     * @return 不可变 path→value；失败为空
+     * @return ImportResult（不把 FAILED 与「无键」混为 empty map）
      */
-    public static Map<String, Object> importValues(File cfgFile) {
+    public static ImportResult importValues(File cfgFile) {
         if (cfgFile == null || !cfgFile.isFile() || cfgFile.length() <= 0) {
-            return Collections.emptyMap();
+            return ImportResult.missing("cfg missing or empty");
         }
 
         try {
             Configuration configuration = new Configuration(cfgFile);
-            // 只 load，不 save
             configuration.load();
 
             Map<String, Object> values = new LinkedHashMap<String, Object>();
-            putString(values, configuration, CATEGORY_GENERAL, "greeting", "general.greeting");
-            putInt(values, configuration, CATEGORY_GENERAL, "chainRadius", "general.chainRadius");
-            putInt(values, configuration, CATEGORY_GENERAL, "chainMaxBlocks", "general.chainMaxBlocks");
-            putInt(values, configuration, CATEGORY_GENERAL, "chainLoggingShellLayers", "general.chainLoggingShellLayers");
-            putInt(values, configuration, CATEGORY_GENERAL, "maxBreakPerTick", "general.maxBreakPerTick");
-            putInt(values, configuration, CATEGORY_GENERAL, "cableReplaceMaxPerTick", "general.cableReplaceMaxPerTick");
+            putString(values, configuration, CATEGORY_GENERAL, "greeting", "general.greeting",
+                    QzMinerConfigDefaults.GREETING);
+            putInt(values, configuration, CATEGORY_GENERAL, "chainRadius", "general.chainRadius",
+                    QzMinerConfigDefaults.CHAIN_RADIUS);
+            putInt(values, configuration, CATEGORY_GENERAL, "chainMaxBlocks", "general.chainMaxBlocks",
+                    QzMinerConfigDefaults.CHAIN_MAX_BLOCKS);
+            putInt(values, configuration, CATEGORY_GENERAL, "chainLoggingShellLayers",
+                    "general.chainLoggingShellLayers", QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS);
+            putInt(values, configuration, CATEGORY_GENERAL, "maxBreakPerTick", "general.maxBreakPerTick",
+                    QzMinerConfigDefaults.MAX_BREAK_PER_TICK);
+            putInt(values, configuration, CATEGORY_GENERAL, "cableReplaceMaxPerTick",
+                    "general.cableReplaceMaxPerTick", QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK);
             putInt(values, configuration, CATEGORY_GENERAL, "chainWatchdogTimeoutTicks",
-                    "general.chainWatchdogTimeoutTicks");
+                    "general.chainWatchdogTimeoutTicks", QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS);
             putInt(values, configuration, CATEGORY_GENERAL, "parallelTickMinDurationMs",
-                    "general.parallelTickMinDurationMs");
+                    "general.parallelTickMinDurationMs", QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS);
             putInt(values, configuration, CATEGORY_GENERAL, "parallelTickServerWorkBudgetUnits",
-                    "general.parallelTickServerWorkBudgetUnits");
+                    "general.parallelTickServerWorkBudgetUnits",
+                    QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS);
             putBoolean(values, configuration, CATEGORY_GENERAL, "enableUnlimitedOreFortune",
-                    "general.enableUnlimitedOreFortune");
+                    "general.enableUnlimitedOreFortune", QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE);
             putBoolean(values, configuration, CATEGORY_GENERAL, "enableFortuneForPlacedOre",
-                    "general.enableFortuneForPlacedOre");
+                    "general.enableFortuneForPlacedOre", QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE);
 
             putBoolean(values, configuration, CATEGORY_CLIENT, "clientEnablePreviewRender",
-                    "client.clientEnablePreviewRender");
+                    "client.clientEnablePreviewRender", QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER);
             putInt(values, configuration, CATEGORY_CLIENT, "parallelTickClientWorkBudgetUnits",
-                    "client.parallelTickClientWorkBudgetUnits");
+                    "client.parallelTickClientWorkBudgetUnits",
+                    QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS);
             putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewMaxRadius",
-                    "client.clientPreviewMaxRadius");
+                    "client.clientPreviewMaxRadius", QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS);
             putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewMaxTargets",
-                    "client.clientPreviewMaxTargets");
+                    "client.clientPreviewMaxTargets", QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS);
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewAlphaFadeStartRadius",
-                    "client.clientPreviewAlphaFadeStartRadius");
+                    "client.clientPreviewAlphaFadeStartRadius",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS);
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewAlphaFadeEndRadius",
-                    "client.clientPreviewAlphaFadeEndRadius");
+                    "client.clientPreviewAlphaFadeEndRadius",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS);
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewAlphaStartValue",
-                    "client.clientPreviewAlphaStartValue");
+                    "client.clientPreviewAlphaStartValue",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE);
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewAlphaEndValue",
-                    "client.clientPreviewAlphaEndValue");
+                    "client.clientPreviewAlphaEndValue",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE);
 
-            return Collections.unmodifiableMap(values);
+            return ImportResult.ok(values);
         } catch (RuntimeException e) {
-            MyMod.LOG.warn("Legacy cfg import failed, will fall back to schema defaults: {}",
-                    cfgFile.getAbsolutePath(), e);
-            return Collections.emptyMap();
+            MyMod.LOG.warn("Legacy cfg import failed: {}", cfgFile.getAbsolutePath(), e);
+            return ImportResult.failed(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
     }
 
     private static void putString(Map<String, Object> values, Configuration configuration,
-            String category, String name, String path) {
+            String category, String name, String path, String defaultValue) {
         if (!configuration.hasKey(category, name)) {
             return;
         }
-        Property property = configuration.get(category, name, "");
+        Property property = configuration.get(category, name, defaultValue);
         if (property != null) {
             values.put(path, property.getString());
         }
     }
 
     private static void putInt(Map<String, Object> values, Configuration configuration,
-            String category, String name, String path) {
+            String category, String name, String path, int defaultValue) {
         if (!configuration.hasKey(category, name)) {
             return;
         }
-        Property property = configuration.get(category, name, 0);
+        Property property = configuration.get(category, name, defaultValue);
         if (property != null) {
             values.put(path, Double.valueOf(property.getInt()));
         }
     }
 
     private static void putBoolean(Map<String, Object> values, Configuration configuration,
-            String category, String name, String path) {
+            String category, String name, String path, boolean defaultValue) {
         if (!configuration.hasKey(category, name)) {
             return;
         }
-        Property property = configuration.get(category, name, false);
+        Property property = configuration.get(category, name, defaultValue);
         if (property != null) {
             values.put(path, Boolean.valueOf(property.getBoolean()));
         }
     }
 
     private static void putDouble(Map<String, Object> values, Configuration configuration,
-            String category, String name, String path) {
+            String category, String name, String path, double defaultValue) {
         if (!configuration.hasKey(category, name)) {
             return;
         }
-        Property property = configuration.get(category, name, 0.0D);
+        Property property = configuration.get(category, name, defaultValue);
         if (property != null) {
             values.put(path, Double.valueOf(property.getDouble()));
         }
