@@ -34,7 +34,8 @@ $externalAllowlist = @(
   'EntityPlayerMP', 'EntityPlayer', 'EntityItem', 'TileEntity', 'World', 'Block', 'ItemStack',
   'GuiScreen', 'BaseScreen', 'IIconRegister', 'IChatComponent', 'NBTTagCompound',
   # Minecraft Forge / Network
-  'SimpleNetworkWrapper', 'FMLEventChannel', 'ByteBuf',
+  'SimpleNetworkWrapper', 'FMLEventChannel', 'ByteBuf', 'INetHandler',
+  'FMLNetworkEvent', 'MessageContext',
   # GregTech / GTNH
   'BaseMetaPipeEntity', 'MetaTileEntity', 'MetaPipeEntity',
   'GTOreAdapter', 'BWOreAdapter', 'GTPPOreAdapter',

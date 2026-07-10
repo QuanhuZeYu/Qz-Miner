@@ -15,10 +15,11 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.WorldEvent;
 
 /**
- * 客户端连接事件监听。
+ * 客户端连接与世界生命周期监听。
  *
- * <p>连接 / 断线 / 世界卸载入口先推进 {@link ClientConnectionLifecycle} token，
- * 再调度初始化或清理。单人集成服也推进 token；{@code isSingleplayer} 只影响 C2S request。</p>
+ * <p>connect/disconnect 以 {@code event.handler}（{@code INetHandler}）对象 identity
+ * 绑定 {@link ClientConnectionLifecycle}；world load/unload 绑定远端 world 对象。
+ * 初始化与清理均携带转移 token，主线程 gate 后执行；旧连接/旧世界迟到事件 no-op。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ClientConnectionListener {
@@ -31,40 +32,71 @@ public class ClientConnectionListener {
         MinecraftForge.EVENT_BUS.register(this);
     }
 
+    /**
+     * 连上服务器：以 event.handler 建 connection token，主线程仅在该连接仍 current+active 时
+     * reset 连接投影并（非单人）发 C2S。A init 排队后若已切到 B，A init no-op。
+     *
+     * @param event 客户端连服事件
+     */
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
-        // 入口立即推进 active token（单人集成服同样推进），再调度初始化
-        ClientConnectionLifecycle.advanceActive();
-        ClientMainThreadDispatcher.run(() -> {
-            final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
-            if (MyMod.chainStateService == null) {
-                return;
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(event.handler);
+        ClientMainThreadDispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                ClientConnectionLifecycle.runIfConnectionCurrentAndActive(token, new Runnable() {
+                    @Override
+                    public void run() {
+                        initializeConnectionState();
+                    }
+                });
             }
-
-            MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
-            if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
-                return;
-            }
-
-            MyMod.networkMain.network.sendToServer(
-                    new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
         });
     }
 
     /**
-     * 在客户端断开连接时清理预览任务与 GPU 缓存。
+     * 断线：仅 handler 为当前连接且 active 时转 inactive 并排队 cleanup。
+     * 迟到/重复 disconnect no-op，不调度新清理。
      *
      * @param event 客户端断线事件
      */
     @SubscribeEvent
     public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-        // 入口立即推进 inactive token，再调度清理
-        ClientConnectionLifecycle.advanceInactive();
-        cleanupPreviewResources("client-disconnect");
+        ClientConnectionLifecycle.DisconnectResult result =
+                ClientConnectionLifecycle.disconnect(event.handler);
+        if (!result.transitioned()) {
+            return;
+        }
+        final ClientConnectionLifecycle.Token cleanupToken = result.token();
+        ClientMainThreadDispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                ClientConnectionLifecycle.runIfInactiveDisconnectCurrent(cleanupToken, new Runnable() {
+                    @Override
+                    public void run() {
+                        cleanupLifecycleResources("client-disconnect");
+                    }
+                });
+            }
+        });
     }
 
     /**
-     * 在客户端世界卸载时清理预览任务与 GPU 缓存。
+     * 客户端远端世界加载：绑定 world identity；首次绑定不废弃连接级 config token。
+     *
+     * @param event 世界加载事件
+     */
+    @SubscribeEvent
+    public void onWorldLoad(WorldEvent.Load event) {
+        if (event.world == null || !event.world.isRemote) {
+            return;
+        }
+        ClientConnectionLifecycle.bindWorld(event.world);
+    }
+
+    /**
+     * 客户端世界卸载：仅当前 world identity 且连接仍 current 时解绑并清理。
+     * 旧 world / 重复 unload / disconnect 后 unload no-op。
      *
      * @param event 世界卸载事件
      */
@@ -73,27 +105,57 @@ public class ClientConnectionListener {
         if (event.world == null || !event.world.isRemote) {
             return;
         }
-
-        // 推进 token 保持当前 active 标志：旧世界任务失效，同连接切维度后未来 S2C 仍可捕获新 active token
-        ClientConnectionLifecycle.advanceKeepActive();
-        cleanupPreviewResources("client-world-unload");
+        ClientConnectionLifecycle.WorldUnbindResult result =
+                ClientConnectionLifecycle.unbindWorld(event.world);
+        if (!result.transitioned()) {
+            return;
+        }
+        final ClientConnectionLifecycle.Token cleanupToken = result.token();
+        ClientMainThreadDispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                ClientConnectionLifecycle.runIfWorldUnbindCurrent(cleanupToken, new Runnable() {
+                    @Override
+                    public void run() {
+                        cleanupLifecycleResources("client-world-unload");
+                    }
+                });
+            }
+        });
     }
 
     /**
-     * 统一清理客户端预览运行态与 GPU 资源。
+     * 连接初始化：requested 取本地 validated snapshot；server 投影回落 snapshot 且 matchedCount=0，
+     * 防止新服务器首包前沿用旧值。非单人发 C2S。
      *
-     * @param reason 清理原因
+     * <p>须在 connection-active gate 内调用。</p>
      */
-    private void cleanupPreviewResources(String reason) {
-        ClientMainThreadDispatcher.run(() -> cleanupPreviewResourcesOnClientThread(reason));
+    private void initializeConnectionState() {
+        if (MyMod.chainStateService == null) {
+            return;
+        }
+        final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
+        MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
+        // 只改必要客户端投影：server radius/maxBlocks 回落本地 snapshot，matchedCount 清零
+        MyMod.chainStateService.getClientState().setServerChainRadius(snapshot.chainRadius);
+        MyMod.chainStateService.getClientState().setServerChainMaxBlocks(snapshot.chainMaxBlocks);
+        MyMod.chainStateService.getClientState().setServerMatchedTargetCount(0);
+
+        if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
+            return;
+        }
+        MyMod.networkMain.network.sendToServer(
+                new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
     }
 
     /**
-     * 在客户端主线程执行预览资源清理。
+     * 统一清理：停预览、释放 GPU、清 phase、清 client event bus pending。
+     *
+     * <p>须在对应 lifecycle gate 内调用；禁反向调用 lifecycle 入口。</p>
      *
      * @param reason 清理原因
      */
-    private void cleanupPreviewResourcesOnClientThread(String reason) {
+    private void cleanupLifecycleResources(String reason) {
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
         if (ClientProxy.chainPreviewController != null) {
             ClientProxy.chainPreviewController.stopPreviewForLifecycle();
@@ -101,9 +163,12 @@ public class ClientConnectionListener {
         if (ClientProxy.chainPreviewRenderer != null) {
             ClientProxy.chainPreviewRenderer.disposeForLifecycle();
         }
-        // 阶段6：玩家断线/切维度/世界卸载时清客户端投影容器（守 I7：客户端生命周期清理）
         if (ClientProxy.clientPhaseProjection != null) {
             ClientProxy.clientPhaseProjection.clear();
+        }
+        // 防旧 phase 在 cleanup 后仍 drain 回写投影
+        if (MyMod.clientChainEventBus != null) {
+            MyMod.clientChainEventBus.clearPending();
         }
     }
 }

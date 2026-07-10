@@ -10,6 +10,7 @@
 
 - 多人服或恶意客户端连续发送连锁配置请求。
 - 同一玩家会话重连/克隆后旧端点任务仍被消费，或过期会话强引用存活。
+- 客户端侧：旧连接迟到 disconnect/cleanup 或旧 S2C 包在新连接已建立后仍写状态。
 
 ## 根本原因
 
@@ -17,6 +18,7 @@
 - 普通 FIFO 语义适合低频控制面，不适合 latest-wins 配置投影。
 - 槽位若用 `AtomicReference` 间接持有任务，drain `remove` 后仍可对已脱离 map 的槽 `set`，出现 accepted-but-lost。
 - 端点键若仅用 `System.identityHashCode` 表达会话身份，碰撞或 GC 后可能误合槽/永久占容量。
+- 客户端若仅用全局单调 token 而无连接 identity，迟到的旧连接事件/包可能作用于新连接。
 
 ## 修复方案
 
@@ -26,7 +28,7 @@
 - `ServerChainConfigRequestDispatch`：key = UUID + 弱引用对象 identity（相等要求 UUID 相等且双方 referent 存活且 `==`，hash 仅分桶、不单独决定相等）；pending 弱持有端点；过期弱键实现 `StaleDetectableKey`，在 submit/drain/生命周期点可 purge 释放容量；消费时主线程重取在线玩家并要求实例身份匹配后再整包校验/写入；诊断限频汇总。
 - `PacketChainConfigRequest.Handler` 只捕获原始 int 与端点，不直接每包入普通 FIFO。
 - 服务端停止先同步清理玩家，再关闭 dispatcher。
-- S2C：`ClientConnectionLifecycle` 不可复用 token；Handler/ClientProxy 捕获当时 token；inactive 直接丢弃且不做 dispatcher rejection warn。主线程任务**先整包数值校验，再**经 `publishIfCurrentAndActive` 在与 advance 共享的 monitor 内复核 token 并 publication（禁 check 后裸调用）。`advanceKeepActive` 在同一 monitor 内读取线性化时刻 active 标志，disconnect 先提交后 unload 不得复活 active。不跨 lifecycle 重试。拒绝诊断仅 CAS 获胜线程写一条限频日志。
+- S2C：`ClientConnectionLifecycle` 绑定真实连接 identity（`INetHandler` 对象 `==`）与 world identity；不可复用 connection/world generation。三 S2C Handler 传 `ctx.netHandler`；ClientProxy `captureForConnection`；不匹配/inactive 直接丢弃且不做 dispatcher rejection warn。主线程任务**先整包数值校验，再**经 `publishIfConnectionCurrentAndActive` / world-active gate 在与 lifecycle 共享的 monitor 内复核并 publication（禁 check 后裸调用）。disconnect/unload 仅成功转移才排队 cleanup，旧连接迟到 no-op。不跨 lifecycle 重试。拒绝诊断仅 CAS 获胜线程写一条限频日志。详见 `docs/反馈层/决策/client-connection-identity.md`。
 
 ## 预防措施
 
@@ -35,6 +37,6 @@
 - START keyed drain 必须不可重入，避免嵌套耗尽预算。
 - 消费前必须重取会话并校验实例身份；禁止仅用 UUID 或仅用 identityHashCode 假定端点仍有效。
 - 弱键过期须可回收，避免 GC 后永久占容量。
-- 客户端 S2C 状态写入须绑定连接生命周期 token，跨 connect/disconnect/world-unload 的排队任务 no-op；advance 与 publication 必须共享线性化边界，禁分离 get/set 与 check 后裸 publication。
+- 客户端 S2C 状态写入须绑定**连接 identity + generation** token，跨 connect/disconnect/world-unload 的排队任务 no-op；advance 与 publication 必须共享线性化边界，禁分离 get/set 与 check 后裸 publication；禁止用全局 capture 替代 `captureForConnection(netHandler)`。
 - 诊断限频/汇总，禁逐包成功 debug / 非法 warn；并发窗口只允许一条日志。
 - 守 I4/I7。

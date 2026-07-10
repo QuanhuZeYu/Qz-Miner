@@ -114,9 +114,21 @@ public class ChainEventBus {
 
     /**
      * 清空待分发队列，不影响已注册订阅者。
+     *
+     * <p>客户端生命周期 cleanup 专用入口：断线/世界卸载后清 pending，防止旧 phase 随后 drain 回写。
+     * 服务端 bus 亦可安全调用；不破坏订阅关系。</p>
+     */
+    public void clearPending() {
+        pendingQueue.clear();
+    }
+
+    /**
+     * 清空待分发队列，不影响已注册订阅者。
+     *
+     * <p>等价 {@link #clearPending()}，保留旧名兼容既有测试。</p>
      */
     public void clear() {
-        pendingQueue.clear();
+        clearPending();
     }
 
     /**

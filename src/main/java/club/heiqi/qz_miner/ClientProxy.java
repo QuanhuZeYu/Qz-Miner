@@ -22,6 +22,7 @@ import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
+import net.minecraft.network.INetHandler;
 
 public class ClientProxy extends CommonProxy {
 
@@ -34,7 +35,7 @@ public class ClientProxy extends CommonProxy {
                 @Override
                 public boolean isActive(Object token) {
                     return token instanceof ClientConnectionLifecycle.Token
-                            && ((ClientConnectionLifecycle.Token) token).isActive();
+                            && ((ClientConnectionLifecycle.Token) token).isConnectionActive();
                 }
 
                 @Override
@@ -42,7 +43,7 @@ public class ClientProxy extends CommonProxy {
                     if (!(token instanceof ClientConnectionLifecycle.Token)) {
                         return false;
                     }
-                    return ClientConnectionLifecycle.isCurrentAndActive(
+                    return ClientConnectionLifecycle.isConnectionCurrentAndActive(
                             (ClientConnectionLifecycle.Token) token);
                 }
 
@@ -51,7 +52,7 @@ public class ClientProxy extends CommonProxy {
                     if (!(token instanceof ClientConnectionLifecycle.Token)) {
                         return false;
                     }
-                    return ClientConnectionLifecycle.publishIfCurrentAndActive(
+                    return ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(
                             (ClientConnectionLifecycle.Token) token, publication);
                 }
             };
@@ -90,26 +91,32 @@ public class ClientProxy extends CommonProxy {
     /**
      * 阶段8 块3 F3-a：处理客户端连锁配置同步下发。
      *
-     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。先捕获三个 final int
-     * 与当前 {@link ClientConnectionLifecycle} token，再经 {@link ClientMainThreadDispatcher}
-     * 投递。主线程任务内：先整包校验，再在 lifecycle 线性化边界内复核 token 并写
-     * ChainClientState 三字段。inactive token 直接丢弃且不做 dispatcher rejection warn；
-     * dispatcher 拒绝时做限频诊断，不跨 lifecycle 重试。</p>
+     * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。按
+     * {@code netHandler} 对象 identity 捕获 connection token（非全局 capture），
+     * 不匹配/inactive 直接丢弃。再经 {@link ClientMainThreadDispatcher} 投递。
+     * 主线程任务内：先整包校验，再在 lifecycle 线性化边界内复核 connection 仍 current+active
+     * 并写 ChainClientState 三字段。旧连接包在 B 已 connect 后即使全局 current=B 也丢弃。</p>
      *
      * <p>守 I4：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。
-     * publication 若在 disconnect 推进前取得线性化边界，属于旧生命周期内完成，不算跨生命周期写；
-     * disconnect 不因此重置 ChainClientState 旧字段（现有契约未要求状态清零）。</p>
+     * publication 回调禁阻塞、禁反向调用 lifecycle 入口。</p>
      *
      * @param chainRadius        服务端连锁半径上限
      * @param chainMaxBlocks     服务端连锁目标数上限
      * @param matchedTargetCount 已匹配目标数
+     * @param netHandler         入包连接 identity（ctx.netHandler）
      */
     @Override
-    public void handleClientChainConfigSync(int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+    public void handleClientChainConfigSync(
+            int chainRadius, int chainMaxBlocks, int matchedTargetCount, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token capturedToken =
+                ClientConnectionLifecycle.captureForConnection(netHandler);
+        // identity 不匹配或连接 inactive：intentional drop，非 dispatcher rejection
+        if (capturedToken == null) {
+            return;
+        }
         final int receivedRadius = chainRadius;
         final int receivedMaxBlocks = chainMaxBlocks;
         final int receivedMatchedTargetCount = matchedTargetCount;
-        final ClientConnectionLifecycle.Token capturedToken = ClientConnectionLifecycle.capture();
         boolean accepted = ClientChainConfigSyncDispatch.dispatch(
                 receivedRadius,
                 receivedMaxBlocks,
@@ -158,42 +165,92 @@ public class ClientProxy extends CommonProxy {
         return CONFIG_SYNC_REJECT_DIAG;
     }
 
+    /**
+     * 处理 LootGames 扫雷预览响应。
+     *
+     * <p>Netty 线程按 netHandler 捕获 token；主线程在 world-active gate 内应用 preview。
+     * 旧连接/旧世界包 no-op。</p>
+     *
+     * @param requestId  请求 id
+     * @param origin     原点
+     * @param targets    目标
+     * @param netHandler 入包连接 identity
+     */
     @Override
-    public void handleClientLootGamesMinesweeperPreview(int requestId, ChainTarget origin, List<ChainTarget> targets) {
-        final List<ChainTarget> targetSnapshot = targets == null ? new ArrayList<ChainTarget>() : new ArrayList<ChainTarget>(targets);
-        ClientMainThreadDispatcher.run(() -> {
-            if (chainPreviewController == null) {
-                return;
+    public void handleClientLootGamesMinesweeperPreview(
+            int requestId, ChainTarget origin, List<ChainTarget> targets, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token capturedToken =
+                ClientConnectionLifecycle.captureForConnection(netHandler);
+        if (capturedToken == null || !capturedToken.isWorldActive()) {
+            return;
+        }
+        final int capturedRequestId = requestId;
+        final ChainTarget originSnapshot = origin;
+        final List<ChainTarget> targetSnapshot =
+                targets == null ? new ArrayList<ChainTarget>() : new ArrayList<ChainTarget>(targets);
+        ClientMainThreadDispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                ClientConnectionLifecycle.runIfWorldCurrentAndActive(capturedToken, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (chainPreviewController == null) {
+                            return;
+                        }
+                        chainPreviewController.applyLootGamesMinesweeperPreview(
+                                capturedRequestId, originSnapshot, targetSnapshot);
+                    }
+                });
             }
-
-            chainPreviewController.applyLootGamesMinesweeperPreview(requestId, origin, targetSnapshot);
         });
     }
 
     /**
      * 阶段6：处理连锁阶段快照下发。
      *
-     * <p>本方法由 {@code PacketChainPhaseSnapshot.Handler} 在 Netty 线程调用。<b>不直接改投影容器</b>，
-     * 组装 {@link ChainPhaseChanged} 投影事件 publish 到 clientChainEventBus，
-     * 靠 ClientTickEvent.START drain 收口客户端主线程（守 I4：跨线程 publish 安全，主线程 drain 收口）。</p>
-     *
-     * <p>from 字段从当前 projection 读取（update 前的旧态，纯诊断用途；null 时填 IDLE 占位）。</p>
+     * <p>Netty 线程按 netHandler 捕获 token 与包数据，不直接改投影容器、不 publish 语义状态。
+     * 主线程在 world-active gate 内再 publish 到 clientChainEventBus（守 I4）。</p>
      *
      * @param phaseOrdinal 目标态 ordinal
      * @param generation   转移后的新代际
      * @param serverTick   发布时服务端 tick（诊断）
+     * @param netHandler   入包连接 identity
      */
     @Override
-    public void handleClientChainPhaseSnapshot(int phaseOrdinal, int generation, long serverTick) {
-        ChainPhase[] phases = ChainPhase.values();
-        ChainPhase toPhase = phaseOrdinal >= 0 && phaseOrdinal < phases.length
-                ? phases[phaseOrdinal]
-                : ChainPhase.IDLE;
-        // P2-1 收口：from 字段在客户端是死代码（订阅者 ClientPhaseProjectionSubscriber 只消费 toPhase），
-        // 占位 IDLE 避免在 Netty 线程读 projection 容器（守 I4 精神：Netty 线程不碰容器）。
-        // 服务端 ChainPhaseChanged 的 from 有诊断价值（事件流即结构化日志），客户端投影事件不消费 from。
-        // 守 I4：跨线程 publish 安全（ChainEventBus.publish 仅 offer），主线程 drain 收口
-        MyMod.clientChainEventBus.publish(new ChainPhaseChanged(
-                null, generation, ChainPhase.IDLE, toPhase, serverTick, System.nanoTime()));
+    public void handleClientChainPhaseSnapshot(
+            int phaseOrdinal, int generation, long serverTick, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token capturedToken =
+                ClientConnectionLifecycle.captureForConnection(netHandler);
+        if (capturedToken == null || !capturedToken.isWorldActive()) {
+            return;
+        }
+        final int capturedPhaseOrdinal = phaseOrdinal;
+        final int capturedGeneration = generation;
+        final long capturedServerTick = serverTick;
+        ClientMainThreadDispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                ClientConnectionLifecycle.runIfWorldCurrentAndActive(capturedToken, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (MyMod.clientChainEventBus == null) {
+                            return;
+                        }
+                        ChainPhase[] phases = ChainPhase.values();
+                        ChainPhase toPhase = capturedPhaseOrdinal >= 0 && capturedPhaseOrdinal < phases.length
+                                ? phases[capturedPhaseOrdinal]
+                                : ChainPhase.IDLE;
+                        // from 占位 IDLE：订阅者只消费 toPhase；gate 内短小 offer，禁阻塞
+                        MyMod.clientChainEventBus.publish(new ChainPhaseChanged(
+                                null,
+                                capturedGeneration,
+                                ChainPhase.IDLE,
+                                toPhase,
+                                capturedServerTick,
+                                System.nanoTime()));
+                    }
+                });
+            }
+        });
     }
 }

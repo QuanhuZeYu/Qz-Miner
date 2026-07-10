@@ -13,18 +13,32 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
+import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+
 /**
- * 客户端连接生命周期 token 与 S2C 配置同步守卫的纯 JVM 确定性测试。
+ * 客户端连接 identity 生命周期确定性测试。
  *
- * <p>避免实例化 GuiScreen / Minecraft。</p>
+ * <p>用普通 Object 模拟 INetHandler / World 对象 identity（{@code ==}），
+ * 不实例化 GuiScreen / Minecraft / NetHandlerPlayClient。</p>
  */
 public class ClientConnectionLifecycleTest {
 
     private static final long LATCH_TIMEOUT_MS = 5_000L;
 
+    private Object handlerA;
+    private Object handlerB;
+    private Object worldA;
+    private Object worldB;
+
     @Before
     public void setUp() {
         ClientConnectionLifecycle.resetForTests();
+        handlerA = new Object();
+        handlerB = new Object();
+        worldA = new Object();
+        worldB = new Object();
     }
 
     @After
@@ -33,49 +47,310 @@ public class ClientConnectionLifecycleTest {
     }
 
     @Test
-    public void oldTokenPacketQueuedThenDisconnectConnectDoesNotPublish() {
-        ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.advanceActive();
-        Harness harness = dispatchWithToken(12, 345, 67, oldToken);
+    public void sameActiveHandlerConnectIsNoOp() {
+        ClientConnectionLifecycle.Token t1 = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token t2 = ClientConnectionLifecycle.connect(handlerA);
+        Assert.assertSame(t1, t2);
+        Assert.assertTrue(t1.isConnectionActive());
+        Assert.assertEquals(t1.connectionGeneration(), t2.connectionGeneration());
+    }
+
+    @Test
+    public void differentHandlerConnectCreatesNewActiveToken() {
+        ClientConnectionLifecycle.Token a = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token b = ClientConnectionLifecycle.connect(handlerB);
+        Assert.assertNotSame(a, b);
+        Assert.assertTrue(b.isConnectionActive());
+        Assert.assertTrue(a.connectionGeneration() != b.connectionGeneration());
+        Assert.assertSame(handlerB, b.connectionIdentity());
+    }
+
+    @Test
+    public void disconnectOnlyWhenCurrentActiveHandler() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.DisconnectResult late =
+                ClientConnectionLifecycle.disconnect(handlerB);
+        Assert.assertFalse(late.transitioned());
+        Assert.assertTrue(ClientConnectionLifecycle.capture().isConnectionActive());
+
+        ClientConnectionLifecycle.DisconnectResult ok =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertTrue(ok.transitioned());
+        Assert.assertFalse(ok.token().isConnectionActive());
+        Assert.assertFalse(ClientConnectionLifecycle.capture().isConnectionActive());
+
+        ClientConnectionLifecycle.DisconnectResult repeat =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertFalse(repeat.transitioned());
+    }
+
+    @Test
+    public void lateDisconnectAfterReconnectIsNoOp() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.disconnect(handlerA);
+        ClientConnectionLifecycle.connect(handlerB);
+        ClientConnectionLifecycle.DisconnectResult late =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertFalse(late.transitioned());
+        Assert.assertTrue(ClientConnectionLifecycle.capture().isConnectionActive());
+        Assert.assertSame(handlerB, ClientConnectionLifecycle.capture().connectionIdentity());
+    }
+
+    @Test
+    public void secondCloseAfterDisconnectIsNoOp() {
+        ClientConnectionLifecycle.connect(handlerA);
+        Assert.assertTrue(ClientConnectionLifecycle.disconnect(handlerA).transitioned());
+        Assert.assertFalse(ClientConnectionLifecycle.disconnect(handlerA).transitioned());
+    }
+
+    /**
+     * A connect → init 排队 → A disconnect → B connect → 运行 A init no-op。
+     */
+    @Test
+    public void queuedInitForAAfterBConnectIsNoOp() {
+        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.connect(handlerA);
+        final AtomicInteger inits = new AtomicInteger(0);
+
+        ClientConnectionLifecycle.disconnect(handlerA);
+        ClientConnectionLifecycle.connect(handlerB);
+
+        boolean ran = ClientConnectionLifecycle.runIfConnectionCurrentAndActive(tokenA, new Runnable() {
+            @Override
+            public void run() {
+                inits.incrementAndGet();
+            }
+        });
+        Assert.assertFalse(ran);
+        Assert.assertEquals(0, inits.get());
+
+        ClientConnectionLifecycle.Token tokenB = ClientConnectionLifecycle.capture();
+        Assert.assertTrue(ClientConnectionLifecycle.runIfConnectionCurrentAndActive(tokenB, new Runnable() {
+            @Override
+            public void run() {
+                inits.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(1, inits.get());
+    }
+
+    /**
+     * A cleanup 排队 → B connect + preview/phase 建立 → A cleanup no-op。
+     */
+    @Test
+    public void queuedDisconnectCleanupForAAfterBConnectIsNoOp() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.DisconnectResult discA =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertTrue(discA.transitioned());
+        final ClientConnectionLifecycle.Token cleanupA = discA.token();
+
+        ClientConnectionLifecycle.Token tokenB = ClientConnectionLifecycle.connect(handlerB);
+        ClientConnectionLifecycle.bindWorld(worldB);
+        final AtomicInteger cleanups = new AtomicInteger(0);
+        final AtomicInteger phases = new AtomicInteger(0);
+
+        boolean cleaned = ClientConnectionLifecycle.runIfInactiveDisconnectCurrent(cleanupA, new Runnable() {
+            @Override
+            public void run() {
+                cleanups.incrementAndGet();
+            }
+        });
+        Assert.assertFalse(cleaned);
+        Assert.assertEquals(0, cleanups.get());
+
+        ClientConnectionLifecycle.Token worldBToken = ClientConnectionLifecycle.capture();
+        Assert.assertTrue(ClientConnectionLifecycle.runIfWorldCurrentAndActive(worldBToken, new Runnable() {
+            @Override
+            public void run() {
+                phases.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(1, phases.get());
+        Assert.assertTrue(ClientConnectionLifecycle.isConnectionCurrentAndActive(tokenB));
+    }
+
+    @Test
+    public void disconnectCleanupRunsOnInactiveCurrentToken() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.DisconnectResult disc =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        final AtomicInteger cleanups = new AtomicInteger(0);
+        Assert.assertTrue(ClientConnectionLifecycle.runIfInactiveDisconnectCurrent(disc.token(), new Runnable() {
+            @Override
+            public void run() {
+                cleanups.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(1, cleanups.get());
+    }
+
+    @Test
+    public void firstWorldBindKeepsConnectionGeneration() {
+        ClientConnectionLifecycle.Token conn = ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token afterBind = ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertEquals(conn.connectionGeneration(), afterBind.connectionGeneration());
+        Assert.assertTrue(afterBind.isWorldActive());
+        Assert.assertTrue(ClientConnectionLifecycle.isConnectionCurrentAndActive(conn));
+        Assert.assertTrue(ClientConnectionLifecycle.isConnectionCurrentAndActive(afterBind));
+    }
+
+    @Test
+    public void worldReplaceAdvancesWorldGenerationKeepsConnection() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token wA = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.Token wB = ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertEquals(wA.connectionGeneration(), wB.connectionGeneration());
+        Assert.assertTrue(wA.worldGeneration() != wB.worldGeneration());
+        Assert.assertFalse(ClientConnectionLifecycle.isWorldCurrentAndActive(wA));
+        Assert.assertTrue(ClientConnectionLifecycle.isWorldCurrentAndActive(wB));
+    }
+
+    @Test
+    public void oldWorldUnloadAfterWorldBIsNoOp() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.bindWorld(worldB);
+        ClientConnectionLifecycle.WorldUnbindResult old =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        Assert.assertFalse(old.transitioned());
+        Assert.assertTrue(ClientConnectionLifecycle.capture().isWorldActive());
+        Assert.assertSame(worldB, ClientConnectionLifecycle.capture().worldIdentity());
+    }
+
+    @Test
+    public void unloadAfterDisconnectIsNoOp() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.disconnect(handlerA);
+        ClientConnectionLifecycle.WorldUnbindResult r =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        Assert.assertFalse(r.transitioned());
+    }
+
+    @Test
+    public void sameConnectionDimensionChangeInvalidatesOldWorldToken() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token oldWorld = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.WorldUnbindResult unbind =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        Assert.assertTrue(unbind.transitioned());
+        Assert.assertTrue(ClientConnectionLifecycle.capture().isConnectionActive());
+        Assert.assertFalse(ClientConnectionLifecycle.capture().isWorldActive());
+        Assert.assertFalse(ClientConnectionLifecycle.isWorldCurrentAndActive(oldWorld));
+
+        ClientConnectionLifecycle.Token newWorld = ClientConnectionLifecycle.bindWorld(worldB);
+        Assert.assertTrue(newWorld.isWorldActive());
+        Assert.assertEquals(oldWorld.connectionGeneration(), newWorld.connectionGeneration());
+    }
+
+    /**
+     * packet callback(A) 在 B connect 后，即使全局 current=B 也丢弃。
+     */
+    @Test
+    public void packetCapturedForAAfterBConnectIsDropped() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token tokenA =
+                ClientConnectionLifecycle.captureForConnection(handlerA);
+        Assert.assertNotNull(tokenA);
+
+        ClientConnectionLifecycle.connect(handlerB);
+        Assert.assertNull(ClientConnectionLifecycle.captureForConnection(handlerA));
+        Assert.assertNotNull(ClientConnectionLifecycle.captureForConnection(handlerB));
+
+        final AtomicInteger pubs = new AtomicInteger(0);
+        Assert.assertFalse(ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(tokenA, new Runnable() {
+            @Override
+            public void run() {
+                pubs.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(0, pubs.get());
+    }
+
+    @Test
+    public void configSyncOldConnectionPacketDoesNotPublish() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token tokenA =
+                ClientConnectionLifecycle.captureForConnection(handlerA);
+        Harness harness = dispatchConfig(12, 345, 67, tokenA);
         Assert.assertTrue(harness.accepted);
-        Assert.assertNotNull(harness.queued);
 
-        ClientConnectionLifecycle.advanceInactive();
-        ClientConnectionLifecycle.advanceActive();
-
+        ClientConnectionLifecycle.connect(handlerB);
         harness.queued.run();
         Assert.assertEquals(0, harness.publications);
         Assert.assertArrayEquals(new int[] {91, 92, 93}, harness.state);
     }
 
     @Test
-    public void oldTokenPacketQueuedThenWorldUnloadDoesNotPublish() {
-        ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.advanceActive();
-        Harness harness = dispatchWithToken(12, 345, 67, oldToken);
-        Assert.assertTrue(harness.accepted);
-
-        ClientConnectionLifecycle.Token afterUnload = ClientConnectionLifecycle.advanceKeepActive();
-        Assert.assertTrue(afterUnload.isActive());
-        Assert.assertTrue(afterUnload != oldToken);
-
+    public void configSyncNewConnectionPublishes() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token token =
+                ClientConnectionLifecycle.captureForConnection(handlerA);
+        Harness harness = dispatchConfig(12, 345, 67, token);
         harness.queued.run();
-        Assert.assertEquals(0, harness.publications);
-    }
-
-    @Test
-    public void newTokenPacketPublishesOnce() {
-        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.advanceActive();
-        Harness harness = dispatchWithToken(12, 345, 67, token);
-        harness.queued.run();
-        Assert.assertArrayEquals(new int[] {12, 345, 67}, harness.state);
         Assert.assertEquals(1, harness.publications);
+        Assert.assertArrayEquals(new int[] {12, 345, 67}, harness.state);
     }
 
     @Test
-    public void inactiveTokenDoesNotEnqueue() {
-        ClientConnectionLifecycle.advanceInactive();
-        ClientConnectionLifecycle.Token inactive = ClientConnectionLifecycle.capture();
-        Assert.assertFalse(inactive.isActive());
+    public void phaseAndPreviewRequireWorldActive() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token noWorld =
+                ClientConnectionLifecycle.captureForConnection(handlerA);
+        final AtomicInteger actions = new AtomicInteger(0);
+        Assert.assertFalse(ClientConnectionLifecycle.runIfWorldCurrentAndActive(noWorld, new Runnable() {
+            @Override
+            public void run() {
+                actions.incrementAndGet();
+            }
+        }));
 
+        ClientConnectionLifecycle.Token withWorld = ClientConnectionLifecycle.bindWorld(worldA);
+        Assert.assertTrue(ClientConnectionLifecycle.runIfWorldCurrentAndActive(withWorld, new Runnable() {
+            @Override
+            public void run() {
+                actions.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(1, actions.get());
+    }
+
+    @Test
+    public void phasePacketOldWorldDroppedAfterWorldReplace() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token oldWorld = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.bindWorld(worldB);
+        final AtomicInteger pubs = new AtomicInteger(0);
+        Assert.assertFalse(ClientConnectionLifecycle.runIfWorldCurrentAndActive(oldWorld, new Runnable() {
+            @Override
+            public void run() {
+                pubs.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(0, pubs.get());
+    }
+
+    @Test
+    public void previewPacketOldConnectionDropped() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.connect(handlerB);
+        ClientConnectionLifecycle.bindWorld(worldB);
+        final AtomicInteger apps = new AtomicInteger(0);
+        Assert.assertFalse(ClientConnectionLifecycle.runIfWorldCurrentAndActive(tokenA, new Runnable() {
+            @Override
+            public void run() {
+                apps.incrementAndGet();
+            }
+        }));
+        Assert.assertEquals(0, apps.get());
+    }
+
+    @Test
+    public void inactiveTokenDoesNotEnqueueConfig() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.disconnect(handlerA);
+        ClientConnectionLifecycle.Token inactive = ClientConnectionLifecycle.capture();
         final Harness harness = new Harness();
         boolean accepted = ClientChainConfigSyncDispatch.dispatch(
                 12,
@@ -97,107 +372,58 @@ public class ClientConnectionLifecycleTest {
                         harness.publications++;
                     }
                 });
-        Assert.assertTrue("inactive drop is not a dispatcher rejection", accepted);
+        Assert.assertTrue(accepted);
         Assert.assertFalse(harness.enqueued);
-        Assert.assertNull(harness.queued);
         Assert.assertEquals(0, harness.publications);
     }
 
     @Test
-    public void afterWorldUnloadSameConnectionNewActiveTokenCanPublish() {
-        ClientConnectionLifecycle.advanceActive();
-        ClientConnectionLifecycle.Token afterUnload = ClientConnectionLifecycle.advanceKeepActive();
-        Assert.assertTrue(afterUnload.isActive());
-
-        Harness harness = dispatchWithToken(8, 100, 3, afterUnload);
-        harness.queued.run();
-        Assert.assertEquals(1, harness.publications);
-        Assert.assertArrayEquals(new int[] {8, 100, 3}, harness.state);
-    }
-
-    @Test
-    public void repeatedConnectDisconnectUnloadAdvancesIdempotently() {
-        ClientConnectionLifecycle.Token a1 = ClientConnectionLifecycle.advanceActive();
-        ClientConnectionLifecycle.Token a2 = ClientConnectionLifecycle.advanceActive();
-        Assert.assertTrue(a1 != a2);
-        Assert.assertTrue(a2.isActive());
-
-        ClientConnectionLifecycle.Token i1 = ClientConnectionLifecycle.advanceInactive();
-        ClientConnectionLifecycle.Token i2 = ClientConnectionLifecycle.advanceInactive();
-        Assert.assertTrue(i1 != i2);
-        Assert.assertFalse(i2.isActive());
-
-        ClientConnectionLifecycle.Token u1 = ClientConnectionLifecycle.advanceKeepActive();
-        Assert.assertFalse(u1.isActive());
-        ClientConnectionLifecycle.Token u2 = ClientConnectionLifecycle.advanceKeepActive();
-        Assert.assertTrue(u1 != u2);
-        Assert.assertFalse(u2.isActive());
-
-        ClientConnectionLifecycle.Token reconnect = ClientConnectionLifecycle.advanceActive();
-        Assert.assertTrue(reconnect.isActive());
-        Assert.assertTrue(ClientConnectionLifecycle.isCurrentAndActive(reconnect));
-        Assert.assertFalse(ClientConnectionLifecycle.isCurrentAndActive(a2));
-    }
-
-    /**
-     * a) validate 完成后、进入 publication gate 前推进 disconnect/unload → publication=0。
-     */
-    @Test
-    public void disconnectAfterValidateBeforePublicationGateDoesNotPublish() throws Exception {
-        final ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.advanceActive();
-        final AtomicInteger publications = new AtomicInteger(0);
-        final CountDownLatch enteredTask = new CountDownLatch(1);
-        final CountDownLatch allowGate = new CountDownLatch(1);
-        final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
-
-        Thread taskThread = new Thread(new Runnable() {
+    public void clearPendingPreventsOldPhaseRewrite() {
+        ChainEventBus bus = new ChainEventBus();
+        final AtomicInteger deliveries = new AtomicInteger(0);
+        bus.subscribe(ChainPhaseChanged.class, new club.heiqi.qz_miner.chain.eventbus.EventSubscriber<ChainPhaseChanged>() {
             @Override
-            public void run() {
-                try {
-                    // 模拟主线程任务：先校验（此处恒合法），再在 gate 前被打断
-                    if (!(12 > 0 && 345 > 0 && 67 >= 0)) {
-                        return;
-                    }
-                    enteredTask.countDown();
-                    Assert.assertTrue(allowGate.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-                    boolean published = ClientConnectionLifecycle.publishIfCurrentAndActive(
-                            oldToken,
-                            new Runnable() {
-                                @Override
-                                public void run() {
-                                    publications.incrementAndGet();
-                                }
-                            });
-                    Assert.assertFalse(published);
-                } catch (Throwable t) {
-                    error.set(t);
-                }
+            public void onEvent(ChainPhaseChanged event) {
+                deliveries.incrementAndGet();
             }
-        }, "validate-then-disconnect");
-        taskThread.start();
-
-        Assert.assertTrue(enteredTask.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        ClientConnectionLifecycle.advanceInactive();
-        ClientConnectionLifecycle.advanceKeepActive();
-        allowGate.countDown();
-        taskThread.join(LATCH_TIMEOUT_MS);
-        Assert.assertFalse(taskThread.isAlive());
-        rethrow(error.get());
-        Assert.assertEquals(0, publications.get());
-        Assert.assertFalse(ClientConnectionLifecycle.capture().isActive());
+        });
+        bus.publish(new ChainPhaseChanged(
+                null, 1, ChainPhase.IDLE, ChainPhase.RUNNING, 10L, System.nanoTime()));
+        Assert.assertEquals(1, bus.pendingCount());
+        bus.clearPending();
+        Assert.assertEquals(0, bus.pendingCount());
+        Assert.assertEquals(0, bus.drain());
+        Assert.assertEquals(0, deliveries.get());
     }
 
-    /**
-     * b) publication 已取得 gate 时并发 disconnect 必须等待；publication 完成后 disconnect 推进；无死锁。
-     */
+    @Test
+    public void actionExceptionDoesNotHoldLifecycleLock() throws Exception {
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA);
+        try {
+            ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(token, new Runnable() {
+                @Override
+                public void run() {
+                    throw new RuntimeException("boom");
+                }
+            });
+            Assert.fail("expected exception");
+        } catch (RuntimeException expected) {
+            Assert.assertEquals("boom", expected.getMessage());
+        }
+        // 异常后仍可推进
+        ClientConnectionLifecycle.DisconnectResult disc =
+                ClientConnectionLifecycle.disconnect(handlerA);
+        Assert.assertTrue(disc.transitioned());
+        Assert.assertFalse(ClientConnectionLifecycle.capture().isConnectionActive());
+    }
+
     @Test
     public void publicationHoldingGateBlocksDisconnectUntilComplete() throws Exception {
-        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.advanceActive();
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA);
         final List<String> order = new ArrayList<String>();
         final Object orderLock = new Object();
         final CountDownLatch insidePublication = new CountDownLatch(1);
         final CountDownLatch releasePublication = new CountDownLatch(1);
-        final CountDownLatch disconnectStarted = new CountDownLatch(1);
         final CountDownLatch disconnectDone = new CountDownLatch(1);
         final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
 
@@ -205,7 +431,7 @@ public class ClientConnectionLifecycleTest {
             @Override
             public void run() {
                 try {
-                    boolean ok = ClientConnectionLifecycle.publishIfCurrentAndActive(
+                    boolean ok = ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(
                             token,
                             new Runnable() {
                                 @Override
@@ -228,15 +454,13 @@ public class ClientConnectionLifecycleTest {
             }
         }, "publication-holder");
         pubThread.start();
-
         Assert.assertTrue(insidePublication.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
 
         Thread disconnectThread = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    disconnectStarted.countDown();
-                    ClientConnectionLifecycle.advanceInactive();
+                    ClientConnectionLifecycle.disconnect(handlerA);
                     record(order, orderLock, "disconnect");
                     disconnectDone.countDown();
                 } catch (Throwable t) {
@@ -246,8 +470,6 @@ public class ClientConnectionLifecycleTest {
         }, "disconnect-waiter");
         disconnectThread.start();
 
-        Assert.assertTrue(disconnectStarted.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        // disconnect 必须在 publication 持锁时无法完成
         Assert.assertFalse(
                 "disconnect must wait while publication holds lifecycle monitor",
                 disconnectDone.await(200L, TimeUnit.MILLISECONDS));
@@ -266,91 +488,24 @@ public class ClientConnectionLifecycleTest {
             Assert.assertEquals("publish-exit", order.get(1));
             Assert.assertEquals("disconnect", order.get(2));
         }
-        Assert.assertFalse(ClientConnectionLifecycle.capture().isActive());
-        Assert.assertFalse(ClientConnectionLifecycle.isCurrentAndActive(token));
     }
 
-    /**
-     * c) unload 观察旧 active 与 disconnect 交错，最终 inactive。
-     */
-    @Test
-    public void unloadInterleavedWithDisconnectEndsInactive() throws Exception {
-        ClientConnectionLifecycle.advanceActive();
-        final int rounds = 200;
-        final CountDownLatch start = new CountDownLatch(1);
-        final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
-        final AtomicInteger unloadSeenActiveThenFinalInactive = new AtomicInteger(0);
-
-        Thread unloadThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    start.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                    for (int i = 0; i < rounds; i++) {
-                        ClientConnectionLifecycle.Token t = ClientConnectionLifecycle.advanceKeepActive();
-                        // 线性化后若仍 active，说明 disconnect 尚未覆盖该次；最终循环外再断言
-                        if (t.isActive()) {
-                            unloadSeenActiveThenFinalInactive.incrementAndGet();
-                        }
-                    }
-                } catch (Throwable t) {
-                    error.set(t);
-                }
-            }
-        }, "unload-racer");
-        Thread disconnectThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    start.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-                    for (int i = 0; i < rounds; i++) {
-                        ClientConnectionLifecycle.advanceInactive();
-                    }
-                } catch (Throwable t) {
-                    error.set(t);
-                }
-            }
-        }, "disconnect-racer");
-
-        unloadThread.start();
-        disconnectThread.start();
-        start.countDown();
-        unloadThread.join(LATCH_TIMEOUT_MS);
-        disconnectThread.join(LATCH_TIMEOUT_MS);
-        Assert.assertFalse(unloadThread.isAlive());
-        Assert.assertFalse(disconnectThread.isAlive());
-        rethrow(error.get());
-
-        // 再推进一次 unload：若 disconnect 已先提交，必须保持 inactive
-        ClientConnectionLifecycle.Token finalUnload = ClientConnectionLifecycle.advanceKeepActive();
-        Assert.assertFalse(
-                "after disconnect wins, keep-active must not resurrect active",
-                finalUnload.isActive());
-        Assert.assertFalse(ClientConnectionLifecycle.capture().isActive());
-    }
-
-    /**
-     * d) disconnect+reconnect 与旧 publication 交错：旧 token 不能在新 active 后写。
-     */
     @Test
     public void oldPublicationCannotWriteAfterDisconnectReconnect() throws Exception {
-        final ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.advanceActive();
+        final ClientConnectionLifecycle.Token oldToken = ClientConnectionLifecycle.connect(handlerA);
         final AtomicInteger publications = new AtomicInteger(0);
-        final CountDownLatch insideGateCheckPath = new CountDownLatch(1);
+        final CountDownLatch ready = new CountDownLatch(1);
         final CountDownLatch reconnectDone = new CountDownLatch(1);
         final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
         final AtomicBoolean published = new AtomicBoolean(false);
 
-        // 持有 monitor 的旧 publication 路径：进入后等 reconnect，再尝试写
         Thread oldPub = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    // 先进入 monitor 路径前让 reconnect 有机会交错：用两阶段
-                    // 阶段1：disconnect+reconnect 完成
-                    insideGateCheckPath.countDown();
+                    ready.countDown();
                     Assert.assertTrue(reconnectDone.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-                    boolean ok = ClientConnectionLifecycle.publishIfCurrentAndActive(
+                    boolean ok = ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(
                             oldToken,
                             new Runnable() {
                                 @Override
@@ -365,143 +520,58 @@ public class ClientConnectionLifecycleTest {
             }
         }, "old-publication");
         oldPub.start();
-
-        Assert.assertTrue(insideGateCheckPath.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        ClientConnectionLifecycle.advanceInactive();
-        ClientConnectionLifecycle.Token newToken = ClientConnectionLifecycle.advanceActive();
-        Assert.assertTrue(newToken.isActive());
-        Assert.assertTrue(newToken != oldToken);
+        Assert.assertTrue(ready.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
+        ClientConnectionLifecycle.disconnect(handlerA);
+        ClientConnectionLifecycle.Token newToken = ClientConnectionLifecycle.connect(handlerB);
         reconnectDone.countDown();
         oldPub.join(LATCH_TIMEOUT_MS);
         Assert.assertFalse(oldPub.isAlive());
         rethrow(error.get());
-
         Assert.assertFalse(published.get());
         Assert.assertEquals(0, publications.get());
-        Assert.assertTrue(ClientConnectionLifecycle.isCurrentAndActive(newToken));
-
-        // 新 token 正常发布
-        boolean newOk = ClientConnectionLifecycle.publishIfCurrentAndActive(
-                newToken,
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        publications.incrementAndGet();
-                    }
-                });
-        Assert.assertTrue(newOk);
-        Assert.assertEquals(1, publications.get());
+        Assert.assertTrue(ClientConnectionLifecycle.isConnectionCurrentAndActive(newToken));
     }
 
-    /**
-     * e) 新 token 正常发布（经完整 dispatch 路径）。
-     */
     @Test
-    public void newTokenNormalPublicationViaDispatchPath() {
-        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.advanceActive();
-        Harness harness = dispatchWithToken(21, 400, 5, token);
-        harness.queued.run();
-        Assert.assertEquals(1, harness.publications);
-        Assert.assertArrayEquals(new int[] {21, 400, 5}, harness.state);
-        Assert.assertTrue(ClientConnectionLifecycle.isCurrentAndActive(token));
+    public void captureForConnectionRequiresMatchingIdentity() {
+        ClientConnectionLifecycle.connect(handlerA);
+        Assert.assertNotNull(ClientConnectionLifecycle.captureForConnection(handlerA));
+        Assert.assertNull(ClientConnectionLifecycle.captureForConnection(handlerB));
+        Assert.assertNull(ClientConnectionLifecycle.captureForConnection(null));
     }
 
-    /**
-     * c2) 确定性：模拟「unload 已读到旧 active」窗口被 disconnect 抢先提交后，
-     * unload 在同一线性化协议下重试，最终仍 inactive（禁复活 active）。
-     */
     @Test
-    public void keepActiveAfterDisconnectCannotResurrectActive() {
-        ClientConnectionLifecycle.Token active = ClientConnectionLifecycle.advanceActive();
-        Assert.assertTrue(active.isActive());
-
-        ClientConnectionLifecycle.Token disconnected = ClientConnectionLifecycle.advanceInactive();
-        Assert.assertFalse(disconnected.isActive());
-
-        // unload 在 disconnect 之后：必须保持 inactive，即使「逻辑上」曾观察过旧 active
-        ClientConnectionLifecycle.Token afterUnload = ClientConnectionLifecycle.advanceKeepActive();
-        Assert.assertFalse(afterUnload.isActive());
-        Assert.assertTrue(afterUnload != disconnected);
-        Assert.assertFalse(ClientConnectionLifecycle.capture().isActive());
-    }
-
-    /**
-     * 持锁 publication 与随后 disconnect+unload：顺序可断言且最终 inactive。
-     */
-    @Test
-    public void publicationThenDisconnectThenUnloadEndsInactive() throws Exception {
-        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.advanceActive();
-        final List<String> order = new ArrayList<String>();
-        final Object orderLock = new Object();
-        final CountDownLatch insidePublication = new CountDownLatch(1);
-        final CountDownLatch releasePublication = new CountDownLatch(1);
-        final CountDownLatch lifecycleDone = new CountDownLatch(1);
-        final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
-
-        Thread pubThread = new Thread(new Runnable() {
+    public void worldUnbindCleanupNoOpAfterNewWorld() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.WorldUnbindResult unbind =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        Assert.assertTrue(unbind.transitioned());
+        ClientConnectionLifecycle.bindWorld(worldB);
+        final AtomicInteger cleanups = new AtomicInteger(0);
+        Assert.assertFalse(ClientConnectionLifecycle.runIfWorldUnbindCurrent(unbind.token(), new Runnable() {
             @Override
             public void run() {
-                try {
-                    boolean ok = ClientConnectionLifecycle.publishIfCurrentAndActive(
-                            token,
-                            new Runnable() {
-                                @Override
-                                public void run() {
-                                    record(order, orderLock, "publish");
-                                    insidePublication.countDown();
-                                    try {
-                                        Assert.assertTrue(
-                                                releasePublication.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-                                    } catch (InterruptedException e) {
-                                        throw new RuntimeException(e);
-                                    }
-                                }
-                            });
-                    Assert.assertTrue(ok);
-                } catch (Throwable t) {
-                    error.set(t);
-                }
+                cleanups.incrementAndGet();
             }
-        }, "publication");
-        pubThread.start();
-        Assert.assertTrue(insidePublication.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
+        }));
+        Assert.assertEquals(0, cleanups.get());
+    }
 
-        Thread lifecycleThread = new Thread(new Runnable() {
+    @Test
+    public void worldUnbindCleanupRunsWhenStillCurrent() {
+        ClientConnectionLifecycle.connect(handlerA);
+        ClientConnectionLifecycle.bindWorld(worldA);
+        ClientConnectionLifecycle.WorldUnbindResult unbind =
+                ClientConnectionLifecycle.unbindWorld(worldA);
+        final AtomicInteger cleanups = new AtomicInteger(0);
+        Assert.assertTrue(ClientConnectionLifecycle.runIfWorldUnbindCurrent(unbind.token(), new Runnable() {
             @Override
             public void run() {
-                try {
-                    ClientConnectionLifecycle.advanceInactive();
-                    record(order, orderLock, "disconnect");
-                    ClientConnectionLifecycle.Token keep = ClientConnectionLifecycle.advanceKeepActive();
-                    Assert.assertFalse(keep.isActive());
-                    record(order, orderLock, "unload");
-                    lifecycleDone.countDown();
-                } catch (Throwable t) {
-                    error.set(t);
-                }
+                cleanups.incrementAndGet();
             }
-        }, "disconnect-unload");
-        lifecycleThread.start();
-
-        Assert.assertFalse(
-                "disconnect+unload must wait while publication holds lifecycle monitor",
-                lifecycleDone.await(200L, TimeUnit.MILLISECONDS));
-
-        releasePublication.countDown();
-        Assert.assertTrue(lifecycleDone.await(LATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        pubThread.join(LATCH_TIMEOUT_MS);
-        lifecycleThread.join(LATCH_TIMEOUT_MS);
-        Assert.assertFalse(pubThread.isAlive());
-        Assert.assertFalse(lifecycleThread.isAlive());
-        rethrow(error.get());
-
-        synchronized (orderLock) {
-            Assert.assertEquals(3, order.size());
-            Assert.assertEquals("publish", order.get(0));
-            Assert.assertEquals("disconnect", order.get(1));
-            Assert.assertEquals("unload", order.get(2));
-        }
-        Assert.assertFalse(ClientConnectionLifecycle.capture().isActive());
+        }));
+        Assert.assertEquals(1, cleanups.get());
     }
 
     private static void record(List<String> order, Object lock, String event) {
@@ -526,7 +596,7 @@ public class ClientConnectionLifecycleTest {
         throw new RuntimeException(t);
     }
 
-    private static Harness dispatchWithToken(
+    private static Harness dispatchConfig(
             int radius, int maxBlocks, int matchedCount, ClientConnectionLifecycle.Token token) {
         final Harness harness = new Harness();
         harness.accepted = ClientChainConfigSyncDispatch.dispatch(
@@ -560,7 +630,7 @@ public class ClientConnectionLifecycleTest {
             @Override
             public boolean isActive(Object token) {
                 return token instanceof ClientConnectionLifecycle.Token
-                        && ((ClientConnectionLifecycle.Token) token).isActive();
+                        && ((ClientConnectionLifecycle.Token) token).isConnectionActive();
             }
 
             @Override
@@ -568,7 +638,7 @@ public class ClientConnectionLifecycleTest {
                 if (!(token instanceof ClientConnectionLifecycle.Token)) {
                     return false;
                 }
-                return ClientConnectionLifecycle.isCurrentAndActive(
+                return ClientConnectionLifecycle.isConnectionCurrentAndActive(
                         (ClientConnectionLifecycle.Token) token);
             }
 
@@ -577,7 +647,7 @@ public class ClientConnectionLifecycleTest {
                 if (!(token instanceof ClientConnectionLifecycle.Token)) {
                     return false;
                 }
-                return ClientConnectionLifecycle.publishIfCurrentAndActive(
+                return ClientConnectionLifecycle.publishIfConnectionCurrentAndActive(
                         (ClientConnectionLifecycle.Token) token, publication);
             }
         };

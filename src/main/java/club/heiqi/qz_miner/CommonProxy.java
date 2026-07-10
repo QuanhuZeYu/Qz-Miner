@@ -7,6 +7,7 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import net.minecraft.network.INetHandler;
 
 public class CommonProxy {
 
@@ -27,35 +28,44 @@ public class CommonProxy {
     public void postInit(FMLPostInitializationEvent event) {}
 
     /**
-     * 处理客户端扫雷预览结果。
+     * 处理客户端扫雷预览结果（dedicated no-op）。
+     *
+     * <p>签名仅 common 类型（含 {@link INetHandler}），禁止 client-only 类型进入描述符。</p>
+     *
+     * @param requestId  请求 id
+     * @param origin     原点
+     * @param targets    目标列表
+     * @param netHandler 入包连接 identity（与 FMLNetworkEvent.handler 同实例）
      */
-    public void handleClientLootGamesMinesweeperPreview(int requestId, ChainTarget origin, List<ChainTarget> targets) {
+    public void handleClientLootGamesMinesweeperPreview(
+            int requestId, ChainTarget origin, List<ChainTarget> targets, INetHandler netHandler) {
     }
 
     /**
-     * 阶段6：处理客户端连锁阶段快照下发（空实现，服务端不处理）。
-     *
-     * <p>客户端 ClientProxy 覆写此方法，把快照 publish 到 clientChainEventBus
-     * （守 I4：跨线程 publish 安全，主线程 drain 收口）。</p>
+     * 阶段6：处理客户端连锁阶段快照下发（dedicated no-op）。
      *
      * @param phaseOrdinal 目标态 ordinal
      * @param generation   转移后的新代际
      * @param serverTick   发布时服务端 tick（诊断）
+     * @param netHandler   入包连接 identity
      */
-    public void handleClientChainPhaseSnapshot(int phaseOrdinal, int generation, long serverTick) {
+    public void handleClientChainPhaseSnapshot(
+            int phaseOrdinal, int generation, long serverTick, INetHandler netHandler) {
     }
 
     /**
-     * 阶段8 块3 F3-a：处理客户端连锁配置同步下发（空实现，服务端不处理）。
+     * 阶段8 块3 F3-a：处理客户端连锁配置同步下发（dedicated no-op）。
      *
      * <p>服务端保持 no-op。客户端 ClientProxy 覆写后必须先经 ClientMainThreadDispatcher，
-     * 再写 ChainClientState 三字段；volatile 可见性不能替代 I4 主线程收口。</p>
+     * 按 connection identity capture token，再写 ChainClientState 三字段。</p>
      *
      * @param chainRadius        服务端连锁半径上限
      * @param chainMaxBlocks     服务端连锁目标数上限
      * @param matchedTargetCount 已匹配目标数
+     * @param netHandler         入包连接 identity
      */
-    public void handleClientChainConfigSync(int chainRadius, int chainMaxBlocks, int matchedTargetCount) {
+    public void handleClientChainConfigSync(
+            int chainRadius, int chainMaxBlocks, int matchedTargetCount, INetHandler netHandler) {
     }
 
     // register server commands in this event handler (Remove if not needed)

@@ -11,13 +11,13 @@ import io.netty.buffer.ByteBuf;
  *
  * <p>服务端 {@code ChainStateProjectionBridge} 订阅 {@code ChainPhaseChanged} 后，
  * 通过本包下发"状态机已转移"的 to phase + generation + serverTick 给客户端。
- * 客户端 Netty 线程收到后，经 {@code CommonProxy.handleClientChainPhaseSnapshot} 收口到
- * {@code clientChainEventBus}（守 I4：跨线程 publish 安全，主线程 drain 收口）。</p>
+ * Handler 将 {@code ctx.netHandler} 与快照字段转交 proxy；客户端主线程按 world-active
+ * token gate 后才 publish 到 clientChainEventBus（禁止 Netty 直接写/发布语义状态）。</p>
  *
  * <p>守 NORTH_STAR 不变量：</p>
  * <ul>
  *   <li><b>I1</b>：本包是只读快照下发，不要求客户端切态；客户端投影容器可见但不夺权（P0-1=A 决议）。</li>
- *   <li><b>I4</b>：Handler 在 Netty 线程只 publish 到 clientChainEventBus，不直接改投影容器。</li>
+ *   <li><b>I4</b>：Handler 在 Netty 线程只捕获数据与 common INetHandler，不直接改投影容器。</li>
  *   <li><b>I10</b>：客户端投影容器与状态机物理隔离，客户端没有状态机实例，投影只可见不可切态。</li>
  * </ul>
  *
@@ -62,9 +62,9 @@ public class PacketChainPhaseSnapshot implements IMessage {
     }
 
     /**
-     * Netty 线程 Handler：调 proxy.handleClientChainPhaseSnapshot（仅 publish 到 clientChainEventBus）。
+     * Netty 线程 Handler：转交 proxy（含 {@code ctx.netHandler}）。
      *
-     * <p>守 I4：不在 Netty 线程改投影容器，靠 ClientTickEvent.START drain 收口主线程。</p>
+     * <p>守 I4：不在 Netty 线程改投影容器或 publish 语义状态；ClientProxy 主线程 world-active gate 后收口。</p>
      */
     public static class Handler implements IMessageHandler<PacketChainPhaseSnapshot, IMessage> {
 
@@ -74,7 +74,8 @@ public class PacketChainPhaseSnapshot implements IMessage {
                     Integer.valueOf(message.phaseOrdinal),
                     Integer.valueOf(message.generation),
                     Long.valueOf(message.serverTick));
-            MyMod.proxy.handleClientChainPhaseSnapshot(message.phaseOrdinal, message.generation, message.serverTick);
+            MyMod.proxy.handleClientChainPhaseSnapshot(
+                    message.phaseOrdinal, message.generation, message.serverTick, ctx.netHandler);
             return null;
         }
     }
