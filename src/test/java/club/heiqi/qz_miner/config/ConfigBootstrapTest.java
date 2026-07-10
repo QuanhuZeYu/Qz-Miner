@@ -12,6 +12,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import club.heiqi.config.runtime.ConfigManager;
+import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.qz_miner.Config;
 import cpw.mods.fml.relauncher.FMLInjectionData;
 
@@ -221,6 +222,8 @@ public class ConfigBootstrapTest {
         final File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
         final byte[] original = "general: nope\n".getBytes(StandardCharsets.UTF_8);
         Files.write(yaml.toPath(), original);
+        setStaticSentinels();
+        Object[] before = captureRuntimeConfigValues();
         ConfigBootstrap.setBackupCopierForTests(new ConfigBootstrap.BackupCopier() {
             @Override
             public void copy(File source, File target) throws IOException {
@@ -236,6 +239,30 @@ public class ConfigBootstrapTest {
         }
         Assert.assertTrue(yaml.isFile());
         Assert.assertArrayEquals(original, Files.readAllBytes(yaml.toPath()));
+        assertBootstrapStateUnpublished(before);
+    }
+
+    @Test
+    public void defaultRecoveryFailurePublishesNoBootstrapStateOrRuntimeStatics() throws Exception {
+        File yaml = new File(tempDir, ConfigBootstrap.YAML_FILE_NAME);
+        Files.write(yaml.toPath(), "general: nope\n".getBytes(StandardCharsets.UTF_8));
+        setStaticSentinels();
+        final Object[] before = captureRuntimeConfigValues();
+        ConfigBootstrap.setDefaultPersisterForTests(new ConfigBootstrap.DefaultPersister() {
+            @Override
+            public ConfigBootstrap.StrictLoad persist(File file, ConfigSchema schema, String reason) {
+                throw new IllegalStateException("forced default recovery failure");
+            }
+        });
+
+        try {
+            ConfigBootstrap.bootstrap(tempDir, null);
+            Assert.fail("default recovery failure must propagate");
+        } catch (IllegalStateException expected) {
+            Assert.assertEquals("forced default recovery failure", expected.getMessage());
+        }
+
+        assertBootstrapStateUnpublished(before);
     }
 
     @Test
@@ -291,6 +318,47 @@ public class ConfigBootstrapTest {
         assertBootstrapRetireFailure(cfg, before);
         Assert.assertTrue("default recovery YAML should exist for a later authoritative retry",
                 new File(tempDir, ConfigBootstrap.YAML_FILE_NAME).isFile());
+
+        ConfigBootstrap.setCfgRetirerForTests(null);
+        ConfigManager retried = ConfigBootstrap.bootstrap(tempDir, cfg);
+        Assert.assertNotNull(retried);
+        Assert.assertSame(retried, ConfigBootstrap.manager());
+        Assert.assertEquals("retry must load recovered default YAML as authority",
+                QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
+        Assert.assertTrue("authoritative retry must leave failed-import cfg untouched", cfg.isFile());
+    }
+
+    @Test
+    public void resetForTestsNeverRollsCommitEpochBack() {
+        ConfigBootstrap.bootstrap(tempDir, null);
+        long firstEpoch = ConfigBootstrap.currentCommittedSnapshot().epoch;
+
+        ConfigBootstrap.resetForTests();
+        ConfigBootstrap.bootstrap(tempDir, null);
+
+        Assert.assertTrue(ConfigBootstrap.currentCommittedSnapshot().epoch > firstEpoch);
+    }
+
+    @Test
+    public void wrongManagerCaptureIsFailStopWithoutChangingCurrentEpochOrRuntime() throws Exception {
+        ConfigBootstrap.bootstrap(tempDir, null);
+        CommittedSnapshot beforeCommitted = ConfigBootstrap.currentCommittedSnapshot();
+        Object[] beforeRuntime = captureRuntimeConfigValues();
+        ConfigManager wrong = ConfigManager.bootstrap(
+                new File(tempDir, "wrong.yaml"),
+                QzMinerConfigSchema.create(),
+                ConfigSemanticValidator.draftValidator());
+
+        try {
+            ConfigBootstrap.captureCommittedSnapshot(wrong);
+            Assert.fail("wrong manager capture must fail-stop");
+        } catch (ConfigAuthorityInvariantError expected) {
+            Assert.assertTrue(expected.getMessage().contains("identity mismatch"));
+        }
+
+        Assert.assertSame(beforeCommitted, ConfigBootstrap.currentCommittedSnapshot());
+        Assert.assertEquals(beforeCommitted.epoch, ConfigBootstrap.currentCommittedSnapshot().epoch);
+        Assert.assertArrayEquals(beforeRuntime, captureRuntimeConfigValues());
     }
 
     @Test
@@ -351,16 +419,21 @@ public class ConfigBootstrapTest {
         } catch (IllegalStateException expected) {
             Assert.assertTrue(expected.getMessage().contains("retire legacy cfg"));
         }
-        Assert.assertNull("manager must not publish before cfg retirement", ConfigBootstrap.manager());
+        assertBootstrapStateUnpublished(before);
+        Assert.assertTrue("failed retirement must preserve cfg", cfg.isFile());
+    }
+
+    private static void assertBootstrapStateUnpublished(Object[] before) {
+        Assert.assertNull("manager must not publish before transaction commit", ConfigBootstrap.manager());
+        Assert.assertNull("yamlFile must publish only with a committed manager", ConfigBootstrap.yamlFile());
         try {
             ConfigBootstrap.currentValidatedSnapshot();
-            Assert.fail("current snapshot must remain fail-fast after retirement failure");
+            Assert.fail("current snapshot must remain fail-fast before transaction commit");
         } catch (IllegalStateException expected) {
             Assert.assertTrue(expected.getMessage().contains("not initialized"));
         }
         Assert.assertArrayEquals("all 19 Config runtime fields must remain untouched", before,
                 captureRuntimeConfigValues());
-        Assert.assertTrue("failed retirement must preserve cfg", cfg.isFile());
     }
 
     private static void setStaticSentinels() {

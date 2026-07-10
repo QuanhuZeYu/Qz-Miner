@@ -61,21 +61,37 @@ public final class ServerMainThreadDispatcher {
      * @param task 待执行任务
      */
     public static void run(Runnable task) {
+        tryRun(task);
+    }
+
+    /**
+     * 尝试在服务端主线程执行任务。
+     *
+     * @param task 待执行任务
+     * @return 服务端已启动且任务已执行或入队时为 true
+     */
+    public static boolean tryRun(Runnable task) {
         if (task == null) {
-            return;
+            return false;
+        }
+
+        if (stopping || serverThread == null) {
+            MyMod.LOG.debug("[ThreadDispatch] Dropping late server task during shutdown");
+            return false;
         }
 
         if (Thread.currentThread() == serverThread) {
             task.run();
-            return;
-        }
-
-        if (stopping) {
-            MyMod.LOG.debug("[ThreadDispatch] Dropping late server task during shutdown");
-            return;
+            return true;
         }
 
         PENDING_TASKS.offer(task);
+        if (stopping) {
+            PENDING_TASKS.remove(task);
+            MyMod.LOG.debug("[ThreadDispatch] Rejected server task racing with shutdown");
+            return false;
+        }
+        return true;
     }
 
     @SubscribeEvent

@@ -81,8 +81,8 @@ public class ConfigSemanticValidatorTest {
             @Override
             public void onConfigChanged(ConfigChangeEvent event) {
                 events.incrementAndGet();
-                ValidatedSnapshot snapshot = ConfigBootstrap.captureCommittedSnapshot(manager);
-                ConfigValueBridge.applyAll(snapshot);
+                CommittedSnapshot committed = ConfigBootstrap.captureCommittedSnapshot(manager);
+                ConfigValueBridge.applyAll(committed.snapshot);
             }
         });
         byte[] before = Files.readAllBytes(ConfigBootstrap.yamlFile().toPath());

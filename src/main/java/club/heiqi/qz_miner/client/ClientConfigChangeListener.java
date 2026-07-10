@@ -4,9 +4,11 @@ import club.heiqi.config.ConfigChangeEvent;
 import club.heiqi.config.ConfigChangeListener;
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.config.ConfigSnapshotDispatch;
+import club.heiqi.qz_miner.config.ConfigSnapshotDispatch.Mailbox;
 import club.heiqi.qz_miner.config.ConfigValueBridge;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
@@ -37,6 +39,9 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
     private static ClientConfigChangeListener subscribedListener;
 
     private final ConfigManager manager;
+    private final Mailbox clientMailbox;
+    private final Mailbox serverMailbox;
+    private final IntegratedServerProbe integratedServerProbe;
 
     /**
      * @param manager 注册时的 ConfigManager（final 持有）
@@ -46,6 +51,55 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
             throw new IllegalArgumentException("manager must not be null");
         }
         this.manager = manager;
+        this.integratedServerProbe = new IntegratedServerProbe() {
+            @Override
+            public boolean isRunning() {
+                return isIntegratedServerRunning();
+            }
+        };
+        this.clientMailbox = new Mailbox(
+                "client",
+                new ConfigSnapshotDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return ClientMainThreadDispatcher.tryRun(task);
+                    }
+                },
+                new ConfigSnapshotDispatch.Publication() {
+                    @Override
+                    public void publish(ValidatedSnapshot snapshot) {
+                        publishClientAndRequest(snapshot);
+                    }
+                });
+        this.serverMailbox = new Mailbox(
+                "server",
+                new ConfigSnapshotDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return ServerMainThreadDispatcher.tryRun(task);
+                    }
+                },
+                new ConfigSnapshotDispatch.Publication() {
+                    @Override
+                    public void publish(ValidatedSnapshot snapshot) {
+                        ConfigValueBridge.applyGeneralFromSnapshot(snapshot);
+                        MyMod.LOG.debug("Applied general config on server main thread after BATCH_SAVE");
+                    }
+                });
+    }
+
+    ClientConfigChangeListener(
+            ConfigManager manager,
+            Mailbox clientMailbox,
+            Mailbox serverMailbox,
+            IntegratedServerProbe integratedServerProbe) {
+        if (manager == null || clientMailbox == null || serverMailbox == null || integratedServerProbe == null) {
+            throw new IllegalArgumentException("manager/mailboxes/integrated probe must not be null");
+        }
+        this.manager = manager;
+        this.clientMailbox = clientMailbox;
+        this.serverMailbox = serverMailbox;
+        this.integratedServerProbe = integratedServerProbe;
     }
 
     /**
@@ -67,12 +121,15 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
      * 按 manager 实例幂等订阅。
      */
     public void register() {
+        CommittedSnapshot seed = null;
         synchronized (SUBSCRIPTION_LOCK) {
             if (subscribedManager == manager && subscribedListener == this) {
                 return;
             }
+            boolean replacing = subscribedManager != null && subscribedListener != null;
             if (subscribedManager != null && subscribedListener != null) {
                 MyMod.LOG.warn("Replacing BATCH_SAVE subscription for ConfigManager/listener instance");
+                subscribedListener.closeMailboxes();
                 subscribedManager.eventBus().unsubscribe(subscribedListener);
                 subscribedManager = null;
                 subscribedListener = null;
@@ -81,6 +138,12 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
             subscribedManager = manager;
             subscribedListener = this;
             MyMod.LOG.info("Subscribed Config BATCH_SAVE listener for manager/listener instance");
+            if (replacing && manager == ConfigBootstrap.manager()) {
+                seed = ConfigBootstrap.currentCommittedSnapshot();
+            }
+        }
+        if (seed != null) {
+            dispatchCommitted(seed);
         }
     }
 
@@ -90,6 +153,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
     public static void resetSubscriptionForTests() {
         synchronized (SUBSCRIPTION_LOCK) {
             if (subscribedManager != null && subscribedListener != null) {
+                subscribedListener.closeMailboxes();
                 subscribedManager.eventBus().unsubscribe(subscribedListener);
             }
             subscribedManager = null;
@@ -102,35 +166,29 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
         if (event == null || event.getType() != ConfigChangeEvent.ChangeType.BATCH_SAVE) {
             return;
         }
-        final ValidatedSnapshot snapshot = ConfigBootstrap.captureCommittedSnapshot(manager);
+        CommittedSnapshot committed;
+        synchronized (SUBSCRIPTION_LOCK) {
+            if (subscribedManager != manager
+                    || subscribedListener != this
+                    || manager != ConfigBootstrap.manager()) {
+                return;
+            }
+            committed = ConfigBootstrap.captureCommittedSnapshot(manager);
+        }
+        dispatchCommitted(committed);
+    }
+
+    private void dispatchCommitted(CommittedSnapshot committed) {
         ConfigSnapshotDispatch.dispatch(
-                snapshot,
-                new ConfigSnapshotDispatch.Dispatcher() {
-                    @Override
-                    public void dispatch(Runnable task) {
-                        ClientMainThreadDispatcher.run(task);
-                    }
-                },
-                new ConfigSnapshotDispatch.Publication() {
-                    @Override
-                    public void publish(ValidatedSnapshot committed) {
-                        publishClientAndRequest(committed);
-                    }
-                },
-                isIntegratedServerRunning(),
-                new ConfigSnapshotDispatch.Dispatcher() {
-                    @Override
-                    public void dispatch(Runnable task) {
-                        ServerMainThreadDispatcher.run(task);
-                    }
-                },
-                new ConfigSnapshotDispatch.Publication() {
-                    @Override
-                    public void publish(ValidatedSnapshot committed) {
-                        ConfigValueBridge.applyGeneralFromSnapshot(committed);
-                        MyMod.LOG.debug("Applied general config on server main thread after BATCH_SAVE");
-                    }
-                });
+                committed,
+                clientMailbox,
+                integratedServerProbe.isRunning(),
+                serverMailbox);
+    }
+
+    private void closeMailboxes() {
+        clientMailbox.close();
+        serverMailbox.close();
     }
 
     private void publishClientAndRequest(ValidatedSnapshot snapshot) {
@@ -178,5 +236,11 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
         } catch (LinkageError e) {
             return false;
         }
+    }
+
+    /** 集成服运行态探针，测试中避免加载 Minecraft 页面或 GL。 */
+    interface IntegratedServerProbe {
+        /** @return 当前是否需要发布服务端 general */
+        boolean isRunning();
     }
 }

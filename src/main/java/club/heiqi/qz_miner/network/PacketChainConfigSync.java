@@ -64,7 +64,7 @@ public class PacketChainConfigSync implements IMessage {
     }
 
     /**
-     * Netty 线程 Handler：只校验纯数据并转交 proxy，由 ClientProxy 负责主线程收口。
+     * Netty 线程 Handler：只捕获包内纯数据并转交 proxy，由 ClientProxy 负责主线程校验与收口。
      *
      * <p>守 I4：common packet 类不依赖 client-only dispatcher，避免 dedicated server 类加载风险。</p>
      */
@@ -72,11 +72,9 @@ public class PacketChainConfigSync implements IMessage {
 
         @Override
         public IMessage onMessage(PacketChainConfigSync message, MessageContext ctx) {
-            final int chainRadius = message.chainRadius > 0
-                    ? message.chainRadius : club.heiqi.qz_miner.Config.chainRadius;
-            final int chainMaxBlocks = message.chainMaxBlocks > 0
-                    ? message.chainMaxBlocks : club.heiqi.qz_miner.Config.chainMaxBlocks;
-            final int matchedTargetCount = Math.max(0, message.matchedTargetCount);
+            final int chainRadius = message.chainRadius;
+            final int chainMaxBlocks = message.chainMaxBlocks;
+            final int matchedTargetCount = message.matchedTargetCount;
             MyMod.LOG.debug("[ChainConfigSync] Received chainRadius={} chainMaxBlocks={} matchedTargetCount={}",
                     Integer.valueOf(chainRadius), Integer.valueOf(chainMaxBlocks), Integer.valueOf(matchedTargetCount));
             MyMod.proxy.handleClientChainConfigSync(chainRadius, chainMaxBlocks, matchedTargetCount);

@@ -13,8 +13,11 @@ public final class ClientChainConfigSyncDispatch {
 
     /** 任务投递边界。 */
     public interface Dispatcher {
-        /** @param task 客户端状态发布任务 */
-        void dispatch(Runnable task);
+        /**
+         * @param task 客户端状态发布任务
+         * @return 任务已接受或执行时为 true
+         */
+        boolean dispatch(Runnable task);
     }
 
     /** 三个配置值的发布边界。 */
@@ -48,8 +51,15 @@ public final class ClientChainConfigSyncDispatch {
         dispatcher.dispatch(new Runnable() {
             @Override
             public void run() {
+                if (!isValidPacket(radius, maxBlocks, matchedCount)) {
+                    return;
+                }
                 publication.publish(radius, maxBlocks, matchedCount);
             }
         });
+    }
+
+    private static boolean isValidPacket(int radius, int maxBlocks, int matchedCount) {
+        return radius > 0 && maxBlocks > 0 && matchedCount >= 0;
     }
 }

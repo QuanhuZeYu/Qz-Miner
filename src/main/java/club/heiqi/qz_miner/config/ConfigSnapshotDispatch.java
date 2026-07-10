@@ -1,9 +1,14 @@
 package club.heiqi.qz_miner.config;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 
 /**
- * 将同一个已提交快照投递到分侧 dispatcher，并在任务执行时阻止陈旧发布。
+ * 已提交配置快照的分侧 latest-wins 发布协调器。
  */
 public final class ConfigSnapshotDispatch {
 
@@ -12,8 +17,11 @@ public final class ConfigSnapshotDispatch {
 
     /** 任务投递边界。 */
     public interface Dispatcher {
-        /** @param task 待投递任务 */
-        void dispatch(Runnable task);
+        /**
+         * @param task 待投递 drain
+         * @return dispatcher 已接受或同步执行时为 true
+         */
+        boolean dispatch(Runnable task);
     }
 
     /** 快照发布动作。 */
@@ -23,67 +31,230 @@ public final class ConfigSnapshotDispatch {
     }
 
     /**
-     * 投递 client，并按需投递 server；所有任务闭包捕获同一 snapshot 引用。
+     * 独立分侧的无锁单消费者 mailbox。
      *
-     * @param snapshot 已提交快照
-     * @param clientDispatcher 客户端 dispatcher
-     * @param clientPublication 客户端发布动作
-     * @param publishServer 是否发布服务端 general
-     * @param serverDispatcher 服务端 dispatcher
-     * @param serverPublication 服务端发布动作
-     *
-     * <p>所有可预见参数错误在首次投递前拒绝。dispatcher 运行时异常按 best-effort 处理：异常向上抛出，
-     * 已被前序 dispatcher 接受的任务无法回滚，尚未调用的后序 dispatcher 不再投递。</p>
+     * <p>pending 只保留最大 epoch；draining 是唯一 drain owner。publication 不持有 bootstrap、manager
+     * 或 mailbox monitor。关闭后 queued drain 只清理 owner，不再执行 publication。</p>
+     */
+    public static final class Mailbox implements AutoCloseable {
+
+        private final String side;
+        private final Dispatcher dispatcher;
+        private final Publication publication;
+        private final AtomicReference<CommittedSnapshot> pending = new AtomicReference<CommittedSnapshot>();
+        private final AtomicBoolean draining = new AtomicBoolean();
+        private final AtomicBoolean retryRequested = new AtomicBoolean();
+        private final AtomicBoolean closed = new AtomicBoolean();
+        private final AtomicLong appliedEpoch = new AtomicLong();
+
+        /**
+         * @param side 诊断侧名称
+         * @param dispatcher 主线程 dispatcher
+         * @param publication 锁外发布动作
+         */
+        public Mailbox(String side, Dispatcher dispatcher, Publication publication) {
+            if (side == null || dispatcher == null || publication == null) {
+                throw new IllegalArgumentException("side/dispatcher/publication must not be null");
+            }
+            this.side = side;
+            this.dispatcher = dispatcher;
+            this.publication = publication;
+        }
+
+        /**
+         * 提交一个 epoch；较旧值被 latest 槽拒绝，最多争取一个 drain owner。
+         *
+         * @param committed 已提交包装
+         * @return mailbox 未关闭且该 epoch 不早于现有待处理值
+         */
+        public boolean submit(CommittedSnapshot committed) {
+            if (committed == null) {
+                throw new IllegalArgumentException("committed snapshot must not be null");
+            }
+            if (closed.get() || committed.epoch <= appliedEpoch.get()) {
+                return false;
+            }
+            boolean offered = offerLatest(committed);
+            if (closed.get()) {
+                pending.set(null);
+                return false;
+            }
+            requestDrainFromSubmit();
+            return offered;
+        }
+
+        /** @return 已成功 publication 的最大 epoch */
+        public long appliedEpoch() {
+            return appliedEpoch.get();
+        }
+
+        /** @return mailbox 是否已关闭 */
+        public boolean isClosed() {
+            return closed.get();
+        }
+
+        /** 关闭并丢弃尚未开始的 publication。 */
+        @Override
+        public void close() {
+            closed.set(true);
+            pending.set(null);
+            retryRequested.set(false);
+        }
+
+        private boolean offerLatest(CommittedSnapshot offered) {
+            while (!closed.get()) {
+                CommittedSnapshot current = pending.get();
+                if (current != null && current.epoch >= offered.epoch) {
+                    return false;
+                }
+                if (pending.compareAndSet(current, offered)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void requestDrainFromSubmit() {
+            if (draining.compareAndSet(false, true)) {
+                scheduleDrain(true);
+                return;
+            }
+            retryRequested.set(true);
+            // owner 可能恰在 submit 的 CAS 失败后释放；再次争抢关闭该窗口。
+            if (!draining.get() && draining.compareAndSet(false, true)) {
+                scheduleDrain(true);
+            }
+        }
+
+        private void scheduleDrain(boolean allowConcurrentRetry) {
+            boolean accepted = false;
+            try {
+                accepted = dispatcher.dispatch(new Runnable() {
+                    @Override
+                    public void run() {
+                        drain();
+                    }
+                });
+            } catch (RuntimeException e) {
+                MyMod.LOG.error("[ConfigMailbox] {} dispatcher failed; pending retained", side, e);
+            } catch (Error error) {
+                draining.set(false);
+                throw error;
+            }
+            if (accepted) {
+                return;
+            }
+            MyMod.LOG.warn("[ConfigMailbox] {} dispatcher rejected drain; pending retained", side);
+            draining.set(false);
+            boolean retry = retryRequested.getAndSet(false);
+            if (allowConcurrentRetry && retry && !closed.get() && draining.compareAndSet(false, true)) {
+                scheduleDrain(false);
+            }
+        }
+
+        private void drain() {
+            boolean ownerReleased = false;
+            try {
+                while (true) {
+                    if (closed.get()) {
+                        pending.set(null);
+                        releaseOwnerWithoutRetry();
+                        ownerReleased = true;
+                        return;
+                    }
+                    CommittedSnapshot committed = pending.getAndSet(null);
+                    if (committed == null) {
+                        if (releaseOwnerOrContinue()) {
+                            continue;
+                        }
+                        ownerReleased = true;
+                        return;
+                    }
+                    if (committed.epoch <= appliedEpoch.get()) {
+                        continue;
+                    }
+                    if (!ConfigBootstrap.isCurrent(committed)) {
+                        advanceAppliedEpoch(committed.epoch);
+                        continue;
+                    }
+                    try {
+                        publication.publish(committed.snapshot);
+                    } catch (RuntimeException e) {
+                        MyMod.LOG.error("[ConfigMailbox] {} publication failed at epoch={}",
+                                side, Long.valueOf(committed.epoch), e);
+                        CommittedSnapshot newer = pending.get();
+                        if (newer != null && newer.epoch > committed.epoch) {
+                            continue;
+                        }
+                        offerLatest(committed);
+                        releaseAfterPublicationFailure(committed.epoch);
+                        ownerReleased = true;
+                        return;
+                    }
+                    advanceAppliedEpoch(committed.epoch);
+                }
+            } finally {
+                if (!ownerReleased) {
+                    draining.set(false);
+                }
+            }
+        }
+
+        /**
+         * idle 前后双检 pending；若释放窗口内出现新值，则当前栈重新取得 owner 继续 drain。
+         */
+        private boolean releaseOwnerOrContinue() {
+            retryRequested.set(false);
+            if (pending.get() != null) {
+                return true;
+            }
+            draining.set(false);
+            if (closed.get() || (pending.get() == null && !retryRequested.getAndSet(false))) {
+                return false;
+            }
+            return draining.compareAndSet(false, true);
+        }
+
+        private void releaseAfterPublicationFailure(long failedEpoch) {
+            draining.set(false);
+            boolean concurrentRetry = retryRequested.getAndSet(false);
+            CommittedSnapshot latest = pending.get();
+            boolean newerPending = latest != null && latest.epoch > failedEpoch;
+            if ((concurrentRetry || newerPending) && !closed.get() && draining.compareAndSet(false, true)) {
+                scheduleDrain(false);
+            }
+        }
+
+        private void releaseOwnerWithoutRetry() {
+            retryRequested.set(false);
+            draining.set(false);
+        }
+
+        private void advanceAppliedEpoch(long epoch) {
+            long previous;
+            do {
+                previous = appliedEpoch.get();
+                if (epoch <= previous) {
+                    return;
+                }
+            } while (!appliedEpoch.compareAndSet(previous, epoch));
+        }
+    }
+
+    /**
+     * 将同一提交包装 best-effort 提交到两侧 mailbox。
      */
     public static void dispatch(
-            final ValidatedSnapshot snapshot,
-            Dispatcher clientDispatcher,
-            final Publication clientPublication,
+            CommittedSnapshot committed,
+            Mailbox clientMailbox,
             boolean publishServer,
-            Dispatcher serverDispatcher,
-            final Publication serverPublication) {
-        requireClient(snapshot, clientDispatcher, clientPublication);
-        requireServerIfEnabled(publishServer, serverDispatcher, serverPublication);
-        clientDispatcher.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                publishIfCurrent(snapshot, clientPublication);
-            }
-        });
-        if (!publishServer) {
-            return;
+            Mailbox serverMailbox) {
+        if (committed == null || clientMailbox == null || (publishServer && serverMailbox == null)) {
+            throw new IllegalArgumentException("committed/client mailbox/enabled server mailbox must not be null");
         }
-        serverDispatcher.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                publishIfCurrent(snapshot, serverPublication);
-            }
-        });
-    }
-
-    private static void publishIfCurrent(
-            final ValidatedSnapshot snapshot,
-            final Publication publication) {
-        ConfigBootstrap.publishIfCurrent(snapshot, new Runnable() {
-            @Override
-            public void run() {
-                publication.publish(snapshot);
-            }
-        });
-    }
-
-    private static void requireClient(ValidatedSnapshot snapshot, Dispatcher dispatcher, Publication publication) {
-        if (snapshot == null || dispatcher == null || publication == null) {
-            throw new IllegalArgumentException("snapshot/client dispatcher/publication must not be null");
-        }
-    }
-
-    private static void requireServerIfEnabled(
-            boolean publishServer,
-            Dispatcher dispatcher,
-            Publication publication) {
-        if (publishServer && (dispatcher == null || publication == null)) {
-            throw new IllegalArgumentException("server dispatcher/publication must not be null");
+        clientMailbox.submit(committed);
+        if (publishServer) {
+            serverMailbox.submit(committed);
         }
     }
 }

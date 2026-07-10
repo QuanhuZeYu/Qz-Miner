@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.network;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.network.ServerChainConfigRequestValidator.Result;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
@@ -47,20 +48,24 @@ public class PacketChainConfigRequest implements IMessage {
             final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
             final int requestedChainRadius = message.requestedChainRadius;
             final int requestedChainMaxBlocks = message.requestedChainMaxBlocks;
-            ServerMainThreadDispatcher.run(() -> {
+            ServerMainThreadDispatcher.tryRun(() -> {
                 if (MyMod.chainStateService == null || player == null) {
                     return;
                 }
-
+                Result validated = ServerChainConfigRequestValidator.validateAndClamp(
+                        requestedChainRadius,
+                        requestedChainMaxBlocks,
+                        Config.chainRadius,
+                        Config.chainMaxBlocks);
+                if (!validated.accepted) {
+                    MyMod.LOG.warn("[ChainConfig] Rejected invalid client request config for player {} radius={} maxBlocks={}",
+                            player.getUniqueID(), Integer.valueOf(requestedChainRadius),
+                            Integer.valueOf(requestedChainMaxBlocks));
+                    return;
+                }
                 ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
-                int requestedRadius = requestedChainRadius > 0
-                    ? Math.min(Config.chainRadius, requestedChainRadius)
-                    : -1;
-                int requestedMaxBlocks = requestedChainMaxBlocks > 0
-                    ? Math.min(Config.chainMaxBlocks, requestedChainMaxBlocks)
-                    : -1;
-                state.setRequestedChainRadius(requestedRadius);
-                state.setRequestedChainMaxBlocks(requestedMaxBlocks);
+                state.setRequestedChainRadius(validated.radius);
+                state.setRequestedChainMaxBlocks(validated.maxBlocks);
                 MyMod.LOG.debug("[ChainConfig] Received client request config for player {} radius={} maxBlocks={}",
                     player.getUniqueID(), state.getRequestedChainRadius(), state.getRequestedChainMaxBlocks());
             });

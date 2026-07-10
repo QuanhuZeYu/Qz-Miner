@@ -17,6 +17,7 @@ public class ConfigDeadApiTest {
         assertNoMethod(ConfigValueBridge.class, "applyFromAuthority");
         assertNoMethod(ConfigBootstrap.class, "updateLastValidSnapshot");
         assertNoMethod(ConfigBootstrap.class, "updateCurrentValidatedSnapshot");
+        assertNoMethod(ConfigBootstrap.class, "publishIfCurrent");
     }
 
     @Test(expected = IllegalStateException.class)

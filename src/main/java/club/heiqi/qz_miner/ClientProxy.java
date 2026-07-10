@@ -78,8 +78,8 @@ public class ClientProxy extends CommonProxy {
                 receivedMatchedTargetCount,
                 new ClientChainConfigSyncDispatch.Dispatcher() {
                     @Override
-                    public void dispatch(Runnable task) {
-                        ClientMainThreadDispatcher.run(task);
+                    public boolean dispatch(Runnable task) {
+                        return ClientMainThreadDispatcher.tryRun(task);
                     }
                 },
                 new ClientChainConfigSyncDispatch.Publication() {

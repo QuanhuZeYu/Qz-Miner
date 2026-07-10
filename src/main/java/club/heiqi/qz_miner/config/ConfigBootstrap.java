@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.config.ConfigException;
 import club.heiqi.config.runtime.ConfigManager;
@@ -28,9 +29,11 @@ public final class ConfigBootstrap {
 
     private static volatile ConfigManager manager;
     private static volatile File yamlFile;
-    private static volatile ValidatedSnapshot currentValidatedSnapshot;
+    private static final AtomicLong COMMIT_EPOCH = new AtomicLong();
+    private static volatile CommittedSnapshot currentCommittedSnapshot;
     private static volatile BackupCopier backupCopier = BackupCopier.DEFAULT;
     private static volatile CfgRetirer cfgRetirer = CfgRetirer.DEFAULT;
+    private static volatile DefaultPersister defaultPersister = DefaultPersister.DEFAULT;
 
     private ConfigBootstrap() {
     }
@@ -52,33 +55,31 @@ public final class ConfigBootstrap {
      * @throws IllegalStateException 尚未初始化
      */
     public static ValidatedSnapshot currentValidatedSnapshot() {
-        ValidatedSnapshot snapshot = currentValidatedSnapshot;
-        if (snapshot == null) {
-            throw new IllegalStateException("currentValidatedSnapshot is not initialized");
-        }
-        return snapshot;
+        return currentCommittedSnapshot().snapshot;
     }
 
     /**
-     * 仅当给定快照仍是 current 时执行一次受控短发布。
+     * 获取当前提交令牌。
      *
-     * <p>current 替换与 publication 共用 {@code ConfigBootstrap.class} monitor，避免异步任务在
-     * check 与发布之间被更新快照穿透。action 只能做 Config 静态回灌、客户端状态更新或单向网络入队，
-     * 不得等待外部线程，也不得触发新的配置提交。</p>
-     *
-     * @param snapshot 异步任务捕获的快照
-     * @param action 受控短发布动作
-     * @return 快照仍为 current 且已执行发布时为 true；陈旧任务为 false
+     * @return 当前不可变提交包装
+     * @throws IllegalStateException 尚未初始化
      */
-    public static synchronized boolean publishIfCurrent(ValidatedSnapshot snapshot, Runnable action) {
-        if (snapshot == null || action == null) {
-            throw new IllegalArgumentException("snapshot/action must not be null");
+    public static CommittedSnapshot currentCommittedSnapshot() {
+        CommittedSnapshot committed = currentCommittedSnapshot;
+        if (committed == null) {
+            throw new IllegalStateException("currentValidatedSnapshot is not initialized");
         }
-        if (snapshot != currentValidatedSnapshot) {
-            return false;
-        }
-        action.run();
-        return true;
+        return committed;
+    }
+
+    /**
+     * 无锁检查提交令牌是否仍为全局 current。
+     *
+     * @param committed 待检查令牌
+     * @return identity 仍为 current 时为 true
+     */
+    public static boolean isCurrent(CommittedSnapshot committed) {
+        return committed != null && committed == currentCommittedSnapshot;
     }
 
     /**
@@ -104,20 +105,19 @@ public final class ConfigBootstrap {
             throw new IllegalStateException("Failed to create config directory: " + configDir.getAbsolutePath());
         }
 
-        yamlFile = targetYaml;
         ConfigSchema schema = QzMinerConfigSchema.create();
-        if (isFile(yamlFile)) {
-            StrictLoad existing = loadStrict(yamlFile, schema, "existing YAML");
+        if (isFile(targetYaml)) {
+            StrictLoad existing = loadStrict(targetYaml, schema, "existing YAML");
             if (existing.isValid()) {
-                commitManager(existing.manager, existing.snapshot);
-                MyMod.LOG.info("Loaded YAML config authority: {}", yamlFile.getAbsolutePath());
+                commitManager(targetYaml, existing.manager, existing.snapshot);
+                MyMod.LOG.info("Loaded YAML config authority: {}", targetYaml.getAbsolutePath());
                 return manager;
             }
             MyMod.LOG.error("Existing YAML rejected; rebuilding defaults: {}", existing.error);
-            requiredBackup(yamlFile, "invalid");
-            requiredDelete(yamlFile, "invalid YAML");
-            StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "invalid YAML recovery");
-            commitManager(defaults.manager, defaults.snapshot);
+            requiredBackup(targetYaml, "invalid");
+            requiredDelete(targetYaml, "invalid YAML");
+            StrictLoad defaults = persistDefaults(targetYaml, schema, "invalid YAML recovery");
+            commitManager(targetYaml, defaults.manager, defaults.snapshot);
             return manager;
         }
 
@@ -125,12 +125,12 @@ public final class ConfigBootstrap {
             requiredBackup(legacyCfg, "pre-import");
             ImportResult imported = LegacyCfgImporter.importValues(legacyCfg);
             if (imported.status == ImportResult.Status.OK) {
-                StrictLoad migration = migrateLegacy(yamlFile, schema, imported.values);
+                StrictLoad migration = migrateLegacy(targetYaml, schema, imported.values);
                 if (migration.isValid()) {
                     retireCfgStrict(legacyCfg, "imported");
-                    commitManager(migration.manager, migration.snapshot);
+                    commitManager(targetYaml, migration.manager, migration.snapshot);
                     MyMod.LOG.info("Migrated legacy cfg to YAML: {} values -> {}",
-                            Integer.valueOf(imported.values.size()), yamlFile.getAbsolutePath());
+                            Integer.valueOf(imported.values.size()), targetYaml.getAbsolutePath());
                     return manager;
                 }
                 MyMod.LOG.error("Legacy cfg migration rejected; rebuilding defaults: {}", migration.error);
@@ -138,15 +138,15 @@ public final class ConfigBootstrap {
                 MyMod.LOG.error("Legacy cfg import rejected ({}): {}", imported.status, imported.message);
             }
 
-            cleanupPartialYamlIfAny(yamlFile);
-            StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "legacy migration recovery");
+            cleanupPartialYamlIfAny(targetYaml);
+            StrictLoad defaults = persistDefaults(targetYaml, schema, "legacy migration recovery");
             retireCfgStrict(legacyCfg, "import-failed");
-            commitManager(defaults.manager, defaults.snapshot);
+            commitManager(targetYaml, defaults.manager, defaults.snapshot);
             return manager;
         }
 
-        StrictLoad defaults = persistDefaultsStrict(yamlFile, schema, "first run defaults");
-        commitManager(defaults.manager, defaults.snapshot);
+        StrictLoad defaults = persistDefaults(targetYaml, schema, "first run defaults");
+        commitManager(targetYaml, defaults.manager, defaults.snapshot);
         return manager;
     }
 
@@ -154,27 +154,29 @@ public final class ConfigBootstrap {
      * 成功 BATCH_SAVE 回调内同步捕获并替换当前派生快照。
      *
      * @param sourceManager 触发回调的 manager
-     * @return 本次完整提交快照
-     * @throws InternalError manager 身份或提交后语义不变量被破坏
+     * @return 本次完整提交令牌
+     * @throws ConfigAuthorityInvariantError manager 身份或提交后语义不变量被破坏
      */
-    public static synchronized ValidatedSnapshot captureCommittedSnapshot(ConfigManager sourceManager) {
+    public static synchronized CommittedSnapshot captureCommittedSnapshot(ConfigManager sourceManager) {
         if (sourceManager == null || sourceManager != manager) {
             MyMod.LOG.error("BATCH_SAVE manager identity mismatch: expected={}, actual={}", manager, sourceManager);
-            throw new InternalError("BATCH_SAVE manager identity mismatch");
+            throw new ConfigAuthorityInvariantError("BATCH_SAVE manager identity mismatch");
         }
         ParseOutcome outcome;
         try {
             outcome = ConfigSemanticValidator.captureAndValidate(sourceManager);
         } catch (RuntimeException e) {
             MyMod.LOG.error("BATCH_SAVE committed snapshot capture failed", e);
-            throw new InternalError("BATCH_SAVE committed snapshot capture failed", e);
+            throw new ConfigAuthorityInvariantError("BATCH_SAVE committed snapshot capture failed", e);
         }
         if (!outcome.isValid()) {
             MyMod.LOG.error("BATCH_SAVE committed Authority violates DraftValidator: {}", outcome.result.summary());
-            throw new InternalError("BATCH_SAVE committed Authority is invalid: " + outcome.result.summary());
+            throw new ConfigAuthorityInvariantError(
+                    "BATCH_SAVE committed Authority is invalid: " + outcome.result.summary());
         }
-        currentValidatedSnapshot = outcome.snapshot;
-        return outcome.snapshot;
+        CommittedSnapshot committed = newCommittedSnapshot(outcome.snapshot);
+        currentCommittedSnapshot = committed;
+        return committed;
     }
 
     /** 服务端启动只发布当前派生快照中的 general 字段。 */
@@ -190,9 +192,10 @@ public final class ConfigBootstrap {
     public static synchronized void resetForTests() {
         manager = null;
         yamlFile = null;
-        currentValidatedSnapshot = null;
+        currentCommittedSnapshot = null;
         backupCopier = BackupCopier.DEFAULT;
         cfgRetirer = CfgRetirer.DEFAULT;
+        defaultPersister = DefaultPersister.DEFAULT;
     }
 
     static synchronized void setBackupCopierForTests(BackupCopier copier) {
@@ -201,6 +204,10 @@ public final class ConfigBootstrap {
 
     static synchronized void setCfgRetirerForTests(CfgRetirer retirer) {
         cfgRetirer = retirer == null ? CfgRetirer.DEFAULT : retirer;
+    }
+
+    static synchronized void setDefaultPersisterForTests(DefaultPersister persister) {
+        defaultPersister = persister == null ? DefaultPersister.DEFAULT : persister;
     }
 
     private static StrictLoad migrateLegacy(File file, ConfigSchema schema, Map<String, Object> values) {
@@ -255,6 +262,10 @@ public final class ConfigBootstrap {
         return reloaded;
     }
 
+    private static StrictLoad persistDefaults(File file, ConfigSchema schema, String reason) {
+        return defaultPersister.persist(file, schema, reason);
+    }
+
     private static StrictLoad loadStrict(File file, ConfigSchema schema, String reason) {
         try {
             RawYamlPreflight.Result raw = RawYamlPreflight.validate(file, schema);
@@ -278,13 +289,23 @@ public final class ConfigBootstrap {
         return ConfigManager.bootstrap(file, schema, ConfigSemanticValidator.draftValidator());
     }
 
-    private static void commitManager(ConfigManager loaded, ValidatedSnapshot snapshot) {
-        if (loaded == null || snapshot == null) {
-            throw new IllegalArgumentException("loaded manager/snapshot must not be null");
+    private static void commitManager(File targetYaml, ConfigManager loaded, ValidatedSnapshot snapshot) {
+        if (targetYaml == null || loaded == null || snapshot == null) {
+            throw new IllegalArgumentException("target YAML/loaded manager/snapshot must not be null");
         }
-        manager = loaded;
-        currentValidatedSnapshot = snapshot;
         ConfigValueBridge.applyAll(snapshot);
+        CommittedSnapshot committed = newCommittedSnapshot(snapshot);
+        yamlFile = targetYaml;
+        currentCommittedSnapshot = committed;
+        manager = loaded;
+    }
+
+    private static CommittedSnapshot newCommittedSnapshot(ValidatedSnapshot snapshot) {
+        long epoch = COMMIT_EPOCH.incrementAndGet();
+        if (epoch <= 0L) {
+            throw new ConfigAuthorityInvariantError("Config commit epoch overflow");
+        }
+        return new CommittedSnapshot(epoch, snapshot);
     }
 
     static void cleanupPartialYamlIfAny(File file) {
@@ -387,6 +408,19 @@ public final class ConfigBootstrap {
 
         /** @param source 旧 cfg @param target 唯一退役目标 */
         void move(File source, File target) throws IOException;
+    }
+
+    /** 默认恢复小边界，供失败事务做确定性纯 JVM 测试。 */
+    interface DefaultPersister {
+        DefaultPersister DEFAULT = new DefaultPersister() {
+            @Override
+            public StrictLoad persist(File file, ConfigSchema schema, String reason) {
+                return ConfigBootstrap.persistDefaultsStrict(file, schema, reason);
+            }
+        };
+
+        /** @return 已落盘并复验的严格加载结果 */
+        StrictLoad persist(File file, ConfigSchema schema, String reason);
     }
 
     /** 严格加载结果。 */
