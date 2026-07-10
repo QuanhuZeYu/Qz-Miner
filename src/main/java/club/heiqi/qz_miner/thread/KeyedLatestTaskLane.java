@@ -2,6 +2,8 @@ package club.heiqi.qz_miner.thread;
 
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -10,8 +12,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * 与普通 FIFO 完全隔离的 keyed latest-wins 任务泳道。
  *
  * <p>同一 key 仅占一个排队槽；新 key 在容量满时拒绝，已有 key 的更新始终允许。
- * start/stop 使用不可复用的 lane identity 隔离旧生命周期；关闭后清空并拒绝旧提交。
- * drain 每次最多消费 {@code drainBudget} 个槽，并保证生产停止后已接受值最终可达。</p>
+ * 更新协议可线性化：{@code ConcurrentHashMap.replace(key, observed, next)} /
+ * {@code remove(key)}，禁止对已脱离 map 的槽位写回。start/stop 使用不可复用的
+ * lane identity 隔离旧生命周期；关闭后清空并拒绝旧提交。drain 每次最多消费
+ * {@code drainBudget} 个槽，并保证生产停止后已接受值最终可达。</p>
  *
  * @param <K> 槽位键类型
  */
@@ -27,6 +31,18 @@ public final class KeyedLatestTaskLane<K> {
     private final int drainBudget;
     private final AtomicLong nextIdentity = new AtomicLong(1L);
     private final AtomicReference<LaneState<K>> state = new AtomicReference<LaneState<K>>(LaneState.<K>closed());
+
+    /**
+     * 测试接缝：观察到 existing 槽后、CAS replace 前触发（仅测试设置；生产保持 null）。
+     * 设置后 {@link #testBlockAfterObserve} 会 countDown，并等待
+     * {@link #testResumeAfterObserve}。
+     */
+    volatile CountDownLatch testBlockAfterObserve;
+
+    /**
+     * 测试接缝：与 {@link #testBlockAfterObserve} 配对，恢复被暂停的 submit。
+     */
+    volatile CountDownLatch testResumeAfterObserve;
 
     /**
      * 使用默认容量与 drain 预算。
@@ -80,6 +96,10 @@ public final class KeyedLatestTaskLane<K> {
     /**
      * 提交或更新 key 对应的最新任务。
      *
+     * <p>已有 key 必须经 {@code replace(key, observed, task)} 成功才算接受；
+     * drain 已 remove 后 replace 失败则循环并可能创建新槽。成功 replace/insert
+     * 后复核 lane state，旧 lifecycle 不得返回 accepted。</p>
+     *
      * @param key  槽位键
      * @param task 最新任务
      * @return 已接受（含更新已有 key）时为 true；关闭、空参或新 key 容量满时为 false
@@ -93,30 +113,41 @@ public final class KeyedLatestTaskLane<K> {
             if (current == null || current.identity == 0L) {
                 return false;
             }
-            AtomicReference<Runnable> existing = current.pending.get(key);
-            if (existing != null) {
-                existing.set(task);
-                return state.get() == current;
+
+            Runnable observed = current.pending.get(key);
+            if (observed != null) {
+                maybePauseAfterObserve();
+                // 可能被 drain remove 或并发 replace；失败则整轮重试
+                if (current.pending.replace(key, observed, task)) {
+                    return state.get() == current;
+                }
+                continue;
             }
+
             int size = current.size.get();
             if (size >= capacity) {
-                existing = current.pending.get(key);
-                if (existing != null) {
-                    existing.set(task);
-                    return state.get() == current;
+                // 容量压力下先回收过期弱键，避免 GC 后永久占槽
+                if (purgeStaleKeys(current) > 0) {
+                    continue;
+                }
+                observed = current.pending.get(key);
+                if (observed != null) {
+                    continue;
                 }
                 return false;
             }
+
             if (!current.size.compareAndSet(size, size + 1)) {
                 continue;
             }
-            AtomicReference<Runnable> created = new AtomicReference<Runnable>(task);
-            AtomicReference<Runnable> raced = current.pending.putIfAbsent(key, created);
+
+            Runnable raced = current.pending.putIfAbsent(key, task);
             if (raced != null) {
-                current.size.decrementAndGet();
-                raced.set(task);
-                return state.get() == current;
+                // 插入竞争失败：对称释放预留，再走 replace 路径
+                safeDecrement(current.size);
+                continue;
             }
+
             if (state.get() != current) {
                 // 旧 identity 已停；槽位随旧 map 一并废弃
                 return false;
@@ -137,8 +168,11 @@ public final class KeyedLatestTaskLane<K> {
     /**
      * 消费至多 {@code drainBudget} 个槽并执行其最新任务。
      *
+     * <p>原子 {@code remove(key)} 取得 Runnable 后在 map 外执行；
+     * 同时顺带跳过并回收已 stale 的弱键（不执行其任务）。</p>
+     *
      * @param errors 可选运行时异常处理器；为 null 时吞掉并继续
-     * @return 实际尝试执行的任务数
+     * @return 实际尝试处理的槽位数（含 stale 跳过，均计预算）
      */
     public int drain(ErrorHandler errors) {
         LaneState<K> current = state.get();
@@ -152,13 +186,14 @@ public final class KeyedLatestTaskLane<K> {
                 break;
             }
             K key = keys.next();
-            AtomicReference<Runnable> slot = current.pending.remove(key);
-            if (slot == null) {
+            Runnable task = current.pending.remove(key);
+            if (task == null) {
                 continue;
             }
-            current.size.decrementAndGet();
-            Runnable task = slot.getAndSet(null);
-            if (task == null) {
+            safeDecrement(current.size);
+            // 弱键已失效：释放容量，不计为有效业务执行但仍消耗预算
+            if (key instanceof StaleDetectableKey && ((StaleDetectableKey) key).isStale()) {
+                drained++;
                 continue;
             }
             try {
@@ -201,12 +236,79 @@ public final class KeyedLatestTaskLane<K> {
         return drainBudget;
     }
 
+    /**
+     * 主动回收 map 中已 stale 的弱键（生命周期点 / 测试可调用）。
+     *
+     * @return 回收的槽位数
+     */
+    public int purgeStaleKeys() {
+        LaneState<K> current = state.get();
+        if (current == null || current.identity == 0L) {
+            return 0;
+        }
+        return purgeStaleKeys(current);
+    }
+
+    private int purgeStaleKeys(LaneState<K> current) {
+        int purged = 0;
+        for (K key : current.pending.keySet()) {
+            if (!(key instanceof StaleDetectableKey)) {
+                continue;
+            }
+            if (!((StaleDetectableKey) key).isStale()) {
+                continue;
+            }
+            if (current.pending.remove(key) != null) {
+                safeDecrement(current.size);
+                purged++;
+            }
+        }
+        return purged;
+    }
+
+    private void maybePauseAfterObserve() {
+        CountDownLatch block = testBlockAfterObserve;
+        CountDownLatch resume = testResumeAfterObserve;
+        if (block == null || resume == null) {
+            return;
+        }
+        block.countDown();
+        try {
+            if (!resume.await(5L, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("KeyedLatestTaskLane test resume timeout");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("KeyedLatestTaskLane test pause interrupted", e);
+        }
+    }
+
+    private static void safeDecrement(AtomicInteger size) {
+        int current;
+        do {
+            current = size.get();
+            if (current <= 0) {
+                return;
+            }
+        } while (!size.compareAndSet(current, current - 1));
+    }
+
     /** drain 时运行时异常回调。 */
     public interface ErrorHandler {
         /**
          * @param error 任务抛出的运行时异常
          */
         void onError(RuntimeException error);
+    }
+
+    /**
+     * 可选键能力：referent 失效后可被泳道回收，避免永久占容量。
+     */
+    public interface StaleDetectableKey {
+        /**
+         * @return 键已失效（如弱引用 referent 被 GC）时为 true
+         */
+        boolean isStale();
     }
 
     private static final class LaneState<K> {
@@ -218,8 +320,8 @@ public final class KeyedLatestTaskLane<K> {
         }
 
         private final long identity;
-        private final ConcurrentHashMap<K, AtomicReference<Runnable>> pending =
-                new ConcurrentHashMap<K, AtomicReference<Runnable>>();
+        /** 直接存最新 Runnable；更新靠 replace，消费靠 remove，可线性化。 */
+        private final ConcurrentHashMap<K, Runnable> pending = new ConcurrentHashMap<K, Runnable>();
         private final AtomicInteger size = new AtomicInteger();
 
         private LaneState(long identity) {

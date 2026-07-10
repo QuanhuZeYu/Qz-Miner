@@ -1,9 +1,11 @@
 package club.heiqi.qz_miner.network;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -42,7 +44,6 @@ public class ServerChainConfigRequestDispatchTest {
         Object endpoint = new Object();
         online.put(uuid, endpoint);
         for (int i = 1; i <= 10000; i++) {
-            // 保持在 caps 内，避免 clamp 掩盖 final 值断言
             int radius = 1 + (i % 100);
             int maxBlocks = 1 + (i % 200);
             Assert.assertTrue(submit(uuid, endpoint, radius, maxBlocks));
@@ -103,7 +104,6 @@ public class ServerChainConfigRequestDispatchTest {
         Assert.assertTrue(submit(uuid, newEndpoint, 21, 22));
         Assert.assertEquals(2, lane.pendingCount());
         lane.drain();
-        // 旧端点 identity 不匹配被丢弃；新端点写入
         Assert.assertArrayEquals(new int[] {21, 22}, written.get());
         Assert.assertEquals(1, writeCount.get());
     }
@@ -136,12 +136,16 @@ public class ServerChainConfigRequestDispatchTest {
         Assert.assertEquals(0, writeCount.get());
     }
 
+    /**
+     * 随机并发后串行最终 accepted 提交必须可达；执行值须属于 accepted 集合。
+     */
     @Test
-    public void concurrentDrainUpdateEndsWithFinalAcceptedValue() throws Exception {
+    public void concurrentDrainUpdateEndsWithLastAcceptedValue() throws Exception {
         UUID uuid = UUID.randomUUID();
         Object endpoint = new Object();
         online.put(uuid, endpoint);
         final AtomicInteger next = new AtomicInteger();
+        final ConcurrentLinkedQueue<String> acceptedPairs = new ConcurrentLinkedQueue<String>();
         List<Thread> producers = new ArrayList<Thread>();
         for (int t = 0; t < 4; t++) {
             Thread thread = new Thread(new Runnable() {
@@ -151,7 +155,9 @@ public class ServerChainConfigRequestDispatchTest {
                         int value = next.incrementAndGet();
                         int radius = 1 + (value % 100);
                         int maxBlocks = 1 + (value % 200);
-                        submit(uuid, endpoint, radius, maxBlocks);
+                        if (submit(uuid, endpoint, radius, maxBlocks)) {
+                            acceptedPairs.add(radius + ":" + maxBlocks);
+                        }
                     }
                 }
             }, "c2s-producer-" + t);
@@ -162,21 +168,101 @@ public class ServerChainConfigRequestDispatchTest {
             thread.join(5000L);
             Assert.assertFalse(thread.isAlive());
         }
+        Assert.assertFalse(acceptedPairs.isEmpty());
+
+        int lastValue = next.incrementAndGet();
+        int lastRadius = 1 + (lastValue % 100);
+        int lastMax = 1 + (lastValue % 200);
+        Assert.assertTrue(submit(uuid, endpoint, lastRadius, lastMax));
+        acceptedPairs.add(lastRadius + ":" + lastMax);
+
         while (lane.pendingCount() > 0) {
             lane.drain();
         }
         Assert.assertNotNull(written.get());
-        Assert.assertTrue(written.get()[0] >= 1);
-        Assert.assertTrue(written.get()[1] >= 1);
+        Assert.assertArrayEquals(
+                "last accepted submit after production stop must be the final written value",
+                new int[] {lastRadius, lastMax},
+                written.get());
+        Assert.assertTrue(acceptedPairs.contains(lastRadius + ":" + lastMax));
         Assert.assertTrue(writeCount.get() >= 1);
     }
 
+    /**
+     * 同 UUID 不同实例永不 equal / 不合槽（不依赖真制造 hash 碰撞）。
+     */
     @Test
-    public void endpointKeyEqualsUsesUuidAndIdentity() {
+    public void sameUuidDifferentInstancesNeverEqualOrShareSlot() {
         UUID uuid = UUID.randomUUID();
-        EndpointKey a = new EndpointKey(uuid, 1);
-        EndpointKey b = new EndpointKey(uuid, 1);
-        EndpointKey c = new EndpointKey(uuid, 2);
+        Object first = new Object();
+        Object second = new Object();
+        EndpointKey a = new EndpointKey(uuid, first);
+        EndpointKey b = new EndpointKey(uuid, second);
+        Assert.assertFalse(a.equals(b));
+        Assert.assertFalse(b.equals(a));
+
+        online.put(uuid, second);
+        Assert.assertTrue(submit(uuid, first, 3, 4));
+        Assert.assertTrue(submit(uuid, second, 5, 6));
+        Assert.assertEquals(2, lane.pendingCount());
+        lane.drain();
+        Assert.assertArrayEquals(new int[] {5, 6}, written.get());
+        Assert.assertEquals(1, writeCount.get());
+    }
+
+    /**
+     * 弱 referent GC 后不得错误等于其他实例；过期键可被 purge 释放容量。
+     */
+    @Test
+    public void weakReferentStaleKeyDoesNotEqualAndCanBePurged() {
+        UUID uuid = UUID.randomUUID();
+        Object endpoint = new Object();
+        EndpointKey key = new EndpointKey(uuid, endpoint);
+        Assert.assertFalse(key.isStale());
+        Assert.assertSame(endpoint, key.endpointOrNull());
+
+        EndpointKey sameLive = new EndpointKey(uuid, endpoint);
+        Assert.assertEquals(key, sameLive);
+        Assert.assertEquals(key.hashCode(), sameLive.hashCode());
+
+        final KeyedLatestTaskLane<Object> small = new KeyedLatestTaskLane<Object>(1, 64);
+        small.start();
+        Assert.assertTrue(small.submit(key, new Runnable() {
+            @Override
+            public void run() {
+                // no-op stale-pending
+            }
+        }));
+        Assert.assertEquals(1, small.pendingCount());
+
+        WeakReference<Object> probe = new WeakReference<Object>(endpoint);
+        endpoint = null;
+        forceGc(probe);
+        Assert.assertNull("endpoint should be GC'd for stale test", probe.get());
+        Assert.assertTrue(key.isStale());
+
+        Object replacement = new Object();
+        EndpointKey afterGc = new EndpointKey(uuid, replacement);
+        Assert.assertFalse(key.equals(afterGc));
+        Assert.assertFalse(afterGc.equals(key));
+
+        Assert.assertEquals(1, small.purgeStaleKeys());
+        Assert.assertEquals(0, small.pendingCount());
+        Assert.assertTrue(small.submit(afterGc, new Runnable() {
+            @Override
+            public void run() {
+            }
+        }));
+        Assert.assertEquals(1, small.pendingCount());
+    }
+
+    @Test
+    public void endpointKeyEqualsUsesUuidAndObjectIdentity() {
+        UUID uuid = UUID.randomUUID();
+        Object endpoint = new Object();
+        EndpointKey a = new EndpointKey(uuid, endpoint);
+        EndpointKey b = new EndpointKey(uuid, endpoint);
+        EndpointKey c = new EndpointKey(uuid, new Object());
         Assert.assertEquals(a, b);
         Assert.assertEquals(a.hashCode(), b.hashCode());
         Assert.assertFalse(a.equals(c));
@@ -227,5 +313,17 @@ public class ServerChainConfigRequestDispatchTest {
                         written.set(new int[] {writtenRadius, writtenMaxBlocks});
                     }
                 });
+    }
+
+    private static void forceGc(WeakReference<?> probe) {
+        for (int i = 0; i < 50 && probe.get() != null; i++) {
+            System.gc();
+            try {
+                Thread.sleep(20L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
     }
 }

@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.network.ServerChainConfigRequestValidator.Result;
+import club.heiqi.qz_miner.thread.KeyedLatestTaskLane;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -32,22 +33,32 @@ public final class ServerChainConfigRequestDispatch {
     }
 
     /**
-     * 端点键：UUID + 玩家实例身份（identityHashCode），区分重连/克隆后的不同会话。
+     * 端点键：UUID + 真实对象 identity（弱引用 referent），不强持 {@link EntityPlayerMP}。
+     *
+     * <p>相等语义：UUID 相等且双方弱引用 referent 均存活且 {@code ==}。
+     * referent 被 GC 后不得错误等于其他实例；过期键实现 {@link KeyedLatestTaskLane.StaleDetectableKey}
+     * 供泳道在 submit/drain/生命周期点回收容量。</p>
      */
-    public static final class EndpointKey {
+    public static final class EndpointKey implements KeyedLatestTaskLane.StaleDetectableKey {
         public final UUID uuid;
-        public final int playerIdentity;
+        private final WeakReference<Object> endpointRef;
+        /** 仅用于 hash 分桶稳定；相等性不依赖 identityHash，避免碰撞误合槽。 */
+        private final int identityHash;
 
         /**
-         * @param uuid           玩家 UUID
-         * @param playerIdentity {@link System#identityHashCode(Object)} 的端点身份
+         * @param uuid     玩家 UUID
+         * @param endpoint 捕获时的玩家端点实例（仅弱持有）
          */
-        public EndpointKey(UUID uuid, int playerIdentity) {
+        public EndpointKey(UUID uuid, Object endpoint) {
             if (uuid == null) {
                 throw new IllegalArgumentException("uuid must not be null");
             }
+            if (endpoint == null) {
+                throw new IllegalArgumentException("endpoint must not be null");
+            }
             this.uuid = uuid;
-            this.playerIdentity = playerIdentity;
+            this.endpointRef = new WeakReference<Object>(endpoint);
+            this.identityHash = System.identityHashCode(endpoint);
         }
 
         /**
@@ -60,7 +71,19 @@ public final class ServerChainConfigRequestDispatch {
             if (player == null) {
                 throw new IllegalArgumentException("player must not be null");
             }
-            return new EndpointKey(player.getUniqueID(), System.identityHashCode(player));
+            return new EndpointKey(player.getUniqueID(), player);
+        }
+
+        /**
+         * @return 弱引用 referent；已 GC 时为 null
+         */
+        public Object endpointOrNull() {
+            return endpointRef.get();
+        }
+
+        @Override
+        public boolean isStale() {
+            return endpointRef.get() == null;
         }
 
         @Override
@@ -72,17 +95,30 @@ public final class ServerChainConfigRequestDispatch {
                 return false;
             }
             EndpointKey that = (EndpointKey) other;
-            return playerIdentity == that.playerIdentity && uuid.equals(that.uuid);
+            if (!uuid.equals(that.uuid)) {
+                return false;
+            }
+            Object a = endpointRef.get();
+            Object b = that.endpointRef.get();
+            // 任一方 referent 失效：不得与其他实例错误相等
+            if (a == null || b == null) {
+                return false;
+            }
+            return a == b;
         }
 
         @Override
         public int hashCode() {
-            return 31 * uuid.hashCode() + playerIdentity;
+            return 31 * uuid.hashCode() + identityHash;
         }
 
         @Override
         public String toString() {
-            return "EndpointKey{uuid=" + uuid + ", id=" + playerIdentity + '}';
+            Object endpoint = endpointRef.get();
+            return "EndpointKey{uuid=" + uuid
+                    + ", live=" + (endpoint != null)
+                    + ", idHash=" + identityHash
+                    + '}';
         }
     }
 
@@ -186,7 +222,8 @@ public final class ServerChainConfigRequestDispatch {
     /**
      * 可注入核心路径，便于纯 JVM 测试。
      *
-     * <p>pending 任务仅弱持有玩家端点，避免无界强引用存活。</p>
+     * <p>pending 任务仅弱持有玩家端点，避免无界强引用存活；
+     * 槽位键同样弱持有端点 identity，GC 后可被泳道回收。</p>
      *
      * @param uuid                    玩家 UUID
      * @param playerEndpoint          捕获时的玩家实例（仅弱持有）
@@ -211,7 +248,7 @@ public final class ServerChainConfigRequestDispatch {
                 || lookup == null || caps == null || writer == null) {
             return false;
         }
-        final EndpointKey key = new EndpointKey(uuid, System.identityHashCode(playerEndpoint));
+        final EndpointKey key = new EndpointKey(uuid, playerEndpoint);
         final WeakReference<Object> weakEndpoint = new WeakReference<Object>(playerEndpoint);
         boolean accepted = dispatcher.tryRunLatest(key, new Runnable() {
             @Override
