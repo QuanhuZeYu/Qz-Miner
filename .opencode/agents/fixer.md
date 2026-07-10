@@ -1,8 +1,8 @@
 ---
 description: 实施专家（控制律层）。按 oracle 清单执行代码改动、写测试、编译验证、git 提交。可写。
 mode: subagent
-model: zhipu/glm-5.2
-reasoningEffort: low
+model: grok/grok-4.5
+reasoningEffort: high
 permission:
   edit: allow
   bash: allow
