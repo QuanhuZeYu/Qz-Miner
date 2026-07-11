@@ -1,6 +1,8 @@
 ---
 description: 主 agent（用户代理）。模拟用户视角编排子 agent，把复杂任务拆成一个个子会话，通过控制论闭环自动化完成长时任务。
 mode: primary
+model: openai/gpt-5.6-sol
+variant: low
 permission:
   edit: allow
   bash: allow

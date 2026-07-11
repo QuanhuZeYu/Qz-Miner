@@ -1,7 +1,8 @@
 ---
 description: 外部知识检索（传感层）。调研库用法、官方文档、行业标准对比。只读，用 webfetch/websearch。
 mode: subagent
-model: grok/grok-4.5
+model: openai/gpt-5.6-sol
+variant: low
 permission:
   edit: deny
   bash: allow

@@ -2,7 +2,7 @@
 description: 架构裁决与方案深评（设定值层）。对齐 NORTH_STAR 宪章，做疑难诊断、方案设计、实施前规划与实施后复审。只读不改。
 mode: subagent
 model: openai/gpt-5.6-sol
-variant: medium
+variant: xhigh
 permission:
   edit: deny
   bash: allow
