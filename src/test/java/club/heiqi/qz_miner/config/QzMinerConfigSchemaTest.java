@@ -16,9 +16,10 @@ public class QzMinerConfigSchemaTest {
     public void schemaContainsAllLegacyFieldsIncludingGreeting() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(19, schema.allFields().size());
+        Assert.assertEquals(20, schema.allFields().size());
         Assert.assertTrue(schema.containsPath("general.greeting"));
         Assert.assertTrue(schema.containsPath("client.clientPreviewAlphaEndValue"));
+        Assert.assertTrue(schema.containsPath("client.objectGroups"));
     }
 
     @Test
@@ -39,5 +40,9 @@ public class QzMinerConfigSchemaTest {
         FieldSpec alphaStart = schema.field("client.clientPreviewAlphaStartValue");
         Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE),
                 alphaStart.defaultValue());
+
+        FieldSpec groups = schema.field("client.objectGroups");
+        Assert.assertEquals(FieldType.STRUCTURED_LIST, groups.type());
+        Assert.assertEquals("id", groups.valueSpec().element().identityMember());
     }
 }

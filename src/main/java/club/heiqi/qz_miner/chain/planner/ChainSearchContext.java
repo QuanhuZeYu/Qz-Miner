@@ -6,6 +6,7 @@ import java.util.Set;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
+import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import net.minecraft.world.World;
 
 /**
@@ -26,6 +27,8 @@ public class ChainSearchContext {
     private final ChainSubMode subMode;
     private final int maxRadius;
     private final int maxTargets;
+    private final ObjectGroup selectedObjectGroup;
+    private final ObjectGroupBlockPredicate objectGroupPredicate;
     private final Queue<ChainTarget> currentFrontier;
     private final Queue<ChainTarget> nextFrontier;
     private final Set<ChainTarget> visited;
@@ -45,6 +48,14 @@ public class ChainSearchContext {
         Queue<ChainTarget> currentFrontier,
         Queue<ChainTarget> nextFrontier,
         Set<ChainTarget> visited) {
+        this(world, origin, sampleBlock, sampleMeta, sampleTileEntity, subMode, maxRadius, maxTargets,
+                currentFrontier, nextFrontier, visited, null);
+    }
+
+    public ChainSearchContext(
+        World world, ChainTarget origin, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity,
+        ChainSubMode subMode, int maxRadius, int maxTargets, Queue<ChainTarget> currentFrontier,
+        Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ObjectGroup selectedObjectGroup) {
         this.world = world;
         this.origin = origin;
         this.sampleBlock = sampleBlock;
@@ -53,6 +64,9 @@ public class ChainSearchContext {
         this.subMode = subMode;
         this.maxRadius = maxRadius;
         this.maxTargets = maxTargets;
+        this.selectedObjectGroup = selectedObjectGroup;
+        this.objectGroupPredicate = selectedObjectGroup == null
+                ? null : new ObjectGroupBlockPredicate(selectedObjectGroup);
         this.currentFrontier = currentFrontier;
         this.nextFrontier = nextFrontier;
         this.visited = visited;
@@ -93,6 +107,16 @@ public class ChainSearchContext {
 
     public int getMaxTargets() {
         return maxTargets;
+    }
+
+    /** @return 本次规划冻结的对象组，非对象组模式为 null */
+    public ObjectGroup getSelectedObjectGroup() {
+        return selectedObjectGroup;
+    }
+
+    /** @return 与 matcher/filter 共享的冻结对象组谓词 */
+    public ObjectGroupBlockPredicate getObjectGroupPredicate() {
+        return objectGroupPredicate;
     }
 
     public Queue<ChainTarget> getCurrentFrontier() {

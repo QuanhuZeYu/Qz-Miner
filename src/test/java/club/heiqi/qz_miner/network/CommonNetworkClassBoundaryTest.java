@@ -55,6 +55,10 @@ public class CommonNetworkClassBoundaryTest {
         assertClassBytecodeClean(NetworkMain.class);
         assertClassBytecodeClean(PacketChainConfigSync.class);
         assertClassBytecodeClean(PacketChainConfigSync.Handler.class);
+        assertClassBytecodeClean(PacketObjectGroupConfigRequest.class);
+        assertClassBytecodeClean(PacketObjectGroupConfigRequest.Handler.class);
+        assertClassBytecodeClean(PacketObjectGroupConfigSync.class);
+        assertClassBytecodeClean(PacketObjectGroupConfigSync.Handler.class);
         assertClassBytecodeClean(PacketChainPhaseSnapshot.class);
         assertClassBytecodeClean(PacketChainPhaseSnapshot.Handler.class);
         assertClassBytecodeClean(PacketLootGamesMinesweeperPreviewResponse.class);

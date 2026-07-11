@@ -43,7 +43,8 @@ public final class ChainModeBootstrap {
             false,
             null,
             ChainSubMode.CHAIN_BASE,
-            Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE, ChainSubMode.CHAIN_LOGGING));
+            Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE, ChainSubMode.CHAIN_LOGGING,
+                ChainSubMode.CHAIN_OBJECT_GROUP));
     }
 
     /**

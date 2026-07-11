@@ -19,6 +19,8 @@ import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
+import club.heiqi.qz_miner.chain.planner.ObjectGroupCandidateFilter;
+import club.heiqi.qz_miner.chain.planner.ObjectGroupMatcher;
 import club.heiqi.qz_miner.chain.planner.SectionClearTraverser;
 import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
@@ -68,6 +70,17 @@ public final class ChainSubModeBootstrap {
             context -> new LoggingFloodFillTraverser(Config.chainLoggingShellLayers),
             context -> new LogBlockHarvestableMatcher(),
             createLogCandidateFilter(),
+            null,
+            null,
+            null,
+            null);
+        registerSubMode(
+            ChainSubMode.CHAIN_OBJECT_GROUP,
+            ChainSubModeTrigger.BREAK_BLOCK,
+            null,
+            context -> new ObjectGroupMatcher(context == null || context.getSearchContext() == null
+                ? null : context.getSearchContext().getObjectGroupPredicate()),
+            context -> new ObjectGroupCandidateFilter(context, context.getObjectGroupPredicate()),
             null,
             null,
             null,

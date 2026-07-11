@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.config;
 
 import club.heiqi.config.schema.ConfigSchema;
+import club.heiqi.config.schema.Values;
 
 /**
  * Qz-Miner 配置 Schema（server-safe，零 MC UI / LWJGL 依赖）。
@@ -133,6 +134,14 @@ public final class QzMinerConfigSchema {
                         .range(0, 1)
                         .label("clientPreviewAlphaEndValue")
                         .helper("客户端预览透明度的结束值")
+                        .build()
+                    .structuredList("objectGroups", Values.objectWithIdentity(
+                            "id",
+                            Values.member("id", Values.string()),
+                            Values.member("members", Values.list(Values.string()))))
+                        .defaultValue(java.util.Collections.<java.util.Map<String, Object>>emptyList())
+                        .label("objectGroups")
+                        .helper("每玩家对象组；成员使用 registry@0、registry@* 或 registry@[0,4,8,12]")
                         .build()
                 .endSection()
                 .build();

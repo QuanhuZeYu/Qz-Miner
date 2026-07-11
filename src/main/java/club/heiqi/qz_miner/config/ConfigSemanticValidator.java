@@ -11,6 +11,8 @@ import club.heiqi.config.runtime.DraftBuffer;
 import club.heiqi.config.runtime.DraftValidator;
 import club.heiqi.config.runtime.DraftView;
 import club.heiqi.config.runtime.ValidationResult;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 
 /**
  * Qz-Miner 配置的共用语义读取器与 UILib 提交前校验器。
@@ -84,6 +86,7 @@ public final class ConfigSemanticValidator {
         putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaFadeEndRadius", 0.0D, Double.MAX_VALUE);
         putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaStartValue", 0.0D, 1.0D);
         putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaEndValue", 0.0D, 1.0D);
+        putObjectGroups(typed, errors, draft);
 
         validateCrossFields(typed, errors);
         if (!errors.isEmpty()) {
@@ -116,6 +119,17 @@ public final class ConfigSemanticValidator {
                 errors.put(alphaEndPath, message);
             }
         }
+    }
+
+    private static void putObjectGroups(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft) {
+        String path = "client.objectGroups";
+        ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(draft.getDraft(path));
+        if (!parsed.isValid()) {
+            errors.put(path, parsed.error());
+            return;
+        }
+        typed.put(path, parsed.rules());
     }
 
     private static void putString(Map<String, Object> typed, Map<String, String> errors,
@@ -267,6 +281,7 @@ public final class ConfigSemanticValidator {
         public final double clientPreviewAlphaFadeEndRadius;
         public final double clientPreviewAlphaStartValue;
         public final double clientPreviewAlphaEndValue;
+        public final ObjectGroupRuleSet objectGroups;
 
         ValidatedSnapshot(Map<String, Object> typed) {
             greeting = (String) typed.get("general.greeting");
@@ -288,6 +303,7 @@ public final class ConfigSemanticValidator {
             clientPreviewAlphaFadeEndRadius = number(typed, "client.clientPreviewAlphaFadeEndRadius");
             clientPreviewAlphaStartValue = number(typed, "client.clientPreviewAlphaStartValue");
             clientPreviewAlphaEndValue = number(typed, "client.clientPreviewAlphaEndValue");
+            objectGroups = (ObjectGroupRuleSet) typed.get("client.objectGroups");
         }
 
         private static int exactInt(Map<String, Object> typed, String path) {

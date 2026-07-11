@@ -5,6 +5,8 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
+import club.heiqi.qz_miner.network.PacketObjectGroupConfigRequest;
+import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -341,11 +343,16 @@ public class ClientConnectionListener {
         MyMod.chainStateService.getClientState().setServerChainMaxBlocks(snapshot.chainMaxBlocks);
         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(0);
 
-        if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
+        if (MyMod.networkMain == null) {
             return;
         }
-        MyMod.networkMain.network.sendToServer(
-                new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
+        if (!FMLClientHandler.instance().getClient().isSingleplayer()) {
+            MyMod.networkMain.network.sendToServer(
+                    new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
+        }
+        MyMod.networkMain.network.sendToServer(new PacketObjectGroupConfigRequest(
+                ObjectGroupWireConfig.fromRuleSet(ConfigBootstrap.currentCommittedSnapshot().epoch,
+                        snapshot.objectGroups)));
     }
 
     /**

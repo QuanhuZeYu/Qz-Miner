@@ -43,7 +43,7 @@ public final class ChainPlanningRuntimeFactory {
             session.getRequest().getSubMode(),
             effectiveRadius,
             effectiveMaxBlocks,
-            session.getTraversalTargets());
+            session.getTraversalTargets(), session.getRequest().getSelectedObjectGroup());
 
         return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }
@@ -65,7 +65,7 @@ public final class ChainPlanningRuntimeFactory {
             session.getRequest().getSubMode(),
             maxRadius,
             maxTargets,
-            new ConcurrentLinkedQueue<ChainTarget>());
+            new ConcurrentLinkedQueue<ChainTarget>(), session.getRequest().getSelectedObjectGroup());
 
         return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }
@@ -77,6 +77,10 @@ public final class ChainPlanningRuntimeFactory {
         club.heiqi.qz_miner.chain.mode.ChainMode mode) {
         ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
         if (definition == null || searchContext == null) {
+            return null;
+        }
+        if (searchContext.getSubMode() == ChainSubMode.CHAIN_OBJECT_GROUP
+                && searchContext.getSelectedObjectGroup() == null) {
             return null;
         }
 
@@ -99,7 +103,8 @@ public final class ChainPlanningRuntimeFactory {
         ChainSubMode subMode,
         int maxRadius,
         int maxTargets,
-        ConcurrentLinkedQueue<ChainTarget> currentFrontier) {
+        ConcurrentLinkedQueue<ChainTarget> currentFrontier,
+        club.heiqi.qz_miner.objectgroup.ObjectGroup selectedObjectGroup) {
         ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<ChainTarget>();
         Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
         return new ChainSearchContext(
@@ -113,13 +118,17 @@ public final class ChainPlanningRuntimeFactory {
             maxTargets,
             currentFrontier,
             nextFrontier,
-            visited);
+            visited, selectedObjectGroup);
     }
 
     private static ChainCandidateFilter createCandidateFilter(final ChainSearchContext context) {
         ChainCandidateFilter fallback = target -> {
             if (context == null || target == null) {
                 return false;
+            }
+
+            if (context.getSubMode() == ChainSubMode.CHAIN_OBJECT_GROUP) {
+                return new ObjectGroupCandidateFilter(context, context.getObjectGroupPredicate()).canTraverse(target);
             }
 
             Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());

@@ -14,7 +14,7 @@ repositories {
     }
     flatDir {
         dirs new File(localMavenRepository,
-                'club/heiqi/uilib/Qz-UILib/4.5.3-beta-1')
+                'club/heiqi/uilib/Qz-UILib/4.5.3-beta-2')
     }
     maven {
         name = 'JitPack'

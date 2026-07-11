@@ -81,6 +81,7 @@ public class HudOverlay {
         int serverMatchedY = y - 30;
         int previewMatchedY = y - 40;
         int areaInfoY = y - 40;
+        int objectGroupY = y - 40;
         if (selectedSubMode != null) {
             String subModeText = "\u00a77" + ClientI18n.tr("hud.qz_miner.current_sub_mode", ClientI18n.tr(selectedSubMode.getDisplayNameKey()));
             mc.fontRenderer.drawStringWithShadow(subModeText, x, y - 20, 0xFFFFFF);
@@ -88,6 +89,7 @@ public class HudOverlay {
             serverMatchedY = y - 40;
             previewMatchedY = y - 50;
             areaInfoY = y - 50;
+            objectGroupY = y - 50;
         }
 
         String chainConfigText = "\u00a77" + ClientI18n.tr(
@@ -102,6 +104,14 @@ public class HudOverlay {
             "hud.qz_miner.server_matched",
             MyMod.chainStateService.getClientState().getServerMatchedTargetCount());
         mc.fontRenderer.drawStringWithShadow(serverMatchedText, x, serverMatchedY, 0xFFFFFF);
+
+        String objectGroupText = "\u00a77" + ClientI18n.tr(
+                "hud.qz_miner.object_group_sync",
+                MyMod.chainStateService.getClientState().isObjectGroupSyncAccepted()
+                        ? ClientI18n.tr("hud.qz_miner.sync.confirmed")
+                        : ClientI18n.tr("hud.qz_miner.sync.pending"),
+                MyMod.chainStateService.getClientState().getServerObjectGroups().groups().size());
+        mc.fontRenderer.drawStringWithShadow(objectGroupText, x, objectGroupY, 0xFFFFFF);
 
         if (ClientProxy.chainPreviewController != null && MyMod.chainStateService != null
             && MyMod.chainStateService.getClientState().isPreviewActive()) {

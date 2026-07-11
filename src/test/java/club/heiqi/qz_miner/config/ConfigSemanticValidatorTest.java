@@ -160,7 +160,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 19 个 runtime static 的值对象。 */
+    /** 全 20 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 

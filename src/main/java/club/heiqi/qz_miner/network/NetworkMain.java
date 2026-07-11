@@ -46,6 +46,11 @@ public final class NetworkMain {
                 packetId++,
                 Side.SERVER);
         network.registerMessage(
+                PacketObjectGroupConfigRequest.Handler.class,
+                PacketObjectGroupConfigRequest.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
                 PacketLootGamesMinesweeperPreviewRequest.Handler.class,
                 PacketLootGamesMinesweeperPreviewRequest.class,
                 packetId++,
@@ -65,6 +70,11 @@ public final class NetworkMain {
         network.registerMessage(
                 PacketChainConfigSync.Handler.class,
                 PacketChainConfigSync.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketObjectGroupConfigSync.Handler.class,
+                PacketObjectGroupConfigSync.class,
                 packetId++,
                 Side.CLIENT);
     }

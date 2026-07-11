@@ -113,6 +113,7 @@ public final class RawYamlPreflight {
             case BOOLEAN:
                 return ConfigNode.NodeType.BOOLEAN;
             case SIMPLE_LIST:
+            case STRUCTURED_LIST:
                 return ConfigNode.NodeType.LIST;
             default:
                 throw new IllegalArgumentException("Unsupported field type: " + type);

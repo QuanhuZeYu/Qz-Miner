@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.state;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 
 /**
  * 客户端连锁状态。
@@ -19,6 +20,9 @@ public class ChainClientState extends AbstractChainModeState {
     private volatile int serverChainRadius = Config.chainRadius;
     private volatile int serverChainMaxBlocks = Config.chainMaxBlocks;
     private volatile int serverMatchedTargetCount;
+    private volatile ObjectGroupRuleSet serverObjectGroups = ObjectGroupRuleSet.EMPTY;
+    private volatile long serverObjectGroupRevision;
+    private volatile boolean objectGroupSyncAccepted;
 
     public boolean isChainKeyPressed() {
         return chainKeyPressed;
@@ -90,6 +94,35 @@ public class ChainClientState extends AbstractChainModeState {
 
     public void setServerMatchedTargetCount(int serverMatchedTargetCount) {
         this.serverMatchedTargetCount = Math.max(0, serverMatchedTargetCount);
+    }
+
+    public ObjectGroupRuleSet getServerObjectGroups() {
+        return serverObjectGroups;
+    }
+
+    public long getServerObjectGroupRevision() {
+        return serverObjectGroupRevision;
+    }
+
+    public boolean isObjectGroupSyncAccepted() {
+        return objectGroupSyncAccepted;
+    }
+
+    public void setServerObjectGroupSync(ObjectGroupRuleSet rules, long revision, boolean accepted) {
+        if (rules == null || revision < 0L || revision < serverObjectGroupRevision) {
+            return;
+        }
+        this.serverObjectGroups = rules;
+        this.serverObjectGroupRevision = revision;
+        this.objectGroupSyncAccepted = accepted;
+    }
+
+    /** 保留旧确认快照，仅更新失败状态，避免非法/旧包伪造新规则。 */
+    public void markObjectGroupSyncRejected(long revision) {
+        if (revision >= 0L && revision >= serverObjectGroupRevision) {
+            this.serverObjectGroupRevision = revision;
+        }
+        this.objectGroupSyncAccepted = false;
     }
 
     public boolean isChainActiveDisplay() {

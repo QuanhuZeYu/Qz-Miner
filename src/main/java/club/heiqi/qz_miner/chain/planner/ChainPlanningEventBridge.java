@@ -19,6 +19,8 @@ import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.objectgroup.ObjectGroup;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 import net.minecraft.entity.player.EntityPlayer;
@@ -137,6 +139,19 @@ public class ChainPlanningEventBridge {
             return;
         }
 
+        ObjectGroup selectedObjectGroup = null;
+        if (subMode == ChainSubMode.CHAIN_OBJECT_GROUP) {
+            ObjectGroupRuleSet rules = playerState.getObjectGroupRules();
+            String registry = ObjectGroupBlockPredicate.registryName(seedSnapshot.getSampleBlock());
+            selectedObjectGroup = rules == null ? null : rules.selectGroup(registry, seedSnapshot.getSampleMeta());
+            if (selectedObjectGroup == null) {
+                bus.publish(buildPlanCancelled(playerUUID, planningGen,
+                        ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                        "object-group-no-match"));
+                return;
+            }
+        }
+
         // 影子会话：仅供 runtime 工厂装配 traverser/matcher 用，阶段 4 不消费其 pendingBreakTargets
         // 新链路自己的 queue 阶段 5 才消费，阶段 4 只为 traverser 推进
         final int requestedRadius = playerState.getRequestedChainRadius();
@@ -144,7 +159,7 @@ public class ChainPlanningEventBridge {
         final ChainSession shadowSession = new ChainSession(
                 playerUUID, mode, subMode, origin,
                 event.getSideHit(), event.getHitX(), event.getHitY(), event.getHitZ(),
-                requestedRadius, requestedMaxBlocks);
+                requestedRadius, requestedMaxBlocks, selectedObjectGroup);
         // 阶段8 块3：删旧 shadowSession.beginPlanning()（ChainSession 委托方法已删，新链路无需 plannerRunning 标志）。
         // 新链路 worker 活性由状态机 generation 判定，session 仅作配置载体 + traversalTargets 装配。
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(

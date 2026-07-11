@@ -11,6 +11,8 @@ import club.heiqi.qz_miner.config.ConfigSnapshotDispatch;
 import club.heiqi.qz_miner.config.ConfigSnapshotDispatch.Mailbox;
 import club.heiqi.qz_miner.config.ConfigValueBridge;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
+import club.heiqi.qz_miner.network.PacketObjectGroupConfigRequest;
+import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -27,7 +29,7 @@ import net.minecraft.server.MinecraftServer;
  * {@link ClientMainThreadDispatcher} 异步发布 client 字段；general 仅在集成服运行时经
  * {@link ServerMainThreadDispatcher} 写服务端主线程。远程多人客户端不写 general static 充当服务端权威。</p>
  *
- * <p>UILib 4.5.3-beta-1 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交或成功回载。
+ * <p>UILib 4.5.3-beta-2 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交或成功回载。
  * 回调同步捕获并发布 currentValidatedSnapshot，不做事后恢复或二次写盘。</p>
  *
  * <p>listener 替换完成后在 {@code SUBSCRIPTION_LOCK} 内用
@@ -215,6 +217,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
     private void publishClientAndRequest(ValidatedSnapshot snapshot) {
         ConfigValueBridge.applyClientFromSnapshot(snapshot);
         syncClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
+        syncClientObjectGroups(snapshot);
     }
 
     /**
@@ -242,6 +245,16 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
     public static void syncClientRequestedChainConfig() {
         ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
         syncClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
+    }
+
+    /** 保存/RELOAD 后发送完整对象组配置；revision 使用同一次 Authority 提交 epoch。 */
+    public static void syncClientObjectGroups(ValidatedSnapshot snapshot) {
+        if (snapshot == null || MyMod.networkMain == null) {
+            return;
+        }
+        long revision = ConfigBootstrap.currentCommittedSnapshot().epoch;
+        MyMod.networkMain.network.sendToServer(new PacketObjectGroupConfigRequest(
+                ObjectGroupWireConfig.fromRuleSet(revision, snapshot.objectGroups)));
     }
 
     private static boolean isIntegratedServerRunning() {

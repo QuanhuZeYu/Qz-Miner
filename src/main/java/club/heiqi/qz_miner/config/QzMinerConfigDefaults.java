@@ -64,5 +64,6 @@ public final class QzMinerConfigDefaults {
                 Double.valueOf(CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS));
         target.put("client.clientPreviewAlphaStartValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_START_VALUE));
         target.put("client.clientPreviewAlphaEndValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_END_VALUE));
+        target.put("client.objectGroups", java.util.Collections.<java.util.Map<String, Object>>emptyList());
     }
 }

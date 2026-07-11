@@ -21,6 +21,9 @@ import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
+import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import net.minecraft.network.INetHandler;
 
@@ -142,6 +145,52 @@ public class ClientProxy extends CommonProxy {
                 });
         if (!accepted) {
             noteConfigSyncDispatchRejected();
+        }
+    }
+
+    /** 接收服务端对象组确认：Netty 线程只捕获原始值，主线程 gate 内更新客户端投影。 */
+    @Override
+    public void handleClientObjectGroupConfigSync(
+            int protocolVersion, long revision, boolean accepted, int groupCount, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
+        if (token == null) {
+            return;
+        }
+        final int receivedProtocol = protocolVersion;
+        final long receivedRevision = revision;
+        final boolean receivedAccepted = accepted;
+        final int receivedGroupCount = groupCount;
+        boolean scheduled = ClientMainThreadDispatcher.tryRun(new Runnable() {
+            @Override
+            public void run() {
+                if (receivedProtocol != ObjectGroupWireConfig.PROTOCOL_VERSION
+                        || receivedRevision < 0L
+                        || receivedGroupCount < 0
+                        || receivedGroupCount > ObjectGroupWireConfig.MAX_GROUPS) {
+                    return;
+                }
+                ClientConnectionLifecycle.runIfConnectionCurrentAndActive(token, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (MyMod.chainStateService == null) {
+                            return;
+                        }
+                        if (receivedAccepted) {
+                            if (receivedRevision != ConfigBootstrap.currentCommittedSnapshot().epoch) {
+                                return;
+                            }
+                            ObjectGroupRuleSet local = ConfigBootstrap.currentValidatedSnapshot().objectGroups;
+                            MyMod.chainStateService.getClientState().setServerObjectGroupSync(
+                                    local, receivedRevision, true);
+                        } else {
+                            MyMod.chainStateService.getClientState().markObjectGroupSyncRejected(receivedRevision);
+                        }
+                    }
+                });
+            }
+        });
+        if (!scheduled) {
+            MyMod.LOG.debug("[ObjectGroupSync] Client dispatcher rejected confirmation");
         }
     }
 

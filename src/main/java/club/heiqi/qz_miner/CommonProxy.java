@@ -68,6 +68,11 @@ public class CommonProxy {
             int chainRadius, int chainMaxBlocks, int matchedTargetCount, INetHandler netHandler) {
     }
 
+    /** Dedicated server no-op；客户端实现经 connection identity 和主线程 gate 发布确认。 */
+    public void handleClientObjectGroupConfigSync(
+            int protocolVersion, long revision, boolean accepted, int groupCount, INetHandler netHandler) {
+    }
+
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}
 }

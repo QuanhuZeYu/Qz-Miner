@@ -50,6 +50,7 @@ public final class ChainStateService {
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
             flushPlayerDrops(state, null, reason);
+            state.clearObjectGroupRules();
             state.clearRuntimeState(reason);
         }
     }

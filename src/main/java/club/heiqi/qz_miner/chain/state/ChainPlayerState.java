@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 
 /**
  * 服务端玩家连锁状态。
@@ -23,6 +24,8 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private volatile int requestedChainRadius = -1;
     private volatile int requestedChainMaxBlocks = -1;
+    private volatile ObjectGroupRuleSet objectGroupRules = ObjectGroupRuleSet.EMPTY;
+    private volatile long objectGroupRevision;
     private volatile ChainSession session;
 
     /**
@@ -181,6 +184,31 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void setRequestedChainMaxBlocks(int requestedChainMaxBlocks) {
         this.requestedChainMaxBlocks = requestedChainMaxBlocks;
+    }
+
+    /** @return 当前玩家服务端已接受的不可变对象组规则 */
+    public ObjectGroupRuleSet getObjectGroupRules() {
+        return objectGroupRules;
+    }
+
+    /** @return 当前已接受对象组配置 revision */
+    public long getObjectGroupRevision() {
+        return objectGroupRevision;
+    }
+
+    /** 在服务端主线程整包接受后替换玩家对象组规则。 */
+    public void setObjectGroupRules(ObjectGroupRuleSet rules, long revision) {
+        if (rules == null || revision < 0L) {
+            throw new IllegalArgumentException("rules/revision must be valid");
+        }
+        this.objectGroupRules = rules;
+        this.objectGroupRevision = revision;
+    }
+
+    /** 统一移除玩家状态时清理已接受的对象组配置。 */
+    public void clearObjectGroupRules() {
+        this.objectGroupRules = ObjectGroupRuleSet.EMPTY;
+        this.objectGroupRevision = 0L;
     }
 
     public void setSession(ChainSession session) {
