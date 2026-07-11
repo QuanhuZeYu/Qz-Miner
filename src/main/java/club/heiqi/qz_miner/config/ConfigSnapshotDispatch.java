@@ -30,6 +30,12 @@ public final class ConfigSnapshotDispatch {
         void publish(ValidatedSnapshot snapshot);
     }
 
+    /** 携带 revision 与规则的完整不可变提交发布动作。 */
+    public interface CommittedPublication {
+        /** @param committed 同一次 Authority 提交的不可变包装 */
+        void publish(CommittedSnapshot committed);
+    }
+
     /**
      * 独立分侧的无锁单消费者 mailbox。
      *
@@ -43,7 +49,7 @@ public final class ConfigSnapshotDispatch {
 
         private final String side;
         private final Dispatcher dispatcher;
-        private final Publication publication;
+        private final CommittedPublication publication;
         private final AtomicReference<CommittedSnapshot> pending = new AtomicReference<CommittedSnapshot>();
         private final AtomicBoolean draining = new AtomicBoolean();
         private final AtomicBoolean retryRequested = new AtomicBoolean();
@@ -54,14 +60,37 @@ public final class ConfigSnapshotDispatch {
          * @param side 诊断侧名称
          * @param dispatcher 主线程 dispatcher
          * @param publication 锁外发布动作
-         */
+        */
         public Mailbox(String side, Dispatcher dispatcher, Publication publication) {
+            this(side, dispatcher, adaptLegacyPublication(publication));
+        }
+
+        /**
+         * 使用完整提交包装构造 mailbox，确保 revision 与 rules 来自同一提交。
+         *
+         * @param side 诊断侧名称
+         * @param dispatcher 主线程 dispatcher
+         * @param publication 携带完整提交包装的发布动作
+         */
+        public Mailbox(String side, Dispatcher dispatcher, CommittedPublication publication) {
             if (side == null || dispatcher == null || publication == null) {
                 throw new IllegalArgumentException("side/dispatcher/publication must not be null");
             }
             this.side = side;
             this.dispatcher = dispatcher;
             this.publication = publication;
+        }
+
+        private static CommittedPublication adaptLegacyPublication(final Publication legacy) {
+            if (legacy == null) {
+                return null;
+            }
+            return new CommittedPublication() {
+                @Override
+                public void publish(CommittedSnapshot committed) {
+                    legacy.publish(committed.snapshot);
+                }
+            };
         }
 
         /**
@@ -184,7 +213,7 @@ public final class ConfigSnapshotDispatch {
                         continue;
                     }
                     try {
-                        publication.publish(committed.snapshot);
+                        publication.publish(committed);
                     } catch (RuntimeException e) {
                         MyMod.LOG.error("[ConfigMailbox] {} publication failed at epoch={}",
                                 side, Long.valueOf(committed.epoch), e);

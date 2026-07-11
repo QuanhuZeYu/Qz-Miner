@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
@@ -193,6 +194,7 @@ public class ClientConnectionListener {
                     @Override
                     public void run() {
                         // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
+                        clearObjectGroupSyncPending();
                         cleanupLifecycleResources("client-disconnect");
                     }
                 });
@@ -298,8 +300,9 @@ public class ClientConnectionListener {
             @Override
             public void run() {
                 // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
+                clearObjectGroupSyncPending();
                 cleanupLifecycleResources("connection-takeover");
-                initializeConnectionState();
+                initializeConnectionState(token);
             }
         });
     }
@@ -328,7 +331,7 @@ public class ClientConnectionListener {
      *
      * <p>须在 connection-active gate 内调用。网络发送仍在本路径（P2：monitor 内 I/O）。</p>
      */
-    void initializeConnectionState() {
+    void initializeConnectionState(ClientConnectionLifecycle.Token connectionToken) {
         if (initHookForTests != null) {
             initHookForTests.run();
             return;
@@ -336,9 +339,11 @@ public class ClientConnectionListener {
         if (MyMod.chainStateService == null) {
             return;
         }
-        final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
+        // 一个连接初始化只捕获一次，revision、rules、groupCount 必须来自同一提交包装。
+        final CommittedSnapshot committed = ConfigBootstrap.currentCommittedSnapshot();
+        final ValidatedSnapshot snapshot = committed.snapshot;
         MyMod.chainStateService.getClientState().beginObjectGroupSync(
-                ConfigBootstrap.currentCommittedSnapshot().epoch);
+                connectionToken.connectionGeneration(), committed);
         MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
         // 只改必要客户端投影：server radius/maxBlocks 回落本地 snapshot，matchedCount 清零
         MyMod.chainStateService.getClientState().setServerChainRadius(snapshot.chainRadius);
@@ -353,8 +358,7 @@ public class ClientConnectionListener {
                     new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
         }
         MyMod.networkMain.network.sendToServer(new PacketObjectGroupConfigRequest(
-                ObjectGroupWireConfig.fromRuleSet(ConfigBootstrap.currentCommittedSnapshot().epoch,
-                        snapshot.objectGroups)));
+                ObjectGroupWireConfig.fromRuleSet(committed.epoch, snapshot.objectGroups)));
     }
 
     /**
@@ -384,6 +388,13 @@ public class ClientConnectionListener {
         // 防旧 phase 在 cleanup 后仍 drain 回写投影；不清订阅
         if (MyMod.clientChainEventBus != null) {
             MyMod.clientChainEventBus.clearPending();
+        }
+    }
+
+    /** 连接接管或断开时清掉旧连接的对象组请求记录。 */
+    private void clearObjectGroupSyncPending() {
+        if (MyMod.chainStateService != null) {
+            MyMod.chainStateService.getClientState().clearObjectGroupSyncPending();
         }
     }
 }

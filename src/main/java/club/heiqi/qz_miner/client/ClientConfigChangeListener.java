@@ -30,7 +30,7 @@ import net.minecraft.server.MinecraftServer;
  * {@link ServerMainThreadDispatcher} 写服务端主线程。远程多人客户端不写 general static 充当服务端权威。</p>
  *
  * <p>UILib 4.5.3-beta-2 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交或成功回载。
- * 回调同步捕获并发布 currentValidatedSnapshot，不做事后恢复或二次写盘。</p>
+ * 回调同步捕获并发布完整 {@link CommittedSnapshot}，revision 与对象组规则不再分开读取。</p>
  *
  * <p>listener 替换完成后在 {@code SUBSCRIPTION_LOCK} 内用
  * {@link ConfigBootstrap#captureCommittedSnapshot(ConfigManager)} 重新捕获 Authority
@@ -71,10 +71,10 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
                         return ClientMainThreadDispatcher.tryRun(task);
                     }
                 },
-                new ConfigSnapshotDispatch.Publication() {
+                new ConfigSnapshotDispatch.CommittedPublication() {
                     @Override
-                    public void publish(ValidatedSnapshot snapshot) {
-                        publishClientAndRequest(snapshot);
+                    public void publish(CommittedSnapshot committed) {
+                        publishClientAndRequest(committed);
                     }
                 });
         this.serverMailbox = new Mailbox(
@@ -85,10 +85,10 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
                         return ServerMainThreadDispatcher.tryRun(task);
                     }
                 },
-                new ConfigSnapshotDispatch.Publication() {
+                new ConfigSnapshotDispatch.CommittedPublication() {
                     @Override
-                    public void publish(ValidatedSnapshot snapshot) {
-                        ConfigValueBridge.applyGeneralFromSnapshot(snapshot);
+                    public void publish(CommittedSnapshot committed) {
+                        ConfigValueBridge.applyGeneralFromSnapshot(committed.snapshot);
                         MyMod.LOG.debug("Applied general config on server main thread after config change notification");
                     }
                 });
@@ -214,10 +214,10 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
         serverMailbox.close();
     }
 
-    private void publishClientAndRequest(ValidatedSnapshot snapshot) {
-        ConfigValueBridge.applyClientFromSnapshot(snapshot);
-        syncClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
-        syncClientObjectGroups(snapshot);
+    private void publishClientAndRequest(CommittedSnapshot committed) {
+        ConfigValueBridge.applyClientFromSnapshot(committed.snapshot);
+        syncClientRequestedChainConfig(committed.snapshot.chainRadius, committed.snapshot.chainMaxBlocks);
+        syncClientObjectGroups(committed);
     }
 
     /**
@@ -247,14 +247,19 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
         syncClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
     }
 
-    /** 保存/RELOAD 后发送完整对象组配置；revision 使用同一次 Authority 提交 epoch。 */
-    public static void syncClientObjectGroups(ValidatedSnapshot snapshot) {
-        if (snapshot == null || MyMod.networkMain == null) {
+    /** 保存/RELOAD 后发送完整对象组配置；revision 与 rules 使用同一不可变提交包装。 */
+    public static void syncClientObjectGroups(CommittedSnapshot committed) {
+        if (committed == null || MyMod.networkMain == null) {
             return;
         }
-        long revision = ConfigBootstrap.currentCommittedSnapshot().epoch;
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.capture();
+        if (!token.isConnectionActive() || MyMod.chainStateService == null) {
+            return;
+        }
+        MyMod.chainStateService.getClientState().registerObjectGroupRequest(
+                token.connectionGeneration(), committed);
         MyMod.networkMain.network.sendToServer(new PacketObjectGroupConfigRequest(
-                ObjectGroupWireConfig.fromRuleSet(revision, snapshot.objectGroups)));
+                ObjectGroupWireConfig.fromRuleSet(committed.epoch, committed.snapshot.objectGroups)));
     }
 
     private static boolean isIntegratedServerRunning() {

@@ -21,9 +21,6 @@ import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
-import club.heiqi.qz_miner.config.ConfigBootstrap;
-import club.heiqi.qz_miner.config.CommittedSnapshot;
-import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import net.minecraft.network.INetHandler;
@@ -187,10 +184,8 @@ public class ClientProxy extends CommonProxy {
                         if (MyMod.chainStateService == null) {
                             return;
                         }
-                        CommittedSnapshot committed = ConfigBootstrap.currentCommittedSnapshot();
-                        ObjectGroupRuleSet local = ConfigBootstrap.currentValidatedSnapshot().objectGroups;
                         MyMod.chainStateService.getClientState().applyObjectGroupSyncResult(
-                                local, committed.epoch, receivedRequestedRevision,
+                                token.connectionGeneration(), receivedRequestedRevision,
                                 receivedAuthoritativeRevision, receivedAcceptedFlag == 1,
                                 receivedGroupCount);
                     }

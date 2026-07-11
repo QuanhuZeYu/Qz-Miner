@@ -1,69 +1,79 @@
 package club.heiqi.qz_miner.chain.state;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.config.CommittedSnapshot;
+import club.heiqi.qz_miner.config.CommittedSnapshotTestFactory;
 import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 
-/** 客户端对象组确认的 epoch、乱序和重连水位回归。 */
+/** 客户端对象组确认的提交快照、乱序、内容和重连回归。 */
 public class ChainClientObjectGroupSyncTest {
 
     @Test
-    public void rev5SuccessCannotBeReversedByLateOldReject() {
+    public void ackForRevisionNUsesNRequestWhenGlobalConfigurationHasMovedOn() {
         ChainClientState state = new ChainClientState();
-        ObjectGroupRuleSet local = rules("logs");
-        state.beginObjectGroupSync(5L);
+        CommittedSnapshot n = snapshot(5L, rules("logs", "minecraft:log@*"));
+        CommittedSnapshot nPlusOne = snapshot(6L, rules("ores", "minecraft:iron_ore@0"));
+        state.beginObjectGroupSync(1L, n);
+        state.registerObjectGroupRequest(1L, nPlusOne);
 
-        Assert.assertTrue(state.applyObjectGroupSyncResult(local, 5L, 5L, 5L, true, 1));
-        Assert.assertFalse(state.applyObjectGroupSyncResult(local, 5L, 4L, 4L, false, 0));
-        Assert.assertTrue(state.isObjectGroupSyncAccepted());
-        Assert.assertEquals(5L, state.getServerObjectGroupRevision());
+        Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 1));
+        Assert.assertSame(n.snapshot.objectGroups, state.getServerObjectGroups());
+        Assert.assertNotSame(nPlusOne.snapshot.objectGroups, state.getServerObjectGroups());
     }
 
     @Test
-    public void outOfOrderRejectThenSuccessUsesAuthoritativeRevisionOrder() {
+    public void oldAckIsIgnoredAfterNewerAck() {
         ChainClientState state = new ChainClientState();
-        ObjectGroupRuleSet local = rules("logs");
-        state.beginObjectGroupSync(5L);
+        CommittedSnapshot n = snapshot(5L, rules("logs", "minecraft:log@*"));
+        CommittedSnapshot nPlusOne = snapshot(6L, rules("ores", "minecraft:iron_ore@0"));
+        state.beginObjectGroupSync(1L, n);
+        state.registerObjectGroupRequest(1L, nPlusOne);
 
-        Assert.assertTrue(state.applyObjectGroupSyncResult(local, 5L, 5L, 4L, false, 0));
-        Assert.assertTrue(state.applyObjectGroupSyncResult(local, 5L, 5L, 5L, true, 1));
-        Assert.assertTrue(state.isObjectGroupSyncAccepted());
-        Assert.assertEquals(5L, state.getServerObjectGroupRevision());
-
-        Assert.assertFalse(state.applyObjectGroupSyncResult(local, 5L, 5L, 4L, false, 0));
-        Assert.assertTrue(state.isObjectGroupSyncAccepted());
+        Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 6L, 6L, true, 1));
+        Assert.assertFalse(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 1));
+        Assert.assertSame(nPlusOne.snapshot.objectGroups, state.getServerObjectGroups());
     }
 
     @Test
-    public void reconnectResetsResultWatermarkButOldSubmissionEpochIsIgnored() {
+    public void sameGroupCountWithDifferentRulesCannotBeConfirmedFromCurrent() {
         ChainClientState state = new ChainClientState();
-        ObjectGroupRuleSet local = rules("logs");
-        state.beginObjectGroupSync(5L);
-        Assert.assertTrue(state.applyObjectGroupSyncResult(local, 5L, 5L, 5L, true, 1));
+        CommittedSnapshot requested = snapshot(5L, rules("requested", "minecraft:log@0"));
+        CommittedSnapshot differentCurrent = snapshot(6L, rules("current", "minecraft:stone@0"));
+        state.beginObjectGroupSync(1L, requested);
 
-        // 新连接可以复用本地 epoch，但不应沿用旧连接的确认状态。
-        state.beginObjectGroupSync(5L);
-        Assert.assertFalse(state.isObjectGroupSyncAccepted());
-        Assert.assertFalse(state.applyObjectGroupSyncResult(local, 5L, 4L, 4L, false, 0));
-        Assert.assertTrue(state.applyObjectGroupSyncResult(local, 5L, 5L, 5L, true, 1));
-        Assert.assertTrue(state.isObjectGroupSyncAccepted());
+        Assert.assertFalse(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 2));
+        Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 1));
+        Assert.assertSame(requested.snapshot.objectGroups, state.getServerObjectGroups());
+        Assert.assertNotSame(differentCurrent.snapshot.objectGroups, state.getServerObjectGroups());
     }
 
     @Test
-    public void acceptedResultRequiresLocalGroupCountMatch() {
+    public void reconnectClearsPendingAndRejectsOldConnectionAck() {
         ChainClientState state = new ChainClientState();
-        state.beginObjectGroupSync(5L);
-        Assert.assertFalse(state.applyObjectGroupSyncResult(rules("logs"), 5L, 5L, 5L, true, 2));
-        Assert.assertFalse(state.isObjectGroupSyncAccepted());
+        CommittedSnapshot old = snapshot(5L, rules("old", "minecraft:log@*"));
+        CommittedSnapshot newer = snapshot(6L, rules("new", "minecraft:stone@0"));
+        state.beginObjectGroupSync(1L, old);
+        state.clearObjectGroupSyncPending();
+        state.beginObjectGroupSync(2L, newer);
+
+        Assert.assertFalse(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 1));
+        Assert.assertTrue(state.applyObjectGroupSyncResult(2L, 6L, 6L, true, 1));
+        Assert.assertSame(newer.snapshot.objectGroups, state.getServerObjectGroups());
     }
 
-    private static ObjectGroupRuleSet rules(String id) {
+    private static CommittedSnapshot snapshot(long epoch, ObjectGroupRuleSet rules) {
+        return CommittedSnapshotTestFactory.create(epoch, rules);
+    }
+
+    private static ObjectGroupRuleSet rules(String id, String selector) {
         return new ObjectGroupRuleSet(Collections.singletonList(new ObjectGroup(
-                id, Collections.singletonList(ObjectGroupParser.parseSelector("minecraft:log@*")))));
+                id, Arrays.asList(ObjectGroupParser.parseSelector(selector)))));
     }
 }

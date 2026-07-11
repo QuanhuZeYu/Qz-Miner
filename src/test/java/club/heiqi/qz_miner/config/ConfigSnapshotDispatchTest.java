@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -53,6 +54,26 @@ public class ConfigSnapshotDispatchTest {
         dispatcher.runAt(0);
         Assert.assertEquals(Collections.singletonList(Integer.valueOf(24)), published);
         Assert.assertEquals(second.epoch, mailbox.processedEpoch());
+    }
+
+    @Test
+    public void committedPublicationKeepsRevisionAndRulesFromOneCapture() {
+        final AtomicReference<CommittedSnapshot> published = new AtomicReference<CommittedSnapshot>();
+        Mailbox mailbox = new Mailbox("client", new DirectDispatcher(),
+                new ConfigSnapshotDispatch.CommittedPublication() {
+                    @Override
+                    public void publish(CommittedSnapshot committed) {
+                        published.set(committed);
+                        // 模拟捕获后又有 Authority 提交；发布仍不得重读 current 拼接字段。
+                        commitRadius(45);
+                    }
+                });
+        // mailbox 的 current gate 通过后，发布动作仍必须拿到同一不可变包装。
+        CommittedSnapshot current = commitRadius(44);
+        mailbox.submit(current);
+
+        Assert.assertSame(current, published.get());
+        Assert.assertSame(current.snapshot, published.get().snapshot);
     }
 
     @Test
