@@ -337,6 +337,8 @@ public class ClientConnectionListener {
             return;
         }
         final ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
+        MyMod.chainStateService.getClientState().beginObjectGroupSync(
+                ConfigBootstrap.currentCommittedSnapshot().epoch);
         MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
         // 只改必要客户端投影：server radius/maxBlocks 回落本地 snapshot，matchedCount 清零
         MyMod.chainStateService.getClientState().setServerChainRadius(snapshot.chainRadius);

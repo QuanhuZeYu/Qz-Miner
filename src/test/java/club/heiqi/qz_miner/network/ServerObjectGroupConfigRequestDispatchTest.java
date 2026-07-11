@@ -101,8 +101,8 @@ public class ServerObjectGroupConfigRequestDispatchTest {
                 },
                 new ServerObjectGroupConfigRequestDispatch.AckSender() {
                     @Override
-                    public void send(UUID playerId, Object playerEndpoint, long revision,
-                            boolean accepted, int groupCount) {
+                    public void send(UUID playerId, Object playerEndpoint, long requestedRevision,
+                            long authoritativeRevision, boolean accepted, int groupCount) {
                         if (!accepted) {
                             rejects.incrementAndGet();
                         }

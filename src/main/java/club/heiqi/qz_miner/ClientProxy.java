@@ -22,6 +22,7 @@ import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -148,23 +149,34 @@ public class ClientProxy extends CommonProxy {
         }
     }
 
-    /** 接收服务端对象组确认：Netty 线程只捕获原始值，主线程 gate 内更新客户端投影。 */
+    /**
+     * 接收服务端对象组确认：Netty 线程只捕获原始值，主线程校验协议并经 connection gate
+     * 更新客户端投影。确认只接受当前本地提交 epoch，结果排序由 ChainClientState 统一收口。
+     */
     @Override
     public void handleClientObjectGroupConfigSync(
-            int protocolVersion, long revision, boolean accepted, int groupCount, INetHandler netHandler) {
+            int protocolVersion, long requestedRevision, long authoritativeRevision,
+            int acceptedFlag, int groupCount, boolean rawValid, INetHandler netHandler) {
         final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
         if (token == null) {
             return;
         }
         final int receivedProtocol = protocolVersion;
-        final long receivedRevision = revision;
-        final boolean receivedAccepted = accepted;
+        final long receivedRequestedRevision = requestedRevision;
+        final long receivedAuthoritativeRevision = authoritativeRevision;
+        final int receivedAcceptedFlag = acceptedFlag;
         final int receivedGroupCount = groupCount;
+        final boolean receivedRawValid = rawValid;
         boolean scheduled = ClientMainThreadDispatcher.tryRun(new Runnable() {
             @Override
             public void run() {
-                if (receivedProtocol != ObjectGroupWireConfig.PROTOCOL_VERSION
-                        || receivedRevision < 0L
+                if (!receivedRawValid
+                        || receivedProtocol != ObjectGroupWireConfig.PROTOCOL_VERSION
+                        || receivedRequestedRevision < 0L
+                        || receivedAuthoritativeRevision < 0L
+                        || (receivedAcceptedFlag != 0 && receivedAcceptedFlag != 1)
+                        || (receivedAcceptedFlag == 1
+                                && receivedRequestedRevision != receivedAuthoritativeRevision)
                         || receivedGroupCount < 0
                         || receivedGroupCount > ObjectGroupWireConfig.MAX_GROUPS) {
                     return;
@@ -175,16 +187,12 @@ public class ClientProxy extends CommonProxy {
                         if (MyMod.chainStateService == null) {
                             return;
                         }
-                        if (receivedAccepted) {
-                            if (receivedRevision != ConfigBootstrap.currentCommittedSnapshot().epoch) {
-                                return;
-                            }
-                            ObjectGroupRuleSet local = ConfigBootstrap.currentValidatedSnapshot().objectGroups;
-                            MyMod.chainStateService.getClientState().setServerObjectGroupSync(
-                                    local, receivedRevision, true);
-                        } else {
-                            MyMod.chainStateService.getClientState().markObjectGroupSyncRejected(receivedRevision);
-                        }
+                        CommittedSnapshot committed = ConfigBootstrap.currentCommittedSnapshot();
+                        ObjectGroupRuleSet local = ConfigBootstrap.currentValidatedSnapshot().objectGroups;
+                        MyMod.chainStateService.getClientState().applyObjectGroupSyncResult(
+                                local, committed.epoch, receivedRequestedRevision,
+                                receivedAuthoritativeRevision, receivedAcceptedFlag == 1,
+                                receivedGroupCount);
                     }
                 });
             }

@@ -38,14 +38,17 @@ public class CommonNetworkClassBoundaryTest {
         CommonProxy proxy = new CommonProxy();
         proxy.handleClientChainConfigSync(12, 345, 0, null);
         proxy.handleClientChainPhaseSnapshot(0, 1, 2L, null);
+        proxy.handleClientObjectGroupConfigSync(1, 5L, 4L, 0, 0, true, null);
         proxy.handleClientLootGamesMinesweeperPreview(
                 1, new ChainTarget(0, 0, 0), new ArrayList<ChainTarget>(), null);
 
         Method config = findMethod(CommonProxy.class, "handleClientChainConfigSync");
         Method phase = findMethod(CommonProxy.class, "handleClientChainPhaseSnapshot");
+        Method objectGroup = findMethod(CommonProxy.class, "handleClientObjectGroupConfigSync");
         Method preview = findMethod(CommonProxy.class, "handleClientLootGamesMinesweeperPreview");
         assertLastParamIsINetHandler(config);
         assertLastParamIsINetHandler(phase);
+        assertLastParamIsINetHandler(objectGroup);
         assertLastParamIsINetHandler(preview);
     }
 
@@ -74,11 +77,14 @@ public class CommonNetworkClassBoundaryTest {
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
         params = findMethod(CommonProxy.class, "handleClientLootGamesMinesweeperPreview").getParameterTypes();
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
+        params = findMethod(CommonProxy.class, "handleClientObjectGroupConfigSync").getParameterTypes();
+        Assert.assertEquals(INetHandler.class, params[params.length - 1]);
 
         // Handler 类本身可加载且 onMessage 存在（不 new NetworkMain / 不跑 FML channel）
         Assert.assertNotNull(PacketChainConfigSync.Handler.class.getName());
         Assert.assertNotNull(PacketChainPhaseSnapshot.Handler.class.getName());
         Assert.assertNotNull(PacketLootGamesMinesweeperPreviewResponse.Handler.class.getName());
+        Assert.assertNotNull(PacketObjectGroupConfigSync.Handler.class.getName());
     }
 
     private static Method findMethod(Class<?> type, String name) {

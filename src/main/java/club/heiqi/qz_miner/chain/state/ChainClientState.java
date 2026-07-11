@@ -23,6 +23,11 @@ public class ChainClientState extends AbstractChainModeState {
     private volatile ObjectGroupRuleSet serverObjectGroups = ObjectGroupRuleSet.EMPTY;
     private volatile long serverObjectGroupRevision;
     private volatile boolean objectGroupSyncAccepted;
+    private volatile long objectGroupSubmissionEpoch = -1L;
+    private volatile long lastObjectGroupRequestedRevision = -1L;
+    private volatile long lastObjectGroupAuthoritativeRevision = -1L;
+    private volatile boolean hasObjectGroupSyncResult;
+    private volatile boolean lastObjectGroupResultAccepted;
 
     public boolean isChainKeyPressed() {
         return chainKeyPressed;
@@ -108,21 +113,78 @@ public class ChainClientState extends AbstractChainModeState {
         return objectGroupSyncAccepted;
     }
 
-    public void setServerObjectGroupSync(ObjectGroupRuleSet rules, long revision, boolean accepted) {
-        if (rules == null || revision < 0L || revision < serverObjectGroupRevision) {
+    /**
+     * 开始一个连接级对象组提交 epoch。
+     *
+     * <p>重连可能复用同一个本地配置 epoch，因此必须清空上一连接的结果排序水位；旧连接
+     * 包本身仍由 {@code ClientConnectionLifecycle} identity gate 丢弃。</p>
+     *
+     * @param submissionEpoch 本地 committed snapshot epoch
+     */
+    public void beginObjectGroupSync(long submissionEpoch) {
+        if (submissionEpoch < 0L) {
             return;
         }
-        this.serverObjectGroups = rules;
-        this.serverObjectGroupRevision = revision;
-        this.objectGroupSyncAccepted = accepted;
+        objectGroupSubmissionEpoch = submissionEpoch;
+        lastObjectGroupRequestedRevision = -1L;
+        lastObjectGroupAuthoritativeRevision = -1L;
+        hasObjectGroupSyncResult = false;
+        lastObjectGroupResultAccepted = false;
+        serverObjectGroups = ObjectGroupRuleSet.EMPTY;
+        serverObjectGroupRevision = 0L;
+        objectGroupSyncAccepted = false;
     }
 
-    /** 保留旧确认快照，仅更新失败状态，避免非法/旧包伪造新规则。 */
-    public void markObjectGroupSyncRejected(long revision) {
-        if (revision >= 0L && revision >= serverObjectGroupRevision) {
-            this.serverObjectGroupRevision = revision;
+    /**
+     * 在客户端主线程应用对象组确认。
+     *
+     * <p>结果只接受当前本地提交 epoch，并按
+     * {@code (requestedRevision, authoritativeRevision, accepted)} 严格递增；同一
+     * authoritative revision 上 accepted 胜过 rejected。这样 rev5 成功后迟到旧拒绝不会
+     * 反转状态；若拒绝先到，随后 authoritative revision 更高的成功仍可确认。</p>
+     *
+     * @return 是否实际发布了新结果
+     */
+    public boolean applyObjectGroupSyncResult(
+            ObjectGroupRuleSet localRules, long currentSubmissionEpoch,
+            long requestedRevision, long authoritativeRevision, boolean accepted, int groupCount) {
+        if (currentSubmissionEpoch < 0L || requestedRevision < 0L || authoritativeRevision < 0L
+                || localRules == null || groupCount < 0 || groupCount > ObjectGroupRuleSet.MAX_GROUPS
+                || requestedRevision != currentSubmissionEpoch) {
+            return false;
         }
-        this.objectGroupSyncAccepted = false;
+        if (objectGroupSubmissionEpoch != currentSubmissionEpoch) {
+            beginObjectGroupSync(currentSubmissionEpoch);
+        }
+        if (accepted && localRules.groups().size() != groupCount) {
+            return false;
+        }
+        if (hasObjectGroupSyncResult && !isStrictlyNewerResult(
+                requestedRevision, authoritativeRevision, accepted)) {
+            return false;
+        }
+
+        lastObjectGroupRequestedRevision = requestedRevision;
+        lastObjectGroupAuthoritativeRevision = authoritativeRevision;
+        lastObjectGroupResultAccepted = accepted;
+        hasObjectGroupSyncResult = true;
+        serverObjectGroupRevision = authoritativeRevision;
+        objectGroupSyncAccepted = accepted;
+        if (accepted) {
+            serverObjectGroups = localRules;
+        }
+        return true;
+    }
+
+    private boolean isStrictlyNewerResult(long requestedRevision, long authoritativeRevision,
+            boolean accepted) {
+        if (requestedRevision != lastObjectGroupRequestedRevision) {
+            return requestedRevision > lastObjectGroupRequestedRevision;
+        }
+        if (authoritativeRevision != lastObjectGroupAuthoritativeRevision) {
+            return authoritativeRevision > lastObjectGroupAuthoritativeRevision;
+        }
+        return accepted && !lastObjectGroupResultAccepted;
     }
 
     public boolean isChainActiveDisplay() {

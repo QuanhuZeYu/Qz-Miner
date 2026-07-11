@@ -68,9 +68,20 @@ public class CommonProxy {
             int chainRadius, int chainMaxBlocks, int matchedTargetCount, INetHandler netHandler) {
     }
 
-    /** Dedicated server no-op；客户端实现经 connection identity 和主线程 gate 发布确认。 */
+    /**
+     * Dedicated server no-op；客户端实现经 connection identity 和主线程 gate 发布确认。
+     *
+     * @param protocolVersion 协议版本原始值
+     * @param requestedRevision 客户端提交对应的本地 epoch
+     * @param authoritativeRevision 服务端当前接受规则的 revision
+     * @param acceptedFlag 原始 boolean byte，语义校验在客户端主线程完成
+     * @param groupCount 服务端确认的对象组数量
+     * @param rawValid 是否完整捕获固定长度包
+     * @param netHandler 入包连接 identity
+     */
     public void handleClientObjectGroupConfigSync(
-            int protocolVersion, long revision, boolean accepted, int groupCount, INetHandler netHandler) {
+            int protocolVersion, long requestedRevision, long authoritativeRevision,
+            int acceptedFlag, int groupCount, boolean rawValid, INetHandler netHandler) {
     }
 
     // register server commands in this event handler (Remove if not needed)

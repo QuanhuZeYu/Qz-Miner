@@ -57,10 +57,12 @@ public final class ServerObjectGroupConfigRequestDispatch {
                 },
                 new AckSender() {
                     @Override
-                    public void send(UUID uuid, Object endpoint, long revision, boolean accepted, int groupCount) {
+                    public void send(UUID uuid, Object endpoint, long requestedRevision,
+                            long authoritativeRevision, boolean accepted, int groupCount) {
                         if (MyMod.networkMain != null && endpoint instanceof EntityPlayerMP) {
                             MyMod.networkMain.network.sendTo(new PacketObjectGroupConfigSync(
-                                    ObjectGroupWireConfig.PROTOCOL_VERSION, revision, accepted, groupCount),
+                                    ObjectGroupWireConfig.PROTOCOL_VERSION, requestedRevision,
+                                    authoritativeRevision, accepted, groupCount),
                                     (EntityPlayerMP) endpoint);
                         }
                     }
@@ -94,20 +96,21 @@ public final class ServerObjectGroupConfigRequestDispatch {
             return;
         }
         long oldRevision = revisions.currentRevision(uuid);
+        long requestedRevision = payload == null ? -1L : payload.revision();
         if (payload == null || !payload.isValid()
                 || payload.protocolVersion() != ObjectGroupWireConfig.PROTOCOL_VERSION
                 || payload.revision() <= oldRevision) {
-            ackSender.send(uuid, endpoint, oldRevision, false, 0);
+            ackSender.send(uuid, endpoint, requestedRevision, oldRevision, false, 0);
             return;
         }
         ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(payload);
         if (!parsed.isValid()) {
-            ackSender.send(uuid, endpoint, oldRevision, false, 0);
+            ackSender.send(uuid, endpoint, requestedRevision, oldRevision, false, 0);
             return;
         }
         ObjectGroupRuleSet rules = parsed.rules();
         writer.write(uuid, endpoint, rules, payload.revision());
-        ackSender.send(uuid, endpoint, payload.revision(), true, rules.groups().size());
+        ackSender.send(uuid, endpoint, requestedRevision, payload.revision(), true, rules.groups().size());
     }
 
     public interface KeyedDispatcher {
@@ -127,7 +130,8 @@ public final class ServerObjectGroupConfigRequestDispatch {
     }
 
     public interface AckSender {
-        void send(UUID uuid, Object endpoint, long revision, boolean accepted, int groupCount);
+        void send(UUID uuid, Object endpoint, long requestedRevision, long authoritativeRevision,
+                boolean accepted, int groupCount);
     }
 
     /** 与已有配置 C2S 一致的弱 identity endpoint key。 */
