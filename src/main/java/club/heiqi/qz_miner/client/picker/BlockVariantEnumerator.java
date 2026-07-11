@@ -48,18 +48,24 @@ public final class BlockVariantEnumerator {
     static BlockCandidate enumerateBlock(String registry, Block block) {
         Item item = Item.getItemFromBlock(block);
         if (!(item instanceof ItemBlock)) return placeholder(registry);
+        return enumerateBlock(registry, block, item);
+    }
+
+    /** 仅把方块物品实际暴露的 0..15 metadata 转为选择器变体。 */
+    static BlockCandidate enumerateBlock(String registry, Block block, Item item) {
         List<ItemStack> supplied = new ArrayList<ItemStack>();
-        block.getSubBlocks(item, CreativeTabs.tabAllSearch, supplied);
+        try {
+            block.getSubBlocks(item, CreativeTabs.tabAllSearch, supplied);
+        } catch (RuntimeException e) {
+            return placeholder(registry);
+        } catch (LinkageError e) {
+            return placeholder(registry);
+        }
         Map<Integer, ItemStack> firstByMeta = new LinkedHashMap<Integer, ItemStack>();
         for (ItemStack stack : supplied) {
             if (stack != null && stack.getItemDamage() >= 0 && stack.getItemDamage() <= 15
                     && !firstByMeta.containsKey(Integer.valueOf(stack.getItemDamage()))) {
                 firstByMeta.put(Integer.valueOf(stack.getItemDamage()), stack);
-            }
-        }
-        for (int meta = 0; meta <= 15; meta++) {
-            if (!firstByMeta.containsKey(Integer.valueOf(meta))) {
-                firstByMeta.put(Integer.valueOf(meta), new ItemStack(item, 1, meta));
             }
         }
         List<BlockVariant> variants = new ArrayList<BlockVariant>();
