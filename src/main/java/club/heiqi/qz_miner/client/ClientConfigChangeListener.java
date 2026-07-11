@@ -29,7 +29,7 @@ import net.minecraft.server.MinecraftServer;
  * {@link ClientMainThreadDispatcher} 异步发布 client 字段；general 仅在集成服运行时经
  * {@link ServerMainThreadDispatcher} 写服务端主线程。远程多人客户端不写 general static 充当服务端权威。</p>
  *
- * <p>UILib 4.5.3-beta-6 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交或成功回载。
+ * <p>UILib 4.5.3-beta-7 在写盘前执行 Qz-Miner DraftValidator；本回调只处理成功提交或成功回载。
  * 回调同步捕获并发布完整 {@link CommittedSnapshot}，revision 与对象组规则不再分开读取。</p>
  *
  * <p>listener 替换完成后在 {@code SUBSCRIPTION_LOCK} 内用

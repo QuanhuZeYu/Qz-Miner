@@ -10,6 +10,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.config.ui.editor.SearchPickerData;
+import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.uilib.ui.scene.image.SceneImageSource;
 
 /** Provider 在构造时固化候选与 SearchFunction。 */
@@ -47,9 +48,28 @@ public class BlockPickerProviderTest {
             Assert.assertTrue(registries.contains(candidate.key()));
             ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
             Assert.assertEquals(Collections.singletonList(candidate.key() + "@*"), codec.encode(
+                    Collections.emptyList(),
                     new SearchPickerData.Selection(candidate.key(), SearchPickerData.SelectionMode.ALL,
                             Collections.<String>emptyList())));
         }
+    }
+
+    @Test
+    public void presentationUsesCompleteChinesePlayerCopy() {
+        SearchPickerPresentation text = new BlockPickerProvider(Collections.<BlockCandidate>emptyList()).presentation();
+        Assert.assertEquals("添加方块", text.title());
+        Assert.assertEquals("搜索方块名称或 registry id", text.placeholder());
+        Assert.assertEquals("全部状态", text.all());
+        Assert.assertEquals("指定一个状态", text.single());
+        Assert.assertEquals("指定多个状态", text.multiple());
+        Assert.assertEquals("取消", text.cancel());
+        Assert.assertEquals("添加到组", text.confirm());
+        Assert.assertEquals("没有找到方块", text.empty());
+        Assert.assertEquals("3 个结果", text.resultSummary(3));
+        Assert.assertEquals("结果已截断，请继续缩小搜索范围", text.truncated());
+        Assert.assertTrue(text.decodeError().contains("原规则未变"));
+        Assert.assertTrue(text.searchError().contains("原规则未变"));
+        Assert.assertTrue(text.encodeError().contains("原规则未变"));
     }
 
     @Test

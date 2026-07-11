@@ -46,6 +46,8 @@ public class QzMinerConfigSchemaTest {
 
         FieldSpec groups = schema.field("client.objectGroups");
         Assert.assertEquals(FieldType.STRUCTURED_LIST, groups.type());
+        Assert.assertEquals("已配置方块规则", groups.label());
+        Assert.assertEquals("每组用组标识区分，选择适用模式，并配置组内包含的方块规则", groups.helper());
         Assert.assertEquals("id", groups.valueSpec().element().identityMember());
         Assert.assertEquals(ValueKind.LIST, groups.valueSpec().element().member("modes").spec().kind());
         Assert.assertEquals(ValueKind.CHOICE,

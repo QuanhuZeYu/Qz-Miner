@@ -6,6 +6,7 @@ import java.util.List;
 
 import club.heiqi.config.ui.editor.Codec;
 import club.heiqi.config.ui.editor.SearchPickerData;
+import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.config.ui.editor.ValueEditorProvider;
 import club.heiqi.config.ui.editor.VisualAdapter;
 
@@ -15,6 +16,7 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     private final Codec codec;
     private final VisualAdapter visualAdapter;
     private final SearchFunction searchFunction;
+    private final SearchPickerPresentation presentation;
 
     public BlockPickerProvider(List<BlockCandidate> source) {
         List<BlockCandidate> snapshot = Collections.unmodifiableList(new ArrayList<BlockCandidate>(source));
@@ -22,12 +24,28 @@ public final class BlockPickerProvider implements ValueEditorProvider {
         codec = new ObjectGroupPickerCodec();
         visualAdapter = new BlockPickerVisualAdapter(snapshot);
         searchFunction = (query, limit) -> convert(index.search(query, expandedLimit(limit)), limit);
+        presentation = SearchPickerPresentation.builder()
+                .title("添加方块")
+                .placeholder("搜索方块名称或 registry id")
+                .all("全部状态")
+                .single("指定一个状态")
+                .multiple("指定多个状态")
+                .cancel("取消")
+                .confirm("添加到组")
+                .empty("没有找到方块")
+                .resultSummaryFormatter(count -> count + " 个结果")
+                .truncated("结果已截断，请继续缩小搜索范围")
+                .decodeError("无法读取当前方块规则，原规则未变")
+                .searchError("搜索方块时发生错误，原规则未变")
+                .encodeError("添加方块时发生错误，原规则未变")
+                .build();
     }
 
     public String id() { return ID; }
     public Codec codec() { return codec; }
     public VisualAdapter visualAdapter() { return visualAdapter; }
     public SearchFunction searchFunction() { return searchFunction; }
+    public SearchPickerPresentation presentation() { return presentation; }
 
     private static int expandedLimit(int requestedLimit) {
         int bounded = Math.max(0, Math.min(SearchPickerData.MAX_RESULTS, requestedLimit));

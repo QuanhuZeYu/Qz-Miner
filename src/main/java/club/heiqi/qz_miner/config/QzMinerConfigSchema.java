@@ -144,8 +144,8 @@ public final class QzMinerConfigSchema {
                             Values.member("members", Values.widget(Values.list(Values.string()),
                                     Values.searchPicker("qz_miner:block-selector", 64)))))
                         .defaultValue(QzMinerConfigDefaults.objectGroups())
-                        .label("objectGroups")
-                        .helper("每玩家对象组；成员使用 registry@0、registry@* 或 registry@[0,4,8,12]")
+                        .label("已配置方块规则")
+                        .helper("每组用组标识区分，选择适用模式，并配置组内包含的方块规则")
                         .build()
                 .endSection()
                 .build();

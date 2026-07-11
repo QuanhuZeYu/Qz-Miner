@@ -11,48 +11,42 @@ import club.heiqi.qz_miner.objectgroup.ObjectGroupSelector;
 
 /** 完整 members 列表与方块 Picker 选择之间的无损转换。 */
 public final class ObjectGroupPickerCodec implements Codec {
-    private List<String> currentMembers = Collections.emptyList();
-
-    /** 记录完整只读 members 快照，并解码首个合法 selector。 */
+    /** 从当前 members 纯函数解码首个合法 selector。 */
     public SearchPickerData.Selection decode(Object value) {
         if (!(value instanceof List)) return null;
-        List<String> copy = new ArrayList<String>();
-        SearchPickerData.Selection first = null;
         for (Object raw : (List<?>) value) {
-            if (!(raw instanceof String)) return null;
-            String member = (String) raw;
-            copy.add(member);
-            if (first == null) {
-                try { first = selection(ObjectGroupParser.parseSelector(member)); }
-                catch (IllegalArgumentException ignored) { }
-            }
+            if (!(raw instanceof String)) continue;
+            try { return selection(ObjectGroupParser.parseSelector((String) raw)); }
+            catch (IllegalArgumentException ignored) { }
         }
-        currentMembers = Collections.unmodifiableList(copy);
-        return first;
+        return null;
     }
 
-    /** 将选择合并回当前完整 members；无关或畸形 raw 保持原位原样。 */
-    public Object encode(SearchPickerData.Selection selection) {
+    /** 用本次选择替换同 registry selector；其它 raw 保持原位原样。 */
+    public Object encode(Object currentValue, SearchPickerData.Selection selection) {
+        if (!(currentValue instanceof List)) {
+            throw new IllegalArgumentException("current value must be a list");
+        }
         ObjectGroupSelector selected = selector(selection);
         String registry = selected.registry();
-        int mask = selected.metadataMask();
         int firstIndex = -1;
-        List<String> result = new ArrayList<String>();
-        for (String raw : currentMembers) {
-            try {
-                ObjectGroupSelector existing = ObjectGroupParser.parseSelector(raw);
-                if (existing.registry().equals(registry)) {
-                    if (firstIndex < 0) firstIndex = result.size();
-                    mask |= existing.metadataMask();
-                    continue;
+        List<Object> result = new ArrayList<Object>();
+        for (Object raw : (List<?>) currentValue) {
+            if (raw instanceof String) {
+                try {
+                    ObjectGroupSelector existing = ObjectGroupParser.parseSelector((String) raw);
+                    if (existing.registry().equals(registry)) {
+                        if (firstIndex < 0) firstIndex = result.size();
+                        continue;
+                    }
+                } catch (IllegalArgumentException ignored) {
                 }
-            } catch (IllegalArgumentException ignored) { }
+            }
             result.add(raw);
         }
-        String canonical = ObjectGroupSelector.fromMask(registry, mask).canonical();
+        String canonical = selected.canonical();
         if (firstIndex < 0) result.add(canonical); else result.add(firstIndex, canonical);
-        currentMembers = Collections.unmodifiableList(new ArrayList<String>(result));
-        return currentMembers;
+        return Collections.unmodifiableList(result);
     }
 
     private static SearchPickerData.Selection selection(ObjectGroupSelector selector) {
