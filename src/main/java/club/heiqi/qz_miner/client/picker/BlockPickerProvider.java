@@ -21,7 +21,7 @@ public final class BlockPickerProvider implements ValueEditorProvider {
         BlockSearchIndex index = new BlockSearchIndex(snapshot);
         codec = new ObjectGroupPickerCodec();
         visualAdapter = new BlockPickerVisualAdapter(snapshot);
-        searchFunction = (query, limit) -> convert(index.search(query, limit));
+        searchFunction = (query, limit) -> convert(index.search(query, expandedLimit(limit)), limit);
     }
 
     public String id() { return ID; }
@@ -29,7 +29,12 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     public VisualAdapter visualAdapter() { return visualAdapter; }
     public SearchFunction searchFunction() { return searchFunction; }
 
-    private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result) {
+    private static int expandedLimit(int requestedLimit) {
+        int bounded = Math.max(0, Math.min(SearchPickerData.MAX_RESULTS, requestedLimit));
+        return bounded == 0 ? 0 : bounded + 1;
+    }
+
+    private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result, int requestedLimit) {
         List<SearchPickerData.Candidate> candidates = new ArrayList<SearchPickerData.Candidate>();
         for (BlockCandidate candidate : result.candidates()) {
             List<SearchPickerData.Variant> variants = new ArrayList<SearchPickerData.Variant>();
@@ -39,16 +44,8 @@ public final class BlockPickerProvider implements ValueEditorProvider {
             }
             candidates.add(new SearchPickerData.Candidate(candidate.registry(), candidate.localizedName(), variants));
         }
-        SearchPickerData.SearchResult converted = SearchPickerData.SearchResult.limitedTo(candidates,
-                Math.min(64, candidates.size()));
-        return result.truncated() ? new SearchPickerData.SearchResult(withTruncationSentinel(converted.candidates()))
-                .limitedTo(converted.candidates().size()) : converted;
-    }
-
-    private static List<SearchPickerData.Candidate> withTruncationSentinel(List<SearchPickerData.Candidate> values) {
-        List<SearchPickerData.Candidate> copy = new ArrayList<SearchPickerData.Candidate>(values);
-        copy.add(new SearchPickerData.Candidate("qz_miner:truncated", "truncated",
-                Collections.<SearchPickerData.Variant>emptyList()));
-        return copy;
+        SearchPickerData.SearchResult converted = new SearchPickerData.SearchResult(candidates);
+        int limit = Math.max(0, Math.min(SearchPickerData.MAX_RESULTS, requestedLimit));
+        return converted.limitedTo(limit);
     }
 }

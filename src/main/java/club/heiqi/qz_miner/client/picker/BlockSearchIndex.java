@@ -16,11 +16,11 @@ public final class BlockSearchIndex {
         this.entries = Collections.unmodifiableList(copy);
     }
 
-    /** 空查询返回空；非空查询按确定性相关度排序并限幅。 */
+    /** 空查询返回空；非空查询按确定性相关度排序，最多保留 64 项及一项截断探针。 */
     public Result search(String query, int requestedLimit) {
         String normalized = normalize(query);
         if (normalized.isEmpty() || requestedLimit <= 0) return new Result(Collections.<BlockCandidate>emptyList(), false);
-        int limit = Math.min(64, requestedLimit);
+        int limit = Math.min(65, requestedLimit);
         List<Match> matches = new ArrayList<Match>();
         for (Entry entry : entries) {
             int rank = entry.rank(normalized);
