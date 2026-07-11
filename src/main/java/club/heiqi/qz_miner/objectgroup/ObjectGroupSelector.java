@@ -99,6 +99,35 @@ public final class ObjectGroupSelector {
                 || metadata.contains(Integer.valueOf(candidateMeta));
     }
 
+    /** @return selector 覆盖的 metadata 16-bit mask。 */
+    public int metadataMask() {
+        if (specificity == Specificity.WILDCARD) {
+            return 0xFFFF;
+        }
+        int mask = 0;
+        for (Integer meta : metadata) {
+            mask |= 1 << meta.intValue();
+        }
+        return mask;
+    }
+
+    /** 从非零 16-bit metadata mask 创建规范化 selector。 */
+    public static ObjectGroupSelector fromMask(String registry, int mask) {
+        if ((mask & 0xFFFF) == 0) {
+            throw new IllegalArgumentException("metadata mask must not be empty");
+        }
+        if ((mask & 0xFFFF) == 0xFFFF) {
+            return wildcard(registry);
+        }
+        List<Integer> metas = new ArrayList<Integer>();
+        for (int meta = 0; meta < 16; meta++) {
+            if ((mask & (1 << meta)) != 0) {
+                metas.add(Integer.valueOf(meta));
+            }
+        }
+        return metas.size() == 1 ? single(registry, metas.get(0).intValue()) : set(registry, metas);
+    }
+
     /** @return 标准化后的完整 selector 语法 */
     public String canonical() {
         return canonical;

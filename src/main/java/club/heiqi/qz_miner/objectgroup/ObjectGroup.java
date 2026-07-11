@@ -13,9 +13,16 @@ public final class ObjectGroup {
     public static final int MAX_MEMBERS = 128;
 
     private final String id;
+    private final List<String> modes;
+    private final long modeMask;
     private final List<ObjectGroupSelector> members;
 
+    /** 第二批 runtime 迁移前的空模式兼容构造器。 */
     public ObjectGroup(String id, List<ObjectGroupSelector> members) {
+        this(id, Collections.<String>emptyList(), 0L, members);
+    }
+
+    public ObjectGroup(String id, List<String> modes, long modeMask, List<ObjectGroupSelector> members) {
         if (id == null || id.isEmpty() || id.length() > MAX_ID_LENGTH) {
             throw new IllegalArgumentException("invalid object group id");
         }
@@ -23,6 +30,12 @@ public final class ObjectGroup {
             throw new IllegalArgumentException("object group members must be in [1,128]");
         }
         this.id = id;
+        if (modes == null || !ObjectGroupMode.isValidMask(modeMask)
+                || ObjectGroupMode.toMask(modes) != modeMask) {
+            throw new IllegalArgumentException("object group modes/mask are inconsistent");
+        }
+        this.modes = Collections.unmodifiableList(new ArrayList<String>(modes));
+        this.modeMask = modeMask;
         List<ObjectGroupSelector> copy = new ArrayList<ObjectGroupSelector>(members);
         for (ObjectGroupSelector selector : copy) {
             if (selector == null) {
@@ -40,7 +53,16 @@ public final class ObjectGroup {
         return members;
     }
 
+    public List<String> modes() {
+        return modes;
+    }
+
+    public long modeMask() {
+        return modeMask;
+    }
+
     /** 返回该组对一个 registry+meta 的匹配级别，未匹配返回 null。 */
+    @Deprecated
     public ObjectGroupSelector.Specificity specificityFor(String registry, int meta) {
         ObjectGroupSelector.Specificity best = null;
         for (ObjectGroupSelector selector : members) {

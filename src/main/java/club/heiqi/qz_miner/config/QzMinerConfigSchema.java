@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.config;
 
 import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.config.schema.Values;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 
 /**
  * Qz-Miner 配置 Schema（server-safe，零 MC UI / LWJGL 依赖）。
@@ -138,8 +139,10 @@ public final class QzMinerConfigSchema {
                     .structuredList("objectGroups", Values.objectWithIdentity(
                             "id",
                             Values.member("id", Values.string()),
+                            Values.member("modes", Values.list(Values.choice(ObjectGroupMode.ids())),
+                                    java.util.Collections.<String>emptyList()),
                             Values.member("members", Values.list(Values.string()))))
-                        .defaultValue(java.util.Collections.<java.util.Map<String, Object>>emptyList())
+                        .defaultValue(QzMinerConfigDefaults.objectGroups())
                         .label("objectGroups")
                         .helper("每玩家对象组；成员使用 registry@0、registry@* 或 registry@[0,4,8,12]")
                         .build()

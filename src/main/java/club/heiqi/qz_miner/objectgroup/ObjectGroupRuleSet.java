@@ -50,6 +50,7 @@ public final class ObjectGroupRuleSet {
     /**
      * 按单值、集合、通配的优先级选组；同级按组和成员的配置顺序取先者。
      */
+    @Deprecated
     public ObjectGroup selectGroup(String registry, int meta) {
         ObjectGroup selected = null;
         ObjectGroupSelector.Specificity selectedSpecificity = null;

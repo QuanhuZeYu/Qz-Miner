@@ -126,7 +126,7 @@ public final class ConfigSemanticValidator {
         String path = "client.objectGroups";
         ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(draft.getDraft(path));
         if (!parsed.isValid()) {
-            errors.put(path, parsed.error());
+            errors.putAll(parsed.errors());
             return;
         }
         typed.put(path, parsed.rules());

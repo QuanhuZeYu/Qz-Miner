@@ -10,7 +10,7 @@ import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 对象组 selector、优先级和不可变快照测试。 */
+/** 对象组 mode、selector 规范化、交集和不可变快照测试。 */
 public class ObjectGroupParserTest {
 
     @Test
@@ -22,18 +22,50 @@ public class ObjectGroupParserTest {
     }
 
     @Test
-    public void exactBeatsSetBeatsWildcardAndSameLevelKeepsOrder() {
-        ObjectGroupRuleSet rules = new ObjectGroupRuleSet(Arrays.asList(
-                group("wild", "minecraft:log@*"),
-                group("set", "minecraft:log@[0,4]"),
-                group("single", "minecraft:log@0"),
-                group("same-level-first", "minecraft:stone@0"),
-                group("same-level-second", "minecraft:stone@*")));
+    public void sameGroupSelectorsNormalizeByRegistryMask() {
+        ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(Arrays.asList(
+                groupMap("logs", modes(ObjectGroupMode.CHAIN_BASE),
+                        "minecraft:log@0", "minecraft:log@[4,8]", "minecraft:stone@0")));
 
-        Assert.assertEquals("single", rules.selectGroup("minecraft:log", 0).id());
-        Assert.assertEquals("set", rules.selectGroup("minecraft:log", 4).id());
-        Assert.assertEquals("wild", rules.selectGroup("minecraft:log", 8).id());
-        Assert.assertEquals("same-level-first", rules.selectGroup("minecraft:stone", 0).id());
+        Assert.assertTrue(parsed.isValid());
+        Assert.assertEquals(2, parsed.rules().groups().get(0).members().size());
+        Assert.assertEquals("minecraft:log@[0,4,8]",
+                parsed.rules().groups().get(0).members().get(0).canonical());
+        Assert.assertEquals(1L, parsed.rules().groups().get(0).modeMask());
+    }
+
+    @Test
+    public void overlapRequiresSharedModeAndIntersectingSelector() {
+        Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@*"),
+                groupMap("b", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@0"))).isValid());
+        Assert.assertTrue(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@*"),
+                groupMap("b", modes(ObjectGroupMode.CHAIN_ORE), "minecraft:log@0"))).isValid());
+        Assert.assertTrue(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@0"),
+                groupMap("b", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@4"))).isValid());
+        Assert.assertTrue(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(), "minecraft:log@*"),
+                groupMap("b", modes(), "minecraft:log@0"))).isValid());
+    }
+
+    @Test
+    public void overlapReportsBothDraftModePaths() {
+        ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(ObjectGroupMode.AREA_ORE), "minecraft:stone@[0,4]"),
+                groupMap("b", modes(ObjectGroupMode.AREA_ORE), "minecraft:stone@[4,8]")));
+        Assert.assertTrue(parsed.errors().containsKey("client.objectGroups[0].modes"));
+        Assert.assertTrue(parsed.errors().containsKey("client.objectGroups[1].modes"));
+    }
+
+    @Test
+    public void missingModesMigratesToEmptyMask() {
+        ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(
+                Collections.singletonList(groupMap("legacy", "minecraft:log@*")));
+        Assert.assertTrue(parsed.isValid());
+        Assert.assertTrue(parsed.rules().groups().get(0).modes().isEmpty());
+        Assert.assertEquals(0L, parsed.rules().groups().get(0).modeMask());
     }
 
     @Test
@@ -61,6 +93,12 @@ public class ObjectGroupParserTest {
         } catch (UnsupportedOperationException expected) {
             // expected
         }
+        try {
+            rules.groups().get(0).modes().add(ObjectGroupMode.CHAIN_BASE);
+            Assert.fail("modes must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // expected
+        }
     }
 
     private static ObjectGroup group(String id, String... members) {
@@ -76,5 +114,15 @@ public class ObjectGroupParserTest {
         group.put("id", id);
         group.put("members", new ArrayList<String>(Arrays.asList(members)));
         return group;
+    }
+
+    private static Map<String, Object> groupMap(String id, List<String> modes, String... members) {
+        Map<String, Object> group = groupMap(id, members);
+        group.put("modes", modes);
+        return group;
+    }
+
+    private static List<String> modes(String... modes) {
+        return new ArrayList<String>(Arrays.asList(modes));
     }
 }

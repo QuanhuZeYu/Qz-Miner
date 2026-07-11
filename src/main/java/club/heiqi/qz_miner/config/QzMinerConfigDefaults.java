@@ -64,6 +64,24 @@ public final class QzMinerConfigDefaults {
                 Double.valueOf(CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS));
         target.put("client.clientPreviewAlphaStartValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_START_VALUE));
         target.put("client.clientPreviewAlphaEndValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_END_VALUE));
-        target.put("client.objectGroups", java.util.Collections.<java.util.Map<String, Object>>emptyList());
+        target.put("client.objectGroups", objectGroups());
+    }
+
+    /** @return 带空 modes 的三个 vanilla 默认对象组。 */
+    public static java.util.List<java.util.Map<String, Object>> objectGroups() {
+        java.util.List<java.util.Map<String, Object>> groups =
+                new java.util.ArrayList<java.util.Map<String, Object>>();
+        groups.add(group("vanilla_logs", "minecraft:log@*", "minecraft:log2@*"));
+        groups.add(group("vanilla_hay", "minecraft:hay_block@[0,4,8]"));
+        groups.add(group("vanilla_redstone", "minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"));
+        return java.util.Collections.unmodifiableList(groups);
+    }
+
+    private static java.util.Map<String, Object> group(String id, String... members) {
+        java.util.Map<String, Object> group = new java.util.LinkedHashMap<String, Object>();
+        group.put("id", id);
+        group.put("modes", java.util.Collections.<String>emptyList());
+        group.put("members", java.util.Collections.unmodifiableList(java.util.Arrays.asList(members)));
+        return java.util.Collections.unmodifiableMap(group);
     }
 }

@@ -41,7 +41,22 @@ public class ObjectGroupConfigValidationTest {
         draft.setDraft("client.objectGroups", groups(group("logs", "minecraft:log@16")));
         SaveOutcome outcome = manager.save(draft);
         Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
-        Assert.assertEquals(0, ((List<?>) manager.authority().get("client.objectGroups")).size());
+        Assert.assertEquals(3, ((List<?>) manager.authority().get("client.objectGroups")).size());
+    }
+
+    @Test
+    public void overlappingSharedModeBlocksBothDraftPaths() {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        DraftBuffer draft = manager.openDraft();
+        Map<String, Object> first = group("a", "minecraft:log@*");
+        Map<String, Object> second = group("b", "minecraft:log@0");
+        first.put("modes", Arrays.asList("chain_base"));
+        second.put("modes", Arrays.asList("chain_base"));
+        draft.setDraft("client.objectGroups", groups(first, second));
+        SaveOutcome outcome = manager.save(draft);
+        Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
+        Assert.assertTrue(outcome.validation().errors().containsKey("client.objectGroups[0].modes"));
+        Assert.assertTrue(outcome.validation().errors().containsKey("client.objectGroups[1].modes"));
     }
 
     @Test

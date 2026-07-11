@@ -6,6 +6,8 @@ import org.junit.Test;
 import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.config.schema.FieldType;
+import club.heiqi.config.schema.ValueKind;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 
 /**
  * Schema 字段完备性与 Defaults 对齐。
@@ -44,5 +46,10 @@ public class QzMinerConfigSchemaTest {
         FieldSpec groups = schema.field("client.objectGroups");
         Assert.assertEquals(FieldType.STRUCTURED_LIST, groups.type());
         Assert.assertEquals("id", groups.valueSpec().element().identityMember());
+        Assert.assertEquals(ValueKind.LIST, groups.valueSpec().element().member("modes").spec().kind());
+        Assert.assertEquals(ValueKind.CHOICE,
+                groups.valueSpec().element().member("modes").spec().element().kind());
+        Assert.assertArrayEquals(ObjectGroupMode.ids(), groups.valueSpec().element()
+                .member("modes").spec().element().choices().toArray(new String[0]));
     }
 }

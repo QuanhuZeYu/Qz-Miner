@@ -12,6 +12,7 @@ import java.util.List;
 
 import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupSelector;
 import io.netty.buffer.ByteBuf;
 
@@ -20,7 +21,7 @@ import io.netty.buffer.ByteBuf;
  */
 public final class ObjectGroupWireConfig {
 
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2;
     public static final int MAX_PAYLOAD_BYTES = 32 * 1024;
     public static final int MAX_GROUPS = ObjectGroupRuleSet.MAX_GROUPS;
     public static final int MAX_MEMBERS = ObjectGroup.MAX_MEMBERS;
@@ -51,7 +52,7 @@ public final class ObjectGroupWireConfig {
             for (ObjectGroupSelector selector : group.members()) {
                 members.add(selector.canonical());
             }
-            groups.add(new RawGroup(group.id(), members));
+            groups.add(new RawGroup(group.id(), group.modeMask(), members));
         }
         ObjectGroupWireConfig config = new ObjectGroupWireConfig(PROTOCOL_VERSION, revision, groups, true);
         if (config.encodedSize() > MAX_PAYLOAD_BYTES) {
@@ -69,15 +70,17 @@ public final class ObjectGroupWireConfig {
             int version = buf.readInt();
             long revision = buf.readLong();
             int groupCount = buf.readInt();
-            if (revision < 0L || groupCount < 0 || groupCount > MAX_GROUPS) {
+            if (version != PROTOCOL_VERSION || revision < 0L || groupCount < 0 || groupCount > MAX_GROUPS) {
                 return invalid();
             }
             List<RawGroup> groups = new ArrayList<RawGroup>(groupCount);
             int totalMembers = 0;
             for (int i = 0; i < groupCount; i++) {
                 String id = readString(buf);
+                long modeMask = buf.readLong();
                 int memberCount = buf.readInt();
-                if (id == null || memberCount <= 0 || memberCount > MAX_MEMBERS) {
+                if (id == null || !ObjectGroupMode.isValidMask(modeMask)
+                        || memberCount <= 0 || memberCount > MAX_MEMBERS) {
                     return invalid();
                 }
                 totalMembers += memberCount;
@@ -92,7 +95,7 @@ public final class ObjectGroupWireConfig {
                     }
                     members.add(member);
                 }
-                groups.add(new RawGroup(id, members));
+                groups.add(new RawGroup(id, modeMask, members));
             }
             if (buf.isReadable()) {
                 return invalid();
@@ -113,6 +116,7 @@ public final class ObjectGroupWireConfig {
         buf.writeInt(groups.size());
         for (RawGroup group : groups) {
             writeString(buf, group.id);
+            buf.writeLong(group.modeMask);
             buf.writeInt(group.members.size());
             for (String member : group.members) {
                 writeString(buf, member);
@@ -139,7 +143,7 @@ public final class ObjectGroupWireConfig {
     public int encodedSize() {
         int size = 4 + 8 + 4;
         for (RawGroup group : groups) {
-            size += stringSize(group.id) + 4;
+            size += stringSize(group.id) + 8 + 4;
             for (String member : group.members) {
                 size += stringSize(member);
             }
@@ -188,10 +192,12 @@ public final class ObjectGroupWireConfig {
     /** 有界原始组。 */
     public static final class RawGroup {
         private final String id;
+        private final long modeMask;
         private final List<String> members;
 
-        RawGroup(String id, List<String> members) {
+        RawGroup(String id, long modeMask, List<String> members) {
             this.id = id;
+            this.modeMask = modeMask;
             this.members = Collections.unmodifiableList(new ArrayList<String>(members));
         }
 
@@ -201,6 +207,10 @@ public final class ObjectGroupWireConfig {
 
         public List<String> members() {
             return members;
+        }
+
+        public long modeMask() {
+            return modeMask;
         }
     }
 }
