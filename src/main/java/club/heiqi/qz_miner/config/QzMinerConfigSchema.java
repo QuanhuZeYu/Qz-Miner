@@ -141,7 +141,8 @@ public final class QzMinerConfigSchema {
                             Values.member("id", Values.string()),
                             Values.member("modes", Values.list(Values.choice(ObjectGroupMode.ids())),
                                     java.util.Collections.<String>emptyList()),
-                            Values.member("members", Values.list(Values.string()))))
+                            Values.member("members", Values.widget(Values.list(Values.string()),
+                                    Values.searchPicker("qz_miner:block-selector", 64)))))
                         .defaultValue(QzMinerConfigDefaults.objectGroups())
                         .label("objectGroups")
                         .helper("每玩家对象组；成员使用 registry@0、registry@* 或 registry@[0,4,8,12]")

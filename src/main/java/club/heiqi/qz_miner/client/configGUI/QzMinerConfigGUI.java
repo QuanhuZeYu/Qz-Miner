@@ -6,6 +6,7 @@ import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.config.ui.ConfigScreen;
 import club.heiqi.config.ui.ConfigUI;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.client.picker.ObjectGroupPickerRegistration;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.uilib.ui.scene.host.lwjgl.LwjglInputSource;
 import club.heiqi.uilib.ui.scene.host.lwjgl.LwjglStateReader;
@@ -37,7 +38,8 @@ public class QzMinerConfigGUI extends McScreenBridge {
             throw new IllegalStateException("ConfigBootstrap.manager() is null; preInit must run first");
         }
         PlatformInputSource input = new LwjglInputSource(new LwjglStateReader());
-        return ConfigUI.buildScreen(manager, input);
+        return ConfigUI.buildScreen(manager, input, registry -> { }, policy -> { },
+                ObjectGroupPickerRegistration::register);
     }
 
     @Override

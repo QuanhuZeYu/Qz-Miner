@@ -7,6 +7,7 @@ import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.config.schema.FieldType;
 import club.heiqi.config.schema.ValueKind;
+import club.heiqi.config.schema.SearchPickerSpec;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 
 /**
@@ -51,5 +52,11 @@ public class QzMinerConfigSchemaTest {
                 groups.valueSpec().element().member("modes").spec().element().kind());
         Assert.assertArrayEquals(ObjectGroupMode.ids(), groups.valueSpec().element()
                 .member("modes").spec().element().choices().toArray(new String[0]));
+        club.heiqi.config.schema.ValueSpec members = groups.valueSpec().element().member("members").spec();
+        Assert.assertEquals(ValueKind.LIST, members.kind());
+        Assert.assertEquals(ValueKind.STRING, members.element().kind());
+        Assert.assertTrue(members.widget() instanceof SearchPickerSpec);
+        Assert.assertEquals("qz_miner:block-selector", ((SearchPickerSpec) members.widget()).editorId());
+        Assert.assertEquals(64, ((SearchPickerSpec) members.widget()).maxItems());
     }
 }
