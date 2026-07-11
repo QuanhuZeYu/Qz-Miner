@@ -32,7 +32,7 @@
 - **I4**：配置网络 Handler 只捕获原始数据，最终整包校验与状态写入均在对应主线程；C2S 经 keyed lane 背压（START drain 不可重入），S2C 经客户端 lifecycle **连接 identity** token + dispatcher 收口。
 - **I7**：服务端停止时玩家清理先于 dispatcher 关闭，避免 stop 后 FIFO 拒绝导致生命周期清理丢失；客户端断线/卸载经 lifecycle gate 清预览/GPU/phase/pending。
 - **对象组生命周期**：服务端规则按玩家 UUID 独立保存；统一玩家状态移除时随状态清理。每次任务只使用启动时冻结的组快照，配置 reload 只影响下一任务。
-- **运行时扩展语义**：对象组不占用独立 `ChainSubMode`，仅映射到七个既有模式。主线程以 mode+seed 从已接受玩家规则解析唯一组并冻结为 registry→16-bit metadata mask；规划与已确认客户端预览共享纯快照解析。运行谓词固定为 `G AND (Q OR X)`，原 Q 不被替换，harvest 安全门 G 不可绕过，无匹配或 pending 回退原行为；traverser/executor/drop/state machine 不变。
+- **运行时扩展语义**：对象组不占用独立 `ChainSubMode`，仅映射到七个既有模式。主线程以 mode+seed 从已接受玩家规则解析唯一组并冻结为 registry→16-bit metadata mask；规划与已确认客户端预览共享纯快照解析和同一运行时工厂。candidate 为 `Q OR X`；matcher 先按 Q 短路，五个采掘模式为 `Q OR (X AND ChainHarvestRules.canHarvest)`，`INTERACT_BASE` 为 `Q OR X`，`INTERACT_CROP` 为 `Q OR (X AND non-null/non-air/non-liquid)`。空扩展、非支持模式或 pending 均返回原判定实例；traverser/executor/drop/state machine 不变。
 - 服务端代码禁止引用 `club.heiqi.config.ui`、屏幕桥接壳、LWJGL；仅 client GUI 包可引用。
 
 ## 演进

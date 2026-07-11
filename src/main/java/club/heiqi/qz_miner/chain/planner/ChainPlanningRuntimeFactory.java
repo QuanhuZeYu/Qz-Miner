@@ -88,7 +88,8 @@ public final class ChainPlanningRuntimeFactory {
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;
         }
-        matcher = extendMatcher(matcher, searchContext.getFrozenModePredicate());
+        matcher = ModeExtensionMatcherDecorator.decorateMatcher(
+            searchContext.getSubMode(), matcher, searchContext.getFrozenModePredicate());
 
         return new ChainPlanningRuntime(searchContext, resolverContext, candidateFilter, traverser, matcher);
     }
@@ -156,13 +157,7 @@ public final class ChainPlanningRuntimeFactory {
             return true;
         };
         final ChainCandidateFilter base = ChainSubModeRegistry.createCandidateFilter(context, fallback);
-        final FrozenModePredicate extension = context.getFrozenModePredicate();
-        return target -> base.canTraverse(target) || extension.matches(context.getWorld(), target);
-    }
-
-    private static ChainBlockMatcher extendMatcher(final ChainBlockMatcher base, final FrozenModePredicate extension) {
-        return (player, target) -> player != null && target != null
-                && (base.matches(player, target) || extension.matches(player.worldObj, target))
-                && ChainHarvestRules.canHarvest(player, target);
+        return ModeExtensionMatcherDecorator.decorateCandidateFilter(
+            context.getSubMode(), base, context.getFrozenModePredicate(), context.getWorld());
     }
 }
