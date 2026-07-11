@@ -19,7 +19,6 @@ hud.qz_miner.mode.special=Special Mode
 hud.qz_miner.sub_mode.chain.base=Chain Base Mode
 hud.qz_miner.sub_mode.chain.logging=Chain Logging Mode
 hud.qz_miner.sub_mode.chain.ore=Chain Ore Mode
-hud.qz_miner.sub_mode.chain.object_group=Chain Object Group Mode
 hud.qz_miner.sub_mode.area.base=Blasting Base Mode
 hud.qz_miner.sub_mode.area.all=Indiscriminate Blasting Mode
 hud.qz_miner.sub_mode.area.ore=Blasting Ore Mode

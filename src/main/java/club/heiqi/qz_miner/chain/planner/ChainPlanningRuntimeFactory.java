@@ -43,7 +43,7 @@ public final class ChainPlanningRuntimeFactory {
             session.getRequest().getSubMode(),
             effectiveRadius,
             effectiveMaxBlocks,
-            session.getTraversalTargets(), session.getRequest().getSelectedObjectGroup());
+            session.getTraversalTargets(), session.getRequest().getModeExtension());
 
         return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }
@@ -65,7 +65,7 @@ public final class ChainPlanningRuntimeFactory {
             session.getRequest().getSubMode(),
             maxRadius,
             maxTargets,
-            new ConcurrentLinkedQueue<ChainTarget>(), session.getRequest().getSelectedObjectGroup());
+            new ConcurrentLinkedQueue<ChainTarget>(), session.getRequest().getModeExtension());
 
         return createRuntime(player, session, searchContext, session.getRequest().getMode());
     }
@@ -79,11 +79,6 @@ public final class ChainPlanningRuntimeFactory {
         if (definition == null || searchContext == null) {
             return null;
         }
-        if (searchContext.getSubMode() == ChainSubMode.CHAIN_OBJECT_GROUP
-                && searchContext.getSelectedObjectGroup() == null) {
-            return null;
-        }
-
         ChainResolverContext resolverContext = new ChainResolverContext(player, session, searchContext);
         ChainCandidateFilter candidateFilter = createCandidateFilter(searchContext);
         searchContext.setCandidateFilter(candidateFilter);
@@ -93,6 +88,7 @@ public final class ChainPlanningRuntimeFactory {
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;
         }
+        matcher = extendMatcher(matcher, searchContext.getFrozenModePredicate());
 
         return new ChainPlanningRuntime(searchContext, resolverContext, candidateFilter, traverser, matcher);
     }
@@ -104,7 +100,7 @@ public final class ChainPlanningRuntimeFactory {
         int maxRadius,
         int maxTargets,
         ConcurrentLinkedQueue<ChainTarget> currentFrontier,
-        club.heiqi.qz_miner.objectgroup.ObjectGroup selectedObjectGroup) {
+        club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot modeExtension) {
         ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<ChainTarget>();
         Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
         return new ChainSearchContext(
@@ -118,17 +114,13 @@ public final class ChainPlanningRuntimeFactory {
             maxTargets,
             currentFrontier,
             nextFrontier,
-            visited, selectedObjectGroup);
+            visited, modeExtension);
     }
 
     private static ChainCandidateFilter createCandidateFilter(final ChainSearchContext context) {
         ChainCandidateFilter fallback = target -> {
             if (context == null || target == null) {
                 return false;
-            }
-
-            if (context.getSubMode() == ChainSubMode.CHAIN_OBJECT_GROUP) {
-                return new ObjectGroupCandidateFilter(context, context.getObjectGroupPredicate()).canTraverse(target);
             }
 
             Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
@@ -163,6 +155,14 @@ public final class ChainPlanningRuntimeFactory {
 
             return true;
         };
-        return ChainSubModeRegistry.createCandidateFilter(context, fallback);
+        final ChainCandidateFilter base = ChainSubModeRegistry.createCandidateFilter(context, fallback);
+        final FrozenModePredicate extension = context.getFrozenModePredicate();
+        return target -> base.canTraverse(target) || extension.matches(context.getWorld(), target);
+    }
+
+    private static ChainBlockMatcher extendMatcher(final ChainBlockMatcher base, final FrozenModePredicate extension) {
+        return (player, target) -> player != null && target != null
+                && (base.matches(player, target) || extension.matches(player.worldObj, target))
+                && ChainHarvestRules.canHarvest(player, target);
     }
 }

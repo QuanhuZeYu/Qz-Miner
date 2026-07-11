@@ -61,7 +61,8 @@ public class ServerObjectGroupConfigRequestDispatchTest {
 
     private static ObjectGroupWireConfig wire(long revision, String id, String selector) {
         ObjectGroupRuleSet rules = new ObjectGroupRuleSet(Collections.singletonList(new ObjectGroup(
-                id, Collections.singletonList(ObjectGroupParser.parseSelector(selector)))));
+                id, Collections.singletonList(club.heiqi.qz_miner.objectgroup.ObjectGroupMode.CHAIN_BASE), 1L,
+                Collections.singletonList(ObjectGroupParser.parseSelector(selector)))));
         return ObjectGroupWireConfig.fromRuleSet(revision, rules);
     }
 

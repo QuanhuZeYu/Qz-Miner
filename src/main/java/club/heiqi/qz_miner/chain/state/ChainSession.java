@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.objectgroup.ObjectGroup;
+import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
@@ -62,12 +62,12 @@ public class ChainSession {
         this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY, interactHitZ, requestedChainRadius, requestedChainMaxBlocks));
     }
 
-    /** 创建带冻结对象组快照的单次会话。 */
+    /** 创建带冻结模式扩展快照的单次会话。 */
     public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin,
             int interactFace, float interactHitX, float interactHitY, float interactHitZ,
-            int requestedChainRadius, int requestedChainMaxBlocks, ObjectGroup selectedObjectGroup) {
+            int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension) {
         this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY,
-                interactHitZ, requestedChainRadius, requestedChainMaxBlocks, selectedObjectGroup));
+                interactHitZ, requestedChainRadius, requestedChainMaxBlocks, modeExtension));
     }
 
     public ChainSession(ChainRequest request) {

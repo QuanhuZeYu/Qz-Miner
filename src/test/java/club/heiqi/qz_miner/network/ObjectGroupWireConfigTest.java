@@ -77,6 +77,7 @@ public class ObjectGroupWireConfigTest {
     public void zeroMaskIsLegalAndTrailingBytesAreRejected() {
         ObjectGroupWireConfig source = ObjectGroupWireConfig.fromRuleSet(3L,
                 new ObjectGroupRuleSet(Collections.singletonList(new ObjectGroup("legacy",
+                        Collections.<String>emptyList(), 0L,
                         Collections.singletonList(ObjectGroupParser.parseSelector("minecraft:log@*"))))));
         ByteBuf valid = Unpooled.buffer(source.encodedSize());
         source.write(valid);

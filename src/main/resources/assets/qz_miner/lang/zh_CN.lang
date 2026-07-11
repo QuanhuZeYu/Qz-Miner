@@ -19,7 +19,6 @@ hud.qz_miner.mode.special=特殊模式
 hud.qz_miner.sub_mode.chain.base=连锁基础模式
 hud.qz_miner.sub_mode.chain.logging=连锁伐木模式
 hud.qz_miner.sub_mode.chain.ore=连锁矿石模式
-hud.qz_miner.sub_mode.chain.object_group=连锁对象组模式
 hud.qz_miner.sub_mode.area.base=爆破基础模式
 hud.qz_miner.sub_mode.area.all=无差别爆破模式
 hud.qz_miner.sub_mode.area.ore=爆破矿石模式

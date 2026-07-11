@@ -74,6 +74,7 @@ public class ChainClientObjectGroupSyncTest {
 
     private static ObjectGroupRuleSet rules(String id, String selector) {
         return new ObjectGroupRuleSet(Collections.singletonList(new ObjectGroup(
-                id, Arrays.asList(ObjectGroupParser.parseSelector(selector)))));
+                id, Collections.singletonList(club.heiqi.qz_miner.objectgroup.ObjectGroupMode.CHAIN_BASE), 1L,
+                Arrays.asList(ObjectGroupParser.parseSelector(selector)))));
     }
 }

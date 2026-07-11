@@ -4,6 +4,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+
 /** 对象组可用模式的稳定标识与 16-bit wire 位注册表。 */
 public final class ObjectGroupMode {
 
@@ -60,5 +62,20 @@ public final class ObjectGroupMode {
     /** @return mask 是否仅包含已知 16-bit 模式位。 */
     public static boolean isValidMask(long mask) {
         return mask >= 0L && (mask & ~((long) KNOWN_MASK)) == 0L;
+    }
+
+    /** 将可扩展的既有子模式映射到稳定模式位，其他模式返回 0。 */
+    public static long maskFor(ChainSubMode subMode) {
+        if (subMode == null) return 0L;
+        switch (subMode) {
+            case CHAIN_BASE: return 1L;
+            case CHAIN_ORE: return 2L;
+            case CHAIN_LOGGING: return 4L;
+            case AREA_SAME_BLOCK: return 8L;
+            case AREA_ORE: return 16L;
+            case INTERACT_BASE: return 32L;
+            case INTERACT_CROP: return 64L;
+            default: return 0L;
+        }
     }
 }

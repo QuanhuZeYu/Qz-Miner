@@ -47,24 +47,15 @@ public final class ObjectGroupRuleSet {
         return totalMembers;
     }
 
-    /**
-     * 按单值、集合、通配的优先级选组；同级按组和成员的配置顺序取先者。
-     */
-    @Deprecated
-    public ObjectGroup selectGroup(String registry, int meta) {
-        ObjectGroup selected = null;
-        ObjectGroupSelector.Specificity selectedSpecificity = null;
+    /** 按稳定模式位和种子选择唯一组并冻结其热路径索引。 */
+    public ModeExtensionSnapshot resolve(long modeMask, String registry, int meta) {
+        if (modeMask == 0L || registry == null) return ModeExtensionSnapshot.EMPTY;
         for (ObjectGroup group : groups) {
-            ObjectGroupSelector.Specificity specificity = group.specificityFor(registry, meta);
-            if (specificity == null) {
-                continue;
-            }
-            if (selected == null || specificity.ordinal() < selectedSpecificity.ordinal()) {
-                selected = group;
-                selectedSpecificity = specificity;
+            if ((group.modeMask() & modeMask) != 0L && group.matches(registry, meta)) {
+                return ModeExtensionSnapshot.from(group);
             }
         }
-        return selected;
+        return ModeExtensionSnapshot.EMPTY;
     }
 
     private static int findById(List<ObjectGroup> groups, String id, int before) {

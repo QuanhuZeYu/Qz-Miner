@@ -32,6 +32,7 @@
 - **I4**：配置网络 Handler 只捕获原始数据，最终整包校验与状态写入均在对应主线程；C2S 经 keyed lane 背压（START drain 不可重入），S2C 经客户端 lifecycle **连接 identity** token + dispatcher 收口。
 - **I7**：服务端停止时玩家清理先于 dispatcher 关闭，避免 stop 后 FIFO 拒绝导致生命周期清理丢失；客户端断线/卸载经 lifecycle gate 清预览/GPU/phase/pending。
 - **对象组生命周期**：服务端规则按玩家 UUID 独立保存；统一玩家状态移除时随状态清理。每次任务只使用启动时冻结的组快照，配置 reload 只影响下一任务。
+- **运行时扩展语义**：对象组不占用独立 `ChainSubMode`，仅映射到七个既有模式。主线程以 mode+seed 从已接受玩家规则解析唯一组并冻结为 registry→16-bit metadata mask；规划与已确认客户端预览共享纯快照解析。运行谓词固定为 `G AND (Q OR X)`，原 Q 不被替换，harvest 安全门 G 不可绕过，无匹配或 pending 回退原行为；traverser/executor/drop/state machine 不变。
 - 服务端代码禁止引用 `club.heiqi.config.ui`、屏幕桥接壳、LWJGL；仅 client GUI 包可引用。
 
 ## 演进
@@ -51,4 +52,5 @@
 - 2026-07-11：对象组 S2C 纠偏：固定长度 raw/valid framing、requested/authoritative 双 revision、主线程语义校验、严格单调乱序结果与重连 epoch 水位；补齐 groupCount 和 common proxy 签名门禁。
 - 2026-07-11：对象组 P1 纠偏：完整 `CommittedSnapshot` 贯穿 publication/连接发送；客户端按连接代际保存有界请求快照，ACK 按对应 revision 消费并发布服务端实际确认的规则，连接清理回收 pending。
 - 2026-07-11：开发与最低运行依赖升级至 Qz-UILib `4.5.3-beta-3`，继续使用 Maven Local `dev` 制品；不改变配置权威与对象组协议。
+- 2026-07-11：对象组 runtime 从独立模式收口为七个既有模式的冻结筛选扩展，删除第一批兼容 API；Picker 交互留待后续。
 - 2026-07-11：第一批对象模式扩展升级至 Qz-UILib `4.5.3-beta-4`；schema 增加多选 modes，模型固定 7-bit 注册表并规范化 selector，C2S 升至 wire v2。runtime、模式枚举和预览留待第二批。

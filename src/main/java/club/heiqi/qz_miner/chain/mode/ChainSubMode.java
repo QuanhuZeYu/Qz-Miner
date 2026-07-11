@@ -51,9 +51,7 @@ public enum ChainSubMode {
     /**
      * SPECIAL GT 线缆替换子模式。
      */
-    SPECIAL_GT_CABLE_REPLACE(ChainMode.SPECIAL, false, false, false),
-    /** CHAIN 按玩家对象组的 registry+metadata 规则匹配。 */
-    CHAIN_OBJECT_GROUP(ChainMode.CHAIN, false, false, false);
+    SPECIAL_GT_CABLE_REPLACE(ChainMode.SPECIAL, false, false, false);
 
     private final ChainMode parentMode;
     private final boolean sameBlockMatchRequired;
@@ -138,8 +136,6 @@ public enum ChainSubMode {
                 return "hud.qz_miner.sub_mode.special.lootgames_minesweeper";
             case SPECIAL_GT_CABLE_REPLACE:
                 return "hud.qz_miner.sub_mode.special.gt_cable_replace";
-            case CHAIN_OBJECT_GROUP:
-                return "hud.qz_miner.sub_mode.chain.object_group";
             default:
                 return name();
         }

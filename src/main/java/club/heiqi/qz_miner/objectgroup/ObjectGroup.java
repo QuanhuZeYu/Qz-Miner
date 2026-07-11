@@ -17,11 +17,6 @@ public final class ObjectGroup {
     private final long modeMask;
     private final List<ObjectGroupSelector> members;
 
-    /** 第二批 runtime 迁移前的空模式兼容构造器。 */
-    public ObjectGroup(String id, List<ObjectGroupSelector> members) {
-        this(id, Collections.<String>emptyList(), 0L, members);
-    }
-
     public ObjectGroup(String id, List<String> modes, long modeMask, List<ObjectGroupSelector> members) {
         if (id == null || id.isEmpty() || id.length() > MAX_ID_LENGTH) {
             throw new IllegalArgumentException("invalid object group id");
@@ -61,22 +56,10 @@ public final class ObjectGroup {
         return modeMask;
     }
 
-    /** 返回该组对一个 registry+meta 的匹配级别，未匹配返回 null。 */
-    @Deprecated
-    public ObjectGroupSelector.Specificity specificityFor(String registry, int meta) {
-        ObjectGroupSelector.Specificity best = null;
-        for (ObjectGroupSelector selector : members) {
-            if (!selector.matches(registry, meta)) {
-                continue;
-            }
-            if (best == null || selector.specificity().ordinal() < best.ordinal()) {
-                best = selector.specificity();
-            }
-        }
-        return best;
-    }
-
     public boolean matches(String registry, int meta) {
-        return specificityFor(registry, meta) != null;
+        for (ObjectGroupSelector selector : members) {
+            if (selector.matches(registry, meta)) return true;
+        }
+        return false;
     }
 }

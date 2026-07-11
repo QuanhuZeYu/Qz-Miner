@@ -6,7 +6,7 @@ import java.util.Set;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
-import club.heiqi.qz_miner.objectgroup.ObjectGroup;
+import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import net.minecraft.world.World;
 
 /**
@@ -27,8 +27,8 @@ public class ChainSearchContext {
     private final ChainSubMode subMode;
     private final int maxRadius;
     private final int maxTargets;
-    private final ObjectGroup selectedObjectGroup;
-    private final ObjectGroupBlockPredicate objectGroupPredicate;
+    private final ModeExtensionSnapshot modeExtension;
+    private final FrozenModePredicate frozenModePredicate;
     private final Queue<ChainTarget> currentFrontier;
     private final Queue<ChainTarget> nextFrontier;
     private final Set<ChainTarget> visited;
@@ -55,7 +55,7 @@ public class ChainSearchContext {
     public ChainSearchContext(
         World world, ChainTarget origin, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity,
         ChainSubMode subMode, int maxRadius, int maxTargets, Queue<ChainTarget> currentFrontier,
-        Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ObjectGroup selectedObjectGroup) {
+        Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ModeExtensionSnapshot modeExtension) {
         this.world = world;
         this.origin = origin;
         this.sampleBlock = sampleBlock;
@@ -64,9 +64,8 @@ public class ChainSearchContext {
         this.subMode = subMode;
         this.maxRadius = maxRadius;
         this.maxTargets = maxTargets;
-        this.selectedObjectGroup = selectedObjectGroup;
-        this.objectGroupPredicate = selectedObjectGroup == null
-                ? null : new ObjectGroupBlockPredicate(selectedObjectGroup);
+        this.modeExtension = modeExtension == null ? ModeExtensionSnapshot.EMPTY : modeExtension;
+        this.frozenModePredicate = new FrozenModePredicate(this.modeExtension);
         this.currentFrontier = currentFrontier;
         this.nextFrontier = nextFrontier;
         this.visited = visited;
@@ -109,14 +108,13 @@ public class ChainSearchContext {
         return maxTargets;
     }
 
-    /** @return 本次规划冻结的对象组，非对象组模式为 null */
-    public ObjectGroup getSelectedObjectGroup() {
-        return selectedObjectGroup;
+    public ModeExtensionSnapshot getModeExtension() {
+        return modeExtension;
     }
 
     /** @return 与 matcher/filter 共享的冻结对象组谓词 */
-    public ObjectGroupBlockPredicate getObjectGroupPredicate() {
-        return objectGroupPredicate;
+    public FrozenModePredicate getFrozenModePredicate() {
+        return frozenModePredicate;
     }
 
     public Queue<ChainTarget> getCurrentFrontier() {

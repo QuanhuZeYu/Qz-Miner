@@ -17,7 +17,8 @@ public class ChainPlayerObjectGroupLifecycleTest {
     public void explicitPlayerStateCleanupClearsRulesAndRevision() {
         ChainPlayerState state = new ChainPlayerState(UUID.randomUUID());
         ObjectGroupRuleSet rules = new ObjectGroupRuleSet(Collections.singletonList(new ObjectGroup(
-                "logs", Collections.singletonList(ObjectGroupParser.parseSelector("minecraft:log@*")))));
+                "logs", Collections.singletonList(club.heiqi.qz_miner.objectgroup.ObjectGroupMode.CHAIN_BASE), 1L,
+                Collections.singletonList(ObjectGroupParser.parseSelector("minecraft:log@*")))));
         state.setObjectGroupRules(rules, 9L);
         state.clearObjectGroupRules();
         Assert.assertTrue(state.getObjectGroupRules().groups().isEmpty());

@@ -6,7 +6,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.objectgroup.ObjectGroup;
+import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 
 /**
  * 单次连锁请求快照。
@@ -23,7 +23,7 @@ public final class ChainRequest {
     private final float interactHitZ;
     private final int requestedChainRadius;
     private final int requestedChainMaxBlocks;
-    private final ObjectGroup selectedObjectGroup;
+    private final ModeExtensionSnapshot modeExtension;
 
     public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin) {
         this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F, -1, -1, null);
@@ -45,7 +45,7 @@ public final class ChainRequest {
     /** 创建带已选对象组快照的单次请求。 */
     public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin,
             int interactFace, float interactHitX, float interactHitY, float interactHitZ,
-            int requestedChainRadius, int requestedChainMaxBlocks, ObjectGroup selectedObjectGroup) {
+            int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension) {
         this.playerUUID = playerUUID;
         this.mode = mode;
         this.subMode = ChainModeRegistry.resolveSubMode(mode, subMode);
@@ -56,7 +56,7 @@ public final class ChainRequest {
         this.interactHitZ = interactHitZ;
         this.requestedChainRadius = requestedChainRadius;
         this.requestedChainMaxBlocks = requestedChainMaxBlocks;
-        this.selectedObjectGroup = selectedObjectGroup;
+        this.modeExtension = modeExtension == null ? ModeExtensionSnapshot.EMPTY : modeExtension;
     }
 
     public UUID getPlayerUUID() {
@@ -99,8 +99,8 @@ public final class ChainRequest {
         return requestedChainMaxBlocks;
     }
 
-    /** @return 本次任务冻结的对象组，非对象组模式为 null */
-    public ObjectGroup getSelectedObjectGroup() {
-        return selectedObjectGroup;
+    /** @return 本次任务冻结的模式筛选扩展。 */
+    public ModeExtensionSnapshot getModeExtension() {
+        return modeExtension;
     }
 }

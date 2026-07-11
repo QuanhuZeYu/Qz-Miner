@@ -106,7 +106,7 @@ public class ObjectGroupParserTest {
         for (String member : members) {
             selectors.add(ObjectGroupParser.parseSelector(member));
         }
-        return new ObjectGroup(id, selectors);
+        return new ObjectGroup(id, Collections.singletonList(ObjectGroupMode.CHAIN_BASE), 1L, selectors);
     }
 
     private static Map<String, Object> groupMap(String id, String... members) {
