@@ -30,7 +30,7 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
 
     /** 使用当前类加载器解析正式 GT 能力档案。 */
     public GregTechCableCompatAdapter() {
-        this(CapabilityProfile.resolve(new ProductionClassResolver()));
+        this(CapabilityProfile.resolve(new ProductionClassResolver(), new ProductionProfileDiagnostic()));
     }
 
     GregTechCableCompatAdapter(CapabilityProfile profile) {
@@ -220,9 +220,24 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         @Override public Class<?> resolve(String name) { return ClassNameCompatSupport.resolveClass(name); }
     }
 
+    /** 将 GT 签名漂移在适配器初始化时汇总为单条诊断。 */
+    private static final class ProductionProfileDiagnostic implements ProfileDiagnostic {
+        @Override
+        public void degraded(String selectedProfile, List<String> missingCapabilities) {
+            MyMod.LOG.warn("[CableCompat] GT capability profile degraded selectedProfile={} missingCapabilities={}",
+                selectedProfile, missingCapabilities);
+        }
+    }
+
+    interface ProfileDiagnostic {
+        void degraded(String selectedProfile, List<String> missingCapabilities);
+    }
+
     /** 完整成功才启用的两代 GT 共同成员档案。 */
     static final class CapabilityProfile {
         final boolean complete;
+        String selectedProfile;
+        List<String> missingCapabilities = Collections.emptyList();
         Class<?> gregTechTileType, metaTileType, basePipeType, cableType;
         Method getMetaTileId, setMetaTileId, getMetaTileEntity, getConnections, isConnectedAtSide;
         Method newMetaEntity, setBaseMetaTileEntity, causeCableUpdate, issueTextureUpdate, issueBlockUpdate, issueTileUpdate;
@@ -231,16 +246,21 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         private CapabilityProfile(boolean complete) { this.complete = complete; }
 
         static CapabilityProfile resolve(ClassResolver resolver) {
+            return resolve(resolver, null);
+        }
+
+        static CapabilityProfile resolve(ClassResolver resolver, ProfileDiagnostic diagnostic) {
             CapabilityProfile p = new CapabilityProfile(false);
+            List<String> missing = new ArrayList<String>();
             try {
                 Class<?> api = resolver.resolve("gregtech.api.GregTechAPI");
-                p.metaTileType = resolver.resolve("gregtech.api.interfaces.metatileentity.IMetaTileEntity");
-                p.gregTechTileType = resolver.resolve("gregtech.api.interfaces.tileentity.IGregTechTileEntity");
-                p.basePipeType = resolver.resolve("gregtech.api.metatileentity.BaseMetaPipeEntity");
-                Class<?> metaPipeType = resolver.resolve("gregtech.api.metatileentity.MetaPipeEntity");
-                p.cableType = resolver.resolve("gregtech.api.metatileentity.implementations.MTECable");
-                if (api == null || p.metaTileType == null || p.gregTechTileType == null || p.basePipeType == null
-                    || metaPipeType == null || p.cableType == null) return p;
+                if (api == null) return finish(p, "NO_GT", missing, null);
+                p.metaTileType = requiredType(resolver, "gregtech.api.interfaces.metatileentity.IMetaTileEntity", missing);
+                p.gregTechTileType = requiredType(resolver, "gregtech.api.interfaces.tileentity.IGregTechTileEntity", missing);
+                p.basePipeType = requiredType(resolver, "gregtech.api.metatileentity.BaseMetaPipeEntity", missing);
+                Class<?> metaPipeType = requiredType(resolver, "gregtech.api.metatileentity.MetaPipeEntity", missing);
+                p.cableType = requiredType(resolver, "gregtech.api.metatileentity.implementations.MTECable", missing);
+                if (!missing.isEmpty()) return finish(p, "GT_REFLECTION_DEGRADED", missing, diagnostic);
                 p.getMetaTileId = method(p.gregTechTileType, "getMetaTileID");
                 p.setMetaTileId = method(p.gregTechTileType, "setMetaTileID", short.class);
                 p.getMetaTileEntity = method(p.gregTechTileType, "getMetaTileEntity");
@@ -260,10 +280,55 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
                 p.voltage = field(p.cableType, "mVoltage");
                 p.blockMachines = field(api, "sBlockMachines");
                 p.metaTileEntities = field(api, "METATILEENTITIES");
-                return allPresent(p) ? copyComplete(p) : p;
+                collectMissingMembers(p, missing);
+                return allPresent(p) ? finish(copyComplete(p), "GT_REFLECTION_COMPLETE", missing, null)
+                    : finish(p, "GT_REFLECTION_DEGRADED", missing, diagnostic);
             } catch (LinkageError | SecurityException ignored) {
-                return p;
+                missing.add("profile-resolution");
+                return finish(p, "GT_REFLECTION_DEGRADED", missing, diagnostic);
             }
+        }
+
+        private static Class<?> requiredType(ClassResolver resolver, String name, List<String> missing) {
+            Class<?> type = resolver.resolve(name);
+            if (type == null) missing.add("type:" + name);
+            return type;
+        }
+
+        private static CapabilityProfile finish(CapabilityProfile profile, String selectedProfile,
+            List<String> missing, ProfileDiagnostic diagnostic) {
+            profile.selectedProfile = selectedProfile;
+            profile.missingCapabilities = Collections.unmodifiableList(new ArrayList<String>(missing));
+            if (diagnostic != null && !profile.missingCapabilities.isEmpty()) {
+                diagnostic.degraded(selectedProfile, profile.missingCapabilities);
+            }
+            return profile;
+        }
+
+        private static void collectMissingMembers(CapabilityProfile p, List<String> missing) {
+            addMissing(missing, p.getMetaTileId, "method:IGregTechTileEntity#getMetaTileID()");
+            addMissing(missing, p.setMetaTileId, "method:IGregTechTileEntity#setMetaTileID(short)");
+            addMissing(missing, p.getMetaTileEntity, "method:IGregTechTileEntity#getMetaTileEntity()");
+            addMissing(missing, p.getConnections, "method:BaseMetaPipeEntity#getConnections()");
+            addMissing(missing, p.isConnectedAtSide, "method:MTECable#isConnectedAtSide(ForgeDirection)");
+            addMissing(missing, p.newMetaEntity, "method:MTECable#newMetaEntity(IGregTechTileEntity)");
+            addMissing(missing, p.setBaseMetaTileEntity, "method:IMetaTileEntity#setBaseMetaTileEntity(IGregTechTileEntity)");
+            addMissing(missing, p.causeCableUpdate, "method:GregTechAPI#causeCableUpdate(World,int,int,int)");
+            addMissing(missing, p.issueTextureUpdate, "method:IGregTechTileEntity#issueTextureUpdate()");
+            addMissing(missing, p.issueBlockUpdate, "method:IGregTechTileEntity#issueBlockUpdate()");
+            addMissing(missing, p.issueTileUpdate, "method:IGregTechTileEntity#issueTileUpdate()");
+            addMissing(missing, p.baseConnections, "field:BaseMetaPipeEntity#mConnections");
+            addMissing(missing, p.cableConnections, "field:MetaPipeEntity#mConnections");
+            addMissing(missing, p.material, "field:MTECable#mMaterial");
+            addMissing(missing, p.cableLoss, "field:MTECable#mCableLossPerMeter");
+            addMissing(missing, p.amperage, "field:MTECable#mAmperage");
+            addMissing(missing, p.voltage, "field:MTECable#mVoltage");
+            addMissing(missing, p.blockMachines, "field:GregTechAPI#sBlockMachines");
+            addMissing(missing, p.metaTileEntities, "field:GregTechAPI#METATILEENTITIES");
+        }
+
+        private static void addMissing(List<String> missing, Object capability, String descriptor) {
+            if (capability == null) missing.add(descriptor);
         }
 
         private static CapabilityProfile copyComplete(CapabilityProfile source) {
