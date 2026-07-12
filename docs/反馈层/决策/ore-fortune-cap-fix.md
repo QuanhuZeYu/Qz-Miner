@@ -13,7 +13,8 @@
 ## 最终选择
 
 - 使用 `MixinExtras` 的 `@ModifyExpressionValue` 拦截 `fortune > 3` 表达式。
-- 保留 `mNatural` 相关 `@Redirect`，仅替换原先用于重写 `nextInt` 的 mixin。
+- natural 语义由无代际静态链接的 helper 统一处理：2.8 读取 `mNatural`，2.9 读取 `isNatural`，放置矿配置覆盖语义一致。
+- 同一 jar 同时携带 legacy 与 adapter mixin，由 plugin 按目标类字节码的方法名和 descriptor 选择；2.9 中保留 `TileEntityOres` 数据类不会误启 legacy 注入。
 
 ## 选择原因
 
@@ -23,12 +24,11 @@
 
 ## 影响范围
 
-- `src/main/java/club/heiqi/qz_miner/mixins/MixinTileEntityOres.java`
-- `src/main/java/club/heiqi/qz_miner/mixins/MixinBWTileEntityMetaGeneratedOre.java`
-- `src/main/java/club/heiqi/qz_miner/mixins/MixinBlockBaseOre.java`
-- `src/main/resources/mixins.qz_miner.json`
+- `club.heiqi.qz_miner.mixins` 下三类 legacy mixin、三类 adapter mixin及其 plugin。
+- `FortuneCompatHelper` 与 `mixins.qz_miner.json`。
 
 ## 后续注意事项
 
 - 相关 mixin 依赖 `MixinExtras` 表达式注入能力，配置文件需保留 `mixinextras.minVersion`。
 - 若未来升级 GT / BW / GT++ 上游版本，需要优先核对 `getDrops` 中 `fortune > 3` 的字节码结构是否变化。
+- 每次升级必须同步核对 plugin descriptor，并运行双基线脚本；编译成功不能替代两代真实掉落验证。

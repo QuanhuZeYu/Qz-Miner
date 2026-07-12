@@ -37,7 +37,7 @@ GT 线缆替换必须满足「单 tick 内原子替换完整链路」。落地�
 - 替换种类基准：主手线缆 `metaTileId`（`GregTechCableReplaceActionExecutor.findLockedCableSlot` 首次锁定进 `GregTechCableSessionState`）
 - 消耗顺序：主手外正序（slot 0→8→9→35）同种优先 → 主手最后兜底
 - 主手保护：`GregTechCableSessionState.LOCKED_MAIN_HAND_SLOT` 双锁，返还旧线缆时跳过主手 slot，避免旧线缆占用主手致类型锚点错乱
-- 旧线缆去向：三级降级（并入已有堆叠 → 空槽 → 掉地兜底）
+- 旧线缆去向：主线程并入已有堆叠 → 空槽 → 玩家级掉落缓冲；不直接无保障生成实体，释放失败仍按 I5 回填。
 
 ## 否决方案
 
@@ -47,3 +47,4 @@ GT 线缆替换必须满足「单 tick 内原子替换完整链路」。落地�
 ## 演进
 
 - **2026-07-06 初版**：Commit 1（物品来源简化，a9866e3）+ Commit 2（B1+B2+B3 安全核心 + §8 偏离登记 + P2 顺带修）落地。`shouldWaitForPlannerCompletion` 由死代码转为执行分叉开关，`GregTechCableReplaceActionExecutor` 覆盖为 true 触发 GT 单 tick 原子路径。
+- **跨 2.8/2.9 收口**：GT 访问改为完整反射 profile，任一类型、方法或字段缺失即关闭能力；替换/回滚均恢复 meta/base 两侧连接，返还物移交主线程执行器并接入玩家级掉落缓冲。
