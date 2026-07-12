@@ -70,6 +70,32 @@ public class ObjectGroupConfigValidationTest {
         Assert.assertEquals("logs", ConfigBootstrap.currentValidatedSnapshot().objectGroups.groups().get(0).id());
     }
 
+    @Test
+    public void beta12ResetRestoresRealSchemaObjectGroupDefaults() {
+        DraftBuffer draft = ConfigBootstrap.bootstrap(tempDir, null).openDraft();
+        draft.setDraft("client.objectGroups", new ArrayList<Object>());
+
+        draft.resetFieldToDefault("client.objectGroups");
+
+        Assert.assertEquals(QzMinerConfigDefaults.objectGroups(), draft.getDraft("client.objectGroups"));
+        List<?> restored = (List<?>) draft.getDraft("client.objectGroups");
+        Assert.assertEquals(Arrays.asList("vanilla_logs", "vanilla_hay", "vanilla_redstone"),
+                Arrays.asList(id(restored, 0), id(restored, 1), id(restored, 2)));
+        Assert.assertEquals(Arrays.asList("minecraft:log@*", "minecraft:log2@*"), members(restored, 0));
+        Assert.assertEquals(Arrays.asList("minecraft:hay_block@[0,4,8]"), members(restored, 1));
+        Assert.assertEquals(Arrays.asList("minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"),
+                members(restored, 2));
+        for (Object value : restored) Assert.assertEquals(new ArrayList<Object>(), ((Map<?, ?>) value).get("modes"));
+    }
+
+    private static Object id(List<?> groups, int index) {
+        return ((Map<?, ?>) groups.get(index)).get("id");
+    }
+
+    private static Object members(List<?> groups, int index) {
+        return ((Map<?, ?>) groups.get(index)).get("members");
+    }
+
     private static List<Map<String, Object>> groups(Map<String, Object>... groups) {
         return new ArrayList<Map<String, Object>>(Arrays.asList(groups));
     }

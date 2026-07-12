@@ -9,6 +9,8 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
+import net.minecraft.init.Blocks;
+
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.uilib.ui.scene.image.SceneImageSource;
@@ -102,5 +104,28 @@ public class BlockPickerProviderTest {
         SearchPickerData.Candidate unknown = new SearchPickerData.Candidate("test:enumeration-fallback", "Fallback",
                 Collections.<SearchPickerData.Variant>emptyList());
         Assert.assertSame(candidateImage, first.visualAdapter().candidateImage(unknown));
+    }
+
+    @Test
+    public void realLitRedstoneOreSearchesByRegistryAndLocalizedNameAndEncodesBothModes() {
+        BlockCandidate lit = BlockVariantEnumerator.enumerateBlock(
+                "minecraft:lit_redstone_ore", Blocks.lit_redstone_ore);
+        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(lit));
+
+        SearchPickerData.Candidate byRegistry = provider.searchFunction()
+                .search("lit_redstone_ore", 64).candidates().get(0);
+        Assert.assertEquals("minecraft:lit_redstone_ore", byRegistry.key());
+        Assert.assertEquals("minecraft:lit_redstone_ore@0", byRegistry.variants().get(0).key());
+        Assert.assertEquals(byRegistry.key(), provider.searchFunction()
+                .search(lit.localizedName(), 64).candidates().get(0).key());
+
+        ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
+        Assert.assertEquals(Collections.singletonList("minecraft:lit_redstone_ore@*"), codec.encode(
+                Collections.emptyList(), new SearchPickerData.Selection(byRegistry.key(),
+                        SearchPickerData.SelectionMode.ALL, Collections.<String>emptyList())));
+        Assert.assertEquals(Collections.singletonList("minecraft:lit_redstone_ore@0"), codec.encode(
+                Collections.emptyList(), new SearchPickerData.Selection(byRegistry.key(),
+                        SearchPickerData.SelectionMode.SELECTED,
+                        Collections.singletonList(byRegistry.variants().get(0).key()))));
     }
 }

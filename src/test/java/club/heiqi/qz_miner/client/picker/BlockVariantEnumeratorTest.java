@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.client.picker;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.Assert;
@@ -51,12 +52,23 @@ public class BlockVariantEnumeratorTest {
     }
 
     @Test
-    public void blockWithoutItemBlockProducesVisualPlaceholder() {
+    public void blockWithoutItemBlockKeepsLogicalMetaZeroWithoutItemIdentity() {
         BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("minecraft:air", Blocks.air);
 
-        Assert.assertTrue(candidate.variants().isEmpty());
+        Assert.assertEquals(Collections.singletonList(0), metadata(candidate));
+        Assert.assertNull(candidate.variants().get(0).stack());
         Assert.assertNull(candidate.representative());
-        Assert.assertEquals("minecraft:air", candidate.localizedName());
+        Assert.assertFalse(candidate.localizedName().isEmpty());
+    }
+
+    @Test
+    public void realLitRedstoneOreKeepsStableRegistryAndEncodableVariants() {
+        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock(
+                "minecraft:lit_redstone_ore", Blocks.lit_redstone_ore);
+
+        Assert.assertEquals("minecraft:lit_redstone_ore", candidate.registry());
+        Assert.assertFalse(candidate.localizedName().isEmpty());
+        Assert.assertTrue(metadata(candidate).contains(Integer.valueOf(0)));
     }
 
     private static List<Integer> metadata(BlockCandidate candidate) {

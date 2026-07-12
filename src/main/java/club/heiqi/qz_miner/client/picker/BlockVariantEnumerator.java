@@ -28,15 +28,18 @@ public final class BlockVariantEnumerator {
         for (Object value : Block.blockRegistry) {
             if (!(value instanceof Block)) continue;
             Block block = (Block) value;
-            String registry = String.valueOf(Block.blockRegistry.getNameForObject(block));
+            String registry = null;
             try {
+                Object key = Block.blockRegistry.getNameForObject(block);
+                registry = key == null ? null : key.toString();
+                if (!isValidRegistry(registry)) continue;
                 result.add(enumerateBlock(registry, block));
             } catch (RuntimeException e) {
                 if (failures++ < MAX_FAILURE_LOGS) MyMod.LOG.warn("Block picker degraded for {}", registry, e);
-                result.add(placeholder(registry));
+                if (isValidRegistry(registry)) result.add(placeholder(registry));
             } catch (LinkageError e) {
                 if (failures++ < MAX_FAILURE_LOGS) MyMod.LOG.warn("Block picker linkage degraded for {}", registry, e);
-                result.add(placeholder(registry));
+                if (isValidRegistry(registry)) result.add(placeholder(registry));
             }
         }
         if (failures > MAX_FAILURE_LOGS) {
@@ -47,7 +50,7 @@ public final class BlockVariantEnumerator {
 
     static BlockCandidate enumerateBlock(String registry, Block block) {
         Item item = Item.getItemFromBlock(block);
-        if (!(item instanceof ItemBlock)) return placeholder(registry);
+        if (!(item instanceof ItemBlock)) return blockOnlyCandidate(registry, block);
         return enumerateBlock(registry, block, item);
     }
 
@@ -82,6 +85,33 @@ public final class BlockVariantEnumerator {
     private static String safeName(ItemStack stack) {
         String name = stack.getDisplayName();
         return name == null || name.isEmpty() ? stack.getUnlocalizedName() : name;
+    }
+
+    /** 无物品身份的方块仍以逻辑 meta 0 参与指定状态选择。 */
+    private static BlockCandidate blockOnlyCandidate(String registry, Block block) {
+        String name = safeBlockName(registry, block);
+        return new BlockCandidate(registry, name,
+                Collections.singletonList(new BlockVariant(0, name, null)), null);
+    }
+
+    private static String safeBlockName(String registry, Block block) {
+        try {
+            String localized = block.getLocalizedName();
+            String untranslated = block.getUnlocalizedName();
+            if (localized == null || localized.trim().isEmpty()
+                    || localized.equals(untranslated) || localized.equals(untranslated + ".name")) return registry;
+            return localized;
+        } catch (RuntimeException e) {
+            return registry;
+        } catch (LinkageError e) {
+            return registry;
+        }
+    }
+
+    private static boolean isValidRegistry(String registry) {
+        if (registry == null || registry.isEmpty()) return false;
+        int separator = registry.indexOf(':');
+        return separator > 0 && separator < registry.length() - 1;
     }
 
     private static BlockCandidate placeholder(String registry) {
