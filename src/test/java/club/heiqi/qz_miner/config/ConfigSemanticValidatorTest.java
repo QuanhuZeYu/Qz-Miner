@@ -107,10 +107,10 @@ public class ConfigSemanticValidatorTest {
         Assert.assertEquals(2, ConfigBootstrap.currentValidatedSnapshot()
                 .autoToolSelection.minimumRemainingDurability);
         DraftBuffer draft = manager.openDraft();
-        draft.setDraft("general.autoToolSelection", new ArrayList<Object>());
+        draft.setDraft("client.autoToolSelection", new ArrayList<Object>());
         SaveOutcome outcome = manager.save(draft);
         Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
-        Assert.assertNotNull(outcome.validation().errorFor("general.autoToolSelection"));
+        Assert.assertNotNull(outcome.validation().errorFor("client.autoToolSelection"));
     }
 
     private void assertInvalidTransaction(DraftMutation mutation, String errorPath, Object retainedValue)

@@ -86,6 +86,9 @@ public final class QzMinerConfigSchema {
                         .label("enableFortuneForPlacedOre")
                         .helper("是否允许非自然生成的 GT/BW 矿石也享受时运；关闭时保持原版仅自然矿可时运")
                         .build()
+                .endSection()
+                .section("client")
+                    .title("Client")
                     .structuredList("autoToolSelection", Values.objectWithIdentity("id",
                             Values.member("id", Values.choice("default")),
                             Values.member("enabled", Values.bool()),
@@ -99,9 +102,6 @@ public final class QzMinerConfigSchema {
                         .label("自动工具预选")
                         .helper("自动工具预选策略（固定单配置对象）")
                         .build()
-                .endSection()
-                .section("client")
-                    .title("Client")
                     .bool("clientEnablePreviewRender")
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER))
                         .label("clientEnablePreviewRender")

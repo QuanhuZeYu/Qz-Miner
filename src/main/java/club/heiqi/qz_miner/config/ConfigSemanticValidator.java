@@ -136,7 +136,7 @@ public final class ConfigSemanticValidator {
 
     @SuppressWarnings("unchecked")
     private static void putAutoToolSelection(Map<String, Object> typed, Map<String, String> errors, DraftView draft) {
-        String path = "general.autoToolSelection";
+        String path = "client.autoToolSelection";
         Object raw = draft.getDraft(path);
         if (!(raw instanceof java.util.List) || ((java.util.List<?>) raw).size() != 1
                 || !(((java.util.List<?>) raw).get(0) instanceof Map)) {
@@ -331,7 +331,7 @@ public final class ConfigSemanticValidator {
             parallelTickServerWorkBudgetUnits = exactInt(typed, "general.parallelTickServerWorkBudgetUnits");
             enableUnlimitedOreFortune = ((Boolean) typed.get("general.enableUnlimitedOreFortune")).booleanValue();
             enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
-            autoToolSelection = (AutoToolSelectionConfig) typed.get("general.autoToolSelection");
+            autoToolSelection = (AutoToolSelectionConfig) typed.get("client.autoToolSelection");
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
             parallelTickClientWorkBudgetUnits = exactInt(typed, "client.parallelTickClientWorkBudgetUnits");
             clientPreviewMaxRadius = exactInt(typed, "client.clientPreviewMaxRadius");

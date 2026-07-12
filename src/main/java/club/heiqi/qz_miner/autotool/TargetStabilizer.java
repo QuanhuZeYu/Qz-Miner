@@ -22,21 +22,28 @@ public final class TargetStabilizer<T> {
         if (frozen) return committed;
         if (target == null) {
             pending = null; pendingTicks = 0;
-            if (++emptyTicks > emptyGraceTicks) { committed = null; initialized = false; }
+            emptyTicks = incrementSaturated(emptyTicks);
+            if (emptyTicks > emptyGraceTicks) { committed = null; initialized = false; }
             return committed;
         }
         emptyTicks = 0;
         if (!initialized) { committed = target; initialized = true; pending = null; return committed; }
         if (target.equals(committed)) { pending = null; pendingTicks = 0; return committed; }
         if (!target.equals(pending)) { pending = target; pendingTicks = 1; }
-        else pendingTicks++;
+        else pendingTicks = incrementSaturated(pendingTicks);
         if (pendingTicks >= stableTicks) { committed = pending; pending = null; pendingTicks = 0; }
         return committed;
     }
 
     /** 清除全部目标历史。 */
-    public void reset() { committed = null; pending = null; pendingTicks = 0; emptyTicks = 0; initialized = false; }
+    public void reset() {
+        committed = null; pending = null; pendingTicks = 0; emptyTicks = 0; initialized = false; frozen = false;
+    }
     /** 冻结或恢复更新。 */
     public void freeze(boolean value) { frozen = value; }
     public T current() { return committed; }
+
+    private static int incrementSaturated(int value) {
+        return value == Integer.MAX_VALUE ? value : value + 1;
+    }
 }

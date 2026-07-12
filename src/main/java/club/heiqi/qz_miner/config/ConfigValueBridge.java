@@ -46,7 +46,6 @@ public final class ConfigValueBridge {
         Config.parallelTickServerWorkBudgetUnits = snapshot.parallelTickServerWorkBudgetUnits;
         Config.enableUnlimitedOreFortune = snapshot.enableUnlimitedOreFortune;
         Config.enableFortuneForPlacedOre = snapshot.enableFortuneForPlacedOre;
-        Config.autoToolSelection = snapshot.autoToolSelection;
     }
 
     /**
@@ -59,6 +58,7 @@ public final class ConfigValueBridge {
             throw new IllegalArgumentException("snapshot must not be null");
         }
         Config.clientEnablePreviewRender = snapshot.clientEnablePreviewRender;
+        Config.autoToolSelection = snapshot.autoToolSelection;
         Config.parallelTickClientWorkBudgetUnits = snapshot.parallelTickClientWorkBudgetUnits;
         Config.clientPreviewMaxRadius = snapshot.clientPreviewMaxRadius;
         Config.clientPreviewMaxTargets = snapshot.clientPreviewMaxTargets;

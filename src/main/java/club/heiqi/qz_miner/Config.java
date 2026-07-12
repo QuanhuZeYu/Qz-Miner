@@ -39,8 +39,7 @@ public class Config {
             QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS;
     public static boolean enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
     public static boolean enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
-    public static AutoToolSelectionConfig autoToolSelection = new AutoToolSelectionConfig(false, "inventory", true,
-            AutoToolSelectionConfig.EnchantmentPolicy.PRESERVE_CURRENT, 2, 2, 2);
+    public static AutoToolSelectionConfig autoToolSelection = QzMinerConfigDefaults.autoToolSelectionConfig();
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
     public static int parallelTickClientWorkBudgetUnits =
             QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;

@@ -15,7 +15,7 @@
 - C2S keyed drain：`ServerMainThreadDispatcher` START 外层不可重入 guard，嵌套 START 跳过 keyed lane；普通 FIFO 不变。KeyedLatestTaskLane 线性化契约为「最后线性化成功值最终执行」，非「每个 submit true 最终可达」。
 - 对象组同步：对象组请求的 revision、rules、groupCount 必须来自同一个不可变 `CommittedSnapshot`；listener publication 和连接初始化均只捕获一次该包装，禁止发送时重新读取全局 current。客户端按 `(connectionGeneration, requestedRevision)` 保存最多 8 个完整请求快照，ACK 只消费对应记录；成功确认从记录发布规则，不能用未发送或未确认的 current 配置替代。`PacketObjectGroupConfigSync` 固定 25 字节，只捕获 raw/valid，不持有 Forge `ByteBuf`；包携带 `requestedRevision` 与 `authoritativeRevision`，截断、尾随和非法 raw 均丢弃。客户端主线程校验协议版本、revision、accepted byte、groupCount，并要求成功确认的 groupCount 等于对应请求快照数量；结果按 `(requestedRevision, authoritativeRevision, accepted)` 严格单调，旧 ACK 忽略。连接接管/断开清空 pending；旧连接包由 connection identity gate 丢弃。
 - 服务端停止：`serverStopping` 先同步 `PlayerManager.clearAllPlayersOnServerStopping()` 完成玩家生命周期清理，再 `ServerMainThreadDispatcher.onServerStopping()`；其他 `clearAllPlayers` 路径语义不变。
-- 删除 Forge `GuiConfig` 降级页与 `ConfigChangedEvent` 保存链；当前 21 字段（含 `greeting`、结构化 `client.objectGroups` 和 `general.autoToolSelection`）由同一 YAML 权威管理；默认单一源 `QzMinerConfigDefaults`。
+- 删除 Forge `GuiConfig` 降级页与 `ConfigChangedEvent` 保存链；当前 21 字段（含 `greeting`、结构化 `client.objectGroups` 和 `client.autoToolSelection`）由同一 YAML 权威管理；默认单一源 `QzMinerConfigDefaults`。
 - 现有 YAML 的语法/raw/语义错误统一先 required backup、再删除、默认重建并复验；cfg 导入产物也重载执行 raw+语义复验。备份失败 fail-fast，绝不删除原文件或回退 cfg 运行。
 - `@Mod`：`required-after:qz_uilib@[4.6.0,);`
 
@@ -28,7 +28,7 @@
 
 ## 自动工具预选对象
 
-UILib 4.6.0 schema 没有普通对象字段。`general.autoToolSelection` 因此使用 identity 固定为
+UILib 4.6.0 schema 没有普通对象字段。`client.autoToolSelection` 因此使用 identity 固定为
 `default` 的单元素 `structuredList` 表示对象；语义校验要求恰好一个元素，并严格校验固定
 identity、选项枚举、布尔类型及整数范围。运行时通过不可变 `AutoToolSelectionConfig` 整体发布，
 禁止拆成互不关联的配置标量。
@@ -67,3 +67,4 @@ identity、选项枚举、布尔类型及整数范围。运行时通过不可变
 - 2026-07-12：当前开发与最低运行依赖升级至 Qz-UILib `4.5.3-beta-10`，Picker 收敛为 ALL/SELECTED 且保留既有 canonical；不改变配置权威与对象组协议。
 - 2026-07-12：当前开发与最低运行依赖升级至 Qz-UILib `4.5.3-beta-11`，修复长对象组 identity 遮挡 header 操作按钮；不改变配置权威与对象组协议。
 - 当前开发与最低运行依赖为 Qz-UILib `4.6.0`；真实 schema 回归确认字段 reset 可恢复三个 vanilla 对象组默认值。
+- 2026-07-13：自动工具对象归入 client section；静态初值、schema 与 typed 默认统一引用 `QzMinerConfigDefaults`。

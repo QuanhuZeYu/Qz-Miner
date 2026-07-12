@@ -28,7 +28,8 @@ public final class ToolSelectionPolicy {
         Candidate best = null;
         for (Candidate candidate : candidates) {
             if (candidate.slot() < 0 || candidate.slot() > 35 || !candidate.canHarvest()
-                    || candidate.remainingDurability() < minimumReserve + 1
+                    || candidate.remainingDurability() <= minimumReserve
+                    || !Double.isFinite(candidate.baseSpeed()) || candidate.baseSpeed() < 0.0D
                     || !preserves(current, candidate)) {
                 continue;
             }

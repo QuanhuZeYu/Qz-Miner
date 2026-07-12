@@ -17,7 +17,7 @@ public final class CommittedSnapshotTestFactory {
         Map<String, Object> values = new HashMap<String, Object>();
         QzMinerConfigDefaults.putAllDefaults(values);
         values.put("client.objectGroups", rules);
-        values.put("general.autoToolSelection", new AutoToolSelectionConfig(false, "inventory", true,
+        values.put("client.autoToolSelection", new AutoToolSelectionConfig(false, "inventory", true,
                 AutoToolSelectionConfig.EnchantmentPolicy.PRESERVE_CURRENT, 2, 2, 2));
         return new CommittedSnapshot(epoch, new ValidatedSnapshot(values));
     }

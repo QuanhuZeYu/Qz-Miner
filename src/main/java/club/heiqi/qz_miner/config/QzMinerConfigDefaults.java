@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.config;
 
+import club.heiqi.qz_miner.autotool.AutoToolSelectionConfig;
+
 /**
  * 全部历史配置默认值的单一来源。
  *
@@ -60,7 +62,7 @@ public final class QzMinerConfigDefaults {
                 Double.valueOf(PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS));
         target.put("general.enableUnlimitedOreFortune", Boolean.valueOf(ENABLE_UNLIMITED_ORE_FORTUNE));
         target.put("general.enableFortuneForPlacedOre", Boolean.valueOf(ENABLE_FORTUNE_FOR_PLACED_ORE));
-        target.put("general.autoToolSelection", autoToolSelection());
+        target.put("client.autoToolSelection", autoToolSelection());
         target.put("client.clientEnablePreviewRender", Boolean.valueOf(CLIENT_ENABLE_PREVIEW_RENDER));
         target.put("client.parallelTickClientWorkBudgetUnits",
                 Double.valueOf(PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS));
@@ -87,6 +89,14 @@ public final class QzMinerConfigDefaults {
         value.put("targetStableTicks", Double.valueOf(AUTO_TOOL_TARGET_STABLE_TICKS));
         value.put("emptyTargetGraceTicks", Double.valueOf(AUTO_TOOL_EMPTY_TARGET_GRACE_TICKS));
         return java.util.Collections.singletonList(java.util.Collections.unmodifiableMap(value));
+    }
+
+    /** @return 运行时不可变自动工具默认配置。 */
+    public static AutoToolSelectionConfig autoToolSelectionConfig() {
+        return new AutoToolSelectionConfig(AUTO_TOOL_ENABLED, AUTO_TOOL_SEARCH_SCOPE, AUTO_TOOL_RESTORE_ORIGINAL,
+                AutoToolSelectionConfig.EnchantmentPolicy.PRESERVE_CURRENT,
+                AUTO_TOOL_MINIMUM_REMAINING_DURABILITY, AUTO_TOOL_TARGET_STABLE_TICKS,
+                AUTO_TOOL_EMPTY_TARGET_GRACE_TICKS);
     }
 
     /** @return 带空 modes 的三个 vanilla 默认对象组。 */
