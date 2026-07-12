@@ -167,7 +167,7 @@ public final class CompatAdapters {
 
     private static List<OreCompatAdapter> createOreAdapters() {
         List<OreCompatAdapter> adapters = new ArrayList<OreCompatAdapter>();
-        addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("gregtech.common.blocks.BlockOresAbstract", "gregtech.common.blocks.TileEntityOres"));
+        addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("gregtech.common.blocks.GTBlockOre", null));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("bartworks.system.material.BWMetaGeneratedSmallOres", null));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("bartworks.system.material.BWMetaGeneratedOres", null));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter(null, "bartworks.system.material.BWTileEntityMetaGeneratedOre"));
