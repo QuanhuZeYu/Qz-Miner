@@ -19,6 +19,8 @@ import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.uilib.ui.hud.api.HudLine;
 import club.heiqi.uilib.ui.hud.api.HudSnapshot;
+import club.heiqi.uilib.ui.hud.api.HudSpan;
+import club.heiqi.uilib.ui.hud.api.HudTone;
 
 /** 回归紧凑 HUD 的显示门、原信息行和稳定行标识。 */
 public class QzMinerHudSnapshotProviderTest {
@@ -96,6 +98,50 @@ public class QzMinerHudSnapshotProviderTest {
         }
     }
 
+    @Test
+    public void richSpansHighlightBusinessValuesWithStableIds() {
+        Fixture fixture = new Fixture();
+        fixture.state.setChainKeyPressed(true);
+        fixture.state.setSelectedMode(ChainMode.CHAIN);
+        fixture.state.setSelectedSubMode(ChainSubMode.CHAIN_ORE);
+        fixture.state.setRequestedChainRadius(7);
+        fixture.state.setServerChainRadius(5);
+        fixture.state.setRequestedChainMaxBlocks(99);
+        fixture.state.setServerChainMaxBlocks(80);
+        fixture.state.setServerMatchedTargetCount(12);
+
+        HudSnapshot snapshot = fixture.provider.snapshot();
+        assertSpan(snapshot, "mode", "mode.value", "hud.qz_miner.mode.chain", HudTone.INFO);
+        assertSpan(snapshot, "sub-mode", "sub-mode.value", "hud.qz_miner.sub_mode.chain.ore", HudTone.INFO);
+        assertSpan(snapshot, "chain-config", "chain-config.radius-value", "7/5", HudTone.INFO);
+        assertSpan(snapshot, "chain-config", "chain-config.blocks-value", "99/80", HudTone.INFO);
+        assertSpan(snapshot, "server-matched", "server-matched.value", "12", HudTone.INFO);
+        assertSpan(snapshot, "object-group-sync", "object-group-sync.state",
+                "hud.qz_miner.sync.pending", HudTone.WARNING);
+        assertNoLegacySectionStyle(snapshot);
+    }
+
+    @Test
+    public void previewAndAreaExposeValueAndStateTones() {
+        Fixture fixture = new Fixture();
+        fixture.state.setChainKeyPressed(true);
+        fixture.state.setSelectedMode(ChainMode.AREA);
+        fixture.state.setSelectedSubMode(ChainSubMode.AREA_TUNNEL);
+        fixture.state.setPreviewActive(true);
+        fixture.preview.begin(new ChainTarget(0, 0, 0));
+        fixture.preview.addPreviewTarget(new ChainTarget(1, 0, 0));
+
+        HudSnapshot calculating = fixture.provider.snapshot();
+        assertSpan(calculating, "preview-matched", "preview-matched.value", "1", HudTone.INFO);
+        assertSpan(calculating, "preview-matched", "preview-matched.state",
+                "hud.qz_miner.preview.calculating", HudTone.WARNING);
+        assertSpan(calculating, "server-area", "server-area.volume", "72", HudTone.INFO);
+
+        fixture.preview.setCompleted(true);
+        assertSpan(fixture.provider.snapshot(), "preview-matched", "preview-matched.state",
+                "hud.qz_miner.preview.completed", HudTone.SUCCESS);
+    }
+
     private static void assertVisible(Fixture fixture, ChainPhase phase, boolean key, boolean expected) {
         fixture.projection.update(phase, fixture.generation++, 0L);
         fixture.state.setChainKeyPressed(key);
@@ -108,6 +154,32 @@ public class QzMinerHudSnapshotProviderTest {
             ids.add(line.getId());
         }
         return ids;
+    }
+
+    private static void assertSpan(HudSnapshot snapshot, String lineId, String spanId,
+            String text, HudTone tone) {
+        for (HudLine line : snapshot.getLines()) {
+            if (!lineId.equals(line.getId())) {
+                continue;
+            }
+            for (HudSpan span : line.getSpans()) {
+                if (spanId.equals(span.getId())) {
+                    Assert.assertEquals(text, span.getText());
+                    Assert.assertEquals(tone, span.getTone());
+                    return;
+                }
+            }
+        }
+        Assert.fail("missing span " + lineId + "/" + spanId);
+    }
+
+    private static void assertNoLegacySectionStyle(HudSnapshot snapshot) {
+        for (HudLine line : snapshot.getLines()) {
+            Assert.assertFalse(line.getText().contains("\u00a7"));
+            for (HudSpan span : line.getSpans()) {
+                Assert.assertFalse(span.getText().contains("\u00a7"));
+            }
+        }
     }
 
     private static final class Fixture {

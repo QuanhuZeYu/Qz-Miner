@@ -15,6 +15,7 @@ import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.uilib.ui.hud.api.HudLine;
 import club.heiqi.uilib.ui.hud.api.HudSnapshot;
 import club.heiqi.uilib.ui.hud.api.HudSnapshotProvider;
+import club.heiqi.uilib.ui.hud.api.HudSpan;
 import club.heiqi.uilib.ui.hud.api.HudTone;
 
 /** 将连锁客户端状态组装为 UILib 紧凑 HUD 的不可变快照。 */
@@ -68,45 +69,65 @@ public final class QzMinerHudSnapshotProvider implements HudSnapshotProvider {
         ChainSubMode selectedSubMode = clientState.getSelectedSubMode();
         ChainModeDefinition modeDefinition = ChainModeRegistry.getDefinition(selectedMode);
 
-        lines.add(HudLine.text("status", statusText(phase), statusTone(phase)));
-        lines.add(HudLine.text("mode", ClientI18n.tr(
-                "hud.qz_miner.current_mode", ClientI18n.tr(selectedMode.getDisplayNameKey())), HudTone.MUTED));
+        lines.add(HudLine.rich("status",
+                labelSpan("status.label", "hud.qz_miner.status.label"),
+                span("status.value", statusText(phase), statusTone(phase))));
+        lines.add(HudLine.rich("mode",
+                labelSpan("mode.label", "hud.qz_miner.current_mode.label"),
+                span("mode.value", ClientI18n.tr(selectedMode.getDisplayNameKey()), HudTone.INFO)));
         if (selectedSubMode != null) {
-            lines.add(HudLine.text("sub-mode", ClientI18n.tr(
-                    "hud.qz_miner.current_sub_mode", ClientI18n.tr(selectedSubMode.getDisplayNameKey())),
-                    HudTone.MUTED));
+            lines.add(HudLine.rich("sub-mode",
+                    labelSpan("sub-mode.label", "hud.qz_miner.current_sub_mode.label"),
+                    span("sub-mode.value", ClientI18n.tr(selectedSubMode.getDisplayNameKey()), HudTone.INFO)));
         }
-        lines.add(HudLine.text("chain-config", ClientI18n.tr(
-                "hud.qz_miner.chain_config",
-                clientState.getRequestedChainRadius(),
-                clientState.getServerChainRadius(),
-                clientState.getRequestedChainMaxBlocks(),
-                clientState.getServerChainMaxBlocks()), HudTone.MUTED));
-        lines.add(HudLine.text("server-matched", ClientI18n.tr(
-                "hud.qz_miner.server_matched", clientState.getServerMatchedTargetCount()), HudTone.MUTED));
-        lines.add(HudLine.text("object-group-sync", ClientI18n.tr(
-                "hud.qz_miner.object_group_sync",
-                clientState.isObjectGroupSyncAccepted()
+        lines.add(HudLine.rich("chain-config",
+                labelSpan("chain-config.radius-label", "hud.qz_miner.chain_config.radius.label"),
+                span("chain-config.radius-value", clientState.getRequestedChainRadius() + "/"
+                        + clientState.getServerChainRadius(), HudTone.INFO),
+                span("chain-config.separator", ClientI18n.tr("hud.qz_miner.separator") + " ", HudTone.MUTED),
+                labelSpan("chain-config.blocks-label", "hud.qz_miner.chain_config.blocks.label"),
+                span("chain-config.blocks-value", clientState.getRequestedChainMaxBlocks() + "/"
+                        + clientState.getServerChainMaxBlocks(), HudTone.INFO)));
+        lines.add(HudLine.rich("server-matched",
+                labelSpan("server-matched.label", "hud.qz_miner.server_matched.label"),
+                span("server-matched.value", String.valueOf(clientState.getServerMatchedTargetCount()), HudTone.INFO),
+                span("server-matched.unit", ClientI18n.tr("hud.qz_miner.blocks.unit"), HudTone.MUTED)));
+        boolean groupsConfirmed = clientState.isObjectGroupSyncAccepted();
+        lines.add(HudLine.rich("object-group-sync",
+                labelSpan("object-group-sync.label", "hud.qz_miner.object_group_sync.label"),
+                span("object-group-sync.state", groupsConfirmed
                         ? ClientI18n.tr("hud.qz_miner.sync.confirmed")
                         : ClientI18n.tr("hud.qz_miner.sync.pending"),
-                clientState.getServerObjectGroups().groups().size()), HudTone.MUTED));
+                        groupsConfirmed ? HudTone.SUCCESS : HudTone.WARNING),
+                span("object-group-sync.count-prefix", ClientI18n.tr("hud.qz_miner.count.prefix"), HudTone.MUTED),
+                span("object-group-sync.count", String.valueOf(clientState.getServerObjectGroups().groups().size()),
+                        HudTone.INFO),
+                span("object-group-sync.count-suffix", ClientI18n.tr("hud.qz_miner.count.suffix"), HudTone.MUTED)));
 
         ChainPreviewState previewState = clientState.isPreviewActive() ? previewStateSource.current() : null;
         if (previewState != null) {
-            String suffix = previewState.isCompleted()
+            String stateText = previewState.isCompleted()
                     ? ClientI18n.tr("hud.qz_miner.preview.completed")
                     : ClientI18n.tr("hud.qz_miner.preview.calculating");
-            lines.add(HudLine.text("preview-matched", ClientI18n.tr(
-                    "hud.qz_miner.preview_matched", previewState.getMatchedCount()) + " " + suffix,
-                    previewState.isCompleted() ? HudTone.SUCCESS : HudTone.WARNING));
+            lines.add(HudLine.rich("preview-matched",
+                    labelSpan("preview-matched.label", "hud.qz_miner.preview_matched.label"),
+                    span("preview-matched.value", String.valueOf(previewState.getMatchedCount()), HudTone.INFO),
+                    span("preview-matched.unit", ClientI18n.tr("hud.qz_miner.blocks.unit"), HudTone.MUTED),
+                    span("preview-matched.separator", ClientI18n.tr("hud.qz_miner.separator") + " ", HudTone.MUTED),
+                    span("preview-matched.state", stateText,
+                            previewState.isCompleted() ? HudTone.SUCCESS : HudTone.WARNING)));
         }
 
         if (modeDefinition != null && modeDefinition.shouldShowAreaInfo()) {
             int[] dimensions = resolveAreaDimensions(modeDefinition, selectedSubMode);
-            lines.add(HudLine.text("server-area", ClientI18n.tr(
-                    "hud.qz_miner.server_area",
-                    dimensions[0], dimensions[1], dimensions[2],
-                    dimensions[0] * dimensions[1] * dimensions[2]), HudTone.MUTED));
+            lines.add(HudLine.rich("server-area",
+                    labelSpan("server-area.label", "hud.qz_miner.server_area.label"),
+                    span("server-area.dimensions", dimensions[0] + " x " + dimensions[1] + " x " + dimensions[2],
+                            HudTone.INFO),
+                    span("server-area.equals", " " + ClientI18n.tr("hud.qz_miner.area.equals") + " ", HudTone.MUTED),
+                    span("server-area.volume", String.valueOf(dimensions[0] * dimensions[1] * dimensions[2]),
+                            HudTone.INFO),
+                    span("server-area.unit", ClientI18n.tr("hud.qz_miner.volume.unit"), HudTone.MUTED)));
         }
         return HudSnapshot.of(lines);
     }
@@ -124,6 +145,14 @@ public final class QzMinerHudSnapshotProvider implements HudSnapshotProvider {
     private HudTone statusTone(ChainPhase phase) {
         return phase == ChainPhase.RUNNING || phase == ChainPhase.FINISHING
                 ? HudTone.SUCCESS : HudTone.WARNING;
+    }
+
+    private HudSpan span(String id, String text, HudTone tone) {
+        return new HudSpan(id, text, tone);
+    }
+
+    private HudSpan labelSpan(String id, String translationKey) {
+        return span(id, ClientI18n.tr(translationKey) + " ", HudTone.MUTED);
     }
 
     private int[] resolveAreaDimensions(ChainModeDefinition modeDefinition, ChainSubMode subMode) {

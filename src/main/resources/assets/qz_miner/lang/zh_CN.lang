@@ -1,15 +1,23 @@
 hud.qz_miner.status.running=正在连锁
 hud.qz_miner.status.planning=连锁规划中
 hud.qz_miner.status.idle=连锁待命
-hud.qz_miner.current_mode=当前模式: %s
-hud.qz_miner.current_sub_mode=当前子模式: %s
-hud.qz_miner.chain_config=请求范围/上限: %d/%d, 请求数量/上限: %d/%d
-hud.qz_miner.server_matched=服务端已匹配: %d 个方块
-hud.qz_miner.preview_matched=预览已匹配: %d 个方块
-hud.qz_miner.preview.completed=(完成)
-hud.qz_miner.preview.calculating=(计算中)
-hud.qz_miner.server_area=服务端区域: %d x %d x %d = %d
-hud.qz_miner.object_group_sync=对象组: %s (%d)
+hud.qz_miner.status.label=状态:
+hud.qz_miner.current_mode.label=当前模式:
+hud.qz_miner.current_sub_mode.label=当前子模式:
+hud.qz_miner.chain_config.radius.label=请求范围/上限:
+hud.qz_miner.chain_config.blocks.label=请求数量/上限:
+hud.qz_miner.server_matched.label=服务端已匹配:
+hud.qz_miner.preview_matched.label=预览已匹配:
+hud.qz_miner.preview.completed=完成
+hud.qz_miner.preview.calculating=计算中
+hud.qz_miner.server_area.label=服务端区域:
+hud.qz_miner.object_group_sync.label=对象组:
+hud.qz_miner.separator=,
+hud.qz_miner.blocks.unit= 个方块
+hud.qz_miner.count.prefix= (
+hud.qz_miner.count.suffix=)
+hud.qz_miner.area.equals==
+hud.qz_miner.volume.unit= 个方块
 hud.qz_miner.sync.confirmed=已确认
 hud.qz_miner.sync.pending=待确认
 hud.qz_miner.mode.chain=连锁模式
