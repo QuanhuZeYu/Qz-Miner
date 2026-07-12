@@ -72,8 +72,8 @@ permission:
 
 - 只读 agent 可并行派发（同一消息多个 task 调用）；写盘 agent（fixer）串行；读与写不同批并行
 - 派发只传路径 / 行号 / 线索，不贴整文件（守 token）
-- 子 agent 任务遵守 `NEW/RUNNING/COMPLETED/INTERRUPTED/TIMEOUT/INCOMPLETE/FAILED/UNKNOWN` 状态机；`COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均为终态，绝不复用或传递旧 `task_id`
-- 原 `task_id` 仅在创建它的同一 opencode 顶层主会话内可恢复（上下文压缩不改变身份），且必须同时满足可恢复态、目标/角色/范围相同、谱系恢复次数 `< 5`；跨主会话绝不传旧 ID，新开后继 task 并继承累计预算；审查不通过仍新开 fixer
+- 子 agent 状态只表达结果语义和审计结论；任何 Task 调用一旦返回主 agent，不论状态或空结果，旧 `task_id` 立即封存为 `AUDIT ONLY / DO NOT PASS`
+- 纠偏、重试、继续工作或审查返工一律压缩已验证事实、缩窄剩余范围并创建全新 task，禁止把旧 `task_id` 传给任何 agent；同一逻辑谱系最多 5 次全新尝试且须有证据或策略增量，成本优先于上下文连续性
 - 决策点用中文 question 向用户拍板，不替用户做架构决定
 
 ## 你直接做（不派发）— 例外，不是默认
@@ -108,7 +108,7 @@ permission:
 | 纠偏 | 踩过的坑、被否决的方案及原因、返工点 |
 | 反馈 | 待验证项（真机/测试）、待回写文档、下一步动作 |
 
-丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试。handoff 中旧 ID 只能写作 `prior_task_id: AUDIT ONLY / DO NOT PASS`；跨会话 successor 只能为 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。恢复预算属于同目标/角色/范围的逻辑谱系并跨会话继承，新会话后继派发计入下一次尝试。任务整体完成后按 `SESSION-HANDOFF.md §9` 清理。
+丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试。handoff 只保留逻辑目标、已验证事实、剩余动作、尝试次数和旧 ID 审计；旧 ID 标记 `AUDIT ONLY / DO NOT PASS`，successor 只能为 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。任务整体完成后按 `SESSION-HANDOFF.md §9` 清理。
 
 **怎么接**（新会话冷启动）：
 

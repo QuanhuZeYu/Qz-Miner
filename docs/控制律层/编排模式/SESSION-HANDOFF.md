@@ -51,16 +51,16 @@
 - 已完成且无后续价值的中间过程
 - 无教训价值的失败尝试（有教训的归"纠偏"层）
 
-派发过的子 agent task 必须登记状态。跨会话不得保留任何可调用的旧 `task_id`；旧 ID 只能作审计标识，逻辑任务谱系及恢复预算继续传递。
+派发过的子 agent task 必须登记状态。任何已返回的旧 `task_id` 均只能作审计标识，**AUDIT ONLY / DO NOT PASS**；handoff 只传递逻辑任务目标、已验证事实、剩余动作和逻辑尝试次数。
 
-### 4.1 任务记录与恢复
+### 4.1 任务审计与后继
 
-每条跨会话 task 记录统一使用字段：`prior_task_id|agent|goal|scope|state|attempts|last_evidence|remaining_action|successor`。
+每条 task 审计记录统一使用字段：`prior_task_id|agent|goal|scope|state|attempts|verified_facts|remaining_action|successor`。
 
 - `state` 必须来自 `NEW`、`RUNNING`、`COMPLETED`、`INTERRUPTED`、`TIMEOUT`、`INCOMPLETE`、`FAILED`、`UNKNOWN`；缺状态按 `UNKNOWN` 处理。
-- `prior_task_id` 若存在只能填写 `<旧 ID>: AUDIT ONLY / DO NOT PASS`；主会话结束后不论状态均不得将其传给 Task 工具。
-- `successor` 只能填写 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。可恢复态在新会话创建后继 task，并将派发计入同目标/角色/范围谱系的下一次恢复尝试；已消耗次数跨会话继承，只有实质改变方案、目标或范围才建立新谱系。
-- `COMPLETED`、`FAILED`、`UNKNOWN`/缺状态仍是终态。审查不通过仍是 `COMPLETED`，返工必须登记为新的 fixer task。
+- `prior_task_id` 若存在只能填写 `<旧 ID>: AUDIT ONLY / DO NOT PASS`；任何 Task 调用返回后，不论状态、是否同一主会话，均不得将旧 ID 传给任何 agent。
+- `successor` 只能填写 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。创建后继 task 前必须压缩已验证事实并缩窄到剩余动作；派发计入同一逻辑谱系的下一次尝试，最多 5 次且跨会话不清零。
+- `state` 只保留结果语义和审计价值，不授予恢复权。审查不通过时返工也必须登记为全新 fixer task。
 
 ## 5. 开新会话标准动作（冷启动核对）
 
@@ -71,6 +71,8 @@
 3. 核对任务合同与权威事实是否漂移，并确认是否出现用户保留决策
 4. 若无漂移且无用户保留决策，向用户复述"我接续到 X，下一步做 Y"后自动推进，不强制等待确认
 5. 若发现漂移、错误或用户保留决策，先修正 handoff，并按任务合同集中询问后再续，不将错就错
+
+冷启动不得从 handoff 取旧 `task_id` 调度；所有后继一律 `NEW TASK WITHOUT OLD TASK_ID`。
 
 ## 6. 防幻觉铁律
 
@@ -99,7 +101,7 @@
 
 - [ ] **无持续价值的中间过程已丢弃**：工具原始输出、已完成无后续的尝试、无教训的失败——这些本就不该进 handoff，任务完成时确认它们没残留
 - [ ] **回流项已逐条反向举证**：每条打算回流到项目层（决策/错误预防/交接.md 未收敛项）的事实，必须答上"持续价值三问"（见下），答不上就丢
-- [ ] **session-handoff.md 已处理**：任务全完成→删除无持续价值的记录并回到模板初始态；尚有后续会话→仅保留逻辑任务与旧 ID 审计记录，旧 ID 标记 `AUDIT ONLY / DO NOT PASS`，后继标记 `NEW TASK WITHOUT OLD TASK_ID`，并继承谱系恢复预算
+- [ ] **session-handoff.md 已处理**：任务全完成→删除无持续价值的记录并回到模板初始态；尚有后续会话→只保留逻辑任务目标、已验证事实、剩余动作、尝试次数与旧 ID 审计记录，旧 ID 标记 `AUDIT ONLY / DO NOT PASS`，后继标记 `NEW TASK WITHOUT OLD TASK_ID`
 - [ ] **门禁已跑**：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-discipline.ps1` 通过（handoff 不入 git、无流水账命名）
 
 ### 持续价值三问（回流反向举证）
