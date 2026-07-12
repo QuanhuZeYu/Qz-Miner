@@ -15,10 +15,10 @@ public class ObjectGroupPickerCodecTest {
         ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
         Assert.assertEquals(SearchPickerData.SelectionMode.ALL,
                 codec.decode(Arrays.<Object>asList(Integer.valueOf(1), "minecraft:log@*")).mode());
-        Assert.assertEquals(SearchPickerData.SelectionMode.SINGLE,
+        Assert.assertEquals(SearchPickerData.SelectionMode.SELECTED,
                 codec.decode(Collections.singletonList("minecraft:log@4")).mode());
         SearchPickerData.Selection multiple = codec.decode(Collections.singletonList("minecraft:log@[8,4]"));
-        Assert.assertEquals(SearchPickerData.SelectionMode.MULTIPLE, multiple.mode());
+        Assert.assertEquals(SearchPickerData.SelectionMode.SELECTED, multiple.mode());
         Assert.assertEquals(Arrays.asList("minecraft:log@4", "minecraft:log@8"), multiple.variantKeys());
     }
 
@@ -65,6 +65,15 @@ public class ObjectGroupPickerCodecTest {
                 codec.encode(Collections.singletonList("second:block@1"), single("second:block", 3)));
     }
 
+    @Test
+    public void unenumeratedSelectedKeysRoundTripWithoutLoss() {
+        ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
+        SearchPickerData.Selection decoded = codec.decode(Collections.singletonList("minecraft:log@[4,8]"));
+        Assert.assertEquals(SearchPickerData.SelectionMode.SELECTED, decoded.mode());
+        Assert.assertEquals(Collections.singletonList("minecraft:log@[4,8]"),
+                codec.encode(Collections.singletonList("minecraft:log@[4,8]"), decoded));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void encodeRequiresCurrentList() {
         new ObjectGroupPickerCodec().encode("not a list", all("minecraft:log"));
@@ -76,13 +85,13 @@ public class ObjectGroupPickerCodecTest {
     }
 
     private static SearchPickerData.Selection single(String registry, int metadata) {
-        return new SearchPickerData.Selection(registry, SearchPickerData.SelectionMode.SINGLE,
+        return new SearchPickerData.Selection(registry, SearchPickerData.SelectionMode.SELECTED,
                 Collections.singletonList(registry + "@" + metadata));
     }
 
     private static SearchPickerData.Selection multiple(String registry, int... metadata) {
         java.util.List<String> keys = new java.util.ArrayList<String>();
         for (int value : metadata) keys.add(registry + "@" + value);
-        return new SearchPickerData.Selection(registry, SearchPickerData.SelectionMode.MULTIPLE, keys);
+        return new SearchPickerData.Selection(registry, SearchPickerData.SelectionMode.SELECTED, keys);
     }
 }

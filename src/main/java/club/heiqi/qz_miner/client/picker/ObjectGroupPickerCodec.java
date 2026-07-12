@@ -56,9 +56,7 @@ public final class ObjectGroupPickerCodec implements Codec {
         }
         List<String> keys = new ArrayList<String>();
         for (Integer meta : selector.metadata()) keys.add(selector.registry() + "@" + meta);
-        SearchPickerData.SelectionMode mode = keys.size() == 1
-                ? SearchPickerData.SelectionMode.SINGLE : SearchPickerData.SelectionMode.MULTIPLE;
-        return new SearchPickerData.Selection(selector.registry(), mode, keys);
+        return new SearchPickerData.Selection(selector.registry(), SearchPickerData.SelectionMode.SELECTED, keys);
     }
 
     private static ObjectGroupSelector selector(SearchPickerData.Selection selection) {

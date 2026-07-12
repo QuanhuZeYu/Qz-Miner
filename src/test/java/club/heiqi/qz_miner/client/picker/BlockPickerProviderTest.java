@@ -74,8 +74,9 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("添加方块", text.title());
         Assert.assertEquals("搜索方块名称或 registry id", text.placeholder());
         Assert.assertEquals("全部状态", text.all());
-        Assert.assertEquals("指定一个状态", text.single());
-        Assert.assertEquals("指定多个状态", text.multiple());
+        Assert.assertEquals("指定状态", text.selected());
+        Assert.assertEquals("当前未枚举状态 (minecraft:stone@7)",
+                text.unavailableVariant("minecraft:stone@7"));
         Assert.assertEquals("取消", text.cancel());
         Assert.assertEquals("添加到组", text.confirm());
         Assert.assertEquals("没有找到方块", text.empty());

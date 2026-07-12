@@ -42,7 +42,7 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     version = Tags.VERSION,
     name = MyMod.MOD_NAME,
     acceptedMinecraftVersions = "[1.7.10]",
-    dependencies = "required-after:qz_uilib@[4.5.3-beta-9,);",
+    dependencies = "required-after:qz_uilib@[4.5.3-beta-10,);",
     guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory")
 public class MyMod {
 
