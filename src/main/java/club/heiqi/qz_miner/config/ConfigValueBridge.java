@@ -46,6 +46,7 @@ public final class ConfigValueBridge {
         Config.parallelTickServerWorkBudgetUnits = snapshot.parallelTickServerWorkBudgetUnits;
         Config.enableUnlimitedOreFortune = snapshot.enableUnlimitedOreFortune;
         Config.enableFortuneForPlacedOre = snapshot.enableFortuneForPlacedOre;
+        Config.autoToolSelection = snapshot.autoToolSelection;
     }
 
     /**

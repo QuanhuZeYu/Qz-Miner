@@ -86,6 +86,19 @@ public final class QzMinerConfigSchema {
                         .label("enableFortuneForPlacedOre")
                         .helper("是否允许非自然生成的 GT/BW 矿石也享受时运；关闭时保持原版仅自然矿可时运")
                         .build()
+                    .structuredList("autoToolSelection", Values.objectWithIdentity("id",
+                            Values.member("id", Values.choice("default")),
+                            Values.member("enabled", Values.bool()),
+                            Values.member("searchScope", Values.choice("inventory")),
+                            Values.member("restoreOriginal", Values.bool()),
+                            Values.member("enchantmentPolicy", Values.choice("preserve_current")),
+                            Values.member("minimumRemainingDurability", Values.number()),
+                            Values.member("targetStableTicks", Values.number()),
+                            Values.member("emptyTargetGraceTicks", Values.number())))
+                        .defaultValue(QzMinerConfigDefaults.autoToolSelection())
+                        .label("自动工具预选")
+                        .helper("自动工具预选策略（固定单配置对象）")
+                        .build()
                 .endSection()
                 .section("client")
                     .title("Client")

@@ -19,6 +19,13 @@ public final class QzMinerConfigDefaults {
     public static final int PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS = 640;
     public static final boolean ENABLE_UNLIMITED_ORE_FORTUNE = false;
     public static final boolean ENABLE_FORTUNE_FOR_PLACED_ORE = false;
+    public static final boolean AUTO_TOOL_ENABLED = false;
+    public static final String AUTO_TOOL_SEARCH_SCOPE = "inventory";
+    public static final boolean AUTO_TOOL_RESTORE_ORIGINAL = true;
+    public static final String AUTO_TOOL_ENCHANTMENT_POLICY = "preserve_current";
+    public static final int AUTO_TOOL_MINIMUM_REMAINING_DURABILITY = 2;
+    public static final int AUTO_TOOL_TARGET_STABLE_TICKS = 2;
+    public static final int AUTO_TOOL_EMPTY_TARGET_GRACE_TICKS = 2;
 
     public static final boolean CLIENT_ENABLE_PREVIEW_RENDER = true;
     public static final int PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS = 640;
@@ -53,6 +60,7 @@ public final class QzMinerConfigDefaults {
                 Double.valueOf(PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS));
         target.put("general.enableUnlimitedOreFortune", Boolean.valueOf(ENABLE_UNLIMITED_ORE_FORTUNE));
         target.put("general.enableFortuneForPlacedOre", Boolean.valueOf(ENABLE_FORTUNE_FOR_PLACED_ORE));
+        target.put("general.autoToolSelection", autoToolSelection());
         target.put("client.clientEnablePreviewRender", Boolean.valueOf(CLIENT_ENABLE_PREVIEW_RENDER));
         target.put("client.parallelTickClientWorkBudgetUnits",
                 Double.valueOf(PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS));
@@ -65,6 +73,20 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewAlphaStartValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_START_VALUE));
         target.put("client.clientPreviewAlphaEndValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_END_VALUE));
         target.put("client.objectGroups", objectGroups());
+    }
+
+    /** @return UILib 普通对象替代表示：identity 固定为 default 的单元素列表。 */
+    public static java.util.List<java.util.Map<String, Object>> autoToolSelection() {
+        java.util.Map<String, Object> value = new java.util.LinkedHashMap<String, Object>();
+        value.put("id", "default");
+        value.put("enabled", Boolean.valueOf(AUTO_TOOL_ENABLED));
+        value.put("searchScope", AUTO_TOOL_SEARCH_SCOPE);
+        value.put("restoreOriginal", Boolean.valueOf(AUTO_TOOL_RESTORE_ORIGINAL));
+        value.put("enchantmentPolicy", AUTO_TOOL_ENCHANTMENT_POLICY);
+        value.put("minimumRemainingDurability", Double.valueOf(AUTO_TOOL_MINIMUM_REMAINING_DURABILITY));
+        value.put("targetStableTicks", Double.valueOf(AUTO_TOOL_TARGET_STABLE_TICKS));
+        value.put("emptyTargetGraceTicks", Double.valueOf(AUTO_TOOL_EMPTY_TARGET_GRACE_TICKS));
+        return java.util.Collections.singletonList(java.util.Collections.unmodifiableMap(value));
     }
 
     /** @return 带空 modes 的三个 vanilla 默认对象组。 */

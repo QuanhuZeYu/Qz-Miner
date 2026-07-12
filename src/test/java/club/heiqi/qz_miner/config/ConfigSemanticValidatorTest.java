@@ -100,6 +100,19 @@ public class ConfigSemanticValidatorTest {
         Assert.assertFalse(java.util.Arrays.equals(before, Files.readAllBytes(ConfigBootstrap.yamlFile().toPath())));
     }
 
+    @Test
+    public void autoToolSelectionRequiresExactlyOneDefaultObject() throws Exception {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        Assert.assertFalse(ConfigBootstrap.currentValidatedSnapshot().autoToolSelection.enabled);
+        Assert.assertEquals(2, ConfigBootstrap.currentValidatedSnapshot()
+                .autoToolSelection.minimumRemainingDurability);
+        DraftBuffer draft = manager.openDraft();
+        draft.setDraft("general.autoToolSelection", new ArrayList<Object>());
+        SaveOutcome outcome = manager.save(draft);
+        Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
+        Assert.assertNotNull(outcome.validation().errorFor("general.autoToolSelection"));
+    }
+
     private void assertInvalidTransaction(DraftMutation mutation, String errorPath, Object retainedValue)
             throws Exception {
         ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);

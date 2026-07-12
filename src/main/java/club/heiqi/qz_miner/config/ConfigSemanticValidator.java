@@ -13,6 +13,7 @@ import club.heiqi.config.runtime.DraftView;
 import club.heiqi.config.runtime.ValidationResult;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
+import club.heiqi.qz_miner.autotool.AutoToolSelectionConfig;
 
 /**
  * Qz-Miner 配置的共用语义读取器与 UILib 提交前校验器。
@@ -77,6 +78,7 @@ public final class ConfigSemanticValidator {
         putIntNumber(typed, errors, draft, "general.parallelTickServerWorkBudgetUnits", 1, Integer.MAX_VALUE);
         putBoolean(typed, errors, draft, "general.enableUnlimitedOreFortune");
         putBoolean(typed, errors, draft, "general.enableFortuneForPlacedOre");
+        putAutoToolSelection(typed, errors, draft);
 
         putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
         putIntNumber(typed, errors, draft, "client.parallelTickClientWorkBudgetUnits", 1, Integer.MAX_VALUE);
@@ -130,6 +132,39 @@ public final class ConfigSemanticValidator {
             return;
         }
         typed.put(path, parsed.rules());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void putAutoToolSelection(Map<String, Object> typed, Map<String, String> errors, DraftView draft) {
+        String path = "general.autoToolSelection";
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof java.util.List) || ((java.util.List<?>) raw).size() != 1
+                || !(((java.util.List<?>) raw).get(0) instanceof Map)) {
+            errors.put(path, path + " must contain exactly one object"); return;
+        }
+        Map<String, Object> value = (Map<String, Object>) ((java.util.List<?>) raw).get(0);
+        if (!"default".equals(value.get("id")) || !(value.get("enabled") instanceof Boolean)
+                || !"inventory".equals(value.get("searchScope")) || !(value.get("restoreOriginal") instanceof Boolean)
+                || !"preserve_current".equals(value.get("enchantmentPolicy"))) {
+            errors.put(path, path + " contains invalid identity, option, or boolean"); return;
+        }
+        Integer durability = exactPositive(value.get("minimumRemainingDurability"), 0);
+        Integer stable = exactPositive(value.get("targetStableTicks"), 1);
+        Integer grace = exactPositive(value.get("emptyTargetGraceTicks"), 0);
+        if (durability == null || stable == null || grace == null) {
+            errors.put(path, path + " tick and durability values must be bounded integers"); return;
+        }
+        typed.put(path, new AutoToolSelectionConfig(((Boolean) value.get("enabled")).booleanValue(), "inventory",
+                ((Boolean) value.get("restoreOriginal")).booleanValue(),
+                AutoToolSelectionConfig.EnchantmentPolicy.PRESERVE_CURRENT,
+                durability.intValue(), stable.intValue(), grace.intValue()));
+    }
+
+    private static Integer exactPositive(Object raw, int min) {
+        if (!(raw instanceof Number)) return null;
+        double value = ((Number) raw).doubleValue();
+        return Double.isFinite(value) && value == Math.rint(value) && value >= min && value <= Integer.MAX_VALUE
+                ? Integer.valueOf((int) value) : null;
     }
 
     private static void putString(Map<String, Object> typed, Map<String, String> errors,
@@ -273,6 +308,7 @@ public final class ConfigSemanticValidator {
         public final int parallelTickServerWorkBudgetUnits;
         public final boolean enableUnlimitedOreFortune;
         public final boolean enableFortuneForPlacedOre;
+        public final AutoToolSelectionConfig autoToolSelection;
         public final boolean clientEnablePreviewRender;
         public final int parallelTickClientWorkBudgetUnits;
         public final int clientPreviewMaxRadius;
@@ -295,6 +331,7 @@ public final class ConfigSemanticValidator {
             parallelTickServerWorkBudgetUnits = exactInt(typed, "general.parallelTickServerWorkBudgetUnits");
             enableUnlimitedOreFortune = ((Boolean) typed.get("general.enableUnlimitedOreFortune")).booleanValue();
             enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
+            autoToolSelection = (AutoToolSelectionConfig) typed.get("general.autoToolSelection");
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
             parallelTickClientWorkBudgetUnits = exactInt(typed, "client.parallelTickClientWorkBudgetUnits");
             clientPreviewMaxRadius = exactInt(typed, "client.clientPreviewMaxRadius");

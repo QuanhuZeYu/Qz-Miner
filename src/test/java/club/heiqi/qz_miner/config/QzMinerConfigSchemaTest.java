@@ -19,7 +19,8 @@ public class QzMinerConfigSchemaTest {
     public void schemaContainsAllLegacyFieldsIncludingGreeting() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(20, schema.allFields().size());
+        Assert.assertEquals(21, schema.allFields().size());
+        Assert.assertTrue(schema.containsPath("general.autoToolSelection"));
         Assert.assertTrue(schema.containsPath("general.greeting"));
         Assert.assertTrue(schema.containsPath("client.clientPreviewAlphaEndValue"));
         Assert.assertTrue(schema.containsPath("client.objectGroups"));
@@ -60,5 +61,10 @@ public class QzMinerConfigSchemaTest {
         Assert.assertTrue(members.widget() instanceof SearchPickerSpec);
         Assert.assertEquals("qz_miner:block-selector", ((SearchPickerSpec) members.widget()).editorId());
         Assert.assertEquals(64, ((SearchPickerSpec) members.widget()).maxItems());
+
+        FieldSpec autoTool = schema.field("general.autoToolSelection");
+        Assert.assertEquals(FieldType.STRUCTURED_LIST, autoTool.type());
+        Assert.assertEquals("id", autoTool.valueSpec().element().identityMember());
+        Assert.assertEquals(QzMinerConfigDefaults.autoToolSelection(), autoTool.defaultValue());
     }
 }
