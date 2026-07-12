@@ -16,7 +16,7 @@ public abstract class MixinBWTileEntityMetaGeneratedOreLegacy {
     /** 将上游自然矿字段交给本模组配置裁决。 */
     @Definition(id = "natural", field = "Lbartworks/system/material/BWTileEntityMetaGeneratedOre;natural:Z")
     @Expression("this.natural")
-    @ModifyExpressionValue(method = "getDrops(I)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"))
+    @ModifyExpressionValue(method = "getDrops(I)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"), require = 1)
     private boolean qzMiner$treatPlacedOreAsNatural(boolean natural) {
         return FortuneCompatHelper.shouldTreatOreAsNatural(natural);
     }
@@ -24,7 +24,7 @@ public abstract class MixinBWTileEntityMetaGeneratedOreLegacy {
     /** 拦截上游时运三级截断。 */
     @Definition(id = "fortuneLevel", local = @Local(type = int.class, argsOnly = true))
     @Expression("fortuneLevel > 3")
-    @ModifyExpressionValue(method = "getDrops(I)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"))
+    @ModifyExpressionValue(method = "getDrops(I)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"), require = 1)
     private boolean qzMiner$removeFortuneCap(boolean original) {
         return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);
     }

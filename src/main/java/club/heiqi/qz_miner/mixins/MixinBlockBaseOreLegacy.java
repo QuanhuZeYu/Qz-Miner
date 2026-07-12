@@ -16,7 +16,7 @@ public abstract class MixinBlockBaseOreLegacy {
     /** 拦截上游时运三级截断。 */
     @Definition(id = "fortuneLevel", local = @Local(type = int.class, argsOnly = true, ordinal = 4))
     @Expression("fortuneLevel > 3")
-    @ModifyExpressionValue(method = "getDrops(Lnet/minecraft/world/World;IIIII)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"))
+    @ModifyExpressionValue(method = "getDrops(Lnet/minecraft/world/World;IIIII)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"), require = 1)
     private boolean qzMiner$removeFortuneCap(boolean original) {
         return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);
     }

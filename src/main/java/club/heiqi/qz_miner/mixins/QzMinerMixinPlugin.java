@@ -9,6 +9,9 @@ import java.util.Set;
 import net.minecraft.launchwrapper.Launch;
 import org.spongepowered.asm.lib.tree.ClassNode;
 import org.spongepowered.asm.lib.tree.FieldInsnNode;
+import org.spongepowered.asm.lib.tree.AbstractInsnNode;
+import org.spongepowered.asm.lib.tree.JumpInsnNode;
+import org.spongepowered.asm.lib.tree.VarInsnNode;
 import org.spongepowered.asm.lib.ClassReader;
 import org.spongepowered.asm.lib.Opcodes;
 import org.spongepowered.asm.lib.tree.MethodNode;
@@ -57,12 +60,13 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
     private static Map<String, TargetCapability> createOptionalMixinTargets() {
         Map<String, TargetCapability> targets = new java.util.HashMap<String, TargetCapability>();
         String adapterDescriptor = "(Ljava/util/Random;Lgregtech/common/GTProxy$OreDropSystem;Lgregtech/common/ores/OreInfo;I)Ljava/util/ArrayList;";
-        targets.put("club.heiqi.qz_miner.mixins.MixinGTOreAdapter", new TargetCapability("gregtech.common.ores.GTOreAdapter", "getBigOreDrops", adapterDescriptor));
-        targets.put("club.heiqi.qz_miner.mixins.MixinBWOreAdapter", new TargetCapability("gregtech.common.ores.BWOreAdapter", "getBigOreDrops", adapterDescriptor));
-        targets.put("club.heiqi.qz_miner.mixins.MixinGTPPOreAdapter", new TargetCapability("gregtech.common.ores.GTPPOreAdapter", "getBigOreDrops", adapterDescriptor));
-        targets.put("club.heiqi.qz_miner.mixins.MixinTileEntityOresLegacy", new TargetCapability("gregtech.common.blocks.TileEntityOres", "getDrops", "(Lnet/minecraft/block/Block;I)Ljava/util/ArrayList;", "gregtech/common/blocks/TileEntityOres", "mNatural", "Z"));
-        targets.put("club.heiqi.qz_miner.mixins.MixinBWTileEntityMetaGeneratedOreLegacy", new TargetCapability("bartworks.system.material.BWTileEntityMetaGeneratedOre", "getDrops", "(I)Ljava/util/ArrayList;", "bartworks/system/material/BWTileEntityMetaGeneratedOre", "natural", "Z"));
-        targets.put("club.heiqi.qz_miner.mixins.MixinBlockBaseOreLegacy", new TargetCapability("gtPlusPlus.core.block.base.BlockBaseOre", "getDrops", "(Lnet/minecraft/world/World;IIIII)Ljava/util/ArrayList;"));
+        String oreDropsDescriptor = "(Ljava/util/Random;Lgregtech/common/ores/OreInfo;ZI)Ljava/util/ArrayList;";
+        targets.put("club.heiqi.qz_miner.mixins.MixinGTOreAdapter", new TargetCapability("gregtech.common.ores.GTOreAdapter", "getBigOreDrops", adapterDescriptor, "getOreDrops", oreDropsDescriptor, "gregtech/common/ores/OreInfo", "isNatural", "Z", 4));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBWOreAdapter", new TargetCapability("gregtech.common.ores.BWOreAdapter", "getBigOreDrops", adapterDescriptor, "getOreDrops", oreDropsDescriptor, "gregtech/common/ores/OreInfo", "isNatural", "Z", 4));
+        targets.put("club.heiqi.qz_miner.mixins.MixinGTPPOreAdapter", new TargetCapability("gregtech.common.ores.GTPPOreAdapter", "getBigOreDrops", adapterDescriptor, null, null, null, 4));
+        targets.put("club.heiqi.qz_miner.mixins.MixinTileEntityOresLegacy", new TargetCapability("gregtech.common.blocks.TileEntityOres", "getDrops", "(Lnet/minecraft/block/Block;I)Ljava/util/ArrayList;", "gregtech/common/blocks/TileEntityOres", "mNatural", "Z", 2));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBWTileEntityMetaGeneratedOreLegacy", new TargetCapability("bartworks.system.material.BWTileEntityMetaGeneratedOre", "getDrops", "(I)Ljava/util/ArrayList;", "bartworks/system/material/BWTileEntityMetaGeneratedOre", "natural", "Z", 1));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBlockBaseOreLegacy", new TargetCapability("gtPlusPlus.core.block.base.BlockBaseOre", "getDrops", "(Lnet/minecraft/world/World;IIIII)Ljava/util/ArrayList;", null, null, null, 6));
         return Collections.unmodifiableMap(targets);
     }
 
@@ -79,18 +83,59 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
             new ClassReader(bytes).accept(node, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
             for (MethodNode method : node.methods) {
                 if (!capability.methodName.equals(method.name) || !capability.descriptor.equals(method.desc)) continue;
-                if (capability.fieldOwner == null) return true;
-                for (org.spongepowered.asm.lib.tree.AbstractInsnNode instruction : method.instructions.toArray()) {
-                    if (!(instruction instanceof FieldInsnNode) || instruction.getOpcode() != Opcodes.GETFIELD) continue;
-                    FieldInsnNode field = (FieldInsnNode) instruction;
-                    if (capability.fieldOwner.equals(field.owner) && capability.fieldName.equals(field.name)
-                        && capability.fieldDescriptor.equals(field.desc)) return true;
-                }
+                return hasRequiredField(node, capability) && hasFortuneClamp(method, capability.fortuneLocal);
             }
         } catch (RuntimeException | LinkageError ignored) {
             return false;
         }
         return false;
+    }
+
+    private static boolean hasRequiredField(ClassNode node, TargetCapability capability) {
+        if (capability.fieldOwner == null) return true;
+        for (MethodNode method : node.methods) {
+            if (!capability.fieldMethodName.equals(method.name)
+                || !capability.fieldMethodDescriptor.equals(method.desc)) continue;
+            for (AbstractInsnNode instruction : method.instructions.toArray()) {
+                if (!(instruction instanceof FieldInsnNode) || instruction.getOpcode() != Opcodes.GETFIELD) continue;
+                FieldInsnNode field = (FieldInsnNode) instruction;
+                if (capability.fieldOwner.equals(field.owner) && capability.fieldName.equals(field.name)
+                    && capability.fieldDescriptor.equals(field.desc)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 精确识别上游对指定 fortune 参数执行三级夹断的字节码形状。 */
+    private static boolean hasFortuneClamp(MethodNode method, int fortuneLocal) {
+        if (fortuneLocal < 0) return true;
+        AbstractInsnNode[] instructions = method.instructions.toArray();
+        for (int i = 0; i < instructions.length; i++) {
+            AbstractInsnNode first = instructions[i];
+            if (!(first instanceof VarInsnNode) || first.getOpcode() != Opcodes.ILOAD
+                || ((VarInsnNode) first).var != fortuneLocal) continue;
+            AbstractInsnNode constant = nextCodeInstruction(first);
+            AbstractInsnNode jump = nextCodeInstruction(constant);
+            AbstractInsnNode replacement = nextCodeInstruction(jump);
+            AbstractInsnNode store = nextCodeInstruction(replacement);
+            if (constant != null && constant.getOpcode() == Opcodes.ICONST_3
+                && jump instanceof JumpInsnNode && isIntegerComparison(jump.getOpcode())
+                && replacement != null && replacement.getOpcode() == Opcodes.ICONST_3
+                && store instanceof VarInsnNode && store.getOpcode() == Opcodes.ISTORE
+                && ((VarInsnNode) store).var == fortuneLocal) return true;
+        }
+        return false;
+    }
+
+    private static AbstractInsnNode nextCodeInstruction(AbstractInsnNode instruction) {
+        if (instruction == null) return null;
+        AbstractInsnNode next = instruction.getNext();
+        while (next != null && next.getOpcode() < 0) next = next.getNext();
+        return next;
+    }
+
+    private static boolean isIntegerComparison(int opcode) {
+        return opcode >= Opcodes.IF_ICMPEQ && opcode <= Opcodes.IF_ICMPLE;
     }
 
     private static byte[] getClassBytes(String className) {
@@ -111,21 +156,33 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
         private final String methodName;
         private final String descriptor;
         private final String fieldOwner;
+        private final String fieldMethodName;
+        private final String fieldMethodDescriptor;
         private final String fieldName;
         private final String fieldDescriptor;
+        private final int fortuneLocal;
 
         private TargetCapability(String className, String methodName, String descriptor) {
-            this(className, methodName, descriptor, null, null, null);
+            this(className, methodName, descriptor, null, null, null, null, null, -1);
         }
 
         private TargetCapability(String className, String methodName, String descriptor, String fieldOwner,
-                                 String fieldName, String fieldDescriptor) {
+                                  String fieldName, String fieldDescriptor, int fortuneLocal) {
+            this(className, methodName, descriptor, methodName, descriptor, fieldOwner, fieldName, fieldDescriptor, fortuneLocal);
+        }
+
+        private TargetCapability(String className, String methodName, String descriptor, String fieldMethodName,
+                                 String fieldMethodDescriptor, String fieldOwner, String fieldName,
+                                 String fieldDescriptor, int fortuneLocal) {
             this.className = className;
             this.methodName = methodName;
             this.descriptor = descriptor;
+            this.fieldMethodName = fieldMethodName;
+            this.fieldMethodDescriptor = fieldMethodDescriptor;
             this.fieldOwner = fieldOwner;
             this.fieldName = fieldName;
             this.fieldDescriptor = fieldDescriptor;
+            this.fortuneLocal = fortuneLocal;
         }
     }
 
@@ -135,7 +192,12 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
     static TargetCapability capability(String className, String methodName, String descriptor, String fieldOwner,
                                        String fieldName, String fieldDescriptor) {
-        return new TargetCapability(className, methodName, descriptor, fieldOwner, fieldName, fieldDescriptor);
+        return new TargetCapability(className, methodName, descriptor, fieldOwner, fieldName, fieldDescriptor, -1);
+    }
+
+    static TargetCapability capability(String className, String methodName, String descriptor, String fieldOwner,
+                                       String fieldName, String fieldDescriptor, int fortuneLocal) {
+        return new TargetCapability(className, methodName, descriptor, fieldOwner, fieldName, fieldDescriptor, fortuneLocal);
     }
 
     /**

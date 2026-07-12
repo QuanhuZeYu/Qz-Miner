@@ -26,7 +26,8 @@ public abstract class MixinGTPPOreAdapter {
     @Expression("fortuneLevel > 3")
     @ModifyExpressionValue(
         method = "getBigOreDrops(Ljava/util/Random;Lgregtech/common/GTProxy$OreDropSystem;Lgregtech/common/ores/OreInfo;I)Ljava/util/ArrayList;",
-        at = @At(value = "MIXINEXTRAS:EXPRESSION"))
+        at = @At(value = "MIXINEXTRAS:EXPRESSION"),
+        require = 1)
     private boolean qzMiner$removeOreFortuneCap(boolean original) {
         return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);
     }
