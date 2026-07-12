@@ -65,8 +65,8 @@
 
 ### 1.5 环境所有权
 - **环境所有权**：本机环境归用户，CI 环境归 runner；agent 只有只读验证权，无任何环境修复或赋值权。仅按任务逐项读取、验证所需的非敏感变量；敏感变量只检查存在性，禁止回显；禁止全量枚举环境变量。
-- agent 禁止在当前会话、子进程及用户/系统级设置、覆盖、清空或删除环境变量，包括 PowerShell `$env:` 赋值、CMD `set`/`setx`、POSIX `export`/`env NAME=...`、注册表、`[Environment]::SetEnvironmentVariable`，以及通过 profile、`.env`、`gradle.properties` 持久修复。
-- 禁止用 `-Dgradle.user.home`、`--gradle-user-home`/`-g`、`-Dorg.gradle.java.home` 等参数绕过环境异常。缺失或异常时停止依赖该环境的命令，返回 `INCOMPLETE` 并询问用户。
+- agent 禁止在当前会话、子进程及用户/系统级设置、覆盖、清空或删除环境变量，包括 PowerShell `$env:<变量>` 写入、CMD `set[x] <变量>`、POSIX `export <变量>`/`env <变量>=<值>`、注册表环境项、环境写入 API，以及通过 profile、`.env`、`gradle.properties` 持久修复。
+- 禁止用 Gradle 用户目录短选项 `<短选项-g> <路径>`、长选项 `<gradle-user-home选项>` 或 Gradle/JDK home 系统属性覆盖环境。缺失或异常时停止依赖该环境的命令，返回 `INCOMPLETE` 并询问用户。
 - 仅允许项目已定义、非敏感、任务明确且记入稳定命令的 Gradle `-P` 参数。CI workflow 的声明式 `env` 属 runner 所有权，不构成本地 agent 授权。
 
 ### 1.6 Subagent 编排
