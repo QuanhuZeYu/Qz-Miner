@@ -13,6 +13,14 @@ import org.spongepowered.asm.mixin.injection.At;
 @Pseudo
 @Mixin(targets = "gregtech.common.blocks.TileEntityOres", remap = false)
 public abstract class MixinTileEntityOresLegacy {
+    /** 将上游自然矿字段交给本模组配置裁决。 */
+    @Definition(id = "natural", field = "Lgregtech/common/blocks/TileEntityOres;mNatural:Z")
+    @Expression("this.natural")
+    @ModifyExpressionValue(method = "getDrops(Lnet/minecraft/block/Block;I)Ljava/util/ArrayList;", at = @At("MIXINEXTRAS:EXPRESSION"))
+    private boolean qzMiner$treatPlacedOreAsNatural(boolean natural) {
+        return FortuneCompatHelper.shouldTreatOreAsNatural(natural);
+    }
+
     /** 拦截上游时运三级截断。 */
     @Definition(id = "fortuneLevel", local = @Local(type = int.class, argsOnly = true))
     @Expression("fortuneLevel > 3")
