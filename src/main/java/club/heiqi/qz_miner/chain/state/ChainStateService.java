@@ -14,6 +14,7 @@ import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 
 /**
  * 连锁状态服务。
@@ -81,6 +82,18 @@ public final class ChainStateService {
 
     public ChainClientState getClientState() {
         return clientState;
+    }
+
+    /**
+     * 经玩家级状态服务缓冲无法直接交付的物品，保持与会话生命周期解耦。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param stack 待缓冲物品
+     */
+    public void bufferPlayerDrop(UUID playerUUID, ItemStack stack) {
+        if (playerUUID != null && stack != null && stack.stackSize > 0) {
+            getOrCreatePlayerState(playerUUID).getDropBuffer().add(stack);
+        }
     }
 
     public void setPlayerChainKeyPressed(UUID playerUUID, boolean pressed) {

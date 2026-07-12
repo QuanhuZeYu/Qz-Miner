@@ -1,30 +1,45 @@
 package club.heiqi.qz_miner.compat.adapter.gregtech;
 
+import java.lang.reflect.Array;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.compat.adapter.CableCompatAdapter;
-import gregtech.api.GregTechAPI;
-import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
-import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
-import gregtech.api.metatileentity.BaseMetaPipeEntity;
-import gregtech.api.metatileentity.implementations.MTECable;
+import club.heiqi.qz_miner.compat.adapter.CableReplacementResult;
+import club.heiqi.qz_miner.compat.adapter.ClassNameCompatSupport;
+import club.heiqi.qz_miner.compat.adapter.ReflectiveMemberSupport;
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.World;
 import net.minecraftforge.common.util.ForgeDirection;
 
 /**
- * GregTech 线缆兼容适配器。
+ * 通过完整反射能力档案访问 GregTech 线缆，不产生 GT 编译期静态引用。
  */
 public final class GregTechCableCompatAdapter implements CableCompatAdapter {
 
+    private final CapabilityProfile profile;
+
+    /** 使用当前类加载器解析正式 GT 能力档案。 */
+    public GregTechCableCompatAdapter() {
+        this(CapabilityProfile.resolve(new ProductionClassResolver()));
+    }
+
+    GregTechCableCompatAdapter(CapabilityProfile profile) {
+        this.profile = profile;
+    }
+
     @Override
     public boolean isAvailable() {
-        return true;
+        return profile != null && profile.complete;
     }
 
     @Override
@@ -34,43 +49,27 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
 
     @Override
     public int getCableMetaTileId(TileEntity tileEntity) {
-        if (!(tileEntity instanceof IGregTechTileEntity gregTechTileEntity)) {
-            return -1;
-        }
-        return gregTechTileEntity.getMetaTileID();
+        if (!isAvailable() || !profile.gregTechTileType.isInstance(tileEntity)) return -1;
+        Object value = invoke(profile.getMetaTileId, tileEntity);
+        return value instanceof Number ? ((Number) value).intValue() : -1;
     }
 
     @Override
     public List<ForgeDirection> getConnectedSides(TileEntity tileEntity) {
-        BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
-        if (baseMetaPipeEntity == null) {
-            return Collections.emptyList();
-        }
-
-        List<ForgeDirection> connectedSides = new ArrayList<ForgeDirection>();
-        byte connections = baseMetaPipeEntity.getConnections();
-        for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
-            if ((connections & side.flag) != 0) {
-                connectedSides.add(side);
-            }
-        }
-        return connectedSides;
+        Object base = getCableBase(tileEntity);
+        Object value = base == null ? null : invoke(profile.getConnections, base);
+        return value instanceof Number ? sides(((Number) value).byteValue()) : Collections.<ForgeDirection>emptyList();
     }
 
     @Override
     public List<ForgeDirection> captureConnectedSides(TileEntity tileEntity) {
-        MTECable cable = getCable(tileEntity);
-        if (cable == null) {
-            return Collections.emptyList();
-        }
-
-        List<ForgeDirection> connectedSides = new ArrayList<ForgeDirection>();
+        Object cable = getCable(tileEntity);
+        if (cable == null) return Collections.emptyList();
+        List<ForgeDirection> result = new ArrayList<ForgeDirection>();
         for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
-            if (cable.isConnectedAtSide(side)) {
-                connectedSides.add(side);
-            }
+            if (Boolean.TRUE.equals(invoke(profile.isConnectedAtSide, cable, side))) result.add(side);
         }
-        return connectedSides;
+        return result;
     }
 
     @Override
@@ -78,237 +77,219 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         return createCableFromStack(stack) != null;
     }
 
-    /**
-     * 单阶段原子替换 GT 线缆 meta，并直写连接位掩码恢复连接状态。
-     *
-     * <p>实现要点（对齐 NORTH_STAR 信条五/六：显式降级）：
-     * <ul>
-     *   <li>不调用 {@code connect}/{@code disconnect} 状态机——这两个高级封装会解引用
-     *       {@code getBaseMetaTileEntity()}，而新 meta 出厂 {@code mBaseMetaTileEntity} 恒为 null，
-     *       会触发 NPE（原崩溃根因）；改用直写 {@code mConnections} 位掩码恢复连接。</li>
-     *   <li>用 {@link MTECable#setBaseMetaTileEntity(IGregTechTileEntity)} 一次调用同时建立
-     *       meta→base 与 base→meta 双向绑定，无邻居遍历、无网络副作用；
-     *       旧实现只单向 {@code base.setMetaTileEntity(meta)}，导致 {@code hasValidMetaTileEntity()} 恒 false。</li>
-     *   <li>连接网络图由 {@link GregTechAPI#causeCableUpdate} 重建，不依赖 connect/disconnect 回调。</li>
-     *   <li>mutate 段包在 try 内，捕获 {@link RuntimeException} 精确回滚到旧 cable，不留半成品。</li>
-     * </ul>
-     *
-     * @param player               执行玩家（主线程）
-     * @param tileEntity           目标管线基座 {@link BaseMetaPipeEntity}
-     * @param replacementStack     替换用线缆物品
-     * @param replacementSlotIndex 替换物品所在槽位
-     * @param protectedMainHandSlot 受保护的主手槽位（返还旧线缆时跳过；-1 表示不保护）
-     * @return 替换成功返回 true；前置校验失败/异种判定不通过/异常回滚均返回 false
-     */
     @Override
-    public boolean replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity, ItemStack replacementStack, int replacementSlotIndex, int protectedMainHandSlot) {
-        // 前置校验：玩家、管线基座、替换物品任一为空即拒绝
-        BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
-        if (player == null || baseMetaPipeEntity == null || replacementStack == null) {
-            return false;
-        }
+    public CableReplacementResult replaceCableWithoutConnections(EntityPlayerMP player, TileEntity tileEntity,
+        ItemStack replacementStack, int replacementSlotIndex, int protectedMainHandSlot) {
+        Object base = getCableBase(tileEntity);
+        Object oldCable = getCable(tileEntity);
+        Object handCable = createCableFromStack(replacementStack);
+        if (player == null || base == null || oldCable == null || handCable == null) return CableReplacementResult.failure();
 
-        // 捕获旧态：连接位掩码（public byte，server 权威源）、旧 meta、旧 mID（用于回滚）
-        byte oldConnections = baseMetaPipeEntity.getConnections();
-        MTECable oldCable = getCable(baseMetaPipeEntity);
-        MTECable handCable = createCableFromStack(replacementStack);
-        if (oldCable == null || handCable == null) {
-            return false;
-        }
-        short oldMetaId = (short) baseMetaPipeEntity.getMetaTileID();
+        byte oldConnections = byteValue(invoke(profile.getConnections, base));
+        short oldMetaId = (short) getCableMetaTileId(tileEntity);
         short newMetaId = (short) replacementStack.getItemDamage();
-
-        // 异种判定：同类同材质同电压同电流则无需替换
-        if (isSameCableType(oldCable, handCable)) {
-            return false;
+        if (isSameCableType(oldCable, handCable)) return CableReplacementResult.failure();
+        Object newCable = invoke(profile.newMetaEntity, handCable, base);
+        if (!profile.metaTileType.isInstance(newCable) || !profile.cableType.isInstance(newCable)) {
+            return CableReplacementResult.failure();
         }
 
-        // 新建 meta：出厂 mBaseMetaTileEntity=null、mConnections=0
-        IMetaTileEntity newMetaTileEntity = handCable.newMetaEntity(baseMetaPipeEntity);
-        if (!(newMetaTileEntity instanceof MTECable newCable)) {
-            return false;
-        }
-
-        // 关键 mutate 段：建立双向绑定 + 设新 mID + 直写连接位掩码，包在 try 内可回滚
         try {
-            // 一次调用同时设 meta→base 与 base→meta，无邻居遍历、无网络副作用
-            newCable.setBaseMetaTileEntity(baseMetaPipeEntity);
-            // base 端记录新 mID，客户端 description packet 会带新 mID 重建 meta 并刷新纹理
-            baseMetaPipeEntity.setMetaTileID(newMetaId);
-            // 直写位掩码恢复连接，不走 connect/disconnect 状态机（避免 NPE 与回调副作用）
-            newCable.mConnections = oldConnections;
-            baseMetaPipeEntity.mConnections = oldConnections;
-            // 刷新纹理/方块/tile 更新并触发 causeCableUpdate 重建网络图
-            refreshPipe(baseMetaPipeEntity);
-        } catch (RuntimeException e) {
-            // 显式降级：回滚到旧 cable，不留半成品（对齐 NORTH_STAR 信条五/六）
-            MyMod.LOG.warn(
-                "[CableCompat] GT 线缆单阶段替换失败，已回滚 player={} pos=({},{},{}) oldMetaId={} newMetaId={} oldConnections={}",
-                player.getCommandSenderName(),
-                baseMetaPipeEntity.xCoord,
-                baseMetaPipeEntity.yCoord,
-                baseMetaPipeEntity.zCoord,
-                oldMetaId,
-                newMetaId,
-                oldConnections,
-                e);
-            oldCable.setBaseMetaTileEntity(baseMetaPipeEntity);
-            baseMetaPipeEntity.setMetaTileID(oldMetaId);
-            oldCable.mConnections = oldConnections;
-            baseMetaPipeEntity.mConnections = oldConnections;
-            refreshPipe(baseMetaPipeEntity);
-            return false;
+            invokeRequired(profile.setBaseMetaTileEntity, newCable, base);
+            invokeRequired(profile.setMetaTileId, base, Short.valueOf(newMetaId));
+            profile.cableConnections.setByte(newCable, oldConnections);
+            profile.baseConnections.setByte(base, oldConnections);
+            refreshPipe(base, tileEntity);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            rollback(player, tileEntity, base, oldCable, oldMetaId, oldConnections, newMetaId, e);
+            return CableReplacementResult.failure();
         }
 
-        // 成功后才消耗替换物品
-        consumeReplacementStack(player, replacementStack, replacementSlotIndex, oldMetaId, protectedMainHandSlot);
-        return true;
-    }
-
-    /**
-     * 判定两根 GT 线缆是否属于同一种类型（同类同材质同电压同电流）。
-     * 同种类型无需替换。
-     *
-     * @param a 线缆 A
-     * @param b 线缆 B
-     * @return 同种返回 true
-     */
-    private boolean isSameCableType(MTECable a, MTECable b) {
-        return a.getClass() == b.getClass()
-            && a.mMaterial == b.mMaterial
-            && a.mVoltage == b.mVoltage
-            && a.mAmperage == b.mAmperage;
+        ItemStack returned = player.capabilities.isCreativeMode
+            ? null : new ItemStack(replacementStack.getItem(), 1, oldMetaId);
+        if (!player.capabilities.isCreativeMode) {
+            replacementStack.stackSize--;
+            if (replacementStack.stackSize <= 0) player.inventory.setInventorySlotContents(replacementSlotIndex, null);
+        }
+        return CableReplacementResult.success(returned);
     }
 
     @Override
     public boolean reconnectCableSides(TileEntity tileEntity, List<ForgeDirection> connectedSides) {
-        MTECable cable = getCable(tileEntity);
-        BaseMetaPipeEntity baseMetaPipeEntity = getCableBase(tileEntity);
-        if (cable == null || baseMetaPipeEntity == null || connectedSides == null || connectedSides.isEmpty()) {
+        Object base = getCableBase(tileEntity);
+        Object cable = getCable(tileEntity);
+        if (base == null || cable == null || connectedSides == null || connectedSides.isEmpty()) return false;
+        byte mask = 0;
+        for (ForgeDirection side : connectedSides) {
+            if (side != null && side != ForgeDirection.UNKNOWN) mask |= (byte) side.flag;
+        }
+        try {
+            profile.cableConnections.setByte(cable, mask);
+            profile.baseConnections.setByte(base, mask);
+            refreshPipe(base, tileEntity);
+            return mask != 0;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return false;
         }
-
-        boolean connected = false;
-        for (ForgeDirection side : connectedSides) {
-            if (side == null || side == ForgeDirection.UNKNOWN) {
-                continue;
-            }
-
-            if (cable.connect(side) > 0) {
-                connected = true;
-            }
-        }
-
-        baseMetaPipeEntity.markDirty();
-        refreshPipe(baseMetaPipeEntity);
-        for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) {
-            TileEntity neighborTileEntity = baseMetaPipeEntity.getTileEntityAtSide(side);
-            if (neighborTileEntity instanceof BaseMetaPipeEntity neighborPipeEntity) {
-                refreshPipe(neighborPipeEntity);
-            }
-        }
-
-        return connected;
     }
 
-    /**
-     * 刷新 GT 管线的客户端显示、邻居更新和网络图状态。
-     *
-     * @param pipeEntity 管线实体
-     */
-    private void refreshPipe(BaseMetaPipeEntity pipeEntity) {
-        pipeEntity.issueTextureUpdate();
-        pipeEntity.issueBlockUpdate();
-        pipeEntity.issueTileUpdate();
-        GregTechAPI.causeCableUpdate(pipeEntity.getWorld(), pipeEntity.xCoord, pipeEntity.yCoord, pipeEntity.zCoord);
+    private boolean isSameCableType(Object a, Object b) {
+        try {
+            return a.getClass() == b.getClass()
+                && profile.material.get(a) == profile.material.get(b)
+                && profile.cableLoss.getLong(a) == profile.cableLoss.getLong(b)
+                && profile.amperage.getLong(a) == profile.amperage.getLong(b)
+                && profile.voltage.getLong(a) == profile.voltage.getLong(b);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return false;
+        }
     }
 
-    private MTECable getCable(TileEntity tileEntity) {
-        if (!(tileEntity instanceof IGregTechTileEntity gregTechTileEntity)) {
+    private Object getCable(TileEntity tileEntity) {
+        if (!isAvailable() || !profile.gregTechTileType.isInstance(tileEntity)) return null;
+        Object meta = invoke(profile.getMetaTileEntity, tileEntity);
+        return profile.cableType.isInstance(meta) ? meta : null;
+    }
+
+    private Object getCableBase(TileEntity tileEntity) {
+        return isAvailable() && profile.basePipeType.isInstance(tileEntity) && getCable(tileEntity) != null ? tileEntity : null;
+    }
+
+    private Object createCableFromStack(ItemStack stack) {
+        if (!isAvailable() || stack == null || stack.getItem() == null) return null;
+        try {
+            Object block = profile.blockMachines.get(null);
+            if (!(block instanceof Block) || stack.getItem() != Item.getItemFromBlock((Block) block)) return null;
+            Object entries = profile.metaTileEntities.get(null);
+            int id = stack.getItemDamage();
+            if (entries == null || id < 0 || id >= Array.getLength(entries)) return null;
+            Object meta = Array.get(entries, id);
+            return profile.cableType.isInstance(meta) ? meta : null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
-
-        IMetaTileEntity metaTileEntity = gregTechTileEntity.getMetaTileEntity();
-        if (!(metaTileEntity instanceof MTECable cable)) {
-            return null;
-        }
-        return cable;
     }
 
-    private BaseMetaPipeEntity getCableBase(TileEntity tileEntity) {
-        return tileEntity instanceof BaseMetaPipeEntity baseMetaPipeEntity && isCable(tileEntity)
-            ? baseMetaPipeEntity
-            : null;
+    private void refreshPipe(Object base, TileEntity tile) throws ReflectiveOperationException {
+        invokeRequired(profile.issueTextureUpdate, base);
+        invokeRequired(profile.issueBlockUpdate, base);
+        invokeRequired(profile.issueTileUpdate, base);
+        invokeRequired(profile.causeCableUpdate, null, tile.getWorldObj(), tile.xCoord, tile.yCoord, tile.zCoord);
     }
 
-    private MTECable createCableFromStack(ItemStack stack) {
-        if (stack == null || stack.getItem() == null) {
-            return null;
-        }
-
-        Item machineItem = Item.getItemFromBlock(GregTechAPI.sBlockMachines);
-        if (machineItem == null || stack.getItem() != machineItem) {
-            return null;
-        }
-        int metaTileId = stack.getItemDamage();
-        if (metaTileId < 0 || metaTileId >= GregTechAPI.METATILEENTITIES.length) {
-            return null;
-        }
-        IMetaTileEntity metaTileEntity = GregTechAPI.METATILEENTITIES[metaTileId];
-        return metaTileEntity instanceof MTECable cable ? cable : null;
-    }
-
-    private void consumeReplacementStack(EntityPlayerMP player, ItemStack replacementStack, int replacementSlotIndex, short oldMetaId, int protectedMainHandSlot) {
-        if (player.capabilities.isCreativeMode) {
-            return;
-        }
-
-        ItemStack oldCableStack = new ItemStack(replacementStack.getItem(), 1, oldMetaId);
-        // 三级降级：并入已有堆叠（跳过主手）→ 空槽（跳过主手）→ 掉地兜底
-        boolean addedToInventory = addOldCableToExistingStack(player, oldCableStack, protectedMainHandSlot);
-        if (!addedToInventory) {
-            addedToInventory = addOldCableToEmptySlot(player, oldCableStack, protectedMainHandSlot);
-        }
-        if (!addedToInventory) {
-            player.dropPlayerItemWithRandomChoice(oldCableStack, false);
-        }
-
-        replacementStack.stackSize--;
-        if (replacementStack.stackSize <= 0) {
-            player.inventory.setInventorySlotContents(replacementSlotIndex, null);
+    private void rollback(EntityPlayerMP player, TileEntity tile, Object base, Object oldCable, short oldId,
+        byte oldConnections, short newId, Throwable failure) {
+        MyMod.LOG.warn("[CableCompat] GT 线缆替换失败，尝试回滚 player={} pos=({},{},{}) oldMetaId={} newMetaId={}",
+            player.getCommandSenderName(), tile.xCoord, tile.yCoord, tile.zCoord, oldId, newId, failure);
+        try {
+            invokeRequired(profile.setBaseMetaTileEntity, oldCable, base);
+            invokeRequired(profile.setMetaTileId, base, Short.valueOf(oldId));
+            profile.cableConnections.setByte(oldCable, oldConnections);
+            profile.baseConnections.setByte(base, oldConnections);
+            refreshPipe(base, tile);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError rollbackFailure) {
+            MyMod.LOG.error("[CableCompat] GT 线缆回滚失败 pos=({},{},{})", tile.xCoord, tile.yCoord, tile.zCoord, rollbackFailure);
         }
     }
 
-    private boolean addOldCableToExistingStack(EntityPlayerMP player, ItemStack oldCableStack, int protectedMainHandSlot) {
-        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
-            if (i == protectedMainHandSlot) continue;
-            ItemStack slot = player.inventory.mainInventory[i];
-            if (slot != null
-                && slot.getItem() == oldCableStack.getItem()
-                && slot.getItemDamage() == oldCableStack.getItemDamage()
-                && slot.stackSize < slot.getMaxStackSize()) {
-                slot.stackSize++;
-                // P2-2：并入堆叠后走 markDirty 通知背包同步（InventoryPlayer 实现 IInventory，markDirty 可用）
-                player.inventory.markDirty();
-                return true;
+    private static List<ForgeDirection> sides(byte mask) {
+        List<ForgeDirection> result = new ArrayList<ForgeDirection>();
+        for (ForgeDirection side : ForgeDirection.VALID_DIRECTIONS) if ((mask & side.flag) != 0) result.add(side);
+        return result;
+    }
+
+    private static byte byteValue(Object value) {
+        return value instanceof Number ? ((Number) value).byteValue() : 0;
+    }
+
+    private static Object invoke(Method method, Object target, Object... args) {
+        try {
+            return method.invoke(target, args);
+        } catch (IllegalAccessException | InvocationTargetException | IllegalArgumentException | LinkageError ignored) {
+            return null;
+        }
+    }
+
+    private static Object invokeRequired(Method method, Object target, Object... args) throws ReflectiveOperationException {
+        return method.invoke(target, args);
+    }
+
+    interface ClassResolver { Class<?> resolve(String name); }
+
+    private static final class ProductionClassResolver implements ClassResolver {
+        @Override public Class<?> resolve(String name) { return ClassNameCompatSupport.resolveClass(name); }
+    }
+
+    /** 完整成功才启用的两代 GT 共同成员档案。 */
+    static final class CapabilityProfile {
+        final boolean complete;
+        Class<?> gregTechTileType, metaTileType, basePipeType, cableType;
+        Method getMetaTileId, setMetaTileId, getMetaTileEntity, getConnections, isConnectedAtSide;
+        Method newMetaEntity, setBaseMetaTileEntity, causeCableUpdate, issueTextureUpdate, issueBlockUpdate, issueTileUpdate;
+        Field baseConnections, cableConnections, material, cableLoss, amperage, voltage, blockMachines, metaTileEntities;
+
+        private CapabilityProfile(boolean complete) { this.complete = complete; }
+
+        static CapabilityProfile resolve(ClassResolver resolver) {
+            CapabilityProfile p = new CapabilityProfile(false);
+            try {
+                Class<?> api = resolver.resolve("gregtech.api.GregTechAPI");
+                p.metaTileType = resolver.resolve("gregtech.api.interfaces.metatileentity.IMetaTileEntity");
+                p.gregTechTileType = resolver.resolve("gregtech.api.interfaces.tileentity.IGregTechTileEntity");
+                p.basePipeType = resolver.resolve("gregtech.api.metatileentity.BaseMetaPipeEntity");
+                Class<?> metaPipeType = resolver.resolve("gregtech.api.metatileentity.MetaPipeEntity");
+                p.cableType = resolver.resolve("gregtech.api.metatileentity.implementations.MTECable");
+                if (api == null || p.metaTileType == null || p.gregTechTileType == null || p.basePipeType == null
+                    || metaPipeType == null || p.cableType == null) return p;
+                p.getMetaTileId = method(p.gregTechTileType, "getMetaTileID");
+                p.setMetaTileId = method(p.gregTechTileType, "setMetaTileID", short.class);
+                p.getMetaTileEntity = method(p.gregTechTileType, "getMetaTileEntity");
+                p.getConnections = method(p.basePipeType, "getConnections");
+                p.isConnectedAtSide = method(p.cableType, "isConnectedAtSide", ForgeDirection.class);
+                p.newMetaEntity = method(p.cableType, "newMetaEntity", p.gregTechTileType);
+                p.setBaseMetaTileEntity = method(p.metaTileType, "setBaseMetaTileEntity", p.gregTechTileType);
+                p.causeCableUpdate = method(api, "causeCableUpdate", World.class, int.class, int.class, int.class);
+                p.issueTextureUpdate = method(p.gregTechTileType, "issueTextureUpdate");
+                p.issueBlockUpdate = method(p.gregTechTileType, "issueBlockUpdate");
+                p.issueTileUpdate = method(p.gregTechTileType, "issueTileUpdate");
+                p.baseConnections = field(p.basePipeType, "mConnections");
+                p.cableConnections = field(metaPipeType, "mConnections");
+                p.material = field(p.cableType, "mMaterial");
+                p.cableLoss = field(p.cableType, "mCableLossPerMeter");
+                p.amperage = field(p.cableType, "mAmperage");
+                p.voltage = field(p.cableType, "mVoltage");
+                p.blockMachines = field(api, "sBlockMachines");
+                p.metaTileEntities = field(api, "METATILEENTITIES");
+                return allPresent(p) ? copyComplete(p) : p;
+            } catch (LinkageError | SecurityException ignored) {
+                return p;
             }
         }
-        return false;
-    }
 
-    /**
-     * 将旧线缆放入背包空槽（跳过主手 slot）。
-     * 主手 slot 受会话锁保护，避免旧线缆占用主手导致类型锚点错乱。
-     */
-    private boolean addOldCableToEmptySlot(EntityPlayerMP player, ItemStack oldCableStack, int protectedMainHandSlot) {
-        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
-            if (i == protectedMainHandSlot) continue;
-            if (player.inventory.mainInventory[i] == null) {
-                // P2-1：走 setInventorySlotContents 而非直写数组，触发 markDirty（InventoryPlayer 实现该方法）
-                player.inventory.setInventorySlotContents(i, oldCableStack);
-                return true;
-            }
+        private static CapabilityProfile copyComplete(CapabilityProfile source) {
+            CapabilityProfile p = new CapabilityProfile(true);
+            p.gregTechTileType=source.gregTechTileType; p.metaTileType=source.metaTileType; p.basePipeType=source.basePipeType; p.cableType=source.cableType;
+            p.getMetaTileId=source.getMetaTileId; p.setMetaTileId=source.setMetaTileId; p.getMetaTileEntity=source.getMetaTileEntity; p.getConnections=source.getConnections;
+            p.isConnectedAtSide=source.isConnectedAtSide; p.newMetaEntity=source.newMetaEntity; p.setBaseMetaTileEntity=source.setBaseMetaTileEntity;
+            p.causeCableUpdate=source.causeCableUpdate; p.issueTextureUpdate=source.issueTextureUpdate; p.issueBlockUpdate=source.issueBlockUpdate; p.issueTileUpdate=source.issueTileUpdate;
+            p.baseConnections=source.baseConnections; p.cableConnections=source.cableConnections; p.material=source.material; p.cableLoss=source.cableLoss;
+            p.amperage=source.amperage; p.voltage=source.voltage; p.blockMachines=source.blockMachines; p.metaTileEntities=source.metaTileEntities;
+            return p;
         }
-        return false;
+
+        private static boolean allPresent(CapabilityProfile p) {
+            return p.getMetaTileId!=null && p.setMetaTileId!=null && p.getMetaTileEntity!=null && p.getConnections!=null
+                && p.isConnectedAtSide!=null && p.newMetaEntity!=null && p.setBaseMetaTileEntity!=null && p.causeCableUpdate!=null
+                && p.issueTextureUpdate!=null && p.issueBlockUpdate!=null && p.issueTileUpdate!=null && p.baseConnections!=null
+                && p.cableConnections!=null && p.material!=null && p.cableLoss!=null && p.amperage!=null && p.voltage!=null
+                && p.blockMachines!=null && p.metaTileEntities!=null;
+        }
+
+        private static Method method(Class<?> owner, String name, Class<?>... args) {
+            return ReflectiveMemberSupport.findMethodInHierarchy(owner, name, args);
+        }
+        private static Field field(Class<?> owner, String name) {
+            return ReflectiveMemberSupport.findFieldInHierarchy(owner, name);
+        }
     }
 }
