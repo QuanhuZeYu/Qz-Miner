@@ -57,6 +57,20 @@ public class QzMinerMixinPluginTest {
         assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> fortuneFixture(true, true, 2)));
     }
 
+    /** Fortune clamp 只接受官方前向越过同槽写回块的精确控制流。 */
+    @Test
+    public void fortuneClampRequiresExactForwardControlFlow() {
+        QzMinerMixinPlugin.TargetCapability capability = QzMinerMixinPlugin.capability(
+            "legacy.Ore", "getDrops", "(I)Ljava/util/ArrayList;", null, null, null, 1);
+        assertTrue(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPLE, 1, 0)));
+        assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPEQ, 1, 0)));
+        assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPGE, 1, 0)));
+        assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPLE, 1, 1)));
+        assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPLE, 1, 2)));
+        assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPLE, 1, 3)));
+        assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> clampShapeFixture(Opcodes.IF_ICMPLE, 2, 0)));
+    }
+
     /** Adapter 能力必须同时具备精确 natural 字段读取与 fortune clamp。 */
     @Test
     public void adapterCapabilityRequiresFieldAndClamp() {
@@ -95,6 +109,34 @@ public class QzMinerMixinPluginTest {
             drops.visitInsn(Opcodes.POP);
         }
         addFortuneBody(drops, includeClamp, 1);
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private static byte[] clampShapeFixture(int jumpOpcode, int storeLocal, int targetKind) {
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, "legacy/Ore", null, "java/lang/Object", null);
+        MethodVisitor method = writer.visitMethod(Opcodes.ACC_PUBLIC, "getDrops", "(I)Ljava/util/ArrayList;", null, null);
+        method.visitCode();
+        Label beforeClamp = new Label();
+        Label insideWriteback = new Label();
+        Label afterWriteback = new Label();
+        Label unrelated = new Label();
+        method.visitLabel(beforeClamp);
+        method.visitVarInsn(Opcodes.ILOAD, 1);
+        method.visitInsn(Opcodes.ICONST_3);
+        Label target = targetKind == 1 ? beforeClamp : targetKind == 2 ? insideWriteback
+            : targetKind == 3 ? unrelated : afterWriteback;
+        method.visitJumpInsn(jumpOpcode, target);
+        method.visitInsn(Opcodes.ICONST_3);
+        method.visitLabel(insideWriteback);
+        method.visitVarInsn(Opcodes.ISTORE, storeLocal);
+        method.visitLabel(afterWriteback);
+        method.visitInsn(Opcodes.ACONST_NULL);
+        method.visitLabel(unrelated);
+        method.visitInsn(Opcodes.ARETURN);
+        method.visitMaxs(2, 3);
+        method.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }

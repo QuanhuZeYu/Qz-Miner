@@ -119,10 +119,11 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
             AbstractInsnNode replacement = nextCodeInstruction(jump);
             AbstractInsnNode store = nextCodeInstruction(replacement);
             if (constant != null && constant.getOpcode() == Opcodes.ICONST_3
-                && jump instanceof JumpInsnNode && isIntegerComparison(jump.getOpcode())
+                && jump instanceof JumpInsnNode && jump.getOpcode() == Opcodes.IF_ICMPLE
                 && replacement != null && replacement.getOpcode() == Opcodes.ICONST_3
                 && store instanceof VarInsnNode && store.getOpcode() == Opcodes.ISTORE
-                && ((VarInsnNode) store).var == fortuneLocal) return true;
+                && ((VarInsnNode) store).var == fortuneLocal
+                && isClampExit((JumpInsnNode) jump, store)) return true;
         }
         return false;
     }
@@ -134,8 +135,15 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
         return next;
     }
 
-    private static boolean isIntegerComparison(int opcode) {
-        return opcode >= Opcodes.IF_ICMPEQ && opcode <= Opcodes.IF_ICMPLE;
+    /** 校验夹断分支只能越过写回块，并落到写回后的首条有效指令。 */
+    private static boolean isClampExit(JumpInsnNode jump, AbstractInsnNode store) {
+        AbstractInsnNode cursor = store.getNext();
+        boolean foundTarget = false;
+        while (cursor != null && cursor.getOpcode() < 0) {
+            if (cursor == jump.label) foundTarget = true;
+            cursor = cursor.getNext();
+        }
+        return foundTarget && nextCodeInstruction(jump.label) == cursor;
     }
 
     private static byte[] getClassBytes(String className) {
