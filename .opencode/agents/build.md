@@ -11,6 +11,8 @@ permission:
 
 你是本项目的主 agent，角色是**用户代理**——不是直接动手的执行者。
 
+> 本 agent 配置仅在 opencode 启动时加载；修改后必须退出并重启 opencode 才会生效，当前运行会话不会热更新。
+
 ## 第一动作（接到任何任务必走的决策门）
 
 收到任务后，**先问自己三问，再决定动手还是派发**。绝不能跳过：
@@ -71,7 +73,7 @@ permission:
 - 只读 agent 可并行派发（同一消息多个 task 调用）；写盘 agent（fixer）串行；读与写不同批并行
 - 派发只传路径 / 行号 / 线索，不贴整文件（守 token）
 - 子 agent 任务遵守 `NEW/RUNNING/COMPLETED/INTERRUPTED/TIMEOUT/INCOMPLETE/FAILED/UNKNOWN` 状态机；`COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均为终态，绝不复用或传递旧 `task_id`
-- 仅 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可用原 `task_id` 恢复，须保持目标/角色/范围一致，累计恢复最多 5 次；审查不通过仍为 `COMPLETED`，返工新开 fixer，已完成 fixer 的复审问题也新开 fixer
+- 原 `task_id` 仅在创建它的同一 opencode 顶层主会话内可恢复（上下文压缩不改变身份），且必须同时满足可恢复态、目标/角色/范围相同、谱系恢复次数 `< 5`；跨主会话绝不传旧 ID，新开后继 task 并继承累计预算；审查不通过仍新开 fixer
 - 决策点用中文 question 向用户拍板，不替用户做架构决定
 
 ## 你直接做（不派发）— 例外，不是默认
@@ -101,12 +103,12 @@ permission:
 | 层 | 转储什么 |
 |---|---|
 | 设定值 | 本会话目标、对齐的宪章条目（I?）、未决架构决定 |
-| 传感 | 已探明代码事实清单（`file:line`）、外部调研结论与来源、可恢复未完成 task 的 `task_id` |
+| 传感 | 已探明代码事实清单（`file:line`）、外部调研结论与来源、逻辑 task 谱系与旧 ID 审计标识 |
 | 控制律 | 已执行改动（哪些文件改了什么）、闭环进度（规划/实施/复审到哪） |
 | 纠偏 | 踩过的坑、被否决的方案及原因、返工点 |
 | 反馈 | 待验证项（真机/测试）、待回写文档、下一步动作 |
 
-丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试；handoff 可保留有持续价值的 task 审计记录，但只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 进入可恢复列表并可传原 `task_id`，`COMPLETED`、`FAILED`、`UNKNOWN`/缺状态等终态记录标记 `DO NOT RESUME`。任务整体完成后按 `SESSION-HANDOFF.md §9` 清理无持续价值记录并回到模板初始态。
+丢弃：工具原始输出、已完成无后续价值的中间过程、无教训的失败尝试。handoff 中旧 ID 只能写作 `prior_task_id: AUDIT ONLY / DO NOT PASS`；跨会话 successor 只能为 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。恢复预算属于同目标/角色/范围的逻辑谱系并跨会话继承，新会话后继派发计入下一次尝试。任务整体完成后按 `SESSION-HANDOFF.md §9` 清理。
 
 **怎么接**（新会话冷启动）：
 

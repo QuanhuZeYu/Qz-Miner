@@ -51,15 +51,16 @@
 - 已完成且无后续价值的中间过程
 - 无教训价值的失败尝试（有教训的归"纠偏"层）
 
-派发过的子 agent task 必须登记状态；只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可保留原 `task_id` 供恢复，终态不得复用旧上下文。
+派发过的子 agent task 必须登记状态。跨会话不得保留任何可调用的旧 `task_id`；旧 ID 只能作审计标识，逻辑任务谱系及恢复预算继续传递。
 
 ### 4.1 任务记录与恢复
 
-每条 task 记录统一使用字段：`task_id|agent|goal|state|attempts|last_evidence|next_action`。
+每条跨会话 task 记录统一使用字段：`prior_task_id|agent|goal|scope|state|attempts|last_evidence|remaining_action|successor`。
 
 - `state` 必须来自 `NEW`、`RUNNING`、`COMPLETED`、`INTERRUPTED`、`TIMEOUT`、`INCOMPLETE`、`FAILED`、`UNKNOWN`；缺状态按 `UNKNOWN` 处理。
-- 只有 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可以在 `next_action` 中登记 resume，并保留原 `task_id`；恢复须保持目标、角色、范围一致，`attempts` 累计最多 5 次。
-- `COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均填写 `DO NOT RESUME`。审查不通过仍是 `COMPLETED`，返工必须登记为新的 fixer task。
+- `prior_task_id` 若存在只能填写 `<旧 ID>: AUDIT ONLY / DO NOT PASS`；主会话结束后不论状态均不得将其传给 Task 工具。
+- `successor` 只能填写 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。可恢复态在新会话创建后继 task，并将派发计入同目标/角色/范围谱系的下一次恢复尝试；已消耗次数跨会话继承，只有实质改变方案、目标或范围才建立新谱系。
+- `COMPLETED`、`FAILED`、`UNKNOWN`/缺状态仍是终态。审查不通过仍是 `COMPLETED`，返工必须登记为新的 fixer task。
 
 ## 5. 开新会话标准动作（冷启动核对）
 
@@ -97,7 +98,7 @@
 
 - [ ] **无持续价值的中间过程已丢弃**：工具原始输出、已完成无后续的尝试、无教训的失败——这些本就不该进 handoff，任务完成时确认它们没残留
 - [ ] **回流项已逐条反向举证**：每条打算回流到项目层（决策/错误预防/交接.md 未收敛项）的事实，必须答上"持续价值三问"（见下），答不上就丢
-- [ ] **session-handoff.md 已处理**：任务全完成→删除无持续价值的记录并回到模板初始态；尚有后续会话→可保留有持续价值的 task 审计记录，只有 `INTERRUPTED`/`TIMEOUT`/`INCOMPLETE` 进入可恢复列表并保留原 `task_id`，`COMPLETED`/`FAILED`/`UNKNOWN` 终态记录标记 `DO NOT RESUME` 且不得进入可恢复列表
+- [ ] **session-handoff.md 已处理**：任务全完成→删除无持续价值的记录并回到模板初始态；尚有后续会话→仅保留逻辑任务与旧 ID 审计记录，旧 ID 标记 `AUDIT ONLY / DO NOT PASS`，后继标记 `NEW TASK WITHOUT OLD TASK_ID`，并继承谱系恢复预算
 - [ ] **门禁已跑**：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-discipline.ps1` 通过（handoff 不入 git、无流水账命名）
 
 ### 持续价值三问（回流反向举证）

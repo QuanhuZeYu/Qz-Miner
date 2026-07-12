@@ -65,7 +65,7 @@
 
 ### 1.5 Subagent 编排
 - 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`（唯一权威，含闭环本能/盘查纪律/分工/并行串行/中断恢复/独立审核/子agent失败主agent 5 次恢复重试/5 分钟红线）
-- 任务状态机中 `COMPLETED`、`FAILED`、`UNKNOWN`/缺状态均为终态，completed 永不复用且绝不传旧 `task_id`；仅 `INTERRUPTED`、`TIMEOUT`、`INCOMPLETE` 可恢复原 `task_id`，同目标/角色/范围累计最多 5 次。审查不通过仍为 `COMPLETED`，返工新开 fixer。
+- `task_id` 只能在创建它的同一 opencode 顶层主会话内恢复（上下文压缩不改变主会话身份）；仅当同主会话、状态为 `INTERRUPTED`/`TIMEOUT`/`INCOMPLETE`、目标/角色/范围相同且逻辑任务谱系恢复次数 `< 5` 时才可传原 `task_id`。主会话结束后旧 ID 一律仅供审计，后继须新开 task 且计入该谱系下一次恢复尝试；`COMPLETED`、`FAILED`、`UNKNOWN`/缺状态仍为终态，审查不通过仍新开 fixer。
 - 决策点用中文 question 向用户拍板，subagent 不替用户做架构决定
 
 ## 二、传感层 Sensor — 如何测量产出是否达标
