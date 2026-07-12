@@ -14,14 +14,15 @@ import club.heiqi.qz_miner.network.PacketChainModeSwitch;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
+import net.minecraftforge.client.event.MouseEvent;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraft.client.settings.KeyBinding;
 import org.lwjgl.input.Keyboard;
-import org.lwjgl.input.Mouse;
 
 /**
  * 客户端按键监听器。
@@ -55,22 +56,26 @@ public class KeyListener {
     public void register() {
         ClientRegistry.registerKeyBinding(chainSwitch);
         FMLCommonHandler.instance().bus().register(this);
+        MinecraftForge.EVENT_BUS.register(this);
     }
 
     /**
      * 在按住连锁键时，使用滚轮切换主模式或子模式。
      *
-     * @param event 鼠标输入事件
+     * @param event Forge 可取消鼠标事件
      */
-    @SubscribeEvent
-    public void onMouseInput(InputEvent.MouseInputEvent event) {
-        if (FMLClientHandler.instance().getClient().theWorld == null || MyMod.chainStateService == null) {
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseWheel(MouseEvent event) {
+        net.minecraft.client.Minecraft client = FMLClientHandler.instance().getClient();
+        if (!WheelChordPolicy.shouldConsume(event.dwheel,
+                chainSwitch.getIsKeyPressed(),
+                client.currentScreen == null,
+                client.theWorld != null,
+                client.thePlayer != null,
+                MyMod.chainStateService != null)) {
             return;
         }
-
-        if (!chainSwitch.getIsKeyPressed()) {
-            return;
-        }
+        event.setCanceled(true);
 
         ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
         ChainSubMode currentSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
@@ -78,12 +83,8 @@ public class KeyListener {
             return;
         }
 
-        int dWheel = Mouse.getEventDWheel();
-        if (dWheel == 0) {
-            return;
-        }
-
-        boolean sneakKeyPressed = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT);
+        int dWheel = event.dwheel;
+        boolean sneakKeyPressed = client.gameSettings.keyBindSneak.getIsKeyPressed();
 
         if (sneakKeyPressed) {
             ChainMode nextMode = dWheel < 0
