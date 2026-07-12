@@ -44,16 +44,10 @@ public class KeyListener {
             Keyboard.KEY_GRAVE,
             "key.categories.qz_miner");
 
-    private final HudOverlay hudOverlay;
-
     /**
      * 当前是否处于按键按下状态。
      */
     private boolean wasPressed = false;
-
-    public KeyListener(HudOverlay hudOverlay) {
-        this.hudOverlay = hudOverlay;
-    }
 
     /**
      * 注册按键绑定和事件监听。
@@ -156,7 +150,6 @@ public class KeyListener {
             }
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, pressed));
         }
-        hudOverlay.setChainActive(pressed);
     }
 
     private void syncRequestedChainConfigToServer() {

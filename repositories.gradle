@@ -7,14 +7,14 @@ repositories {
         url = 'https://nexus.gtnewhorizons.com/repository/releases/'
     }
     // Gradle 4.8.1 没有 repository content/exclusiveContent 过滤 API。
-    // 仅暴露 Qz-UILib 当前 beta 版本目录，避免全局 mavenLocal 污染其他依赖。
+    // 仅暴露 Qz-UILib 当前版本目录，避免全局 mavenLocal 污染其他依赖。
     def localMavenRepository = System.getProperty('maven.repo.local')
     if (localMavenRepository == null || localMavenRepository.isEmpty()) {
         localMavenRepository = new File(System.getProperty('user.home'), '.m2/repository').absolutePath
     }
     flatDir {
         dirs new File(localMavenRepository,
-                'club/heiqi/uilib/Qz-UILib/4.5.3-beta-12')
+                'club/heiqi/uilib/Qz-UILib/4.6.0')
     }
     maven {
         name = 'JitPack'

@@ -18,9 +18,12 @@ import club.heiqi.qz_miner.client.ClientConfigChangeListener;
 import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
-import club.heiqi.qz_miner.client.HudOverlay;
 import club.heiqi.qz_miner.client.KeyListener;
+import club.heiqi.qz_miner.client.QzMinerHudSnapshotProvider;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
+import club.heiqi.uilib.ui.hud.api.CompactHud;
+import club.heiqi.uilib.ui.hud.api.HudAnchor;
+import club.heiqi.uilib.ui.hud.api.HudRegistration;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import net.minecraft.network.INetHandler;
@@ -64,6 +67,8 @@ public class ClientProxy extends CommonProxy {
     public static ClientPhaseProjection clientPhaseProjection;
     /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
+    /** Qz-Miner 紧凑 HUD 的 UILib 注册句柄。 */
+    public static HudRegistration chainStatusHudRegistration;
 
     @Override
     public void init(FMLInitializationEvent event) {
@@ -84,9 +89,11 @@ public class ClientProxy extends CommonProxy {
         chainPreviewRenderer.register();
         new ClientConnectionListener().register();
         new ClientConfigChangeListener().register();
-        HudOverlay hudOverlay = new HudOverlay();
-        hudOverlay.register();
-        new KeyListener(hudOverlay).register();
+        chainStatusHudRegistration = CompactHud.register(
+                "qz_miner:chain-status",
+                HudAnchor.TOP_LEFT,
+                new QzMinerHudSnapshotProvider(MyMod.chainStateService.getClientState(), clientPhaseProjection));
+        new KeyListener().register();
     }
 
     /**
