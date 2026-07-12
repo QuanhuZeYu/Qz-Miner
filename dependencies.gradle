@@ -34,10 +34,6 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 dependencies {
-    elytraModpackVersion {
-        setGtnhVersion("2.9.0-beta-1")
-    }
-
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("LootGames"))
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("GTNHLib"))

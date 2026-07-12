@@ -12,7 +12,10 @@
   "mixins": [
     "MixinGTOreAdapter",
     "MixinBWOreAdapter",
-    "MixinGTPPOreAdapter"
+    "MixinGTPPOreAdapter",
+    "MixinTileEntityOresLegacy",
+    "MixinBWTileEntityMetaGeneratedOreLegacy",
+    "MixinBlockBaseOreLegacy"
   ],
   "client": [
     "client.MixinMinecraft"

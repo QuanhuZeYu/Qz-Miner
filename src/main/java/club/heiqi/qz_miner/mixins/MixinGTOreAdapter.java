@@ -5,16 +5,16 @@ import com.llamalad7.mixinextras.expression.Definition;
 import com.llamalad7.mixinextras.expression.Expression;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.sugar.Local;
-import gregtech.common.ores.GTOreAdapter;
-import gregtech.common.ores.OreInfo;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
  * 调整 GT 普通矿时运限制。
  */
-@Mixin(value = GTOreAdapter.class, remap = false)
+@Pseudo
+@Mixin(targets = "gregtech.common.ores.GTOreAdapter", remap = false)
 public abstract class MixinGTOreAdapter {
 
     /**
@@ -26,8 +26,8 @@ public abstract class MixinGTOreAdapter {
     @Redirect(
         method = "getOreDrops(Ljava/util/Random;Lgregtech/common/ores/OreInfo;ZI)Ljava/util/ArrayList;",
         at = @At(value = "FIELD", target = "Lgregtech/common/ores/OreInfo;isNatural:Z"))
-    private boolean qzMiner$allowPlacedOreFortune(OreInfo<?> oreInfo) {
-        return FortuneCompatHelper.shouldTreatOreAsNatural(oreInfo.isNatural);
+    private boolean qzMiner$allowPlacedOreFortune(Object oreInfo) {
+        return FortuneCompatHelper.shouldTreatOreAsNatural(oreInfo);
     }
 
     /**

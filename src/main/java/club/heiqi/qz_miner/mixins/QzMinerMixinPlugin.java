@@ -8,6 +8,8 @@ import java.util.Set;
 
 import net.minecraft.launchwrapper.Launch;
 import org.spongepowered.asm.lib.tree.ClassNode;
+import org.spongepowered.asm.lib.ClassReader;
+import org.spongepowered.asm.lib.tree.MethodNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 
@@ -16,7 +18,7 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
  */
 public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
-    private static final Map<String, String> OPTIONAL_MIXIN_TARGETS = createOptionalMixinTargets();
+    private static final Map<String, TargetCapability> OPTIONAL_MIXIN_TARGETS = createOptionalMixinTargets();
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -29,8 +31,8 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
-        String requiredClassName = OPTIONAL_MIXIN_TARGETS.get(mixinClassName);
-        return requiredClassName == null || isClassPresent(requiredClassName);
+        TargetCapability capability = OPTIONAL_MIXIN_TARGETS.get(mixinClassName);
+        return capability == null || hasMethod(capability);
     }
 
     @Override
@@ -50,12 +52,65 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
     public void postApply(String targetClassName, ClassNode targetClass, String mixinClassName, IMixinInfo mixinInfo) {
     }
 
-    private static Map<String, String> createOptionalMixinTargets() {
-        Map<String, String> targets = new java.util.HashMap<String, String>();
-        targets.put("club.heiqi.qz_miner.mixins.MixinGTOreAdapter", "gregtech.common.ores.GTOreAdapter");
-        targets.put("club.heiqi.qz_miner.mixins.MixinBWOreAdapter", "gregtech.common.ores.BWOreAdapter");
-        targets.put("club.heiqi.qz_miner.mixins.MixinGTPPOreAdapter", "gregtech.common.ores.GTPPOreAdapter");
+    private static Map<String, TargetCapability> createOptionalMixinTargets() {
+        Map<String, TargetCapability> targets = new java.util.HashMap<String, TargetCapability>();
+        String adapterDescriptor = "(Ljava/util/Random;Lgregtech/common/GTProxy$OreDropSystem;Lgregtech/common/ores/OreInfo;I)Ljava/util/ArrayList;";
+        targets.put("club.heiqi.qz_miner.mixins.MixinGTOreAdapter", new TargetCapability("gregtech.common.ores.GTOreAdapter", "getBigOreDrops", adapterDescriptor));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBWOreAdapter", new TargetCapability("gregtech.common.ores.BWOreAdapter", "getBigOreDrops", adapterDescriptor));
+        targets.put("club.heiqi.qz_miner.mixins.MixinGTPPOreAdapter", new TargetCapability("gregtech.common.ores.GTPPOreAdapter", "getBigOreDrops", adapterDescriptor));
+        targets.put("club.heiqi.qz_miner.mixins.MixinTileEntityOresLegacy", new TargetCapability("gregtech.common.blocks.TileEntityOres", "getDrops", "(Lnet/minecraft/block/Block;I)Ljava/util/ArrayList;"));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBWTileEntityMetaGeneratedOreLegacy", new TargetCapability("bartworks.system.material.BWTileEntityMetaGeneratedOre", "getDrops", "(I)Ljava/util/ArrayList;"));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBlockBaseOreLegacy", new TargetCapability("gtPlusPlus.core.block.base.BlockBaseOre", "getDrops", "(Lnet/minecraft/world/World;IIIII)Ljava/util/ArrayList;"));
         return Collections.unmodifiableMap(targets);
+    }
+
+    /** 按字节码方法表判断能力，不加载或初始化目标类。 */
+    private static boolean hasMethod(TargetCapability capability) {
+        return hasMethod(capability, QzMinerMixinPlugin::getClassBytes);
+    }
+
+    static boolean hasMethod(TargetCapability capability, ClassBytesProvider provider) {
+        byte[] bytes = provider.getClassBytes(capability.className);
+        if (bytes == null) return false;
+        try {
+            ClassNode node = new ClassNode();
+            new ClassReader(bytes).accept(node, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+            for (MethodNode method : node.methods) {
+                if (capability.methodName.equals(method.name) && capability.descriptor.equals(method.desc)) return true;
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            return false;
+        }
+        return false;
+    }
+
+    private static byte[] getClassBytes(String className) {
+        if (Launch.classLoader == null) return null;
+        try {
+            return Launch.classLoader.getClassBytes(className);
+        } catch (IOException | LinkageError | SecurityException ignored) {
+            return null;
+        }
+    }
+
+    interface ClassBytesProvider {
+        byte[] getClassBytes(String className);
+    }
+
+    static final class TargetCapability {
+        private final String className;
+        private final String methodName;
+        private final String descriptor;
+
+        private TargetCapability(String className, String methodName, String descriptor) {
+            this.className = className;
+            this.methodName = methodName;
+            this.descriptor = descriptor;
+        }
+    }
+
+    static TargetCapability capability(String className, String methodName, String descriptor) {
+        return new TargetCapability(className, methodName, descriptor);
     }
 
     /**
