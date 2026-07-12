@@ -242,7 +242,7 @@ public class ChainClientState extends AbstractChainModeState {
     public boolean isChainActiveDisplay() {
         // 阶段8 块3：删旧 serverChainKeyPressed/serverExecuting（phase 由 ClientPhaseProjection 承载）。
         // HUD 显示权威改为：chainKeyPressed（客户端本地按键）或投影阶段非 IDLE/ARMED 时显示。
-        // 此处仅保留客户端本地按键判定，phase 维度的显示由 HudOverlay 自行据 ClientPhaseProjection 控制。
+        // 此处仅保留客户端本地按键判定，phase 维度由紧凑 HUD provider 据投影控制。
         return chainKeyPressed;
     }
 }

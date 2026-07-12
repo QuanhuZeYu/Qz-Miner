@@ -9,10 +9,10 @@ import cpw.mods.fml.common.Mod;
 public class MyModMetadataTest {
 
     @Test
-    public void qzUiLibMinimumVersionIsBeta11() {
+    public void qzUiLibMinimumVersionIs460() {
         Mod metadata = MyMod.class.getAnnotation(Mod.class);
 
         Assert.assertNotNull("MyMod must retain @Mod metadata", metadata);
-        Assert.assertEquals("required-after:qz_uilib@[4.5.3-beta-12,);", metadata.dependencies());
+        Assert.assertEquals("required-after:qz_uilib@[4.6.0,);", metadata.dependencies());
     }
 }

@@ -20,8 +20,14 @@ import club.heiqi.uilib.ui.hud.api.HudTone;
 /** 将连锁客户端状态组装为 UILib 紧凑 HUD 的不可变快照。 */
 public final class QzMinerHudSnapshotProvider implements HudSnapshotProvider {
 
+    /** 提供当前预览状态，隔离 HUD 快照与渲染控制器生命周期。 */
+    interface PreviewStateSource {
+        ChainPreviewState current();
+    }
+
     private final ChainClientState clientState;
     private final ClientPhaseProjection phaseProjection;
+    private final PreviewStateSource previewStateSource;
 
     /**
      * 创建连锁 HUD 快照提供器。
@@ -30,8 +36,20 @@ public final class QzMinerHudSnapshotProvider implements HudSnapshotProvider {
      * @param phaseProjection 客户端阶段投影
      */
     public QzMinerHudSnapshotProvider(ChainClientState clientState, ClientPhaseProjection phaseProjection) {
+        this(clientState, phaseProjection, new PreviewStateSource() {
+            @Override
+            public ChainPreviewState current() {
+                return ClientProxy.chainPreviewController == null
+                        ? null : ClientProxy.chainPreviewController.getPreviewState();
+            }
+        });
+    }
+
+    QzMinerHudSnapshotProvider(ChainClientState clientState, ClientPhaseProjection phaseProjection,
+            PreviewStateSource previewStateSource) {
         this.clientState = clientState;
         this.phaseProjection = phaseProjection;
+        this.previewStateSource = previewStateSource;
     }
 
     /** {@inheritDoc} */
@@ -73,9 +91,8 @@ public final class QzMinerHudSnapshotProvider implements HudSnapshotProvider {
                         : ClientI18n.tr("hud.qz_miner.sync.pending"),
                 clientState.getServerObjectGroups().groups().size()), HudTone.MUTED));
 
-        boolean previewActive = ClientProxy.chainPreviewController != null && clientState.isPreviewActive();
-        if (previewActive) {
-            ChainPreviewState previewState = ClientProxy.chainPreviewController.getPreviewState();
+        ChainPreviewState previewState = clientState.isPreviewActive() ? previewStateSource.current() : null;
+        if (previewState != null) {
             String suffix = previewState.isCompleted()
                     ? ClientI18n.tr("hud.qz_miner.preview.completed")
                     : ClientI18n.tr("hud.qz_miner.preview.calculating");
