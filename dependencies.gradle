@@ -46,7 +46,7 @@ dependencies {
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
     // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
-    // beta-8 当前从 Maven Local 解析；发布包不内嵌 UILib
+    // beta-9 当前从 Maven Local 解析；发布包不内嵌 UILib
     devOnlyNonPublishable("club.heiqi.uilib:Qz-UILib:4.5.3-beta-9:dev") { transitive = false }
     testImplementation("club.heiqi.uilib:Qz-UILib:4.5.3-beta-9:dev") { transitive = false }
 
