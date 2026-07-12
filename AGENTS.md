@@ -63,7 +63,13 @@
 - 编译/测试/运行命令见 `docs/控制律层/稳定命令.md`（PowerShell 不支持 `&&`，链式用 `;`）
 - 不要并行执行多个 Gradle 构建命令
 
-### 1.5 Subagent 编排
+### 1.5 环境所有权
+- **环境所有权**：本机环境归用户，CI 环境归 runner；agent 只有只读验证权，无任何环境修复或赋值权。仅按任务逐项读取、验证所需的非敏感变量；敏感变量只检查存在性，禁止回显；禁止全量枚举环境变量。
+- agent 禁止在当前会话、子进程及用户/系统级设置、覆盖、清空或删除环境变量，包括 PowerShell `$env:` 赋值、CMD `set`/`setx`、POSIX `export`/`env NAME=...`、注册表、`[Environment]::SetEnvironmentVariable`，以及通过 profile、`.env`、`gradle.properties` 持久修复。
+- 禁止用 `-Dgradle.user.home`、`--gradle-user-home`/`-g`、`-Dorg.gradle.java.home` 等参数绕过环境异常。缺失或异常时停止依赖该环境的命令，返回 `INCOMPLETE` 并询问用户。
+- 仅允许项目已定义、非敏感、任务明确且记入稳定命令的 Gradle `-P` 参数。CI workflow 的声明式 `env` 属 runner 所有权，不构成本地 agent 授权。
+
+### 1.6 Subagent 编排
 - 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`（唯一权威，含闭环本能/盘查纪律/分工/并行串行/返回封存/独立审核/子 agent 失败最多 5 次逻辑尝试/5 分钟红线）
 - 任何 Task 调用一旦返回主 agent，不论状态或是否为空，旧 `task_id` 立即封存且仅供审计，**DO NOT PASS**。纠偏、重试或继续工作必须压缩已验证事实后新开范围更窄的 task，不得传旧 `task_id`；状态只表达结果语义，不授予恢复权，成本约束优先于子会话上下文连续性。
 - 决策点用中文 question 向用户拍板，subagent 不替用户做架构决定
