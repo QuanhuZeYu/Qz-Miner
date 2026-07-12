@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 import club.heiqi.config.ui.editor.Codec;
+import club.heiqi.config.ui.editor.CurrentValuePresenter;
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.config.ui.editor.ValueEditorProvider;
@@ -17,13 +18,15 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     private final VisualAdapter visualAdapter;
     private final SearchFunction searchFunction;
     private final SearchPickerPresentation presentation;
+    private final CurrentValuePresenter currentValuePresenter;
 
     public BlockPickerProvider(List<BlockCandidate> source) {
         List<BlockCandidate> snapshot = Collections.unmodifiableList(new ArrayList<BlockCandidate>(source));
         BlockSearchIndex index = new BlockSearchIndex(snapshot);
         codec = new ObjectGroupPickerCodec();
         visualAdapter = new BlockPickerVisualAdapter(snapshot);
-        searchFunction = (query, limit) -> convert(index.search(query, expandedLimit(limit)), limit);
+        searchFunction = (query, limit) -> convert(index.search(query, Integer.MAX_VALUE));
+        currentValuePresenter = new BlockSelectorCurrentValuePresenter(snapshot, visualAdapter);
         presentation = SearchPickerPresentation.builder()
                 .title("添加方块")
                 .placeholder("搜索方块名称或 registry id")
@@ -46,13 +49,9 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     public VisualAdapter visualAdapter() { return visualAdapter; }
     public SearchFunction searchFunction() { return searchFunction; }
     public SearchPickerPresentation presentation() { return presentation; }
+    public CurrentValuePresenter currentValuePresenter() { return currentValuePresenter; }
 
-    private static int expandedLimit(int requestedLimit) {
-        int bounded = Math.max(0, Math.min(SearchPickerData.MAX_RESULTS, requestedLimit));
-        return bounded == 0 ? 0 : bounded + 1;
-    }
-
-    private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result, int requestedLimit) {
+    private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result) {
         List<SearchPickerData.Candidate> candidates = new ArrayList<SearchPickerData.Candidate>();
         for (BlockCandidate candidate : result.candidates()) {
             List<SearchPickerData.Variant> variants = new ArrayList<SearchPickerData.Variant>();
@@ -62,8 +61,6 @@ public final class BlockPickerProvider implements ValueEditorProvider {
             }
             candidates.add(new SearchPickerData.Candidate(candidate.registry(), candidate.localizedName(), variants));
         }
-        SearchPickerData.SearchResult converted = new SearchPickerData.SearchResult(candidates);
-        int limit = Math.max(0, Math.min(SearchPickerData.MAX_RESULTS, requestedLimit));
-        return converted.limitedTo(limit);
+        return new SearchPickerData.SearchResult(candidates);
     }
 }

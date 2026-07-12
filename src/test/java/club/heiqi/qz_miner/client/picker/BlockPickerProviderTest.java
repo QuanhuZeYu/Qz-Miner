@@ -41,8 +41,8 @@ public class BlockPickerProviderTest {
 
         SearchPickerData.SearchResult result = new BlockPickerProvider(source).searchFunction().search("matching", 64);
 
-        Assert.assertEquals(64, result.candidates().size());
-        Assert.assertTrue(result.truncated());
+        Assert.assertEquals(65, result.candidates().size());
+        Assert.assertFalse(result.truncated());
         for (SearchPickerData.Candidate candidate : result.candidates()) {
             Assert.assertNotEquals("qz_miner:truncated", candidate.key());
             Assert.assertTrue(registries.contains(candidate.key()));
@@ -52,6 +52,20 @@ public class BlockPickerProviderTest {
                     new SearchPickerData.Selection(candidate.key(), SearchPickerData.SelectionMode.ALL,
                             Collections.<String>emptyList())));
         }
+    }
+
+    @Test
+    public void currentValuePresenterUsesLocalizedCanonicalAndFallsBackToRaw() {
+        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
+                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
+        club.heiqi.config.ui.editor.CurrentValuePresenter.Presentation valid =
+                provider.currentValuePresenter().present(Collections.singletonList("minecraft:stone@03"));
+        Assert.assertEquals("Stone", valid.title());
+        Assert.assertEquals("minecraft:stone@3", valid.summary());
+        club.heiqi.config.ui.editor.CurrentValuePresenter.Presentation invalid =
+                provider.currentValuePresenter().present(Collections.singletonList("not a selector"));
+        Assert.assertEquals("not a selector", invalid.title());
+        Assert.assertEquals("not a selector", invalid.summary());
     }
 
     @Test
