@@ -31,6 +31,7 @@ permission:
   - I7 生命周期清理是否走统一收口
   - I8 矿石时运是否拦 fortune>3 而非改 nextInt
   - I9 主线程屏障是否等 worker 到安全边界
+  - I10 状态变更是否仅经 ChainStateMachine 合法转移表，按玩家 UUID 分槽且 phase/generation 仅由状态机写入；越界是否丢弃并诊断，worker 是否只 publish；T4 三类观测入口是否均自增 generation
 - 测试有效性：是否覆盖关键路径、是否有防错清单遗漏
 - 评定：通过 / 不通过（不通过标 P0/P1/P2 + 修复项）
 
