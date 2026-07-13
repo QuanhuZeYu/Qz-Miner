@@ -12,6 +12,8 @@ public final class AutoToolControllerState<T> {
     T latestDesiredTarget;
     boolean inventorySwapActive;
     boolean endAfterRestore;
+    boolean forgetAfterSelect;
+    boolean pauseAfterEnd;
 
     public Status status() { return status; }
     public int originalHotbarSlot() { return originalHotbarSlot; }

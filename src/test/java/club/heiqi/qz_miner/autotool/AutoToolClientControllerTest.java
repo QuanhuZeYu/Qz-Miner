@@ -65,14 +65,66 @@ public class AutoToolClientControllerTest {
         Assert.assertEquals(2, f.bridge.selects);
     }
 
+    @Test public void configuredThresholdsAndReloadResetOnlyTargetHistory() {
+        Fixture f = new Fixture(); f.add(2, 10.0D); f.facade.stableTicks = 10; f.pressAndStabilize();
+        Assert.assertEquals(2, f.facade.current);
+        f.facade.target = "other";
+        for (int i = 0; i < 9; i++) f.controller.tick();
+        Assert.assertEquals(2, f.facade.current);
+        f.facade.stableTicks = 20;
+        for (int i = 0; i < 19; i++) f.controller.tick();
+        Assert.assertEquals(2, f.facade.current);
+    }
+
+    @Test public void deathAndReplacementPlayerResetWithoutLateRestore() {
+        Fixture f = new Fixture(); f.add(12, 10.0D); f.pressAndStabilize();
+        f.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
+        f.facade.dead = true; f.controller.tick();
+        Assert.assertEquals(1, f.bridge.resets); Assert.assertEquals(0, f.bridge.restores);
+        f.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
+        Assert.assertEquals(0, f.bridge.restores);
+        f.facade.dead = false; f.facade.player = new Object(); f.controller.tick();
+        Assert.assertEquals(2, f.bridge.resets);
+        f.controller.onChainKeyChanged(true); f.controller.tick();
+        Assert.assertEquals(2, f.bridge.selects);
+    }
+
+    @Test public void hotbarIdentityReplacementPausesButSameObjectMutationDoesNot() {
+        Fixture replaced = new Fixture(); Object tool = new Object(); replaced.facade.identities[2] = tool;
+        replaced.add(2, 10.0D); replaced.pressAndStabilize();
+        replaced.facade.identities[2] = null; replaced.controller.tick();
+        Assert.assertEquals(0, replaced.facade.current);
+        replaced.controller.tick(); Assert.assertEquals(0, replaced.facade.current);
+        Fixture same = new Fixture(); same.facade.identities[2] = tool; same.add(2, 10.0D); same.pressAndStabilize();
+        same.controller.tick(); Assert.assertEquals(2, same.facade.current);
+    }
+
+    @Test public void restoreFalseKeepsHotbarAndInventoryLayoutsIncludingPending() {
+        Fixture hotbar = new Fixture(); hotbar.facade.restore = false; hotbar.add(2, 10.0D); hotbar.pressAndStabilize();
+        hotbar.controller.onChainKeyChanged(false);
+        Assert.assertEquals(2, hotbar.facade.current); Assert.assertEquals(1, hotbar.bridge.forgets);
+        Fixture inventory = new Fixture(); inventory.facade.restore = false; inventory.add(12, 10.0D); inventory.pressAndStabilize();
+        inventory.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
+        inventory.controller.onChainKeyChanged(false);
+        Assert.assertEquals(0, inventory.bridge.restores); Assert.assertEquals(1, inventory.bridge.forgets);
+        Fixture pending = new Fixture(); pending.facade.restore = false; pending.add(12, 10.0D); pending.pressAndStabilize();
+        pending.controller.onChainKeyChanged(false); Assert.assertEquals(0, pending.bridge.forgets);
+        pending.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
+        Assert.assertEquals(1, pending.bridge.forgets); Assert.assertEquals(0, pending.bridge.restores);
+    }
+
     private static final class Fixture {
         final FakeFacade facade = new FakeFacade(); final FakeBridge bridge = new FakeBridge();
         final AutoToolClientController controller = new AutoToolClientController(facade, bridge);
-        void add(int slot, double speed) { facade.candidates.add(new Candidate(slot, speed)); }
+        void add(int slot, double speed) {
+            if (facade.identities[slot] == null) facade.identities[slot] = new Object();
+            facade.candidates.add(new Candidate(slot, speed, facade.identities[slot]));
+        }
         void pressAndStabilize() { controller.onChainKeyChanged(true); controller.tick(); }
     }
     private static final class FakeFacade implements AutoToolClientController.Facade {
-        boolean enabled = true, breakMode = true, valid = true; int current;
+        boolean enabled = true, breakMode = true, valid = true, restore = true, dead; int current, stableTicks = 2, graceTicks = 2;
+        Object player = new Object(); final Object[] identities = new Object[36];
         AutoToolCoordinator.Phase phase = AutoToolCoordinator.Phase.ARMED; Object target = "block";
         final List<AutoToolCoordinator.Candidate<Object>> candidates = new ArrayList<AutoToolCoordinator.Candidate<Object>>();
         public boolean enabled() { return enabled; }
@@ -83,20 +135,26 @@ public class AutoToolClientControllerTest {
         public List<? extends AutoToolCoordinator.Candidate<Object>> candidates() { return candidates; }
         public int currentHotbarSlot() { return current; }
         public void selectHotbarSlot(int slot) { current = slot; }
-        public Object inventoryIdentity(int slot) { return Integer.valueOf(slot); }
+        public Object inventoryIdentity(int slot) { return identities[slot]; }
         public int minimumDurabilityReserve() { return 0; }
         public int inventoryAnchorHotbarSlot() { return current; }
+        public int targetStableTicks() { return stableTicks; }
+        public int emptyTargetGraceTicks() { return graceTicks; }
+        public boolean restoreOriginal() { return restore; }
+        public Object playerIdentity() { return player; }
+        public boolean playerDead() { return dead; }
     }
     private static final class FakeBridge implements AutoToolClientController.BridgePort {
-        int selects, restores, resets;
+        int selects, restores, resets, forgets;
         public boolean beginSwap(int source, int anchor, Object sourceId, Object anchorId, Object desired) { selects++; return true; }
         public boolean requestRestore(Object source, Object anchor, Object desired) { restores++; return true; }
         public void tickTimeout() { }
         public void resetLifecycle() { resets++; }
+        public void forgetAfterConfirmation() { forgets++; }
     }
     private static final class Candidate implements AutoToolCoordinator.Candidate<Object> {
-        final int slot; final double speed;
-        Candidate(int slot, double speed) { this.slot = slot; this.speed = speed; }
+        final int slot; final double speed; final Object identity;
+        Candidate(int slot, double speed, Object identity) { this.slot = slot; this.speed = speed; this.identity = identity; }
         public int slot() { return slot; }
         public boolean canHarvest() { return true; }
         public int silkTouchLevel() { return 0; }
@@ -105,6 +163,6 @@ public class AutoToolClientControllerTest {
         public int efficiencyLevel() { return 0; }
         public int remainingDurability() { return 100; }
         public int sourceContainerSlot() { return MinecraftToolCandidateFactory.toContainerPlayerSlot(slot); }
-        public Object identity() { return Integer.valueOf(slot); }
+        public Object identity() { return identity; }
     }
 }

@@ -92,6 +92,30 @@ public class VanillaInventoryTransactionBridgeTest {
         Assert.assertEquals(ToolSwapTransaction.State.ACTIVE, next.bridge.state());
     }
 
+    @Test public void forgetKeepsActiveLayoutAndPendingWaitsForConfirmOrResync() {
+        Fixture active = activeFixture();
+        active.bridge.forgetAfterConfirmation();
+        Assert.assertEquals(ToolSwapTransaction.State.IDLE, active.bridge.state());
+        Assert.assertEquals(1, active.transport.clicks);
+
+        Fixture accepted = new Fixture();
+        accepted.bridge.beginSwap(12, 3, accepted.source, accepted.anchor, accepted.source);
+        accepted.bridge.onClickPacket(0, 12, 3, 2, (short) 14);
+        accepted.bridge.forgetAfterConfirmation();
+        Assert.assertEquals(ToolSwapTransaction.State.WAIT_SELECT_CONFIRM, accepted.bridge.state());
+        accepted.bridge.onConfirmTransaction(0, (short) 14, true);
+        Assert.assertEquals(ToolSwapTransaction.State.IDLE, accepted.bridge.state());
+
+        Fixture rejected = new Fixture();
+        rejected.bridge.beginSwap(12, 3, rejected.source, rejected.anchor, rejected.source);
+        rejected.bridge.onClickPacket(0, 12, 3, 2, (short) 15);
+        rejected.bridge.forgetAfterConfirmation();
+        rejected.bridge.onConfirmTransaction(0, (short) 15, false);
+        Assert.assertEquals(ToolSwapTransaction.State.WAIT_RESYNC, rejected.bridge.state());
+        rejected.bridge.onWindowItems(0);
+        Assert.assertEquals(ToolSwapTransaction.State.PAUSED, rejected.bridge.state());
+    }
+
     private static Fixture activeFixture() {
         Fixture f = new Fixture();
         f.bridge.beginSwap(12, 3, f.source, f.anchor, f.source);

@@ -20,6 +20,16 @@ public class AutoToolCoordinatorTest {
         Assert.assertEquals(AutoToolCoordinator.CommandType.RESTORE_HOTBAR, f.tick(null).type);
     }
 
+    @Test public void nonDefaultTenStableAndTwentyEmptyGraceAreApplied() {
+        Fixture f = new Fixture(); f.snapshot.targetStableTicks = 10; f.snapshot.emptyTargetGraceTicks = 20;
+        f.activate("A");
+        for (int i = 0; i < 9; i++) Assert.assertEquals(AutoToolCoordinator.CommandType.NONE, f.tick("B").type);
+        Assert.assertEquals(AutoToolCoordinator.CommandType.RESTORE_HOTBAR, f.tick("B").type);
+        f.coordinator.confirm(f.snapshot); f.coordinator.confirm(f.snapshot);
+        for (int i = 0; i < 20; i++) Assert.assertEquals(AutoToolCoordinator.CommandType.NONE, f.tick(null).type);
+        Assert.assertEquals(AutoToolCoordinator.CommandType.RESTORE_HOTBAR, f.tick(null).type);
+    }
+
     @Test public void selectsWholeInventoryAndUsesBridgeCoordinates() {
         Fixture f = new Fixture(); f.snapshot.candidates = Arrays.asList(tool(0, 36, 2), tool(20, 20, 20));
         AutoToolCoordinator.Command command = f.tick("A");

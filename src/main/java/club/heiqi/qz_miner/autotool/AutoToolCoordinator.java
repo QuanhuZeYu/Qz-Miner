@@ -9,7 +9,7 @@ import java.util.List;
  */
 public final class AutoToolCoordinator<T> {
     public enum Phase { IDLE, ARMED, LOCKED }
-    public enum CommandType { NONE, SELECT_HOTBAR, SELECT_INVENTORY, RESTORE_HOTBAR, RESTORE_INVENTORY, PAUSE, RESET }
+    public enum CommandType { NONE, SELECT_HOTBAR, SELECT_INVENTORY, RESTORE_HOTBAR, RESTORE_INVENTORY, FORGET, PAUSE, RESET }
 
     /** 候选事实及运行时桥所需的槽位和身份。 */
     public interface Candidate<T> extends ToolSelectionPolicy.Candidate {
@@ -31,6 +31,9 @@ public final class AutoToolCoordinator<T> {
         public int currentHotbarSlot;
         public int minimumDurabilityReserve;
         public int inventoryAnchorHotbarSlot;
+        public int targetStableTicks = 2;
+        public int emptyTargetGraceTicks = 2;
+        public boolean restoreOriginal = true;
     }
 
     /** 运行时桥应执行的意图；无关字段为 -1。 */
@@ -45,7 +48,9 @@ public final class AutoToolCoordinator<T> {
         }
     }
 
-    private final TargetStabilizer<T> stabilizer = new TargetStabilizer<T>(2, 2);
+    private TargetStabilizer<T> stabilizer = new TargetStabilizer<T>(2, 2);
+    private int targetStableTicks = 2;
+    private int emptyTargetGraceTicks = 2;
     private final AutoToolControllerState<T> state = new AutoToolControllerState<T>();
     private boolean previousKeyHeld;
 
@@ -57,6 +62,7 @@ public final class AutoToolCoordinator<T> {
             clear(); previousKeyHeld = snapshot.keyHeld;
             return command(CommandType.RESET, -1, -1);
         }
+        updateStabilizer(snapshot.targetStableTicks, snapshot.emptyTargetGraceTicks);
         boolean newPress = snapshot.keyHeld && !previousKeyHeld;
         previousKeyHeld = snapshot.keyHeld;
         if (newPress && state.status == AutoToolControllerState.Status.PAUSED) clear();
@@ -64,18 +70,18 @@ public final class AutoToolCoordinator<T> {
 
         boolean stop = !snapshot.enabled || !snapshot.keyHeld || !snapshot.breakBlockMode
                 || !snapshot.validInteractionContext || snapshot.manualOverride;
-        if (stop) return requestEnd();
+        if (stop) return requestEnd(snapshot.restoreOriginal, snapshot.manualOverride);
         if (snapshot.phase == Phase.LOCKED) {
             stabilizer.freeze(true);
             return Command.NONE;
         }
         stabilizer.freeze(false);
-        if (snapshot.phase == Phase.IDLE && state.status != AutoToolControllerState.Status.IDLE) return requestEnd();
+        if (snapshot.phase == Phase.IDLE && state.status != AutoToolControllerState.Status.IDLE) return requestEnd(snapshot.restoreOriginal, false);
 
         T desired = stabilizer.update(snapshot.target);
         state.latestDesiredTarget = desired;
         if (isPending()) return Command.NONE;
-        if (desired == null) return requestEnd();
+        if (desired == null) return requestEnd(snapshot.restoreOriginal, false);
         if (state.status == AutoToolControllerState.Status.ACTIVE && !desired.equals(state.activeTarget)) {
             state.endAfterRestore = false;
             return beginRestore();
@@ -90,14 +96,25 @@ public final class AutoToolCoordinator<T> {
             state.status = AutoToolControllerState.Status.ACTIVE;
             state.activeToolSlot = state.pendingToolSlot;
             state.activeTarget = state.latestDesiredTarget;
+            if (state.forgetAfterSelect) {
+                boolean pause = state.pauseAfterEnd;
+                clear();
+                if (pause) state.status = AutoToolControllerState.Status.PAUSED;
+                return command(CommandType.FORGET, -1, -1);
+            }
             return Command.NONE;
         }
         if (state.status != AutoToolControllerState.Status.PENDING_RESTORE) return Command.NONE;
         boolean end = state.endAfterRestore;
+        boolean pause = state.pauseAfterEnd;
         int original = state.originalHotbarSlot;
         T desired = state.latestDesiredTarget;
         clearActive();
-        if (end || desired == null || latest == null) { stabilizer.reset(); return Command.NONE; }
+        if (end || desired == null || latest == null) {
+            stabilizer.reset();
+            if (pause) state.status = AutoToolControllerState.Status.PAUSED;
+            return Command.NONE;
+        }
         state.originalHotbarSlot = original;
         return beginSelect(latest, desired);
     }
@@ -125,11 +142,32 @@ public final class AutoToolCoordinator<T> {
                 : command(CommandType.SELECT_INVENTORY, candidate.sourceContainerSlot(), snapshot.inventoryAnchorHotbarSlot);
     }
 
-    private Command requestEnd() {
+    private Command requestEnd(boolean restoreOriginal, boolean pauseAfterEnd) {
         stabilizer.reset(); state.latestDesiredTarget = null; state.endAfterRestore = true;
-        if (isPending()) return Command.NONE;
-        if (state.status == AutoToolControllerState.Status.ACTIVE) return beginRestore();
+        state.pauseAfterEnd |= pauseAfterEnd;
+        if (isPending()) {
+            if (!restoreOriginal && state.status == AutoToolControllerState.Status.PENDING_SELECT) {
+                state.forgetAfterSelect = true;
+            }
+            return Command.NONE;
+        }
+        if (state.status == AutoToolControllerState.Status.ACTIVE) {
+            if (restoreOriginal) return beginRestore();
+            boolean pause = state.pauseAfterEnd;
+            clear();
+            if (pause) state.status = AutoToolControllerState.Status.PAUSED;
+            return command(CommandType.FORGET, -1, -1);
+        }
         clear(); return Command.NONE;
+    }
+
+    private void updateStabilizer(int stableTicks, int graceTicks) {
+        if (stableTicks < 1 || graceTicks < 0) return;
+        if (stableTicks == targetStableTicks && graceTicks == emptyTargetGraceTicks) return;
+        targetStableTicks = stableTicks;
+        emptyTargetGraceTicks = graceTicks;
+        stabilizer = new TargetStabilizer<T>(stableTicks, graceTicks);
+        state.latestDesiredTarget = null;
     }
 
     private Command beginRestore() {
@@ -147,6 +185,8 @@ public final class AutoToolCoordinator<T> {
     private void clearActive() {
         state.originalHotbarSlot = -1; state.activeToolSlot = -1; state.pendingToolSlot = -1;
         state.activeTarget = null; state.inventorySwapActive = false; state.endAfterRestore = false;
+        state.forgetAfterSelect = false;
+        state.pauseAfterEnd = false;
         state.status = AutoToolControllerState.Status.IDLE;
     }
     private static <T> Candidate<T> find(List<? extends Candidate<T>> candidates, int slot) {

@@ -30,6 +30,11 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
         Object inventoryIdentity(int slot);
         int minimumDurabilityReserve();
         int inventoryAnchorHotbarSlot();
+        int targetStableTicks();
+        int emptyTargetGraceTicks();
+        boolean restoreOriginal();
+        Object playerIdentity();
+        boolean playerDead();
     }
 
     /** 可替换的库存事务端口，供 headless 测试隔离静态 observer。 */
@@ -38,6 +43,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
         boolean requestRestore(Object sourceAtAnchor, Object anchorAtSource, Object desired);
         void tickTimeout();
         void resetLifecycle();
+        void forgetAfterConfirmation();
     }
 
     private final Facade facade;
@@ -49,6 +55,9 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
     private int originalHotbarSlot = -1;
     private int inventorySourceSlot = -1;
     private int inventoryAnchorSlot = -1;
+    private Object expectedToolIdentity;
+    private Object playerIdentity;
+    private boolean playerWasDead;
 
     /** 使用 Minecraft 运行时事实和原版 windowClick 事务桥构造控制器。 */
     public AutoToolClientController() {
@@ -65,6 +74,11 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     /** 推进一个客户端 tick。 */
     public void tick() {
+        Object currentPlayer = facade.playerIdentity();
+        boolean dead = facade.playerDead();
+        if ((playerIdentity != null && currentPlayer != playerIdentity) || (dead && !playerWasDead)) resetLifecycle();
+        playerIdentity = currentPlayer;
+        playerWasDead = dead;
         bridge.tickTimeout();
         execute(coordinator.tick(snapshot()));
     }
@@ -136,8 +150,14 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
                 : Collections.<AutoToolCoordinator.Candidate<Object>>emptyList();
         result.currentHotbarSlot = facade.currentHotbarSlot();
         result.manualOverride = expectedHotbarSlot >= 0 && result.currentHotbarSlot != expectedHotbarSlot;
+        if (!result.manualOverride && expectedHotbarSlot >= 0 && expectedToolIdentity != null) {
+            result.manualOverride = facade.inventoryIdentity(expectedHotbarSlot) != expectedToolIdentity;
+        }
         result.minimumDurabilityReserve = facade.minimumDurabilityReserve();
         result.inventoryAnchorHotbarSlot = facade.inventoryAnchorHotbarSlot();
+        result.targetStableTicks = facade.targetStableTicks();
+        result.emptyTargetGraceTicks = facade.emptyTargetGraceTicks();
+        result.restoreOriginal = facade.restoreOriginal();
         return result;
     }
 
@@ -146,6 +166,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
             case SELECT_HOTBAR:
                 originalHotbarSlot = facade.currentHotbarSlot();
                 expectedHotbarSlot = command.slot;
+                expectedToolIdentity = identityForCandidate(command.slot);
                 facade.selectHotbarSlot(command.slot);
                 execute(coordinator.confirm(snapshot()));
                 break;
@@ -171,6 +192,10 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
                         facade.inventoryIdentity(toInventorySlot(inventorySourceSlot)),
                         coordinator.state().latestDesiredTarget)) execute(coordinator.rejectOrTimeout());
                 break;
+            case FORGET:
+                bridge.forgetAfterConfirmation();
+                clearExpectedSlots();
+                break;
             case PAUSE:
             case RESET:
                 clearExpectedSlots();
@@ -188,10 +213,18 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     private void clearExpectedSlots() {
         expectedHotbarSlot = originalHotbarSlot = -1;
+        expectedToolIdentity = null;
         inventorySourceSlot = inventoryAnchorSlot = -1;
     }
 
     private static int toInventorySlot(int containerSlot) { return containerSlot < 36 ? containerSlot : containerSlot - 36; }
+
+    private Object identityForCandidate(int slot) {
+        for (AutoToolCoordinator.Candidate<Object> candidate : facade.candidates()) {
+            if (candidate.slot() == slot) return candidate.identity();
+        }
+        return null;
+    }
 
     private static final class VanillaBridgePort implements BridgePort {
         private VanillaInventoryTransactionBridge<Object> delegate;
@@ -203,6 +236,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
         }
         public void tickTimeout() { delegate.tickTimeout(); }
         public void resetLifecycle() { delegate.resetLifecycle(); }
+        public void forgetAfterConfirmation() { delegate.forgetAfterConfirmation(); }
     }
 
     /** Minecraft 静态状态的生产读取适配。 */
@@ -251,6 +285,14 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
         }
         public int minimumDurabilityReserve() { return Config.autoToolSelection.minimumRemainingDurability; }
         public int inventoryAnchorHotbarSlot() { return currentHotbarSlot(); }
+        public int targetStableTicks() { return Config.autoToolSelection.targetStableTicks; }
+        public int emptyTargetGraceTicks() { return Config.autoToolSelection.emptyTargetGraceTicks; }
+        public boolean restoreOriginal() { return Config.autoToolSelection.restoreOriginal; }
+        public Object playerIdentity() { return Minecraft.getMinecraft().thePlayer; }
+        public boolean playerDead() {
+            EntityPlayer player = Minecraft.getMinecraft().thePlayer;
+            return player != null && player.isDead;
+        }
     }
 
     private static final class RuntimeCandidate implements AutoToolCoordinator.Candidate<Object> {

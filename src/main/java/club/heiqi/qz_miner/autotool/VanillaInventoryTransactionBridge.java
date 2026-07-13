@@ -16,6 +16,7 @@ public final class VanillaInventoryTransactionBridge<T> implements VanillaInvent
     private int expectedSlot = -1;
     private int expectedAnchor = -1;
     private int waitingTicks;
+    private boolean forgetAfterConfirmation;
 
     public VanillaInventoryTransactionBridge(ClickTransport transport, Listener listener) {
         this.transport = transport;
@@ -56,6 +57,7 @@ public final class VanillaInventoryTransactionBridge<T> implements VanillaInvent
         transaction.reset();
         expectedSlot = expectedAnchor = -1;
         waitingTicks = 0;
+        forgetAfterConfirmation = false;
         VanillaInventoryTransactionObserver.clear(this);
         notifyStatus(Status.IDLE);
     }
@@ -71,6 +73,13 @@ public final class VanillaInventoryTransactionBridge<T> implements VanillaInvent
         ToolSwapTransaction.Outcome outcome = accepted
                 ? transaction.onConfirmAccepted(actionNumber) : transaction.onConfirmRejected(actionNumber);
         if (outcome.result == ToolSwapTransaction.Result.ACCEPTED) {
+            if (forgetAfterConfirmation && transaction.state() == ToolSwapTransaction.State.ACTIVE) {
+                transaction.reset();
+                forgetAfterConfirmation = false;
+                clearObservation();
+                notifyStatus(Status.IDLE);
+                return;
+            }
             notifyStatus(transaction.state() == ToolSwapTransaction.State.ACTIVE ? Status.ACTIVE : Status.IDLE);
         } else if (outcome.result == ToolSwapTransaction.Result.REJECTED) {
             waitingTicks = 0;
@@ -81,12 +90,25 @@ public final class VanillaInventoryTransactionBridge<T> implements VanillaInvent
         if (windowId != 0) return;
         ToolSwapTransaction.Outcome outcome = transaction.onWindowItems();
         if (outcome.result == ToolSwapTransaction.Result.RESYNCED) {
+            forgetAfterConfirmation = false;
             notifyStatus(transaction.state() == ToolSwapTransaction.State.IDLE ? Status.IDLE : Status.PAUSED);
         }
     }
 
     public ToolSwapTransaction.State state() { return transaction.state(); }
     public T latestDesired() { return transaction.latestDesired(); }
+
+    /** 保留交换后布局并释放事务；未确认选择会在确认或 S30 收口后释放。 */
+    public void forgetAfterConfirmation() {
+        if (transaction.state() == ToolSwapTransaction.State.ACTIVE) {
+            transaction.reset();
+            clearObservation();
+            notifyStatus(Status.IDLE);
+        } else if (transaction.state() == ToolSwapTransaction.State.WAIT_SELECT_CONFIRM
+                || transaction.state() == ToolSwapTransaction.State.WAIT_RESYNC) {
+            forgetAfterConfirmation = true;
+        }
+    }
 
     private boolean send(int slot, int anchor) {
         expectedSlot = slot;
