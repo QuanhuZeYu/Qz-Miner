@@ -55,9 +55,9 @@ $externalAllowlist = @(
 $externalSet = @{}
 foreach ($name in $externalAllowlist) { $externalSet[$name] = $true }
 
-# 控制协议中的固定标识符采用 CamelCase，但不是 Java 类。这里只按精确名称豁免断言 B。
-$protocolIdentifierSet = @{}
-foreach ($name in @('PreWrite', 'PostWrite', 'RunId')) { $protocolIdentifierSet[$name] = $true }
+# 控制协议中的固定标识符采用 CamelCase，但不是 Java 类。使用 Ordinal 集合确保仅精确拼写豁免断言 B。
+$protocolIdentifierSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($name in @('PreWrite', 'PostWrite', 'RunId')) { [void]$protocolIdentifierSet.Add($name) }
 
 # ----- 收集待扫描的 .md 文件 -----
 # 范围：docs/**/*.md + 根目录 *.md
@@ -103,7 +103,7 @@ function Test-NotAClass([string]$name) {
 
 # 判断候选是否引用了不存在的项目 Java 类；协议标识符不是类引用。
 function Test-MissingProjectClass([string]$name) {
-  if ($protocolIdentifierSet.ContainsKey($name)) { return $false }
+  if ($protocolIdentifierSet.Contains($name)) { return $false }
   return -not $javaBasenames.ContainsKey($name)
 }
 
@@ -111,8 +111,11 @@ function Invoke-SelfTest {
   foreach ($name in @('PreWrite', 'PostWrite', 'RunId')) {
     if (Test-MissingProjectClass $name) { throw "协议标识符被误报：$name" }
   }
-  if (-not (Test-MissingProjectClass 'ImaginaryJavaClass')) {
-    throw '不存在的 Java 类未被报告：ImaginaryJavaClass'
+  foreach ($name in @('PreWRite', 'POSTWrite', 'RUNId', 'ImaginaryJavaClass')) {
+    if (Test-NotAClass $name) { throw "CamelCase 标识符未进入候选：$name" }
+    if (-not (Test-MissingProjectClass $name)) {
+      throw "非精确协议标识符或不存在的 Java 类未被报告：$name"
+    }
   }
   if (-not $javaBasenames.ContainsKey('ChainStateMachine')) {
     throw '自测所需真实 Java 类不存在：ChainStateMachine'
