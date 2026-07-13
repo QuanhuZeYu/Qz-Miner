@@ -1,3 +1,4 @@
+#requires -Version 7.0
 # qz-gradle-opencode/v1：OpenCode 在 Windows 上有界启动与观察 Gradle 的唯一入口。
 [CmdletBinding(DefaultParameterSetName = 'Protocol')]
 param(
@@ -269,7 +270,8 @@ function Start-Run {
       startedAtUtc = $now.ToString('o'); deadlineUtc = $now.AddSeconds($ExecutionTimeoutSeconds).ToString('o')
       taskSummary = Get-TaskSummary $GradleArgs }
     Atomic-Json $paths.Metadata $metadata
-    $encoded = @($GradleArgs | ForEach-Object { '"{0}"' -f $_ })
+    # CMD 双引号参数内部的双引号必须成对转义，避免含空格参数被拆词或截断。
+    $encoded = @($GradleArgs | ForEach-Object { '"{0}"' -f $_.Replace('"', '""') })
     $command = (@('call', ('"{0}"' -f $script:WrapperPath)) + $encoded +
       @('--console=plain', ('1>"{0}"' -f $paths.Stdout), ('2>"{0}"' -f $paths.Stderr))) -join ' '
     $json = ('{"protocol":"' + $script:Protocol + '","runId":"' + $id + '","invocationId":"' + $invocation + '","exitCode":%1}').Replace('"', '^"')
@@ -301,7 +303,9 @@ function Wait-Run([string]$Id, [int]$Seconds, [int]$Interval) {
 
 function Invoke-SelfTest {
   $old = @($script:RuntimeRoot, $script:WrapperPath, $script:EnvironmentCheck, $script:AfterStartFault, $script:ExecutionTimeoutSeconds, $script:Root)
-  $root = Join-Path ([IO.Path]::GetTempPath()) ('qz-protocol-' + [Guid]::NewGuid().ToString('N'))
+  $tempParent = [IO.Path]::GetTempPath()
+  if (-not (Test-Path -LiteralPath $tempParent -PathType Container)) { throw '临时目录父路径不可用' }
+  $root = Join-Path $tempParent ('qz protocol ' + [Guid]::NewGuid().ToString('N'))
   [IO.Directory]::CreateDirectory($root) | Out-Null
   $script:RuntimeRoot = Join-Path $root 'runtime'; $script:Root = $root; $script:WrapperPath = Join-Path $root 'fake.cmd'
   $script:EnvironmentCheck = $false; $script:ExecutionTimeoutSeconds = 30; Set-RuntimePaths
@@ -413,12 +417,15 @@ function Invoke-SelfTest {
 
     $helper = Join-Path $root 'guard-helper.ps1'; $marker = Join-Path $root 'guard-held'
     [IO.File]::WriteAllText($helper, 'param($Guard,$Marker);$s=[IO.File]::Open($Guard,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);[IO.File]::WriteAllText($Marker,"held");Start-Sleep -Milliseconds 700;$s.Dispose()')
-    $child = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $helper, $script:GuardPath, $marker) -PassThru -WindowStyle Hidden
+    $currentHost = (Get-Process -Id $PID).Path
+    if (-not $currentHost -or -not (Test-Path -LiteralPath $currentHost -PathType Leaf)) { throw '无法解析当前 PowerShell 7 宿主' }
+    $childArguments = @('-NoProfile', '-File', ('"{0}"' -f $helper), ('"{0}"' -f $script:GuardPath), ('"{0}"' -f $marker))
+    $child = Start-Process -FilePath $currentHost -ArgumentList $childArguments -PassThru -WindowStyle Hidden
     for ($i = 0; $i -lt 100 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 10 }
     $watch = [Diagnostics.Stopwatch]::StartNew(); $guardValue = Guard { 'guard-result' }; $watch.Stop()
     if (-not $child.WaitForExit(30000)) { throw 'guard helper 30 秒内未退出' }
     if ($guardValue -cne 'guard-result' -or $watch.ElapsedMilliseconds -lt 400) { throw '跨进程 guard 未排斥或未返回 body 结果' }
-    $covered += 'cross-process-guard-exclusion-and-result'
+    $covered += 'cross-process-guard-exclusion-space-safe-arguments-and-result'
     @{ status = 'SELF_TEST_SUCCEEDED'; runId = $null; reasonCode = 'ALL_FIXTURES_PASSED'; covered = $covered; protocolExitCode = 0 }
   } finally {
     $script:AfterStartFault = $null

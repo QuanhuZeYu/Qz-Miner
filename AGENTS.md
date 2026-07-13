@@ -60,7 +60,8 @@
 - 文件规模：单个代码文件接近或超过 1000 行时必须评估职责拆分；优先按真实职责、变更频率和复用边界拆，不按行数机械拆
 
 ### 1.4 构建与工具链
-- 编译/测试/运行命令见 `docs/控制律层/稳定命令.md`（PowerShell 不支持 `&&`，链式用 `;`）
+- agent 执行 PowerShell 一律使用 `pwsh`（PowerShell 7，最低 7.0），不得调用 `powershell.exe` / Windows PowerShell 5.1；链式命令用 `;`
+- 编译/测试/运行命令见 `docs/控制律层/稳定命令.md`
 - 不要并行执行多个 Gradle 构建命令
 
 ### 1.5 环境所有权
@@ -72,7 +73,8 @@
 - 协议超时/孤儿返回 `INCOMPLETE` 并保留锁。`runClient*`/`runServer*` 仍交用户；`verify-gtnh-baselines.ps1` 暂不授权。
 
 ### 1.6 Subagent 编排
-- 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`（唯一权威，含闭环本能/盘查纪律/分工/并行串行/返回封存/独立审核/子 agent 失败最多 5 次逻辑尝试/5 分钟红线）
+- 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`（唯一权威，含闭环本能/盘查纪律/分工/并行串行/返回封存/独立审核/fixer 作用最多 5 次/5 分钟红线）
+- 非平凡写盘必须先冻结 `.opencode/control-envelope.json`（`qz-control-envelope/v1`），经 `PreWrite/PostWrite/Review` 守写集、误差向量、审查死区与抗积分饱和；权威合同见 `docs/控制律层/编排模式/CONTROL-ENVELOPE.md`
 - 任何 Task 调用一旦返回主 agent，不论状态或是否为空，旧 `task_id` 立即封存且仅供审计，**DO NOT PASS**。纠偏、重试或继续工作必须压缩已验证事实后新开范围更窄的 task，不得传旧 `task_id`；状态只表达结果语义，不授予恢复权，成本约束优先于子会话上下文连续性。
 - 决策点用中文 question 向用户拍板，subagent 不替用户做架构决定
 

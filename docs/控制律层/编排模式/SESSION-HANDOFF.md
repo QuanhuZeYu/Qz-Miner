@@ -21,6 +21,7 @@
 |---|---|---|---|
 | 项目状态 | `docs/反馈层/交接.md` | 跨多任务、长期 | 项目当前在哪（分支/HEAD/未收敛项/待拍板） |
 | 会话工作记忆 | `.opencode/session-handoff.md` | 单任务内、易失 | 本会话干到哪（五层转储，任务完成即清理） |
+| 冻结控制包摘要 | `.opencode/session-handoff.md` 对应字段 | 单任务内、易失 | 只存 ownerRepo、合同身份、尝试次数与剩余动作摘要；控制包文件存在不代表 active 或获授权 |
 
 会话 handoff **不替代**交接.md：任务完成后，handoff 中"有持续价值的事实"才回流到项目层（决策/错误预防/交接.md 的未收敛项），其余丢弃。
 
@@ -40,7 +41,7 @@
 
 | 层 | 转储什么 |
 |---|---|
-| 设定值 | 任务合同版本；目标 / 非目标；验收、验证方法及必需性；边界与保护对象；自主权限；升级条件；对齐的宪章条目（I?）；可逆假设与未验证项；未决用户决定 |
+| 设定值 | 任务合同版本；目标 / 非目标；验收、验证方法及必需性；边界与保护对象；自主权限；升级条件；对齐的宪章条目（I?）；可逆假设与未验证项；未决用户决定；控制包 `ownerRepo/contractId/version/lineageId/mode/attempt` 摘要 |
 | 传感 | 已探明的代码事实清单（`file:line`）、外部调研结论与来源 |
 | 控制律 | 已执行改动（哪些文件改了什么）、闭环进度（规划/实施/复审到哪） |
 | 纠偏 | 踩过的坑、被否决的方案及原因、返工点 |
@@ -52,7 +53,7 @@
 - 已完成且无后续价值的中间过程
 - 无教训价值的失败尝试（有教训的归"纠偏"层）
 
-派发过的子 agent task 必须登记状态。任何已返回的旧 `task_id` 均只能作审计标识，**AUDIT ONLY / DO NOT PASS**；handoff 只传递逻辑任务目标、已验证事实、剩余动作和逻辑尝试次数。
+派发过的子 agent task 必须登记状态。任何已返回的旧 `task_id` 均只能作审计标识，**AUDIT ONLY / DO NOT PASS**；handoff 只传递逻辑任务目标、已验证事实、剩余动作和 fixer 执行器作用次数。
 
 ### 4.1 任务审计与后继
 
@@ -60,7 +61,7 @@
 
 - `state` 必须来自 `NEW`、`RUNNING`、`COMPLETED`、`INTERRUPTED`、`TIMEOUT`、`INCOMPLETE`、`FAILED`、`UNKNOWN`；缺状态按 `UNKNOWN` 处理。
 - `prior_task_id` 若存在只能填写 `<旧 ID>: AUDIT ONLY / DO NOT PASS`；任何 Task 调用返回后，不论状态、是否同一主会话，均不得将旧 ID 传给任何 agent。
-- `successor` 只能填写 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。创建后继 task 前必须压缩已验证事实并缩窄到剩余动作；派发计入同一逻辑谱系的下一次尝试，最多 5 次且跨会话不清零。
+- `successor` 只能填写 `NEW TASK WITHOUT OLD TASK_ID`、等待用户或结束。创建后继 task 前必须压缩已验证事实并缩窄到剩余动作；只有同合同 fixer 写盘作用计入最多 5 次预算且跨会话不清零，review/explore 不计。
 - `state` 只保留结果语义和审计价值，不授予恢复权。审查不通过时返工也必须登记为全新 fixer task。
 
 ## 5. 开新会话标准动作（冷启动核对）
@@ -72,6 +73,10 @@
 3. 核对任务合同与权威事实是否漂移，并确认是否出现用户保留决策
 4. 若无漂移且无用户保留决策，向用户复述"我接续到 X，下一步做 Y"后自动推进，不强制等待确认
 5. 若发现漂移、错误或用户保留决策，先修正 handoff，并按任务合同集中询问后再续，不将错就错
+
+跨仓续接必须核对控制包 `ownerRepo` 与当前规范化仓根唯一匹配。用户批准的非宪章一次性 override 必须在 handoff 写明范围和失效条件，不得扩张为长期规则；它不能覆盖 I1-I10、环境所有权或不可逆操作边界。
+
+冷启动还要做框架缺口扫尾：只记录会导致当前合同无法闭环的具体缺口，交 oracle 裁定最小进化。没有可举证缺口时禁止为了“完善框架”强行进化。
 
 冷启动不得从 handoff 取旧 `task_id` 调度；所有后继一律 `NEW TASK WITHOUT OLD TASK_ID`。
 
@@ -103,7 +108,7 @@
 - [ ] **无持续价值的中间过程已丢弃**：工具原始输出、已完成无后续的尝试、无教训的失败——这些本就不该进 handoff，任务完成时确认它们没残留
 - [ ] **回流项已逐条反向举证**：每条打算回流到项目层（决策/错误预防/交接.md 未收敛项）的事实，必须答上"持续价值三问"（见下），答不上就丢
 - [ ] **session-handoff.md 已处理**：任务全完成→删除无持续价值的记录并回到模板初始态；尚有后续会话→只保留逻辑任务目标、已验证事实、剩余动作、尝试次数与旧 ID 审计记录，旧 ID 标记 `AUDIT ONLY / DO NOT PASS`，后继标记 `NEW TASK WITHOUT OLD TASK_ID`
-- [ ] **门禁已跑**：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-discipline.ps1` 通过（handoff 不入 git、无流水账命名）
+- [ ] **门禁已跑**：`pwsh -NoProfile -File scripts/check-doc-discipline.ps1` 通过（handoff/control-envelope 不入 git、无流水账命名）
 
 ### 持续价值三问（回流反向举证）
 
