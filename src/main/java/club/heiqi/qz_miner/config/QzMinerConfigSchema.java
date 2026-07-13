@@ -90,14 +90,14 @@ public final class QzMinerConfigSchema {
                 .section("client")
                     .title("Client")
                     .structuredList("autoToolSelection", Values.objectWithIdentity("id",
-                            Values.member("id", Values.choice("default")),
-                            Values.member("enabled", Values.bool()),
-                            Values.member("searchScope", Values.choice("inventory")),
-                            Values.member("restoreOriginal", Values.bool()),
-                            Values.member("enchantmentPolicy", Values.choice("preserve_current")),
-                            Values.member("minimumRemainingDurability", Values.number()),
-                            Values.member("targetStableTicks", Values.number()),
-                            Values.member("emptyTargetGraceTicks", Values.number())))
+                            Values.member("id", Values.choice("default"), "配置标识", "固定配置对象的稳定标识"),
+                            Values.member("enabled", Values.bool(), "启用", "是否启用自动工具预选"),
+                            Values.member("searchScope", Values.choice("inventory"), "搜索范围", "选择候选工具的搜索位置"),
+                            Values.member("restoreOriginal", Values.bool(), "恢复原工具", "目标结束后是否切回原工具"),
+                            Values.member("enchantmentPolicy", Values.choice("preserve_current"), "附魔策略", "选择工具时如何处理当前附魔偏好"),
+                            Values.member("minimumRemainingDurability", Values.number(), "最低剩余耐久", "候选工具必须保留的最低耐久值"),
+                            Values.member("targetStableTicks", Values.number(), "目标稳定 Tick", "目标持续稳定多少 Tick 后才切换工具"),
+                            Values.member("emptyTargetGraceTicks", Values.number(), "空目标宽限 Tick", "目标暂时为空时等待多少 Tick 再恢复工具")))
                         .defaultValue(QzMinerConfigDefaults.autoToolSelection())
                         .label("自动工具预选")
                         .helper("自动工具预选策略（固定单配置对象）")
