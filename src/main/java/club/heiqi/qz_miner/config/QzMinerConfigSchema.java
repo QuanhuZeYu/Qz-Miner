@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.config;
 
 import club.heiqi.config.schema.ConfigSchema;
+import club.heiqi.config.schema.SearchPickerSpec;
 import club.heiqi.config.schema.Values;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 
@@ -155,7 +156,8 @@ public final class QzMinerConfigSchema {
                             Values.member("modes", Values.list(Values.choice(ObjectGroupMode.ids())),
                                     java.util.Collections.<String>emptyList()),
                             Values.member("members", Values.widget(Values.list(Values.string()),
-                                    Values.searchPicker("qz_miner:block-selector", 64)))))
+                                    Values.searchPicker("qz_miner:block-selector", 64,
+                                            SearchPickerSpec.BindingMode.LIST_MEMBERS)))))
                         .defaultValue(QzMinerConfigDefaults.objectGroups())
                         .label("已配置方块规则")
                         .helper("每组用组标识区分，选择适用模式，并配置组内包含的方块规则")

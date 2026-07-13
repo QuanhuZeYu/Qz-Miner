@@ -63,6 +63,8 @@ public class QzMinerConfigSchemaTest {
         Assert.assertTrue(members.widget() instanceof SearchPickerSpec);
         Assert.assertEquals("qz_miner:block-selector", ((SearchPickerSpec) members.widget()).editorId());
         Assert.assertEquals(64, ((SearchPickerSpec) members.widget()).maxItems());
+        Assert.assertEquals(SearchPickerSpec.BindingMode.LIST_MEMBERS,
+                ((SearchPickerSpec) members.widget()).bindingMode());
 
         FieldSpec autoTool = schema.field("client.autoToolSelection");
         Assert.assertEquals(FieldType.STRUCTURED_LIST, autoTool.type());

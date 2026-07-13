@@ -11,6 +11,7 @@ import org.junit.Test;
 
 import net.minecraft.init.Blocks;
 
+import club.heiqi.config.ui.editor.ListMemberCodec;
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.uilib.ui.scene.image.SceneImageSource;
@@ -82,11 +83,31 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("取消", text.cancel());
         Assert.assertEquals("添加到组", text.confirm());
         Assert.assertEquals("没有找到方块", text.empty());
+        Assert.assertEquals("当前方块规则", text.currentMembersTitle());
         Assert.assertEquals("3 个结果", text.resultSummary(3));
         Assert.assertEquals("结果已截断，请继续缩小搜索范围", text.truncated());
         Assert.assertTrue(text.decodeError().contains("原规则未变"));
         Assert.assertTrue(text.searchError().contains("原规则未变"));
         Assert.assertTrue(text.encodeError().contains("原规则未变"));
+    }
+
+    @Test
+    public void memberFormatterUsesLocalizedCanonicalUnknownCanonicalAndGenericMalformedCopy() {
+        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
+                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
+        Assert.assertTrue(provider.codec() instanceof ListMemberCodec);
+        SearchPickerData.Selection knownSelection = new ObjectGroupPickerCodec().decodeMember("minecraft:stone@03");
+        SearchPickerData.Candidate knownCandidate = provider.searchFunction().search("stone", 64).candidates().get(0);
+        Assert.assertEquals("Stone · minecraft:stone@3", provider.presentation().currentMember(
+                new SearchPickerData.CurrentMember(1L, knownSelection, knownCandidate, true)));
+
+        SearchPickerData.Selection unknownSelection = new ObjectGroupPickerCodec().decodeMember("missing:block@[8,4]");
+        Assert.assertEquals("missing:block@[4,8]", provider.presentation().currentMember(
+                new SearchPickerData.CurrentMember(2L, unknownSelection, null, false)));
+        Assert.assertEquals("无法读取当前方块规则", provider.presentation().currentMember(
+                new SearchPickerData.CurrentMember(3L, null, null, false)));
+        Assert.assertFalse(provider.presentation().currentMember(
+                new SearchPickerData.CurrentMember(3L, null, null, false)).contains("not a selector"));
     }
 
     @Test

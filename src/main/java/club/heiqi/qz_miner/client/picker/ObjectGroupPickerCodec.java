@@ -4,13 +4,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import club.heiqi.config.ui.editor.Codec;
+import club.heiqi.config.ui.editor.ListMemberCodec;
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupSelector;
 
 /** 完整 members 列表与方块 Picker 选择之间的无损转换。 */
-public final class ObjectGroupPickerCodec implements Codec {
+public final class ObjectGroupPickerCodec implements ListMemberCodec {
     /** 从当前 members 纯函数解码首个合法 selector。 */
     public SearchPickerData.Selection decode(Object value) {
         if (!(value instanceof List)) return null;
@@ -47,6 +47,23 @@ public final class ObjectGroupPickerCodec implements Codec {
         String canonical = selected.canonical();
         if (firstIndex < 0) result.add(canonical); else result.add(firstIndex, canonical);
         return Collections.unmodifiableList(result);
+    }
+
+    /** 将单个合法 selector 成员解码为选择；非字符串或格式错误返回 null。 */
+    @Override
+    public SearchPickerData.Selection decodeMember(Object rawMember) {
+        if (!(rawMember instanceof String)) return null;
+        try {
+            return selection(ObjectGroupParser.parseSelector((String) rawMember));
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
+    }
+
+    /** 将选择编码为单个 canonical selector，不读取或归一化其它成员。 */
+    @Override
+    public Object encodeMember(Object currentRawMember, SearchPickerData.Selection selection) {
+        return selector(selection).canonical();
     }
 
     private static SearchPickerData.Selection selection(ObjectGroupSelector selector) {

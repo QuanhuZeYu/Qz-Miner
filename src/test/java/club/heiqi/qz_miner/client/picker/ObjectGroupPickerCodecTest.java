@@ -6,10 +6,33 @@ import java.util.Collections;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.config.ui.editor.ListMemberCodec;
 import club.heiqi.config.ui.editor.SearchPickerData;
 
 /** Picker Codec 的无状态完整列表更新测试。 */
 public class ObjectGroupPickerCodecTest {
+    @Test
+    public void implementsMemberCodecAndDecodesOnlyValidSingleMembers() {
+        ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
+        Assert.assertTrue(codec instanceof ListMemberCodec);
+        Assert.assertEquals(SearchPickerData.SelectionMode.ALL, codec.decodeMember("minecraft:log@*").mode());
+        Assert.assertEquals(Collections.singletonList("minecraft:log@4"),
+                codec.decodeMember("minecraft:log@04").variantKeys());
+        Assert.assertEquals(Arrays.asList("minecraft:log@4", "minecraft:log@8"),
+                codec.decodeMember("minecraft:log@[8,4]").variantKeys());
+        Assert.assertNull(codec.decodeMember("not a selector"));
+        Assert.assertNull(codec.decodeMember(Integer.valueOf(4)));
+    }
+
+    @Test
+    public void encodesOneCanonicalMemberWithoutDependingOnCurrentRawMember() {
+        ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
+        String registry = "GalaxySpace:barnardaCleaves";
+        Assert.assertEquals(registry + "@*", codec.encodeMember(null, all(registry)));
+        Assert.assertEquals(registry + "@4", codec.encodeMember("other:block@0", single(registry, 4)));
+        Assert.assertEquals(registry + "@[4,8]", codec.encodeMember(null, multiple(registry, 8, 4)));
+    }
+
     @Test
     public void decodesAllSingleAndMultipleWithoutRejectingRawMembers() {
         ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();

@@ -23,7 +23,8 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     public BlockPickerProvider(List<BlockCandidate> source) {
         List<BlockCandidate> snapshot = Collections.unmodifiableList(new ArrayList<BlockCandidate>(source));
         BlockSearchIndex index = new BlockSearchIndex(snapshot);
-        codec = new ObjectGroupPickerCodec();
+        ObjectGroupPickerCodec pickerCodec = new ObjectGroupPickerCodec();
+        codec = pickerCodec;
         visualAdapter = new BlockPickerVisualAdapter(snapshot);
         searchFunction = (query, limit) -> convert(index.search(query, Integer.MAX_VALUE));
         currentValuePresenter = new BlockSelectorCurrentValuePresenter(snapshot, visualAdapter);
@@ -36,6 +37,8 @@ public final class BlockPickerProvider implements ValueEditorProvider {
                 .cancel("取消")
                 .confirm("添加到组")
                 .empty("没有找到方块")
+                .currentMembersTitle("当前方块规则")
+                .currentMemberFormatter(member -> formatCurrentMember(member, pickerCodec))
                 .resultSummaryFormatter(count -> count + " 个结果")
                 .truncated("结果已截断，请继续缩小搜索范围")
                 .decodeError("无法读取当前方块规则，原规则未变")
@@ -50,6 +53,14 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     public SearchFunction searchFunction() { return searchFunction; }
     public SearchPickerPresentation presentation() { return presentation; }
     public CurrentValuePresenter currentValuePresenter() { return currentValuePresenter; }
+
+    /** 将成员选择格式化为本地化名称与 canonical 规则，错误成员不暴露 raw。 */
+    private static String formatCurrentMember(SearchPickerData.CurrentMember member,
+            ObjectGroupPickerCodec pickerCodec) {
+        if (member.selection() == null) return "无法读取当前方块规则";
+        String canonical = (String) pickerCodec.encodeMember(null, member.selection());
+        return member.enumerated() ? member.candidate().label() + " · " + canonical : canonical;
+    }
 
     private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result) {
         List<SearchPickerData.Candidate> candidates = new ArrayList<SearchPickerData.Candidate>();
