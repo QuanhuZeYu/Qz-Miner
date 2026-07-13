@@ -22,6 +22,23 @@ public class ObjectGroupParserTest {
     }
 
     @Test
+    public void mixedCaseRegistryIsPreservedAndMatchedCaseSensitively() {
+        ObjectGroupSelector selector = ObjectGroupParser.parseSelector("GalaxySpace:barnardaCleaves@*");
+
+        Assert.assertEquals("GalaxySpace:barnardaCleaves", selector.registry());
+        Assert.assertEquals("GalaxySpace:barnardaCleaves@*", selector.canonical());
+        Assert.assertTrue(selector.matches("GalaxySpace:barnardaCleaves", 0));
+        Assert.assertFalse(selector.matches("galaxyspace:barnardacleaves", 0));
+    }
+
+    @Test
+    public void registrySyntaxStillRejectsExtraColonUnicodeAndUnlistedPunctuation() {
+        assertInvalidSelector("GalaxySpace:barnarda:Cleaves@*");
+        assertInvalidSelector("GaláxySpace:barnardaCleaves@*");
+        assertInvalidSelector("GalaxySpace:barnardaCleaves!@*");
+    }
+
+    @Test
     public void sameGroupSelectorsNormalizeByRegistryMask() {
         ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(Arrays.asList(
                 groupMap("logs", modes(ObjectGroupMode.CHAIN_BASE),
@@ -107,6 +124,15 @@ public class ObjectGroupParserTest {
             selectors.add(ObjectGroupParser.parseSelector(member));
         }
         return new ObjectGroup(id, Collections.singletonList(ObjectGroupMode.CHAIN_BASE), 1L, selectors);
+    }
+
+    private static void assertInvalidSelector(String selector) {
+        try {
+            ObjectGroupParser.parseSelector(selector);
+            Assert.fail("selector must be rejected: " + selector);
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
     }
 
     private static Map<String, Object> groupMap(String id, String... members) {

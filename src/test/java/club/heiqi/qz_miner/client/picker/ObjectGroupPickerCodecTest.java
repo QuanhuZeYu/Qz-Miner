@@ -38,6 +38,17 @@ public class ObjectGroupPickerCodecTest {
     }
 
     @Test
+    public void encodePreservesMixedCaseRegistryForAllAndSelected() {
+        ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
+        String registry = "GalaxySpace:barnardaCleaves";
+
+        Assert.assertEquals(Collections.singletonList(registry + "@*"),
+                codec.encode(Collections.emptyList(), all(registry)));
+        Assert.assertEquals(Collections.singletonList(registry + "@0"),
+                codec.encode(Collections.emptyList(), single(registry, 0)));
+    }
+
+    @Test
     public void normalizesDuplicateRegistryAtFirstPositionAndPreservesAllOtherRawValues() {
         Object marker = Integer.valueOf(7);
         Assert.assertEquals(Arrays.<Object>asList("bad raw", "minecraft:log@8", "other:block@2", marker),

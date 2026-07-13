@@ -142,7 +142,7 @@ public final class ObjectGroupSelector {
         if (registry == null || registry.isEmpty() || registry.length() > MAX_REGISTRY_LENGTH
                 || registry.indexOf('@') >= 0 || registry.indexOf(' ') >= 0
                 || registry.indexOf('\t') >= 0 || registry.indexOf('\r') >= 0
-                || registry.indexOf('\n') >= 0 || !registry.matches("[a-z0-9_.-]+:[a-z0-9/._-]+")) {
+                || registry.indexOf('\n') >= 0 || !registry.matches("[A-Za-z0-9_.-]+:[A-Za-z0-9/._-]+")) {
             throw new IllegalArgumentException("invalid registry: " + registry);
         }
     }
