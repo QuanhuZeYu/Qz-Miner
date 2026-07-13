@@ -2,7 +2,7 @@
 description: 独立传感器与比较器。按冻结合同审核代码、agent框架或文档，输出结构化误差。只读。
 mode: subagent
 model: openai/gpt-5.6-sol
-variant: low
+variant: medium
 permission:
   edit: deny
   bash: allow

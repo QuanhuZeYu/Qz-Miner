@@ -2,7 +2,7 @@
 description: 执行器（控制律层）。按冻结可执行清单和控制包实施、测试与验证。可写。
 mode: subagent
 model: openai/gpt-5.6-sol
-variant: low
+variant: medium
 permission:
   edit: allow
   bash: allow
