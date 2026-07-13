@@ -13,6 +13,9 @@ import club.heiqi.qz_miner.objectgroup.ObjectGroupSelector;
 
 /** 将对象组 members 当前值投影为方块名称、图标与 canonical 摘要。 */
 final class BlockSelectorCurrentValuePresenter implements CurrentValuePresenter {
+    private static final String INVALID_TITLE = "无法读取当前方块规则";
+    private static final String INVALID_SUMMARY = "请通过高级原始规则修正或删除";
+
     private final Map<String, BlockCandidate> candidates;
     private final VisualAdapter visualAdapter;
 
@@ -32,13 +35,16 @@ final class BlockSelectorCurrentValuePresenter implements CurrentValuePresenter 
         try {
             ObjectGroupSelector selector = ObjectGroupParser.parseSelector(text);
             BlockCandidate candidate = candidates.get(selector.registry());
-            if (candidate == null) return new Presentation(text, text, null);
+            if (candidate == null) {
+                String canonical = selector.canonical();
+                return new Presentation(canonical, canonical, null);
+            }
             SearchPickerData.Candidate visual = new SearchPickerData.Candidate(candidate.registry(),
                     candidate.localizedName(), Collections.<SearchPickerData.Variant>emptyList());
             return new Presentation(candidate.localizedName(), selector.canonical(),
                     visualAdapter.candidateImage(visual));
         } catch (IllegalArgumentException invalid) {
-            return new Presentation(text, text, null);
+            return new Presentation(INVALID_TITLE, INVALID_SUMMARY, null);
         }
     }
 

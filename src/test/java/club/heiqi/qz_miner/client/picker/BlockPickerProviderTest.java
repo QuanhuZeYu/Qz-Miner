@@ -58,17 +58,26 @@ public class BlockPickerProviderTest {
     }
 
     @Test
-    public void currentValuePresenterUsesLocalizedCanonicalAndFallsBackToRaw() {
+    public void currentValuePresenterUsesSafeMalformedCopyAndCanonicalValidValues() {
         BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
                 new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
         club.heiqi.config.ui.editor.CurrentValuePresenter.Presentation valid =
                 provider.currentValuePresenter().present(Collections.singletonList("minecraft:stone@03"));
         Assert.assertEquals("Stone", valid.title());
         Assert.assertEquals("minecraft:stone@3", valid.summary());
+        club.heiqi.config.ui.editor.CurrentValuePresenter.Presentation unknown =
+                provider.currentValuePresenter().present(Collections.singletonList("missing:block@[8,4]"));
+        Assert.assertEquals("missing:block@[4,8]", unknown.title());
+        Assert.assertEquals("missing:block@[4,8]", unknown.summary());
+
+        String malformedRaw = "not a selector secret raw";
         club.heiqi.config.ui.editor.CurrentValuePresenter.Presentation invalid =
-                provider.currentValuePresenter().present(Collections.singletonList("not a selector"));
-        Assert.assertEquals("not a selector", invalid.title());
-        Assert.assertEquals("not a selector", invalid.summary());
+                provider.currentValuePresenter().present(Collections.singletonList(malformedRaw));
+        Assert.assertEquals("无法读取当前方块规则", invalid.title());
+        Assert.assertEquals("请通过高级原始规则修正或删除", invalid.summary());
+        Assert.assertNull(invalid.image());
+        Assert.assertFalse(invalid.title().contains(malformedRaw));
+        Assert.assertFalse(invalid.summary().contains(malformedRaw));
     }
 
     @Test
