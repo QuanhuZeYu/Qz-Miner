@@ -84,6 +84,23 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("添加到组", text.confirm());
         Assert.assertEquals("没有找到方块", text.empty());
         Assert.assertEquals("当前方块规则", text.currentMembersTitle());
+        Assert.assertEquals("当前方块规则 (2)", text.currentMembersTitle(2));
+        Assert.assertEquals("搜索结果", text.searchResultsTitle());
+        Assert.assertEquals("搜索结果 (3)", text.searchResultsTitle(3));
+        Assert.assertEquals("管理规则", text.manage());
+        Assert.assertEquals("尚未配置", text.configuredSummary(0));
+        Assert.assertEquals("已配置4条", text.configuredSummary(4));
+        Assert.assertEquals("无效2 · 重复3", text.memberIssueSummary(2, 3));
+        Assert.assertEquals("已配置5条 · 无效2 · 重复3", text.configuredSummary(5, 2, 3));
+        Assert.assertEquals("高级编辑原始规则", text.advancedRaw());
+        Assert.assertEquals("当前无规则", text.emptyCurrentMembers());
+        Assert.assertEquals("无匹配结果", text.emptySearchResults());
+        Assert.assertEquals("编辑", text.edit());
+        Assert.assertEquals("删除", text.remove());
+        Assert.assertEquals("取消", text.cancelRemove());
+        Assert.assertEquals("确认删除", text.confirmRemove());
+        Assert.assertEquals("错误/无效", text.invalidMemberBadge());
+        Assert.assertEquals("警告/重复", text.duplicateMemberBadge());
         Assert.assertEquals("3 个结果", text.resultSummary(3));
         Assert.assertEquals("结果已截断，请继续缩小搜索范围", text.truncated());
         Assert.assertTrue(text.decodeError().contains("原规则未变"));
@@ -108,6 +125,8 @@ public class BlockPickerProviderTest {
                 new SearchPickerData.CurrentMember(3L, null, null, false)));
         Assert.assertFalse(provider.presentation().currentMember(
                 new SearchPickerData.CurrentMember(3L, null, null, false)).contains("not a selector"));
+        Assert.assertFalse(provider.presentation().invalidMemberBadge().contains("not a selector"));
+        Assert.assertEquals("警告/重复", provider.presentation().duplicateMemberBadge());
     }
 
     @Test

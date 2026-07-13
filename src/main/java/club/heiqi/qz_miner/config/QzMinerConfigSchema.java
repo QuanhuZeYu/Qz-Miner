@@ -159,8 +159,8 @@ public final class QzMinerConfigSchema {
                                     Values.searchPicker("qz_miner:block-selector", 64,
                                             SearchPickerSpec.BindingMode.LIST_MEMBERS)))))
                         .defaultValue(QzMinerConfigDefaults.objectGroups())
-                        .label("已配置方块规则")
-                        .helper("每组用组标识区分，选择适用模式，并配置组内包含的方块规则")
+                        .label("对象组")
+                        .helper("按组标识和适用模式组织连锁挖掘对象")
                         .build()
                 .endSection()
                 .build();
