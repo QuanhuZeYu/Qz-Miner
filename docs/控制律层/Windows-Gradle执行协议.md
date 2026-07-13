@@ -17,7 +17,7 @@ launcher 先完整写入 `.writing`，再依次原子移动为 pending 与 canon
 
 ## 安全与角色
 
-- `gradleArgs` 使用大小写敏感的严格 allowlist：任务仅 `compileJava`、`test`、`check`、`build`、`publishToMavenLocal`（qualified task path 取末段后仍须命中）；无值选项仅 `--offline`、`--no-configuration-cache`；`--tests` 必须位于已选择 `test` 任务之后并紧跟安全 Java 类/方法通配值；项目属性仅 `-Pgtnh.settings.blowdryerTag=<安全值>`。其余选项、任务和 response file 一律在产物创建前拒绝。metadata 的 taskSummary 只记录规范任务名、参数数量和布尔选项，不记录 test filter。脚本统一 plain console。
+- `gradleArgs` 使用大小写敏感的严格 allowlist：任务仅 `compileJava`、`test`、`check`、`build`、`publishToMavenLocal`（qualified task path 取末段后仍须命中）；无值选项仅 `--offline`、`--no-configuration-cache`；`--tests` 必须位于已选择 `test` 任务之后并紧跟安全 Java 类/方法通配值；项目属性仅 `-Pgtnh.settings.blowdryerTag=<安全值或精确空值>`。其余选项、任务和 response file 一律在产物创建前拒绝。metadata 的 taskSummary 只记录规范任务名、参数数量和布尔选项，不记录 test filter。脚本统一 plain console。
 - 只读验证 `GRADLE_USER_HOME` 非空、绝对 ASCII 且目录存在，不回显、不修改环境。
 - 不接受 executable、workdir、log、environment、kill 参数。fixer 可 Start/Poll/Wait；reviewer 仅按合同复验；explorer 仅诊断已有 RunId；其他角色禁止直接 wrapper 或自造进程。
 - `runClient*`/`runServer*` 交用户；`verify-gtnh-baselines.ps1` 暂不授权。

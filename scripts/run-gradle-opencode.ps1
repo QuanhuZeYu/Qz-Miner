@@ -73,7 +73,7 @@ function Assert-Args([string[]]$GradleArguments) {
       continue
     }
     if ($noValue -ccontains $arg) { continue }
-    if ($arg -cmatch '^-Pgtnh\.settings\.blowdryerTag=[A-Za-z0-9._-]+$') { continue }
+    if ($arg -cmatch '^-Pgtnh\.settings\.blowdryerTag=[A-Za-z0-9._-]*$') { continue }
     if ($arg.StartsWith('-', [StringComparison]::Ordinal)) { Fail PARAM OPTION_NOT_ALLOWLISTED }
     $leaf = ($arg -csplit ':')[-1]
     if ($arg -cnotmatch '^(?::[A-Za-z0-9_.-]+)*:[A-Za-z0-9_.-]+$|^[A-Za-z0-9_.-]+$' -or
@@ -318,6 +318,7 @@ function Invoke-SelfTest {
     $bad = @('-Dfoo=x', '-Pfoo=x', '-p', '--project-dir', '-I', '--init-script', '--settings-file', '--include-build', '--dry-run', '-m', '-x', '--exclude-task', 'runClient21', ':x:runServer25', 'CompileJava', 'help', '--tests', 'a/b', '--offline=x', '@args')
     foreach ($arg in $bad) { $rejected = $false; try { Assert-Args @($arg) } catch { $rejected = $true }; if (-not $rejected) { throw "allowlist 未拒绝 $arg" } }
     Assert-Args @('compileJava', 'test', '--offline', '--no-configuration-cache', '--tests', 'a.b.C*', '-Pgtnh.settings.blowdryerTag=beta-1')
+    Assert-Args @('compileJava', '-Pgtnh.settings.blowdryerTag=')
     $covered += 'strict-allowlist-and-test-state'
     $script:GradleArgs = @('-Psecret=CANARY'); try { Start-Run | Out-Null } catch { }
     if (Test-Path $script:RuntimeRoot) { if ([IO.Directory]::GetFiles($script:RuntimeRoot).Count) { throw '拒绝参数产生协议产物' } }

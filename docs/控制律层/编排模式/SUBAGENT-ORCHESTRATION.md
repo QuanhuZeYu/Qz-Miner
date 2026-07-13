@@ -93,7 +93,7 @@
 - 每批改动"单调增量"（加约束/加诊断/加封装）优于"触碰核心链路"
 
 ### 4.6 验收标准（fixer 产出）
-- 编译（`./gradlew.bat compileJava`）+ 全量测试绿才提交；不绿带着失败测试提交即违规
+- `compileJava` 与全量 `test`/`check` 均须经 `qz-gradle-opencode/v1` 的 `Start/Wait` 执行并通过后才提交；不绿带着失败测试提交即违规
 - 提交标题 `[English]: 中文标题` + 中文 Markdown 正文（守 AGENTS.md Git 规范）
 
 ### 4.6.1 审查边界冻结

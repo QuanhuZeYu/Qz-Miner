@@ -31,6 +31,29 @@ function Test-EnvironmentOwnershipText {
   return $hits
 }
 
+function Test-AgentGradleAuthorizationText {
+  param([string]$Text, [string]$Source)
+  $hits = @()
+  $rolePolicy = $Source -in @('AGENTS.md', '.opencode/agents/build.md', '.opencode/agents/fixer.md',
+    '.opencode/agents/reviewer.md', 'docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md')
+  foreach ($line in ($Text -split "`r?`n")) {
+    if ($rolePolicy -and $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b') {
+      $hits += "[agent直接Gradle wrapper] $Source"
+    }
+    if ($line -match '(?i)\b(?:agent|fixer|reviewer|explorer|build)\b' -and
+        $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b' -and
+        $line -notmatch '(?:不得|禁止|禁|不允许|不可)') {
+      $hits += "[agent直接Gradle wrapper] $Source"
+    }
+    if ($line -match '(?i)\b(?:agent|fixer|reviewer|explorer|build)\b' -and
+        $line -match '(?i)verify-gtnh-baselines(?:\.ps1)?' -and
+        $line -notmatch '(?:不授权|未授权|不得|禁止|禁|不允许)') {
+      $hits += "[agent获授权执行双基线] $Source"
+    }
+  }
+  return $hits
+}
+
 if ($SelfTest) {
   $valid = @(
     'Get-Item Env:JAVA_HOME',
@@ -61,6 +84,14 @@ if ($SelfTest) {
     'echo $env:SECRET', 'Write-Host $env:TOKEN', 'Get-ChildItem Env:', 'printenv'
   )
   foreach ($fixture in $invalid) { if ((Test-EnvironmentOwnershipText $fixture "fixture").Count -eq 0) { throw "违规 fixture 未阻断: $fixture" } }
+  $authorizationInvalid = @(
+    'fixer 直接运行 ./gradlew.bat compileJava。',
+    'agent 可直接运行 ./gradlew.bat check。',
+    'agent 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。'
+  )
+  foreach ($fixture in $authorizationInvalid) {
+    if ((Test-AgentGradleAuthorizationText $fixture 'AGENTS.md').Count -eq 0) { throw "矛盾授权 fixture 未阻断: $fixture" }
+  }
   Write-Host "环境所有权门禁已知模式自测通过" -ForegroundColor Green
   exit 0
 }
@@ -77,6 +108,12 @@ foreach ($file in $files) {
 foreach ($required in @("AGENTS.md", ".opencode/agents/build.md", ".opencode/agents/fixer.md", ".opencode/agents/reviewer.md")) {
   $text = Get-Content (Join-Path $root $required) -Raw
   if ($text -notmatch '环境所有权' -or $text -notmatch '只读') { $violations += "[缺少正向锚] $required" }
+}
+$authorizationFiles = @('AGENTS.md', '.opencode/agents/build.md', '.opencode/agents/fixer.md', '.opencode/agents/reviewer.md',
+  'docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md', 'docs/控制律层/发布流程.md')
+foreach ($file in $authorizationFiles) {
+  $text = Get-Content (Join-Path $root $file) -Raw
+  $violations += Test-AgentGradleAuthorizationText $text $file
 }
 $protocolAssertions = @(
   @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.ps1','禁(?:止)?直接 wrapper','自造 `?Start-Process') },
