@@ -376,6 +376,7 @@ public class ClientConnectionListener {
             return;
         }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
+        ClientProxy.resetAutoToolLifecycle();
         if (ClientProxy.chainPreviewController != null) {
             ClientProxy.chainPreviewController.stopPreviewForLifecycle();
         }

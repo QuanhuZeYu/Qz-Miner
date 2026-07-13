@@ -60,6 +60,9 @@ public class AutoToolClientControllerTest {
         f.controller.resetLifecycle();
         Assert.assertEquals(1, f.bridge.resets);
         Assert.assertEquals(0, f.bridge.restores);
+        f.controller.onChainKeyChanged(true);
+        f.controller.tick();
+        Assert.assertEquals(2, f.bridge.selects);
     }
 
     private static final class Fixture {

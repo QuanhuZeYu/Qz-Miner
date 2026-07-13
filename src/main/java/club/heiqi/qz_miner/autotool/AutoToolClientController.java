@@ -44,6 +44,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
     private final AutoToolCoordinator<Object> coordinator;
     private final BridgePort bridge;
     private boolean keyHeld;
+    private boolean resettingLifecycle;
     private int expectedHotbarSlot = -1;
     private int originalHotbarSlot = -1;
     private int inventorySourceSlot = -1;
@@ -77,7 +78,13 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     /** 生命周期边界清空本地协调和事务状态，不尝试恢复物品。 */
     public void resetLifecycle() {
-        bridge.resetLifecycle();
+        keyHeld = false;
+        resettingLifecycle = true;
+        try {
+            bridge.resetLifecycle();
+        } finally {
+            resettingLifecycle = false;
+        }
         AutoToolCoordinator.Snapshot<Object> reset = snapshot();
         reset.lifecycleReset = true;
         coordinator.tick(reset);
@@ -105,6 +112,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     /** 接收库存事务桥状态并推进协调器。 */
     @Override public void onStatusChanged(VanillaInventoryTransactionBridge.Status status) {
+        if (resettingLifecycle) return;
         if (status == VanillaInventoryTransactionBridge.Status.ACTIVE) {
             execute(coordinator.confirm(snapshot()));
         } else if (status == VanillaInventoryTransactionBridge.Status.IDLE) {

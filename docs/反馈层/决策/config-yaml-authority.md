@@ -31,7 +31,8 @@
 UILib 4.6.0 schema 没有普通对象字段。`client.autoToolSelection` 因此使用 identity 固定为
 `default` 的单元素 `structuredList` 表示对象；语义校验要求恰好一个元素，并严格校验固定
 identity、选项枚举、布尔类型及整数范围。运行时通过不可变 `AutoToolSelectionConfig` 整体发布，
-禁止拆成互不关联的配置标量。
+禁止拆成互不关联的配置标量。客户端 controller 每 tick 从当前整体对象读取启用开关和耐久下限，
+因此成功的 BATCH_SAVE/RELOAD 发布后无需重建 controller；默认 `enabled=false`。
 
 ## 不变量影响
 
