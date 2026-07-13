@@ -42,42 +42,49 @@ public class AutoToolFoundationTest {
     }
     @Test public void transactionSelectRestoreHappyPathAndEmptyAnchor() {
         Object source = new Object(); ToolSwapTransaction<Object> tx = new ToolSwapTransaction<Object>();
-        ToolSwapTransaction.Outcome select = tx.beginSelect(12, 4, (short) 7, source, null, source);
+        ToolSwapTransaction.Outcome select = tx.beginSelect(12, 4, source, null, source);
         Assert.assertEquals(ToolSwapTransaction.Result.INTENT, select.result);
         Assert.assertEquals(12, select.intent.sourceContainerSlot); Assert.assertEquals(4, select.intent.anchorHotbarIndex);
+        tx.bindAction((short) 7);
         Assert.assertEquals(ToolSwapTransaction.Result.ACCEPTED, tx.onConfirmAccepted((short) 7).result);
         Assert.assertEquals(ToolSwapTransaction.State.ACTIVE, tx.state());
-        Assert.assertEquals(ToolSwapTransaction.Result.INTENT, tx.beginRestore((short) 8, source, null).result);
+        Assert.assertEquals(ToolSwapTransaction.Result.INTENT, tx.beginRestore(source, null).result);
+        tx.bindAction((short) 8);
         Assert.assertEquals(ToolSwapTransaction.Result.ACCEPTED, tx.onConfirmAccepted((short) 8).result);
         Assert.assertEquals(ToolSwapTransaction.State.IDLE, tx.state());
     }
     @Test public void transactionRejectsIllegalAndOutOfOrderTransitions() {
         Object source = new Object(); Object anchor = new Object(); ToolSwapTransaction<Object> tx = new ToolSwapTransaction<Object>();
-        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT, tx.beginRestore((short) 1, source, anchor).result);
-        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT, tx.beginSelect(-1, 0, (short) 1, source, anchor, source).result);
-        tx.beginSelect(10, 0, (short) 2, source, anchor, source);
+        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT, tx.beginRestore(source, anchor).result);
+        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT, tx.beginSelect(-1, 0, source, anchor, source).result);
+        tx.beginSelect(10, 0, source, anchor, source); tx.bindAction((short) 2);
         Assert.assertEquals(ToolSwapTransaction.Result.IGNORED, tx.onConfirmAccepted((short) 1).result);
         Assert.assertEquals(ToolSwapTransaction.State.WAIT_SELECT_CONFIRM, tx.state());
         tx.onConfirmAccepted((short) 2);
-        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT, tx.beginRestore((short) 3, new Object(), anchor).result);
+        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT, tx.beginRestore(new Object(), anchor).result);
         Assert.assertEquals(ToolSwapTransaction.State.ACTIVE, tx.state());
+        Assert.assertFalse(tx.releasePending());
+        Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT,
+                tx.beginRestore(new Object(), anchor, null).result);
+        Assert.assertEquals(ToolSwapTransaction.State.ACTIVE, tx.state());
+        Assert.assertFalse(tx.releasePending());
     }
     @Test public void rejectedConfirmWaitsForWindowItemsAndPreservesLatestDesired() {
         Object source = new Object(); Object latest = new Object(); ToolSwapTransaction<Object> tx = new ToolSwapTransaction<Object>();
-        tx.beginSelect(10, 0, (short) 2, source, null, source); tx.setLatestDesired(latest);
+        tx.beginSelect(10, 0, source, null, source); tx.bindAction((short) 2); tx.setLatestDesired(latest);
         Assert.assertEquals(ToolSwapTransaction.Result.REJECTED, tx.onConfirmRejected((short) 2).result);
         Assert.assertEquals(ToolSwapTransaction.State.WAIT_RESYNC, tx.state()); Assert.assertSame(latest, tx.latestDesired());
         Assert.assertEquals(ToolSwapTransaction.Result.CONFLICT,
-                tx.beginSelect(11, 0, (short) 3, latest, null, latest).result);
+                tx.beginSelect(11, 0, latest, null, latest).result);
         Assert.assertEquals(ToolSwapTransaction.Result.RESYNCED, tx.onWindowItems().result);
         Assert.assertEquals(ToolSwapTransaction.State.PAUSED, tx.state()); Assert.assertSame(latest, tx.latestDesired());
     }
     @Test public void pendingReleaseTimeoutAndResetAreExplicit() {
         Object source = new Object(); ToolSwapTransaction<Object> tx = new ToolSwapTransaction<Object>();
-        tx.beginSelect(10, 0, (short) 2, source, null, source); tx.setLatestDesired(null);
+        tx.beginSelect(10, 0, source, null, source); tx.bindAction((short) 2); tx.setLatestDesired(null);
         Assert.assertTrue(tx.releasePending()); tx.onConfirmRejected((short) 2); tx.onWindowItems();
         Assert.assertEquals(ToolSwapTransaction.State.IDLE, tx.state());
-        tx.beginSelect(10, 0, (short) 3, source, null, source);
+        tx.beginSelect(10, 0, source, null, source);
         Assert.assertEquals(ToolSwapTransaction.Result.PAUSED, tx.timeout().result);
         Assert.assertEquals(ToolSwapTransaction.State.PAUSED, tx.state());
         Assert.assertEquals(ToolSwapTransaction.Result.RESET, tx.reset().result);
