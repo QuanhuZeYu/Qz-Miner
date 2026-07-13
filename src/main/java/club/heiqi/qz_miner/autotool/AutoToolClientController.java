@@ -62,7 +62,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     /** 使用 Minecraft 运行时事实和原版 windowClick 事务桥构造控制器。 */
     public AutoToolClientController() {
-        this(new ProductionFacade(), null);
+        this(new ProductionFacade(), (BridgePort) null);
     }
 
     /** 使用指定端口构造控制器。bridge 为空时创建生产事务桥。 */
@@ -71,6 +71,17 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
         this.facade = facade;
         this.coordinator = new AutoToolCoordinator<Object>();
         this.bridge = bridge == null ? vanillaBridge() : bridge;
+    }
+
+    /** 使用真实事务桥与可替换点击传输构造，供组合测试验证完整回调链。 */
+    AutoToolClientController(Facade facade, VanillaInventoryTransactionBridge.ClickTransport transport) {
+        if (facade == null) throw new IllegalArgumentException("facade");
+        if (transport == null) throw new IllegalArgumentException("transport");
+        this.facade = facade;
+        this.coordinator = new AutoToolCoordinator<Object>();
+        VanillaBridgePort port = new VanillaBridgePort();
+        port.delegate = new VanillaInventoryTransactionBridge<Object>(transport, this);
+        this.bridge = port;
     }
 
     /** 推进一个客户端 tick。 */

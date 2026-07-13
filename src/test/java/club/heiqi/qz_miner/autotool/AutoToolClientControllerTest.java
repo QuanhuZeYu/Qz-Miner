@@ -132,6 +132,32 @@ public class AutoToolClientControllerTest {
         Assert.assertEquals(0, resynced.bridge.restores);
     }
 
+    @Test public void realBridgeRejectClearsIdentityWhileWaitingForResyncAndIgnoresLateAccepted() {
+        RealFixture f = new RealFixture();
+        f.addInventoryTool();
+        f.controller.onChainKeyChanged(true); f.controller.tick();
+        Assert.assertEquals(1, f.transport.clicks);
+        f.controller.onClickPacket(0, 12, 0, 2, (short) 21);
+        f.facade.identities[0] = f.tool;
+        f.facade.identities[12] = null;
+        f.controller.onConfirmTransaction(0, (short) 21, true);
+        f.controller.onConfirmTransaction(0, (short) 21, false);
+        Assert.assertEquals(ToolSwapTransaction.State.ACTIVE, f.bridge().state());
+
+        f.controller.onChainKeyChanged(false);
+        Assert.assertEquals(2, f.transport.clicks);
+        f.controller.onClickPacket(0, 12, 0, 2, (short) 22);
+        f.facade.identities[0] = new Object();
+        f.controller.onConfirmTransaction(0, (short) 22, false);
+        Assert.assertEquals(ToolSwapTransaction.State.WAIT_RESYNC, f.bridge().state());
+        f.controller.onConfirmTransaction(0, (short) 22, true);
+        Assert.assertEquals(ToolSwapTransaction.State.WAIT_RESYNC, f.bridge().state());
+        f.controller.tick();
+        Assert.assertEquals(2, f.transport.clicks);
+        f.controller.onWindowItems(0);
+        Assert.assertEquals(ToolSwapTransaction.State.IDLE, f.bridge().state());
+    }
+
     @Test public void lateAcceptedStatusAfterResetCannotReintroduceInventoryIdentity() {
         Fixture fixture = activeInventoryFixture();
         fixture.controller.resetLifecycle();
@@ -175,6 +201,31 @@ public class AutoToolClientControllerTest {
         return fixture;
     }
     private static final class MutableIdentity { int damage; }
+    private static final class RealFixture {
+        final FakeFacade facade = new FakeFacade();
+        final FakeTransport transport = new FakeTransport();
+        final Object tool = new Object();
+        final AutoToolClientController controller = new AutoToolClientController(facade, transport);
+        void addInventoryTool() {
+            facade.identities[12] = tool;
+            facade.candidates.add(new Candidate(12, 10.0D, tool));
+        }
+        VanillaInventoryTransactionBridge<?> bridge() {
+            try {
+                java.lang.reflect.Field portField = AutoToolClientController.class.getDeclaredField("bridge");
+                portField.setAccessible(true);
+                Object port = portField.get(controller);
+                java.lang.reflect.Field delegateField = port.getClass().getDeclaredField("delegate");
+                delegateField.setAccessible(true);
+                return (VanillaInventoryTransactionBridge<?>) delegateField.get(port);
+            } catch (ReflectiveOperationException exception) { throw new AssertionError(exception); }
+        }
+    }
+    private static final class FakeTransport implements VanillaInventoryTransactionBridge.ClickTransport {
+        int clicks;
+        public boolean canClick() { return true; }
+        public void click(int slot, int anchor) { clicks++; }
+    }
     private static final class FakeFacade implements AutoToolClientController.Facade {
         boolean enabled = true, breakMode = true, valid = true, restore = true, dead; int current, stableTicks = 2, graceTicks = 2;
         Object player = new Object(); final Object[] identities = new Object[36];

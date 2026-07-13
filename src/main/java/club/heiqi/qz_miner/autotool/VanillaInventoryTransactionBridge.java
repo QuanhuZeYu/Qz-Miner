@@ -2,7 +2,7 @@ package club.heiqi.qz_miner.autotool;
 
 /** 协调 window 0 热栏交换、确认、恢复与超时，不直接修改库存数组。 */
 public final class VanillaInventoryTransactionBridge<T> implements VanillaInventoryTransactionObserver.Observer {
-    public enum Status { ACTIVE, IDLE, PAUSED }
+    public enum Status { ACTIVE, IDLE, WAIT_RESYNC, PAUSED }
     public interface Listener { void onStatusChanged(Status status); }
     public interface ClickTransport {
         boolean canClick();
@@ -83,6 +83,7 @@ public final class VanillaInventoryTransactionBridge<T> implements VanillaInvent
             notifyStatus(transaction.state() == ToolSwapTransaction.State.ACTIVE ? Status.ACTIVE : Status.IDLE);
         } else if (outcome.result == ToolSwapTransaction.Result.REJECTED) {
             waitingTicks = 0;
+            notifyStatus(Status.WAIT_RESYNC);
         }
     }
 

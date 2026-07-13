@@ -44,10 +44,14 @@ public class VanillaInventoryTransactionBridgeTest {
         f.bridge.onClickPacket(0, 12, 3, 2, (short) 8);
         f.bridge.onConfirmTransaction(0, (short) 8, false);
         Assert.assertEquals(ToolSwapTransaction.State.WAIT_RESYNC, f.bridge.state());
+        Assert.assertEquals(VanillaInventoryTransactionBridge.Status.WAIT_RESYNC,
+                f.statuses.get(f.statuses.size() - 1));
         f.bridge.onWindowItems(1);
         Assert.assertEquals(ToolSwapTransaction.State.WAIT_RESYNC, f.bridge.state());
         f.bridge.onWindowItems(0);
         Assert.assertEquals(ToolSwapTransaction.State.IDLE, f.bridge.state());
+        Assert.assertEquals(VanillaInventoryTransactionBridge.Status.IDLE,
+                f.statuses.get(f.statuses.size() - 1));
     }
 
     @Test public void restoreUsesSameModeTwoClickAndReturnsIdle() {
