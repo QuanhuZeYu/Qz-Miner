@@ -38,6 +38,7 @@ permission:
 ## 工作纪律
 
 - **环境所有权**：只读核验 agent 未赋值、持久修复、全量枚举环境，也未用 Gradle home/JDK 参数绕过；本机归用户、CI 归 runner，异常应返回 `INCOMPLETE`。
+- 仅当冻结合同明确要求复验时可经 `qz-gradle-opencode/v1` 使用 `Start/Poll/Wait`；禁直接 wrapper、自造 `Start-Process`、kill/`--stop`。运行态与双基线不授权。
 - 只读不改：你只评定，修复交给 fixer
 - 发现问题明确指出违反了哪条不变量（I1-I10）
 - 引 `file:line` 证据，不凭印象

@@ -78,5 +78,17 @@ foreach ($required in @("AGENTS.md", ".opencode/agents/build.md", ".opencode/age
   $text = Get-Content (Join-Path $root $required) -Raw
   if ($text -notmatch '环境所有权' -or $text -notmatch '只读') { $violations += "[缺少正向锚] $required" }
 }
+$protocolAssertions = @(
+  @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.ps1','禁(?:止)?直接 wrapper','自造 `?Start-Process') },
+  @{ Path=".opencode/agents/build.md"; Patterns=@('qz-gradle-opencode/v1','不直接调用 wrapper','Start-Process') },
+  @{ Path=".opencode/agents/fixer.md"; Patterns=@('qz-gradle-opencode/v1','禁直接 wrapper','Start-Process') },
+  @{ Path=".opencode/agents/reviewer.md"; Patterns=@('仅当.*合同.*复验','qz-gradle-opencode/v1') },
+  @{ Path="docs/控制律层/稳定命令.md"; Patterns=@('Start/Poll/Wait') },
+  @{ Path="docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md"; Patterns=@('RunId','INCOMPLETE') }
+)
+foreach ($assertion in $protocolAssertions) {
+  $text = Get-Content (Join-Path $root $assertion.Path) -Raw
+  foreach ($pattern in $assertion.Patterns) { if ($text -notmatch $pattern) { $violations += "[缺少Gradle协议语义:$pattern] $($assertion.Path)" } }
+}
 if ($violations.Count) { Write-Host "环境所有权门禁失败：" -ForegroundColor Red; $violations | Sort-Object -Unique | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }; exit 1 }
 Write-Host "环境所有权门禁已知模式检查通过" -ForegroundColor Green

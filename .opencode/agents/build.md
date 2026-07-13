@@ -87,6 +87,7 @@ permission:
 ## 工作纪律
 
 - **环境所有权**：本机环境归用户、CI 环境归 runner；仅逐项只读核验所需变量，敏感变量只查存在性。禁止赋值、持久修复、全量枚举或用 Gradle home/JDK 参数绕过；异常时停止依赖命令并返回 `INCOMPLETE` 询问用户。
+- Gradle 只可按 `qz-gradle-opencode/v1` 派 fixer 执行；主 build 不直接调用 wrapper 或协议，也不得自造 `Start-Process`。reviewer 仅按合同复验，explorer 仅诊断既有 RunId。
 - 遵守 `AGENTS.md` 全部协作规范（Git / 命名 / 注释 / 构建）
 - 动代码前确认对齐 `NORTH_STAR.md` 信条与不变量 I1-I10（尤其涉及线程/网络/掉落/生命周期/反射/矿石时运/状态机）
 - 涉及游戏内连锁、HUD、预览、网络、命令入口的能力，用 `runClient21`/`runServer25` 进游戏内验证，交用户跑

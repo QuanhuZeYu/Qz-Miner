@@ -114,6 +114,12 @@
 
 **这条约束反向强化"派子 agent"的理由**：长耗时的 shell 操作派出去，主 agent 的 prefix cache 不被打断，主会话注意力与成本都保住。
 
+### 4.8 Windows Gradle 执行协议
+
+- agent 的有限 Gradle 构建统一走 `qz-gradle-opencode/v1`，不得直接 wrapper 或自造 `Start-Process`。
+- fixer 可 `Start/Poll/Wait`；reviewer 仅按冻结合同复验；explorer 仅诊断已有 `RunId`；其他角色禁止。
+- `Wait` 单次有界且不授予 kill；超时活动或孤儿返回 `INCOMPLETE` 并保留跨仓锁。运行态交用户，双基线脚本暂不授权。完整合同见 `docs/控制律层/Windows-Gradle执行协议.md`。
+
 ## 5. 派发纪律
 
 ### 并行与串行
