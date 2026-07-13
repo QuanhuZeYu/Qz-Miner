@@ -3,6 +3,11 @@
 # 控制论角色：传感层事实传感器，弥补 check-doc-discipline.ps1 只查格式不查事实的盲区
 # 解决问题：代码高频变动、文档低频滞后导致的漂移（如 v2 重写后文档仍引用已删的 ChainExecutor）
 # 零外部依赖：纯 PowerShell + Select-String
+[CmdletBinding()]
+param(
+  [switch]$SelfTest
+)
+
 $ErrorActionPreference = "Stop"
 $violations = @()
 
@@ -50,6 +55,10 @@ $externalAllowlist = @(
 $externalSet = @{}
 foreach ($name in $externalAllowlist) { $externalSet[$name] = $true }
 
+# 控制协议中的固定标识符采用 CamelCase，但不是 Java 类。使用 Ordinal 集合确保仅精确拼写豁免断言 B。
+$protocolIdentifierSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($name in @('PreWrite', 'PostWrite', 'RunId')) { [void]$protocolIdentifierSet.Add($name) }
+
 # ----- 收集待扫描的 .md 文件 -----
 # 范围：docs/**/*.md + 根目录 *.md
 # 排除：.opencode/、build/、run/（前者会话临时，后两者构建产物）
@@ -90,6 +99,36 @@ function Test-NotAClass([string]$name) {
   # 必须含至少一个大写（已隐含：开头大写）
   if (-not ($name -cmatch '[A-Z]')) { return $true }
   return $false
+}
+
+# 判断候选是否引用了不存在的项目 Java 类；协议标识符不是类引用。
+function Test-MissingProjectClass([string]$name) {
+  if ($protocolIdentifierSet.Contains($name)) { return $false }
+  return -not $javaBasenames.ContainsKey($name)
+}
+
+function Invoke-SelfTest {
+  foreach ($name in @('PreWrite', 'PostWrite', 'RunId')) {
+    if (Test-MissingProjectClass $name) { throw "协议标识符被误报：$name" }
+  }
+  foreach ($name in @('PreWRite', 'POSTWrite', 'RUNId', 'ImaginaryJavaClass')) {
+    if (Test-NotAClass $name) { throw "CamelCase 标识符未进入候选：$name" }
+    if (-not (Test-MissingProjectClass $name)) {
+      throw "非精确协议标识符或不存在的 Java 类未被报告：$name"
+    }
+  }
+  if (-not $javaBasenames.ContainsKey('ChainStateMachine')) {
+    throw '自测所需真实 Java 类不存在：ChainStateMachine'
+  }
+  if (Test-MissingProjectClass 'ChainStateMachine') {
+    throw '真实 Java 类被误报：ChainStateMachine'
+  }
+  Write-Host "文档事实漂移门禁自测通过" -ForegroundColor Green
+}
+
+if ($SelfTest) {
+  Invoke-SelfTest
+  exit 0
 }
 
 # ----- 主扫描 -----
@@ -142,7 +181,7 @@ foreach ($doc in $docFiles) {
         # 已被断言A路径式引用处理（如 `ChainExecutor.java`）—— B 正则不会捕获到，但保险再排一次
         if ($lineExempt) { continue }
         if ($externalSet.ContainsKey($name)) { continue }
-        if (-not $javaBasenames.ContainsKey($name)) {
+        if (Test-MissingProjectClass $name) {
           $script:violations += "[事实漂移] ${rel}:${lineNo}: 引用类 $name 在 src 下不存在（行未标注历史叙事）"
         }
       }
