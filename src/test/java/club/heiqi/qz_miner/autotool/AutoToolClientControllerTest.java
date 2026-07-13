@@ -66,6 +66,23 @@ public class AutoToolClientControllerTest {
         Assert.assertEquals(2, f.bridge.selects);
     }
 
+    @Test public void lifecycleResetDoesNotReadFacade() {
+        Fixture f = new Fixture();
+        f.facade.failOnAnyRead = true;
+        f.controller.resetLifecycle();
+        Assert.assertEquals(1, f.bridge.resets);
+        Assert.assertEquals(0, f.facade.reads);
+    }
+
+    @Test public void incompletePlayerWorldTickResetsWithoutInventoryRead() {
+        Fixture f = new Fixture();
+        f.facade.ready = false;
+        f.facade.failAfterReadiness = true;
+        f.controller.tick();
+        Assert.assertEquals(1, f.bridge.resets);
+        Assert.assertEquals("only readiness may be read in an empty player/world tick", 1, f.facade.reads);
+    }
+
     @Test public void configuredThresholdsAndReloadResetOnlyTargetHistory() {
         Fixture f = new Fixture(); f.add(2, 10.0D); f.facade.stableTicks = 10; f.pressAndStabilize();
         Assert.assertEquals(2, f.facade.current);
@@ -227,26 +244,35 @@ public class AutoToolClientControllerTest {
         public void click(int slot, int anchor) { clicks++; }
     }
     private static final class FakeFacade implements AutoToolClientController.Facade {
-        boolean enabled = true, breakMode = true, valid = true, restore = true, dead; int current, stableTicks = 2, graceTicks = 2;
+        boolean enabled = true, ready = true, breakMode = true, valid = true, restore = true, dead;
+        boolean failOnAnyRead, failAfterReadiness;
+        int current, stableTicks = 2, graceTicks = 2, reads;
         Object player = new Object(); final Object[] identities = new Object[36];
         AutoToolCoordinator.Phase phase = AutoToolCoordinator.Phase.ARMED; Object target = "block";
         final List<AutoToolCoordinator.Candidate<Object>> candidates = new ArrayList<AutoToolCoordinator.Candidate<Object>>();
-        public boolean enabled() { return enabled; }
-        public boolean breakBlockMode() { return breakMode; }
-        public boolean validInteractionContext() { return valid; }
-        public AutoToolCoordinator.Phase phase() { return phase; }
-        public Object target() { return target; }
-        public List<? extends AutoToolCoordinator.Candidate<Object>> candidates() { return candidates; }
-        public int currentHotbarSlot() { return current; }
+        public boolean enabled() { checkRead("enabled"); return enabled; }
+        public boolean playerWorldReady() { checkRead("playerWorldReady"); return ready; }
+        public boolean breakBlockMode() { checkRead("breakBlockMode"); return breakMode; }
+        public boolean validInteractionContext() { checkRead("validInteractionContext"); return valid; }
+        public AutoToolCoordinator.Phase phase() { checkRead("phase"); return phase; }
+        public Object target() { checkRead("target"); return target; }
+        public List<? extends AutoToolCoordinator.Candidate<Object>> candidates() { checkRead("candidates"); return candidates; }
+        public int currentHotbarSlot() { checkRead("currentHotbarSlot"); return current; }
         public void selectHotbarSlot(int slot) { current = slot; }
-        public Object inventoryIdentity(int slot) { return identities[slot]; }
-        public int minimumDurabilityReserve() { return 0; }
-        public int inventoryAnchorHotbarSlot() { return current; }
-        public int targetStableTicks() { return stableTicks; }
-        public int emptyTargetGraceTicks() { return graceTicks; }
-        public boolean restoreOriginal() { return restore; }
-        public Object playerIdentity() { return player; }
-        public boolean playerDead() { return dead; }
+        public Object inventoryIdentity(int slot) { checkRead("inventoryIdentity"); return identities[slot]; }
+        public int minimumDurabilityReserve() { checkRead("minimumDurabilityReserve"); return 0; }
+        public int inventoryAnchorHotbarSlot() { checkRead("inventoryAnchorHotbarSlot"); return current; }
+        public int targetStableTicks() { checkRead("targetStableTicks"); return stableTicks; }
+        public int emptyTargetGraceTicks() { checkRead("emptyTargetGraceTicks"); return graceTicks; }
+        public boolean restoreOriginal() { checkRead("restoreOriginal"); return restore; }
+        public Object playerIdentity() { checkRead("playerIdentity"); return player; }
+        public boolean playerDead() { checkRead("playerDead"); return dead; }
+        private void checkRead(String method) {
+            reads++;
+            if (failOnAnyRead || (failAfterReadiness && !"playerWorldReady".equals(method))) {
+                throw new AssertionError("unexpected facade read: " + method);
+            }
+        }
     }
     private static final class FakeBridge implements AutoToolClientController.BridgePort {
         int selects, restores, resets, forgets;

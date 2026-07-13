@@ -24,7 +24,6 @@ public final class AutoToolCoordinator<T> {
         public boolean breakBlockMode;
         public boolean validInteractionContext;
         public boolean manualOverride;
-        public boolean lifecycleReset;
         public Phase phase = Phase.IDLE;
         public T target;
         public List<? extends Candidate<T>> candidates = Collections.emptyList();
@@ -56,12 +55,14 @@ public final class AutoToolCoordinator<T> {
 
     public AutoToolControllerState<T> state() { return state; }
 
+    /** 生命周期边界直接清空纯本地状态，不需要构造普通 tick 快照。 */
+    public void resetLifecycle() {
+        clear();
+        previousKeyHeld = false;
+    }
+
     /** 处理 tick 并返回至多一条桥命令。 */
     public Command tick(Snapshot<T> snapshot) {
-        if (snapshot.lifecycleReset) {
-            clear(); previousKeyHeld = snapshot.keyHeld;
-            return command(CommandType.RESET, -1, -1);
-        }
         updateStabilizer(snapshot.targetStableTicks, snapshot.emptyTargetGraceTicks);
         boolean newPress = snapshot.keyHeld && !previousKeyHeld;
         previousKeyHeld = snapshot.keyHeld;

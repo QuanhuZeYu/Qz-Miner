@@ -79,10 +79,9 @@ public class AutoToolCoordinatorTest {
     }
 
     @Test public void lifecycleResetClearsWithoutLateRestore() {
-        Fixture f = new Fixture(); f.activate("A"); f.snapshot.lifecycleReset = true;
-        Assert.assertEquals(AutoToolCoordinator.CommandType.RESET, f.coordinator.tick(f.snapshot).type);
+        Fixture f = new Fixture(); f.activate("A"); f.coordinator.resetLifecycle();
         Assert.assertEquals(AutoToolControllerState.Status.IDLE, f.coordinator.state().status());
-        f.snapshot.lifecycleReset = false; f.snapshot.keyHeld = false;
+        f.snapshot.keyHeld = false;
         Assert.assertEquals(AutoToolCoordinator.CommandType.NONE, f.coordinator.tick(f.snapshot).type);
     }
 

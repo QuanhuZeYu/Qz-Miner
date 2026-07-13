@@ -20,6 +20,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
     /** 可替换的客户端事实和快捷栏写入口。 */
     public interface Facade {
         boolean enabled();
+        boolean playerWorldReady();
         boolean breakBlockMode();
         boolean validInteractionContext();
         AutoToolCoordinator.Phase phase();
@@ -86,6 +87,10 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     /** 推进一个客户端 tick。 */
     public void tick() {
+        if (!facade.playerWorldReady()) {
+            resetLifecycle();
+            return;
+        }
         Object currentPlayer = facade.playerIdentity();
         boolean dead = facade.playerDead();
         if ((playerIdentity != null && currentPlayer != playerIdentity) || (dead && !playerWasDead)) resetLifecycle();
@@ -111,10 +116,10 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
         } finally {
             resettingLifecycle = false;
         }
-        AutoToolCoordinator.Snapshot<Object> reset = snapshot();
-        reset.lifecycleReset = true;
-        coordinator.tick(reset);
+        coordinator.resetLifecycle();
         clearExpectedSlots();
+        playerIdentity = null;
+        playerWasDead = false;
     }
 
     /** 转发客户端点击包观察。 */
@@ -268,6 +273,10 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
     /** Minecraft 静态状态的生产读取适配。 */
     private static final class ProductionFacade implements Facade {
         public boolean enabled() { return Config.autoToolSelection != null && Config.autoToolSelection.enabled; }
+        public boolean playerWorldReady() {
+            Minecraft mc = Minecraft.getMinecraft();
+            return mc != null && mc.thePlayer != null && mc.theWorld != null;
+        }
         public boolean breakBlockMode() {
             return MyMod.chainStateService != null && ChainSubModeRegistry.getTrigger(
                     MyMod.chainStateService.getClientState().getSelectedSubMode()) == ChainSubModeTrigger.BREAK_BLOCK;

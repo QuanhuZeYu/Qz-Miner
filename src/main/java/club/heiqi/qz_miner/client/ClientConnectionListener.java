@@ -58,6 +58,16 @@ public class ClientConnectionListener {
         void run(Runnable task);
     }
 
+    /** 生命周期清理子项边界；生产调用真实资源，测试可逐项注入故障。 */
+    interface CleanupActions {
+        void clearObjectGroupPending();
+        void resetAutoTool();
+        void stopPreviewTask();
+        void disposeRenderer();
+        void clearPhase();
+        void clearEventPending();
+    }
+
     private static final TaskDispatcher PRODUCTION_DISPATCHER = new TaskDispatcher() {
         @Override
         public void run(Runnable task) {
@@ -66,6 +76,7 @@ public class ClientConnectionListener {
     };
 
     private final TaskDispatcher dispatcher;
+    private final CleanupActions cleanupActions;
 
     /**
      * 测试钩子：非 null 时替代真实资源清理（不停订阅关系）。
@@ -92,7 +103,13 @@ public class ClientConnectionListener {
      * @param dispatcher 主线程调度；null 时回落生产 dispatcher
      */
     ClientConnectionListener(TaskDispatcher dispatcher) {
+        this(dispatcher, null);
+    }
+
+    /** 可注入调度与清理子项，供 listener 真实入口故障隔离测试使用。 */
+    ClientConnectionListener(TaskDispatcher dispatcher, CleanupActions cleanupActions) {
         this.dispatcher = dispatcher != null ? dispatcher : PRODUCTION_DISPATCHER;
+        this.cleanupActions = cleanupActions;
     }
 
     /**
@@ -194,7 +211,7 @@ public class ClientConnectionListener {
                     @Override
                     public void run() {
                         // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
-                        clearObjectGroupSyncPending();
+                        clearObjectGroupSyncPendingIsolated();
                         cleanupLifecycleResources("client-disconnect");
                     }
                 });
@@ -289,7 +306,8 @@ public class ClientConnectionListener {
      * 在 connection current+active gate 内执行统一接管清理 + 连接初始化。
      *
      * <p>受控主线程 callback 在 lifecycle monitor 内：先 takeover cleanup（停预览/释 GPU/
-     * 清 phase/pending），再 reset 投影并发 C2S。禁阻塞、禁反向 lifecycle 入口。
+     * 清 phase/pending），再 reset 投影并发 C2S；任一清理子项失败仍继续其余清理与初始化。
+     * 禁阻塞、禁反向 lifecycle 入口。
      * 不清订阅关系。</p>
      *
      * @param token connect 返回的 active token
@@ -300,7 +318,7 @@ public class ClientConnectionListener {
             @Override
             public void run() {
                 // 受控主线程 callback（lifecycle monitor 内）：禁阻塞、禁反向 lifecycle 入口
-                clearObjectGroupSyncPending();
+                clearObjectGroupSyncPendingIsolated();
                 cleanupLifecycleResources("connection-takeover");
                 initializeConnectionState(token);
             }
@@ -372,30 +390,51 @@ public class ClientConnectionListener {
      */
     void cleanupLifecycleResources(String reason) {
         if (cleanupHookForTests != null) {
-            cleanupHookForTests.accept(reason);
+            runCleanupStep("test-hook", new Runnable() { @Override public void run() {
+                cleanupHookForTests.accept(reason);
+            }});
             return;
         }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
-        ClientProxy.resetAutoToolLifecycle();
-        if (ClientProxy.chainPreviewController != null) {
-            ClientProxy.chainPreviewController.stopPreviewForLifecycle();
-        }
-        if (ClientProxy.chainPreviewRenderer != null) {
-            ClientProxy.chainPreviewRenderer.disposeForLifecycle();
-        }
-        if (ClientProxy.clientPhaseProjection != null) {
-            ClientProxy.clientPhaseProjection.clear();
-        }
+        runCleanupStep("auto-tool", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.resetAutoTool();
+            else ClientProxy.resetAutoToolLifecycle();
+        }});
+        runCleanupStep("preview-task", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.stopPreviewTask();
+            else if (ClientProxy.chainPreviewController != null) ClientProxy.chainPreviewController.stopPreviewForLifecycle();
+        }});
+        runCleanupStep("gpu-renderer", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.disposeRenderer();
+            else if (ClientProxy.chainPreviewRenderer != null) ClientProxy.chainPreviewRenderer.disposeForLifecycle();
+        }});
+        runCleanupStep("phase", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.clearPhase();
+            else if (ClientProxy.clientPhaseProjection != null) ClientProxy.clientPhaseProjection.clear();
+        }});
         // 防旧 phase 在 cleanup 后仍 drain 回写投影；不清订阅
-        if (MyMod.clientChainEventBus != null) {
-            MyMod.clientChainEventBus.clearPending();
+        runCleanupStep("event-pending", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.clearEventPending();
+            else if (MyMod.clientChainEventBus != null) MyMod.clientChainEventBus.clearPending();
+        }});
+    }
+
+    /** 隔离一个生命周期清理子项；常规故障与可选链接故障均不得逃逸主线程 callback。 */
+    static void runCleanupStep(String step, Runnable cleanup) {
+        try {
+            cleanup.run();
+        } catch (RuntimeException exception) {
+            MyMod.LOG.warn("[Lifecycle] Cleanup step {} failed; continuing", step, exception);
+        } catch (LinkageError error) {
+            MyMod.LOG.warn("[Lifecycle] Cleanup step {} linkage failed; continuing", step, error);
         }
     }
 
     /** 连接接管或断开时清掉旧连接的对象组请求记录。 */
-    private void clearObjectGroupSyncPending() {
-        if (MyMod.chainStateService != null) {
-            MyMod.chainStateService.getClientState().clearObjectGroupSyncPending();
-        }
+    private void clearObjectGroupSyncPendingIsolated() {
+        runCleanupStep("object-group-pending", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.clearObjectGroupPending();
+            else if (MyMod.chainStateService != null) MyMod.chainStateService.getClientState().clearObjectGroupSyncPending();
+        }});
     }
 }

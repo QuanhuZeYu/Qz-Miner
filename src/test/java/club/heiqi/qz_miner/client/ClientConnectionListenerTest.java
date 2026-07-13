@@ -355,30 +355,61 @@ public class ClientConnectionListenerTest {
         Assert.assertFalse(ClientConnectionLifecycle.capture().isWorldActive());
     }
 
-    /**
-     * monitor 内 cleanup callback 抛异常后仍释放 monitor，后续 lifecycle 可继续。
-     */
-    @Test
-    public void cleanupCallbackExceptionReleasesLifecycleMonitor() throws Exception {
-        listener.cleanupHookForTests = new java.util.function.Consumer<String>() {
-            @Override
-            public void accept(String reason) {
-                throw new RuntimeException("cleanup-boom");
-            }
-        };
-        listener.handleConnected(handlerA);
-        try {
-            dispatcher.runAll();
-            Assert.fail("expected cleanup exception");
-        } catch (RuntimeException expected) {
-            Assert.assertEquals("cleanup-boom", expected.getMessage());
-        }
+    /** takeover 每个清理子项故障均被隔离，其余子项与后续 init 仍执行，drain 不抛。 */
+    @Test public void takeoverCleanupIsolatesEveryStepAndStillInitializes() {
+        assertCleanupFailuresAreIsolated(false);
+        assertCleanupFailuresAreIsolated(true);
+    }
 
-        // monitor 已释放：后续 disconnect 可转移
-        ClientConnectionLifecycle.DisconnectResult disc =
-                ClientConnectionLifecycle.disconnect(handlerA);
-        Assert.assertTrue(disc.transitioned());
-        Assert.assertFalse(ClientConnectionLifecycle.capture().isConnectionActive());
+    /** disconnect 真实入口中的对象组与资源清理故障不逃逸 dispatcher drain。 */
+    @Test public void disconnectCleanupIsolatesEveryStepWithoutEscapingDrain() {
+        assertCleanupFailuresAreIsolatedOnDisconnect(false);
+        assertCleanupFailuresAreIsolatedOnDisconnect(true);
+    }
+
+    private void assertCleanupFailuresAreIsolated(boolean linkageError) {
+        for (int failedStep = 0; failedStep < 6; failedStep++) {
+            ClientConnectionLifecycle.resetForTests();
+            QueueDispatcher queue = new QueueDispatcher();
+            FaultInjectingCleanup cleanup = new FaultInjectingCleanup(
+                    FaultInjectingCleanup.STEPS[failedStep], linkageError);
+            ClientConnectionListener subject = new ClientConnectionListener(queue, cleanup);
+            final AtomicInteger initCount = new AtomicInteger();
+            subject.initHookForTests = new Runnable() { @Override public void run() { initCount.incrementAndGet(); }};
+
+            subject.handleConnected(new Object());
+            Assert.assertEquals(1, queue.size());
+            queue.runAll();
+
+            Assert.assertEquals("all cleanup steps must be attempted", FaultInjectingCleanup.expectedSteps(), cleanup.attempts);
+            Assert.assertEquals("takeover init must continue after cleanup failure", 1, initCount.get());
+            Assert.assertEquals("dispatcher drain must complete", 0, queue.size());
+        }
+    }
+
+    private void assertCleanupFailuresAreIsolatedOnDisconnect(boolean linkageError) {
+        for (int failedStep = 0; failedStep < 6; failedStep++) {
+            ClientConnectionLifecycle.resetForTests();
+            QueueDispatcher queue = new QueueDispatcher();
+            FaultInjectingCleanup cleanup = new FaultInjectingCleanup(
+                    FaultInjectingCleanup.STEPS[failedStep], linkageError);
+            ClientConnectionListener subject = new ClientConnectionListener(queue, cleanup);
+            final AtomicInteger initCount = new AtomicInteger();
+            subject.initHookForTests = new Runnable() { @Override public void run() { initCount.incrementAndGet(); }};
+            Object handler = new Object();
+            subject.handleConnected(handler);
+            queue.runAll();
+            Assert.assertEquals("takeover init must complete before disconnect", 1, initCount.get());
+            cleanup.attempts.clear();
+
+            subject.handleDisconnected(handler);
+            Assert.assertEquals(1, queue.size());
+            queue.runAll();
+
+            Assert.assertEquals(FaultInjectingCleanup.expectedSteps(), cleanup.attempts);
+            Assert.assertEquals("disconnect must not repeat init", 1, initCount.get());
+            Assert.assertEquals("dispatcher drain must complete", 0, queue.size());
+        }
     }
 
     /**
@@ -530,5 +561,36 @@ public class ClientConnectionListenerTest {
                 runNext();
             }
         }
+    }
+
+    /** 按名称在六个真实清理边界之一注入故障，并记录 listener 实际尝试顺序。 */
+    static final class FaultInjectingCleanup implements ClientConnectionListener.CleanupActions {
+        static final String[] STEPS = {"object-group", "auto-tool", "preview", "renderer", "phase", "pending"};
+        private final String failedStep;
+        private final boolean linkageError;
+        final List<String> attempts = new ArrayList<String>();
+
+        FaultInjectingCleanup(String failedStep, boolean linkageError) {
+            this.failedStep = failedStep;
+            this.linkageError = linkageError;
+        }
+        static List<String> expectedSteps() {
+            List<String> result = new ArrayList<String>();
+            for (String step : STEPS) result.add(step);
+            return result;
+        }
+        private void runStep(String step) {
+            attempts.add(step);
+            if (step.equals(failedStep)) {
+                if (linkageError) throw new LinkageError("cleanup-step-" + failedStep);
+                throw new IllegalStateException("cleanup-step-" + failedStep);
+            }
+        }
+        @Override public void clearObjectGroupPending() { runStep("object-group"); }
+        @Override public void resetAutoTool() { runStep("auto-tool"); }
+        @Override public void stopPreviewTask() { runStep("preview"); }
+        @Override public void disposeRenderer() { runStep("renderer"); }
+        @Override public void clearPhase() { runStep("phase"); }
+        @Override public void clearEventPending() { runStep("pending"); }
     }
 }
