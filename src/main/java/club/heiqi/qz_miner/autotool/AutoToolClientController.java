@@ -56,6 +56,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
     private int inventorySourceSlot = -1;
     private int inventoryAnchorSlot = -1;
     private Object expectedToolIdentity;
+    private boolean expectedToolIdentityTracked;
     private Object playerIdentity;
     private boolean playerWasDead;
 
@@ -128,8 +129,16 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
     @Override public void onStatusChanged(VanillaInventoryTransactionBridge.Status status) {
         if (resettingLifecycle) return;
         if (status == VanillaInventoryTransactionBridge.Status.ACTIVE) {
+            if (inventoryAnchorSlot >= 0) {
+                expectedHotbarSlot = inventoryAnchorSlot;
+                expectedToolIdentity = facade.inventoryIdentity(inventoryAnchorSlot);
+                expectedToolIdentityTracked = true;
+            } else {
+                clearExpectedIdentity();
+            }
             execute(coordinator.confirm(snapshot()));
         } else if (status == VanillaInventoryTransactionBridge.Status.IDLE) {
+            clearExpectedIdentity();
             inventorySourceSlot = inventoryAnchorSlot = -1;
             execute(coordinator.confirm(snapshot()));
         } else {
@@ -150,7 +159,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
                 : Collections.<AutoToolCoordinator.Candidate<Object>>emptyList();
         result.currentHotbarSlot = facade.currentHotbarSlot();
         result.manualOverride = expectedHotbarSlot >= 0 && result.currentHotbarSlot != expectedHotbarSlot;
-        if (!result.manualOverride && expectedHotbarSlot >= 0 && expectedToolIdentity != null) {
+        if (!result.manualOverride && expectedHotbarSlot >= 0 && expectedToolIdentityTracked) {
             result.manualOverride = facade.inventoryIdentity(expectedHotbarSlot) != expectedToolIdentity;
         }
         result.minimumDurabilityReserve = facade.minimumDurabilityReserve();
@@ -167,6 +176,7 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
                 originalHotbarSlot = facade.currentHotbarSlot();
                 expectedHotbarSlot = command.slot;
                 expectedToolIdentity = identityForCandidate(command.slot);
+                expectedToolIdentityTracked = true;
                 facade.selectHotbarSlot(command.slot);
                 execute(coordinator.confirm(snapshot()));
                 break;
@@ -213,8 +223,13 @@ public final class AutoToolClientController implements VanillaInventoryTransacti
 
     private void clearExpectedSlots() {
         expectedHotbarSlot = originalHotbarSlot = -1;
-        expectedToolIdentity = null;
+        clearExpectedIdentity();
         inventorySourceSlot = inventoryAnchorSlot = -1;
+    }
+
+    private void clearExpectedIdentity() {
+        expectedToolIdentity = null;
+        expectedToolIdentityTracked = false;
     }
 
     private static int toInventorySlot(int containerSlot) { return containerSlot < 36 ? containerSlot : containerSlot - 36; }

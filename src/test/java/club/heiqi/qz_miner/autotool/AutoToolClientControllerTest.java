@@ -21,6 +21,7 @@ public class AutoToolClientControllerTest {
     @Test public void inventorySelectionRestoreAndBridgeConfirmAreCoordinated() {
         Fixture f = new Fixture(); f.add(12, 10.0D); f.pressAndStabilize();
         Assert.assertEquals(1, f.bridge.selects);
+        f.facade.identities[0] = f.facade.identities[12];
         f.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
         f.controller.onChainKeyChanged(false);
         Assert.assertEquals(1, f.bridge.restores);
@@ -99,6 +100,47 @@ public class AutoToolClientControllerTest {
         same.controller.tick(); Assert.assertEquals(2, same.facade.current);
     }
 
+    @Test public void confirmedInventoryIdentityDetectsNullAndReplacementButAllowsSameObjectMutation() {
+        Fixture discarded = activeInventoryFixture();
+        discarded.facade.identities[0] = null;
+        discarded.controller.tick();
+        Assert.assertEquals(1, discarded.bridge.restores);
+
+        Fixture replaced = activeInventoryFixture();
+        replaced.facade.identities[0] = new MutableIdentity();
+        replaced.controller.tick();
+        Assert.assertEquals(1, replaced.bridge.restores);
+
+        Fixture mutated = activeInventoryFixture();
+        MutableIdentity identity = (MutableIdentity) mutated.facade.identities[0];
+        identity.damage++;
+        mutated.controller.tick();
+        Assert.assertEquals(0, mutated.bridge.restores);
+    }
+
+    @Test public void rejectedAndResyncedTransactionsClearConfirmedInventoryIdentity() {
+        Fixture rejected = activeInventoryFixture();
+        rejected.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.PAUSED);
+        rejected.facade.identities[0] = new Object();
+        rejected.controller.tick();
+        Assert.assertEquals(0, rejected.bridge.restores);
+
+        Fixture resynced = activeInventoryFixture();
+        resynced.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.IDLE);
+        resynced.facade.identities[0] = new Object();
+        resynced.controller.tick();
+        Assert.assertEquals(0, resynced.bridge.restores);
+    }
+
+    @Test public void lateAcceptedStatusAfterResetCannotReintroduceInventoryIdentity() {
+        Fixture fixture = activeInventoryFixture();
+        fixture.controller.resetLifecycle();
+        fixture.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
+        fixture.facade.identities[0] = new Object();
+        fixture.controller.tick();
+        Assert.assertEquals(0, fixture.bridge.restores);
+    }
+
     @Test public void restoreFalseKeepsHotbarAndInventoryLayoutsIncludingPending() {
         Fixture hotbar = new Fixture(); hotbar.facade.restore = false; hotbar.add(2, 10.0D); hotbar.pressAndStabilize();
         hotbar.controller.onChainKeyChanged(false);
@@ -122,6 +164,17 @@ public class AutoToolClientControllerTest {
         }
         void pressAndStabilize() { controller.onChainKeyChanged(true); controller.tick(); }
     }
+    private static Fixture activeInventoryFixture() {
+        Fixture fixture = new Fixture();
+        MutableIdentity identity = new MutableIdentity();
+        fixture.facade.identities[12] = identity;
+        fixture.add(12, 10.0D);
+        fixture.pressAndStabilize();
+        fixture.facade.identities[0] = identity;
+        fixture.controller.onStatusChanged(VanillaInventoryTransactionBridge.Status.ACTIVE);
+        return fixture;
+    }
+    private static final class MutableIdentity { int damage; }
     private static final class FakeFacade implements AutoToolClientController.Facade {
         boolean enabled = true, breakMode = true, valid = true, restore = true, dead; int current, stableTicks = 2, graceTicks = 2;
         Object player = new Object(); final Object[] identities = new Object[36];
