@@ -25,11 +25,13 @@ launcher 先完整写入 `.writing`，再依次原子移动为 pending 与 canon
 ## 命令
 
 ```powershell
-pwsh scripts/run-gradle-opencode.ps1 -Action Start -GradleArgs @('compileJava')
-pwsh scripts/run-gradle-opencode.ps1 -Action Poll -RunId '<RunId>'
-pwsh scripts/run-gradle-opencode.ps1 -Action Wait -RunId '<RunId>' -WaitSeconds 30
-pwsh scripts/run-gradle-opencode.ps1 -SelfTest
+& .\scripts\run-gradle-opencode.ps1 -Action Start -GradleArgs @('compileJava')
+& .\scripts\run-gradle-opencode.ps1 -Action Poll -RunId '<RunId>'
+& .\scripts\run-gradle-opencode.ps1 -Action Wait -RunId '<RunId>' -WaitSeconds 30
+& .\scripts\run-gradle-opencode.ps1 -SelfTest
 ```
+
+Gradle 参数为数组；多项参数必须在当前 PowerShell 进程中用调用运算符 `&` 传入。不得用外层 `pwsh -File ... -GradleArgs @(...)`，否则该数组不能可靠地按预期绑定。
 
 SelfTest 不调用真实 Gradle，也不在仓库写产物。它仅在当前 PowerShell 进程内临时替换测试所需脚本变量，并在 `finally` 恢复；生产入口没有环境 fixture、runtime/wrapper override 或跳过环境检查的隐藏入口。跨进程 guard 测试使用 SelfTest 临时生成的最小 helper，不进入生产 CLI。
 
