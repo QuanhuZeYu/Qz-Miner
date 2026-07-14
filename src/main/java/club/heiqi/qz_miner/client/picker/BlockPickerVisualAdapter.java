@@ -20,11 +20,12 @@ public final class BlockPickerVisualAdapter implements VisualAdapter {
     public BlockPickerVisualAdapter(java.util.List<BlockCandidate> source) {
         for (BlockCandidate candidate : source) {
             if (candidate.representative() != null) {
-                candidates.put(candidate.registry(), HostImageSource.itemStack(candidate.representative()));
+                candidates.put(candidate.registry(), HostImageSource.itemStackSnapshot(candidate.representative()));
             }
             for (BlockVariant variant : candidate.variants()) {
                 if (variant.stack() != null) {
-                    variants.put(candidate.registry() + "@" + variant.metadata(), HostImageSource.itemStack(variant.stack()));
+                    variants.put(candidate.registry() + "@" + variant.metadata(),
+                            HostImageSource.itemStackSnapshot(variant.stack()));
                 }
             }
         }
