@@ -120,10 +120,10 @@ $protocolAssertions = @(
   @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.ps1','禁(?:止)?直接 wrapper','自造 `?Start-Process','qz-control-envelope/v1','pwsh.*最低 7') },
   @{ Path=".opencode/agents/build.md"; Patterns=@('qz-gradle-opencode/v1','不直接调用 wrapper','Start-Process','控制器','pwsh.*最低 7') },
   @{ Path=".opencode/agents/fixer.md"; Patterns=@('qz-gradle-opencode/v1','禁直接 wrapper','Start-Process','PostWrite','最多 5 次') },
-  @{ Path=".opencode/agents/reviewer.md"; Patterns=@('仅当.*合同.*复验','qz-gradle-opencode/v1','P2.*死区','CONTRACT_UPGRADE_REQUIRED') },
+  @{ Path=".opencode/agents/reviewer.md"; Patterns=@('仅当.*合同.*复验','qz-gradle-opencode/v1','P2.*非阻断','P2.*不触发 fixer','CONTRACT_UPGRADE_REQUIRED') },
   @{ Path="docs/控制律层/稳定命令.md"; Patterns=@('Start/Poll/Wait') },
   @{ Path="docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md"; Patterns=@('RunId','INCOMPLETE','抗积分饱和','误差','pwsh.*最低 7') },
-  @{ Path="docs/控制律层/编排模式/CONTROL-ENVELOPE.md"; Patterns=@('qz-control-envelope/v1','allowedWrites','审查死区','第 5 次') }
+  @{ Path="docs/控制律层/编排模式/CONTROL-ENVELOPE.md"; Patterns=@('qz-control-envelope/v1','allowedWrites','P2.*非阻断','P2.*不触发 fixer','第 5 次') }
 )
 foreach ($assertion in $protocolAssertions) {
   $text = Get-Content (Join-Path $root $assertion.Path) -Raw
