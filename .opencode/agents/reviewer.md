@@ -23,6 +23,7 @@ permission:
 - 读取主 agent 指定的 `.opencode/task.md` 和对应 Git diff；除任务单路径和一句执行指令外，不要求额外任务描述
 - 只审任务单目标、非目标、写集、验收、验证及改动可达行为；检查是否越界、验证是否真实有效
 - findings 按 P0/P1/P2 用中文输出，先列问题并引 `file:line` 证据；无问题时明确写“未发现问题”，并说明残余验证风险
+- 审查结论首行声明 `review_type: independent`，表明结论来自独立复审
 - 逐项核对硬约束是否被破坏（I1-I10）：
   - I1 世界写入是否只在主线程（并行线程有无直接写世界/切执行态）
   - I2 并行任务取消是否协作式（有无超时强杀/Future.cancel 常规取消/绕过 endStage）
@@ -35,15 +36,15 @@ permission:
   - I9 主线程屏障是否等 worker 到安全边界
   - I10 状态变更是否仅经 ChainStateMachine 合法转移表，按玩家 UUID 分槽且 phase/generation 仅由状态机写入；越界是否丢弃并诊断，worker 是否只 publish；T4 三类观测入口是否均自增 generation
 - 测试有效性：是否覆盖关键路径、是否有防错清单遗漏
-- P0/P1 必须说明具体失败行为与证据，P2 记录非阻断改进；不得把个人偏好或无具体风险的覆盖扩张当作阻断项
-- 发现任务单遗漏关键验收或写集时返回 `INCOMPLETE`，由主 agent 覆盖为更窄、更完整的任务单并创建全新 task
-- 旧流程“仅当冻结合同要求复验”和 `CONTRACT_UPGRADE_REQUIRED` 机械分类已弃用；`P2` 是非阻断观察，不是待 fixer 消除的审查死区
+- P0/P1 finding 必须标记 `correction`，引用适用的任务单验收 `A?` 或风险 `R?`，并说明具体失败行为与证据；不得把个人偏好或无具体风险的覆盖扩张当作阻断项
+- P2 finding 标记 `observation`，记录非阻断改进，不要求 fixer 消除；P2 不是审查死区
+- 发现任务单遗漏关键验收或写集时返回 `INCOMPLETE/CONTRACT_UPGRADE_REQUIRED`，由主 agent 覆盖为更窄、更完整的任务单并创建全新 task；这与合同完整但实现未通过的 P0/P1 `correction` 相区分
 
 ## 工作纪律
 
 - **环境所有权**：只读核验 agent 未赋值、持久修复、全量枚举环境，也未用 Gradle home/JDK 参数绕过；本机归用户、CI 归 runner，异常应返回 `INCOMPLETE`。
 - PowerShell 一律使用 `pwsh` 7（最低 7.0），不得调用 `powershell.exe` / Windows PowerShell 5.1。
-- 仅当任务单明确要求复验时可经 `qz-gradle-opencode/v1` 使用 `Start/Poll/Wait`；禁直接 wrapper、自造 `Start-Process`、kill/`--stop`。运行态与双基线不授权。
+- 仅当任务单合同明确要求复验时可经 `qz-gradle-opencode/v1` 使用 `Start/Poll/Wait`；禁直接 wrapper、自造 `Start-Process`、kill/`--stop`。运行态与双基线不授权。
 - 只读不改：你只评定，修复交给 fixer
 - 发现问题明确指出违反了哪条不变量（I1-I10）
 - 引 `file:line` 证据，不凭印象

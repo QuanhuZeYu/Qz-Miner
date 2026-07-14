@@ -4,7 +4,9 @@
 
 当前写集与复审要求只以活动任务单为准，不继承旧控制包的 `allowedWrites`。旧协议的“第 5 次”停止规则已经失效；P2 非阻断观察不是审查死区，不触发 fixer，只有 P0/P1 阻断。
 
-reviewer 发现任务单遗漏关键验收或写集时，应返回 `INCOMPLETE`；由主 agent 覆盖更完整的任务单并创建全新 task。
+当前流程只保留轻量审查锚点：验收使用 `A?`，可选风险使用 `R?`。reviewer 声明 `review_type: independent`；P0/P1 finding 标记 `correction` 并引用适用的 `A?`/`R?`，P2 标记 `observation` 且不阻断。
+
+reviewer 发现任务单遗漏关键验收或写集时，应返回 `INCOMPLETE/CONTRACT_UPGRADE_REQUIRED`；由主 agent 覆盖更完整的任务单并创建全新 task。该结果表示合同需升级，不与合同完整但实现失败的 P0/P1 `correction` 混同。
 
 当前流程以中文 Markdown 活动任务单 `.opencode/task.md` 为唯一载体。任务单格式、生命周期和派发方式见 [`TASK-BRIEF.md`](TASK-BRIEF.md)，完整编排纪律见 [`SUBAGENT-ORCHESTRATION.md`](SUBAGENT-ORCHESTRATION.md)。
 
