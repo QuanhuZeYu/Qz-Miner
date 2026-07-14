@@ -124,16 +124,20 @@ public class BlockPickerProviderTest {
         Assert.assertTrue(provider.codec() instanceof ListMemberCodec);
         SearchPickerData.Selection knownSelection = new ObjectGroupPickerCodec().decodeMember("minecraft:stone@03");
         SearchPickerData.Candidate knownCandidate = provider.searchFunction().search("stone", 64).candidates().get(0);
-        Assert.assertEquals("Stone · minecraft:stone@3", provider.presentation().currentMember(
-                new SearchPickerData.CurrentMember(1L, knownSelection, knownCandidate, true)));
+        SearchPickerData.CurrentMember known =
+                new SearchPickerData.CurrentMember(1L, knownSelection, knownCandidate, true);
+        Assert.assertEquals("Stone", provider.presentation().currentMemberPrimary(known));
+        Assert.assertEquals("minecraft:stone@3", provider.presentation().currentMemberSecondary(known));
 
         SearchPickerData.Selection unknownSelection = new ObjectGroupPickerCodec().decodeMember("missing:block@[8,4]");
-        Assert.assertEquals("missing:block@[4,8]", provider.presentation().currentMember(
-                new SearchPickerData.CurrentMember(2L, unknownSelection, null, false)));
-        Assert.assertEquals("无法读取当前方块规则", provider.presentation().currentMember(
-                new SearchPickerData.CurrentMember(3L, null, null, false)));
-        Assert.assertFalse(provider.presentation().currentMember(
-                new SearchPickerData.CurrentMember(3L, null, null, false)).contains("not a selector"));
+        SearchPickerData.CurrentMember unknown =
+                new SearchPickerData.CurrentMember(2L, unknownSelection, null, false);
+        Assert.assertEquals("missing:block", provider.presentation().currentMemberPrimary(unknown));
+        Assert.assertEquals("missing:block@[4,8]", provider.presentation().currentMemberSecondary(unknown));
+        SearchPickerData.CurrentMember malformed = new SearchPickerData.CurrentMember(3L, null, null, false);
+        Assert.assertEquals("无法读取当前方块规则", provider.presentation().currentMemberPrimary(malformed));
+        Assert.assertEquals("", provider.presentation().currentMemberSecondary(malformed));
+        Assert.assertFalse(provider.presentation().currentMemberPrimary(malformed).contains("not a selector"));
         Assert.assertFalse(provider.presentation().invalidMemberBadge().contains("not a selector"));
         Assert.assertEquals("警告/重复", provider.presentation().duplicateMemberBadge());
     }

@@ -55,7 +55,8 @@ public final class BlockPickerProvider implements ValueEditorProvider {
                 .invalidIssue("无效")
                 .warningSeverity("警告")
                 .duplicateIssue("重复")
-                .currentMemberFormatter(member -> formatCurrentMember(member, pickerCodec))
+                .currentMemberPrimaryFormatter(BlockPickerProvider::formatCurrentMemberPrimary)
+                .currentMemberSecondaryFormatter(member -> formatCurrentMemberSecondary(member, pickerCodec))
                 .resultSummaryFormatter(count -> count + " 个结果")
                 .truncated("结果已截断，请继续缩小搜索范围")
                 .decodeError("无法读取当前方块规则，原规则未变")
@@ -71,12 +72,17 @@ public final class BlockPickerProvider implements ValueEditorProvider {
     public SearchPickerPresentation presentation() { return presentation; }
     public CurrentValuePresenter currentValuePresenter() { return currentValuePresenter; }
 
-    /** 将成员选择格式化为本地化名称与 canonical 规则，错误成员不暴露 raw。 */
-    private static String formatCurrentMember(SearchPickerData.CurrentMember member,
-            ObjectGroupPickerCodec pickerCodec) {
+    /** 将成员选择格式化为本地化主名称，错误成员不暴露 raw。 */
+    private static String formatCurrentMemberPrimary(SearchPickerData.CurrentMember member) {
         if (member.selection() == null) return "无法读取当前方块规则";
-        String canonical = (String) pickerCodec.encodeMember(null, member.selection());
-        return member.enumerated() ? member.candidate().label() + " · " + canonical : canonical;
+        return member.enumerated() ? member.candidate().label() : member.selection().candidateKey();
+    }
+
+    /** 将合法成员选择格式化为完整 canonical 补充信息。 */
+    private static String formatCurrentMemberSecondary(SearchPickerData.CurrentMember member,
+            ObjectGroupPickerCodec pickerCodec) {
+        if (member.selection() == null) return "";
+        return (String) pickerCodec.encodeMember(null, member.selection());
     }
 
     private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result) {
