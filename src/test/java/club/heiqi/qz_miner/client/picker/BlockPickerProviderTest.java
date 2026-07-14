@@ -101,7 +101,7 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("已配置4条", text.configuredSummary(4));
         Assert.assertEquals("无效2 · 重复3", text.memberIssueSummary(2, 3));
         Assert.assertEquals("已配置5条 · 无效2 · 重复3", text.configuredSummary(5, 2, 3));
-        Assert.assertEquals("高级编辑原始规则", text.advancedRaw());
+        Assert.assertEquals("高级自定义", text.advancedRaw());
         Assert.assertEquals("当前无规则", text.emptyCurrentMembers());
         Assert.assertEquals("无匹配结果", text.emptySearchResults());
         Assert.assertEquals("编辑", text.edit());

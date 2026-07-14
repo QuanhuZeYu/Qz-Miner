@@ -44,7 +44,7 @@ public final class BlockPickerProvider implements ValueEditorProvider {
                 .configuredSummaryFormatter(count -> "已配置" + count + "条")
                 .invalidSummaryFormatter(count -> "无效" + count)
                 .duplicateSummaryFormatter(count -> "重复" + count)
-                .advancedRaw("高级编辑原始规则")
+                .advancedRaw("高级自定义")
                 .emptyCurrentMembers("当前无规则")
                 .emptySearchResults("无匹配结果")
                 .edit("编辑")
