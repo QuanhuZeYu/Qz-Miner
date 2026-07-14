@@ -23,7 +23,7 @@ permission:
 - 读取主 agent 指定的 `.opencode/task.md` 和对应 Git diff；除任务单路径和一句执行指令外，不要求额外任务描述
 - 只审任务单目标、非目标、写集、验收、验证及改动可达行为；检查是否越界、验证是否真实有效
 - findings 按 P0/P1/P2 用中文输出，先列问题并引 `file:line` 证据；无问题时明确写“未发现问题”，并说明残余验证风险
-- 审查结论首行按改动类型声明 `review_type: code-change`、`review_type: agent-framework` 或 `review_type: docs-only`；只选择一种，分别对应产品代码改动、agent 框架改动和纯文档改动
+- 审查结论首行按改动类型声明 `review_type=code-change`、`review_type=agent-framework` 或 `review_type=docs-only`；只选择一种，分别对应产品代码改动、agent 框架改动和纯文档改动
 - 逐项核对硬约束是否被破坏（I1-I10）：
   - I1 世界写入是否只在主线程（并行线程有无直接写世界/切执行态）
   - I2 并行任务取消是否协作式（有无超时强杀/Future.cancel 常规取消/绕过 endStage）
