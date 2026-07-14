@@ -73,9 +73,10 @@
 - 协议超时/孤儿返回 `INCOMPLETE` 并保留锁。`runClient*`/`runServer*` 仍交用户；`verify-gtnh-baselines.ps1` 暂不授权。
 
 ### 1.6 Subagent 编排
-- 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`（唯一权威，含闭环本能/盘查纪律/分工/并行串行/返回封存/独立审核/fixer 作用最多 5 次/5 分钟红线）
-- 非平凡写盘必须先冻结 `.opencode/control-envelope.json`（`qz-control-envelope/v1`），经 `PreWrite/PostWrite/Review` 守写集、误差向量、审查死区与抗积分饱和；权威合同见 `docs/控制律层/编排模式/CONTROL-ENVELOPE.md`
-- 任何 Task 调用一旦返回主 agent，不论状态或是否为空，旧 `task_id` 立即封存且仅供审计，**DO NOT PASS**。纠偏、重试或继续工作必须压缩已验证事实后新开范围更窄的 task，不得传旧 `task_id`；状态只表达结果语义，不授予恢复权，成本约束优先于子会话上下文连续性。
+- 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`；非平凡任务以 `.opencode/task.md` 作为唯一活动任务单，格式见 `docs/控制律层/编排模式/TASK-BRIEF.md`
+- 主 agent 只向子 agent 传任务单路径和一句执行指令；fixer 按任务单写集实施、验证并提交，写盘改动随后由 reviewer 读取同一任务单与 Git diff 独立复审
+- 任何 Task 调用一旦返回主 agent，旧 `task_id` 不得复用。纠偏、重试或继续工作必须覆盖任务单为更窄范围，并创建全新 task
+- `qz-control-envelope/v1` 已弃用，不再是写盘或复审前置条件
 - 决策点用中文 question 向用户拍板，subagent 不替用户做架构决定
 
 ## 二、传感层 Sensor — 如何测量产出是否达标
