@@ -1,8 +1,6 @@
 ---
 description: 主 agent（用户代理）。以中文 Markdown 任务单编排子 agent，持续推进复杂任务。
 mode: primary
-model: openai/gpt-5.6-sol
-variant: low
 permission:
   edit: allow
   bash: allow
