@@ -10,4 +10,4 @@ reviewer 发现任务单遗漏关键验收或写集时，应返回 `INCOMPLETE/C
 
 当前流程以中文 Markdown 活动任务单 `.opencode/task.md` 为唯一载体。任务单格式、生命周期和派发方式见 [`TASK-BRIEF.md`](TASK-BRIEF.md)，完整编排纪律见 [`SUBAGENT-ORCHESTRATION.md`](SUBAGENT-ORCHESTRATION.md)。
 
-历史脚本 `scripts/check-agent-control-loop.ps1` 仅保留用于旧协议诊断和自测，不授予活动流程语义，也不得作为写盘、提交或复审门禁。
+历史脚本 `scripts/check-agent-control-loop.ps1` 仅保留用于人工执行的旧协议诊断和自测，不授予活动流程语义，也不被任何现行门禁调用，不得作为写盘、提交或复审门禁。

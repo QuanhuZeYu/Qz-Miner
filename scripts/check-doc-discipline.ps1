@@ -77,12 +77,6 @@ if ($LASTEXITCODE -ne 0) {
   $violations += "[环境所有权] check-agent-environment-ownership.ps1 失败，详见上方输出"
 }
 
-$controlLoop = Join-Path $PSScriptRoot "check-agent-control-loop.ps1"
-& $controlLoop -SelfTest
-if ($LASTEXITCODE -ne 0) {
-  $violations += "[控制环] check-agent-control-loop.ps1 失败，详见上方输出"
-}
-
 if ($violations.Count -gt 0) {
   Write-Host "文档纪律门禁失败：" -ForegroundColor Red
   $violations | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
