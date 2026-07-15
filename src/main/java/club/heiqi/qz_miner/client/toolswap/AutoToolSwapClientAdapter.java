@@ -13,6 +13,8 @@ import club.heiqi.qz_miner.toolswap.ToolSelector;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
@@ -67,6 +69,7 @@ public final class AutoToolSwapClientAdapter {
         boolean preFrozen = down && consumePreEdgeDestroyLatch();
         clearPreEdgeDestroyLatch();
         keyDown = down;
+        if (down) dedicatedRoundEnded = false;
         if (!down) protocol.markClosing();
         ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive());
         if (light == null) {
@@ -131,6 +134,8 @@ public final class AutoToolSwapClientAdapter {
         AutoToolSwapClientProtocolSnapshot snapshot = protocol.onRoundResult(protocolVersion, clientNonce,
                 serverRoundId, resultCode, roundState, nextActionSequence, serverTick, rawValid);
         if (snapshot == null) return;
+        roundSentTick = -1L;
+        roundRetransmitted = false;
         if (snapshot.phase() == AutoToolSwapClientProtocolPhase.OPEN
                 || snapshot.phase() == AutoToolSwapClientProtocolPhase.CLOSING) {
             controller.onRoundAccepted();
@@ -154,6 +159,16 @@ public final class AutoToolSwapClientAdapter {
         actionSentTick = -1L;
         actionRetransmitted = false;
         controller.onActionSettled(settlement.intent().action(), settlement.result().outcome(), clientTick);
+        if (settlement.intent().action() == AutoToolSwapAction.CLOSE
+                && settlement.result().roundState() == AutoToolSwapRoundState.FINISHED
+                && (settlement.result().outcome() == AutoToolSwapResultCode.ACCEPTED
+                        || settlement.result().outcome() == AutoToolSwapResultCode.APPLIED)) {
+            protocol.reset();
+            roundSentTick = -1L;
+            roundRetransmitted = false;
+            actionSentTick = -1L;
+            actionRetransmitted = false;
+        }
         executeCommands();
     }
 

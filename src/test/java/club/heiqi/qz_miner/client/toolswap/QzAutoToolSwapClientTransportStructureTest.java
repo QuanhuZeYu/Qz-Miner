@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** Qz C2S transport 的未接线发送边界结构门禁。 */
+/** Qz C2S transport 的已接线发送边界结构门禁。 */
 public class QzAutoToolSwapClientTransportStructureTest {
 
     @Test

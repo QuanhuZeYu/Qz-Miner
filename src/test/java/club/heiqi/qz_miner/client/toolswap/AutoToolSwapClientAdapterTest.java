@@ -12,6 +12,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
+import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolPhase;
 import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolState;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
@@ -100,6 +101,74 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void closeFinishedResetsProtocolAndNextPressUsesNewRoundDespiteDuplicateClose() {
+        adapter.onChainKeyState(true);
+        long firstNonce = transport.rounds.get(0).longValue();
+        acceptRound();
+        adapter.onChainKeyState(false);
+        AutoToolSwapIntent close = transport.intents.get(0);
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapClientProtocolPhase.IDLE, adapter.protocolForTests().snapshot().phase());
+
+        adapter.onChainKeyState(true);
+        Assert.assertEquals(2, transport.rounds.size());
+        Assert.assertTrue(transport.rounds.get(1).longValue() > firstNonce);
+        adapter.onActionResult(AutoToolSwapProtocol.PROTOCOL_VERSION, close.serverRoundId(), close.actionSequence(),
+                close.action().wireCode(), AutoToolSwapResultCode.ACCEPTED.wireCode(),
+                AutoToolSwapRoundState.FINISHED.wireCode(), close.anchorSlot(), close.candidateSlot(),
+                close.actionSequence() + 1L, 1L, true);
+        acceptRound(1, 10L);
+        Assert.assertEquals(AutoToolSwapClientProtocolPhase.OPEN, adapter.protocolForTests().snapshot().phase());
+    }
+
+    @Test
+    public void rejectedRoundReleaseAllowsAnotherRoundWithoutClose() {
+        adapter.onChainKeyState(true);
+        rejectRound(0);
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(AutoToolSwapState.IDLE, adapter.controllerForTests().state());
+        Assert.assertTrue(transport.intents.isEmpty());
+
+        adapter.onChainKeyState(true);
+        Assert.assertEquals(2, transport.rounds.size());
+    }
+
+    @Test
+    public void naturalIdleDoesNotSuppressNextCycleChainActive() {
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 1L, true);
+        AutoToolSwapIntent close = transport.intents.get(0);
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        adapter.onChainKeyState(false);
+        adapter.onChainKeyState(true);
+
+        Assert.assertEquals(2, transport.rounds.size());
+    }
+
+    @Test
+    public void inapplicableCyclesDoNotSendRoundStart() {
+        adapter.onConfigChanged(false, Collections.emptyList());
+        adapter.onChainKeyState(true);
+        Assert.assertTrue(transport.rounds.isEmpty());
+
+        assertNoRoundStart(false, false);
+        assertNoRoundStart(true, true);
+    }
+
+    @Test
+    public void nonCloseSettlementDoesNotResetProtocol() {
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        AutoToolSwapIntent swap = transport.intents.get(0);
+        settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+
+        Assert.assertEquals(AutoToolSwapClientProtocolPhase.OPEN, adapter.protocolForTests().snapshot().phase());
+    }
+
+    @Test
     public void transportFailureAndLifecycleResetNeverSendRecoveryPackets() {
         transport.accept = false;
         adapter.onChainKeyState(true);
@@ -124,8 +193,29 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     private void acceptRound() {
-        adapter.onRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, transport.rounds.get(0).longValue(), 9L,
+        acceptRound(0, 9L);
+    }
+
+    private void acceptRound(int index, long roundId) {
+        adapter.onRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, transport.rounds.get(index).longValue(), roundId,
                 AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(), 1L, 0L, true);
+    }
+
+    private void rejectRound(int index) {
+        adapter.onRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, transport.rounds.get(index).longValue(), 0L,
+                AutoToolSwapResultCode.REJECTED.wireCode(), AutoToolSwapRoundState.PENDING_KEY.wireCode(), 1L, 0L,
+                true);
+    }
+
+    private void assertNoRoundStart(boolean breakCapable, boolean creative) {
+        FakeGame invalidGame = new FakeGame();
+        invalidGame.breakCapable = breakCapable;
+        invalidGame.creative = creative;
+        RecordingTransport invalidTransport = new RecordingTransport();
+        AutoToolSwapClientAdapter invalidAdapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(),
+                invalidGame, invalidTransport, new AutoToolSwapClientProtocolState());
+        invalidAdapter.onChainKeyState(true);
+        Assert.assertTrue(invalidTransport.rounds.isEmpty());
     }
 
     private void settle(AutoToolSwapIntent intent, AutoToolSwapResultCode result, AutoToolSwapRoundState state) {
@@ -169,8 +259,10 @@ public class AutoToolSwapClientAdapterTest {
     private static final class FakeGame implements AutoToolSwapClientAdapter.GameFacade {
         private ToolSwapInventorySnapshot inventory = restored();
         private boolean physicalKeyDown;
+        private boolean breakCapable = true;
+        private boolean creative;
         @Override public ToolSwapLightContext captureLightContext(long tick, boolean active) {
-            return new ToolSwapLightContext(tick, true, false, false, active, 0);
+            return new ToolSwapLightContext(tick, breakCapable, creative, false, active, 0);
         }
         @Override public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
                 int anchor, int candidate) {

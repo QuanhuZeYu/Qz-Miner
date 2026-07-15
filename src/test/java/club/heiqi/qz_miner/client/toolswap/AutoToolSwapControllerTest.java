@@ -28,6 +28,29 @@ public class AutoToolSwapControllerTest {
     }
 
     @Test
+    public void releaseAfterRejectedRoundReturnsIdleWithoutCloseAndCanBeginAnotherRound() {
+        AutoToolSwapController controller = controller();
+        controller.onKeyState(true, context(0, restored()), false);
+        only(controller);
+        controller.onRoundRejected();
+
+        controller.onKeyState(false, context(1, restored()), false);
+        Assert.assertEquals(AutoToolSwapState.IDLE, controller.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+
+        controller.onKeyState(true, context(2, restored()), false);
+        Assert.assertEquals(ToolSwapCommand.Type.BEGIN_ROUND, only(controller).type);
+    }
+
+    @Test
+    public void inapplicableCycleWaitsForReleaseWithoutOpeningRound() {
+        assertInapplicableCycleHasNoRound(new ToolSwapContext(0, true, false, false, true, false, 0, restored()));
+        assertInapplicableCycleHasNoRound(new ToolSwapContext(0, false, false, false, true, true, 0, restored()));
+        assertInapplicableCycleHasNoRound(new ToolSwapContext(0, true, true, false, true, true, 0, restored()));
+    }
+
+    @Test
     public void appliedResultAndTargetInventoryAreIndependentGates() {
         AutoToolSwapController controller = acceptedSwap();
         ToolSwapCommand swap = only(controller);
@@ -62,6 +85,19 @@ public class AutoToolSwapControllerTest {
         AutoToolSwapController timeout = swapWaitingForInventory();
         timeout.onInventoryObserved(protectedSlots(restored()), 40);
         Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED, timeout.transactionState());
+    }
+
+    @Test
+    public void untrustedInventoryWaitsUntilTimeoutWhileTargetLayoutWinsAtTimeout() {
+        AutoToolSwapController waiting = swapWaitingForInventory();
+        waiting.onInventoryObserved(ToolSwapInventorySnapshot.untrusted(), 39);
+        Assert.assertEquals(ToolSwapTransactionState.INVENTORY_SYNC_VERIFY, waiting.transactionState());
+        waiting.onInventoryObserved(ToolSwapInventorySnapshot.untrusted(), 40);
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED, waiting.transactionState());
+
+        AutoToolSwapController target = swapWaitingForInventory();
+        target.onInventoryObserved(protectedSlots(swapped()), 40);
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, target.transactionState());
     }
 
     @Test
@@ -123,6 +159,16 @@ public class AutoToolSwapControllerTest {
         controller.onRoundAccepted();
         controller.onTick(context(0, restored()));
         return controller;
+    }
+
+    private static void assertInapplicableCycleHasNoRound(ToolSwapContext context) {
+        AutoToolSwapController controller = controller();
+        controller.onKeyState(true, context, false);
+        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, controller.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+        controller.onKeyState(false, context, false);
+        Assert.assertEquals(AutoToolSwapState.IDLE, controller.state());
     }
 
     private static AutoToolSwapController completedSwap() {

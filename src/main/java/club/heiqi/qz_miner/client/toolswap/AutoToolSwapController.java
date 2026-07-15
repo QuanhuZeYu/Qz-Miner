@@ -109,6 +109,10 @@ public final class AutoToolSwapController {
         if (down == keyDown) return;
         keyDown = down;
         if (!down) {
+            if (state == AutoToolSwapState.WAIT_RELEASE) {
+                finishWaitRelease();
+                return;
+            }
             requestClose(true);
             return;
         }
@@ -278,7 +282,11 @@ public final class AutoToolSwapController {
     /** APPLIED 后每 tick 仅使用受保护槽观察本地库存。 */
     public void onInventoryObserved(ToolSwapInventorySnapshot inventory, long tick) {
         if (transactionState != ToolSwapTransactionState.INVENTORY_SYNC_VERIFY || ledger == null) return;
-        if (!hasTrustedProtectedSlots(inventory)) return;
+        long elapsed = tick - inventoryVerifyStartedTick;
+        if (!hasTrustedProtectedSlots(inventory)) {
+            if (elapsed >= INVENTORY_SYNC_TIMEOUT_TICKS) protocolOrphaned();
+            return;
+        }
         boolean target = verifyingAction == AutoToolSwapAction.SWAP
                 ? ledger.matchesSwapped(inventory, generation) : ledger.matchesRestored(inventory, generation);
         boolean source = verifyingAction == AutoToolSwapAction.SWAP
@@ -298,7 +306,7 @@ public final class AutoToolSwapController {
             if (lastContext != null) drive(lastContext);
             return;
         }
-        if (!source || tick - inventoryVerifyStartedTick >= INVENTORY_SYNC_TIMEOUT_TICKS) protocolOrphaned();
+        if (!source || elapsed >= INVENTORY_SYNC_TIMEOUT_TICKS) protocolOrphaned();
     }
 
     /** adapter 在 transport 异常、超时或协议失配时调用。 */
@@ -327,9 +335,14 @@ public final class AutoToolSwapController {
         pendingAnchor = null;
         ledger = null;
         pendingAction = null;
+        transactionState = ToolSwapTransactionState.IDLE;
+        if (!cycleEnabled || !context.breakCapable || context.creative || !context.chainActive) {
+            state = AutoToolSwapState.WAIT_RELEASE;
+            resetCycleFlags();
+            return;
+        }
         transactionState = ToolSwapTransactionState.ROUND_PENDING;
-        state = !cycleEnabled || !context.breakCapable || context.creative || !context.chainActive
-                ? AutoToolSwapState.WAIT_RELEASE : (preFrozen ? AutoToolSwapState.FROZEN : AutoToolSwapState.PREPARING);
+        state = preFrozen ? AutoToolSwapState.FROZEN : AutoToolSwapState.PREPARING;
         commands.add(command(ToolSwapCommand.Type.BEGIN_ROUND));
     }
 
@@ -428,6 +441,18 @@ public final class AutoToolSwapController {
         state = closeToWaitRelease && keyDown ? AutoToolSwapState.WAIT_RELEASE : AutoToolSwapState.IDLE;
         roundAccepted = false;
         ledger = null;
+        resetCycleFlags();
+    }
+
+    /** 松键结束无 round 的等待态，不产生 CLOSE 或 RESTORE 义务。 */
+    private void finishWaitRelease() {
+        commands.clear();
+        state = AutoToolSwapState.IDLE;
+        transactionState = ToolSwapTransactionState.IDLE;
+        roundAccepted = false;
+        ledger = null;
+        pendingAction = null;
+        verifyingAction = null;
         resetCycleFlags();
     }
 

@@ -7,7 +7,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
-/** Qz-Miner C2S packet 的客户端传输实现；本类尚未接线到运行态。 */
+/** 已由 ClientProxy 接入运行态的 Qz-Miner C2S packet 客户端传输实现。 */
 @SideOnly(Side.CLIENT)
 public final class QzAutoToolSwapClientTransport implements AutoToolSwapClientTransport {
 
