@@ -84,6 +84,63 @@ public class CommonProxy {
             int acceptedFlag, int groupCount, boolean rawValid, INetHandler netHandler) {
     }
 
+    /**
+     * 处理自动工具换位 round 结果（dedicated no-op）。
+     *
+     * @param protocolVersion 原始协议版本
+     * @param clientNonce 客户端 nonce
+     * @param serverRoundId 服务端 round id
+     * @param resultCode 原始结果码
+     * @param roundState 原始 round 状态
+     * @param nextActionSequence 下一动作序号
+     * @param serverTick 服务端 tick
+     * @param rawValid 是否完整捕获固定长度包
+     * @param netHandler 入包连接 identity
+     */
+    public void handleClientAutoToolSwapRoundResult(
+            int protocolVersion, long clientNonce, long serverRoundId, int resultCode, int roundState,
+            long nextActionSequence, long serverTick, boolean rawValid, INetHandler netHandler) {
+    }
+
+    /**
+     * 处理自动工具换位动作结果（dedicated no-op）。
+     *
+     * @param protocolVersion 原始协议版本
+     * @param serverRoundId 服务端 round id
+     * @param actionSequence 动作序号
+     * @param actionCode 原始动作码
+     * @param resultCode 原始结果码
+     * @param roundState 原始 round 状态
+     * @param anchorSlot 锚定槽位
+     * @param candidateSlot 候选槽位
+     * @param nextActionSequence 下一动作序号
+     * @param serverTick 服务端 tick
+     * @param rawValid 是否完整捕获固定长度包
+     * @param netHandler 入包连接 identity
+     */
+    public void handleClientAutoToolSwapActionResult(
+            int protocolVersion, long serverRoundId, long actionSequence, int actionCode, int resultCode,
+            int roundState, int anchorSlot, int candidateSlot, long nextActionSequence, long serverTick,
+            boolean rawValid, INetHandler netHandler) {
+    }
+
+    /**
+     * 处理自动工具换位 round 阶段快照（dedicated no-op）。
+     *
+     * @param protocolVersion 原始协议版本
+     * @param serverRoundId 服务端 round id
+     * @param phaseSequence 阶段序号
+     * @param phaseOrdinal 阶段原始值
+     * @param generation 阶段代际
+     * @param serverTick 服务端 tick
+     * @param rawValid 是否完整捕获固定长度包
+     * @param netHandler 入包连接 identity
+     */
+    public void handleClientAutoToolSwapRoundPhase(
+            int protocolVersion, long serverRoundId, long phaseSequence, int phaseOrdinal, int generation,
+            long serverTick, boolean rawValid, INetHandler netHandler) {
+    }
+
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}
 }

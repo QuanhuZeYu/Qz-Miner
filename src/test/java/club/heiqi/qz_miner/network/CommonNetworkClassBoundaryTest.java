@@ -39,16 +39,25 @@ public class CommonNetworkClassBoundaryTest {
         proxy.handleClientChainConfigSync(12, 345, 0, null);
         proxy.handleClientChainPhaseSnapshot(0, 1, 2L, null);
         proxy.handleClientObjectGroupConfigSync(1, 5L, 4L, 0, 0, true, null);
+        proxy.handleClientAutoToolSwapRoundResult(1, 2L, 3L, 4, 5, 6L, 7L, true, null);
+        proxy.handleClientAutoToolSwapActionResult(1, 2L, 3L, 4, 5, 6, 7, 8, 9L, 10L, true, null);
+        proxy.handleClientAutoToolSwapRoundPhase(1, 2L, 3L, 4, 5, 6L, true, null);
         proxy.handleClientLootGamesMinesweeperPreview(
                 1, new ChainTarget(0, 0, 0), new ArrayList<ChainTarget>(), null);
 
         Method config = findMethod(CommonProxy.class, "handleClientChainConfigSync");
         Method phase = findMethod(CommonProxy.class, "handleClientChainPhaseSnapshot");
         Method objectGroup = findMethod(CommonProxy.class, "handleClientObjectGroupConfigSync");
+        Method autoToolRound = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundResult");
+        Method autoToolAction = findMethod(CommonProxy.class, "handleClientAutoToolSwapActionResult");
+        Method autoToolPhase = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundPhase");
         Method preview = findMethod(CommonProxy.class, "handleClientLootGamesMinesweeperPreview");
         assertLastParamIsINetHandler(config);
         assertLastParamIsINetHandler(phase);
         assertLastParamIsINetHandler(objectGroup);
+        assertLastParamIsINetHandler(autoToolRound);
+        assertLastParamIsINetHandler(autoToolAction);
+        assertLastParamIsINetHandler(autoToolPhase);
         assertLastParamIsINetHandler(preview);
     }
 
@@ -66,6 +75,12 @@ public class CommonNetworkClassBoundaryTest {
         assertClassBytecodeClean(PacketChainPhaseSnapshot.Handler.class);
         assertClassBytecodeClean(PacketLootGamesMinesweeperPreviewResponse.class);
         assertClassBytecodeClean(PacketLootGamesMinesweeperPreviewResponse.Handler.class);
+        assertClassBytecodeClean(PacketAutoToolSwapRoundResult.class);
+        assertClassBytecodeClean(PacketAutoToolSwapRoundResult.Handler.class);
+        assertClassBytecodeClean(PacketAutoToolSwapActionResult.class);
+        assertClassBytecodeClean(PacketAutoToolSwapActionResult.Handler.class);
+        assertClassBytecodeClean(PacketAutoToolSwapRoundPhase.class);
+        assertClassBytecodeClean(PacketAutoToolSwapRoundPhase.Handler.class);
     }
 
     @Test
@@ -79,12 +94,21 @@ public class CommonNetworkClassBoundaryTest {
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
         params = findMethod(CommonProxy.class, "handleClientObjectGroupConfigSync").getParameterTypes();
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
+        params = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundResult").getParameterTypes();
+        Assert.assertEquals(INetHandler.class, params[params.length - 1]);
+        params = findMethod(CommonProxy.class, "handleClientAutoToolSwapActionResult").getParameterTypes();
+        Assert.assertEquals(INetHandler.class, params[params.length - 1]);
+        params = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundPhase").getParameterTypes();
+        Assert.assertEquals(INetHandler.class, params[params.length - 1]);
 
         // Handler 类本身可加载且 onMessage 存在（不 new NetworkMain / 不跑 FML channel）
         Assert.assertNotNull(PacketChainConfigSync.Handler.class.getName());
         Assert.assertNotNull(PacketChainPhaseSnapshot.Handler.class.getName());
         Assert.assertNotNull(PacketLootGamesMinesweeperPreviewResponse.Handler.class.getName());
         Assert.assertNotNull(PacketObjectGroupConfigSync.Handler.class.getName());
+        Assert.assertNotNull(PacketAutoToolSwapRoundResult.Handler.class.getName());
+        Assert.assertNotNull(PacketAutoToolSwapActionResult.Handler.class.getName());
+        Assert.assertNotNull(PacketAutoToolSwapRoundPhase.Handler.class.getName());
     }
 
     private static Method findMethod(Class<?> type, String name) {
