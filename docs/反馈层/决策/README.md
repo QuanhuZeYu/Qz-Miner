@@ -38,3 +38,4 @@
 - `parallel-tick-cooperative-cancellation.md` — 并行 Tick 不能靠超时或强制取消收口，任务必须在内部以预算化安全点协作式暂停、恢复和终止
 - `gt-cable-replacement-model.md` — GT 线缆替换执行模型：B1 等规划完成 + B2 单 tick 原子 + B3 预校验放行门，避开跨 tick 电压混压爆炸；关联 NORTH_STAR §8 偏离 D-GTCABLE-ATOM
 - `compact-hud-ownership.md` — Miner 只发布不可变 HUD 快照，Qz-UILib 负责 `TOP_LEFT` 渲染；注册属于模组客户端生命周期并跨断线保留
+- `auto-tool-swap-server-authority.md` — 自动工具换位由服务端主线程独占库存写权，Qz round/intent/结算与原版库存差异同步分工，并定义同版本和生命周期收口边界
