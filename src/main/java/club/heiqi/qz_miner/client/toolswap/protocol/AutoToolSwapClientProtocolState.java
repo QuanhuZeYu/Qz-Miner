@@ -85,26 +85,32 @@ public final class AutoToolSwapClientProtocolState {
         if (acceptedRoundResult != null) {
             return acceptedRoundResult.equals(result) ? snapshot() : null;
         }
-        if (phase != AutoToolSwapClientProtocolPhase.WAIT_ROUND) {
+        boolean closingRequested = phase == AutoToolSwapClientProtocolPhase.WAIT_ROUND_CLOSING;
+        if (phase != AutoToolSwapClientProtocolPhase.WAIT_ROUND && !closingRequested) {
             return null;
         }
         if (result.outcome() == AutoToolSwapResultCode.REJECTED) {
             reset();
             return snapshot();
         }
-        if (result.outcome() == AutoToolSwapResultCode.SYNC_FAILED
-                || result.roundState() == AutoToolSwapRoundState.ORPHANED) {
+        if (result.serverRoundId() == AutoToolSwapProtocol.NO_SERVER_ROUND_ID) {
+            return null;
+        }
+        if (result.outcome() == AutoToolSwapResultCode.SYNC_FAILED) {
             applyRoundResult(result, AutoToolSwapClientProtocolPhase.ORPHANED);
             return snapshot();
         }
-        if (result.roundState() == AutoToolSwapRoundState.FINISHED) {
-            applyRoundResult(result, AutoToolSwapClientProtocolPhase.FINISHED);
-            return snapshot();
-        }
-        if (result.outcome() != AutoToolSwapResultCode.ACCEPTED) {
+        if (result.outcome() != AutoToolSwapResultCode.ACCEPTED
+                || result.roundState() == AutoToolSwapRoundState.PENDING_KEY
+                || result.roundState() == AutoToolSwapRoundState.FINISHED
+                || result.roundState() == AutoToolSwapRoundState.ORPHANED) {
             return null;
         }
-        applyRoundResult(result, AutoToolSwapClientProtocolPhase.OPEN);
+        AutoToolSwapClientProtocolPhase nextPhase = !closingRequested
+                && result.roundState() == AutoToolSwapRoundState.OPEN
+                        ? AutoToolSwapClientProtocolPhase.OPEN
+                        : AutoToolSwapClientProtocolPhase.CLOSING;
+        applyRoundResult(result, nextPhase);
         return snapshot();
     }
 
@@ -114,6 +120,32 @@ public final class AutoToolSwapClientProtocolState {
      * @return 新请求；当前状态不允许、已有未结算请求或字段非法时返回 null。
      */
     public AutoToolSwapIntent beginAction(AutoToolSwapAction action, int anchorSlot, int candidateSlot,
+            AutoToolSwapContentFingerprint anchorContentFingerprint,
+            AutoToolSwapContentFingerprint candidateContentFingerprint) {
+        if (action != AutoToolSwapAction.SWAP && action != AutoToolSwapAction.RESTORE) {
+            return null;
+        }
+        return beginIntent(action, anchorSlot, candidateSlot, anchorContentFingerprint,
+                candidateContentFingerprint);
+    }
+
+    /**
+     * 创建无需 ledger 的 canonical 控制动作，槽位固定为 0 且双指纹固定为空内容。
+     *
+     * @return FREEZE 或 CLOSE 请求；动作或当前状态不允许时返回 null。
+     */
+    public AutoToolSwapIntent beginControlAction(AutoToolSwapAction action) {
+        if (action != AutoToolSwapAction.FREEZE && action != AutoToolSwapAction.CLOSE) {
+            return null;
+        }
+        return beginIntent(action, AutoToolSwapProtocol.INVENTORY_FIRST_SLOT,
+                AutoToolSwapProtocol.INVENTORY_FIRST_SLOT,
+                AutoToolSwapContentFingerprint.canonicalEmpty(),
+                AutoToolSwapContentFingerprint.canonicalEmpty());
+    }
+
+    /** 统一执行动作权限、单 in-flight、序号与载荷字段校验。 */
+    private AutoToolSwapIntent beginIntent(AutoToolSwapAction action, int anchorSlot, int candidateSlot,
             AutoToolSwapContentFingerprint anchorContentFingerprint,
             AutoToolSwapContentFingerprint candidateContentFingerprint) {
         if (!allowsAction(action) || inFlight != null || nextActionSequence == Long.MAX_VALUE
@@ -148,7 +180,7 @@ public final class AutoToolSwapClientProtocolState {
         AutoToolSwapAction action = decodeAction(actionCode);
         AutoToolSwapRoundResult result = decodeRoundResult(protocolVersion, responseServerRoundId, resultCode,
                 responseRoundState, responseNextActionSequence, serverTick, rawValid);
-        if (action == null || result == null) {
+        if (action == null || result == null || result.roundState() == AutoToolSwapRoundState.PENDING_KEY) {
             return null;
         }
         if (inFlight == null && isLastSettlement(actionSequence, action, anchorSlot, candidateSlot, result)) {
@@ -163,17 +195,7 @@ public final class AutoToolSwapClientProtocolState {
         nextActionSequence = responseNextActionSequence;
         serverRoundState = result.roundState();
         lastSettlement = new AutoToolSwapClientProtocolSettlement(settledIntent, result);
-        if (result.outcome() == AutoToolSwapResultCode.SYNC_FAILED
-                || result.roundState() == AutoToolSwapRoundState.ORPHANED) {
-            phase = AutoToolSwapClientProtocolPhase.ORPHANED;
-        } else if (result.roundState() == AutoToolSwapRoundState.FINISHED) {
-            phase = AutoToolSwapClientProtocolPhase.FINISHED;
-        } else if (phase == AutoToolSwapClientProtocolPhase.CLOSING
-                || result.roundState() == AutoToolSwapRoundState.CLOSING) {
-            phase = AutoToolSwapClientProtocolPhase.CLOSING;
-        } else {
-            phase = AutoToolSwapClientProtocolPhase.OPEN;
-        }
+        phase = mapActionResultPhase(result, phase == AutoToolSwapClientProtocolPhase.CLOSING);
         return lastSettlement;
     }
 
@@ -198,9 +220,11 @@ public final class AutoToolSwapClientProtocolState {
                 phases[phaseOrdinal], generation, serverTick);
     }
 
-    /** 将当前 round 标记为收尾态，收尾动作仍由 {@link #beginAction} 校验。 */
+    /** 将等待中或已开放的当前 round 标记为收尾态。 */
     public void markClosing() {
-        if (phase == AutoToolSwapClientProtocolPhase.OPEN) {
+        if (phase == AutoToolSwapClientProtocolPhase.WAIT_ROUND) {
+            phase = AutoToolSwapClientProtocolPhase.WAIT_ROUND_CLOSING;
+        } else if (phase == AutoToolSwapClientProtocolPhase.OPEN) {
             phase = AutoToolSwapClientProtocolPhase.CLOSING;
         }
     }
@@ -208,6 +232,16 @@ public final class AutoToolSwapClientProtocolState {
     /** 放弃尚未结算的请求并进入 ORPHANED，不伪造任何恢复动作。 */
     public void abandonInFlight() {
         if (inFlight != null) {
+            abandonCurrentRound();
+        }
+    }
+
+    /** 放弃等待中或活动中的当前 round 并清除 in-flight，不产生恢复 intent。 */
+    public void abandonCurrentRound() {
+        if (phase == AutoToolSwapClientProtocolPhase.WAIT_ROUND
+                || phase == AutoToolSwapClientProtocolPhase.WAIT_ROUND_CLOSING
+                || phase == AutoToolSwapClientProtocolPhase.OPEN
+                || phase == AutoToolSwapClientProtocolPhase.CLOSING) {
             orphan();
         }
     }
@@ -251,6 +285,23 @@ public final class AutoToolSwapClientProtocolState {
         return phase == AutoToolSwapClientProtocolPhase.OPEN || phase == AutoToolSwapClientProtocolPhase.CLOSING;
     }
 
+    /** 将服务端动作后状态收缩为客户端本地权限阶段。 */
+    private static AutoToolSwapClientProtocolPhase mapActionResultPhase(AutoToolSwapRoundResult result,
+            boolean closingRequested) {
+        if (result.outcome() == AutoToolSwapResultCode.SYNC_FAILED
+                || result.roundState() == AutoToolSwapRoundState.ORPHANED) {
+            return AutoToolSwapClientProtocolPhase.ORPHANED;
+        }
+        if (result.roundState() == AutoToolSwapRoundState.FINISHED) {
+            return AutoToolSwapClientProtocolPhase.FINISHED;
+        }
+        if (closingRequested || result.roundState() == AutoToolSwapRoundState.FROZEN
+                || result.roundState() == AutoToolSwapRoundState.CLOSING) {
+            return AutoToolSwapClientProtocolPhase.CLOSING;
+        }
+        return AutoToolSwapClientProtocolPhase.OPEN;
+    }
+
     private boolean matchesInFlight(long responseServerRoundId, long actionSequence,
             AutoToolSwapAction action, int anchorSlot, int candidateSlot) {
         return responseServerRoundId == serverRoundId && inFlight.serverRoundId() == responseServerRoundId
@@ -281,7 +332,7 @@ public final class AutoToolSwapClientProtocolState {
             int resultCode, int responseRoundState, long responseNextActionSequence,
             long serverTick, boolean rawValid) {
         if (!rawValid || protocolVersion != AutoToolSwapProtocol.PROTOCOL_VERSION
-                || responseServerRoundId == AutoToolSwapProtocol.NO_SERVER_ROUND_ID
+                || responseServerRoundId < AutoToolSwapProtocol.NO_SERVER_ROUND_ID
                 || responseNextActionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE || serverTick < 0L) {
             return null;
         }

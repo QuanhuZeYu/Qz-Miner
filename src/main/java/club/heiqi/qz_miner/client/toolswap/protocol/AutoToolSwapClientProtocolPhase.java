@@ -6,6 +6,8 @@ public enum AutoToolSwapClientProtocolPhase {
     IDLE,
     /** 已发起 round，等待服务端激活回执。 */
     WAIT_ROUND,
+    /** 等待激活回执期间已请求收尾，迟到回执不得重新开放。 */
+    WAIT_ROUND_CLOSING,
     /** 当前服务端 round 可发送常规动作。 */
     OPEN,
     /** 正在收尾，只允许 RESTORE 或 CLOSE。 */
