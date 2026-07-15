@@ -2,7 +2,7 @@
 description: 执行器（控制律层）。按活动任务单实施、测试、验证并提交。可写。
 mode: subagent
 model: openai/gpt-5.6-sol
-variant: medium
+variant: high
 permission:
   edit: allow
   bash: allow
