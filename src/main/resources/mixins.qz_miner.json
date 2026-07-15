@@ -19,8 +19,7 @@
   ],
   "client": [
     "client.MixinMinecraft",
-    "client.MixinPlayerControllerMPToolSwap",
-    "client.MixinNetHandlerPlayClientToolSwap"
+    "client.MixinPlayerControllerMPToolSwap"
   ],
   "server": []
 }

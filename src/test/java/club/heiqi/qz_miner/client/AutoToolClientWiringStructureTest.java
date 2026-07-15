@@ -30,11 +30,17 @@ public class AutoToolClientWiringStructureTest {
         String config = source("src/main/java/club/heiqi/qz_miner/client/ClientConfigChangeListener.java");
         String lifecycle = source("src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java");
         Assert.assertEquals(1, occurrences(proxy, "new AutoToolSwapClientAdapter("));
+        Assert.assertTrue(proxy.contains("new QzAutoToolSwapClientTransport()"));
+        Assert.assertTrue(proxy.contains("new AutoToolSwapClientProtocolState()"));
         Assert.assertTrue(proxy.contains("AutoToolSwapHooks.install(autoToolSwapAdapter)"));
         Assert.assertTrue(proxy.contains("new KeyListener(autoToolSwapAdapter)"));
         Assert.assertTrue(config.contains("autoToolSwapAdapter.onConfigChanged"));
         Assert.assertTrue(lifecycle.contains("runCleanupStep(\"auto-tool-swap\""));
         Assert.assertTrue(lifecycle.contains("resetForLifecycle()"));
+        Assert.assertTrue(proxy.contains("handleClientAutoToolSwapRoundResult"));
+        Assert.assertTrue(proxy.contains("handleClientAutoToolSwapActionResult"));
+        Assert.assertTrue(proxy.contains("handleClientAutoToolSwapRoundPhase"));
+        Assert.assertTrue(proxy.contains("AUTO_TOOL_SWAP_LIFECYCLE_GATE"));
     }
 
     @Test

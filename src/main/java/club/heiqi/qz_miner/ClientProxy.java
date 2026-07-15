@@ -23,8 +23,10 @@ import club.heiqi.qz_miner.client.QzMinerHudSnapshotProvider;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
+import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
+import club.heiqi.qz_miner.client.toolswap.QzAutoToolSwapClientTransport;
 import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
-import club.heiqi.qz_miner.client.toolswap.ToolSwapPhaseSnapshot;
+import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolState;
 import club.heiqi.uilib.ui.hud.api.CompactHud;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
@@ -65,6 +67,23 @@ public class ClientProxy extends CommonProxy {
                 }
             };
 
+    /** 自动工具 S2C 只允许在连接与世界均为当前时发布到 adapter。 */
+    private static final ClientAutoToolSwapPacketDispatch.LifecycleGate AUTO_TOOL_SWAP_LIFECYCLE_GATE =
+            new ClientAutoToolSwapPacketDispatch.LifecycleGate() {
+                @Override
+                public boolean isActive(Object token) {
+                    return token instanceof ClientConnectionLifecycle.Token
+                            && ((ClientConnectionLifecycle.Token) token).isWorldActive();
+                }
+
+                @Override
+                public boolean publishIfCurrentAndActive(Object token, Runnable publication) {
+                    return token instanceof ClientConnectionLifecycle.Token
+                            && ClientConnectionLifecycle.runIfWorldCurrentAndActive(
+                                    (ClientConnectionLifecycle.Token) token, publication);
+                }
+            };
+
     public static ChainPreviewController chainPreviewController;
     public static ChainPreviewRenderer chainPreviewRenderer;
     /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
@@ -93,16 +112,8 @@ public class ClientProxy extends CommonProxy {
                 Config.autoToolSwapEnabled,
                 Config.autoToolPrioritySelectors,
                 new ToolSwapMinecraftFacade(),
-                new AutoToolSwapClientAdapter.PhaseSource() {
-                    @Override
-                    public ToolSwapPhaseSnapshot snapshot() {
-                        ClientPhaseProjection projection = clientPhaseProjection;
-                        return projection == null
-                                ? new ToolSwapPhaseSnapshot(ChainPhase.IDLE, 0)
-                                : new ToolSwapPhaseSnapshot(
-                                        projection.getCurrentPhase(), projection.getCurrentGeneration());
-                    }
-                });
+                new QzAutoToolSwapClientTransport(),
+                new AutoToolSwapClientProtocolState());
         AutoToolSwapHooks.install(autoToolSwapAdapter);
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
@@ -172,6 +183,80 @@ public class ClientProxy extends CommonProxy {
         if (!accepted) {
             noteConfigSyncDispatchRejected();
         }
+    }
+
+    /** 自动工具 round 回包：Netty 仅捕获字段，世界级 gate 内交给 adapter。 */
+    @Override
+    public void handleClientAutoToolSwapRoundResult(
+            final int protocolVersion, final long clientNonce, final long serverRoundId,
+            final int resultCode, final int roundState, final long nextActionSequence,
+            final long serverTick, final boolean rawValid, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
+        ClientAutoToolSwapPacketDispatch.dispatch(token, AUTO_TOOL_SWAP_LIFECYCLE_GATE,
+                new ClientAutoToolSwapPacketDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return ClientMainThreadDispatcher.tryRun(task);
+                    }
+                }, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (autoToolSwapAdapter != null) {
+                            autoToolSwapAdapter.onRoundResult(protocolVersion, clientNonce, serverRoundId,
+                                    resultCode, roundState, nextActionSequence, serverTick, rawValid);
+                        }
+                    }
+                });
+    }
+
+    /** 自动工具动作回包：仅精确 in-flight 结算会推进 controller。 */
+    @Override
+    public void handleClientAutoToolSwapActionResult(
+            final int protocolVersion, final long serverRoundId, final long actionSequence,
+            final int actionCode, final int resultCode, final int roundState, final int anchorSlot,
+            final int candidateSlot, final long nextActionSequence, final long serverTick,
+            final boolean rawValid, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
+        ClientAutoToolSwapPacketDispatch.dispatch(token, AUTO_TOOL_SWAP_LIFECYCLE_GATE,
+                new ClientAutoToolSwapPacketDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return ClientMainThreadDispatcher.tryRun(task);
+                    }
+                }, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (autoToolSwapAdapter != null) {
+                            autoToolSwapAdapter.onActionResult(protocolVersion, serverRoundId, actionSequence,
+                                    actionCode, resultCode, roundState, anchorSlot, candidateSlot,
+                                    nextActionSequence, serverTick, rawValid);
+                        }
+                    }
+                });
+    }
+
+    /** 自动工具专用 phase 回包：只接受协议层递增 phaseSequence。 */
+    @Override
+    public void handleClientAutoToolSwapRoundPhase(
+            final int protocolVersion, final long serverRoundId, final long phaseSequence,
+            final int phaseOrdinal, final int generation, final long serverTick,
+            final boolean rawValid, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
+        ClientAutoToolSwapPacketDispatch.dispatch(token, AUTO_TOOL_SWAP_LIFECYCLE_GATE,
+                new ClientAutoToolSwapPacketDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return ClientMainThreadDispatcher.tryRun(task);
+                    }
+                }, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (autoToolSwapAdapter != null) {
+                            autoToolSwapAdapter.onRoundPhase(protocolVersion, serverRoundId, phaseSequence,
+                                    phaseOrdinal, generation, serverTick, rawValid);
+                        }
+                    }
+                });
     }
 
     /**

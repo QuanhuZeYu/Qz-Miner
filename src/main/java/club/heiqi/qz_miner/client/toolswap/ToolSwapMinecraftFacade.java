@@ -25,9 +25,9 @@ import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.oredict.OreDictionary;
 
 /**
- * Minecraft 客户端事实采样与原版 mode-2 点击门面。
+ * Minecraft 客户端事实采样门面。
  *
- * <p>本类只读取库存并调用 {@code PlayerControllerMP.windowClick}；绝不直接写库存数组或主手索引。</p>
+ * <p>本类只读取库存；绝不直接写库存数组、主手索引或发起原版库存点击。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFacade {
@@ -77,36 +77,15 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
                 && !guiOpen
                 && player.openContainer == player.inventoryContainer
                 && player.inventoryContainer != null
-                && player.inventoryContainer.windowId == 0;
+                && player.inventoryContainer.windowId == 0
+                && player.inventory.getItemStack() == null;
         return new ToolSwapContext(light, transactionSafe, guiOpen,
                 player.inventory.currentItem, inventory);
     }
 
     @Override
-    public Object connectionIdentity() {
-        Minecraft minecraft = Minecraft.getMinecraft();
-        return minecraft == null ? null : minecraft.getNetHandler();
-    }
-
-    @Override
     public boolean isChainKeyPhysicallyDown() {
         return KeyListener.chainSwitch != null && KeyListener.chainSwitch.getIsKeyPressed();
-    }
-
-    @Override
-    public ToolSwapClickResult executeMode2(int candidateContainerSlot, int anchorHotbarIndex) {
-        Minecraft minecraft = Minecraft.getMinecraft();
-        EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
-        if (minecraft == null || minecraft.playerController == null || player == null
-                || minecraft.currentScreen != null
-                || player.openContainer != player.inventoryContainer
-                || player.inventoryContainer == null
-                || player.inventoryContainer.windowId != 0) {
-            return ToolSwapClickResult.NOT_STARTED;
-        }
-        minecraft.playerController.windowClick(
-                0, candidateContainerSlot, anchorHotbarIndex, 2, player);
-        return ToolSwapClickResult.VANILLA_CALLED;
     }
 
     /** 按计划原子捕获库存；任一回调失败由调用方丢弃全部部分结果。 */
@@ -151,14 +130,6 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
             lastCaptureFailureLogNanos = now;
             MyMod.LOG.warn("[AutoToolSwap] Inventory capture failed; snapshot discarded", failure);
         }
-    }
-
-    /** 将 mainInventory 索引映射到普通玩家 inventoryContainer 槽号。 */
-    public static int toContainerSlot(int inventorySlot) {
-        if (inventorySlot < 0 || inventorySlot > 35) {
-            throw new IllegalArgumentException("inventorySlot must be 0..35");
-        }
-        return inventorySlot < 9 ? 36 + inventorySlot : inventorySlot;
     }
 
     /** 普通可损耗物品不把 durability damage 当作 subtype。 */

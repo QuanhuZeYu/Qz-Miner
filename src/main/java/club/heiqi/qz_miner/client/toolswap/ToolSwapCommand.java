@@ -5,22 +5,22 @@ public final class ToolSwapCommand {
 
     /** 命令种类。 */
     public enum Type {
-        BEGIN_SWAP,
-        BEGIN_RESTORE,
-        VERIFY_SLOTS
+        BEGIN_ROUND,
+        SEND_SWAP,
+        SEND_RESTORE,
+        SEND_FREEZE,
+        SEND_CLOSE
     }
 
     public final Type type;
     public final long generation;
     public final int anchorSlot;
     public final int candidateSlot;
-    public final Integer transactionId;
 
-    ToolSwapCommand(Type type, long generation, int anchorSlot, int candidateSlot, Integer transactionId) {
+    ToolSwapCommand(Type type, long generation, int anchorSlot, int candidateSlot) {
         this.type = type;
         this.generation = generation;
         this.anchorSlot = anchorSlot;
         this.candidateSlot = candidateSlot;
-        this.transactionId = transactionId;
     }
 }

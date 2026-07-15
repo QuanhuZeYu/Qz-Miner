@@ -1,11 +1,10 @@
 package club.heiqi.qz_miner.client.toolswap;
 
-/** 原版库存事务的纯核心子状态。 */
+/** 服务端 round 与库存可见性双门的纯核心子状态。 */
 public enum ToolSwapTransactionState {
     IDLE,
-    WAIT_PACKET_ID,
-    WAIT_ACK,
-    WAIT_SYNC_TICK,
-    VERIFY_SLOTS,
-    SYNC_ISOLATION
+    ROUND_PENDING,
+    ACTION_RESULT_PENDING,
+    INVENTORY_SYNC_VERIFY,
+    PROTOCOL_ORPHANED
 }
