@@ -70,6 +70,26 @@ public final class AutoToolSwapController {
         return ledger != null;
     }
 
+    /**
+     * 生命周期硬重置。旧轮次、旧事务和迟到回调全部失效，不跨连接尝试恢复。
+     */
+    public void reset() {
+        generation = incrementGeneration(generation);
+        commands.clear();
+        state = AutoToolSwapState.IDLE;
+        transactionState = ToolSwapTransactionState.IDLE;
+        keyDown = false;
+        anchorSlot = 0;
+        nextMatchTick = 0L;
+        transactionStartedTick = 0L;
+        ackTick = 0L;
+        transactionId = null;
+        operation = null;
+        ledger = null;
+        lastContext = null;
+        resetCycleFlags();
+    }
+
     /** @return 并清空待 adapter 执行的命令 */
     public List<ToolSwapCommand> drainCommands() {
         List<ToolSwapCommand> drained = Collections.unmodifiableList(new ArrayList<ToolSwapCommand>(commands));
@@ -523,13 +543,20 @@ public final class AutoToolSwapController {
         }
 
         private boolean matchesSwapped(ToolSwapInventorySnapshot inventory, long currentGeneration) {
-            return generation == currentGeneration && candidateRole.sameRole(inventory.slot(anchorSlot))
-                    && anchorRole.sameRole(inventory.slot(candidateSlot));
+            return generation == currentGeneration
+                    && activeToolRoleMatches(candidateRole, inventory.slot(anchorSlot))
+                    && anchorRole.sameContent(inventory.slot(candidateSlot));
         }
 
         private boolean matchesRestored(ToolSwapInventorySnapshot inventory, long currentGeneration) {
-            return generation == currentGeneration && anchorRole.sameRole(inventory.slot(anchorSlot))
-                    && candidateRole.sameRole(inventory.slot(candidateSlot));
+            return generation == currentGeneration
+                    && anchorRole.sameContent(inventory.slot(anchorSlot))
+                    && activeToolRoleMatches(candidateRole, inventory.slot(candidateSlot));
+        }
+
+        /** 活动工具允许耐久/NBT 变化；工具耗尽时允许以空槽完成安全恢复。 */
+        private static boolean activeToolRoleMatches(SlotSnapshot expected, SlotSnapshot observed) {
+            return expected.sameRole(observed) || (observed != null && observed.isEmpty());
         }
     }
 }

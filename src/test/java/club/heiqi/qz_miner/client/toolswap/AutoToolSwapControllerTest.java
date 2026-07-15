@@ -172,6 +172,32 @@ public class AutoToolSwapControllerTest {
     }
 
     @Test
+    public void displacedOriginalHandRequiresStrictFingerprintButActiveToolMayBreakToEmpty() {
+        AutoToolSwapController replacedOriginal = startSwap();
+        replacedOriginal.onPacketIdAssigned(replacedOriginal.generation(), 42, 0);
+        replacedOriginal.onTransactionAck(replacedOriginal.generation(), 42, true, 0);
+        ToolSwapInventorySnapshot changedOriginal = inventory(
+                slot(0, "pick", "used"), slot(5, "hand", "third-party-nbt"),
+                tool(0, "mod:pick", true, 90), tool(5, "mod:hand", false, 100));
+        replacedOriginal.onTick(context(1, false, changedOriginal));
+        onlyCommand(replacedOriginal);
+        replacedOriginal.onSlotsObserved(replacedOriginal.generation(), 42, changedOriginal);
+        assertIsolated(replacedOriginal);
+
+        AutoToolSwapController brokenTool = startSwap();
+        brokenTool.onPacketIdAssigned(brokenTool.generation(), 43, 0);
+        brokenTool.onTransactionAck(brokenTool.generation(), 43, true, 0);
+        ToolSwapInventorySnapshot brokenLayout = inventory(
+                slot(0, SlotSnapshot.EMPTY_ROLE_KEY, ""), slot(5, "hand", "old"),
+                tool(5, "mod:hand", false, 100));
+        brokenTool.onTick(context(1, false, brokenLayout));
+        onlyCommand(brokenTool);
+        brokenTool.onSlotsObserved(brokenTool.generation(), 43, brokenLayout);
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, brokenTool.transactionState());
+        Assert.assertTrue(brokenTool.hasLedger());
+    }
+
+    @Test
     public void unsafeInventoryGateDefersSwapWithoutStartingTimeout() {
         AutoToolSwapController controller = new AutoToolSwapController(true,
                 Collections.<ToolSelector>emptyList(), 3);
@@ -390,7 +416,7 @@ public class AutoToolSwapControllerTest {
     }
 
     private static ToolSwapInventorySnapshot restoredMutated(int anchor, int candidate) {
-        return inventory(slot(anchor, "hand", "different-instance"), slot(candidate, "pick", "damage=9"),
+        return inventory(slot(anchor, "hand", "old"), slot(candidate, "pick", "damage=9"),
                 tool(anchor, "mod:hand", false, 100), tool(candidate, "mod:pick", true, 91));
     }
 

@@ -4,6 +4,7 @@ import club.heiqi.config.ConfigChangeEvent;
 import club.heiqi.config.ConfigChangeListener;
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
@@ -216,6 +217,11 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
 
     private void publishClientAndRequest(CommittedSnapshot committed) {
         ConfigValueBridge.applyClientFromSnapshot(committed.snapshot);
+        if (ClientProxy.autoToolSwapAdapter != null) {
+            ClientProxy.autoToolSwapAdapter.onConfigChanged(
+                    committed.snapshot.autoToolSwapEnabled,
+                    committed.snapshot.autoToolPrioritySelectors);
+        }
         syncClientRequestedChainConfig(committed.snapshot.chainRadius, committed.snapshot.chainMaxBlocks);
         syncClientObjectGroups(committed);
     }

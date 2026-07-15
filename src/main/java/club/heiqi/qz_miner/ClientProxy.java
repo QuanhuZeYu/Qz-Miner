@@ -21,6 +21,10 @@ import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.client.QzMinerHudSnapshotProvider;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
+import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
+import club.heiqi.qz_miner.client.toolswap.ToolSwapPhaseSnapshot;
 import club.heiqi.uilib.ui.hud.api.CompactHud;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
@@ -69,6 +73,8 @@ public class ClientProxy extends CommonProxy {
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
     /** Qz-Miner 紧凑 HUD 的 UILib 注册句柄。 */
     public static HudRegistration chainStatusHudRegistration;
+    /** 新版自动工具换位唯一长寿命客户端 adapter。 */
+    public static AutoToolSwapClientAdapter autoToolSwapAdapter;
 
     @Override
     public void init(FMLInitializationEvent event) {
@@ -83,6 +89,21 @@ public class ClientProxy extends CommonProxy {
         clientPhaseProjection = new ClientPhaseProjection();
         clientPhaseProjectionSubscriber = new ClientPhaseProjectionSubscriber(
                 MyMod.clientChainEventBus, clientPhaseProjection);
+        autoToolSwapAdapter = new AutoToolSwapClientAdapter(
+                Config.autoToolSwapEnabled,
+                Config.autoToolPrioritySelectors,
+                new ToolSwapMinecraftFacade(),
+                new AutoToolSwapClientAdapter.PhaseSource() {
+                    @Override
+                    public ToolSwapPhaseSnapshot snapshot() {
+                        ClientPhaseProjection projection = clientPhaseProjection;
+                        return projection == null
+                                ? new ToolSwapPhaseSnapshot(ChainPhase.IDLE, 0)
+                                : new ToolSwapPhaseSnapshot(
+                                        projection.getCurrentPhase(), projection.getCurrentGeneration());
+                    }
+                });
+        AutoToolSwapHooks.install(autoToolSwapAdapter);
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
         chainPreviewRenderer = new ChainPreviewRenderer();
@@ -93,7 +114,7 @@ public class ClientProxy extends CommonProxy {
                 "qz_miner:chain-status",
                 HudAnchor.TOP_LEFT,
                 new QzMinerHudSnapshotProvider(MyMod.chainStateService.getClientState(), clientPhaseProjection));
-        new KeyListener().register();
+        new KeyListener(autoToolSwapAdapter).register();
     }
 
     /**

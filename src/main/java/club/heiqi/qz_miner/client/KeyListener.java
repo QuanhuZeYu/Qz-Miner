@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.network.PacketChainSubModeSwitch;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import club.heiqi.qz_miner.network.PacketKeyState;
 import club.heiqi.qz_miner.network.PacketChainModeSwitch;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -32,8 +33,20 @@ import org.lwjgl.input.Keyboard;
 @SideOnly(Side.CLIENT)
 public class KeyListener {
 
+    private final AutoToolSwapClientAdapter autoToolSwapAdapter;
+
     /** 创建按键监听器。 */
     public KeyListener() {
+        this(null);
+    }
+
+    /**
+     * 创建并注入自动工具 adapter。
+     *
+     * @param autoToolSwapAdapter 客户端唯一 adapter；null 保留兼容测试路径
+     */
+    public KeyListener(AutoToolSwapClientAdapter autoToolSwapAdapter) {
+        this.autoToolSwapAdapter = autoToolSwapAdapter;
     }
 
     /**
@@ -126,6 +139,10 @@ public class KeyListener {
             if (wasPressed) {
                 updateChainKeyState(false);
             }
+            wasPressed = false;
+            if (autoToolSwapAdapter != null) {
+                autoToolSwapAdapter.onClientTick();
+            }
             return;
         }
 
@@ -137,9 +154,15 @@ public class KeyListener {
         }
 
         wasPressed = isPressed;
+        if (autoToolSwapAdapter != null) {
+            autoToolSwapAdapter.onClientTick();
+        }
     }
 
     private void updateChainKeyState(boolean pressed) {
+        if (autoToolSwapAdapter != null) {
+            autoToolSwapAdapter.onChainKeyState(pressed);
+        }
         if (pressed) {
             MyMod.LOG.debug("[KeyListener] Chain key pressed");
         } else {

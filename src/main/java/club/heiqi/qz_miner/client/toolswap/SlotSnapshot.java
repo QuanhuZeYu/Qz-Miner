@@ -5,6 +5,8 @@ package club.heiqi.qz_miner.client.toolswap;
  */
 public final class SlotSnapshot {
 
+    public static final String EMPTY_ROLE_KEY = "qz_miner:empty";
+
     private final int slot;
     private final String roleKey;
     private final String dynamicFingerprint;
@@ -33,5 +35,15 @@ public final class SlotSnapshot {
     /** @return 是否仍是同一恢复角色；有意忽略耐久、NBT 与对象实例变化 */
     public boolean sameRole(SlotSnapshot other) {
         return other != null && roleKey.equals(other.roleKey);
+    }
+
+    /** @return 是否为同一严格内容；用于核对未被使用的原主手角色 */
+    public boolean sameContent(SlotSnapshot other) {
+        return sameRole(other) && dynamicFingerprint.equals(other.dynamicFingerprint);
+    }
+
+    /** @return 是否为空槽角色 */
+    public boolean isEmpty() {
+        return EMPTY_ROLE_KEY.equals(roleKey);
     }
 }

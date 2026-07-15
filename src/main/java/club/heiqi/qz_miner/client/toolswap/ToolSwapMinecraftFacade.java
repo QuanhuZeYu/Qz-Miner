@@ -1,0 +1,169 @@
+package club.heiqi.qz_miner.client.toolswap;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
+import club.heiqi.qz_miner.toolswap.ToolCandidate;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
+import net.minecraft.block.Block;
+import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.MovingObjectPosition;
+import net.minecraftforge.common.ForgeHooks;
+import net.minecraftforge.oredict.OreDictionary;
+
+/**
+ * Minecraft 客户端事实采样与原版 mode-2 点击门面。
+ *
+ * <p>本类只读取库存并调用 {@code PlayerControllerMP.windowClick}；绝不直接写库存数组或主手索引。</p>
+ */
+@SideOnly(Side.CLIENT)
+public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFacade {
+
+    @Override
+    public ToolSwapContext captureContext(long tick, boolean chainActive) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
+        if (minecraft == null || player == null || minecraft.theWorld == null) {
+            return null;
+        }
+        ChainSubMode selected = MyMod.chainStateService == null
+                ? null : MyMod.chainStateService.getClientState().getSelectedSubMode();
+        boolean breakCapable = ChainSubModeRegistry.getTrigger(selected) == ChainSubModeTrigger.BREAK_BLOCK;
+        boolean transactionSafe = player.openContainer == player.inventoryContainer
+                && player.inventoryContainer != null
+                && player.inventoryContainer.windowId == 0;
+        return new ToolSwapContext(
+                tick,
+                breakCapable,
+                player.capabilities.isCreativeMode,
+                minecraft.currentScreen != null,
+                transactionSafe,
+                chainActive,
+                player.inventory.currentItem,
+                captureInventory(minecraft, player));
+    }
+
+    @Override
+    public Object connectionIdentity() {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        return minecraft == null ? null : minecraft.getNetHandler();
+    }
+
+    @Override
+    public void executeMode2(int candidateContainerSlot, int anchorHotbarIndex) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft == null || minecraft.playerController == null || minecraft.thePlayer == null) {
+            return;
+        }
+        minecraft.playerController.windowClick(
+                0, candidateContainerSlot, anchorHotbarIndex, 2, minecraft.thePlayer);
+    }
+
+    /** 捕获 0..35 的稳定槽角色与对准方块工具能力。 */
+    ToolSwapInventorySnapshot captureInventory(Minecraft minecraft, EntityPlayer player) {
+        Block target = null;
+        int metadata = 0;
+        MovingObjectPosition hit = minecraft.objectMouseOver;
+        if (hit != null && hit.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
+            target = minecraft.theWorld.getBlock(hit.blockX, hit.blockY, hit.blockZ);
+            metadata = minecraft.theWorld.getBlockMetadata(hit.blockX, hit.blockY, hit.blockZ);
+        }
+        List<SlotSnapshot> slots = new ArrayList<SlotSnapshot>(36);
+        List<ToolCandidate> candidates = new ArrayList<ToolCandidate>();
+        for (int slot = 0; slot < 36; slot++) {
+            ItemStack stack = player.inventory.mainInventory[slot];
+            slots.add(snapshotSlot(slot, stack));
+            ToolCandidate candidate = snapshotCandidate(slot, stack, target, metadata);
+            if (candidate != null) {
+                candidates.add(candidate);
+            }
+        }
+        return new ToolSwapInventorySnapshot(slots, candidates);
+    }
+
+    /** 将 mainInventory 索引映射到普通玩家 inventoryContainer 槽号。 */
+    public static int toContainerSlot(int inventorySlot) {
+        if (inventorySlot < 0 || inventorySlot > 35) {
+            throw new IllegalArgumentException("inventorySlot must be 0..35");
+        }
+        return inventorySlot < 9 ? 36 + inventorySlot : inventorySlot;
+    }
+
+    /** 普通可损耗物品不把 durability damage 当作 subtype。 */
+    static int stableSubtype(ItemStack stack) {
+        return stack != null && stack.getItem() != null && stack.getItem().getHasSubtypes()
+                ? stack.getItemDamage() : 0;
+    }
+
+    private static SlotSnapshot snapshotSlot(int slot, ItemStack stack) {
+        if (stack == null || stack.getItem() == null) {
+            return new SlotSnapshot(slot, SlotSnapshot.EMPTY_ROLE_KEY, "");
+        }
+        String registryId = registryId(stack.getItem());
+        String role = registryId + "@" + stableSubtype(stack);
+        NBTTagCompound serialized = new NBTTagCompound();
+        stack.writeToNBT(serialized);
+        return new SlotSnapshot(slot, role, serialized.toString());
+    }
+
+    private static ToolCandidate snapshotCandidate(int slot, ItemStack stack, Block target, int metadata) {
+        if (stack == null || stack.getItem() == null) {
+            return null;
+        }
+        Item item = stack.getItem();
+        boolean effective = isEffective(stack, target, metadata);
+        boolean canHarvest = canHarvest(stack, target, metadata);
+        int remaining = stack.isItemStackDamageable()
+                ? Math.max(0, stack.getMaxDamage() - stack.getItemDamage()) : Integer.MAX_VALUE;
+        return new ToolCandidate(
+                slot,
+                registryId(item),
+                stableSubtype(stack),
+                oreNames(stack),
+                effective,
+                canHarvest,
+                remaining);
+    }
+
+    /** 目标实际效率必须高于徒手基线。 */
+    static boolean isEffective(ItemStack stack, Block target, int metadata) {
+        return stack != null && stack.getItem() != null && target != null
+                && stack.getItem().getDigSpeed(stack, target, metadata) > 1.0F;
+    }
+
+    /** 仅有采掘等级要求时校验 Forge 工具等级。 */
+    static boolean canHarvest(ItemStack stack, Block target, int metadata) {
+        return stack != null && target != null && (target.getHarvestTool(metadata) == null
+                || ForgeHooks.canToolHarvestBlock(target, metadata, stack));
+    }
+
+    private static String registryId(Item item) {
+        Object name = Item.itemRegistry.getNameForObject(item);
+        return name == null ? "minecraft:unknown" : String.valueOf(name);
+    }
+
+    private static List<String> oreNames(ItemStack stack) {
+        int[] ids = OreDictionary.getOreIDs(stack);
+        if (ids == null || ids.length == 0) {
+            return Collections.emptyList();
+        }
+        List<String> names = new ArrayList<String>(ids.length);
+        for (int id : ids) {
+            String name = OreDictionary.getOreName(id);
+            if (name != null && name.length() > 0) {
+                names.add(name);
+            }
+        }
+        return Collections.unmodifiableList(names);
+    }
+}

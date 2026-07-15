@@ -18,7 +18,9 @@
     "MixinBlockBaseOreLegacy"
   ],
   "client": [
-    "client.MixinMinecraft"
+    "client.MixinMinecraft",
+    "client.MixinPlayerControllerMPToolSwap",
+    "client.MixinNetHandlerPlayClientToolSwap"
   ],
   "server": []
 }

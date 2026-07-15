@@ -65,6 +65,7 @@ public class ClientConnectionListener {
         void disposeRenderer();
         void clearPhase();
         void clearEventPending();
+        void resetToolSwap();
     }
 
     private static final TaskDispatcher PRODUCTION_DISPATCHER = new TaskDispatcher() {
@@ -379,7 +380,7 @@ public class ClientConnectionListener {
     }
 
     /**
-     * 统一清理：停预览、释放 GPU、清 phase、清 client event bus pending。
+     * 统一清理：reset 无网络点击的工具换位、停预览、释放 GPU、清 phase、清 client event bus pending。
      *
      * <p>须在对应 lifecycle gate 内调用；禁反向调用 lifecycle 入口。
      * disconnect / unload / connection-takeover / world-takeover 共用，避免重复逻辑。
@@ -395,6 +396,10 @@ public class ClientConnectionListener {
             return;
         }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
+        runCleanupStep("auto-tool-swap", new Runnable() { @Override public void run() {
+            if (cleanupActions != null) cleanupActions.resetToolSwap();
+            else if (ClientProxy.autoToolSwapAdapter != null) ClientProxy.autoToolSwapAdapter.resetForLifecycle();
+        }});
         runCleanupStep("preview-task", new Runnable() { @Override public void run() {
             if (cleanupActions != null) cleanupActions.stopPreviewTask();
             else if (ClientProxy.chainPreviewController != null) ClientProxy.chainPreviewController.stopPreviewForLifecycle();

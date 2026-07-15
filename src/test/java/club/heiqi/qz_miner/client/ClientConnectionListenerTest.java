@@ -563,9 +563,9 @@ public class ClientConnectionListenerTest {
         }
     }
 
-    /** 按名称在五个真实清理边界之一注入故障，并记录 listener 实际尝试顺序。 */
+    /** 按名称在六个真实清理边界之一注入故障，并记录 listener 实际尝试顺序。 */
     static final class FaultInjectingCleanup implements ClientConnectionListener.CleanupActions {
-        static final String[] STEPS = {"object-group", "preview", "renderer", "phase", "pending"};
+        static final String[] STEPS = {"object-group", "auto-tool-swap", "preview", "renderer", "phase", "pending"};
         private final String failedStep;
         private final boolean linkageError;
         final List<String> attempts = new ArrayList<String>();
@@ -591,5 +591,6 @@ public class ClientConnectionListenerTest {
         @Override public void disposeRenderer() { runStep("renderer"); }
         @Override public void clearPhase() { runStep("phase"); }
         @Override public void clearEventPending() { runStep("pending"); }
+        @Override public void resetToolSwap() { runStep("auto-tool-swap"); }
     }
 }
