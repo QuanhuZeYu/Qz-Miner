@@ -157,7 +157,8 @@ public final class AutoToolSwapClientAdapter {
         if (settlement == null) return;
         actionSentTick = -1L;
         actionRetransmitted = false;
-        controller.onActionSettled(settlement.intent().action(), settlement.result().outcome(), clientTick);
+        controller.onActionSettled(settlement.intent().action(), settlement.result().outcome(),
+                settlement.result().roundState(), clientTick);
         if (settlement.intent().action() == AutoToolSwapAction.CLOSE
                 && settlement.result().roundState() == AutoToolSwapRoundState.FINISHED
                 && (settlement.result().outcome() == AutoToolSwapResultCode.ACCEPTED
@@ -249,10 +250,11 @@ public final class AutoToolSwapClientAdapter {
         }
     }
 
-    /** 空 intent 仅在协议已明确 orphan 时升级为本地 fail-closed。 */
+    /** 空 intent 在 CLOSING 收敛 FREEZE；仅真实 orphan 升级为本地 fail-closed。 */
     private void handleNotStartedAction(AutoToolSwapAction action) {
-        controller.onActionNotStarted(action);
-        if (protocol.snapshot().phase() == AutoToolSwapClientProtocolPhase.ORPHANED) protocolFailure();
+        AutoToolSwapClientProtocolPhase phase = protocol.snapshot().phase();
+        controller.onControlActionNotStarted(action, phase == AutoToolSwapClientProtocolPhase.CLOSING);
+        if (phase == AutoToolSwapClientProtocolPhase.ORPHANED) protocolFailure();
     }
 
     private ToolSwapContext captureProtected(ToolSwapCommand command) {

@@ -200,7 +200,7 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
-    public void closingDropsStaleFreezeWithoutOrphaningThenSendsClose() {
+    public void closingUnavailableFreezeConvergesToOneCloseWithoutOrphaning() {
         adapter.onChainKeyState(true);
         acceptRound();
         adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
@@ -208,12 +208,34 @@ public class AutoToolSwapClientAdapterTest {
         adapter.protocolForTests().markClosing();
 
         adapter.onClientTick();
-        Assert.assertTrue(transport.intents.isEmpty());
+        Assert.assertEquals(1, transport.intents.size());
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
         Assert.assertNotEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
                 adapter.controllerForTests().transactionState());
+        adapter.onClientTick();
+        Assert.assertEquals(1, transport.intents.size());
+    }
 
-        adapter.onChainKeyState(false);
-        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
+    @Test
+    public void rejectedFreezeInClosingRestoresThenClosesWithoutOrphaning() {
+        completeSwap();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.PLANNING.ordinal(), 1, 2L, true);
+        adapter.onClientTick();
+        AutoToolSwapIntent freeze = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freeze.action());
+
+        settle(freeze, AutoToolSwapResultCode.REJECTED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+        AutoToolSwapIntent restore = transport.intents.get(2);
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+
+        game.inventory = restored();
+        settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(3).action());
+        Assert.assertNotEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
+                adapter.controllerForTests().transactionState());
     }
 
     @Test

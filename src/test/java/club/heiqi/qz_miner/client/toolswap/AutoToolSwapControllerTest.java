@@ -10,6 +10,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 
 /** 服务端 round、单 ledger 与库存双门的核心合同。 */
 public class AutoToolSwapControllerTest {
@@ -56,7 +57,8 @@ public class AutoToolSwapControllerTest {
         ToolSwapCommand swap = only(controller);
         Assert.assertTrue(controller.onActionPreflight(swap, protectedSlots(restored())));
         controller.onActionStarted(AutoToolSwapAction.SWAP);
-        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED, 0);
+        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.SWAPPED, 0);
         Assert.assertEquals(ToolSwapTransactionState.INVENTORY_SYNC_VERIFY, controller.transactionState());
         controller.onInventoryObserved(protectedSlots(restored()), 39);
         Assert.assertEquals(ToolSwapTransactionState.INVENTORY_SYNC_VERIFY, controller.transactionState());
@@ -71,7 +73,8 @@ public class AutoToolSwapControllerTest {
         ToolSwapCommand swap = only(controller);
         Assert.assertTrue(controller.onActionPreflight(swap, protectedSlots(restored())));
         controller.onActionStarted(AutoToolSwapAction.SWAP);
-        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED, 5);
+        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.SWAPPED, 5);
         controller.onInventoryObserved(protectedSlots(swapped()), 5);
         Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
     }
@@ -162,13 +165,97 @@ public class AutoToolSwapControllerTest {
     }
 
     @Test
+    public void guiCancelledSwapDoesNotRestoreAfterTheNextAppliedSwap() {
+        AutoToolSwapController controller = acceptedSwap();
+        controller.onTick(context(1, true, restored()));
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+
+        controller.onTick(context(20, restored()));
+        ToolSwapCommand swap = only(controller);
+        Assert.assertTrue(controller.onActionPreflight(swap, protectedSlots(restored())));
+        controller.onActionStarted(AutoToolSwapAction.SWAP);
+        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.SWAPPED, 20);
+        controller.onInventoryObserved(protectedSlots(swapped()), 20);
+
+        Assert.assertEquals(AutoToolSwapState.PREPARING, controller.state());
+        Assert.assertTrue(controller.hasLedger());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+    }
+
+    @Test
+    public void reanchorCancelledSwapUsesNewAnchorWithoutRestoringAfterApply() {
+        AutoToolSwapController controller = acceptedSwap();
+        controller.onTick(context(1, 1, reanchoredRestored()));
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+
+        controller.onTick(context(20, 1, reanchoredRestored()));
+        ToolSwapCommand swap = only(controller);
+        Assert.assertEquals(1, swap.anchorSlot);
+        Assert.assertTrue(controller.onActionPreflight(swap, protectedSlots(reanchoredRestored(), 1, 5)));
+        controller.onActionStarted(AutoToolSwapAction.SWAP);
+        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.SWAPPED, 20);
+        controller.onInventoryObserved(protectedSlots(reanchoredSwapped(), 1, 5), 20);
+
+        Assert.assertEquals(AutoToolSwapState.PREPARING, controller.state());
+        Assert.assertTrue(controller.hasLedger());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+    }
+
+    @Test
+    public void activePhaseReplacesQueuedSwapWithFreezeButKeepsStartedSwapInFlight() {
+        AutoToolSwapController queued = acceptedSwap();
+        queued.onDedicatedPhase(club.heiqi.qz_miner.chain.statemachine.ChainPhase.PLANNING);
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_FREEZE, only(queued).type);
+        Assert.assertFalse(queued.hasLedger());
+
+        AutoToolSwapController started = acceptedSwap();
+        ToolSwapCommand swap = only(started);
+        Assert.assertTrue(started.onActionPreflight(swap, protectedSlots(restored())));
+        started.onActionStarted(AutoToolSwapAction.SWAP);
+        started.onDedicatedPhase(club.heiqi.qz_miner.chain.statemachine.ChainPhase.PLANNING);
+        Assert.assertEquals(ToolSwapTransactionState.ACTION_RESULT_PENDING, started.transactionState());
+        Assert.assertTrue(started.drainCommands().isEmpty());
+        started.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.SWAPPED, 1);
+        started.onInventoryObserved(protectedSlots(swapped()), 1);
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_FREEZE, only(started).type);
+    }
+
+    @Test
+    public void swapRejectionUsesServerRoundStateToRetryFreezeOrClose() {
+        AutoToolSwapController open = startedSwap();
+        open.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.REJECTED,
+                AutoToolSwapRoundState.OPEN, 0);
+        open.onTick(context(19, restored()));
+        Assert.assertTrue(open.drainCommands().isEmpty());
+        open.onTick(context(20, restored()));
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_SWAP, only(open).type);
+
+        AutoToolSwapController frozen = startedSwap();
+        frozen.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.REJECTED,
+                AutoToolSwapRoundState.FROZEN, 0);
+        frozen.onTick(context(10, restored()));
+        Assert.assertEquals(AutoToolSwapState.FROZEN, frozen.state());
+        Assert.assertTrue(frozen.drainCommands().isEmpty());
+
+        AutoToolSwapController closing = startedSwap();
+        closing.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.REJECTED,
+                AutoToolSwapRoundState.CLOSING, 0);
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_CLOSE, only(closing).type);
+        Assert.assertFalse(closing.hasLedger());
+    }
+
+    @Test
     public void rejectedRestoreRetainsLedgerAndPreflightFailureRetractsSwap() {
         AutoToolSwapController restore = completedSwap();
         restore.onKeyState(false, context(2, swapped()), false);
         ToolSwapCommand command = only(restore);
         Assert.assertTrue(restore.onActionPreflight(command, protectedSlots(swapped())));
         restore.onActionStarted(AutoToolSwapAction.RESTORE);
-        restore.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.REJECTED, 2);
+        restore.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.REJECTED,
+                AutoToolSwapRoundState.CLOSING, 2);
         restore.onTick(context(3, swapped()));
         Assert.assertEquals(ToolSwapCommand.Type.SEND_RESTORE, only(restore).type);
 
@@ -245,7 +332,8 @@ public class AutoToolSwapControllerTest {
             ToolSwapCommand restore = only(controller);
             Assert.assertTrue(controller.onActionPreflight(restore, protectedSlots(swapped())));
             controller.onActionStarted(AutoToolSwapAction.RESTORE);
-            controller.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.REJECTED, rejected + 2L);
+            controller.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.REJECTED,
+                    AutoToolSwapRoundState.CLOSING, rejected + 2L);
             if (rejected < AutoToolSwapController.MAX_CONSECUTIVE_RESTORE_REJECTIONS) {
                 controller.onTick(context(rejected + 3L, swapped()));
             }
@@ -280,19 +368,29 @@ public class AutoToolSwapControllerTest {
         return controller;
     }
 
+    private static AutoToolSwapController startedSwap() {
+        AutoToolSwapController controller = acceptedSwap();
+        ToolSwapCommand command = only(controller);
+        Assert.assertTrue(controller.onActionPreflight(command, protectedSlots(restored())));
+        controller.onActionStarted(AutoToolSwapAction.SWAP);
+        return controller;
+    }
+
     private static AutoToolSwapController swapWaitingForInventory() {
         AutoToolSwapController controller = acceptedSwap();
         ToolSwapCommand command = only(controller);
         Assert.assertTrue(controller.onActionPreflight(command, protectedSlots(restored())));
         controller.onActionStarted(AutoToolSwapAction.SWAP);
-        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED, 0);
+        controller.onActionSettled(AutoToolSwapAction.SWAP, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.SWAPPED, 0);
         return controller;
     }
 
     private static void settleRestore(AutoToolSwapController controller, ToolSwapCommand command, long tick) {
         Assert.assertTrue(controller.onActionPreflight(command, protectedSlots(swapped())));
         controller.onActionStarted(AutoToolSwapAction.RESTORE);
-        controller.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.APPLIED, tick);
+        controller.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.APPLIED,
+                AutoToolSwapRoundState.CLOSING, tick);
         controller.onInventoryObserved(protectedSlots(restored()), tick);
     }
 
@@ -314,8 +412,18 @@ public class AutoToolSwapControllerTest {
         return new ToolSwapContext(tick, true, false, gui, !gui, true, 0, inventory);
     }
 
+    private static ToolSwapContext context(long tick, int selectedSlot, ToolSwapInventorySnapshot inventory) {
+        return new ToolSwapContext(tick, true, false, false, true, true, selectedSlot, inventory);
+    }
+
     private static ToolSwapInventorySnapshot protectedSlots(ToolSwapInventorySnapshot inventory) {
-        return ToolSwapInventorySnapshot.protectedSlots(Arrays.asList(inventory.slot(0), inventory.slot(5)));
+        return protectedSlots(inventory, 0, 5);
+    }
+
+    private static ToolSwapInventorySnapshot protectedSlots(ToolSwapInventorySnapshot inventory,
+            int anchorSlot, int candidateSlot) {
+        return ToolSwapInventorySnapshot.protectedSlots(
+                Arrays.asList(inventory.slot(anchorSlot), inventory.slot(candidateSlot)));
     }
 
     private static ToolSwapInventorySnapshot restored() {
@@ -326,6 +434,16 @@ public class AutoToolSwapControllerTest {
     private static ToolSwapInventorySnapshot swapped() {
         return inventory(new SlotSnapshot(0, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
                 tool(0, "pick", true), tool(5, "hand", false));
+    }
+
+    private static ToolSwapInventorySnapshot reanchoredRestored() {
+        return inventory(new SlotSnapshot(1, "hand", "old"), new SlotSnapshot(5, "pick", "fresh"),
+                tool(1, "hand", false), tool(5, "pick", true));
+    }
+
+    private static ToolSwapInventorySnapshot reanchoredSwapped() {
+        return inventory(new SlotSnapshot(1, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
+                tool(1, "pick", true), tool(5, "hand", false));
     }
 
     private static ToolSwapInventorySnapshot third() {

@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.toolswap.ToolCandidateOrder;
 import club.heiqi.qz_miner.toolswap.ToolSelector;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 
 /**
  * 自动工具换位的纯产品状态核心。
@@ -41,7 +42,7 @@ public final class AutoToolSwapController {
     private boolean closeToWaitRelease;
     private boolean rematchAfterRestore;
     private Integer pendingAnchor;
-    private boolean commandQueued;
+    private ToolSwapCommand.Type queuedCommandType;
     private AutoToolSwapAction pendingAction;
     private AutoToolSwapAction verifyingAction;
     private Ledger ledger;
@@ -90,7 +91,7 @@ public final class AutoToolSwapController {
         nextMatchTick = 0L;
         inventoryVerifyStartedTick = 0L;
         roundAccepted = false;
-        commandQueued = false;
+        queuedCommandType = null;
         pendingAction = null;
         verifyingAction = null;
         ledger = null;
@@ -103,6 +104,7 @@ public final class AutoToolSwapController {
     public List<ToolSwapCommand> drainCommands() {
         List<ToolSwapCommand> result = Collections.unmodifiableList(new ArrayList<ToolSwapCommand>(commands));
         commands.clear();
+        queuedCommandType = null;
         return result;
     }
 
@@ -188,6 +190,8 @@ public final class AutoToolSwapController {
         if (transactionState != ToolSwapTransactionState.ROUND_PENDING) return;
         transactionState = ToolSwapTransactionState.IDLE;
         roundAccepted = false;
+        commands.clear();
+        queuedCommandType = null;
         ledger = null;
         pendingAction = null;
         state = keyDown ? AutoToolSwapState.WAIT_RELEASE : AutoToolSwapState.IDLE;
@@ -210,7 +214,6 @@ public final class AutoToolSwapController {
             return false;
         }
         boolean restore = pendingAction == AutoToolSwapAction.RESTORE;
-        commandQueued = false;
         if (restore) {
             if (!hasTrustedProtectedSlots(inventory)) return false;
             if (ledger.matchesSwapped(inventory, generation)) return true;
@@ -226,27 +229,31 @@ public final class AutoToolSwapController {
     public void onActionStarted(AutoToolSwapAction action) {
         if (action == null || transactionState != ToolSwapTransactionState.IDLE) return;
         transactionState = ToolSwapTransactionState.ACTION_RESULT_PENDING;
-        commandQueued = false;
         pendingAction = action;
     }
 
     /** preflight 后尚未开始发送的动作取消。 */
     public void onActionNotStarted(AutoToolSwapAction action) {
-        commandQueued = false;
         if (action != AutoToolSwapAction.SWAP || transactionState != ToolSwapTransactionState.IDLE
                 || pendingAction != AutoToolSwapAction.SWAP) return;
-        pendingAction = null;
-        ledger = null;
-        nextMatchTick = advanceWatermark(nextMatchTick, lastContext == null ? 0L : lastContext.tick);
-        state = AutoToolSwapState.PREPARING;
+        discardUnstartedSwap(lastContext == null ? 0L : lastContext.tick);
+    }
+
+    /** 协议拒绝创建控制 intent 时，按协议阶段收敛本地义务。 */
+    public void onControlActionNotStarted(AutoToolSwapAction action, boolean protocolClosing) {
+        onActionNotStarted(action);
+        if (action != AutoToolSwapAction.FREEZE || !protocolClosing
+                || transactionState != ToolSwapTransactionState.IDLE) return;
+        freezeRequested = false;
+        requestClose(keyDown);
     }
 
     /** 协议层已精确归因的单次结算。 */
-    public void onActionSettled(AutoToolSwapAction action, AutoToolSwapResultCode result, long tick) {
+    public void onActionSettled(AutoToolSwapAction action, AutoToolSwapResultCode result,
+            AutoToolSwapRoundState serverRoundState, long tick) {
         if (transactionState != ToolSwapTransactionState.ACTION_RESULT_PENDING || action != pendingAction
-                || result == null) return;
+                || result == null || serverRoundState == null) return;
         transactionState = ToolSwapTransactionState.IDLE;
-        commandQueued = false;
         if (result == AutoToolSwapResultCode.SYNC_FAILED) {
             protocolOrphaned();
             return;
@@ -254,10 +261,19 @@ public final class AutoToolSwapController {
         if (action == AutoToolSwapAction.SWAP) {
             if (result == AutoToolSwapResultCode.APPLIED) beginInventoryVerify(action, tick);
             else if (result == AutoToolSwapResultCode.REJECTED) {
-                pendingAction = null;
-                ledger = null;
-                nextMatchTick = advanceWatermark(nextMatchTick, tick);
-                state = AutoToolSwapState.PREPARING;
+                discardUnstartedSwap(tick);
+                if (serverRoundState == AutoToolSwapRoundState.FROZEN) {
+                    freezeRequested = false;
+                    state = AutoToolSwapState.FROZEN;
+                } else if (serverRoundState == AutoToolSwapRoundState.CLOSING) {
+                    freezeRequested = false;
+                    requestClose(keyDown);
+                } else if (serverRoundState == AutoToolSwapRoundState.OPEN) {
+                    state = freezeRequested ? AutoToolSwapState.FROZEN : AutoToolSwapState.PREPARING;
+                    if (lastContext != null) drive(lastContext);
+                } else {
+                    protocolOrphaned();
+                }
             } else protocolOrphaned();
             return;
         }
@@ -279,7 +295,15 @@ public final class AutoToolSwapController {
         if (action == AutoToolSwapAction.FREEZE && (result == AutoToolSwapResultCode.ACCEPTED
                 || result == AutoToolSwapResultCode.APPLIED)) {
             pendingAction = null;
+            freezeRequested = false;
             state = AutoToolSwapState.FROZEN;
+            return;
+        }
+        if (action == AutoToolSwapAction.FREEZE && result == AutoToolSwapResultCode.REJECTED
+                && serverRoundState == AutoToolSwapRoundState.CLOSING) {
+            pendingAction = null;
+            freezeRequested = false;
+            requestClose(keyDown);
             return;
         }
         if (action == AutoToolSwapAction.CLOSE) {
@@ -328,10 +352,10 @@ public final class AutoToolSwapController {
     /** adapter 在 transport 异常、超时或协议失配时调用。 */
     public void protocolOrphaned() {
         commands.clear();
+        queuedCommandType = null;
         state = AutoToolSwapState.ABORTED_SYNC;
         transactionState = ToolSwapTransactionState.PROTOCOL_ORPHANED;
         roundAccepted = false;
-        commandQueued = false;
         pendingAction = null;
         verifyingAction = null;
         resetCycleFlags();
@@ -360,7 +384,7 @@ public final class AutoToolSwapController {
         }
         transactionState = ToolSwapTransactionState.ROUND_PENDING;
         state = preFrozen ? AutoToolSwapState.FROZEN : AutoToolSwapState.PREPARING;
-        commands.add(command(ToolSwapCommand.Type.BEGIN_ROUND));
+        queue(ToolSwapCommand.Type.BEGIN_ROUND);
     }
 
     private void evaluate(ToolSwapContext context) {
@@ -383,7 +407,7 @@ public final class AutoToolSwapController {
     }
 
     private void drive(ToolSwapContext context) {
-        if (!roundAccepted || transactionState != ToolSwapTransactionState.IDLE || commandQueued) return;
+        if (!roundAccepted || transactionState != ToolSwapTransactionState.IDLE || queuedCommandType != null) return;
         if (closeRequested) {
             if (ledger != null && pendingAction != AutoToolSwapAction.RESTORE) prepareRestore();
             if (pendingAction == null && ledger == null) queue(ToolSwapCommand.Type.SEND_CLOSE);
@@ -401,6 +425,11 @@ public final class AutoToolSwapController {
     private void requestFreeze(long eventGeneration) {
         if (eventGeneration != generation || state == AutoToolSwapState.IDLE
                 || state == AutoToolSwapState.WAIT_RELEASE || state == AutoToolSwapState.ABORTED_SYNC) return;
+        if (transactionState == ToolSwapTransactionState.IDLE
+                && queuedCommandType == ToolSwapCommand.Type.SEND_SWAP) {
+            cancelQueuedCommand();
+            discardUnstartedSwap(lastContext == null ? 0L : lastContext.tick);
+        }
         freezeRequested = true;
         if (pendingAction == null && transactionState == ToolSwapTransactionState.IDLE) state = AutoToolSwapState.FROZEN;
         if (lastContext != null) drive(lastContext);
@@ -408,14 +437,14 @@ public final class AutoToolSwapController {
 
     private void requestClose(boolean waitRelease) {
         if (state == AutoToolSwapState.IDLE || state == AutoToolSwapState.ABORTED_SYNC) return;
-        cancelQueuedCommand();
+        ToolSwapCommand.Type cancelled = cancelQueuedCommand();
         closeRequested = true;
         closeToWaitRelease = waitRelease;
-        rematchAfterRestore = false;
-        pendingAnchor = null;
-        if (pendingAction == AutoToolSwapAction.SWAP && transactionState == ToolSwapTransactionState.IDLE) {
-            pendingAction = null;
-            ledger = null;
+        if (cancelled == ToolSwapCommand.Type.SEND_SWAP) {
+            discardUnstartedSwap(lastContext == null ? 0L : lastContext.tick);
+        } else {
+            rematchAfterRestore = false;
+            pendingAnchor = null;
         }
         if (ledger != null && transactionState != ToolSwapTransactionState.ACTION_RESULT_PENDING
                 && transactionState != ToolSwapTransactionState.INVENTORY_SYNC_VERIFY) prepareRestore();
@@ -424,11 +453,12 @@ public final class AutoToolSwapController {
 
     private void prepareRestore() {
         if (ledger == null) return;
-        cancelQueuedCommand();
-        if (pendingAction == AutoToolSwapAction.SWAP && transactionState == ToolSwapTransactionState.IDLE) {
-            pendingAction = null;
-            ledger = null;
-            if (!closeRequested) state = AutoToolSwapState.PREPARING;
+        ToolSwapCommand.Type cancelled = cancelQueuedCommand();
+        if (cancelled == ToolSwapCommand.Type.SEND_SWAP) {
+            discardUnstartedSwap(lastContext == null ? 0L : lastContext.tick);
+            return;
+        }
+        if (pendingAction == AutoToolSwapAction.SWAP) {
             return;
         }
         state = AutoToolSwapState.RESTORING;
@@ -445,7 +475,7 @@ public final class AutoToolSwapController {
         if (closeRequested) {
             state = AutoToolSwapState.RESTORING;
             pendingAction = null;
-            if (roundAccepted && transactionState == ToolSwapTransactionState.IDLE && !commandQueued) {
+            if (roundAccepted && transactionState == ToolSwapTransactionState.IDLE && queuedCommandType == null) {
                 queue(ToolSwapCommand.Type.SEND_CLOSE);
             }
             return;
@@ -472,6 +502,7 @@ public final class AutoToolSwapController {
     /** 松键结束无 round 的等待态，不产生 CLOSE 或 RESTORE 义务。 */
     private void finishWaitRelease() {
         commands.clear();
+        queuedCommandType = null;
         state = AutoToolSwapState.IDLE;
         transactionState = ToolSwapTransactionState.IDLE;
         roundAccepted = false;
@@ -501,15 +532,31 @@ public final class AutoToolSwapController {
     }
 
     private void queue(ToolSwapCommand.Type type) {
-        commandQueued = true;
+        queuedCommandType = type;
         commands.add(command(type));
     }
 
     /** 撤销尚未交给 adapter 的单个动作；已发送事务绝不在本地取消。 */
-    private void cancelQueuedCommand() {
-        if (transactionState != ToolSwapTransactionState.IDLE || !commandQueued) return;
+    private ToolSwapCommand.Type cancelQueuedCommand() {
+        if (transactionState != ToolSwapTransactionState.IDLE || queuedCommandType == null) return null;
+        ToolSwapCommand.Type cancelled = queuedCommandType;
         commands.clear();
-        commandQueued = false;
+        queuedCommandType = null;
+        return cancelled;
+    }
+
+    /** 丢弃未发送或被服务端明确拒绝的 SWAP，并同步清理重匹配与 re-anchor 标记。 */
+    private void discardUnstartedSwap(long tick) {
+        if (transactionState != ToolSwapTransactionState.IDLE || pendingAction != AutoToolSwapAction.SWAP) return;
+        pendingAction = null;
+        ledger = null;
+        rematchAfterRestore = false;
+        if (pendingAnchor != null) {
+            anchorSlot = pendingAnchor.intValue();
+            pendingAnchor = null;
+        }
+        nextMatchTick = advanceWatermark(nextMatchTick, tick);
+        if (!closeRequested && !freezeRequested) state = AutoToolSwapState.PREPARING;
     }
 
     private ToolSwapCommand command(ToolSwapCommand.Type type) {
