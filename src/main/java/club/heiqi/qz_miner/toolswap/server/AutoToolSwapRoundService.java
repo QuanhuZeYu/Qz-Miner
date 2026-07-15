@@ -27,29 +27,42 @@ public final class AutoToolSwapRoundService {
     private final Map<UUID, RoundRecord> rounds = new HashMap<UUID, RoundRecord>();
     private final RoundIdAllocator roundIdAllocator;
     private final long firstActionSequence;
+    private final long firstPhaseSequence;
 
     /** 创建共享进程级 round id 分配器且 action sequence 从 1 开始的服务。 */
     public AutoToolSwapRoundService() {
-        this(PROCESS_ROUND_ID_ALLOCATOR, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE);
+        this(PROCESS_ROUND_ID_ALLOCATOR, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE);
     }
 
     /** 测试 round id 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter) {
-        this(new RoundIdAllocator(initialRoundCounter), AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE);
+        this(new RoundIdAllocator(initialRoundCounter), AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE);
     }
 
     /** 测试 action sequence 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter, long firstActionSequence) {
-        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence);
+        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence, NO_PHASE_SEQUENCE);
+    }
+
+    /** 测试 phase sequence 上界时使用的包级构造。 */
+    AutoToolSwapRoundService(long initialRoundCounter, long firstActionSequence, long firstPhaseSequence) {
+        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence, firstPhaseSequence);
     }
 
     /** 测试注入独立 round id 分配器时使用的包级构造。 */
     AutoToolSwapRoundService(RoundIdAllocator roundIdAllocator, long firstActionSequence) {
-        if (roundIdAllocator == null || firstActionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE) {
-            throw new IllegalArgumentException("round allocator and action counter must be valid protocol values");
+        this(roundIdAllocator, firstActionSequence, NO_PHASE_SEQUENCE);
+    }
+
+    private AutoToolSwapRoundService(RoundIdAllocator roundIdAllocator, long firstActionSequence,
+            long firstPhaseSequence) {
+        if (roundIdAllocator == null || firstActionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE
+                || firstPhaseSequence < NO_PHASE_SEQUENCE) {
+            throw new IllegalArgumentException("round allocator and sequence counters must be valid protocol values");
         }
         this.roundIdAllocator = roundIdAllocator;
         this.firstActionSequence = firstActionSequence;
+        this.firstPhaseSequence = firstPhaseSequence;
     }
 
     /** 建立尚未分配服务端 round id 的 PENDING round。 */
@@ -68,7 +81,7 @@ public final class AutoToolSwapRoundService {
             return result(existing, AutoToolSwapResultCode.ACCEPTED, serverTick);
         }
 
-        RoundRecord created = new RoundRecord(endpoint, clientNonce, firstActionSequence);
+        RoundRecord created = new RoundRecord(endpoint, clientNonce, firstActionSequence, firstPhaseSequence);
         rounds.put(playerId, created);
         created.beginResult = result(created, AutoToolSwapResultCode.ACCEPTED, serverTick);
         return created.beginResult;
@@ -114,16 +127,16 @@ public final class AutoToolSwapRoundService {
         return record != null && record.matchesEndpoint(endpoint) ? snapshotOf(record) : null;
     }
 
-    /** @return 当前已接受的 round id；PENDING 或不存在时返回 0。 */
+    /** @return 当前已分配且未终止的 round id；PENDING、终态或不存在时返回 0。 */
     public synchronized long currentRoundId(UUID playerId) {
         RoundRecord record = rounds.get(playerId);
-        return record == null ? AutoToolSwapProtocol.NO_SERVER_ROUND_ID : record.serverRoundId;
+        return currentRoundIdOf(record);
     }
 
-    /** @return endpoint 匹配时的当前 round id，否则返回 0。 */
+    /** @return endpoint 匹配时已分配且未终止的 round id，否则返回 0。 */
     public synchronized long currentRoundId(UUID playerId, Object endpoint) {
         RoundRecord record = rounds.get(playerId);
-        return record != null && record.matchesEndpoint(endpoint) ? record.serverRoundId
+        return record != null && record.matchesEndpoint(endpoint) ? currentRoundIdOf(record)
                 : AutoToolSwapProtocol.NO_SERVER_ROUND_ID;
     }
 
@@ -133,14 +146,36 @@ public final class AutoToolSwapRoundService {
      * @return 新阶段序号；不匹配或溢出时返回 0
      */
     public synchronized long nextPhaseSequence(UUID playerId, Object endpoint, long serverRoundId) {
+        return observeChainPhase(playerId, endpoint, serverRoundId, false, false);
+    }
+
+    /**
+     * 消费已固化 round 关联的连锁阶段广播，并在同一临界区更新 round 状态与阶段序号。
+     *
+     * @param playerId      玩家 UUID
+     * @param endpoint      当前在线 endpoint identity
+     * @param serverRoundId 事件携带的不可变服务端 round id
+     * @param freezeSwap    是否立即冻结后续 SWAP
+     * @param closeRound    是否收口为 CLOSING
+     * @return 新阶段序号；关联不匹配、终态或溢出时返回 0
+     */
+    public synchronized long observeChainPhase(UUID playerId, Object endpoint, long serverRoundId,
+            boolean freezeSwap, boolean closeRound) {
         RoundRecord record = rounds.get(playerId);
         if (record == null || !record.matchesEndpoint(endpoint) || record.serverRoundId == 0L
                 || record.serverRoundId != serverRoundId || isTerminal(record.state)) {
             return NO_PHASE_SEQUENCE;
         }
-        if (record.phaseSequence == Long.MAX_VALUE) {
-            record.state = AutoToolSwapRoundState.ORPHANED;
+        if (freezeSwap && (record.state == AutoToolSwapRoundState.OPEN
+                || record.state == AutoToolSwapRoundState.SWAPPED)) {
+            record.state = AutoToolSwapRoundState.FROZEN;
+        }
+        if (closeRound) {
             record.keyDown = false;
+            record.state = AutoToolSwapRoundState.CLOSING;
+        }
+        if (record.phaseSequence == Long.MAX_VALUE) {
+            orphan(record);
             return NO_PHASE_SEQUENCE;
         }
         return ++record.phaseSequence;
@@ -299,6 +334,9 @@ public final class AutoToolSwapRoundService {
     }
 
     private static AutoToolSwapResultCode applyFreeze(RoundRecord record) {
+        if (record.state == AutoToolSwapRoundState.FROZEN) {
+            return AutoToolSwapResultCode.ACCEPTED;
+        }
         if (record.state != AutoToolSwapRoundState.OPEN && record.state != AutoToolSwapRoundState.SWAPPED) {
             return AutoToolSwapResultCode.REJECTED;
         }
@@ -337,6 +375,11 @@ public final class AutoToolSwapRoundService {
 
     private static boolean isTerminal(AutoToolSwapRoundState state) {
         return state == AutoToolSwapRoundState.FINISHED || state == AutoToolSwapRoundState.ORPHANED;
+    }
+
+    private static long currentRoundIdOf(RoundRecord record) {
+        return record == null || record.serverRoundId == AutoToolSwapProtocol.NO_SERVER_ROUND_ID
+                || isTerminal(record.state) ? AutoToolSwapProtocol.NO_SERVER_ROUND_ID : record.serverRoundId;
     }
 
     private static void orphan(RoundRecord record) {
@@ -432,10 +475,11 @@ public final class AutoToolSwapRoundService {
         private AutoToolSwapRoundResult activationResult;
         private AutoToolSwapActionResult lastActionResult;
 
-        private RoundRecord(Object endpoint, long clientNonce, long firstActionSequence) {
+        private RoundRecord(Object endpoint, long clientNonce, long firstActionSequence, long firstPhaseSequence) {
             this.endpointReference = new WeakReference<Object>(endpoint);
             this.clientNonce = clientNonce;
             this.nextActionSequence = firstActionSequence;
+            this.phaseSequence = firstPhaseSequence;
         }
 
         private boolean matchesEndpoint(Object endpoint) {

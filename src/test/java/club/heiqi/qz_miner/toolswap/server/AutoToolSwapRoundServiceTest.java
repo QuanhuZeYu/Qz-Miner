@@ -44,6 +44,8 @@ public class AutoToolSwapRoundServiceTest {
         AutoToolSwapRoundResult close = service.handleIntent(player, endpoint,
                 intent(active.serverRoundId(), 1L, AutoToolSwapAction.CLOSE, 0, 9, ORIGINAL, CANDIDATE), null, 5L);
         Assert.assertEquals(AutoToolSwapRoundState.FINISHED, close.roundState());
+        Assert.assertEquals(0L, service.currentRoundId(player));
+        Assert.assertEquals(0L, service.currentRoundId(player, endpoint));
         service.beginRound(player, endpoint, 22L, 6L);
         AutoToolSwapRoundResult second = service.activatePendingRound(player, endpoint, 7L);
         Assert.assertEquals(2L, second.serverRoundId());
@@ -343,6 +345,53 @@ public class AutoToolSwapRoundServiceTest {
         first.service.clearAll();
         Assert.assertNull(first.service.snapshot(first.player));
         Assert.assertEquals(0, first.inventory.syncCount);
+    }
+
+    @Test
+    public void observedChainPhasesFreezeSwapCloseRoundAndKeepClientFreezeIdempotent() {
+        Fixture fixture = fixture();
+        Assert.assertEquals(1L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
+                false, false));
+        Assert.assertEquals(AutoToolSwapRoundState.OPEN, fixture.service.snapshot(fixture.player).roundState());
+
+        Assert.assertEquals(2L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
+                true, false));
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, fixture.service.snapshot(fixture.player).roundState());
+        Fixture running = fixture();
+        Assert.assertEquals(1L, running.service.observeChainPhase(running.player, running.endpoint, running.roundId,
+                true, false));
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, running.service.snapshot(running.player).roundState());
+        AutoToolSwapRoundResult freeze = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent(fixture.roundId, 1L, AutoToolSwapAction.FREEZE, 0, 9, ORIGINAL, CANDIDATE),
+                fixture.inventory, 2L);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, freeze.outcome());
+        Assert.assertEquals(2L, fixture.service.snapshot(fixture.player).phaseSequence());
+
+        Assert.assertEquals(3L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
+                false, true));
+        Assert.assertEquals(AutoToolSwapRoundState.CLOSING, fixture.service.snapshot(fixture.player).roundState());
+        Assert.assertFalse(fixture.service.snapshot(fixture.player).keyDown());
+        Assert.assertEquals(4L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
+                false, true));
+        Assert.assertEquals(AutoToolSwapRoundState.CLOSING, fixture.service.snapshot(fixture.player).roundState());
+    }
+
+    @Test
+    public void observedChainPhaseRejectsMismatchesAndOrphansOnPhaseSequenceOverflow() {
+        Fixture fixture = fixture();
+        Assert.assertEquals(0L, fixture.service.observeChainPhase(fixture.player, new Object(), fixture.roundId,
+                true, false));
+        Assert.assertEquals(0L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint,
+                fixture.roundId + 1L, true, false));
+
+        AutoToolSwapRoundService overflow = new AutoToolSwapRoundService(0L,
+                AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, Long.MAX_VALUE);
+        overflow.beginRound(fixture.player, fixture.endpoint, 99L, 0L);
+        long overflowRoundId = overflow.activatePendingRound(fixture.player, fixture.endpoint, 1L).serverRoundId();
+        Assert.assertEquals(0L, overflow.observeChainPhase(fixture.player, fixture.endpoint, overflowRoundId,
+                true, false));
+        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, overflow.snapshot(fixture.player).roundState());
+        Assert.assertEquals(0L, overflow.currentRoundId(fixture.player, fixture.endpoint));
     }
 
     private static void assertSwapRejected(InventoryMutation mutation) {
