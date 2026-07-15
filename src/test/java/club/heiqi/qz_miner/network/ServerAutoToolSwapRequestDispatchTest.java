@@ -19,22 +19,60 @@ import club.heiqi.qz_miner.toolswap.server.AutoToolSwapInventoryPort;
 public class ServerAutoToolSwapRequestDispatchTest {
 
     @Test
-    public void fifoRetainsPendingStartAndActivatedDuplicateResult() {
+    public void firstAcceptedPendingStartDoesNotReplyBeforeKeyActivation() {
         Fixture fixture = new Fixture();
         Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitRoundStart(fixture.playerId, fixture.endpoint,
                 1, 41L, true, fixture.fifo, fixture, fixture.service, fixture, fixture));
-        Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitRoundStart(fixture.playerId, fixture.endpoint,
-                1, 41L, true, fixture.fifo, fixture, fixture.service, fixture, fixture));
-        Assert.assertEquals(2, fixture.fifo.size());
 
         fixture.fifo.runNext();
+
+        Assert.assertEquals(1, fixture.service.beginCalls);
         Assert.assertEquals(0, fixture.roundReplies);
+    }
+
+    @Test
+    public void rejectedPendingStartForDifferentNonceRepliesWithRequestNonce() {
+        Fixture fixture = new Fixture();
+        submitRoundStart(fixture, 41L);
+        fixture.fifo.runNext();
+        fixture.service.beginResult = rejectedPending();
+        submitRoundStart(fixture, 42L);
+        fixture.fifo.runNext();
+
+        Assert.assertEquals(2, fixture.service.beginCalls);
+        Assert.assertEquals(1, fixture.roundReplies);
+        Assert.assertEquals(42L, fixture.lastNonce);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.lastRoundResult.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.PENDING_KEY, fixture.lastRoundResult.roundState());
+    }
+
+    @Test
+    public void pendingReplayForSameNonceDoesNotReplyBeforeKeyActivation() {
+        Fixture fixture = new Fixture();
+        submitRoundStart(fixture, 41L);
+        submitRoundStart(fixture, 41L);
+
+        fixture.fifo.runNext();
+        fixture.fifo.runNext();
+
+        Assert.assertEquals(2, fixture.service.beginCalls);
+        Assert.assertEquals(0, fixture.roundReplies);
+    }
+
+    @Test
+    public void activatedReplayForSameNonceRepliesWithAcceptedResult() {
+        Fixture fixture = new Fixture();
+        submitRoundStart(fixture, 41L);
+        fixture.fifo.runNext();
         fixture.service.beginResult = acceptedOpen();
+        submitRoundStart(fixture, 41L);
         fixture.fifo.runNext();
 
         Assert.assertEquals(2, fixture.service.beginCalls);
         Assert.assertEquals(1, fixture.roundReplies);
         Assert.assertEquals(41L, fixture.lastNonce);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.lastRoundResult.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.OPEN, fixture.lastRoundResult.roundState());
     }
 
     @Test
@@ -84,8 +122,20 @@ public class ServerAutoToolSwapRequestDispatchTest {
                 fixture.fifo, fixture, fixture.service, fixture, fixture, fixture));
     }
 
+    private static void submitRoundStart(Fixture fixture, long clientNonce) {
+        Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitRoundStart(fixture.playerId, fixture.endpoint,
+                AutoToolSwapProtocol.PROTOCOL_VERSION, clientNonce, true, fixture.fifo, fixture, fixture.service,
+                fixture, fixture));
+    }
+
     private static AutoToolSwapRoundResult acceptedOpen() {
         return new AutoToolSwapRoundResult(7L, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.OPEN,
+                AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, 12L);
+    }
+
+    private static AutoToolSwapRoundResult rejectedPending() {
+        return new AutoToolSwapRoundResult(AutoToolSwapProtocol.NO_SERVER_ROUND_ID,
+                AutoToolSwapResultCode.REJECTED, AutoToolSwapRoundState.PENDING_KEY,
                 AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, 12L);
     }
 
@@ -103,6 +153,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
         private int roundReplies;
         private int actionReplies;
         private long lastNonce;
+        private AutoToolSwapRoundResult lastRoundResult;
         private ServerAutoToolSwapRequestDispatch.RawIntent lastRawIntent;
         private AutoToolSwapRoundResult lastActionResult;
 
@@ -139,6 +190,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
             Assert.assertSame(endpoint, requestedEndpoint);
             roundReplies++;
             lastNonce = clientNonce;
+            lastRoundResult = result;
         }
 
         @Override

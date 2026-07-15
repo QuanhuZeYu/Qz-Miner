@@ -117,8 +117,10 @@ public final class ServerAutoToolSwapRequestDispatch {
             return;
         }
         AutoToolSwapRoundResult result = service.beginRound(playerId, endpoint, clientNonce, serverTick);
-        // 新建 round 仍处于 PENDING_KEY，必须等待后续 PacketKeyState(true) 激活后再确认。
-        if (result.roundState() != AutoToolSwapRoundState.PENDING_KEY) {
+        // 仅新建且尚未分配 roundId 的合法 pending round 等待后续 key 激活。
+        if (result.outcome() != AutoToolSwapResultCode.ACCEPTED
+                || result.roundState() != AutoToolSwapRoundState.PENDING_KEY
+                || result.serverRoundId() != AutoToolSwapProtocol.NO_SERVER_ROUND_ID) {
             sender.send(playerId, endpoint, clientNonce, result);
         }
     }
