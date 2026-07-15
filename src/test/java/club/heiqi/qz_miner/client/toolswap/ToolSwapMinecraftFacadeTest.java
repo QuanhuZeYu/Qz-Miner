@@ -53,6 +53,17 @@ public class ToolSwapMinecraftFacadeTest {
         Assert.assertTrue(source.contains("minecraft.currentScreen != null"));
     }
 
+    @Test
+    public void slotSnapshotsUseSharedServerContentFactory() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/client/toolswap/ToolSwapMinecraftFacade.java").toPath()),
+                StandardCharsets.UTF_8);
+
+        Assert.assertTrue(source.contains("AutoToolSwapStackStateFactory.capture(stack)"));
+        Assert.assertTrue(source.contains("new SlotSnapshot(slot, state.roleKey(), state.contentFingerprint())"));
+        Assert.assertFalse(source.contains("stack.writeToNBT"));
+    }
+
     private static final class TestBlock extends Block {
         private TestBlock() {
             super(Material.rock);

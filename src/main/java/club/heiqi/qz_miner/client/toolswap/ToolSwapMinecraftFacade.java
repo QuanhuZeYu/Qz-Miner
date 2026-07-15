@@ -11,6 +11,8 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
+import club.heiqi.qz_miner.toolswap.minecraft.AutoToolSwapStackStateFactory;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
@@ -18,7 +20,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.oredict.OreDictionary;
@@ -167,14 +168,8 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
     }
 
     private static SlotSnapshot snapshotSlot(int slot, ItemStack stack) {
-        if (stack == null || stack.getItem() == null) {
-            return new SlotSnapshot(slot, SlotSnapshot.EMPTY_ROLE_KEY, "");
-        }
-        String registryId = registryId(stack.getItem());
-        String role = registryId + "@" + stableSubtype(stack);
-        NBTTagCompound serialized = new NBTTagCompound();
-        stack.writeToNBT(serialized);
-        return new SlotSnapshot(slot, role, serialized.toString());
+        AutoToolSwapStackState state = AutoToolSwapStackStateFactory.capture(stack);
+        return new SlotSnapshot(slot, state.roleKey(), state.contentFingerprint());
     }
 
     private static ToolCandidate snapshotCandidate(int slot, ItemStack stack, Block target, int metadata) {
