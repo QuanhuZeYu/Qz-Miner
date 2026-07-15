@@ -55,6 +55,7 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertTrue(transport.intents.isEmpty());
 
         acceptRound();
+        Assert.assertTrue(transport.intents.isEmpty());
         adapter.onClientTick();
         Assert.assertEquals(1, transport.intents.size());
         AutoToolSwapIntent swap = transport.intents.get(0);
@@ -97,6 +98,8 @@ public class AutoToolSwapClientAdapterTest {
 
         adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, swap.serverRoundId(), 1L,
                 ChainPhase.IDLE.ordinal(), 1, 2L, true);
+        Assert.assertEquals(1, transport.intents.size());
+        adapter.onClientTick();
         Assert.assertEquals(AutoToolSwapAction.RESTORE, transport.intents.get(1).action());
     }
 
@@ -139,6 +142,8 @@ public class AutoToolSwapClientAdapterTest {
         acceptRound();
         adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
                 ChainPhase.IDLE.ordinal(), 1, 1L, true);
+        Assert.assertTrue(transport.intents.isEmpty());
+        adapter.onClientTick();
         AutoToolSwapIntent close = transport.intents.get(0);
         settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
         adapter.onChainKeyState(false);
@@ -189,7 +194,65 @@ public class AutoToolSwapClientAdapterTest {
         adapter.onLocalBlockDestroyed();
         adapter.onChainKeyState(true);
         acceptRound();
+        Assert.assertTrue(transport.intents.isEmpty());
+        adapter.onClientTick();
         Assert.assertEquals(AutoToolSwapAction.FREEZE, transport.intents.get(0).action());
+    }
+
+    @Test
+    public void actionResultDefersRestoreRetryUntilNextClientTick() {
+        completeSwap();
+        adapter.onChainKeyState(false);
+        AutoToolSwapIntent firstRestore = transport.intents.get(1);
+        settle(firstRestore, AutoToolSwapResultCode.REJECTED, AutoToolSwapRoundState.CLOSING);
+        Assert.assertEquals(2, transport.intents.size());
+        adapter.onClientTick();
+        Assert.assertEquals(3, transport.intents.size());
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, transport.intents.get(2).action());
+    }
+
+    @Test
+    public void guiAndUnsafeCursorKeepRestoreObligationWithoutSendingUntilSafe() {
+        completeSwap();
+        game.guiOpen = true;
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(1, transport.intents.size());
+        game.guiOpen = false;
+        adapter.onClientTick();
+        AutoToolSwapIntent guiRestore = transport.intents.get(1);
+        game.inventory = restored();
+        settle(guiRestore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+        Assert.assertFalse(adapter.controllerForTests().hasLedger());
+
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
+                new AutoToolSwapClientProtocolState());
+        game.inventory = restored();
+        completeSwap();
+        int intentsBeforeUnsafeRestore = transport.intents.size();
+        game.inventoryTransactionSafe = false;
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(intentsBeforeUnsafeRestore, transport.intents.size());
+        game.inventoryTransactionSafe = true;
+        adapter.onClientTick();
+        Assert.assertEquals(AutoToolSwapAction.RESTORE,
+                transport.intents.get(intentsBeforeUnsafeRestore).action());
+    }
+
+    @Test
+    public void creativeModeNeverSendsRestoreIntentAndResumesAfterLeavingCreative() {
+        completeSwap();
+        game.creative = true;
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(1, transport.intents.size());
+        game.creative = false;
+        adapter.onClientTick();
+        AutoToolSwapIntent restore = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        game.inventory = restored();
+        settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+        Assert.assertFalse(adapter.controllerForTests().hasLedger());
     }
 
     private void acceptRound() {
@@ -205,6 +268,18 @@ public class AutoToolSwapClientAdapterTest {
         adapter.onRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, transport.rounds.get(index).longValue(), 0L,
                 AutoToolSwapResultCode.REJECTED.wireCode(), AutoToolSwapRoundState.PENDING_KEY.wireCode(), 1L, 0L,
                 true);
+    }
+
+    private void completeSwap() {
+        adapter.onChainKeyState(true);
+        acceptRound(transport.rounds.size() - 1, 9L);
+        adapter.onClientTick();
+        AutoToolSwapIntent swap = transport.intents.get(transport.intents.size() - 1);
+        Assert.assertEquals(AutoToolSwapAction.SWAP, swap.action());
+        game.inventory = swapped();
+        settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        adapter.onClientTick();
+        Assert.assertTrue(adapter.controllerForTests().hasLedger());
     }
 
     private void assertNoRoundStart(boolean breakCapable, boolean creative) {
@@ -261,8 +336,10 @@ public class AutoToolSwapClientAdapterTest {
         private boolean physicalKeyDown;
         private boolean breakCapable = true;
         private boolean creative;
+        private boolean guiOpen;
+        private boolean inventoryTransactionSafe = true;
         @Override public ToolSwapLightContext captureLightContext(long tick, boolean active) {
-            return new ToolSwapLightContext(tick, breakCapable, creative, false, active, 0);
+            return new ToolSwapLightContext(tick, breakCapable, creative, guiOpen, active, 0);
         }
         @Override public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
                 int anchor, int candidate) {
@@ -273,7 +350,7 @@ public class AutoToolSwapClientAdapterTest {
                 if (inventory.slot(candidate) != null) slots.add(inventory.slot(candidate));
                 captured = ToolSwapInventorySnapshot.protectedSlots(slots);
             } else if (plan == ToolSwapCapturePlan.NONE) captured = ToolSwapInventorySnapshot.none();
-            return new ToolSwapContext(light, true, false, 0, captured);
+            return new ToolSwapContext(light, inventoryTransactionSafe && !light.guiOpen, light.guiOpen, 0, captured);
         }
         @Override public boolean isChainKeyPhysicallyDown() { return physicalKeyDown; }
     }

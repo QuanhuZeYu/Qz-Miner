@@ -22,6 +22,7 @@ public class ToolSwapMinecraftFacadeTest {
         Assert.assertFalse(source.contains("toContainerSlot"));
         Assert.assertFalse(source.contains("connectionIdentity"));
         Assert.assertTrue(source.contains("player.inventory.getItemStack() == null"));
+        Assert.assertTrue(source.contains("!light.creative"));
         Assert.assertTrue(source.contains("plan == ToolSwapCapturePlan.PROTECTED"));
     }
 

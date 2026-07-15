@@ -139,7 +139,6 @@ public final class AutoToolSwapClientAdapter {
         if (snapshot.phase() == AutoToolSwapClientProtocolPhase.OPEN
                 || snapshot.phase() == AutoToolSwapClientProtocolPhase.CLOSING) {
             controller.onRoundAccepted();
-            executeCommands();
         } else if (snapshot.phase() == AutoToolSwapClientProtocolPhase.IDLE) {
             controller.onRoundRejected();
         } else if (snapshot.phase() == AutoToolSwapClientProtocolPhase.ORPHANED) {
@@ -169,7 +168,6 @@ public final class AutoToolSwapClientAdapter {
             actionSentTick = -1L;
             actionRetransmitted = false;
         }
-        executeCommands();
     }
 
     /** ClientProxy 主线程 gate 后发布的专用 round phase。 */
@@ -180,7 +178,6 @@ public final class AutoToolSwapClientAdapter {
         if (snapshot == null) return;
         if (snapshot.phase() == ChainPhase.IDLE) dedicatedRoundEnded = true;
         controller.onDedicatedPhase(snapshot.phase());
-        executeCommands();
     }
 
     /** 生命周期复位清 controller、protocol、重发水位和首块锁存，且绝不发送恢复包。 */

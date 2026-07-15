@@ -74,6 +74,7 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         }
         boolean guiOpen = minecraft.currentScreen != null;
         boolean transactionSafe = inventory.isTrusted()
+                && !light.creative
                 && !guiOpen
                 && player.openContainer == player.inventoryContainer
                 && player.inventoryContainer != null

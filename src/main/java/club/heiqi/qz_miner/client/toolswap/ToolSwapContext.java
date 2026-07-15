@@ -7,7 +7,7 @@ public final class ToolSwapContext {
     public final boolean breakCapable;
     public final boolean creative;
     public final boolean guiOpen;
-    /** 当前可安全执行 window 0 inventory mode-2 事务。 */
+    /** 当前可安全发送 Qz 服务端工具换位 intent 的客户端事实。 */
     public final boolean inventoryTransactionSafe;
     public final boolean chainActive;
     public final int selectedHotbarSlot;
@@ -29,7 +29,7 @@ public final class ToolSwapContext {
         this.breakCapable = breakCapable;
         this.creative = creative;
         this.guiOpen = guiOpen;
-        this.inventoryTransactionSafe = inventoryTransactionSafe && inventory.isTrusted();
+        this.inventoryTransactionSafe = inventoryTransactionSafe && !creative && inventory.isTrusted();
         this.chainActive = chainActive;
         this.selectedHotbarSlot = selectedHotbarSlot;
         this.inventory = inventory;

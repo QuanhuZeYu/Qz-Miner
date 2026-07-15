@@ -152,6 +152,82 @@ public class AutoToolSwapControllerTest {
         Assert.assertEquals(AutoToolSwapState.PREPARING, swap.state());
     }
 
+    @Test
+    public void unsafeRestorePreflightClearsOnlyTheQueuedCommandUntilSafeAgain() {
+        AutoToolSwapController gui = completedSwap();
+        gui.onKeyState(false, context(2, true, swapped()), false);
+        ToolSwapCommand guiRestore = only(gui);
+        Assert.assertFalse(gui.onActionPreflight(guiRestore, context(2, true, swapped())));
+        Assert.assertTrue(gui.hasLedger());
+        Assert.assertTrue(gui.drainCommands().isEmpty());
+        gui.onTick(context(3, swapped()));
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_RESTORE, only(gui).type);
+
+        AutoToolSwapController cursor = completedSwap();
+        cursor.onKeyState(false, context(2, swapped()), false);
+        ToolSwapCommand cursorRestore = only(cursor);
+        ToolSwapContext unsafeCursor = new ToolSwapContext(2, true, false, false, false, true, 0, swapped());
+        Assert.assertFalse(cursor.onActionPreflight(cursorRestore, unsafeCursor));
+        Assert.assertTrue(cursor.hasLedger());
+        cursor.onTick(context(3, swapped()));
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_RESTORE, only(cursor).type);
+    }
+
+    @Test
+    public void unsafeSwapPreflightRetractsLedgerAndAdvancesMatchingWatermark() {
+        AutoToolSwapController controller = acceptedSwap();
+        ToolSwapCommand swap = only(controller);
+        ToolSwapContext unsafe = new ToolSwapContext(0, true, false, false, false, true, 0, restored());
+        Assert.assertFalse(controller.onActionPreflight(swap, unsafe));
+        Assert.assertFalse(controller.hasLedger());
+        Assert.assertEquals(AutoToolSwapState.PREPARING, controller.state());
+    }
+
+    @Test
+    public void restorePreflightWaitsForUntrustedInventoryButOrphansTrustedThirdLayout() {
+        AutoToolSwapController untrusted = completedSwap();
+        untrusted.onKeyState(false, context(2, swapped()), false);
+        ToolSwapCommand waitingRestore = only(untrusted);
+        Assert.assertFalse(untrusted.onActionPreflight(waitingRestore, ToolSwapInventorySnapshot.untrusted()));
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, untrusted.transactionState());
+        Assert.assertTrue(untrusted.hasLedger());
+        untrusted.onTick(context(3, swapped()));
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_RESTORE, only(untrusted).type);
+
+        AutoToolSwapController released = completedSwap();
+        released.onKeyState(false, context(2, swapped()), false);
+        ToolSwapCommand releaseRestore = only(released);
+        Assert.assertFalse(released.onActionPreflight(releaseRestore, protectedSlots(third())));
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED, released.transactionState());
+        released.onTick(context(3, third()));
+        Assert.assertTrue(released.drainCommands().isEmpty());
+
+        AutoToolSwapController reanchored = completedSwap();
+        reanchored.onTick(new ToolSwapContext(2, true, false, false, true, true, 1, swapped()));
+        ToolSwapCommand reanchorRestore = only(reanchored);
+        Assert.assertFalse(reanchored.onActionPreflight(reanchorRestore, protectedSlots(third())));
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED, reanchored.transactionState());
+    }
+
+    @Test
+    public void consecutiveRestoreRejectionsAreBoundedAndFailClosed() {
+        AutoToolSwapController controller = completedSwap();
+        controller.onKeyState(false, context(2, swapped()), false);
+        for (int rejected = 1; rejected <= AutoToolSwapController.MAX_CONSECUTIVE_RESTORE_REJECTIONS;
+                rejected++) {
+            ToolSwapCommand restore = only(controller);
+            Assert.assertTrue(controller.onActionPreflight(restore, protectedSlots(swapped())));
+            controller.onActionStarted(AutoToolSwapAction.RESTORE);
+            controller.onActionSettled(AutoToolSwapAction.RESTORE, AutoToolSwapResultCode.REJECTED, rejected + 2L);
+            if (rejected < AutoToolSwapController.MAX_CONSECUTIVE_RESTORE_REJECTIONS) {
+                controller.onTick(context(rejected + 3L, swapped()));
+            }
+        }
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED, controller.transactionState());
+        controller.onTick(context(10, swapped()));
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+    }
+
     private static AutoToolSwapController acceptedSwap() {
         AutoToolSwapController controller = controller();
         controller.onKeyState(true, context(0, restored()), false);

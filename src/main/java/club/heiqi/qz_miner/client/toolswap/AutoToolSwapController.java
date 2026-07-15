@@ -21,6 +21,7 @@ public final class AutoToolSwapController {
 
     public static final int MATCH_INTERVAL_TICKS = 10;
     public static final int INVENTORY_SYNC_TIMEOUT_TICKS = 40;
+    public static final int MAX_CONSECUTIVE_RESTORE_REJECTIONS = 3;
 
     private final List<ToolSwapCommand> commands = new ArrayList<ToolSwapCommand>();
     private AutoToolSwapState state = AutoToolSwapState.IDLE;
@@ -45,6 +46,7 @@ public final class AutoToolSwapController {
     private AutoToolSwapAction verifyingAction;
     private Ledger ledger;
     private ToolSwapContext lastContext;
+    private int consecutiveRestoreRejections;
 
     public AutoToolSwapController(boolean enabled, List<ToolSelector> selectors, int ignoredTimeoutTicks) {
         configuredEnabled = enabled;
@@ -93,6 +95,7 @@ public final class AutoToolSwapController {
         verifyingAction = null;
         ledger = null;
         lastContext = null;
+        consecutiveRestoreRejections = 0;
         resetCycleFlags();
     }
 
@@ -193,8 +196,11 @@ public final class AutoToolSwapController {
 
     /** adapter 在发送 SWAP/RESTORE 前以新鲜保护槽快照复核。 */
     public boolean onActionPreflight(ToolSwapCommand command, ToolSwapContext context) {
-        return context != null && context.inventoryTransactionSafe
-                && onActionPreflight(command, context.inventory);
+        if (context == null || !context.inventoryTransactionSafe) {
+            onActionNotStarted(actionFor(command));
+            return false;
+        }
+        return onActionPreflight(command, context.inventory);
     }
 
     /** 纯快照入口供无 Minecraft 依赖的状态测试复核 ledger 布局。 */
@@ -204,16 +210,15 @@ public final class AutoToolSwapController {
             return false;
         }
         boolean restore = pendingAction == AutoToolSwapAction.RESTORE;
-        boolean valid = hasTrustedProtectedSlots(inventory)
-                && (restore ? ledger.matchesSwapped(inventory, generation)
-                        : ledger.matchesStrictRestored(inventory, generation));
         commandQueued = false;
-        if (valid) return true;
-        if (restore) return false;
-        pendingAction = null;
-        ledger = null;
-        nextMatchTick = advanceWatermark(nextMatchTick, lastContext == null ? 0L : lastContext.tick);
-        state = AutoToolSwapState.PREPARING;
+        if (restore) {
+            if (!hasTrustedProtectedSlots(inventory)) return false;
+            if (ledger.matchesSwapped(inventory, generation)) return true;
+            protocolOrphaned();
+            return false;
+        }
+        if (hasTrustedProtectedSlots(inventory) && ledger.matchesStrictRestored(inventory, generation)) return true;
+        onActionNotStarted(AutoToolSwapAction.SWAP);
         return false;
     }
 
@@ -227,9 +232,13 @@ public final class AutoToolSwapController {
 
     /** preflight 后尚未开始发送的动作取消。 */
     public void onActionNotStarted(AutoToolSwapAction action) {
-        if (action == AutoToolSwapAction.SWAP && transactionState == ToolSwapTransactionState.IDLE) {
-            commandQueued = false;
-        }
+        commandQueued = false;
+        if (action != AutoToolSwapAction.SWAP || transactionState != ToolSwapTransactionState.IDLE
+                || pendingAction != AutoToolSwapAction.SWAP) return;
+        pendingAction = null;
+        ledger = null;
+        nextMatchTick = advanceWatermark(nextMatchTick, lastContext == null ? 0L : lastContext.tick);
+        state = AutoToolSwapState.PREPARING;
     }
 
     /** 协议层已精确归因的单次结算。 */
@@ -253,10 +262,17 @@ public final class AutoToolSwapController {
             return;
         }
         if (action == AutoToolSwapAction.RESTORE) {
-            if (result == AutoToolSwapResultCode.APPLIED) beginInventoryVerify(action, tick);
+            if (result == AutoToolSwapResultCode.APPLIED) {
+                consecutiveRestoreRejections = 0;
+                beginInventoryVerify(action, tick);
+            }
             else if (result == AutoToolSwapResultCode.REJECTED) {
-                pendingAction = AutoToolSwapAction.RESTORE;
-                state = AutoToolSwapState.RESTORING;
+                if (++consecutiveRestoreRejections >= MAX_CONSECUTIVE_RESTORE_REJECTIONS) {
+                    protocolOrphaned();
+                } else {
+                    pendingAction = AutoToolSwapAction.RESTORE;
+                    state = AutoToolSwapState.RESTORING;
+                }
             } else protocolOrphaned();
             return;
         }
@@ -336,6 +352,7 @@ public final class AutoToolSwapController {
         ledger = null;
         pendingAction = null;
         transactionState = ToolSwapTransactionState.IDLE;
+        consecutiveRestoreRejections = 0;
         if (!cycleEnabled || !context.breakCapable || context.creative || !context.chainActive) {
             state = AutoToolSwapState.WAIT_RELEASE;
             resetCycleFlags();
@@ -513,6 +530,12 @@ public final class AutoToolSwapController {
 
     private static boolean isSwapOrRestore(ToolSwapCommand.Type type) {
         return type == ToolSwapCommand.Type.SEND_SWAP || type == ToolSwapCommand.Type.SEND_RESTORE;
+    }
+
+    private static AutoToolSwapAction actionFor(ToolSwapCommand command) {
+        if (command == null) return null;
+        return command.type == ToolSwapCommand.Type.SEND_SWAP ? AutoToolSwapAction.SWAP
+                : command.type == ToolSwapCommand.Type.SEND_RESTORE ? AutoToolSwapAction.RESTORE : null;
     }
 
     private static long advanceWatermark(long previous, long current) {
