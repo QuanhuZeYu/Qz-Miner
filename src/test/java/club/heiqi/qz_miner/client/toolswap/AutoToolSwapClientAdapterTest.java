@@ -200,6 +200,64 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void closingDropsStaleFreezeWithoutOrphaningThenSendsClose() {
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.PLANNING.ordinal(), 1, 1L, true);
+        adapter.protocolForTests().markClosing();
+
+        adapter.onClientTick();
+        Assert.assertTrue(transport.intents.isEmpty());
+        Assert.assertNotEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
+                adapter.controllerForTests().transactionState());
+
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
+    }
+
+    @Test
+    public void orphanedProtocolAndIntentTransportFailureStillFailClosed() {
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.PLANNING.ordinal(), 1, 1L, true);
+        adapter.protocolForTests().abandonCurrentRound();
+        adapter.onClientTick();
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
+                adapter.controllerForTests().transactionState());
+
+        game = new FakeGame();
+        transport = new RecordingTransport();
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
+                new AutoToolSwapClientProtocolState());
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.PLANNING.ordinal(), 1, 1L, true);
+        transport.accept = false;
+        adapter.onClientTick();
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
+                adapter.controllerForTests().transactionState());
+    }
+
+    @Test
+    public void quickRepressWaitsForTheNextCompleteReleaseAfterCloseSettlement() {
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onChainKeyState(false);
+        AutoToolSwapIntent close = transport.intents.get(0);
+        adapter.onChainKeyState(true);
+        Assert.assertEquals(1, transport.rounds.size());
+
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, adapter.controllerForTests().state());
+        adapter.onChainKeyState(false);
+        adapter.onChainKeyState(true);
+        Assert.assertEquals(2, transport.rounds.size());
+    }
+
+    @Test
     public void actionResultDefersRestoreRetryUntilNextClientTick() {
         completeSwap();
         adapter.onChainKeyState(false);

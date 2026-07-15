@@ -135,6 +135,33 @@ public class AutoToolSwapControllerTest {
     }
 
     @Test
+    public void releaseReplacesQueuedFreezeWithCurrentCloseObligation() {
+        AutoToolSwapController controller = controller();
+        controller.onKeyState(true, context(0, restored()), true);
+        only(controller);
+        controller.onRoundAccepted();
+        controller.onKeyState(false, context(1, restored()), false);
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_CLOSE, only(controller).type);
+    }
+
+    @Test
+    public void releaseReplacesQueuedFreezeWithRestoreBeforeCloseWhenLedgerExists() {
+        AutoToolSwapController controller = completedSwap();
+        controller.onDedicatedPhase(club.heiqi.qz_miner.chain.statemachine.ChainPhase.PLANNING);
+        controller.onKeyState(false, context(2, swapped()), false);
+        Assert.assertEquals(ToolSwapCommand.Type.SEND_RESTORE, only(controller).type);
+    }
+
+    @Test
+    public void guiCancelsQueuedSwapAndRetractsUnsentLedger() {
+        AutoToolSwapController controller = acceptedSwap();
+        controller.onTick(context(1, true, restored()));
+        Assert.assertFalse(controller.hasLedger());
+        Assert.assertEquals(AutoToolSwapState.PREPARING, controller.state());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+    }
+
+    @Test
     public void rejectedRestoreRetainsLedgerAndPreflightFailureRetractsSwap() {
         AutoToolSwapController restore = completedSwap();
         restore.onKeyState(false, context(2, swapped()), false);

@@ -224,8 +224,11 @@ public final class AutoToolSwapClientAdapter {
                     ? AutoToolSwapAction.SWAP : AutoToolSwapAction.RESTORE;
             AutoToolSwapIntent intent = protocol.beginAction(action, command.anchorSlot, command.candidateSlot,
                     anchor.contentFingerprint(), candidate.contentFingerprint());
-            if (intent == null || !sendIntent(intent)) protocolFailure();
-            else {
+            if (intent == null) {
+                handleNotStartedAction(action);
+            } else if (!sendIntent(intent)) {
+                protocolFailure();
+            } else {
                 controller.onActionStarted(action);
                 actionSentTick = clientTick;
                 actionRetransmitted = false;
@@ -235,12 +238,21 @@ public final class AutoToolSwapClientAdapter {
         AutoToolSwapAction action = command.type == ToolSwapCommand.Type.SEND_FREEZE
                 ? AutoToolSwapAction.FREEZE : AutoToolSwapAction.CLOSE;
         AutoToolSwapIntent intent = protocol.beginControlAction(action);
-        if (intent == null || !sendIntent(intent)) protocolFailure();
-        else {
+        if (intent == null) {
+            handleNotStartedAction(action);
+        } else if (!sendIntent(intent)) {
+            protocolFailure();
+        } else {
             controller.onActionStarted(action);
             actionSentTick = clientTick;
             actionRetransmitted = false;
         }
+    }
+
+    /** 空 intent 仅在协议已明确 orphan 时升级为本地 fail-closed。 */
+    private void handleNotStartedAction(AutoToolSwapAction action) {
+        controller.onActionNotStarted(action);
+        if (protocol.snapshot().phase() == AutoToolSwapClientProtocolPhase.ORPHANED) protocolFailure();
     }
 
     private ToolSwapContext captureProtected(ToolSwapCommand command) {

@@ -408,6 +408,7 @@ public final class AutoToolSwapController {
 
     private void requestClose(boolean waitRelease) {
         if (state == AutoToolSwapState.IDLE || state == AutoToolSwapState.ABORTED_SYNC) return;
+        cancelQueuedCommand();
         closeRequested = true;
         closeToWaitRelease = waitRelease;
         rematchAfterRestore = false;
@@ -423,6 +424,13 @@ public final class AutoToolSwapController {
 
     private void prepareRestore() {
         if (ledger == null) return;
+        cancelQueuedCommand();
+        if (pendingAction == AutoToolSwapAction.SWAP && transactionState == ToolSwapTransactionState.IDLE) {
+            pendingAction = null;
+            ledger = null;
+            if (!closeRequested) state = AutoToolSwapState.PREPARING;
+            return;
+        }
         state = AutoToolSwapState.RESTORING;
         if (transactionState == ToolSwapTransactionState.IDLE) pendingAction = AutoToolSwapAction.RESTORE;
     }
@@ -495,6 +503,13 @@ public final class AutoToolSwapController {
     private void queue(ToolSwapCommand.Type type) {
         commandQueued = true;
         commands.add(command(type));
+    }
+
+    /** 撤销尚未交给 adapter 的单个动作；已发送事务绝不在本地取消。 */
+    private void cancelQueuedCommand() {
+        if (transactionState != ToolSwapTransactionState.IDLE || !commandQueued) return;
+        commands.clear();
+        commandQueued = false;
     }
 
     private ToolSwapCommand command(ToolSwapCommand.Type type) {
