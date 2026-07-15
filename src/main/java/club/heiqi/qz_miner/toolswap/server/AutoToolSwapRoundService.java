@@ -21,27 +21,34 @@ public final class AutoToolSwapRoundService {
 
     public static final long NO_PHASE_SEQUENCE = 0L;
 
-    private final Map<UUID, RoundRecord> rounds = new HashMap<UUID, RoundRecord>();
-    private final long firstActionSequence;
-    private long lastIssuedRoundId;
+    private static final RoundIdAllocator PROCESS_ROUND_ID_ALLOCATOR = new RoundIdAllocator(
+            AutoToolSwapProtocol.NO_SERVER_ROUND_ID);
 
-    /** 创建从 round 1 和 action sequence 1 开始的服务。 */
+    private final Map<UUID, RoundRecord> rounds = new HashMap<UUID, RoundRecord>();
+    private final RoundIdAllocator roundIdAllocator;
+    private final long firstActionSequence;
+
+    /** 创建共享进程级 round id 分配器且 action sequence 从 1 开始的服务。 */
     public AutoToolSwapRoundService() {
-        this(AutoToolSwapProtocol.NO_SERVER_ROUND_ID, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE);
+        this(PROCESS_ROUND_ID_ALLOCATOR, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE);
     }
 
     /** 测试 round id 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter) {
-        this(initialRoundCounter, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE);
+        this(new RoundIdAllocator(initialRoundCounter), AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE);
     }
 
     /** 测试 action sequence 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter, long firstActionSequence) {
-        if (initialRoundCounter < AutoToolSwapProtocol.NO_SERVER_ROUND_ID
-                || firstActionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE) {
-            throw new IllegalArgumentException("round and action counters must be non-negative protocol values");
+        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence);
+    }
+
+    /** 测试注入独立 round id 分配器时使用的包级构造。 */
+    AutoToolSwapRoundService(RoundIdAllocator roundIdAllocator, long firstActionSequence) {
+        if (roundIdAllocator == null || firstActionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE) {
+            throw new IllegalArgumentException("round allocator and action counter must be valid protocol values");
         }
-        this.lastIssuedRoundId = initialRoundCounter;
+        this.roundIdAllocator = roundIdAllocator;
         this.firstActionSequence = firstActionSequence;
     }
 
@@ -82,13 +89,14 @@ public final class AutoToolSwapRoundService {
         if (record.state != AutoToolSwapRoundState.PENDING_KEY) {
             return result(record, AutoToolSwapResultCode.REJECTED, serverTick);
         }
-        if (lastIssuedRoundId == Long.MAX_VALUE) {
+        long serverRoundId = roundIdAllocator.nextRoundId();
+        if (serverRoundId == AutoToolSwapProtocol.NO_SERVER_ROUND_ID) {
             record.state = AutoToolSwapRoundState.ORPHANED;
             record.keyDown = false;
             return result(record, AutoToolSwapResultCode.REJECTED, serverTick);
         }
 
-        record.serverRoundId = ++lastIssuedRoundId;
+        record.serverRoundId = serverRoundId;
         record.state = AutoToolSwapRoundState.OPEN;
         record.keyDown = true;
         record.activationResult = result(record, AutoToolSwapResultCode.ACCEPTED, serverTick);
@@ -257,7 +265,7 @@ public final class AutoToolSwapRoundService {
         AutoToolSwapStackState currentAnchor;
         AutoToolSwapStackState currentCandidate;
         try {
-            if (!hasSafeInventoryContext(inventory) || inventory.selectedHotbarSlot() != ledger.anchorSlot) {
+            if (!hasSafeInventoryContext(inventory)) {
                 return AutoToolSwapResultCode.REJECTED;
             }
             currentAnchor = inventory.readInventorySlot(ledger.anchorSlot);
@@ -386,6 +394,26 @@ public final class AutoToolSwapRoundService {
     private static void requireServerTick(long serverTick) {
         if (serverTick < 0L) {
             throw new IllegalArgumentException("serverTick must not be negative");
+        }
+    }
+
+    /** 线程安全且永久耗尽的 round id 分配器。 */
+    static final class RoundIdAllocator {
+
+        private long lastIssuedRoundId;
+
+        RoundIdAllocator(long initialRoundCounter) {
+            if (initialRoundCounter < AutoToolSwapProtocol.NO_SERVER_ROUND_ID) {
+                throw new IllegalArgumentException("round counter must be a non-negative protocol value");
+            }
+            this.lastIssuedRoundId = initialRoundCounter;
+        }
+
+        synchronized long nextRoundId() {
+            if (lastIssuedRoundId == Long.MAX_VALUE) {
+                return AutoToolSwapProtocol.NO_SERVER_ROUND_ID;
+            }
+            return ++lastIssuedRoundId;
         }
     }
 

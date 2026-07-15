@@ -22,7 +22,7 @@ public class AutoToolSwapRoundServiceTest {
 
     @Test
     public void pendingActivationIsEndpointBoundIdempotentAndRoundIdsDoNotReuse() {
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService();
+        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L);
         UUID player = UUID.randomUUID();
         Object endpoint = new Object();
 
@@ -47,6 +47,24 @@ public class AutoToolSwapRoundServiceTest {
         service.beginRound(player, endpoint, 22L, 6L);
         AutoToolSwapRoundResult second = service.activatePendingRound(player, endpoint, 7L);
         Assert.assertEquals(2L, second.serverRoundId());
+    }
+
+    @Test
+    public void publicServicesShareProcessRoundIdsAcrossInstanceRecreation() {
+        AutoToolSwapRoundService firstService = new AutoToolSwapRoundService();
+        long firstRoundId = activateRound(firstService);
+        AutoToolSwapRoundService secondService = new AutoToolSwapRoundService();
+        long secondRoundId = activateRound(secondService);
+        firstService = null;
+        secondService = null;
+        long recreatedRoundId = activateRound(new AutoToolSwapRoundService());
+
+        Assert.assertTrue(firstRoundId > 0L);
+        Assert.assertTrue(secondRoundId > 0L);
+        Assert.assertTrue(recreatedRoundId > 0L);
+        Assert.assertNotEquals(firstRoundId, secondRoundId);
+        Assert.assertNotEquals(firstRoundId, recreatedRoundId);
+        Assert.assertNotEquals(secondRoundId, recreatedRoundId);
     }
 
     @Test
@@ -200,38 +218,62 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
-    public void swapOrSyncExceptionsOrphanAndCachedReplayNeverWritesTwice() {
-        Fixture swapFailure = fixture();
-        swapFailure.inventory.failSwap = true;
-        AutoToolSwapIntent first = swapIntent(swapFailure, 1L);
-        AutoToolSwapRoundResult failedSwap = swapFailure.service.handleIntent(swapFailure.player,
-                swapFailure.endpoint, first, swapFailure.inventory, 1L);
-        Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, failedSwap.outcome());
-        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, failedSwap.roundState());
-        Assert.assertEquals(1, swapFailure.inventory.swapCount);
-        Assert.assertEquals(failedSwap, swapFailure.service.handleIntent(swapFailure.player,
-                swapFailure.endpoint, first, swapFailure.inventory, 2L));
-        Assert.assertEquals(1, swapFailure.inventory.swapCount);
-
-        Fixture syncFailure = fixture();
-        syncFailure.inventory.failSync = true;
-        AutoToolSwapIntent second = swapIntent(syncFailure, 1L);
-        AutoToolSwapRoundResult failedSync = syncFailure.service.handleIntent(syncFailure.player,
-                syncFailure.endpoint, second, syncFailure.inventory, 3L);
-        Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, failedSync.outcome());
-        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, failedSync.roundState());
-        Assert.assertEquals(1, syncFailure.inventory.swapCount);
-        Assert.assertEquals(1, syncFailure.inventory.syncCount);
-        Assert.assertEquals(failedSync, syncFailure.service.handleIntent(syncFailure.player,
-                syncFailure.endpoint, second, syncFailure.inventory, 4L));
-        Assert.assertEquals(1, syncFailure.inventory.swapCount);
-        Assert.assertEquals(1, syncFailure.inventory.syncCount);
+    public void swapAndRestoreWriteFailuresOrphanAndCachedReplayNeverWritesTwice() {
+        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.RUNTIME, false);
+        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.LINKAGE, false);
+        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.RUNTIME, true);
+        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.LINKAGE, true);
+        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.RUNTIME, false);
+        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.LINKAGE, false);
+        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.RUNTIME, true);
+        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.LINKAGE, true);
     }
 
     @Test
-    public void restoreUsesCurrentRealStacksAndAllowsDynamicOrEmptyActiveTool() {
+    public void restoreUsesCurrentRealStacksAllowsDynamicOrEmptyActiveToolAndPreservesManualSelection() {
         assertRestoreApplied(stack("mod:drill", "used", 20));
         assertRestoreApplied(AutoToolSwapStackState.empty());
+
+        Fixture manuallySelected = swappedFixture();
+        manuallySelected.inventory.selectedSlot = 1;
+        AutoToolSwapRoundResult restored = manuallySelected.service.handleIntent(manuallySelected.player,
+                manuallySelected.endpoint, currentRestoreIntent(manuallySelected, 2L), manuallySelected.inventory, 2L);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
+        Assert.assertEquals(1, manuallySelected.inventory.selectedSlot);
+    }
+
+    @Test
+    public void restoreKeepsSafetyContextGatesWithoutWriting() {
+        assertRestoreRejectedByContext(new InventoryMutation() {
+            @Override
+            public void apply(FakeInventory inventory) {
+                inventory.alive = false;
+            }
+        });
+        assertRestoreRejectedByContext(new InventoryMutation() {
+            @Override
+            public void apply(FakeInventory inventory) {
+                inventory.creative = true;
+            }
+        });
+        assertRestoreRejectedByContext(new InventoryMutation() {
+            @Override
+            public void apply(FakeInventory inventory) {
+                inventory.window0 = false;
+            }
+        });
+        assertRestoreRejectedByContext(new InventoryMutation() {
+            @Override
+            public void apply(FakeInventory inventory) {
+                inventory.cursorEmpty = false;
+            }
+        });
+        assertRestoreRejectedByContext(new InventoryMutation() {
+            @Override
+            public void apply(FakeInventory inventory) {
+                inventory.failRead = true;
+            }
+        });
     }
 
     @Test
@@ -326,6 +368,37 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertTrue(ORIGINAL.sameContent(fixture.inventory.slots[0]));
     }
 
+    private static void assertRestoreRejectedByContext(InventoryMutation mutation) {
+        Fixture fixture = swappedFixture();
+        mutation.apply(fixture.inventory);
+        assertRestoreRejected(fixture, currentRestoreIntent(fixture, 2L));
+    }
+
+    private static void assertWriteFailureOrphans(AutoToolSwapAction action, FailureMode failureMode,
+            boolean failSync) {
+        Fixture fixture = action == AutoToolSwapAction.SWAP ? fixture() : swappedFixture();
+        AutoToolSwapIntent intent = action == AutoToolSwapAction.SWAP ? swapIntent(fixture, 1L)
+                : currentRestoreIntent(fixture, 2L);
+        int swapsBefore = fixture.inventory.swapCount;
+        int syncsBefore = fixture.inventory.syncCount;
+        if (failSync) {
+            fixture.inventory.syncFailure = failureMode;
+        } else {
+            fixture.inventory.swapFailure = failureMode;
+        }
+
+        AutoToolSwapRoundResult failed = fixture.service.handleIntent(fixture.player, fixture.endpoint, intent,
+                fixture.inventory, 2L);
+        Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, failed.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, failed.roundState());
+        Assert.assertEquals(swapsBefore + 1, fixture.inventory.swapCount);
+        Assert.assertEquals(syncsBefore + (failSync ? 1 : 0), fixture.inventory.syncCount);
+        Assert.assertEquals(failed, fixture.service.handleIntent(fixture.player, fixture.endpoint, intent,
+                fixture.inventory, 3L));
+        Assert.assertEquals(swapsBefore + 1, fixture.inventory.swapCount);
+        Assert.assertEquals(syncsBefore + (failSync ? 1 : 0), fixture.inventory.syncCount);
+    }
+
     private static void assertRestoreRejected(Fixture fixture, AutoToolSwapIntent restore) {
         int swapsBefore = fixture.inventory.swapCount;
         int syncsBefore = fixture.inventory.syncCount;
@@ -338,7 +411,7 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     private static Fixture fixture() {
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService();
+        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L);
         UUID player = UUID.randomUUID();
         Object endpoint = new Object();
         service.beginRound(player, endpoint, 17L, 0L);
@@ -380,9 +453,22 @@ public class AutoToolSwapRoundServiceTest {
                 durability);
     }
 
+    private static long activateRound(AutoToolSwapRoundService service) {
+        UUID player = UUID.randomUUID();
+        Object endpoint = new Object();
+        service.beginRound(player, endpoint, 1L, 0L);
+        return service.activatePendingRound(player, endpoint, 1L).serverRoundId();
+    }
+
     private interface InventoryMutation {
 
         void apply(FakeInventory inventory);
+    }
+
+    private enum FailureMode {
+        NONE,
+        RUNTIME,
+        LINKAGE
     }
 
     private static final class Fixture {
@@ -412,8 +498,8 @@ public class AutoToolSwapRoundServiceTest {
         private boolean cursorEmpty = true;
         private int selectedSlot;
         private boolean failRead;
-        private boolean failSwap;
-        private boolean failSync;
+        private FailureMode swapFailure = FailureMode.NONE;
+        private FailureMode syncFailure = FailureMode.NONE;
         private int readCount;
         private int swapCount;
         private int syncCount;
@@ -456,9 +542,7 @@ public class AutoToolSwapRoundServiceTest {
         @Override
         public void swapInventorySlotsAtomically(int anchorSlot, int candidateSlot) {
             swapCount++;
-            if (failSwap) {
-                throw new IllegalStateException("swap outcome unknown");
-            }
+            throwForFailure(swapFailure, "swap outcome unknown");
             AutoToolSwapStackState value = slots[anchorSlot];
             slots[anchorSlot] = slots[candidateSlot];
             slots[candidateSlot] = value;
@@ -467,8 +551,15 @@ public class AutoToolSwapRoundServiceTest {
         @Override
         public void syncInventoryDifference() {
             syncCount++;
-            if (failSync) {
-                throw new IllegalStateException("sync failure");
+            throwForFailure(syncFailure, "sync failure");
+        }
+
+        private static void throwForFailure(FailureMode failureMode, String message) {
+            if (failureMode == FailureMode.RUNTIME) {
+                throw new IllegalStateException(message);
+            }
+            if (failureMode == FailureMode.LINKAGE) {
+                throw new LinkageError(message);
             }
         }
     }
