@@ -63,12 +63,15 @@ public class AutoToolSwapControllerTest {
         onlyCommand(controller);
         controller.onSlotsObserved(generation, 11, swapped(0, 5, "damage=5"));
 
+        Assert.assertTrue("slot callback without current context must only register restore",
+                controller.drainCommands().isEmpty());
+        controller.onTick(context(3, false, swapped(0, 5, "damage=5")));
         ToolSwapCommand restore = onlyCommand(controller);
         Assert.assertEquals(ToolSwapCommand.Type.BEGIN_RESTORE, restore.type);
         Assert.assertEquals(AutoToolSwapState.RESTORING, controller.state());
-        controller.onPacketIdAssigned(generation, 12, 2);
-        controller.onTransactionAck(generation, 12, true, 2);
-        controller.onTick(context(3, false, restoredMutated(0, 5)));
+        controller.onPacketIdAssigned(generation, 12, 3);
+        controller.onTransactionAck(generation, 12, true, 3);
+        controller.onTick(context(4, false, restoredMutated(0, 5)));
         onlyCommand(controller);
         controller.onSlotsObserved(generation, 12, restoredMutated(0, 5));
 
@@ -225,19 +228,22 @@ public class AutoToolSwapControllerTest {
         Assert.assertTrue(unknown.hasLedger());
 
         AutoToolSwapController swapped = isolateInitialSwapAfterAckLoss(swapped(0, 5, "server-applied"));
-        swapped.onTick(context(4, false, false, swapped(0, 5, "stable")));
         swapped.onSynchronizationRecovered(swapped(0, 5, "stable"));
         Assert.assertEquals(AutoToolSwapState.RESTORING, swapped.state());
         Assert.assertEquals(ToolSwapTransactionState.IDLE, swapped.transactionState());
         Assert.assertTrue(swapped.hasLedger());
         Assert.assertTrue(swapped.drainCommands().isEmpty());
-        swapped.onTick(context(5, false, true, swapped(0, 5, "stable")));
+        swapped.onTick(context(100, false, false, swapped(0, 5, "stable")));
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, swapped.transactionState());
+        Assert.assertTrue("unsafe tick after recovery must not start restore",
+                swapped.drainCommands().isEmpty());
+        swapped.onTick(context(101, false, true, swapped(0, 5, "stable")));
         Assert.assertEquals(ToolSwapCommand.Type.BEGIN_RESTORE, onlyCommand(swapped).type);
         swapped.onSynchronizationRecovered(swapped(0, 5, "stable"));
         Assert.assertTrue("stable swapped layout must request restore only once",
                 swapped.drainCommands().isEmpty());
 
-        finishTransaction(swapped, 72, 5, context(6, false, restoredMutated(0, 5)));
+        finishTransaction(swapped, 72, 101, context(102, false, restoredMutated(0, 5)));
         Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, swapped.state());
         Assert.assertFalse(swapped.hasLedger());
     }
@@ -275,7 +281,17 @@ public class AutoToolSwapControllerTest {
 
         AutoToolSwapController active = completeInitialSwap();
         active.onConfigChanged(false, Collections.<ToolSelector>emptyList());
+        Assert.assertEquals(AutoToolSwapState.RESTORING, active.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, active.transactionState());
+        Assert.assertTrue("config callback without current context must only register restore",
+                active.drainCommands().isEmpty());
+        active.onTick(context(100, false, false, swapped(0, 5, "used")));
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, active.transactionState());
+        Assert.assertTrue("unsafe tick after config close must not start restore",
+                active.drainCommands().isEmpty());
+        active.onTick(context(101, false, true, swapped(0, 5, "used")));
         Assert.assertEquals(ToolSwapCommand.Type.BEGIN_RESTORE, onlyCommand(active).type);
+        Assert.assertEquals(ToolSwapTransactionState.WAIT_PACKET_ID, active.transactionState());
     }
 
     @Test

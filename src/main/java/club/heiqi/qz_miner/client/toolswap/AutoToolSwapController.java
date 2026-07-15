@@ -91,6 +91,7 @@ public final class AutoToolSwapController {
                 state = AutoToolSwapState.IDLE;
             } else if (state != AutoToolSwapState.IDLE && state != AutoToolSwapState.ABORTED_SYNC) {
                 requestClose(false);
+                issuePendingOperation(context);
             }
             return;
         }
@@ -122,6 +123,7 @@ public final class AutoToolSwapController {
         }
         if (!context.chainActive) {
             requestClose(keyDown);
+            issuePendingOperation(context);
             return;
         }
         if (context.selectedHotbarSlot != anchorSlot) {
@@ -130,12 +132,13 @@ public final class AutoToolSwapController {
         if (context.guiOpen) {
             if (ledger != null || operation != null) {
                 rematchAfterRestore = true;
-                beginRestoreWhenPossible();
+                prepareRestore();
+                issuePendingOperation(context);
             }
             return;
         }
         if (transactionState == ToolSwapTransactionState.IDLE && operation != null) {
-            issuePendingOperation(context.inventory, context.inventoryTransactionSafe, context.tick);
+            issuePendingOperation(context);
             return;
         }
         if (state == AutoToolSwapState.PREPARING && transactionState == ToolSwapTransactionState.IDLE
@@ -246,9 +249,6 @@ public final class AutoToolSwapController {
         pendingAnchor = null;
         state = AutoToolSwapState.RESTORING;
         operation = new Operation(true);
-        if (lastContext != null) {
-            issuePendingOperation(inventory, lastContext.inventoryTransactionSafe, lastContext.tick);
-        }
     }
 
     private void startCycle(ToolSwapContext context) {
@@ -279,7 +279,8 @@ public final class AutoToolSwapController {
         }
         if (ledger != null || operation != null) {
             rematchAfterRestore = true;
-            beginRestoreWhenPossible();
+            prepareRestore();
+            issuePendingOperation(context);
             return;
         }
         List<ToolCandidate> ordered = ToolCandidateOrder.sort(context.inventory.candidates(), cycleSelectors);
@@ -304,10 +305,11 @@ public final class AutoToolSwapController {
         }
         ledger = new Ledger(generation, anchorSlot, candidateSlot, anchor, candidate);
         operation = new Operation(false);
-        issuePendingOperation(inventory, context.inventoryTransactionSafe, context.tick);
+        issuePendingOperation(context);
     }
 
-    private void beginRestoreWhenPossible() {
+    /** 只登记恢复义务；是否可以发令必须由持有新鲜上下文的调用方判断。 */
+    private void prepareRestore() {
         state = AutoToolSwapState.RESTORING;
         if (transactionState != ToolSwapTransactionState.IDLE) {
             return;
@@ -327,17 +329,15 @@ public final class AutoToolSwapController {
         if (operation == null) {
             operation = new Operation(true);
         }
-        if (lastContext != null) {
-            issuePendingOperation(lastContext.inventory, lastContext.inventoryTransactionSafe, lastContext.tick);
-        }
     }
 
     /** 只有安全事实成立后才创建 in-flight，并从命令产生时开始计时。 */
-    private void issuePendingOperation(ToolSwapInventorySnapshot inventory, boolean transactionSafe, long tick) {
+    private void issuePendingOperation(ToolSwapContext context) {
         if (operation == null || ledger == null || transactionState != ToolSwapTransactionState.IDLE
-                || !transactionSafe) {
+                || !context.inventoryTransactionSafe) {
             return;
         }
+        ToolSwapInventorySnapshot inventory = context.inventory;
         boolean expectedLayout = operation.restore ? ledger.matchesSwapped(inventory, generation)
                 : ledger.matchesRestored(inventory, generation);
         if (!expectedLayout) {
@@ -345,7 +345,7 @@ public final class AutoToolSwapController {
             return;
         }
         transactionState = ToolSwapTransactionState.WAIT_PACKET_ID;
-        transactionStartedTick = tick;
+        transactionStartedTick = context.tick;
         commands.add(command(operation.restore ? ToolSwapCommand.Type.BEGIN_RESTORE
                 : ToolSwapCommand.Type.BEGIN_SWAP));
     }
@@ -353,7 +353,7 @@ public final class AutoToolSwapController {
     private void finishSwap() {
         if (closeRequested || rematchAfterRestore || pendingAnchor != null
                 || (lastContext != null && lastContext.guiOpen)) {
-            beginRestoreWhenPossible();
+            prepareRestore();
         } else if (freezeRequested) {
             state = AutoToolSwapState.FROZEN;
         } else {
@@ -390,7 +390,7 @@ public final class AutoToolSwapController {
         if (ledger != null || operation != null) {
             pendingAnchor = Integer.valueOf(newAnchor);
             rematchAfterRestore = state == AutoToolSwapState.PREPARING;
-            beginRestoreWhenPossible();
+            prepareRestore();
         } else {
             anchorSlot = newAnchor;
             if (state == AutoToolSwapState.PREPARING) {
@@ -420,7 +420,7 @@ public final class AutoToolSwapController {
             resetCycleFlags();
             return;
         }
-        beginRestoreWhenPossible();
+        prepareRestore();
     }
 
     private void abortSynchronization() {
