@@ -43,6 +43,8 @@ public final class ChainExecutionContext {
 
     /** 触发本次连锁的玩家 UUID。 */
     private final UUID playerUUID;
+    /** 本次连锁的不可变服务端轮次关联。 */
+    private final long serverRoundId;
     /** 本次连锁代际（经 PlanStarted→PlanCompleted 注入，事件流回填 ExecutionFinished）。 */
     private final int generation;
     /** 待消费的目标队列（与 bridge worker 的 shadowQueue 同一引用）。 */
@@ -90,7 +92,23 @@ public final class ChainExecutionContext {
      * @param session    worker 装配的 shadowSession（阶段8 块2 真实破坏桥参数载体，可为 null 供单测用）
      */
     public ChainExecutionContext(UUID playerUUID, int generation, ConcurrentLinkedQueue<ChainTarget> targets, ChainSession session) {
+        this(playerUUID, club.heiqi.qz_miner.chain.eventbus.ChainEvent.NO_SERVER_ROUND_ID,
+                generation, targets, session);
+    }
+
+    /**
+     * 构造带不可变服务端轮次关联的执行上下文。
+     *
+     * @param playerUUID    触发玩家
+     * @param serverRoundId 服务端分配的不可变轮次 ID
+     * @param generation    代际
+     * @param targets       目标队列
+     * @param session       worker 装配的 shadowSession
+     */
+    public ChainExecutionContext(UUID playerUUID, long serverRoundId, int generation,
+                                 ConcurrentLinkedQueue<ChainTarget> targets, ChainSession session) {
         this.playerUUID = playerUUID;
+        this.serverRoundId = serverRoundId;
         this.generation = generation;
         this.targets = targets;
         this.session = session;
@@ -116,6 +134,11 @@ public final class ChainExecutionContext {
     /** @return 本次代际（事件流回填 ExecutionFinished 的唯一来源） */
     public int getGeneration() {
         return generation;
+    }
+
+    /** @return 本次执行的不可变服务端轮次 ID */
+    public long getServerRoundId() {
+        return serverRoundId;
     }
 
     /** @return 目标队列（与 bridge worker 的 shadowQueue 同一引用，主线程 poll 消费） */

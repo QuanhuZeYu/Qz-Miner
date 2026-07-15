@@ -20,7 +20,13 @@ public final class ChainKeyPressed extends ChainEvent {
      * @param pressed        是否按下
      */
     public ChainKeyPressed(UUID playerUUID, int generation, long serverTick, long timestampNanos, boolean pressed) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos, pressed);
+    }
+
+    /** 构造带服务端轮次关联的按键事件。 */
+    public ChainKeyPressed(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                           boolean pressed) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.pressed = pressed;
     }
 

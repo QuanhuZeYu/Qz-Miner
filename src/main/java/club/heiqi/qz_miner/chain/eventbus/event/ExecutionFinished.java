@@ -20,7 +20,13 @@ public final class ExecutionFinished extends ChainEvent {
      * @param reason         结束原因
      */
     public ExecutionFinished(UUID playerUUID, int generation, long serverTick, long timestampNanos, String reason) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos, reason);
+    }
+
+    /** 构造带服务端轮次关联的执行结束事件。 */
+    public ExecutionFinished(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                             String reason) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.reason = reason;
     }
 

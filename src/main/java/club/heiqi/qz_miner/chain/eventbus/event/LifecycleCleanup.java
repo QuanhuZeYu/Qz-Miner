@@ -50,7 +50,14 @@ public final class LifecycleCleanup extends ChainEvent {
      */
     public LifecycleCleanup(UUID playerUUID, int generation, long serverTick, long timestampNanos,
                              String reason, boolean forced, boolean removeSlot) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                reason, forced, removeSlot);
+    }
+
+    /** 构造带服务端轮次关联的生命周期清理事件。 */
+    public LifecycleCleanup(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                            String reason, boolean forced, boolean removeSlot) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.reason = reason;
         this.forced = forced;
         this.removeSlot = removeSlot;

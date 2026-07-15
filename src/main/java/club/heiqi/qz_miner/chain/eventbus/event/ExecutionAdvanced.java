@@ -23,8 +23,15 @@ public final class ExecutionAdvanced extends ChainEvent {
      * @param remainingTargets 剩余目标数
      */
     public ExecutionAdvanced(UUID playerUUID, int generation, long serverTick, long timestampNanos,
+                               int executedThisTick, int remainingTargets) {
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                executedThisTick, remainingTargets);
+    }
+
+    /** 构造带服务端轮次关联的执行推进事件。 */
+    public ExecutionAdvanced(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
                               int executedThisTick, int remainingTargets) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.executedThisTick = executedThisTick;
         this.remainingTargets = remainingTargets;
     }

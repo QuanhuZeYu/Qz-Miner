@@ -39,9 +39,17 @@ public final class BlockBreakObserved extends ChainEvent {
      * @param seedMeta       破坏时刻捕获的种子 metadata（与 seedBlock 配对，调试用 0）
      */
     public BlockBreakObserved(UUID playerUUID, int generation, long serverTick, long timestampNanos,
-                              int x, int y, int z, int dimensionId, int sideHit,
-                              Block seedBlock, int seedMeta) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+                               int x, int y, int z, int dimensionId, int sideHit,
+                               Block seedBlock, int seedMeta) {
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                x, y, z, dimensionId, sideHit, seedBlock, seedMeta);
+    }
+
+    /** 构造带服务端轮次关联的破坏观测事件。 */
+    public BlockBreakObserved(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                               int x, int y, int z, int dimensionId, int sideHit,
+                               Block seedBlock, int seedMeta) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.x = x;
         this.y = y;
         this.z = z;

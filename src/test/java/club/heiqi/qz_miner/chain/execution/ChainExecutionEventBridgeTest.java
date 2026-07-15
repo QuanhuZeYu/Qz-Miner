@@ -327,4 +327,25 @@ public class ChainExecutionEventBridgeTest {
         // 无 context 也应安全返回
         Assert.assertNull(registry.get(PLAYER, 1));
     }
+
+    /** 同 generation 的 R1 PlanCancelled 不得清除或关闭 R2 的执行上下文。 */
+    @Test
+    public void oldRoundCancellationDoesNotClearNewRoundContext() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext r1 = new ChainExecutionContext(PLAYER, 501L, 4,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        ChainExecutionContext r2 = new ChainExecutionContext(PLAYER, 502L, 4,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        registry.put(r1);
+        registry.put(r2);
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new PlanCancelled(PLAYER, 501L, 4, TICK, NANOS, "late-r1"));
+        bus.drain();
+
+        Assert.assertSame("旧轮取消不得移除新轮 context", r2, registry.get(PLAYER, 4, 502L));
+    }
 }

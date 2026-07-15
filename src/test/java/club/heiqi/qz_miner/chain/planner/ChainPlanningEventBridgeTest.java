@@ -85,4 +85,18 @@ public class ChainPlanningEventBridgeTest {
         PlanCancelled cancelled = ChainPlanningEventBridge.buildPlanCancelled(PLAYER, planningGen, TICK, NANOS, "race");
         Assert.assertEquals("completed 与 cancelled 同代际 gen 必须一致", completed.getGeneration(), cancelled.getGeneration());
     }
+
+    /** R1 异步结果在 R2 已开始后仍保留被冻结的 R1 轮次。 */
+    @Test
+    public void planningResultsKeepFrozenRoundInsteadOfLaterRound() {
+        long r1 = 101L;
+        long r2 = 102L;
+        PlanCompleted r1Completed = ChainPlanningEventBridge.buildPlanCompleted(PLAYER, r1, 5, TICK, NANOS, 64);
+        PlanCancelled r1Cancelled = ChainPlanningEventBridge.buildPlanCancelled(PLAYER, r1, 5, TICK, NANOS, "late-r1");
+        PlanCompleted r2Completed = ChainPlanningEventBridge.buildPlanCompleted(PLAYER, r2, 5, TICK, NANOS, 64);
+
+        Assert.assertEquals("R1 完成结果不得读取 R2", r1, r1Completed.getServerRoundId());
+        Assert.assertEquals("R1 取消结果不得读取 R2", r1, r1Cancelled.getServerRoundId());
+        Assert.assertEquals(r2, r2Completed.getServerRoundId());
+    }
 }

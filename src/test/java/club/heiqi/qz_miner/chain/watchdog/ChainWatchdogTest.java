@@ -68,6 +68,14 @@ public class ChainWatchdogTest {
                 tick, 0L);
     }
 
+    /** 构造带服务端轮次关联的进态广播。 */
+    private static ChainPhaseChanged phase(UUID uuid, long roundId, int gen, int from, int to, long tick) {
+        return new ChainPhaseChanged(uuid, roundId, gen,
+                club.heiqi.qz_miner.chain.statemachine.ChainPhase.values()[from],
+                club.heiqi.qz_miner.chain.statemachine.ChainPhase.values()[to],
+                tick, 0L);
+    }
+
     private static final class Harness {
         final ChainEventBus bus;
         final ChainWatchdog watchdog;
@@ -495,5 +503,26 @@ public class ChainWatchdogTest {
         h.bus.drain();
         Assert.assertEquals("新 gen 未刷新旧 gen，应按 gen=1 触发 WatchdogTimeout", 1, captured.size());
         Assert.assertEquals("超时事件 gen 应来自镜像条目（=1）", 1, captured.get(0).getGeneration());
+    }
+
+    /** 同 generation 的旧轮进度不得给新轮 entry 续命，timeout 必须携带新轮 round。 */
+    @Test
+    public void oldRoundProgressDoesNotRefreshSameGenerationNewRound() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        drive(h, phase(PLAYER, 602L, 8, 1, 2, 100L));
+        driveProgress(h, new PlanProgress(PLAYER, 601L, 8, 100L + threshold, 0L, 1, 1));
+
+        ChainWatchdog.WatchEntry entry = h.watchdog.getEntry(PLAYER);
+        Assert.assertEquals("旧轮进度不得续命新轮", 100L, entry.lastProgressTick);
+        Assert.assertEquals(602L, entry.serverRoundId);
+
+        h.watchdog.checkTimeouts(100L + threshold + 1);
+        h.bus.drain();
+        Assert.assertEquals(1, captured.size());
+        Assert.assertEquals("旧 timeout 不得错标为 R1", 602L, captured.get(0).getServerRoundId());
     }
 }

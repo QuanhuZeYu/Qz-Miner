@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentMap;
  *
  * <p>本类用 {@code ConcurrentHashMap<UUID, ChainExecutionContext>} 桥接：worker 完成时
  * {@link #put} 入队列+代际，主线程执行订阅者收到 {@link club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted}
- * 后 {@link #get(UUID, int)} 领取。按 {@code UUID + gen} 双校验天然复用 gen 传递链做陈旧判定，
+ * 后 {@link #get(UUID, int, long)} 领取。按 {@code UUID + gen + serverRoundId} 三元校验做陈旧判定，
  * 不破坏 {@link club.heiqi.qz_miner.chain.eventbus.event.ChainEvent} 不可变契约。</p>
  *
  * <h3>守 NORTH_STAR 不变量</h3>
@@ -26,11 +26,11 @@ import java.util.concurrent.ConcurrentMap;
  *   <li><b>I10</b>：本类 <b>不</b>写状态机，gen 字段从 context 透传。</li>
  * </ul>
  *
- * <h3>gen 校验策略（决策文档 §"陈旧 gen 领取被拒"）</h3>
+ * <h3>三元身份校验策略（决策文档 §"陈旧 gen 领取被拒"）</h3>
  * <ul>
- *   <li>{@link #put}：同 UUID 已有 context 时，仅当新 gen &gt; 旧 gen 才覆盖（防陈旧 gen 覆盖新 gen）。</li>
- *   <li>{@link #get(UUID, int)}：传入 gen 必须等于 context 内 gen 才返回，否则返回 null
- *       （陈旧 gen 领取被拒——例如 worker 已被新一代规划取代，但旧 publish PlanCompleted 迟到）。</li>
+ *   <li>{@link #put}：新 gen 覆盖旧 gen；同 gen 的不同 round 由后到达的新 round 接管。</li>
+ *   <li>{@link #get(UUID, int, long)}：传入 gen 与 round 必须同时匹配 context，否则返回 null，
+ *       防止旧轮 publish PlanCompleted 领取或清理新轮 context。</li>
  * </ul>
  *
  * <h3>阶段7 回填点</h3>
@@ -51,20 +51,22 @@ public final class ChainExecutionContextRegistry {
     /**
      * 登记执行上下文（bridge worker 完成路径调用）。
      *
-     * <p>gen 校验：同 UUID 已有 context 时，仅当新 gen &gt; 旧 gen 才覆盖。
-     * 防御性保护陈旧 worker 迟到 put 覆盖新一代 context。</p>
+     * <p>三元身份校验：新 gen 覆盖旧 gen；同 gen 的不同 round 由新 round 接管。
+     * 后续 get/remove 均要求 round 匹配，防止旧轮事件影响新 context。</p>
      *
      * @param context 执行上下文（playerUUID + generation + targets）
      */
     public void put(ChainExecutionContext context) {
         UUID playerUUID = context.getPlayerUUID();
         int newGen = context.getGeneration();
-        // 原子化 compare-and-set：仅在 newGen > oldGen 时覆盖
+        // 原子化 compare-and-set：新 generation 或同 generation 的新 round 才接管。
         contexts.compute(playerUUID, (uuid, existing) -> {
             if (existing == null) {
                 return context;
             }
-            if (newGen > existing.getGeneration()) {
+            if (newGen > existing.getGeneration()
+                    || (newGen == existing.getGeneration()
+                    && context.getServerRoundId() != existing.getServerRoundId())) {
                 return context;
             }
             // 陈旧 worker 迟到 put，保留现有 context（理论上不应出现，状态机 genCheck 兜底；
@@ -74,22 +76,32 @@ public final class ChainExecutionContextRegistry {
     }
 
     /**
-     * 按玩家 + 代际领取执行上下文（主线程执行订阅者调用）。
+     * 按玩家 + 代际领取兼容旧轮次的执行上下文。
      *
-     * <p>gen 校验：传入 gen 必须等于 context 内 gen 才返回，否则返回 null。
-     * 陈旧 gen 领取被拒——执行订阅者收到 null 应 debug 日志并 return，
-     * 不消费、不 publish ExecutionFinished。</p>
+     * <p>兼容入口固定匹配 {@code NO_SERVER_ROUND_ID}；新链路应调用三参重载。</p>
      *
      * @param playerUUID 玩家 UUID
      * @param gen        期望代际（通常取自 PlanCompleted.getGeneration()）
      * @return 匹配的执行上下文，陈旧/不存在返回 null
      */
     public ChainExecutionContext get(UUID playerUUID, int gen) {
+        return get(playerUUID, gen, club.heiqi.qz_miner.chain.eventbus.ChainEvent.NO_SERVER_ROUND_ID);
+    }
+
+    /**
+     * 按玩家、代际与服务端轮次领取执行上下文。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param gen        期望代际
+     * @param serverRoundId 期望的不可变服务端轮次 ID
+     * @return 三元身份匹配的上下文，否则返回 null
+     */
+    public ChainExecutionContext get(UUID playerUUID, int gen, long serverRoundId) {
         ChainExecutionContext context = contexts.get(playerUUID);
         if (context == null) {
             return null;
         }
-        if (context.getGeneration() != gen) {
+        if (context.getGeneration() != gen || context.getServerRoundId() != serverRoundId) {
             return null;
         }
         return context;
@@ -102,6 +114,19 @@ public final class ChainExecutionContextRegistry {
      */
     public void remove(UUID playerUUID) {
         contexts.remove(playerUUID);
+    }
+
+    /**
+     * 仅在三元身份匹配时移除上下文，避免旧轮事件清理新轮资源。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param gen 代际
+     * @param serverRoundId 不可变服务端轮次 ID
+     * @return true 表示移除了匹配上下文
+     */
+    public boolean remove(UUID playerUUID, int gen, long serverRoundId) {
+        ChainExecutionContext context = get(playerUUID, gen, serverRoundId);
+        return context != null && contexts.remove(playerUUID, context);
     }
 
     /**

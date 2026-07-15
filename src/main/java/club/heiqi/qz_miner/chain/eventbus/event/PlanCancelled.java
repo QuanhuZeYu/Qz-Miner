@@ -20,7 +20,13 @@ public final class PlanCancelled extends ChainEvent {
      * @param reason         取消原因
      */
     public PlanCancelled(UUID playerUUID, int generation, long serverTick, long timestampNanos, String reason) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos, reason);
+    }
+
+    /** 构造带服务端轮次关联的规划取消事件。 */
+    public PlanCancelled(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                         String reason) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.reason = reason;
     }
 
