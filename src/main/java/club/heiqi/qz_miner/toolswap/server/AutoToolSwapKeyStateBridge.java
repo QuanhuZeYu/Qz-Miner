@@ -53,16 +53,31 @@ public final class AutoToolSwapKeyStateBridge {
         }
 
         AutoToolSwapRoundSnapshot snapshot = service.snapshot(playerId, endpoint);
-        if (snapshot == null || isTerminal(snapshot.roundState())) {
+        if (snapshot == null) {
             return AutoToolSwapProtocol.NO_SERVER_ROUND_ID;
         }
+        if (snapshot.roundState() == AutoToolSwapRoundState.PENDING_KEY) {
+            return activatePendingRound(playerId, endpoint, service, serverTick, sender, snapshot.clientNonce());
+        }
+        if ((snapshot.roundState() == AutoToolSwapRoundState.OPEN
+                || snapshot.roundState() == AutoToolSwapRoundState.SWAPPED
+                || snapshot.roundState() == AutoToolSwapRoundState.FROZEN)
+                && snapshot.keyDown()
+                && snapshot.serverRoundId() != AutoToolSwapProtocol.NO_SERVER_ROUND_ID) {
+            return snapshot.serverRoundId();
+        }
+        return AutoToolSwapProtocol.NO_SERVER_ROUND_ID;
+    }
+
+    private static long activatePendingRound(UUID playerId, Object endpoint, AutoToolSwapRoundService service,
+            long serverTick, RoundResultSender sender, long clientNonce) {
         AutoToolSwapRoundResult result = service.activatePendingRound(playerId, endpoint, serverTick);
         if (result.outcome() != AutoToolSwapResultCode.ACCEPTED
                 || result.serverRoundId() == AutoToolSwapProtocol.NO_SERVER_ROUND_ID
                 || isTerminal(result.roundState())) {
             return AutoToolSwapProtocol.NO_SERVER_ROUND_ID;
         }
-        sender.send(playerId, endpoint, snapshot.clientNonce(), result);
+        sender.send(playerId, endpoint, clientNonce, result);
         return result.serverRoundId();
     }
 
