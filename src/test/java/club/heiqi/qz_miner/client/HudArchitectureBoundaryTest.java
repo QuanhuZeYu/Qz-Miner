@@ -64,12 +64,14 @@ public class HudArchitectureBoundaryTest {
         assertClassBytesContainNoSectionStyle(classFileWithUtf8("safe", new byte[] { (byte) 0xc2, (byte) 0xa7 }));
         assertClassBytesContainNoSectionStyle(classFileWithLongAndDoubleConstants());
 
+        boolean sectionSignRejected = false;
         try {
             assertClassBytesContainNoSectionStyle(classFileWithUtf8("§cstyled", new byte[0]));
-            Assert.fail("CONSTANT_Utf8 中的 section sign 必须被阻断");
         } catch (AssertionError expected) {
             // 预期：真实 HUD 样式字符串仍应触发门禁。
+            sectionSignRejected = true;
         }
+        Assert.assertTrue("CONSTANT_Utf8 中的 section sign 必须被阻断", sectionSignRejected);
     }
 
     @Test
