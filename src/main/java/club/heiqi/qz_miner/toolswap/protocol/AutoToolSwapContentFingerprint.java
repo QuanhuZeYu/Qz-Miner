@@ -31,10 +31,13 @@ public final class AutoToolSwapContentFingerprint implements Serializable {
         this.fourthLong = fourthLong;
     }
 
-    /** 根据角色与动态内容计算完整 SHA-256 指纹。 */
+    /** 根据不含 NUL 的角色与动态内容计算完整 SHA-256 指纹。 */
     public static AutoToolSwapContentFingerprint fromContent(String roleKey, String dynamicFingerprint) {
         if (roleKey == null || roleKey.length() == 0 || dynamicFingerprint == null) {
             throw new IllegalArgumentException("roleKey must be non-empty and dynamicFingerprint must not be null");
+        }
+        if (roleKey.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("roleKey must not contain NUL");
         }
         MessageDigest digest = sha256();
         digest.update(roleKey.getBytes(UTF_8));
