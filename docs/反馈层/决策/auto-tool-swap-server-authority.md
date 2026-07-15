@@ -6,6 +6,15 @@
 - Qz-Miner 协议负责 round 建立、动作意图、动作结算和专用阶段关联；真实库存视图仍由服务端应用交换后通过原版容器差异同步下发。
 - 自动工具协议包作为客户端与服务端共同升级的原子边界，不是允许混合版本调用的公共 API；两端必须使用同一 Qz-Miner 版本。
 
+## 实现锚
+
+- `NetworkMain.register()`：注册自动工具两个 C2S 与三个 S2C，定义其在 common 网络层的方向和注册点。
+- `ServerAutoToolSwapRequestDispatch`：将 C2S 原始请求投递到服务端主线程，并连接 round 服务、库存端口和 S2C 回执发送。
+- `AutoToolSwapRoundService`：维护服务端 round、动作序列和可逆账本，执行请求幂等与动作结算。
+- `MinecraftAutoToolSwapInventoryPort`：在服务端玩家个人库存中执行槽位交换，并交由原版容器发布库存差异。
+- `ClientProxy`：按 `ctx.netHandler` 捕获连接 token，经客户端主线程 connection/world gate 将三个 S2C 发布给 adapter。
+- `AutoToolSwapClientAdapter`：承接 gate 后的 S2C 协议状态，驱动本地候选与命令；后续 C2S 在 `ClientTick` 发送。
+
 ## 原因
 
 - 客户端库存点击与原版库存包监听会把写权、确认时序和恢复责任分散到两端，无法稳定判断迟到包、换栏、GUI、断线和新旧 round 的归属。
