@@ -169,6 +169,80 @@ public class AutoToolSwapControllerTest {
     }
 
     @Test
+    public void unsafeInventoryGateDefersSwapWithoutStartingTimeout() {
+        AutoToolSwapController controller = new AutoToolSwapController(true,
+                Collections.<ToolSelector>emptyList(), 3);
+        controller.onKeyState(true, context(0, false, false, restored(0, 5)));
+
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
+        controller.onTick(context(100, false, false, restored(0, 5)));
+        Assert.assertEquals(AutoToolSwapState.PREPARING, controller.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+
+        controller.onTick(context(101, false, true, restored(0, 5)));
+        Assert.assertEquals(ToolSwapCommand.Type.BEGIN_SWAP, onlyCommand(controller).type);
+        Assert.assertEquals(ToolSwapTransactionState.WAIT_PACKET_ID, controller.transactionState());
+    }
+
+    @Test
+    public void guiWithUnsafeContainerDefersRestoreWithoutStartingTimeout() {
+        AutoToolSwapController controller = completeInitialSwap();
+        controller.onTick(context(2, true, false, swapped(0, 5, "used")));
+
+        Assert.assertEquals(AutoToolSwapState.RESTORING, controller.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+        controller.onTick(context(100, true, false, swapped(0, 5, "used")));
+        Assert.assertEquals(AutoToolSwapState.RESTORING, controller.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+
+        controller.onTick(context(101, true, true, swapped(0, 5, "used")));
+        Assert.assertEquals(ToolSwapCommand.Type.BEGIN_RESTORE, onlyCommand(controller).type);
+        Assert.assertEquals(ToolSwapTransactionState.WAIT_PACKET_ID, controller.transactionState());
+    }
+
+    @Test
+    public void synchronizationRecoveryUsesStableLayoutAndRetainsRecoveryDuty() {
+        AutoToolSwapController restored = isolateInitialSwapAfterAckLoss(restored(0, 5));
+        restored.onSynchronizationRecovered(restored(0, 5));
+        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, restored.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, restored.transactionState());
+        Assert.assertFalse(restored.hasLedger());
+        Assert.assertTrue(restored.drainCommands().isEmpty());
+
+        AutoToolSwapController unknown = isolateInitialSwapAfterAckLoss(thirdPartyChanged(0, 5));
+        long isolatedGeneration = unknown.generation();
+        unknown.onSynchronizationRecovered(thirdPartyChanged(0, 5));
+        unknown.onKeyState(false, context(4, false, thirdPartyChanged(0, 5)));
+        unknown.onKeyState(true, context(5, false, restored(0, 5)));
+        unknown.onTransactionAck(isolatedGeneration, 71, true, 5);
+        unknown.onLocalBlockDestroyed(isolatedGeneration);
+        assertIsolated(unknown);
+        Assert.assertEquals(isolatedGeneration, unknown.generation());
+        Assert.assertTrue(unknown.hasLedger());
+
+        AutoToolSwapController swapped = isolateInitialSwapAfterAckLoss(swapped(0, 5, "server-applied"));
+        swapped.onTick(context(4, false, false, swapped(0, 5, "stable")));
+        swapped.onSynchronizationRecovered(swapped(0, 5, "stable"));
+        Assert.assertEquals(AutoToolSwapState.RESTORING, swapped.state());
+        Assert.assertEquals(ToolSwapTransactionState.IDLE, swapped.transactionState());
+        Assert.assertTrue(swapped.hasLedger());
+        Assert.assertTrue(swapped.drainCommands().isEmpty());
+        swapped.onTick(context(5, false, true, swapped(0, 5, "stable")));
+        Assert.assertEquals(ToolSwapCommand.Type.BEGIN_RESTORE, onlyCommand(swapped).type);
+        swapped.onSynchronizationRecovered(swapped(0, 5, "stable"));
+        Assert.assertTrue("stable swapped layout must request restore only once",
+                swapped.drainCommands().isEmpty());
+
+        finishTransaction(swapped, 72, 5, context(6, false, restoredMutated(0, 5)));
+        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, swapped.state());
+        Assert.assertFalse(swapped.hasLedger());
+    }
+
+    @Test
     public void guiPausesMatchingAndChainEndWaitsForRelease() {
         AutoToolSwapController controller = controller(true, Collections.<ToolSelector>emptyList());
         controller.onKeyState(true, guiContext(0, restored(0, 5)));
@@ -178,7 +252,7 @@ public class AutoToolSwapControllerTest {
 
         AutoToolSwapController ended = controller(true, Collections.<ToolSelector>emptyList());
         ended.onKeyState(true, context(0, false, noCandidate(0)));
-        ended.onTick(new ToolSwapContext(1, true, false, false, false, 0, noCandidate(0)));
+        ended.onTick(new ToolSwapContext(1, true, false, false, true, false, 0, noCandidate(0)));
         Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, ended.state());
         ended.onKeyState(true, context(2, false, noCandidate(0)));
         Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, ended.state());
@@ -239,6 +313,19 @@ public class AutoToolSwapControllerTest {
         return controller;
     }
 
+    private static AutoToolSwapController isolateInitialSwapAfterAckLoss(
+            ToolSwapInventorySnapshot stableInventory) {
+        AutoToolSwapController controller = new AutoToolSwapController(true,
+                Collections.<ToolSelector>emptyList(), 3);
+        controller.onKeyState(true, context(0, false, restored(0, 5)));
+        onlyCommand(controller);
+        controller.onPacketIdAssigned(controller.generation(), 71, 0);
+        controller.onTick(context(3, false, stableInventory));
+        assertIsolated(controller);
+        Assert.assertTrue(controller.hasLedger());
+        return controller;
+    }
+
     private static void finishTransaction(AutoToolSwapController controller, int packetId, long tick,
             ToolSwapContext finalContext) {
         controller.onPacketIdAssigned(controller.generation(), packetId, tick);
@@ -265,15 +352,20 @@ public class AutoToolSwapControllerTest {
     }
 
     private static ToolSwapContext context(long tick, boolean gui, ToolSwapInventorySnapshot inventory) {
-        return new ToolSwapContext(tick, true, false, gui, true, 0, inventory);
+        return context(tick, gui, true, inventory);
+    }
+
+    private static ToolSwapContext context(long tick, boolean gui, boolean transactionSafe,
+            ToolSwapInventorySnapshot inventory) {
+        return new ToolSwapContext(tick, true, false, gui, transactionSafe, true, 0, inventory);
     }
 
     private static ToolSwapContext contextSelected(long tick, int selected, ToolSwapInventorySnapshot inventory) {
-        return new ToolSwapContext(tick, true, false, false, true, selected, inventory);
+        return new ToolSwapContext(tick, true, false, false, true, true, selected, inventory);
     }
 
     private static ToolSwapContext guiContext(long tick, ToolSwapInventorySnapshot inventory) {
-        return context(tick, true, inventory);
+        return context(tick, true, false, inventory);
     }
 
     private static ToolSwapInventorySnapshot restored(int anchor, int candidate) {

@@ -134,6 +134,10 @@ public final class AutoToolSwapController {
             }
             return;
         }
+        if (transactionState == ToolSwapTransactionState.IDLE && operation != null) {
+            issuePendingOperation(context.inventory, context.inventoryTransactionSafe, context.tick);
+            return;
+        }
         if (state == AutoToolSwapState.PREPARING && transactionState == ToolSwapTransactionState.IDLE
                 && context.tick >= nextMatchTick) {
             evaluate(context);
@@ -169,7 +173,6 @@ public final class AutoToolSwapController {
         }
         transactionId = Integer.valueOf(packetId);
         transactionState = ToolSwapTransactionState.WAIT_ACK;
-        transactionStartedTick = tick;
     }
 
     /** adapter 回送 S32；负 ACK 立即进入同步隔离且绝不继续点击。 */
@@ -214,14 +217,38 @@ public final class AutoToolSwapController {
         }
     }
 
-    /** 同步隔离由 adapter 确认稳定后显式解除；本轮不会恢复匹配。 */
-    public void onSynchronizationRecovered() {
-        if (state != AutoToolSwapState.ABORTED_SYNC) {
+    /**
+     * adapter 提供稳定槽快照后尝试解除同步隔离；无法唯一归因的布局继续隔离。
+     *
+     * @param inventory vanilla 同步应用后的稳定库存快照
+     */
+    public void onSynchronizationRecovered(ToolSwapInventorySnapshot inventory) {
+        if (state != AutoToolSwapState.ABORTED_SYNC || ledger == null || inventory == null) {
             return;
         }
-        ledger = null;
+        boolean restored = ledger.matchesRestored(inventory, generation);
+        boolean swapped = ledger.matchesSwapped(inventory, generation);
+        if (restored == swapped) {
+            return;
+        }
         clearTransaction();
-        state = keyDown ? AutoToolSwapState.WAIT_RELEASE : AutoToolSwapState.IDLE;
+        if (restored) {
+            ledger = null;
+            resetCycleFlags();
+            state = keyDown ? AutoToolSwapState.WAIT_RELEASE : AutoToolSwapState.IDLE;
+            return;
+        }
+        // 服务端已执行但 ACK 丢失时，旧账本仍是唯一恢复义务；本轮只允许收口。
+        freezeRequested = false;
+        closeRequested = true;
+        closeToWaitRelease = keyDown;
+        rematchAfterRestore = false;
+        pendingAnchor = null;
+        state = AutoToolSwapState.RESTORING;
+        operation = new Operation(true);
+        if (lastContext != null) {
+            issuePendingOperation(inventory, lastContext.inventoryTransactionSafe, lastContext.tick);
+        }
     }
 
     private void startCycle(ToolSwapContext context) {
@@ -258,16 +285,17 @@ public final class AutoToolSwapController {
         List<ToolCandidate> ordered = ToolCandidateOrder.sort(context.inventory.candidates(), cycleSelectors);
         for (ToolCandidate candidate : ordered) {
             if (candidate.slot() != anchorSlot) {
-                beginSwap(context.inventory, candidate.slot(), context.tick);
+                beginSwap(context, candidate.slot());
                 return;
             }
         }
     }
 
-    private void beginSwap(ToolSwapInventorySnapshot inventory, int candidateSlot, long tick) {
+    private void beginSwap(ToolSwapContext context, int candidateSlot) {
         if (transactionState != ToolSwapTransactionState.IDLE || ledger != null) {
             throw new IllegalStateException("single ledger/transaction invariant violated");
         }
+        ToolSwapInventorySnapshot inventory = context.inventory;
         SlotSnapshot anchor = inventory.slot(anchorSlot);
         SlotSnapshot candidate = inventory.slot(candidateSlot);
         if (anchor == null || candidate == null) {
@@ -276,31 +304,50 @@ public final class AutoToolSwapController {
         }
         ledger = new Ledger(generation, anchorSlot, candidateSlot, anchor, candidate);
         operation = new Operation(false);
-        transactionState = ToolSwapTransactionState.WAIT_PACKET_ID;
-        transactionStartedTick = tick;
-        commands.add(command(ToolSwapCommand.Type.BEGIN_SWAP));
+        issuePendingOperation(inventory, context.inventoryTransactionSafe, context.tick);
     }
 
     private void beginRestoreWhenPossible() {
-        if (ledger == null) {
-            if (operation == null) {
-                finishRestore();
-            }
-            return;
-        }
         state = AutoToolSwapState.RESTORING;
         if (transactionState != ToolSwapTransactionState.IDLE) {
             return;
         }
-        ToolSwapInventorySnapshot inventory = lastContext == null ? null : lastContext.inventory;
-        if (inventory == null || !ledger.matchesSwapped(inventory, generation)) {
+        if (operation != null && !operation.restore) {
+            // 尚未越过安全门的换入没有产生事务，可以直接撤销这项待执行工作。
+            operation = null;
+            ledger = null;
+            finishRestore();
+            return;
+        }
+        if (ledger == null) {
+            operation = null;
+            finishRestore();
+            return;
+        }
+        if (operation == null) {
+            operation = new Operation(true);
+        }
+        if (lastContext != null) {
+            issuePendingOperation(lastContext.inventory, lastContext.inventoryTransactionSafe, lastContext.tick);
+        }
+    }
+
+    /** 只有安全事实成立后才创建 in-flight，并从命令产生时开始计时。 */
+    private void issuePendingOperation(ToolSwapInventorySnapshot inventory, boolean transactionSafe, long tick) {
+        if (operation == null || ledger == null || transactionState != ToolSwapTransactionState.IDLE
+                || !transactionSafe) {
+            return;
+        }
+        boolean expectedLayout = operation.restore ? ledger.matchesSwapped(inventory, generation)
+                : ledger.matchesRestored(inventory, generation);
+        if (!expectedLayout) {
             abortSynchronization();
             return;
         }
-        operation = new Operation(true);
         transactionState = ToolSwapTransactionState.WAIT_PACKET_ID;
-        transactionStartedTick = lastContext.tick;
-        commands.add(command(ToolSwapCommand.Type.BEGIN_RESTORE));
+        transactionStartedTick = tick;
+        commands.add(command(operation.restore ? ToolSwapCommand.Type.BEGIN_RESTORE
+                : ToolSwapCommand.Type.BEGIN_SWAP));
     }
 
     private void finishSwap() {
@@ -382,6 +429,13 @@ public final class AutoToolSwapController {
         transactionState = ToolSwapTransactionState.SYNC_ISOLATION;
         operation = null;
         transactionId = null;
+        cycleEnabled = false;
+        cycleSelectors = Collections.emptyList();
+        freezeRequested = false;
+        closeRequested = true;
+        closeToWaitRelease = keyDown;
+        rematchAfterRestore = false;
+        pendingAnchor = null;
     }
 
     private void clearTransaction() {
