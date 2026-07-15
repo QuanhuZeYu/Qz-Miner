@@ -29,6 +29,8 @@ import club.heiqi.qz_miner.event.QzEvents;
 import club.heiqi.qz_miner.network.NetworkMain;
 import club.heiqi.qz_miner.parallel.ParallelTickExecutor;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundPhaseProjectionBridge;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -51,6 +53,8 @@ public class MyMod {
     public static final Logger LOG = LogManager.getLogger(MODID);
     public static final Config CONFIG = new Config();
     public static PlayerManager playerManager;
+    /** 服务端自动工具换位唯一 round 账本。 */
+    public static AutoToolSwapRoundService autoToolSwapRoundService;
     public static ChainStateService chainStateService;
     public static ChainPlanner chainPlanner;
     public static ChainInteractPlanner chainInteractPlanner;
@@ -74,6 +78,8 @@ public class MyMod {
     public static ChainStateProjectionBridge chainStateProjectionBridge;
     /** 阶段8 块3 F3-a：连锁配置下发桥，订阅 PlanCompleted + PlayerStateEvent LOGIN 后 sendTo 客户端 ChainClientState 三字段。 */
     public static ChainConfigProjectionBridge chainConfigProjectionBridge;
+    /** 将状态机不可变阶段事件投影到当前工具换位 round。 */
+    public static AutoToolSwapRoundPhaseProjectionBridge autoToolSwapRoundPhaseProjectionBridge;
     /** 阶段7：连锁看门狗（A 异常兜底），N tick 无推进 publish WatchdogTimeout 协作式回 IDLE（T10）。 */
     public static ChainWatchdog chainWatchdog;
     /** 阶段7：连锁生命周期桥（B 生命周期收口），平行订阅 PlayerStateEvent 转 LifecycleCleanup（守 I7）。 */
@@ -112,6 +118,7 @@ public class MyMod {
         ChainModeBootstrap.bootstrap();
         ChainSubModeBootstrap.bootstrap();
         playerManager = new PlayerManager();
+        autoToolSwapRoundService = new AutoToolSwapRoundService();
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
         chainInteractPlanner = new ChainInteractPlanner();
@@ -141,6 +148,8 @@ public class MyMod {
         // 阶段8 块3 F3-a：配置下发桥，订阅 PlanCompleted（matchedCount 真值 = totalTargets）+ LOGIN（基础 config）。
         // 守 I1：只 sendTo 下发配置，不碰世界；接替旧八字段链删除后的 radius/maxBlocks/matchedCount 客户端同步。
         chainConfigProjectionBridge = new ChainConfigProjectionBridge(chainEventBus);
+        autoToolSwapRoundPhaseProjectionBridge = new AutoToolSwapRoundPhaseProjectionBridge(
+                chainEventBus, autoToolSwapRoundService);
         // 阶段7：看门狗 + 生命周期桥接线（三路回 IDLE 收口）。
         // 接线顺序：状态机 → registry → 规划桥 → 执行桥 → 投影桥 → Drainer.bootstrap() → 执行桥.bootstrap()
         // → 看门狗.bootstrap() → 生命周期桥.bootstrap()。
@@ -185,6 +194,9 @@ public class MyMod {
     public void serverStopping(FMLServerStoppingEvent event) {
         // 先完成玩家生命周期清理，再关闭 dispatcher，避免 stop 后 FIFO 拒绝清理任务
         PlayerManager.clearAllPlayersOnServerStopping();
+        if (autoToolSwapRoundService != null) {
+            autoToolSwapRoundService.clearAll();
+        }
         ServerMainThreadDispatcher.onServerStopping();
         if (parallelTickExecutor != null) {
             parallelTickExecutor.shutdown();

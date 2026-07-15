@@ -77,5 +77,30 @@ public final class NetworkMain {
                 PacketObjectGroupConfigSync.class,
                 packetId++,
                 Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapRoundStart.Handler.class,
+                PacketAutoToolSwapRoundStart.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
+                PacketAutoToolSwapIntent.Handler.class,
+                PacketAutoToolSwapIntent.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
+                PacketAutoToolSwapRoundResult.Handler.class,
+                PacketAutoToolSwapRoundResult.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapActionResult.Handler.class,
+                PacketAutoToolSwapActionResult.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapRoundPhase.Handler.class,
+                PacketAutoToolSwapRoundPhase.class,
+                packetId++,
+                Side.CLIENT);
     }
 }

@@ -47,6 +47,7 @@ public final class ChainStateService {
     }
 
     public void removePlayerState(UUID playerUUID, String reason) {
+        cleanupAutoToolSwapRound(playerUUID);
         GregTechCableSessionState.clear(playerUUID);
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
@@ -61,6 +62,7 @@ public final class ChainStateService {
     }
 
     public void cleanupPlayerState(UUID playerUUID, EntityPlayer player, String reason, boolean removeState) {
+        cleanupAutoToolSwapRound(playerUUID);
         ChainPlayerState state = getPlayerState(playerUUID);
         if (state == null) {
             return;
@@ -178,6 +180,7 @@ public final class ChainStateService {
         UUID playerUUID = event.player.getUniqueID();
         switch (event.reason) {
             case LOGIN:
+                cleanupAutoToolSwapRound(playerUUID);
                 getOrCreatePlayerState(playerUUID);
                 // 阶段8 块3：删旧 syncPlayerState（八字段链已删）。
                 // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN 下发基础 config 包。
@@ -227,5 +230,12 @@ public final class ChainStateService {
         }
 
         ChainDropReleaseHelper.discard(state.getPlayerUUID().toString(), state.getDropBuffer(), reason + "-missing-release-context");
+    }
+
+    /** 丢弃服务端工具换位账本，不创建 endpoint 或访问库存。 */
+    private void cleanupAutoToolSwapRound(UUID playerUUID) {
+        if (playerUUID != null && MyMod.autoToolSwapRoundService != null) {
+            MyMod.autoToolSwapRoundService.cleanup(playerUUID);
+        }
     }
 }

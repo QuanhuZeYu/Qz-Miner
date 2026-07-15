@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.network;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,6 +20,19 @@ import club.heiqi.qz_miner.toolswap.server.AutoToolSwapInventoryPort;
 
 /** 自动工具换位 C2S FIFO、身份重取和 fail-closed 边界测试。 */
 public class ServerAutoToolSwapRequestDispatchTest {
+
+    @Test
+    public void productionDispatchUsesOnlyMyModOwnedRoundServiceAndFailsClosedWhenAbsent() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/network/ServerAutoToolSwapRequestDispatch.java").toPath()),
+                StandardCharsets.UTF_8);
+
+        Assert.assertFalse(source.contains("static final AutoToolSwapRoundService"));
+        Assert.assertTrue(source.contains("final AutoToolSwapRoundService roundService = MyMod.autoToolSwapRoundService"));
+        Assert.assertTrue(source.contains("if (roundService == null)"));
+        Assert.assertTrue(source.indexOf("if (roundService == null)")
+                < source.indexOf("return new RoundService()"));
+    }
 
     @Test
     public void firstAcceptedPendingStartDoesNotReplyBeforeKeyActivation() {

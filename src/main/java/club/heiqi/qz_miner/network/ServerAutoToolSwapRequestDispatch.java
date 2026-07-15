@@ -26,8 +26,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
  */
 public final class ServerAutoToolSwapRequestDispatch {
 
-    private static final AutoToolSwapRoundService ROUND_SERVICE = new AutoToolSwapRoundService();
-
     private ServerAutoToolSwapRequestDispatch() {
     }
 
@@ -200,17 +198,21 @@ public final class ServerAutoToolSwapRequestDispatch {
     }
 
     private static RoundService productionRoundService() {
+        final AutoToolSwapRoundService roundService = MyMod.autoToolSwapRoundService;
+        if (roundService == null) {
+            return null;
+        }
         return new RoundService() {
             @Override
             public AutoToolSwapRoundResult beginRound(UUID playerId, Object endpoint, long clientNonce,
                     long serverTick) {
-                return ROUND_SERVICE.beginRound(playerId, endpoint, clientNonce, serverTick);
+                return roundService.beginRound(playerId, endpoint, clientNonce, serverTick);
             }
 
             @Override
             public AutoToolSwapRoundResult handleIntent(UUID playerId, Object endpoint, AutoToolSwapIntent intent,
                     AutoToolSwapInventoryPort inventory, long serverTick) {
-                return ROUND_SERVICE.handleIntent(playerId, endpoint, intent, inventory, serverTick);
+                return roundService.handleIntent(playerId, endpoint, intent, inventory, serverTick);
             }
         };
     }

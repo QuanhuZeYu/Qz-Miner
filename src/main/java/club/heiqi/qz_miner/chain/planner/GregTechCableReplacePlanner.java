@@ -67,8 +67,10 @@ public class GregTechCableReplacePlanner {
         // sideHit 取 event.face（Forge 1.7.10 PlayerInteractEvent 提供）
         event.setCanceled(true);
         if (MyMod.chainEventBus != null) {
+            long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
+                    : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
             MyMod.chainEventBus.publish(new LeftClickObserved(
-                    player.getUniqueID(), 0,
+                    player.getUniqueID(), serverRoundId, 0,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     event.x, event.y, event.z, player.dimension,
                     normalizeFace(event.face),
@@ -86,4 +88,3 @@ public class GregTechCableReplacePlanner {
         return face < 0 || face > 5 ? 1 : face;
     }
 }
-

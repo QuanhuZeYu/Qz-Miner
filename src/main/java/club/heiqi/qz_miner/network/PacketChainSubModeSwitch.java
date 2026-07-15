@@ -72,8 +72,10 @@ public class PacketChainSubModeSwitch implements IMessage {
                     if (newSubMode == null) {
                         newSubMode = ChainSubMode.CHAIN_BASE;
                     }
+                    long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
+                            : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
                     MyMod.chainEventBus.publish(new ModeSwitched(
-                            player.getUniqueID(), 0,
+                            player.getUniqueID(), serverRoundId, 0,
                             ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                             newMode, newSubMode));
                 }
