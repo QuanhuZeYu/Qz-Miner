@@ -61,7 +61,6 @@ public class ClientConnectionListener {
     /** 生命周期清理子项边界；生产调用真实资源，测试可逐项注入故障。 */
     interface CleanupActions {
         void clearObjectGroupPending();
-        void resetAutoTool();
         void stopPreviewTask();
         void disposeRenderer();
         void clearPhase();
@@ -396,10 +395,6 @@ public class ClientConnectionListener {
             return;
         }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
-        runCleanupStep("auto-tool", new Runnable() { @Override public void run() {
-            if (cleanupActions != null) cleanupActions.resetAutoTool();
-            else ClientProxy.resetAutoToolLifecycle();
-        }});
         runCleanupStep("preview-task", new Runnable() { @Override public void run() {
             if (cleanupActions != null) cleanupActions.stopPreviewTask();
             else if (ClientProxy.chainPreviewController != null) ClientProxy.chainPreviewController.stopPreviewForLifecycle();

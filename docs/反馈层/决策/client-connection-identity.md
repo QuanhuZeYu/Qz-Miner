@@ -25,7 +25,6 @@
   - `PacketLootGamesMinesweeperPreviewResponse`：传 `ctx.netHandler`；主线程 world-active gate 后才应用 preview。
 - `CommonProxy` dedicated no-op；方法描述符仅 common 类型（`INetHandler`，非 `NetHandlerPlayClient`）。Packet/Handler 字节码不得引用 `net.minecraft.client.*`、client dispatcher 或 LWJGL（由 `CommonNetworkClassBoundaryTest` 字节码/签名断言）。
 - `ChainEventBus.clearPending()`：清 pending 不破坏订阅；客户端 lifecycle cleanup 调用，防旧 phase 随后 drain 回写。
-- 自动工具 controller 与 HUD 同属 client-only 长寿命对象；disconnect / unload / connection-takeover / world-takeover 的统一 cleanup 调用 `resetLifecycle`，只丢弃本地协调器和原版库存事务观察状态，禁止在失效连接或世界上发送迟到恢复。
 
 ## 为什么
 
@@ -47,4 +46,4 @@
 - 2026-07-10：advance/publication 统一 monitor；`advanceKeepActive` 防 disconnect 后复活 active。
 - 2026-07-10：绑定真实 `INetHandler`/`World` identity + connection/world generation；三 S2C 传 `ctx.netHandler`；init/cleanup 携 token gate；`clearPending` 防旧 phase 回写。
 - 2026-07-10：`TransitionResult`（token/transitioned/replacedPreviousLifecycle）；仅 transitioned 调度 init；connection/world 接管统一 cleanup；重复 connect/load 不重复 init/清理。
-- 2026-07-13：统一 cleanup 纳入自动工具本地 lifecycle reset；controller 仍跨连接复用，reset 不执行库存恢复。
+- 2026-07-15：已删除旧自动工具预选生命周期子项；统一 cleanup 保留对象组、preview、GPU renderer、phase 与 event pending 五项故障隔离。

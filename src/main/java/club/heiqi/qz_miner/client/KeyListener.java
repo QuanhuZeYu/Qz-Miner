@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.autotool.AutoToolClientController;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.chain.ChainConstants;
@@ -33,11 +32,8 @@ import org.lwjgl.input.Keyboard;
 @SideOnly(Side.CLIENT)
 public class KeyListener {
 
-    private final AutoToolClientController autoToolController;
-
     /** 创建按键监听器。 */
-    public KeyListener(AutoToolClientController autoToolController) {
-        this.autoToolController = autoToolController;
+    public KeyListener() {
     }
 
     /**
@@ -138,8 +134,6 @@ public class KeyListener {
             updateChainKeyState(true);
         } else if (!isPressed && wasPressed) {
             updateChainKeyState(false);
-        } else if (autoToolController != null) {
-            autoToolController.tick();
         }
 
         wasPressed = isPressed;
@@ -160,13 +154,7 @@ public class KeyListener {
                 syncRequestedChainConfigToServer();
                 MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
             }
-            if (autoToolController != null) {
-                autoToolController.onChainKeyChanged(true);
-            }
             return;
-        }
-        if (autoToolController != null) {
-            autoToolController.onChainKeyChanged(false);
         }
         if (MyMod.chainStateService != null) {
             MyMod.chainStateService.setClientChainKeyPressed(false);

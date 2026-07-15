@@ -100,19 +100,6 @@ public class ConfigSemanticValidatorTest {
         Assert.assertFalse(java.util.Arrays.equals(before, Files.readAllBytes(ConfigBootstrap.yamlFile().toPath())));
     }
 
-    @Test
-    public void autoToolSelectionRequiresExactlyOneDefaultObject() throws Exception {
-        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
-        Assert.assertFalse(ConfigBootstrap.currentValidatedSnapshot().autoToolSelection.enabled);
-        Assert.assertEquals(2, ConfigBootstrap.currentValidatedSnapshot()
-                .autoToolSelection.minimumRemainingDurability);
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft("client.autoToolSelection", new ArrayList<Object>());
-        SaveOutcome outcome = manager.save(draft);
-        Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
-        Assert.assertNotNull(outcome.validation().errorFor("client.autoToolSelection"));
-    }
-
     private void assertInvalidTransaction(DraftMutation mutation, String errorPath, Object retainedValue)
             throws Exception {
         ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
@@ -173,7 +160,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 20 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
+    /** 全 19 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 

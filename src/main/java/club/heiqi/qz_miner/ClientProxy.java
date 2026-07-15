@@ -6,7 +6,6 @@ import java.util.concurrent.TimeUnit;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
-import club.heiqi.qz_miner.autotool.AutoToolClientController;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjectionSubscriber;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
@@ -64,8 +63,6 @@ public class ClientProxy extends CommonProxy {
 
     public static ChainPreviewController chainPreviewController;
     public static ChainPreviewRenderer chainPreviewRenderer;
-    /** 客户端自动工具预选控制器，跨世界生命周期复用。 */
-    public static AutoToolClientController autoToolClientController;
     /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
     public static ClientPhaseProjection clientPhaseProjection;
     /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
@@ -90,21 +87,13 @@ public class ClientProxy extends CommonProxy {
         chainPreviewController.register();
         chainPreviewRenderer = new ChainPreviewRenderer();
         chainPreviewRenderer.register();
-        autoToolClientController = new AutoToolClientController();
         new ClientConnectionListener().register();
         new ClientConfigChangeListener().register();
         chainStatusHudRegistration = CompactHud.register(
                 "qz_miner:chain-status",
                 HudAnchor.TOP_LEFT,
                 new QzMinerHudSnapshotProvider(MyMod.chainStateService.getClientState(), clientPhaseProjection));
-        new KeyListener(autoToolClientController).register();
-    }
-
-    /** 在客户端生命周期边界清空自动工具状态，不发送恢复操作。 */
-    public static void resetAutoToolLifecycle() {
-        if (autoToolClientController != null) {
-            autoToolClientController.resetLifecycle();
-        }
+        new KeyListener().register();
     }
 
     /**

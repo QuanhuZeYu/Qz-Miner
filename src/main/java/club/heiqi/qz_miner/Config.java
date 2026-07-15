@@ -5,7 +5,6 @@ import java.io.File;
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
-import club.heiqi.qz_miner.autotool.AutoToolSelectionConfig;
 
 /**
  * 运行时配置静态字段门面。
@@ -39,7 +38,6 @@ public class Config {
             QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS;
     public static boolean enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
     public static boolean enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
-    public static AutoToolSelectionConfig autoToolSelection = QzMinerConfigDefaults.autoToolSelectionConfig();
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
     public static int parallelTickClientWorkBudgetUnits =
             QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;

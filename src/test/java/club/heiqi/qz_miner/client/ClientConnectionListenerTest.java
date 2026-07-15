@@ -368,7 +368,7 @@ public class ClientConnectionListenerTest {
     }
 
     private void assertCleanupFailuresAreIsolated(boolean linkageError) {
-        for (int failedStep = 0; failedStep < 6; failedStep++) {
+        for (int failedStep = 0; failedStep < FaultInjectingCleanup.STEPS.length; failedStep++) {
             ClientConnectionLifecycle.resetForTests();
             QueueDispatcher queue = new QueueDispatcher();
             FaultInjectingCleanup cleanup = new FaultInjectingCleanup(
@@ -388,7 +388,7 @@ public class ClientConnectionListenerTest {
     }
 
     private void assertCleanupFailuresAreIsolatedOnDisconnect(boolean linkageError) {
-        for (int failedStep = 0; failedStep < 6; failedStep++) {
+        for (int failedStep = 0; failedStep < FaultInjectingCleanup.STEPS.length; failedStep++) {
             ClientConnectionLifecycle.resetForTests();
             QueueDispatcher queue = new QueueDispatcher();
             FaultInjectingCleanup cleanup = new FaultInjectingCleanup(
@@ -563,9 +563,9 @@ public class ClientConnectionListenerTest {
         }
     }
 
-    /** 按名称在六个真实清理边界之一注入故障，并记录 listener 实际尝试顺序。 */
+    /** 按名称在五个真实清理边界之一注入故障，并记录 listener 实际尝试顺序。 */
     static final class FaultInjectingCleanup implements ClientConnectionListener.CleanupActions {
-        static final String[] STEPS = {"object-group", "auto-tool", "preview", "renderer", "phase", "pending"};
+        static final String[] STEPS = {"object-group", "preview", "renderer", "phase", "pending"};
         private final String failedStep;
         private final boolean linkageError;
         final List<String> attempts = new ArrayList<String>();
@@ -587,7 +587,6 @@ public class ClientConnectionListenerTest {
             }
         }
         @Override public void clearObjectGroupPending() { runStep("object-group"); }
-        @Override public void resetAutoTool() { runStep("auto-tool"); }
         @Override public void stopPreviewTask() { runStep("preview"); }
         @Override public void disposeRenderer() { runStep("renderer"); }
         @Override public void clearPhase() { runStep("phase"); }

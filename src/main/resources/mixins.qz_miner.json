@@ -18,9 +18,7 @@
     "MixinBlockBaseOreLegacy"
   ],
   "client": [
-    "client.MixinMinecraft",
-    "client.MixinC0EPacketClickWindow",
-    "client.MixinNetHandlerPlayClientInventory"
+    "client.MixinMinecraft"
   ],
   "server": []
 }
