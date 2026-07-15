@@ -70,6 +70,59 @@ public final class AutoToolSwapController {
         return ledger != null;
     }
 
+    /** 按键边沿处理前只读决定库存采样强度。 */
+    public ToolSwapCapturePlan capturePlanForKeyState(
+            boolean down, ToolSwapLightContext context, boolean preFrozen) {
+        if (context == null || down == keyDown) {
+            return ToolSwapCapturePlan.NONE;
+        }
+        if (!down) {
+            return needsProtectedCapture() ? ToolSwapCapturePlan.PROTECTED : ToolSwapCapturePlan.NONE;
+        }
+        if (state != AutoToolSwapState.IDLE || preFrozen || !configuredEnabled
+                || !context.breakCapable || context.creative || !context.chainActive || context.guiOpen) {
+            return ToolSwapCapturePlan.NONE;
+        }
+        return ToolSwapCapturePlan.FULL;
+    }
+
+    /** tick 推进前只读决定库存采样强度。 */
+    public ToolSwapCapturePlan capturePlanForTick(ToolSwapLightContext context) {
+        if (context == null) {
+            return ToolSwapCapturePlan.NONE;
+        }
+        if (state == AutoToolSwapState.IDLE || state == AutoToolSwapState.WAIT_RELEASE) {
+            return ToolSwapCapturePlan.NONE;
+        }
+        if (!context.chainActive) {
+            return needsProtectedCapture() ? ToolSwapCapturePlan.PROTECTED : ToolSwapCapturePlan.NONE;
+        }
+        if (context.guiOpen) {
+            return needsProtectedCapture() ? ToolSwapCapturePlan.PROTECTED : ToolSwapCapturePlan.NONE;
+        }
+        boolean reanchor = isCycleLive() && context.selectedHotbarSlot != anchorSlot;
+        if (reanchor && !needsProtectedCapture() && state == AutoToolSwapState.PREPARING) {
+            return ToolSwapCapturePlan.FULL;
+        }
+        if (transactionState != ToolSwapTransactionState.IDLE
+                || state == AutoToolSwapState.RESTORING
+                || state == AutoToolSwapState.ABORTED_SYNC) {
+            return needsProtectedCapture() ? ToolSwapCapturePlan.PROTECTED : ToolSwapCapturePlan.NONE;
+        }
+        if (state == AutoToolSwapState.PREPARING && context.tick >= nextMatchTick) {
+            return ToolSwapCapturePlan.FULL;
+        }
+        return needsProtectedCapture() ? ToolSwapCapturePlan.PROTECTED : ToolSwapCapturePlan.NONE;
+    }
+
+    public int protectedAnchorSlot() {
+        return ledger == null ? -1 : ledger.anchorSlot;
+    }
+
+    public int protectedCandidateSlot() {
+        return ledger == null ? -1 : ledger.candidateSlot;
+    }
+
     /**
      * 生命周期硬重置。旧轮次、旧事务和迟到回调全部失效，不跨连接尝试恢复。
      */
@@ -101,6 +154,11 @@ public final class AutoToolSwapController {
      * 输入按键电平；只有 false→true 的真实边沿会创建新 generation。
      */
     public void onKeyState(boolean down, ToolSwapContext context) {
+        onKeyState(down, context, false);
+    }
+
+    /** 输入按键边沿，并把同 tick 首块预锁存与新轮创建原子化。 */
+    public void onKeyState(boolean down, ToolSwapContext context, boolean preFrozen) {
         remember(context);
         if (down == keyDown) {
             return;
@@ -122,7 +180,7 @@ public final class AutoToolSwapController {
             }
             return;
         }
-        startCycle(context);
+        startCycle(context, preFrozen);
     }
 
     /** 推进 tick、10 tick 水位、GUI/re-anchor 与事务超时。 */
@@ -220,8 +278,7 @@ public final class AutoToolSwapController {
                 || transactionId == null || transactionId.intValue() != packetId || operation == null) {
             return;
         }
-        if (inventory == null) {
-            abortSynchronization();
+        if (!hasTrustedProtectedSlots(inventory)) {
             return;
         }
         boolean matches = operation.restore ? ledger.matchesRestored(inventory, generation)
@@ -231,6 +288,9 @@ public final class AutoToolSwapController {
             return;
         }
         boolean restored = operation.restore;
+        if (!restored) {
+            ledger.markSwapConfirmed();
+        }
         clearTransaction();
         if (restored) {
             ledger = null;
@@ -246,7 +306,8 @@ public final class AutoToolSwapController {
      * @param inventory vanilla 同步应用后的稳定库存快照
      */
     public void onSynchronizationRecovered(ToolSwapInventorySnapshot inventory) {
-        if (state != AutoToolSwapState.ABORTED_SYNC || ledger == null || inventory == null) {
+        if (state != AutoToolSwapState.ABORTED_SYNC || ledger == null
+                || !hasTrustedProtectedSlots(inventory)) {
             return;
         }
         boolean restored = ledger.matchesRestored(inventory, generation);
@@ -262,6 +323,7 @@ public final class AutoToolSwapController {
             return;
         }
         // 服务端已执行但 ACK 丢失时，旧账本仍是唯一恢复义务；本轮只允许收口。
+        ledger.markSwapConfirmed();
         freezeRequested = false;
         closeRequested = true;
         closeToWaitRelease = keyDown;
@@ -271,7 +333,49 @@ public final class AutoToolSwapController {
         operation = new Operation(true);
     }
 
-    private void startCycle(ToolSwapContext context) {
+    /**
+     * 点击前用新捕获的受保护槽复核布局。返回 false 时 vanilla 不得被调用。
+     */
+    public boolean onClickPreflight(long eventGeneration, ToolSwapInventorySnapshot inventory) {
+        if (!isCurrent(eventGeneration) || transactionState != ToolSwapTransactionState.WAIT_PACKET_ID
+                || operation == null || ledger == null) {
+            return false;
+        }
+        if (!hasTrustedProtectedSlots(inventory)) {
+            retractUnstartedClick();
+            return false;
+        }
+        boolean expected = operation.restore ? ledger.matchesSwapped(inventory, generation)
+                : ledger.matchesStrictRestored(inventory, generation);
+        if (expected) {
+            return true;
+        }
+        if (!operation.restore) {
+            clearTransaction();
+            ledger = null;
+            state = AutoToolSwapState.PREPARING;
+            return false;
+        }
+        abortSynchronization();
+        return false;
+    }
+
+    /** 最终安全门失败且 vanilla 未调用：撤回 in-flight，不启动超时。 */
+    public void onClickNotStarted(long eventGeneration) {
+        if (isCurrent(eventGeneration) && transactionState == ToolSwapTransactionState.WAIT_PACKET_ID) {
+            retractUnstartedClick();
+        }
+    }
+
+    /** vanilla 已被调用但异常或没有捕获 C0E：按可能已预测修改进入隔离。 */
+    public void onClickMayHaveStartedWithoutCompletion(long eventGeneration) {
+        if (isCurrent(eventGeneration) && transactionState != ToolSwapTransactionState.IDLE
+                && transactionState != ToolSwapTransactionState.SYNC_ISOLATION) {
+            abortSynchronization();
+        }
+    }
+
+    private void startCycle(ToolSwapContext context, boolean preFrozen) {
         generation = incrementGeneration(generation);
         cycleEnabled = configuredEnabled;
         cycleSelectors = configuredSelectors;
@@ -285,6 +389,11 @@ public final class AutoToolSwapController {
             state = AutoToolSwapState.WAIT_RELEASE;
             return;
         }
+        if (preFrozen) {
+            freezeRequested = true;
+            state = AutoToolSwapState.FROZEN;
+            return;
+        }
         state = AutoToolSwapState.PREPARING;
         if (!context.guiOpen) {
             evaluate(context);
@@ -293,6 +402,9 @@ public final class AutoToolSwapController {
 
     private void evaluate(ToolSwapContext context) {
         nextMatchTick = advanceWatermark(nextMatchTick, context.tick);
+        if (!context.inventory.isFullCandidateScan()) {
+            return;
+        }
         ToolCandidate current = context.inventory.candidateAt(anchorSlot);
         if (current != null && current.isUsableInHand()) {
             return;
@@ -319,8 +431,7 @@ public final class AutoToolSwapController {
         ToolSwapInventorySnapshot inventory = context.inventory;
         SlotSnapshot anchor = inventory.slot(anchorSlot);
         SlotSnapshot candidate = inventory.slot(candidateSlot);
-        if (anchor == null || candidate == null) {
-            abortSynchronization();
+        if (anchor == null || candidate == null || candidate.isEmpty()) {
             return;
         }
         ledger = new Ledger(generation, anchorSlot, candidateSlot, anchor, candidate);
@@ -354,14 +465,19 @@ public final class AutoToolSwapController {
     /** 只有安全事实成立后才创建 in-flight，并从命令产生时开始计时。 */
     private void issuePendingOperation(ToolSwapContext context) {
         if (operation == null || ledger == null || transactionState != ToolSwapTransactionState.IDLE
-                || !context.inventoryTransactionSafe) {
+                || !context.inventoryTransactionSafe || !hasTrustedProtectedSlots(context.inventory)) {
             return;
         }
         ToolSwapInventorySnapshot inventory = context.inventory;
         boolean expectedLayout = operation.restore ? ledger.matchesSwapped(inventory, generation)
-                : ledger.matchesRestored(inventory, generation);
+                : ledger.matchesStrictRestored(inventory, generation);
         if (!expectedLayout) {
-            abortSynchronization();
+            if (operation.restore) {
+                abortSynchronization();
+            } else {
+                operation = null;
+                ledger = null;
+            }
             return;
         }
         transactionState = ToolSwapTransactionState.WAIT_PACKET_ID;
@@ -464,6 +580,21 @@ public final class AutoToolSwapController {
         transactionId = null;
     }
 
+    private void retractUnstartedClick() {
+        transactionState = ToolSwapTransactionState.IDLE;
+        transactionId = null;
+        transactionStartedTick = 0L;
+    }
+
+    private boolean hasTrustedProtectedSlots(ToolSwapInventorySnapshot inventory) {
+        return inventory != null && inventory.isTrusted() && ledger != null
+                && inventory.covers(ledger.anchorSlot) && inventory.covers(ledger.candidateSlot);
+    }
+
+    private boolean needsProtectedCapture() {
+        return ledger != null || operation != null || transactionState != ToolSwapTransactionState.IDLE;
+    }
+
     private void resetCycleFlags() {
         cycleEnabled = false;
         cycleSelectors = Collections.emptyList();
@@ -532,6 +663,7 @@ public final class AutoToolSwapController {
         private final int candidateSlot;
         private final SlotSnapshot anchorRole;
         private final SlotSnapshot candidateRole;
+        private boolean swapConfirmed;
 
         private Ledger(long generation, int anchorSlot, int candidateSlot,
                 SlotSnapshot anchorRole, SlotSnapshot candidateRole) {
@@ -551,7 +683,20 @@ public final class AutoToolSwapController {
         private boolean matchesRestored(ToolSwapInventorySnapshot inventory, long currentGeneration) {
             return generation == currentGeneration
                     && anchorRole.sameContent(inventory.slot(anchorSlot))
-                    && activeToolRoleMatches(candidateRole, inventory.slot(candidateSlot));
+                    && (swapConfirmed
+                            ? activeToolRoleMatches(candidateRole, inventory.slot(candidateSlot))
+                            : candidateRole.sameContent(inventory.slot(candidateSlot)));
+        }
+
+        private boolean matchesStrictRestored(ToolSwapInventorySnapshot inventory, long currentGeneration) {
+            return generation == currentGeneration
+                    && !candidateRole.isEmpty()
+                    && anchorRole.sameContent(inventory.slot(anchorSlot))
+                    && candidateRole.sameContent(inventory.slot(candidateSlot));
+        }
+
+        private void markSwapConfirmed() {
+            swapConfirmed = true;
         }
 
         /** 活动工具允许耐久/NBT 变化；工具耗尽时允许以空槽完成安全恢复。 */

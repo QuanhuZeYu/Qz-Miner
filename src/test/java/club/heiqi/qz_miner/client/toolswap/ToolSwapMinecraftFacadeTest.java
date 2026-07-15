@@ -48,6 +48,9 @@ public class ToolSwapMinecraftFacadeTest {
         Assert.assertTrue(source.contains("target.getHarvestTool(metadata) == null"));
         Assert.assertTrue(source.contains("ForgeHooks.canToolHarvestBlock(target, metadata, stack)"));
         Assert.assertFalse(source.contains("Block.canHarvestBlock"));
+        Assert.assertTrue(source.contains("plan == ToolSwapCapturePlan.NONE"));
+        Assert.assertTrue(source.contains("plan == ToolSwapCapturePlan.PROTECTED"));
+        Assert.assertTrue(source.contains("minecraft.currentScreen != null"));
     }
 
     private static final class TestBlock extends Block {

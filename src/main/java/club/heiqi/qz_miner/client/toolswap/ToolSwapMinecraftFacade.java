@@ -3,11 +3,13 @@ package club.heiqi.qz_miner.client.toolswap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
+import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -29,8 +31,11 @@ import net.minecraftforge.oredict.OreDictionary;
 @SideOnly(Side.CLIENT)
 public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFacade {
 
+    private static final long CAPTURE_LOG_INTERVAL_NS = TimeUnit.SECONDS.toNanos(10L);
+    private long lastCaptureFailureLogNanos = Long.MIN_VALUE;
+
     @Override
-    public ToolSwapContext captureContext(long tick, boolean chainActive) {
+    public ToolSwapLightContext captureLightContext(long tick, boolean chainActive) {
         Minecraft minecraft = Minecraft.getMinecraft();
         EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
         if (minecraft == null || player == null || minecraft.theWorld == null) {
@@ -39,18 +44,41 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         ChainSubMode selected = MyMod.chainStateService == null
                 ? null : MyMod.chainStateService.getClientState().getSelectedSubMode();
         boolean breakCapable = ChainSubModeRegistry.getTrigger(selected) == ChainSubModeTrigger.BREAK_BLOCK;
-        boolean transactionSafe = player.openContainer == player.inventoryContainer
-                && player.inventoryContainer != null
-                && player.inventoryContainer.windowId == 0;
-        return new ToolSwapContext(
+        return new ToolSwapLightContext(
                 tick,
                 breakCapable,
                 player.capabilities.isCreativeMode,
                 minecraft.currentScreen != null,
-                transactionSafe,
                 chainActive,
-                player.inventory.currentItem,
-                captureInventory(minecraft, player));
+                player.inventory.currentItem);
+    }
+
+    @Override
+    public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
+            int anchorSlot, int candidateSlot) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
+        if (light == null || minecraft == null || player == null || minecraft.theWorld == null) {
+            return null;
+        }
+        ToolSwapInventorySnapshot inventory;
+        try {
+            inventory = captureInventory(minecraft, player, plan, anchorSlot, candidateSlot);
+        } catch (RuntimeException failure) {
+            noteCaptureFailure(failure);
+            inventory = ToolSwapInventorySnapshot.untrusted();
+        } catch (LinkageError failure) {
+            noteCaptureFailure(failure);
+            inventory = ToolSwapInventorySnapshot.untrusted();
+        }
+        boolean guiOpen = minecraft.currentScreen != null;
+        boolean transactionSafe = inventory.isTrusted()
+                && !guiOpen
+                && player.openContainer == player.inventoryContainer
+                && player.inventoryContainer != null
+                && player.inventoryContainer.windowId == 0;
+        return new ToolSwapContext(light, transactionSafe, guiOpen,
+                player.inventory.currentItem, inventory);
     }
 
     @Override
@@ -60,17 +88,41 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
     }
 
     @Override
-    public void executeMode2(int candidateContainerSlot, int anchorHotbarIndex) {
-        Minecraft minecraft = Minecraft.getMinecraft();
-        if (minecraft == null || minecraft.playerController == null || minecraft.thePlayer == null) {
-            return;
-        }
-        minecraft.playerController.windowClick(
-                0, candidateContainerSlot, anchorHotbarIndex, 2, minecraft.thePlayer);
+    public boolean isChainKeyPhysicallyDown() {
+        return KeyListener.chainSwitch != null && KeyListener.chainSwitch.getIsKeyPressed();
     }
 
-    /** 捕获 0..35 的稳定槽角色与对准方块工具能力。 */
-    ToolSwapInventorySnapshot captureInventory(Minecraft minecraft, EntityPlayer player) {
+    @Override
+    public ToolSwapClickResult executeMode2(int candidateContainerSlot, int anchorHotbarIndex) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
+        if (minecraft == null || minecraft.playerController == null || player == null
+                || minecraft.currentScreen != null
+                || player.openContainer != player.inventoryContainer
+                || player.inventoryContainer == null
+                || player.inventoryContainer.windowId != 0) {
+            return ToolSwapClickResult.NOT_STARTED;
+        }
+        minecraft.playerController.windowClick(
+                0, candidateContainerSlot, anchorHotbarIndex, 2, player);
+        return ToolSwapClickResult.VANILLA_CALLED;
+    }
+
+    /** 按计划原子捕获库存；任一回调失败由调用方丢弃全部部分结果。 */
+    ToolSwapInventorySnapshot captureInventory(Minecraft minecraft, EntityPlayer player,
+            ToolSwapCapturePlan plan, int anchorSlot, int candidateSlot) {
+        if (plan == ToolSwapCapturePlan.NONE) {
+            return ToolSwapInventorySnapshot.none();
+        }
+        if (plan == ToolSwapCapturePlan.PROTECTED) {
+            if (anchorSlot < 0 || candidateSlot < 0) {
+                return ToolSwapInventorySnapshot.untrusted();
+            }
+            List<SlotSnapshot> protectedSlots = new ArrayList<SlotSnapshot>(2);
+            protectedSlots.add(snapshotSlot(anchorSlot, player.inventory.mainInventory[anchorSlot]));
+            protectedSlots.add(snapshotSlot(candidateSlot, player.inventory.mainInventory[candidateSlot]));
+            return ToolSwapInventorySnapshot.protectedSlots(protectedSlots);
+        }
         Block target = null;
         int metadata = 0;
         MovingObjectPosition hit = minecraft.objectMouseOver;
@@ -89,6 +141,15 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
             }
         }
         return new ToolSwapInventorySnapshot(slots, candidates);
+    }
+
+    private void noteCaptureFailure(Throwable failure) {
+        long now = System.nanoTime();
+        if (lastCaptureFailureLogNanos == Long.MIN_VALUE
+                || now - lastCaptureFailureLogNanos >= CAPTURE_LOG_INTERVAL_NS) {
+            lastCaptureFailureLogNanos = now;
+            MyMod.LOG.warn("[AutoToolSwap] Inventory capture failed; snapshot discarded", failure);
+        }
     }
 
     /** 将 mainInventory 索引映射到普通玩家 inventoryContainer 槽号。 */

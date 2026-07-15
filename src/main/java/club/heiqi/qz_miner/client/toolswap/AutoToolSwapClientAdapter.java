@@ -13,8 +13,8 @@ import cpw.mods.fml.relauncher.SideOnly;
 /**
  * 新版自动工具换位的长寿命客户端 adapter。
  *
- * <p>它是纯 controller 的唯一运行时调用方。每个入口先捕获新鲜事实，drain 命令后才调用
- * 原版 API；出入包只按 connection/world token 接受当前生命周期的数据。</p>
+ * <p>每个入口先捕获轻量事实，由纯核心选择库存采样计划，再执行不可变快照捕获。
+ * 网络回调只按 connection/world token 接受当前生命周期的数据。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class AutoToolSwapClientAdapter {
@@ -24,9 +24,12 @@ public final class AutoToolSwapClientAdapter {
 
     /** Minecraft 边界，测试可用纯假实现替换。 */
     public interface GameFacade {
-        ToolSwapContext captureContext(long tick, boolean chainActive);
+        ToolSwapLightContext captureLightContext(long tick, boolean chainActive);
+        ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
+                int anchorSlot, int candidateSlot);
+        boolean isChainKeyPhysicallyDown();
         Object connectionIdentity();
-        void executeMode2(int candidateContainerSlot, int anchorHotbarIndex);
+        ToolSwapClickResult executeMode2(int candidateContainerSlot, int anchorHotbarIndex);
     }
 
     /** phase 投影只读边界。 */
@@ -40,8 +43,12 @@ public final class AutoToolSwapClientAdapter {
 
     private long clientTick;
     private boolean keyDown;
+    private ChainPhase phaseBaselinePhase = ChainPhase.IDLE;
     private int phaseBaseline;
-    private boolean attributedActivity;
+    private boolean baselineArmedLeft;
+    private boolean armedObserved;
+    private int armedGeneration;
+    private boolean localActivityObserved;
     private boolean serverActivityObserved;
     private int activityServerGeneration;
     private ClickIntent clickIntent;
@@ -50,6 +57,8 @@ public final class AutoToolSwapClientAdapter {
     private int synchronizationCoverage;
     private long lastSynchronizationTick = -1L;
     private long lastIsolationLogNanos = Long.MIN_VALUE;
+    private long preEdgeDestroyTick = -1L;
+    private ClientConnectionLifecycle.Token preEdgeDestroyToken;
 
     public AutoToolSwapClientAdapter(
             boolean enabled, List<ToolSelector> selectors, GameFacade game, PhaseSource phaseSource) {
@@ -61,45 +70,67 @@ public final class AutoToolSwapClientAdapter {
         this.phaseSource = phaseSource;
     }
 
-    /** 真实按键边沿入口；上升沿会在当前 tick 立即匹配。 */
+    /** 真实按键边沿入口；上升沿会按计划在当前 tick 立即匹配。 */
     public void onChainKeyState(boolean down) {
         if (down == keyDown) {
             return;
         }
+        boolean preFrozen = down && consumePreEdgeDestroyLatch();
+        clearPreEdgeDestroyLatch();
         keyDown = down;
         if (down) {
             ToolSwapPhaseSnapshot phase = safePhaseSnapshot();
+            phaseBaselinePhase = phase.phase;
             phaseBaseline = phase.generation;
-            attributedActivity = false;
+            baselineArmedLeft = phase.phase != ChainPhase.ARMED;
+            armedObserved = false;
+            armedGeneration = phaseBaseline;
+            localActivityObserved = preFrozen;
             serverActivityObserved = false;
             activityServerGeneration = phaseBaseline;
         }
-        ToolSwapContext context = game.captureContext(clientTick, true);
+        ToolSwapLightContext light = game.captureLightContext(clientTick, down);
+        if (light == null) {
+            if (!down) {
+                controller.reset();
+            }
+            return;
+        }
+        ToolSwapCapturePlan plan = controller.capturePlanForKeyState(down, light, preFrozen);
+        ToolSwapContext context = capture(light, plan,
+                controller.protectedAnchorSlot(), controller.protectedCandidateSlot());
         if (context == null) {
             if (!down) {
                 controller.reset();
             }
             return;
         }
-        controller.onKeyState(down, context);
+        controller.onKeyState(down, context, preFrozen);
         executeCommands();
         noteIsolationIfNeeded("key-edge");
     }
 
     /** 每个 ClientTickEvent.END 恰好调用一次。 */
     public void onClientTick() {
-        observeAttributedPhase();
-        boolean chainActive = keyDown && !chainEndedByAttributedPhase();
-        ToolSwapContext context = game.captureContext(clientTick, chainActive);
-        if (context != null) {
-            recoverAfterQuietSynchronizationTick(context);
-            controller.onTick(context);
-            executeCommands();
-            noteIsolationIfNeeded("tick");
+        ToolSwapPhaseSnapshot phase = safePhaseSnapshot();
+        observeAttributedPhase(phase);
+        boolean chainActive = keyDown && !chainEndedByAttributedPhase(phase);
+        ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive);
+        if (light != null) {
+            ToolSwapCapturePlan plan = controller.capturePlanForTick(light);
+            ToolSwapContext context = capture(light, plan,
+                    controller.protectedAnchorSlot(), controller.protectedCandidateSlot());
+            if (context != null) {
+                recoverAfterQuietSynchronizationTick(context);
+                controller.onTick(context);
+                executeCommands();
+                noteIsolationIfNeeded("tick");
+            }
         }
         if (clientTick != Long.MAX_VALUE) {
             clientTick++;
         }
+        clearPreEdgeDestroyLatch();
     }
 
     /** 配置 static 发布后的显式热更新入口。 */
@@ -107,13 +138,23 @@ public final class AutoToolSwapClientAdapter {
         controller.onConfigChanged(enabled, selectors);
     }
 
-    /** 本地 onPlayerDestroyBlock=true：立即单向冻结并作为 phase IDLE 结束归因的兜底。 */
+    /** 本地 onPlayerDestroyBlock=true；边沿前信号只锁存当前 tick 与当前 world token。 */
     public void onLocalBlockDestroyed() {
-        if (!keyDown) {
+        if (!game.isChainKeyPhysicallyDown()) {
+            clearPreEdgeDestroyLatch();
             return;
         }
-        attributedActivity = true;
-        activityServerGeneration = Math.max(activityServerGeneration, phaseBaseline);
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.capture();
+        if (!ClientConnectionLifecycle.isWorldCurrentAndActive(token)) {
+            clearPreEdgeDestroyLatch();
+            return;
+        }
+        if (!keyDown) {
+            preEdgeDestroyTick = clientTick;
+            preEdgeDestroyToken = token;
+            return;
+        }
+        localActivityObserved = true;
         controller.onLocalBlockDestroyed(controller.generation());
     }
 
@@ -170,9 +211,7 @@ public final class AutoToolSwapClientAdapter {
         lastSynchronizationTick = clientTick;
     }
 
-    /**
-     * 连接/世界卸载/接管统一清理。突发断线不跨生命周期发送恢复，旧回调全部 no-op。
-     */
+    /** 连接/世界卸载/接管统一清理；不跨生命周期发送恢复。 */
     public void resetForLifecycle() {
         controller.reset();
         keyDown = false;
@@ -181,38 +220,53 @@ public final class AutoToolSwapClientAdapter {
         protectedCandidate = -1;
         synchronizationCoverage = 0;
         lastSynchronizationTick = -1L;
-        attributedActivity = false;
-        serverActivityObserved = false;
+        phaseBaselinePhase = ChainPhase.IDLE;
         phaseBaseline = 0;
+        baselineArmedLeft = false;
+        armedObserved = false;
+        armedGeneration = 0;
+        localActivityObserved = false;
+        serverActivityObserved = false;
         activityServerGeneration = 0;
+        clearPreEdgeDestroyLatch();
     }
 
     AutoToolSwapController controllerForTests() {
         return controller;
     }
 
-    private void observeAttributedPhase() {
+    private void observeAttributedPhase(ToolSwapPhaseSnapshot snapshot) {
         if (!keyDown) {
             return;
         }
-        ToolSwapPhaseSnapshot snapshot = safePhaseSnapshot();
-        if (snapshot.generation > phaseBaseline && isActivePhase(snapshot.phase)) {
-            attributedActivity = true;
+        if (!armedObserved) {
+            if (phaseBaselinePhase == ChainPhase.ARMED && !baselineArmedLeft) {
+                if (snapshot.phase != ChainPhase.ARMED) {
+                    baselineArmedLeft = true;
+                }
+                return;
+            }
+            if (snapshot.phase == ChainPhase.ARMED && snapshot.generation >= phaseBaseline) {
+                armedObserved = true;
+                armedGeneration = snapshot.generation;
+            }
+            return;
+        }
+        if (snapshot.generation > armedGeneration && isActivePhase(snapshot.phase)) {
             serverActivityObserved = true;
             activityServerGeneration = Math.max(activityServerGeneration, snapshot.generation);
             controller.onServerActivity(controller.generation());
         }
     }
 
-    private boolean chainEndedByAttributedPhase() {
-        if (!attributedActivity) {
+    private boolean chainEndedByAttributedPhase(ToolSwapPhaseSnapshot snapshot) {
+        if (snapshot.phase != ChainPhase.IDLE) {
             return false;
         }
-        ToolSwapPhaseSnapshot snapshot = safePhaseSnapshot();
-        return snapshot.phase == ChainPhase.IDLE
-                && snapshot.generation >= activityServerGeneration
-                && snapshot.generation >= phaseBaseline
-                && (serverActivityObserved || snapshot.generation > phaseBaseline);
+        if (serverActivityObserved && snapshot.generation >= activityServerGeneration) {
+            return true;
+        }
+        return localActivityObserved && snapshot.generation > phaseBaseline;
     }
 
     private static boolean isActivePhase(ChainPhase phase) {
@@ -222,6 +276,11 @@ public final class AutoToolSwapClientAdapter {
     private ToolSwapPhaseSnapshot safePhaseSnapshot() {
         ToolSwapPhaseSnapshot snapshot = phaseSource.snapshot();
         return snapshot == null ? new ToolSwapPhaseSnapshot(ChainPhase.IDLE, 0) : snapshot;
+    }
+
+    private ToolSwapContext capture(ToolSwapLightContext light, ToolSwapCapturePlan plan,
+            int anchorSlot, int candidateSlot) {
+        return game.captureContext(light, plan, anchorSlot, candidateSlot);
     }
 
     private void executeCommands() {
@@ -234,7 +293,7 @@ public final class AutoToolSwapClientAdapter {
                 protectedAnchor = command.anchorSlot;
                 protectedCandidate = command.candidateSlot;
                 if (command.type == ToolSwapCommand.Type.VERIFY_SLOTS) {
-                    ToolSwapContext context = game.captureContext(clientTick, keyDown && !chainEndedByAttributedPhase());
+                    ToolSwapContext context = captureProtected(command);
                     if (context != null && command.transactionId != null) {
                         controller.onSlotsObserved(
                                 command.generation, command.transactionId.intValue(), context.inventory);
@@ -247,9 +306,22 @@ public final class AutoToolSwapClientAdapter {
         throw new IllegalStateException("tool swap command drain did not quiesce");
     }
 
+    private ToolSwapContext captureProtected(ToolSwapCommand command) {
+        ToolSwapPhaseSnapshot phase = safePhaseSnapshot();
+        boolean chainActive = keyDown && !chainEndedByAttributedPhase(phase);
+        ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive);
+        return light == null ? null : capture(light, ToolSwapCapturePlan.PROTECTED,
+                command.anchorSlot, command.candidateSlot);
+    }
+
     private void executeClick(ToolSwapCommand command) {
+        ToolSwapContext preflight = captureProtected(command);
+        if (preflight == null || !controller.onClickPreflight(command.generation, preflight.inventory)) {
+            return;
+        }
         Object handler = game.connectionIdentity();
         if (handler == null || clickIntent != null) {
+            controller.onClickNotStarted(command.generation);
             return;
         }
         synchronizationCoverage = 0;
@@ -258,14 +330,27 @@ public final class AutoToolSwapClientAdapter {
         ClickIntent intent = new ClickIntent(
                 handler, command.generation, 0, containerSlot, command.anchorSlot, 2);
         clickIntent = intent;
+        ToolSwapClickResult result;
         try {
-            game.executeMode2(containerSlot, command.anchorSlot);
+            result = game.executeMode2(containerSlot, command.anchorSlot);
+        } catch (RuntimeException failure) {
+            controller.onClickMayHaveStartedWithoutCompletion(command.generation);
+            MyMod.LOG.warn("[AutoToolSwap] Vanilla mode-2 click failed after final preflight", failure);
+            return;
+        } catch (LinkageError failure) {
+            controller.onClickMayHaveStartedWithoutCompletion(command.generation);
+            MyMod.LOG.warn("[AutoToolSwap] Vanilla mode-2 click linkage failure after final preflight", failure);
+            return;
         } finally {
             clickIntent = null;
         }
-        // 未捕获时保持 WAIT_PACKET_ID，由核心统一超时；不得猜 transaction counter。
+        if (result != ToolSwapClickResult.VANILLA_CALLED) {
+            controller.onClickNotStarted(command.generation);
+            return;
+        }
         if (!intent.captured) {
-            MyMod.LOG.debug("[AutoToolSwap] Vanilla click emitted no attributable C0E; waiting for timeout");
+            controller.onClickMayHaveStartedWithoutCompletion(command.generation);
+            MyMod.LOG.debug("[AutoToolSwap] Vanilla click emitted no attributable C0E; isolated");
         }
     }
 
@@ -278,6 +363,18 @@ public final class AutoToolSwapClientAdapter {
         synchronizationCoverage = 0;
         lastSynchronizationTick = -1L;
         controller.onSynchronizationRecovered(context.inventory);
+    }
+
+    private boolean consumePreEdgeDestroyLatch() {
+        return preEdgeDestroyTick == clientTick
+                && preEdgeDestroyToken != null
+                && game.isChainKeyPhysicallyDown()
+                && ClientConnectionLifecycle.isWorldCurrentAndActive(preEdgeDestroyToken);
+    }
+
+    private void clearPreEdgeDestroyLatch() {
+        preEdgeDestroyTick = -1L;
+        preEdgeDestroyToken = null;
     }
 
     private boolean isCurrentWorld(ClientConnectionLifecycle.Token token) {

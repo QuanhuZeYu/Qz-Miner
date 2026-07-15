@@ -15,6 +15,35 @@ import club.heiqi.qz_miner.toolswap.ToolSelectorParser;
 public class AutoToolSwapControllerTest {
 
     @Test
+    public void preFrozenEdgeCreatesFrozenCycleBeforeAnyEvaluation() {
+        AutoToolSwapController controller = controller(true, Collections.<ToolSelector>emptyList());
+        ToolSwapLightContext light = new ToolSwapLightContext(0, true, false, false, true, 0);
+        Assert.assertEquals(ToolSwapCapturePlan.NONE,
+                controller.capturePlanForKeyState(true, light, true));
+
+        controller.onKeyState(true, context(0, false, restored(0, 5)), true);
+
+        Assert.assertEquals(AutoToolSwapState.FROZEN, controller.state());
+        Assert.assertTrue(controller.drainCommands().isEmpty());
+        Assert.assertFalse(controller.hasLedger());
+    }
+
+    @Test
+    public void capturePlanNeverRequestsFullForGuiOrNonMatchingTransactionTicks() {
+        AutoToolSwapController controller = controller(true, Collections.<ToolSelector>emptyList());
+        ToolSwapLightContext edge = new ToolSwapLightContext(0, true, false, false, true, 0);
+        Assert.assertEquals(ToolSwapCapturePlan.FULL,
+                controller.capturePlanForKeyState(true, edge, false));
+        controller.onKeyState(true, context(0, false, restored(0, 5)));
+        onlyCommand(controller);
+
+        Assert.assertEquals(ToolSwapCapturePlan.PROTECTED, controller.capturePlanForTick(
+                new ToolSwapLightContext(1, true, false, false, true, 0)));
+        Assert.assertEquals(ToolSwapCapturePlan.PROTECTED, controller.capturePlanForTick(
+                new ToolSwapLightContext(100, true, false, true, true, 0)));
+    }
+
+    @Test
     public void realRisingEdgeMatchesImmediatelyAndThenUsesTenTickWatermark() {
         AutoToolSwapController controller = controller(true, Collections.<ToolSelector>emptyList());
         controller.onKeyState(true, context(0, false, restored(0, 5)));
@@ -228,7 +257,7 @@ public class AutoToolSwapControllerTest {
         Assert.assertEquals(ToolSwapTransactionState.IDLE, controller.transactionState());
         Assert.assertTrue(controller.drainCommands().isEmpty());
 
-        controller.onTick(context(101, true, true, swapped(0, 5, "used")));
+        controller.onTick(context(101, false, true, swapped(0, 5, "used")));
         Assert.assertEquals(ToolSwapCommand.Type.BEGIN_RESTORE, onlyCommand(controller).type);
         Assert.assertEquals(ToolSwapTransactionState.WAIT_PACKET_ID, controller.transactionState());
     }

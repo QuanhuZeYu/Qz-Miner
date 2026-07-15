@@ -13,6 +13,12 @@ public final class ToolSwapContext {
     public final int selectedHotbarSlot;
     public final ToolSwapInventorySnapshot inventory;
 
+    public ToolSwapContext(ToolSwapLightContext light, boolean inventoryTransactionSafe,
+            boolean guiOpen, int selectedHotbarSlot, ToolSwapInventorySnapshot inventory) {
+        this(light.tick, light.breakCapable, light.creative, guiOpen, inventoryTransactionSafe,
+                light.chainActive, selectedHotbarSlot, inventory);
+    }
+
     public ToolSwapContext(long tick, boolean breakCapable, boolean creative, boolean guiOpen,
             boolean inventoryTransactionSafe, boolean chainActive, int selectedHotbarSlot,
             ToolSwapInventorySnapshot inventory) {
@@ -23,7 +29,7 @@ public final class ToolSwapContext {
         this.breakCapable = breakCapable;
         this.creative = creative;
         this.guiOpen = guiOpen;
-        this.inventoryTransactionSafe = inventoryTransactionSafe;
+        this.inventoryTransactionSafe = inventoryTransactionSafe && inventory.isTrusted();
         this.chainActive = chainActive;
         this.selectedHotbarSlot = selectedHotbarSlot;
         this.inventory = inventory;
