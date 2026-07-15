@@ -469,21 +469,36 @@ public class ChainExecutionEventBridge {
      * <p>玩家登出/重生/切维度时 {@code ChainLifecycleBridge} publish LifecycleCleanup，
      * 状态机 handler 处理 slots，本订阅者清理 registry（登出防泄漏，重生/维度切换清幽灵队列）。</p>
      *
+     * <p>{@code forced=true} 是 I7 全玩家生命周期收口：事件中的 generation/round 可为占位值，
+     * 必须按玩家 UUID 无条件移除当前 context，并无条件关闭执行窗口。{@code forced=false} 是执行轮
+     * 派生收口，仅在 UUID/generation/serverRoundId 三元身份匹配时移除并关闭对应窗口，防止旧轮事件
+     * 清理新轮 context。</p>
+     *
      * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots。</p>
      *
      * @param event 生命周期清理事件
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
-        boolean removed = registry.remove(event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId());
-        // G1（I5 生命线，幂等）：clearRuntimeState 已通过 setExecutionStatus(IDLE) 收口，
-        // 此处再幂等 setExecuting(false) 补缺口——若事件由本桥自己 publish（execution-complete）
-        // 已经设过，幂等无副作用；若由 ChainLifecycleBridge publish（玩家登出/重生/切维度），
-        // cleanupPlayerState→clearRuntimeState 路径也会 setExecutionStatus(IDLE)，本处仍是幂等。
-        if (removed) {
-            setExecutionWindow(event.getPlayerUUID(), false, "lifecycle-cleanup:" + event.getReason());
+        UUID playerUUID = event.getPlayerUUID();
+        if (event.isForced()) {
+            // I7 全量收口不依赖事件占位身份；即使 registry 已空，也必须幂等关闭执行窗口。
+            registry.remove(playerUUID);
+            setExecutionWindow(playerUUID, false, "lifecycle-cleanup-forced:" + event.getReason());
+            MyMod.LOG.debug(
+                    "[ChainExecution] forced LifecycleCleanup cleared player context player={} gen={} round={} reason={}",
+                    playerUUID, Integer.valueOf(event.getGeneration()), Long.valueOf(event.getServerRoundId()),
+                    event.getReason());
+            return;
         }
-        MyMod.LOG.debug("[ChainExecution] registry cleanup on LifecycleCleanup player={} reason={}",
-                event.getPlayerUUID(), event.getReason());
+
+        boolean removed = registry.remove(playerUUID, event.getGeneration(), event.getServerRoundId());
+        if (removed) {
+            setExecutionWindow(playerUUID, false, "lifecycle-cleanup-round:" + event.getReason());
+        }
+        MyMod.LOG.debug(
+                "[ChainExecution] round-isolated LifecycleCleanup player={} gen={} round={} removed={} reason={}",
+                playerUUID, Integer.valueOf(event.getGeneration()), Long.valueOf(event.getServerRoundId()),
+                Boolean.valueOf(removed), event.getReason());
     }
 
     // ============================ 纯逻辑构造（供单测覆盖） ============================
