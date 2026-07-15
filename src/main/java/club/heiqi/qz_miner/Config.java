@@ -1,10 +1,13 @@
 package club.heiqi.qz_miner;
 
 import java.io.File;
+import java.util.Collections;
+import java.util.List;
 
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
+import club.heiqi.qz_miner.toolswap.ToolSelector;
 
 /**
  * 运行时配置静态字段门面。
@@ -39,6 +42,8 @@ public class Config {
     public static boolean enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
     public static boolean enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+    public static boolean autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
+    public static List<ToolSelector> autoToolPrioritySelectors = Collections.emptyList();
     public static int parallelTickClientWorkBudgetUnits =
             QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
     public static int clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;

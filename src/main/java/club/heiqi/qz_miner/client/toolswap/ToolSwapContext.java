@@ -1,0 +1,27 @@
+package club.heiqi.qz_miner.client.toolswap;
+
+/** 单个客户端 tick 的纯事实快照。 */
+public final class ToolSwapContext {
+
+    public final long tick;
+    public final boolean breakCapable;
+    public final boolean creative;
+    public final boolean guiOpen;
+    public final boolean chainActive;
+    public final int selectedHotbarSlot;
+    public final ToolSwapInventorySnapshot inventory;
+
+    public ToolSwapContext(long tick, boolean breakCapable, boolean creative, boolean guiOpen,
+            boolean chainActive, int selectedHotbarSlot, ToolSwapInventorySnapshot inventory) {
+        if (tick < 0L || selectedHotbarSlot < 0 || selectedHotbarSlot > 8 || inventory == null) {
+            throw new IllegalArgumentException("tick/selected slot/inventory out of range");
+        }
+        this.tick = tick;
+        this.breakCapable = breakCapable;
+        this.creative = creative;
+        this.guiOpen = guiOpen;
+        this.chainActive = chainActive;
+        this.selectedHotbarSlot = selectedHotbarSlot;
+        this.inventory = inventory;
+    }
+}

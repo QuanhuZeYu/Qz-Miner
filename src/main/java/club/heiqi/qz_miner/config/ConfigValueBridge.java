@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.config;
 
+import java.util.ArrayList;
+import java.util.Collections;
+
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 
@@ -58,6 +61,9 @@ public final class ConfigValueBridge {
             throw new IllegalArgumentException("snapshot must not be null");
         }
         Config.clientEnablePreviewRender = snapshot.clientEnablePreviewRender;
+        Config.autoToolSwapEnabled = snapshot.autoToolSwapEnabled;
+        Config.autoToolPrioritySelectors = Collections.unmodifiableList(
+                new ArrayList<club.heiqi.qz_miner.toolswap.ToolSelector>(snapshot.autoToolPrioritySelectors));
         Config.parallelTickClientWorkBudgetUnits = snapshot.parallelTickClientWorkBudgetUnits;
         Config.clientPreviewMaxRadius = snapshot.clientPreviewMaxRadius;
         Config.clientPreviewMaxTargets = snapshot.clientPreviewMaxTargets;

@@ -13,6 +13,8 @@ import club.heiqi.config.runtime.DraftView;
 import club.heiqi.config.runtime.ValidationResult;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
+import club.heiqi.qz_miner.toolswap.ToolSelector;
+import club.heiqi.qz_miner.toolswap.ToolSelectorParser;
 
 /**
  * Qz-Miner 配置的共用语义读取器与 UILib 提交前校验器。
@@ -78,6 +80,8 @@ public final class ConfigSemanticValidator {
         putBoolean(typed, errors, draft, "general.enableUnlimitedOreFortune");
         putBoolean(typed, errors, draft, "general.enableFortuneForPlacedOre");
         putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
+        putBoolean(typed, errors, draft, "client.autoToolSwapEnabled");
+        putToolSelectors(typed, errors, draft);
         putIntNumber(typed, errors, draft, "client.parallelTickClientWorkBudgetUnits", 1, Integer.MAX_VALUE);
         putIntNumber(typed, errors, draft, "client.clientPreviewMaxRadius", 1, Integer.MAX_VALUE);
         putIntNumber(typed, errors, draft, "client.clientPreviewMaxTargets", 1, Integer.MAX_VALUE);
@@ -129,6 +133,17 @@ public final class ConfigSemanticValidator {
             return;
         }
         typed.put(path, parsed.rules());
+    }
+
+    private static void putToolSelectors(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft) {
+        String path = "client.autoToolPrioritySelectors";
+        ToolSelectorParser.ParseResult parsed = ToolSelectorParser.parseList(draft.getDraft(path), path);
+        if (!parsed.isValid()) {
+            errors.putAll(parsed.errors());
+            return;
+        }
+        typed.put(path, parsed.selectors());
     }
 
     private static void putString(Map<String, Object> typed, Map<String, String> errors,
@@ -273,6 +288,8 @@ public final class ConfigSemanticValidator {
         public final boolean enableUnlimitedOreFortune;
         public final boolean enableFortuneForPlacedOre;
         public final boolean clientEnablePreviewRender;
+        public final boolean autoToolSwapEnabled;
+        public final java.util.List<ToolSelector> autoToolPrioritySelectors;
         public final int parallelTickClientWorkBudgetUnits;
         public final int clientPreviewMaxRadius;
         public final int clientPreviewMaxTargets;
@@ -295,6 +312,8 @@ public final class ConfigSemanticValidator {
             enableUnlimitedOreFortune = ((Boolean) typed.get("general.enableUnlimitedOreFortune")).booleanValue();
             enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
+            autoToolSwapEnabled = ((Boolean) typed.get("client.autoToolSwapEnabled")).booleanValue();
+            autoToolPrioritySelectors = immutableSelectors(typed.get("client.autoToolPrioritySelectors"));
             parallelTickClientWorkBudgetUnits = exactInt(typed, "client.parallelTickClientWorkBudgetUnits");
             clientPreviewMaxRadius = exactInt(typed, "client.clientPreviewMaxRadius");
             clientPreviewMaxTargets = exactInt(typed, "client.clientPreviewMaxTargets");
@@ -303,6 +322,12 @@ public final class ConfigSemanticValidator {
             clientPreviewAlphaStartValue = number(typed, "client.clientPreviewAlphaStartValue");
             clientPreviewAlphaEndValue = number(typed, "client.clientPreviewAlphaEndValue");
             objectGroups = (ObjectGroupRuleSet) typed.get("client.objectGroups");
+        }
+
+        @SuppressWarnings("unchecked")
+        private static java.util.List<ToolSelector> immutableSelectors(Object value) {
+            return java.util.Collections.unmodifiableList(
+                    new java.util.ArrayList<ToolSelector>((java.util.List<ToolSelector>) value));
         }
 
         private static int exactInt(Map<String, Object> typed, String path) {

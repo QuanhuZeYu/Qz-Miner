@@ -59,6 +59,8 @@ public class ConfigBootstrapTest {
         Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
         Assert.assertEquals(QzMinerConfigDefaults.GREETING, Config.greeting);
         Assert.assertTrue(Config.clientEnablePreviewRender);
+        Assert.assertTrue(Config.autoToolSwapEnabled);
+        Assert.assertTrue(Config.autoToolPrioritySelectors.isEmpty());
         Assert.assertSame(manager, ConfigBootstrap.manager());
         Assert.assertNotNull(ConfigBootstrap.currentValidatedSnapshot());
     }
@@ -81,6 +83,8 @@ public class ConfigBootstrapTest {
                 + "  enableFortuneForPlacedOre: true\n"
                 + "client:\n"
                 + "  clientEnablePreviewRender: false\n"
+                + "  autoToolSwapEnabled: false\n"
+                + "  autoToolPrioritySelectors: [ore:toolPickaxe, 'mod:drill@4']\n"
                 + "  parallelTickClientWorkBudgetUnits: 200\n"
                 + "  clientPreviewMaxRadius: 8\n"
                 + "  clientPreviewMaxTargets: 128\n"
@@ -97,6 +101,9 @@ public class ConfigBootstrapTest {
         Assert.assertEquals(32, Config.chainRadius);
         Assert.assertEquals(512, Config.chainMaxBlocks);
         Assert.assertFalse(Config.clientEnablePreviewRender);
+        Assert.assertFalse(Config.autoToolSwapEnabled);
+        Assert.assertEquals("ore:toolPickaxe", Config.autoToolPrioritySelectors.get(0).canonicalText());
+        Assert.assertEquals("mod:drill@4", Config.autoToolPrioritySelectors.get(1).canonicalText());
         Assert.assertEquals(8, Config.clientPreviewMaxRadius);
         Assert.assertTrue(Config.enableUnlimitedOreFortune);
     }
@@ -453,7 +460,7 @@ public class ConfigBootstrapTest {
         } catch (IllegalStateException expected) {
             Assert.assertTrue(expected.getMessage().contains("not initialized"));
         }
-        Assert.assertArrayEquals("all 19 Config runtime fields must remain untouched", before,
+        Assert.assertArrayEquals("all 21 Config runtime fields must remain untouched", before,
                 captureRuntimeConfigValues());
     }
 
@@ -470,6 +477,9 @@ public class ConfigBootstrapTest {
         Config.enableUnlimitedOreFortune = true;
         Config.enableFortuneForPlacedOre = true;
         Config.clientEnablePreviewRender = false;
+        Config.autoToolSwapEnabled = false;
+        Config.autoToolPrioritySelectors = java.util.Collections.singletonList(
+                club.heiqi.qz_miner.toolswap.ToolSelectorParser.parse("sentinel:item@*"));
         Config.parallelTickClientWorkBudgetUnits = 909;
         Config.clientPreviewMaxRadius = 910;
         Config.clientPreviewMaxTargets = 911;
@@ -493,6 +503,8 @@ public class ConfigBootstrapTest {
                 Boolean.valueOf(Config.enableUnlimitedOreFortune),
                 Boolean.valueOf(Config.enableFortuneForPlacedOre),
                 Boolean.valueOf(Config.clientEnablePreviewRender),
+                Boolean.valueOf(Config.autoToolSwapEnabled),
+                Config.autoToolPrioritySelectors,
                 Integer.valueOf(Config.parallelTickClientWorkBudgetUnits),
                 Integer.valueOf(Config.clientPreviewMaxRadius),
                 Integer.valueOf(Config.clientPreviewMaxTargets),
@@ -516,6 +528,8 @@ public class ConfigBootstrapTest {
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+        Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
+        Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
         Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
         Config.clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;

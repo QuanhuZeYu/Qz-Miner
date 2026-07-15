@@ -15,7 +15,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 
 /**
- * Authority → 静态字段：全 19 字段 + 非法值不 round。
+ * Authority → 静态字段：全 21 字段 + 非法值不 round。
  */
 public class ConfigValueBridgeTest {
 
@@ -36,7 +36,7 @@ public class ConfigValueBridgeTest {
     }
 
     @Test
-    public void applyAllMapsAllNineteenFields() throws Exception {
+    public void applyAllMapsAllTwentyOneFields() throws Exception {
         File yaml = new File(tempDir, "qz_miner.yaml");
         ConfigSchema schema = QzMinerConfigSchema.create();
         ConfigManager manager = ConfigManager.bootstrap(yaml, schema, ConfigSemanticValidator.draftValidator());
@@ -53,6 +53,9 @@ public class ConfigValueBridgeTest {
         draft.setDraft("general.enableUnlimitedOreFortune", Boolean.TRUE);
         draft.setDraft("general.enableFortuneForPlacedOre", Boolean.TRUE);
         draft.setDraft("client.clientEnablePreviewRender", Boolean.FALSE);
+        draft.setDraft("client.autoToolSwapEnabled", Boolean.FALSE);
+        draft.setDraft("client.autoToolPrioritySelectors",
+                java.util.Arrays.asList(" ore:toolPickaxe ", "mod:drill@4"));
         draft.setDraft("client.parallelTickClientWorkBudgetUnits", Double.valueOf(200.0));
         draft.setDraft("client.clientPreviewMaxRadius", Double.valueOf(8.0));
         draft.setDraft("client.clientPreviewMaxTargets", Double.valueOf(128.0));
@@ -79,6 +82,16 @@ public class ConfigValueBridgeTest {
         Assert.assertTrue(Config.enableUnlimitedOreFortune);
         Assert.assertTrue(Config.enableFortuneForPlacedOre);
         Assert.assertFalse(Config.clientEnablePreviewRender);
+        Assert.assertFalse(Config.autoToolSwapEnabled);
+        Assert.assertEquals("ore:toolPickaxe", Config.autoToolPrioritySelectors.get(0).canonicalText());
+        Assert.assertEquals("mod:drill@4", Config.autoToolPrioritySelectors.get(1).canonicalText());
+        try {
+            Config.autoToolPrioritySelectors.add(
+                    club.heiqi.qz_miner.toolswap.ToolSelectorParser.parse("mod:other@*"));
+            Assert.fail("runtime selector list must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // 合同断言
+        }
         Assert.assertEquals(200, Config.parallelTickClientWorkBudgetUnits);
         Assert.assertEquals(8, Config.clientPreviewMaxRadius);
         Assert.assertEquals(128, Config.clientPreviewMaxTargets);
@@ -135,6 +148,8 @@ public class ConfigValueBridgeTest {
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+        Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
+        Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
         Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
         Config.clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;

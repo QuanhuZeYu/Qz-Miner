@@ -19,10 +19,12 @@ public class QzMinerConfigSchemaTest {
     public void schemaContainsAllLegacyFieldsIncludingGreeting() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(20, schema.allFields().size());
+        Assert.assertEquals(22, schema.allFields().size());
         Assert.assertTrue(schema.containsPath("general.greeting"));
         Assert.assertTrue(schema.containsPath("client.clientPreviewAlphaEndValue"));
         Assert.assertTrue(schema.containsPath("client.objectGroups"));
+        Assert.assertTrue(schema.containsPath("client.autoToolSwapEnabled"));
+        Assert.assertTrue(schema.containsPath("client.autoToolPrioritySelectors"));
     }
 
     @Test
@@ -39,6 +41,12 @@ public class QzMinerConfigSchemaTest {
         FieldSpec preview = schema.field("client.clientEnablePreviewRender");
         Assert.assertEquals(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER),
                 preview.defaultValue());
+
+        FieldSpec toolSwap = schema.field("client.autoToolSwapEnabled");
+        Assert.assertEquals(Boolean.TRUE, toolSwap.defaultValue());
+        FieldSpec selectors = schema.field("client.autoToolPrioritySelectors");
+        Assert.assertEquals(FieldType.SIMPLE_LIST, selectors.type());
+        Assert.assertEquals(java.util.Collections.emptyList(), selectors.defaultValue());
 
         FieldSpec alphaStart = schema.field("client.clientPreviewAlphaStartValue");
         Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE),

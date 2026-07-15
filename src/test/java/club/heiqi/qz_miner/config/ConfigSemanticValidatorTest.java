@@ -74,6 +74,39 @@ public class ConfigSemanticValidatorTest {
     }
 
     @Test
+    public void selectorErrorsPointToExactIndexAndDuplicatesUseCanonicalText() throws Exception {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        DraftBuffer draft = manager.openDraft();
+        draft.setDraft("client.autoToolPrioritySelectors",
+                java.util.Arrays.asList(" minecraft:iron_pickaxe@* ", "minecraft:iron_pickaxe@*", "bad"));
+
+        SaveOutcome outcome = manager.save(draft);
+
+        Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
+        Assert.assertNotNull(outcome.validation().errorFor("client.autoToolPrioritySelectors[1]"));
+        Assert.assertNotNull(outcome.validation().errorFor("client.autoToolPrioritySelectors[2]"));
+    }
+
+    @Test
+    public void validatedSelectorsAreParsedAndImmutable() throws Exception {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        DraftBuffer draft = manager.openDraft();
+        draft.setDraft("client.autoToolPrioritySelectors",
+                java.util.Arrays.asList("ore:toolPickaxe", "mod:tool@7"));
+        Assert.assertTrue(manager.save(draft).isSuccess());
+
+        ValidatedSnapshot snapshot = ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+
+        Assert.assertEquals("ore:toolPickaxe", snapshot.autoToolPrioritySelectors.get(0).canonicalText());
+        try {
+            snapshot.autoToolPrioritySelectors.clear();
+            Assert.fail("selector snapshot must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // 合同断言
+        }
+    }
+
+    @Test
     public void legalSaveCommitsAndPublishesExactlyOnce() throws Exception {
         final ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
         final AtomicInteger events = new AtomicInteger();
@@ -160,7 +193,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 19 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
+    /** 全 21 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 
@@ -182,6 +215,8 @@ public class ConfigSemanticValidatorTest {
             values.add(Boolean.valueOf(Config.enableUnlimitedOreFortune));
             values.add(Boolean.valueOf(Config.enableFortuneForPlacedOre));
             values.add(Boolean.valueOf(Config.clientEnablePreviewRender));
+            values.add(Boolean.valueOf(Config.autoToolSwapEnabled));
+            values.add(Config.autoToolPrioritySelectors);
             values.add(Integer.valueOf(Config.parallelTickClientWorkBudgetUnits));
             values.add(Integer.valueOf(Config.clientPreviewMaxRadius));
             values.add(Integer.valueOf(Config.clientPreviewMaxTargets));
@@ -216,6 +251,8 @@ public class ConfigSemanticValidatorTest {
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+        Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
+        Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
         Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
         Config.clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;
