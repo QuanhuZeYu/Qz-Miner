@@ -105,23 +105,67 @@ public final class ChainPlanningRuntimeFactory {
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;
         }
+        setMatcherDiagnostics(matcher, diagnostics);
+        matcher = decorateModeExtensionMatcher(searchContext, matcher, diagnostics);
+        matcher = decorateMatcherWithDiagnostics(matcher, diagnostics);
+
+        return new ChainPlanningRuntime(searchContext, resolverContext, candidateFilter, traverser, matcher);
+    }
+
+    /** 为所有正式采掘 matcher 注入同一个 round 级诊断上下文。 */
+    static boolean setMatcherDiagnostics(ChainBlockMatcher matcher, PlanningDiagnostics diagnostics) {
         if (matcher instanceof HarvestableBlockMatcher) {
             ((HarvestableBlockMatcher) matcher).setDiagnostics(diagnostics);
         } else if (matcher instanceof SameBlockHarvestableMatcher) {
             ((SameBlockHarvestableMatcher) matcher).setDiagnostics(diagnostics);
+        } else if (matcher instanceof OreBlockHarvestableMatcher) {
+            ((OreBlockHarvestableMatcher) matcher).setDiagnostics(diagnostics);
+        } else if (matcher instanceof LogBlockHarvestableMatcher) {
+            ((LogBlockHarvestableMatcher) matcher).setDiagnostics(diagnostics);
+        } else {
+            return false;
         }
-        matcher = ModeExtensionMatcherDecorator.decorateMatcher(
-            searchContext.getSubMode(), matcher, searchContext.getFrozenModePredicate());
-        if (diagnostics != null) {
-            final ChainBlockMatcher decoratedMatcher = matcher;
-            matcher = (currentPlayer, target) -> {
-                boolean result = decoratedMatcher.matches(currentPlayer, target);
-                diagnostics.recordMatcherResult(target, result);
-                return result;
-            };
-        }
+        return true;
+    }
 
-        return new ChainPlanningRuntime(searchContext, resolverContext, candidateFilter, traverser, matcher);
+    /**
+     * 为模式扩展装饰器复用同一诊断接缝；无诊断或非采掘模式保持原装饰路径。
+     */
+    private static ChainBlockMatcher decorateModeExtensionMatcher(final ChainSearchContext searchContext,
+            ChainBlockMatcher matcher, final PlanningDiagnostics diagnostics) {
+        final ChainSubMode subMode = searchContext.getSubMode();
+        final FrozenModePredicate extension = searchContext.getFrozenModePredicate();
+        if (diagnostics == null || extension == null || extension.snapshot().isEmpty()
+                || !isHarvestSubMode(subMode)) {
+            return ModeExtensionMatcherDecorator.decorateMatcher(subMode, matcher, extension);
+        }
+        return ModeExtensionMatcherDecorator.decorateMatcher(subMode, matcher,
+                (currentPlayer, target) -> currentPlayer != null
+                        && extension.matches(currentPlayer.worldObj, target),
+                (currentPlayer, target) -> ChainHarvestRules.canHarvest(currentPlayer, target, diagnostics),
+                (currentPlayer, target) -> false);
+    }
+
+    /** 最终 matcher 诊断包装只观察单次业务返回值，不重复调用原 matcher。 */
+    static ChainBlockMatcher decorateMatcherWithDiagnostics(final ChainBlockMatcher matcher,
+            final PlanningDiagnostics diagnostics) {
+        if (diagnostics == null || matcher == null) {
+            return matcher;
+        }
+        return (currentPlayer, target) -> {
+            boolean result = matcher.matches(currentPlayer, target);
+            diagnostics.recordMatcherResult(target, result);
+            return result;
+        };
+    }
+
+    /** @return 是否为会执行共享采掘门的正式子模式。 */
+    private static boolean isHarvestSubMode(ChainSubMode subMode) {
+        return subMode == ChainSubMode.CHAIN_BASE
+                || subMode == ChainSubMode.CHAIN_ORE
+                || subMode == ChainSubMode.CHAIN_LOGGING
+                || subMode == ChainSubMode.AREA_SAME_BLOCK
+                || subMode == ChainSubMode.AREA_ORE;
     }
 
     private static ChainSearchContext createSearchContext(
@@ -197,12 +241,18 @@ public final class ChainPlanningRuntimeFactory {
         final ChainCandidateFilter base = ChainSubModeRegistry.createCandidateFilter(context, fallback);
         final ChainCandidateFilter decorated = ModeExtensionMatcherDecorator.decorateCandidateFilter(
             context.getSubMode(), base, context.getFrozenModePredicate(), context.getWorld());
-        if (diagnostics == null || decorated == null) {
-            return decorated;
+        return decorateCandidateFilterWithDiagnostics(decorated, diagnostics);
+    }
+
+    /** 最终 candidate filter 诊断包装只观察单次业务返回值，不重复调用原 predicate。 */
+    static ChainCandidateFilter decorateCandidateFilterWithDiagnostics(final ChainCandidateFilter filter,
+            final PlanningDiagnostics diagnostics) {
+        if (diagnostics == null || filter == null) {
+            return filter;
         }
         return target -> {
             diagnostics.beginCandidate(target);
-            boolean result = decorated.canTraverse(target);
+            boolean result = filter.canTraverse(target);
             diagnostics.recordCandidateResult(target, result);
             return result;
         };

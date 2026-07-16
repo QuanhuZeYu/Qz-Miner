@@ -7,6 +7,13 @@ import net.minecraft.entity.player.EntityPlayer;
  */
 public class LogBlockHarvestableMatcher implements ChainBlockMatcher {
 
+    private ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics;
+
+    /** 由运行时工厂在 worker 启动前注入 round 级诊断器。 */
+    void setDiagnostics(ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        this.diagnostics = diagnostics;
+    }
+
     @Override
     public boolean matches(EntityPlayer player, ChainTarget target) {
         if (player == null || target == null) {
@@ -17,6 +24,6 @@ public class LogBlockHarvestableMatcher implements ChainBlockMatcher {
             return false;
         }
 
-        return ChainHarvestRules.canHarvest(player, target);
+        return ChainHarvestRules.canHarvest(player, target, diagnostics);
     }
 }
