@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapActionResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
@@ -23,46 +24,68 @@ public final class AutoToolSwapRoundService {
 
     private static final RoundIdAllocator PROCESS_ROUND_ID_ALLOCATOR = new RoundIdAllocator(
             AutoToolSwapProtocol.NO_SERVER_ROUND_ID);
+    private static final DiagnosticSink PRODUCTION_DIAGNOSTIC_SINK = new DiagnosticSink() {
+        @Override
+        public void log(String message) {
+            // 默认日志配置并不保证收集 DEBUG；探针严格按动作/阶段有界，因此使用可见的 INFO。
+            MyMod.LOG.info(message);
+        }
+    };
+    private static final DiagnosticSink NO_DIAGNOSTIC_SINK = new DiagnosticSink() {
+        @Override
+        public void log(String message) {
+        }
+    };
 
     private final Map<UUID, RoundRecord> rounds = new HashMap<UUID, RoundRecord>();
     private final RoundIdAllocator roundIdAllocator;
     private final long firstActionSequence;
     private final long firstPhaseSequence;
+    private final DiagnosticSink diagnosticSink;
 
     /** 创建共享进程级 round id 分配器且 action sequence 从 1 开始的服务。 */
     public AutoToolSwapRoundService() {
-        this(PROCESS_ROUND_ID_ALLOCATOR, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE);
+        this(PROCESS_ROUND_ID_ALLOCATOR, AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE,
+                PRODUCTION_DIAGNOSTIC_SINK);
     }
 
     /** 测试 round id 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter) {
-        this(new RoundIdAllocator(initialRoundCounter), AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE);
+        this(new RoundIdAllocator(initialRoundCounter), AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE,
+                NO_DIAGNOSTIC_SINK);
+    }
+
+    /** 测试有界动作诊断时使用的包级构造。 */
+    AutoToolSwapRoundService(long initialRoundCounter, DiagnosticSink diagnosticSink) {
+        this(new RoundIdAllocator(initialRoundCounter), AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, NO_PHASE_SEQUENCE,
+                diagnosticSink);
     }
 
     /** 测试 action sequence 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter, long firstActionSequence) {
-        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence, NO_PHASE_SEQUENCE);
+        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence, NO_PHASE_SEQUENCE, NO_DIAGNOSTIC_SINK);
     }
 
     /** 测试 phase sequence 上界时使用的包级构造。 */
     AutoToolSwapRoundService(long initialRoundCounter, long firstActionSequence, long firstPhaseSequence) {
-        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence, firstPhaseSequence);
+        this(new RoundIdAllocator(initialRoundCounter), firstActionSequence, firstPhaseSequence, NO_DIAGNOSTIC_SINK);
     }
 
     /** 测试注入独立 round id 分配器时使用的包级构造。 */
     AutoToolSwapRoundService(RoundIdAllocator roundIdAllocator, long firstActionSequence) {
-        this(roundIdAllocator, firstActionSequence, NO_PHASE_SEQUENCE);
+        this(roundIdAllocator, firstActionSequence, NO_PHASE_SEQUENCE, NO_DIAGNOSTIC_SINK);
     }
 
     private AutoToolSwapRoundService(RoundIdAllocator roundIdAllocator, long firstActionSequence,
-            long firstPhaseSequence) {
+            long firstPhaseSequence, DiagnosticSink diagnosticSink) {
         if (roundIdAllocator == null || firstActionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE
-                || firstPhaseSequence < NO_PHASE_SEQUENCE) {
+                || firstPhaseSequence < NO_PHASE_SEQUENCE || diagnosticSink == null) {
             throw new IllegalArgumentException("round allocator and sequence counters must be valid protocol values");
         }
         this.roundIdAllocator = roundIdAllocator;
         this.firstActionSequence = firstActionSequence;
         this.firstPhaseSequence = firstPhaseSequence;
+        this.diagnosticSink = diagnosticSink;
     }
 
     /** 建立尚未分配服务端 round id 的 PENDING round。 */
@@ -166,6 +189,7 @@ public final class AutoToolSwapRoundService {
                 || record.serverRoundId != serverRoundId || isTerminal(record.state)) {
             return NO_PHASE_SEQUENCE;
         }
+        AutoToolSwapRoundState previousState = record.state;
         if (freezeSwap && (record.state == AutoToolSwapRoundState.OPEN
                 || record.state == AutoToolSwapRoundState.SWAPPED)) {
             record.state = AutoToolSwapRoundState.FROZEN;
@@ -178,7 +202,16 @@ public final class AutoToolSwapRoundService {
             orphan(record);
             return NO_PHASE_SEQUENCE;
         }
-        return ++record.phaseSequence;
+        long phaseSequence = ++record.phaseSequence;
+        logDiagnostic("[AutoToolSwapDiag] phase player=" + playerId
+                + " round=" + serverRoundId
+                + " phaseSeq=" + phaseSequence
+                + " event=" + (closeRound ? "IDLE" : (freezeSwap ? "FREEZE" : "PHASE"))
+                + " freeze=" + freezeSwap
+                + " close=" + closeRound
+                + " stateBefore=" + previousState
+                + " stateAfter=" + record.state);
+        return phaseSequence;
     }
 
     /**
@@ -196,6 +229,10 @@ public final class AutoToolSwapRoundService {
         if (isActive(record.state)) {
             record.state = AutoToolSwapRoundState.CLOSING;
         }
+        logDiagnostic("[AutoToolSwapDiag] key-release player=" + playerId
+                + " round=" + releasedRoundId
+                + " state=" + record.state
+                + " ledger=" + (record.ledger != null));
         return releasedRoundId;
     }
 
@@ -221,6 +258,8 @@ public final class AutoToolSwapRoundService {
             return cacheWithoutAdvance(record, intent, AutoToolSwapResultCode.REJECTED, serverTick);
         }
 
+        AutoToolSwapRoundState stateBefore = record.state;
+        InventoryDiagnosticSnapshot before = captureInventoryDiagnostic(inventory, intent);
         AutoToolSwapResultCode outcome;
         if (intent.action() == AutoToolSwapAction.SWAP) {
             outcome = applySwap(record, intent, inventory);
@@ -231,6 +270,8 @@ public final class AutoToolSwapRoundService {
         } else {
             outcome = applyClose(record);
         }
+        InventoryDiagnosticSnapshot after = captureInventoryDiagnostic(inventory, intent);
+        logActionDiagnostic(playerId, record, intent, outcome, stateBefore, before, after);
         return cacheAndAdvance(record, intent, outcome, serverTick);
     }
 
@@ -437,6 +478,91 @@ public final class AutoToolSwapRoundService {
     private static void requireServerTick(long serverTick) {
         if (serverTick < 0L) {
             throw new IllegalArgumentException("serverTick must not be negative");
+        }
+    }
+
+    /** 捕获诊断快照，任何诊断边界异常都只降级文本，不影响事务结果。 */
+    private static InventoryDiagnosticSnapshot captureInventoryDiagnostic(AutoToolSwapInventoryPort inventory,
+            AutoToolSwapIntent intent) {
+        if (!(inventory instanceof DiagnosticInventory) || intent == null) {
+            return InventoryDiagnosticSnapshot.unavailable();
+        }
+        try {
+            InventoryDiagnosticSnapshot snapshot = ((DiagnosticInventory) inventory)
+                    .captureDiagnosticSnapshot(intent.anchorSlot(), intent.candidateSlot());
+            return snapshot == null ? InventoryDiagnosticSnapshot.unavailable() : snapshot;
+        } catch (RuntimeException error) {
+            return InventoryDiagnosticSnapshot.unavailable();
+        } catch (LinkageError error) {
+            return InventoryDiagnosticSnapshot.unavailable();
+        }
+    }
+
+    /** 输出一次已结算动作的前后纯值快照。 */
+    private void logActionDiagnostic(UUID playerId, RoundRecord record, AutoToolSwapIntent intent,
+            AutoToolSwapResultCode outcome, AutoToolSwapRoundState stateBefore,
+            InventoryDiagnosticSnapshot before, InventoryDiagnosticSnapshot after) {
+        logDiagnostic("[AutoToolSwapDiag] action player=" + playerId
+                + " round=" + record.serverRoundId
+                + " actionSeq=" + intent.actionSequence()
+                + " action=" + intent.action()
+                + " anchor=" + intent.anchorSlot()
+                + " candidate=" + intent.candidateSlot()
+                + " stateBefore=" + stateBefore
+                + " stateAfter=" + record.state
+                + " outcome=" + outcome
+                + " before={" + before + "}"
+                + " after={" + after + "}");
+    }
+
+    /** 诊断日志必须与业务路径隔离，测试 sink 异常也不得改变事务。 */
+    private void logDiagnostic(String message) {
+        try {
+            diagnosticSink.log(message);
+        } catch (RuntimeException ignored) {
+            // 诊断探针不能改变库存事务或 round 状态。
+        } catch (LinkageError ignored) {
+            // 日志实现缺失时同样保持原业务结果。
+        }
+    }
+
+    /** 单行诊断输出边界。 */
+    interface DiagnosticSink {
+        void log(String message);
+    }
+
+    /** 真实库存端口可选实现的纯值诊断边界。 */
+    interface DiagnosticInventory {
+        InventoryDiagnosticSnapshot captureDiagnosticSnapshot(int anchorSlot, int candidateSlot);
+    }
+
+    /** 不持有 ItemStack/NBT 的库存诊断快照。 */
+    static final class InventoryDiagnosticSnapshot {
+
+        private final int selectedSlot;
+        private final String anchor;
+        private final String candidate;
+        private final String currentItem;
+
+        InventoryDiagnosticSnapshot(int selectedSlot, String anchor, String candidate, String currentItem) {
+            this.selectedSlot = selectedSlot;
+            this.anchor = safe(anchor);
+            this.candidate = safe(candidate);
+            this.currentItem = safe(currentItem);
+        }
+
+        static InventoryDiagnosticSnapshot unavailable() {
+            return new InventoryDiagnosticSnapshot(-1, "unavailable", "unavailable", "unavailable");
+        }
+
+        @Override
+        public String toString() {
+            return "selected=" + selectedSlot + ",anchor=[" + anchor + "],candidate=[" + candidate
+                    + "],currentItem=[" + currentItem + "]";
+        }
+
+        private static String safe(String value) {
+            return value == null ? "unavailable" : value.replace('\n', '_').replace('\r', '_');
         }
     }
 

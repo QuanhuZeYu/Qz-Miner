@@ -186,6 +186,8 @@ public class ChainExecutionEventBridge {
                     Integer.valueOf(gen), playerUUID);
             return;
         }
+        logTimeline(context, "PlanCompleted", "workerConfirmed=" + event.getTotalTargets()
+                + " queueNow=" + context.getTargets().size());
 
         // 卡点5：空规划边界——totalTargets=0，队列初始即空，立即 publish ExecutionFinished + LifecycleCleanup，
         // 不能卡 RUNNING（否则玩家槽卡 RUNNING 致二次连锁哑火）
@@ -306,6 +308,7 @@ public class ChainExecutionEventBridge {
                 if (target == null) {
                     break;
                 }
+                context.recordExecutionConsumed();
                 if (!actionExecutor.canExecute(player, session, target)) {
                     continue;
                 }
@@ -322,6 +325,7 @@ public class ChainExecutionEventBridge {
                     continue;
                 }
                 executed++;
+                logFirstSuccessfulExecution(context, target);
                 // 单 tick 原子执行仍需喂看门狗推进信号（虽然不跨 tick，但防 drain 帧内被误判）
             }
 
@@ -353,6 +357,7 @@ public class ChainExecutionEventBridge {
             if (target == null) {
                 break;
             }
+            context.recordExecutionConsumed();
             if (!actionExecutor.canExecute(player, session, target)) {
                 continue;
             }
@@ -360,6 +365,7 @@ public class ChainExecutionEventBridge {
                 continue;
             }
             executed++;
+            logFirstSuccessfulExecution(context, target);
         }
 
         if (executed > 0) {
@@ -403,6 +409,10 @@ public class ChainExecutionEventBridge {
         long tick = ChainTickSource.currentServerTick();
         long nanos = ChainTickSource.nowNanos();
         bus.publish(buildExecutionFinished(playerUUID, serverRoundId, gen, tick, nanos, reason));
+        logTimeline(context, "ExecutionFinished", "reason=" + reason
+                + " workerConfirmed=" + context.getPlanningConfirmedCount()
+                + " executionConsumed=" + context.getExecutionConsumedCount()
+                + " executionSucceeded=" + context.getExecutionSucceededCount());
         // G1（I5 生命线）：正常完成关掉落收集窗口（executionStatus=IDLE）。
         // ChainDropCollector:58 检测到 IDLE 后下个 WorldTick 释放 buffer 中聚合的掉落。
         setExecutionWindow(playerUUID, false, "execution-finished:" + reason);
@@ -532,6 +542,21 @@ public class ChainExecutionEventBridge {
         playerState.setExecuting(executing);
         MyMod.LOG.debug("[ChainExecution] G1 drop window player={} executing={} reason={}",
                 playerUUID, Boolean.valueOf(executing), reason);
+    }
+
+    /** 仅在本 round 首个真实额外执行成功时输出一次坐标诊断。 */
+    private void logFirstSuccessfulExecution(ChainExecutionContext context, ChainTarget target) {
+        if (context.recordExecutionSucceeded()) {
+            logTimeline(context, "FirstExtraExecution", "pos=(" + target.getX() + "," + target.getY() + ","
+                    + target.getZ() + ") executionConsumed=" + context.getExecutionConsumedCount());
+        }
+    }
+
+    /** 输出与 planner/工具换位 round 可关联的有界执行时间线。 */
+    private void logTimeline(ChainExecutionContext context, String stage, String details) {
+        MyMod.LOG.info("[ChainPlanDiag] player={} round={} generation={} stage={} {}",
+                context.getPlayerUUID(), Long.valueOf(context.getServerRoundId()),
+                Integer.valueOf(context.getGeneration()), stage, details);
     }
 
     /**

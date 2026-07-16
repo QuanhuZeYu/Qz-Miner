@@ -55,6 +55,8 @@ public final class ChainExecutionContext {
      * 配置性字段，是只读载体。
      */
     private final ChainSession session;
+    /** round 级有界规划诊断器；仅持有纯值计数与文本快照。 */
+    private final club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics;
     /**
      * 独立节流字段：下次允许执行器消费的毫秒戳。
      *
@@ -78,6 +80,12 @@ public final class ChainExecutionContext {
      * worker 在 markPlanningComplete 之前的所有 shadowQueue.add 操作对主线程可见。</p>
      */
     private volatile boolean planningComplete;
+    /** worker 完成时冻结的确认目标数。 */
+    private volatile int planningConfirmedCount;
+    /** 主线程已从执行队列消费的目标数。 */
+    private int executionConsumedCount;
+    /** 主线程实际成功执行的额外目标数。 */
+    private int executionSucceededCount;
 
     /**
      * 构造执行上下文。
@@ -106,18 +114,33 @@ public final class ChainExecutionContext {
      * @param session       worker 装配的 shadowSession
      */
     public ChainExecutionContext(UUID playerUUID, long serverRoundId, int generation,
-                                 ConcurrentLinkedQueue<ChainTarget> targets, ChainSession session) {
+                                  ConcurrentLinkedQueue<ChainTarget> targets, ChainSession session) {
+        this(playerUUID, serverRoundId, generation, targets, session, null);
+    }
+
+    /** 构造携带 round 级有界诊断器的执行上下文。 */
+    public ChainExecutionContext(UUID playerUUID, long serverRoundId, int generation,
+                                 ConcurrentLinkedQueue<ChainTarget> targets, ChainSession session,
+                                 club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
         this.playerUUID = playerUUID;
         this.serverRoundId = serverRoundId;
         this.generation = generation;
         this.targets = targets;
         this.session = session;
+        this.diagnostics = diagnostics;
         this.nextExecutorAllowedMillis = 0L;
         this.planningComplete = false;
+        this.planningConfirmedCount = 0;
     }
 
     /** 标记 worker 影子遍历完成（worker 完成路径调用，主线程消费订阅者据此判定可否 publish ExecutionFinished）。 */
     public void markPlanningComplete() {
+        markPlanningComplete(planningConfirmedCount);
+    }
+
+    /** 冻结 worker 确认数并标记规划完成。 */
+    public void markPlanningComplete(int confirmedCount) {
+        this.planningConfirmedCount = Math.max(0, confirmedCount);
         this.planningComplete = true;
     }
 
@@ -151,6 +174,41 @@ public final class ChainExecutionContext {
      */
     public ChainSession getSession() {
         return session;
+    }
+
+    /** @return round 级规划诊断器，可为 null */
+    public club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory.PlanningDiagnostics getDiagnostics() {
+        return diagnostics;
+    }
+
+    /** @return worker 确认目标数 */
+    public int getPlanningConfirmedCount() {
+        return planningConfirmedCount;
+    }
+
+    /** 记录主线程从队列消费一个目标。 */
+    public void recordExecutionConsumed() {
+        executionConsumedCount++;
+    }
+
+    /**
+     * 记录一次成功额外执行。
+     *
+     * @return 是否为本 round 首次成功执行
+     */
+    public boolean recordExecutionSucceeded() {
+        executionSucceededCount++;
+        return executionSucceededCount == 1;
+    }
+
+    /** @return 主线程已消费目标数 */
+    public int getExecutionConsumedCount() {
+        return executionConsumedCount;
+    }
+
+    /** @return 主线程成功执行目标数 */
+    public int getExecutionSucceededCount() {
+        return executionSucceededCount;
     }
 
     /**

@@ -12,6 +12,7 @@ public class SameBlockHarvestableMatcher implements ChainBlockMatcher {
     private final Block sampleBlock;
     private final int sampleMeta;
     private final TileEntity sampleTileEntity;
+    private ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics;
 
     /**
      * 创建同类方块匹配器。
@@ -26,16 +27,22 @@ public class SameBlockHarvestableMatcher implements ChainBlockMatcher {
         this.sampleTileEntity = sampleTileEntity;
     }
 
+    /** 由运行时工厂在 worker 启动前注入 round 级诊断器。 */
+    void setDiagnostics(ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        this.diagnostics = diagnostics;
+    }
+
     @Override
     public boolean matches(EntityPlayer player, ChainTarget target) {
         if (player == null || target == null) {
             return false;
         }
 
-        if (!ChainBlockIdentity.matches(player.worldObj, sampleBlock, sampleMeta, sampleTileEntity, target)) {
+        if (!ChainBlockIdentity.matches(player.worldObj, sampleBlock, sampleMeta, sampleTileEntity, target,
+                diagnostics)) {
             return false;
         }
 
-        return ChainHarvestRules.canHarvest(player, target);
+        return ChainHarvestRules.canHarvest(player, target, diagnostics);
     }
 }

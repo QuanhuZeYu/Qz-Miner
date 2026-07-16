@@ -25,6 +25,8 @@ import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
+import club.heiqi.qz_miner.toolswap.server.MinecraftAutoToolSwapInventoryPort;
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
@@ -156,11 +158,19 @@ public class ChainPlanningEventBridge {
                 playerUUID, mode, subMode, origin,
                 event.getSideHit(), event.getHitX(), event.getHitY(), event.getHitZ(),
                 requestedRadius, requestedMaxBlocks, modeExtension);
+        final ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics =
+                ChainPlanningRuntimeFactory.PlanningDiagnostics.production(playerUUID, serverRoundId, planningGen,
+                        String.valueOf(mode), String.valueOf(subMode));
+        Object seedRegistryName = Block.blockRegistry.getNameForObject(seedSnapshot.getSampleBlock());
+        diagnostics.logPlanStarted(seedRegistryName == null ? "minecraft:unknown" : String.valueOf(seedRegistryName),
+                seedSnapshot.getSampleMeta(), origin, Thread.currentThread().getName(), player.inventory.currentItem,
+                MinecraftAutoToolSwapInventoryPort.describeStack(player.inventory.getCurrentItem()));
         // 阶段8 块3：删旧 shadowSession.beginPlanning()（ChainSession 委托方法已删，新链路无需 plannerRunning 标志）。
         // 新链路 worker 活性由状态机 generation 判定，session 仅作配置载体 + traversalTargets 装配。
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(
-                player.worldObj, player, shadowSession, seedSnapshot);
+                player.worldObj, player, shadowSession, seedSnapshot, diagnostics);
         if (runtime == null) {
+            diagnostics.logPlanCancelled("shadow-runtime-null");
             bus.publish(buildRuntimeNullPlanCancelled(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos()));
             return;
@@ -179,7 +189,7 @@ public class ChainPlanningEventBridge {
         // 注意 put 早于 registerPre：若 registerPre 抛 RejectedExecutionException，PlanCancelled 路径
         // 由执行桥 onPlanCancelled 订阅者清 registry（见 ChainExecutionEventBridge）。
         final ChainExecutionContext context = new ChainExecutionContext(
-                playerUUID, serverRoundId, planningGen, shadowQueue, shadowSession);
+                playerUUID, serverRoundId, planningGen, shadowQueue, shadowSession, diagnostics);
         executionContextRegistry.put(context);
 
         // 影子 worker 注册（对齐旧 worker 结构，但去掉切态/stopExecution/syncState，改为 publish）
@@ -187,13 +197,14 @@ public class ChainPlanningEventBridge {
             MyMod.ensureParallelTickExecutor().registerPre(
                     "shadow-plan-" + playerUUID,
                     control -> runShadowSlice(control, playerUUID, serverRoundId, planningGen, traverser, searchContext,
-                            matcher, shadowQueue, shadowSession, context));
+                            matcher, shadowQueue, shadowSession, context, diagnostics));
         } catch (RejectedExecutionException e) {
             // worker pool 20 槽已满（SynchronousQueue 无法交接 + 池达 MAX_WORKER_THREADS），
             // 影子 worker 未注册成功；此代际已 PLANNING 但无人推进，必须主动 publish PlanCancelled，
             // 否则会卡 PLANNING 直到阶段7 看门狗兜底——此处收口让状态机干净回 IDLE
             MyMod.LOG.error("[ChainPlanning] Shadow worker pool exhausted for player {}, cancelling plan gen {}",
                     playerUUID, Integer.valueOf(planningGen), e);
+            diagnostics.logPlanCancelled("shadow-pool-exhausted");
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     "shadow-pool-exhausted"));
@@ -228,8 +239,10 @@ public class ChainPlanningEventBridge {
             ChainBlockMatcher matcher,
             ConcurrentLinkedQueue<ChainTarget> shadowQueue,
             ChainSession shadowSession,
-            ChainExecutionContext context) {
+            ChainExecutionContext context,
+            ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
         if (control.isCancelRequested()) {
+            diagnostics.logPlanCancelled("shadow-cancel-requested");
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     "shadow-cancel-requested"));
@@ -239,6 +252,7 @@ public class ChainPlanningEventBridge {
         // worker 每分片重新解析玩家（玩家可能登出/切维度）
         EntityPlayer currentPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
         if (!(currentPlayer instanceof EntityPlayerMP)) {
+            diagnostics.logPlanCancelled("shadow-player-unavailable");
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     "shadow-player-unavailable"));
@@ -266,6 +280,7 @@ public class ChainPlanningEventBridge {
                     }
                 });
         if (traversalResult == TraversalStepResult.TERMINATED) {
+            diagnostics.logPlanCancelled("shadow-traversal-terminated");
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     "shadow-traversal-terminated"));
@@ -289,7 +304,8 @@ public class ChainPlanningEventBridge {
             // 时序：volatile 写先于 bus.publish(PlanCompleted)（程序序），主线程读 planningComplete 时
             // 由 volatile happens-before 保证 PlanCompleted 已入 bus queue，故下 tick drain 顺序：
             // PlanCompleted 先（T5 PLANNING→RUNNING）→ 后续 ExecutionFinished（T7 RUNNING→FINISHING）。
-            context.markPlanningComplete();
+            context.markPlanningComplete(searchContext.getConfirmedCount());
+            diagnostics.logPlanCompleted(searchContext.getConfirmedCount());
             // 完成路径：publish PlanCompleted，状态机 T5 PLANNING→RUNNING（gen 匹配时）
             bus.publish(buildPlanCompleted(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),

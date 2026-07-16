@@ -4,10 +4,12 @@ import club.heiqi.qz_miner.toolswap.minecraft.AutoToolSwapStackStateFactory;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 /** 服务端主线程上的真实玩家个人库存适配。 */
-public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInventoryPort {
+public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInventoryPort,
+        AutoToolSwapRoundService.DiagnosticInventory {
 
     private final EntityPlayerMP player;
 
@@ -86,6 +88,47 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
     @Override
     public void syncInventoryDifference() {
         player.inventoryContainer.detectAndSendChanges();
+    }
+
+    /**
+     * 捕获诊断专用的纯值库存快照；只输出短内容摘要，不保留或打印完整 NBT。
+     *
+     * @param anchorSlot 锚点槽位
+     * @param candidateSlot 候选槽位
+     * @return 当前选中槽与三个相关物品栈的不可变文本快照
+     */
+    @Override
+    public AutoToolSwapRoundService.InventoryDiagnosticSnapshot captureDiagnosticSnapshot(
+            int anchorSlot, int candidateSlot) {
+        requireInventorySlot(anchorSlot);
+        requireInventorySlot(candidateSlot);
+        int selectedSlot = player.inventory.currentItem;
+        return new AutoToolSwapRoundService.InventoryDiagnosticSnapshot(selectedSlot,
+                describeStack(player.inventory.mainInventory[anchorSlot]),
+                describeStack(player.inventory.mainInventory[candidateSlot]),
+                describeStack(player.inventory.mainInventory[selectedSlot]));
+    }
+
+    /**
+     * 将物品栈压缩为不含完整 NBT 的诊断摘要。
+     *
+     * @param stack 待描述物品栈
+     * @return registry/meta/damage/max/contentHash 组成的单行安全摘要
+     */
+    public static String describeStack(ItemStack stack) {
+        if (stack == null || stack.getItem() == null) {
+            return "empty";
+        }
+        AutoToolSwapStackState state = AutoToolSwapStackStateFactory.capture(stack);
+        String contentHash = Long.toHexString(state.contentFingerprint().firstLong());
+        Object registryName = Item.itemRegistry.getNameForObject(stack.getItem());
+        return "registry=" + (registryName == null ? "minecraft:unknown" : String.valueOf(registryName))
+                + ",meta=" + (stack.getItem().getHasSubtypes() ? stack.getItemDamage() : 0)
+                + ",damage=" + stack.getItemDamage()
+                + ",maxDamage=" + stack.getMaxDamage()
+                + ",remaining=" + state.remainingDurability()
+                + ",contentHash=" + contentHash
+                + ",energy=unavailable";
     }
 
     /**

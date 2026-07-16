@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.toolswap.server;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.Assert;
@@ -394,6 +396,55 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(0L, overflow.currentRoundId(fixture.player, fixture.endpoint));
     }
 
+    @Test
+    public void actionDiagnosticIsOncePerActionBoundedAndDoesNotExposeFullNbt() {
+        final List<String> logs = new ArrayList<String>();
+        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L,
+                new AutoToolSwapRoundService.DiagnosticSink() {
+                    @Override
+                    public void log(String message) {
+                        logs.add(message);
+                    }
+                });
+        UUID player = UUID.randomUUID();
+        Object endpoint = new Object();
+        FakeInventory inventory = inventory();
+        service.beginRound(player, endpoint, 1L, 0L);
+        long roundId = service.activatePendingRound(player, endpoint, 1L).serverRoundId();
+
+        AutoToolSwapRoundResult result = service.handleIntent(player, endpoint,
+                intent(roundId, 1L, AutoToolSwapAction.SWAP, 0, 9, ORIGINAL, CANDIDATE), inventory, 2L);
+
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, result.outcome());
+        Assert.assertEquals("单个动作只能输出一条前后快照", 1, logs.size());
+        String log = logs.get(0);
+        Assert.assertTrue(log.contains("[AutoToolSwapDiag]"));
+        Assert.assertTrue(log.contains("round=" + roundId));
+        Assert.assertTrue(log.contains("actionSeq=1"));
+        Assert.assertTrue(log.contains("contentHash=short"));
+        Assert.assertFalse(log.contains("secret-nbt"));
+    }
+
+    @Test
+    public void failingDiagnosticSinkCannotChangeSwapOutcome() {
+        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L,
+                new AutoToolSwapRoundService.DiagnosticSink() {
+                    @Override
+                    public void log(String message) {
+                        throw new IllegalStateException("diagnostic failure");
+                    }
+                });
+        UUID player = UUID.randomUUID();
+        Object endpoint = new Object();
+        FakeInventory inventory = inventory();
+        service.beginRound(player, endpoint, 1L, 0L);
+        long roundId = service.activatePendingRound(player, endpoint, 1L).serverRoundId();
+
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, service.handleIntent(player, endpoint,
+                intent(roundId, 1L, AutoToolSwapAction.SWAP, 0, 9, ORIGINAL, CANDIDATE), inventory, 2L).outcome());
+        Assert.assertEquals(1, inventory.swapCount);
+    }
+
     private static void assertSwapRejected(InventoryMutation mutation) {
         Fixture fixture = fixture();
         mutation.apply(fixture.inventory);
@@ -538,7 +589,8 @@ public class AutoToolSwapRoundServiceTest {
         }
     }
 
-    private static final class FakeInventory implements AutoToolSwapInventoryPort {
+    private static final class FakeInventory implements AutoToolSwapInventoryPort,
+            AutoToolSwapRoundService.DiagnosticInventory {
 
         private final AutoToolSwapStackState[] slots = new AutoToolSwapStackState[36];
         private boolean alive = true;
@@ -601,6 +653,15 @@ public class AutoToolSwapRoundServiceTest {
         public void syncInventoryDifference() {
             syncCount++;
             throwForFailure(syncFailure, "sync failure");
+        }
+
+        @Override
+        public AutoToolSwapRoundService.InventoryDiagnosticSnapshot captureDiagnosticSnapshot(
+                int anchorSlot, int candidateSlot) {
+            return new AutoToolSwapRoundService.InventoryDiagnosticSnapshot(selectedSlot,
+                    "registry=mod:anchor,contentHash=short",
+                    "registry=mod:candidate,contentHash=short",
+                    "registry=mod:current,contentHash=short");
         }
 
         private static void throwForFailure(FailureMode failureMode, String message) {
