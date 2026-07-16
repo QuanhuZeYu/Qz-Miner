@@ -4,7 +4,7 @@
 
 - 配置权威文件：`config/qz_miner.yaml`（UILib `ConfigManager` + YAML Persistence）。
 - 旧 Forge `config/qz_miner.cfg` 仅作一次性导入源；导入成功后退役为时间戳 `.imported.bak`；导入失败时重建/持久化 schema 默认 YAML。成功迁移与失败恢复都必须先严格退役 cfg、再发布 manager/current/Config static；`yamlFile` 也只随成功 manager commit 发布。提交前失败保持全部 bootstrap/static 状态不变，后续启动以已存在 YAML 为权威并忽略仍在的 cfg。
-- Qz-UILib 的权威远端来源为 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`；主动发布 GTNH Maven 不是 Miner 前置。当前代码仍从 Maven Local 的旧 `club.heiqi.uilib:Qz-UILib:4.6.0:dev` 开发，`@Mod` 最低依赖为 `required-after:qz_uilib@[4.6.0,)`；发布包仍用 non-publishable 开发依赖且不内嵌 UILib。JitPack `4.6.0` 的 API/POM/module/实际 `dev` 制品门禁未通过，Miner 正式发布受阻；坐标纠偏另立实现任务。
+- Qz-UILib 的权威远端来源为 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`；活动配置已使用 `com.github.QuanhuZeYu:Qz-UILib:4.6.0:dev` 并移除 Maven Local/旧 group fallback，主动发布 GTNH Maven 不是 Miner 前置。`@Mod` 最低依赖为 `required-after:qz_uilib@[4.6.0,)`；发布包仍用 non-publishable 开发依赖且不内嵌 UILib。JitPack API/POM/module/main 已恢复，但 canonical `dev` 普通 GET 仍受陈旧边缘 `404` 阻断；只有其返回 `200 1993882`、同 SHA branch CI 全绿，且 tag 后另行核验 Release/assets，才完成发布证据。
 - 客户端配置页：`ConfigSchema` → 长寿命 `ConfigManager` → `ConfigUI.buildScreen` → `McScreenBridge`。
 - **单 YAML Authority**；只要 YAML 路径已是文件即取得最高优先级，零长度 YAML 作为结构化空 MAP，表示所有字段缺失并使用 schema 默认，不读取或退役 cfg。原始文件先经 `RawYamlPreflight` 按 Schema NodeType 检查，再进入 Authority 宽松转换；显式 null、错误 section/字段类型拒绝，未知字段不拒绝。
 - UILib 4.6.0 bootstrap 注入无副作用 DraftValidator 与每 screen editor Registry；finite、整数、范围、alpha 跨字段与 `client.objectGroups` selector/mode/容量/交集语义非法在写盘前返回 INVALID，保留草稿，Authority/YAML/current/runtime/event/network 均不变；成功 `reloadDraftFromDisk()` 发布 `RELOAD`，与 `BATCH_SAVE` 共用捕获和分侧 mailbox 回灌；`DraftBuffer.resetFieldToDefault` 按真实 schema 恢复结构化默认值。

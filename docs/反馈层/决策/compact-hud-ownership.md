@@ -13,7 +13,7 @@
 
 ## 依赖与发布
 
-该能力要求 Qz-UILib `4.6.0`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；当前 JitPack `4.6.0` 为 Error，POM/module/实际 `dev` 制品不可访问，Miner 正式发布因此受阻。当前旧坐标与 Maven Local fallback 仅是待纠偏现状，不能作为发布验收。
+该能力要求 Qz-UILib `4.6.0`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；Miner 已使用标准 `4.6.0:dev` 坐标并移除 Maven Local/旧 group fallback。JitPack API/POM/module/main 已恢复，但 canonical `dev` 普通 GET 在当前边缘仍为陈旧 `404`，不能用 origin、`www` 或 query 命中绕过；发布还要求同 SHA branch CI 通过，并在 tag 后独立核验 Release/assets。
 
 ## 不变量核对
 
