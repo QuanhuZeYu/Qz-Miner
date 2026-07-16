@@ -161,9 +161,8 @@ public class ChainPlanningEventBridge {
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(
                 player.worldObj, player, shadowSession, seedSnapshot);
         if (runtime == null) {
-            bus.publish(buildPlanCancelled(playerUUID, planningGen,
-                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
-                    "shadow-runtime-null"));
+            bus.publish(buildRuntimeNullPlanCancelled(playerUUID, serverRoundId, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos()));
             return;
         }
         final ChainSearchContext searchContext = runtime.getSearchContext();
@@ -344,5 +343,20 @@ public class ChainPlanningEventBridge {
     public static PlanCancelled buildPlanCancelled(UUID playerUUID, long serverRoundId, int gen, long tick, long nanos,
                                                    String reason) {
         return new PlanCancelled(playerUUID, serverRoundId, gen, tick, nanos, reason);
+    }
+
+    /**
+     * 构造 runtime 装配失败的规划取消事件，确保生产分支与测试共用轮次关联接缝。
+     *
+     * @param playerUUID   玩家 UUID
+     * @param serverRoundId 不可变服务端轮次关联
+     * @param gen          规划代际
+     * @param tick         服务端 tick
+     * @param nanos        纳秒戳
+     * @return reason 固定为 {@code shadow-runtime-null} 的规划取消事件
+     */
+    public static PlanCancelled buildRuntimeNullPlanCancelled(UUID playerUUID, long serverRoundId, int gen, long tick,
+                                                               long nanos) {
+        return buildPlanCancelled(playerUUID, serverRoundId, gen, tick, nanos, "shadow-runtime-null");
     }
 }

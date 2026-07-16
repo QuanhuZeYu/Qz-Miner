@@ -236,6 +236,46 @@ public class ChainStateMachineTest {
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
     }
 
+    /** 带轮次的 PlanCancelled 收口后，派生 IDLE phase 必须复制同一不可变关联。 */
+    @Test
+    public void planningCancellationCopiesRoundToIdlePhase() {
+        long serverRoundId = 707L;
+        Harness h = newHarness();
+        List<ChainPhaseChanged> captured = new ArrayList<ChainPhaseChanged>();
+        h.bus.subscribe(ChainPhaseChanged.class, captured::add);
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        captured.clear();
+
+        drive(h, new PlanCancelled(PLAYER_A, serverRoundId, 1, TICK, NANOS, "shadow-runtime-null"));
+
+        Assert.assertEquals(1, captured.size());
+        ChainPhaseChanged idlePhase = captured.get(0);
+        Assert.assertEquals(ChainPhase.PLANNING, idlePhase.getFromPhase());
+        Assert.assertEquals(ChainPhase.IDLE, idlePhase.getToPhase());
+        Assert.assertEquals(serverRoundId, idlePhase.getServerRoundId());
+        Assert.assertEquals(1, idlePhase.getGeneration());
+    }
+
+    /** 旧调用方的 round=0 PlanCancelled 仍按兼容语义派生 round=0 的 IDLE phase。 */
+    @Test
+    public void legacyPlanningCancellationKeepsZeroRoundOnIdlePhase() {
+        Harness h = newHarness();
+        List<ChainPhaseChanged> captured = new ArrayList<ChainPhaseChanged>();
+        h.bus.subscribe(ChainPhaseChanged.class, captured::add);
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        captured.clear();
+
+        drive(h, planCancelled(1));
+
+        Assert.assertEquals(1, captured.size());
+        ChainPhaseChanged idlePhase = captured.get(0);
+        Assert.assertEquals(ChainPhase.IDLE, idlePhase.getToPhase());
+        Assert.assertEquals(ChainEvent.NO_SERVER_ROUND_ID, idlePhase.getServerRoundId());
+        Assert.assertEquals(1, idlePhase.getGeneration());
+    }
+
     /** 8. RUNNING → FINISHING：ExecutionFinished。 */
     @Test
     public void runningToFinishingOnExecFinished() {

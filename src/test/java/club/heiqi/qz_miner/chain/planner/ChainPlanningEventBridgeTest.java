@@ -11,8 +11,8 @@ import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 /**
  * {@link ChainPlanningEventBridge} 纯逻辑单测。
  *
- * <p>仅覆盖 {@link ChainPlanningEventBridge#buildPlanCompleted} 与
- * {@link ChainPlanningEventBridge#buildPlanCancelled} 两个纯逻辑构造方法：
+ * <p>覆盖 {@link ChainPlanningEventBridge#buildPlanCompleted}、
+ * {@link ChainPlanningEventBridge#buildPlanCancelled} 与 runtime-null 取消接缝：
  * 给定 gen + confirmedCount/reason → 构造正确事件，gen 字段一致。</p>
  *
  * <p><b>worker 真链路无法 JVM 覆盖</b>：依赖 {@code worldObj}/player/session 运行时装配，
@@ -63,6 +63,23 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertEquals(TICK, event.getServerTick());
         Assert.assertEquals(NANOS, event.getTimestampNanos());
         Assert.assertEquals(reason, event.getReason());
+    }
+
+    /** runtime-null 生产接缝必须同时保留冻结轮次、代际与固定诊断原因。 */
+    @Test
+    public void runtimeNullCancellationCarriesRoundGenAndReason() {
+        long serverRoundId = 303L;
+        int planningGen = 9;
+
+        PlanCancelled event = ChainPlanningEventBridge.buildRuntimeNullPlanCancelled(
+                PLAYER, serverRoundId, planningGen, TICK, NANOS);
+
+        Assert.assertEquals(PLAYER, event.getPlayerUUID());
+        Assert.assertEquals("runtime-null 取消不得丢失原工具轮次", serverRoundId, event.getServerRoundId());
+        Assert.assertEquals("runtime-null 取消必须保留规划代际", planningGen, event.getGeneration());
+        Assert.assertEquals("shadow-runtime-null", event.getReason());
+        Assert.assertEquals(TICK, event.getServerTick());
+        Assert.assertEquals(NANOS, event.getTimestampNanos());
     }
 
     /** buildPlanCancelled：null reason 透传不抛异常（取消原因自由文本）。 */
