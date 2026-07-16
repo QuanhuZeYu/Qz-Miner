@@ -26,7 +26,6 @@ import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
 import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
 import club.heiqi.qz_miner.client.toolswap.QzAutoToolSwapClientTransport;
 import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolState;
 import club.heiqi.uilib.ui.hud.api.CompactHud;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
@@ -112,8 +111,7 @@ public class ClientProxy extends CommonProxy {
                 Config.autoToolSwapEnabled,
                 Config.autoToolPrioritySelectors,
                 new ToolSwapMinecraftFacade(),
-                new QzAutoToolSwapClientTransport(),
-                new AutoToolSwapClientProtocolState());
+                new QzAutoToolSwapClientTransport());
         AutoToolSwapHooks.install(autoToolSwapAdapter);
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();

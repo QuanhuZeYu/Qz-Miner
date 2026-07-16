@@ -35,7 +35,7 @@ public class AutoToolClientWiringStructureTest {
         String lifecycle = source("src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java");
         Assert.assertEquals(1, occurrences(proxy, "new AutoToolSwapClientAdapter("));
         Assert.assertTrue(proxy.contains("new QzAutoToolSwapClientTransport()"));
-        Assert.assertTrue(proxy.contains("new AutoToolSwapClientProtocolState()"));
+        Assert.assertFalse(proxy.contains("AutoToolSwapClient" + "ProtocolState"));
         Assert.assertTrue(proxy.contains("AutoToolSwapHooks.install(autoToolSwapAdapter)"));
         Assert.assertTrue(proxy.contains("new KeyListener(autoToolSwapAdapter)"));
         Assert.assertTrue(config.contains("autoToolSwapAdapter.onConfigChanged"));
@@ -45,6 +45,26 @@ public class AutoToolClientWiringStructureTest {
         Assert.assertTrue(proxy.contains("handleClientAutoToolSwapActionResult"));
         Assert.assertTrue(proxy.contains("handleClientAutoToolSwapRoundPhase"));
         Assert.assertTrue(proxy.contains("AUTO_TOOL_SWAP_LIFECYCLE_GATE"));
+    }
+
+    @Test
+    public void adapterIsThinAndReducerIsTheOnlyMutableBusinessAuthority() throws Exception {
+        String adapter = source("src/main/java/club/heiqi/qz_miner/client/toolswap/AutoToolSwapClientAdapter.java");
+        String reducer = source("src/main/java/club/heiqi/qz_miner/client/toolswap/AutoToolSwapClientReducer.java");
+        String validator = source(
+                "src/main/java/club/heiqi/qz_miner/client/toolswap/AutoToolSwapClientProtocolValidator.java");
+
+        Assert.assertEquals(1, occurrences(adapter, "private final AutoToolSwapClientReducer reducer;"));
+        Assert.assertFalse(adapter.contains("private boolean keyDown"));
+        Assert.assertFalse(adapter.contains("dedicatedRoundEnded"));
+        Assert.assertFalse(adapter.contains("Retransmitted"));
+        Assert.assertTrue(reducer.contains("abstract static class Event"));
+        Assert.assertTrue(reducer.contains("final class Effect"));
+        Assert.assertTrue(reducer.contains("class RoundContext"));
+        Assert.assertEquals(0,
+                club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientProtocolValidator.class
+                        .getDeclaredFields().length);
+        Assert.assertFalse(validator.contains("lastPhaseSequence"));
     }
 
     @Test

@@ -12,8 +12,6 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolPhase;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolState;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
@@ -38,8 +36,7 @@ public class AutoToolSwapClientAdapterTest {
         ClientConnectionLifecycle.bindWorld(world);
         game = new FakeGame();
         transport = new RecordingTransport();
-        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
-                new AutoToolSwapClientProtocolState());
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport);
     }
 
     @After
@@ -63,10 +60,9 @@ public class AutoToolSwapClientAdapterTest {
 
         game.inventory = swapped();
         settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
-        Assert.assertEquals(ToolSwapTransactionState.INVENTORY_SYNC_VERIFY,
-                adapter.controllerForTests().transactionState());
+        Assert.assertTrue(adapter.reducerForTests().isInventorySyncPending());
         adapter.onClientTick();
-        Assert.assertEquals(ToolSwapTransactionState.IDLE, adapter.controllerForTests().transactionState());
+        Assert.assertFalse(adapter.reducerForTests().isInventorySyncPending());
     }
 
     @Test
@@ -77,8 +73,7 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertEquals(2, transport.rounds.size());
         Assert.assertEquals(nonce, transport.rounds.get(1).longValue());
         for (int tick = 21; tick <= 40; tick++) adapter.onClientTick();
-        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
+        Assert.assertTrue(adapter.reducerForTests().isOrphaned());
     }
 
     @Test
@@ -111,7 +106,7 @@ public class AutoToolSwapClientAdapterTest {
         adapter.onChainKeyState(false);
         AutoToolSwapIntent close = transport.intents.get(0);
         settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
-        Assert.assertEquals(AutoToolSwapClientProtocolPhase.IDLE, adapter.protocolForTests().snapshot().phase());
+        Assert.assertEquals(0L, adapter.reducerForTests().serverRoundId());
 
         adapter.onChainKeyState(true);
         Assert.assertEquals(2, transport.rounds.size());
@@ -121,7 +116,7 @@ public class AutoToolSwapClientAdapterTest {
                 AutoToolSwapRoundState.FINISHED.wireCode(), close.anchorSlot(), close.candidateSlot(),
                 close.actionSequence() + 1L, 1L, true);
         acceptRound(1, 10L);
-        Assert.assertEquals(AutoToolSwapClientProtocolPhase.OPEN, adapter.protocolForTests().snapshot().phase());
+        Assert.assertEquals(10L, adapter.reducerForTests().serverRoundId());
     }
 
     @Test
@@ -129,7 +124,7 @@ public class AutoToolSwapClientAdapterTest {
         adapter.onChainKeyState(true);
         rejectRound(0);
         adapter.onChainKeyState(false);
-        Assert.assertEquals(AutoToolSwapState.IDLE, adapter.controllerForTests().state());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, adapter.reducerForTests().state());
         Assert.assertTrue(transport.intents.isEmpty());
 
         adapter.onChainKeyState(true);
@@ -169,8 +164,7 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertTrue(adapter.onClientTick());
         Assert.assertEquals(2, transport.rounds.size());
         Assert.assertTrue(transport.rounds.get(1).longValue() > firstNonce);
-        Assert.assertEquals(AutoToolSwapClientProtocolPhase.WAIT_ROUND,
-                adapter.protocolForTests().snapshot().phase());
+        Assert.assertTrue(adapter.reducerForTests().isRoundPending());
         Assert.assertFalse("一次性信号不得重复", adapter.onClientTick());
         rejectRound(1);
         Assert.assertFalse("新 round 被拒绝后不得继续自动创建 nonce", adapter.onClientTick());
@@ -202,8 +196,7 @@ public class AutoToolSwapClientAdapterTest {
         finishNaturalRoundWithPhysicalKeyDown();
         transport.accept = false;
         Assert.assertFalse(adapter.onClientTick());
-        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
+        Assert.assertTrue(adapter.reducerForTests().isOrphaned());
         transport.accept = true;
         Assert.assertFalse(adapter.onClientTick());
     }
@@ -221,7 +214,7 @@ public class AutoToolSwapClientAdapterTest {
         adapter.onChainKeyState(false);
         adapter.onChainKeyState(true);
         settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
-        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, adapter.controllerForTests().state());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.WAIT_RELEASE, adapter.reducerForTests().state());
         Assert.assertFalse(adapter.onClientTick());
         Assert.assertEquals(1, transport.rounds.size());
     }
@@ -244,22 +237,21 @@ public class AutoToolSwapClientAdapterTest {
         AutoToolSwapIntent swap = transport.intents.get(0);
         settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
 
-        Assert.assertEquals(AutoToolSwapClientProtocolPhase.OPEN, adapter.protocolForTests().snapshot().phase());
+        Assert.assertEquals(9L, adapter.reducerForTests().serverRoundId());
     }
 
     @Test
     public void transportFailureAndLifecycleResetNeverSendRecoveryPackets() {
         transport.accept = false;
         adapter.onChainKeyState(true);
-        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
+        Assert.assertTrue(adapter.reducerForTests().isOrphaned());
 
         transport.accept = true;
         adapter.resetForLifecycle();
         int sent = transport.rounds.size() + transport.intents.size();
         adapter.onClientTick();
         Assert.assertEquals(sent, transport.rounds.size() + transport.intents.size());
-        Assert.assertEquals(AutoToolSwapState.IDLE, adapter.controllerForTests().state());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, adapter.reducerForTests().state());
     }
 
     @Test
@@ -279,13 +271,12 @@ public class AutoToolSwapClientAdapterTest {
         acceptRound();
         adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
                 ChainPhase.PLANNING.ordinal(), 1, 1L, true);
-        adapter.protocolForTests().markClosing();
+        adapter.onChainKeyState(false);
 
         adapter.onClientTick();
         Assert.assertEquals(1, transport.intents.size());
         Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
-        Assert.assertNotEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
+        Assert.assertFalse(adapter.reducerForTests().isOrphaned());
         adapter.onClientTick();
         Assert.assertEquals(1, transport.intents.size());
     }
@@ -308,8 +299,7 @@ public class AutoToolSwapClientAdapterTest {
         settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
         adapter.onClientTick();
         Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(3).action());
-        Assert.assertNotEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
+        Assert.assertFalse(adapter.reducerForTests().isOrphaned());
     }
 
     @Test
@@ -318,23 +308,16 @@ public class AutoToolSwapClientAdapterTest {
         acceptRound();
         adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
                 ChainPhase.PLANNING.ordinal(), 1, 1L, true);
-        adapter.protocolForTests().abandonCurrentRound();
-        adapter.onClientTick();
-        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
-
         game = new FakeGame();
         transport = new RecordingTransport();
-        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
-                new AutoToolSwapClientProtocolState());
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport);
         adapter.onChainKeyState(true);
         acceptRound();
         adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
                 ChainPhase.PLANNING.ordinal(), 1, 1L, true);
         transport.accept = false;
         adapter.onClientTick();
-        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
-                adapter.controllerForTests().transactionState());
+        Assert.assertTrue(adapter.reducerForTests().isOrphaned());
     }
 
     @Test
@@ -347,7 +330,7 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertEquals(1, transport.rounds.size());
 
         settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
-        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, adapter.controllerForTests().state());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.WAIT_RELEASE, adapter.reducerForTests().state());
         adapter.onChainKeyState(false);
         adapter.onChainKeyState(true);
         Assert.assertEquals(2, transport.rounds.size());
@@ -377,10 +360,9 @@ public class AutoToolSwapClientAdapterTest {
         game.inventory = restored();
         settle(guiRestore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
         adapter.onClientTick();
-        Assert.assertFalse(adapter.controllerForTests().hasLedger());
+        Assert.assertFalse(adapter.reducerForTests().hasSwapExpectation());
 
-        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
-                new AutoToolSwapClientProtocolState());
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport);
         game.inventory = restored();
         completeSwap();
         int intentsBeforeUnsafeRestore = transport.intents.size();
@@ -406,7 +388,7 @@ public class AutoToolSwapClientAdapterTest {
         game.inventory = restored();
         settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
         adapter.onClientTick();
-        Assert.assertFalse(adapter.controllerForTests().hasLedger());
+        Assert.assertFalse(adapter.reducerForTests().hasSwapExpectation());
     }
 
     private void acceptRound() {
@@ -433,7 +415,7 @@ public class AutoToolSwapClientAdapterTest {
         game.inventory = swapped();
         settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
         adapter.onClientTick();
-        Assert.assertTrue(adapter.controllerForTests().hasLedger());
+        Assert.assertTrue(adapter.reducerForTests().hasSwapExpectation());
     }
 
     private void finishNaturalRoundWithPhysicalKeyDown() {
@@ -450,8 +432,7 @@ public class AutoToolSwapClientAdapterTest {
     private void setUpFreshAdapter() {
         game = new FakeGame();
         transport = new RecordingTransport();
-        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
-                new AutoToolSwapClientProtocolState());
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport);
     }
 
     private void assertNoRoundStart(boolean breakCapable, boolean creative) {
@@ -460,7 +441,7 @@ public class AutoToolSwapClientAdapterTest {
         invalidGame.creative = creative;
         RecordingTransport invalidTransport = new RecordingTransport();
         AutoToolSwapClientAdapter invalidAdapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(),
-                invalidGame, invalidTransport, new AutoToolSwapClientProtocolState());
+                invalidGame, invalidTransport);
         invalidAdapter.onChainKeyState(true);
         Assert.assertTrue(invalidTransport.rounds.isEmpty());
     }

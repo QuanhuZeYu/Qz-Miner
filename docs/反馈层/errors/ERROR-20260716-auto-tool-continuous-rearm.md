@@ -17,12 +17,13 @@
 ## 修复方案
 
 - 保留每轮自然 `IDLE→RESTORE→CLOSE`，不复用或复活旧 round。
-- controller 私有区分 `NATURAL_REARM` 与优先级更高的 `RELEASE_GATED`。仅旧 CLOSE 精确 FINISHED 后留下一个 deferred 资格，不在 S2C callback 内发包。
-- adapter 在下一 `ClientTick` 同时确认 controller 资格、客户端协议 IDLE、逻辑键与物理键都为 down 后，创建新 nonce 并成功提交 RoundStart；随后 `KeyListener` 复用配置同步与通用 `PacketKeyState(KEY_CHAIN, true)` 路径激活新 round。
+- 单一 reducer 内聚区分 `NATURAL_REARM` 与优先级更高的 `RELEASE_GATED`。仅旧 CLOSE 精确 FINISHED 后留下一个 deferred 资格，不在 S2C callback 内发包。
+- reducer 在下一 `ClientTick` 同时确认旧 round 已复位、逻辑键与物理键都为 down 后，分配新 nonce 并输出 RoundStart effect；adapter 成功提交后输出一次性 fresh-key effect，`KeyListener` 再复用配置同步与通用 `PacketKeyState(KEY_CHAIN, true)` 路径激活新 round。
 - 松键/快速重按、禁用、生命周期复位、拒绝、orphan、发送失败或非 FINISHED CLOSE 全部 fail-closed，并清除资格。
 
 ## 预防措施
 
 - 回归同时覆盖 callback 内零 C2S、下一 tick 一次性 `RoundStart2→fresh key=true`、nonce/round ID 不复用，以及物理 false、release gate、禁用、reset、reject/orphan 与发送失败。
+- 回归必须从 reducer trace 断言关闭原因、round identity、pending transmission 与 fresh-key effect 同属一个状态权威；不得在 adapter 或 validator 重新镜像资格。
 - 服务端测试锁定 FINISHED round 的裸 key=true 不可复活，只有新 nonce 建立 PENDING round 后 fresh key=true 才能 OPEN。
 - 状态机测试锁定 fresh key 先合法 `IDLE→ARMED`，之后带新 round 的观测才能 `ARMED→PLANNING`；不得新增转移表捷径。

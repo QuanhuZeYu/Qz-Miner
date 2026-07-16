@@ -51,4 +51,5 @@
 - 2026-07-10：绑定真实 `INetHandler`/`World` identity + connection/world generation；三 S2C 传 `ctx.netHandler`；init/cleanup 携 token gate；`clearPending` 防旧 phase 回写。
 - 2026-07-10：`TransitionResult`（token/transitioned/replacedPreviousLifecycle）；仅 transitioned 调度 init；connection/world 接管统一 cleanup；重复 connect/load 不重复 init/清理。
 - 2026-07-15：已删除旧自动工具预选生命周期子项；统一 cleanup 保留对象组、preview、GPU renderer、phase 与 event pending 五项故障隔离。
-- 2026-07-16：自动工具三个 S2C 纳入 connection/world token gate；publication 仅推进 adapter，C2S 延迟到下一次 `ClientTick`，生命周期 cleanup 增加自动工具 controller/protocol 复位且不盲恢复库存；当前范围明确为原有三包、对象组配置确认和自动工具三包，共七个客户端 S2C。
+- 2026-07-16：自动工具三个 S2C 纳入 connection/world token gate；publication 仅推进 adapter，C2S 延迟到下一次 `ClientTick`，生命周期 cleanup 增加自动工具 reducer 复位且不盲恢复库存；当前范围明确为原有三包、对象组配置确认和自动工具三包，共七个客户端 S2C。
+- 2026-07-16：自动工具客户端状态原子收敛到单一 reducer；adapter 不再镜像按键、round 结束或重传业务标记，validator 不保留连接或序号历史，connection/world gate 与 publication 形状不变。

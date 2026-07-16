@@ -2,33 +2,30 @@ package club.heiqi.qz_miner.client.toolswap;
 
 import java.util.List;
 
-import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolPhase;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolPhaseSnapshot;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolSettlement;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolSnapshot;
-import club.heiqi.qz_miner.client.toolswap.protocol.AutoToolSwapClientProtocolState;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ActionResultEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ConfigEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.Effect;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.EffectResultEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.KeyStateEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.LocalBlockDestroyedEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ResetEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundPhaseEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundResultEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TickEvent;
 import club.heiqi.qz_miner.toolswap.ToolSelector;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * 自动工具换位的客户端运行态 adapter。
+ * 自动工具客户端的薄 runtime adapter。
  *
- * <p>所有入口都运行在客户端主线程。S2C 回包由 ClientProxy 在 lifecycle/world gate 后发布；adapter 不读取
- * 通用 phase 投影，也不保留 vanilla inventory packet 路径。</p>
+ * <p>本类只采样 Minecraft 事实、执行 reducer effect 与进行网络 I/O；所有可跨调用保留的业务事实均由
+ * {@link AutoToolSwapClientReducer} 独占。S2C publication 只推进 reducer，绝不在 callback 内发送 C2S。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class AutoToolSwapClientAdapter {
-
-    public static final int TRANSACTION_TIMEOUT_TICKS = 40;
-    private static final int RETRANSMIT_TICKS = 20;
 
     /** Minecraft 事实读取边界。 */
     public interface GameFacade {
@@ -38,277 +35,135 @@ public final class AutoToolSwapClientAdapter {
         boolean isChainKeyPhysicallyDown();
     }
 
-    private final AutoToolSwapController controller;
+    private final AutoToolSwapClientReducer reducer;
     private final GameFacade game;
     private final AutoToolSwapClientTransport transport;
-    private final AutoToolSwapClientProtocolState protocol;
-    private long clientTick;
-    private boolean keyDown;
-    private boolean dedicatedRoundEnded;
-    private long roundSentTick = -1L;
-    private boolean roundRetransmitted;
-    private long actionSentTick = -1L;
-    private boolean actionRetransmitted;
-    private long preEdgeDestroyTick = -1L;
-    private ClientConnectionLifecycle.Token preEdgeDestroyToken;
 
     public AutoToolSwapClientAdapter(boolean enabled, List<ToolSelector> selectors, GameFacade game,
-            AutoToolSwapClientTransport transport, AutoToolSwapClientProtocolState protocol) {
-        if (game == null || transport == null || protocol == null) {
-            throw new IllegalArgumentException("game, transport, and protocol must not be null");
+            AutoToolSwapClientTransport transport) {
+        if (game == null || transport == null) {
+            throw new IllegalArgumentException("game and transport must not be null");
         }
-        controller = new AutoToolSwapController(enabled, selectors, TRANSACTION_TIMEOUT_TICKS);
+        reducer = new AutoToolSwapClientReducer(enabled, selectors);
         this.game = game;
         this.transport = transport;
-        this.protocol = protocol;
     }
 
-    /** 真实按键边沿入口；上升沿先发送 round，再由外层发送 KeyState。 */
+    /** 真实按键边沿入口；上升沿的 RoundStart effect 仍先于外层 KeyState。 */
     public void onChainKeyState(boolean down) {
-        if (down == keyDown) return;
-        boolean preFrozen = down && consumePreEdgeDestroyLatch();
-        clearPreEdgeDestroyLatch();
-        keyDown = down;
-        if (down) dedicatedRoundEnded = false;
-        if (!down) protocol.markClosing();
-        ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive());
+        if (down == reducer.isKeyDown()) return;
+        ToolSwapLightContext light = game.captureLightContext(reducer.clientTick(), down);
         if (light == null) {
             if (!down) resetForLifecycle();
             return;
         }
-        ToolSwapContext context = capture(light, controller.capturePlanForKeyState(down, light, preFrozen),
-                controller.protectedAnchorSlot(), controller.protectedCandidateSlot());
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.capture();
+        long worldGeneration = ClientConnectionLifecycle.isWorldCurrentAndActive(token)
+                ? token.worldGeneration() : -1L;
+        ToolSwapCapturePlan plan = reducer.capturePlanForKeyState(down, light, worldGeneration);
+        ToolSwapContext context = game.captureContext(light, plan,
+                reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot());
         if (context == null) {
             if (!down) resetForLifecycle();
             return;
         }
-        controller.onKeyState(down, context, preFrozen);
-        executeCommands();
+        executeEffects(reducer.reduce(new KeyStateEvent(down, context, worldGeneration)));
     }
 
     /**
      * 每个 ClientTickEvent.END 调用一次。
      *
-     * @return 仅当 deferred RoundStart 已成功提交时返回 true
+     * @return 仅当 deferred RoundStart 已成功提交并产生一次 fresh-key effect 时返回 true
      */
     public boolean onClientTick() {
-        ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive());
+        boolean physical = game.isChainKeyPhysicallyDown();
+        ToolSwapLightContext light = game.captureLightContext(reducer.clientTick(), reducer.chainActive());
+        ToolSwapContext context = null;
         if (light != null) {
-            ToolSwapContext context = capture(light, controller.capturePlanForTick(light),
-                    controller.protectedAnchorSlot(), controller.protectedCandidateSlot());
-            if (context != null) {
-                controller.onTick(context);
-                executeCommands();
-            }
+            ToolSwapCapturePlan plan = reducer.capturePlanForTick(light, physical);
+            context = game.captureContext(light, plan,
+                    reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot());
         }
-        boolean deferredRoundStarted = beginDeferredRoundIfEligible();
-        retryOrOrphan();
-        if (clientTick != Long.MAX_VALUE) clientTick++;
-        clearPreEdgeDestroyLatch();
-        return deferredRoundStarted;
+        return executeEffects(reducer.reduce(new TickEvent(context, physical)));
     }
 
     /** 配置热更新。 */
     public void onConfigChanged(boolean enabled, List<ToolSelector> selectors) {
-        controller.onConfigChanged(enabled, selectors);
-        executeCommands();
+        executeEffects(reducer.reduce(new ConfigEvent(enabled, selectors)));
     }
 
-    /** 本地成功破坏的首块锁存/冻结；立即 drain 使 FREEZE 不等下一 tick。 */
+    /** 本地首块成功入口；lifecycle identity 只在 runtime 边界采样。 */
     public void onLocalBlockDestroyed() {
-        if (!game.isChainKeyPhysicallyDown()) {
-            clearPreEdgeDestroyLatch();
-            return;
-        }
+        boolean physical = game.isChainKeyPhysicallyDown();
         ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.capture();
-        if (!ClientConnectionLifecycle.isWorldCurrentAndActive(token)) {
-            clearPreEdgeDestroyLatch();
-            return;
-        }
-        if (!keyDown) {
-            preEdgeDestroyTick = clientTick;
-            preEdgeDestroyToken = token;
-            return;
-        }
-        controller.onLocalBlockDestroyed(controller.generation());
-        executeCommands();
+        boolean active = physical && ClientConnectionLifecycle.isWorldCurrentAndActive(token);
+        long worldGeneration = active ? token.worldGeneration() : -1L;
+        executeEffects(reducer.reduce(new LocalBlockDestroyedEvent(active, worldGeneration)));
     }
 
     /** ClientProxy 主线程 gate 后发布的 RoundResult 原始字段。 */
     public void onRoundResult(int protocolVersion, long clientNonce, long serverRoundId, int resultCode,
             int roundState, long nextActionSequence, long serverTick, boolean rawValid) {
-        AutoToolSwapClientProtocolSnapshot snapshot = protocol.onRoundResult(protocolVersion, clientNonce,
-                serverRoundId, resultCode, roundState, nextActionSequence, serverTick, rawValid);
-        if (snapshot == null) return;
-        roundSentTick = -1L;
-        roundRetransmitted = false;
-        if (snapshot.phase() == AutoToolSwapClientProtocolPhase.OPEN
-                || snapshot.phase() == AutoToolSwapClientProtocolPhase.CLOSING) {
-            controller.onRoundAccepted();
-        } else if (snapshot.phase() == AutoToolSwapClientProtocolPhase.IDLE) {
-            controller.onRoundRejected();
-        } else if (snapshot.phase() == AutoToolSwapClientProtocolPhase.ORPHANED) {
-            controller.protocolOrphaned();
-        }
+        reducer.reduce(new RoundResultEvent(protocolVersion, clientNonce, serverRoundId, resultCode,
+                roundState, nextActionSequence, serverTick, rawValid));
     }
 
     /** ClientProxy 主线程 gate 后发布的 ActionResult 原始字段。 */
     public void onActionResult(int protocolVersion, long serverRoundId, long actionSequence, int actionCode,
             int resultCode, int roundState, int anchorSlot, int candidateSlot, long nextActionSequence,
             long serverTick, boolean rawValid) {
-        if (protocol.inFlightIntent() == null) return;
-        AutoToolSwapClientProtocolSettlement settlement = protocol.onActionResult(protocolVersion, serverRoundId,
-                actionSequence, actionCode, resultCode, roundState, anchorSlot, candidateSlot,
-                nextActionSequence, serverTick, rawValid);
-        if (settlement == null) return;
-        actionSentTick = -1L;
-        actionRetransmitted = false;
-        controller.onActionSettled(settlement.intent().action(), settlement.result().outcome(),
-                settlement.result().roundState(), clientTick);
-        if (settlement.intent().action() == AutoToolSwapAction.CLOSE
-                && settlement.result().roundState() == AutoToolSwapRoundState.FINISHED
-                && (settlement.result().outcome() == AutoToolSwapResultCode.ACCEPTED
-                        || settlement.result().outcome() == AutoToolSwapResultCode.APPLIED)) {
-            protocol.reset();
-            roundSentTick = -1L;
-            roundRetransmitted = false;
-            actionSentTick = -1L;
-            actionRetransmitted = false;
-        }
+        reducer.reduce(new ActionResultEvent(protocolVersion, serverRoundId, actionSequence, actionCode,
+                resultCode, roundState, anchorSlot, candidateSlot, nextActionSequence, serverTick, rawValid));
     }
 
     /** ClientProxy 主线程 gate 后发布的专用 round phase。 */
     public void onRoundPhase(int protocolVersion, long serverRoundId, long phaseSequence, int phaseOrdinal,
             int generation, long serverTick, boolean rawValid) {
-        AutoToolSwapClientProtocolPhaseSnapshot snapshot = protocol.onRoundPhase(protocolVersion, serverRoundId,
-                phaseSequence, phaseOrdinal, generation, serverTick, rawValid);
-        if (snapshot == null) return;
-        if (snapshot.phase() == ChainPhase.IDLE) dedicatedRoundEnded = true;
-        controller.onDedicatedPhase(snapshot.phase());
+        reducer.reduce(new RoundPhaseEvent(protocolVersion, serverRoundId, phaseSequence, phaseOrdinal,
+                generation, serverTick, rawValid));
     }
 
-    /** 生命周期复位清 controller、protocol、重发水位和首块锁存，且绝不发送恢复包。 */
+    /** 生命周期复位仅清 reducer；绝不跨连接发送恢复包。 */
     public void resetForLifecycle() {
-        controller.reset();
-        protocol.reset();
-        keyDown = false;
-        dedicatedRoundEnded = false;
-        roundSentTick = -1L;
-        roundRetransmitted = false;
-        actionSentTick = -1L;
-        actionRetransmitted = false;
-        clearPreEdgeDestroyLatch();
+        reducer.reduce(new ResetEvent());
     }
 
-    AutoToolSwapController controllerForTests() { return controller; }
-    AutoToolSwapClientProtocolState protocolForTests() { return protocol; }
+    AutoToolSwapClientReducer reducerForTests() {
+        return reducer;
+    }
 
-    private boolean executeCommands() {
-        boolean roundSubmitted = false;
-        for (int rounds = 0; rounds < 8; rounds++) {
-            List<ToolSwapCommand> commands = controller.drainCommands();
-            if (commands.isEmpty()) return roundSubmitted;
-            for (ToolSwapCommand command : commands) {
-                if (execute(command)) roundSubmitted = true;
+    /** 执行 effect，并将执行结果作为新事件同步回 reducer。 */
+    private boolean executeEffects(List<Effect> initialEffects) {
+        boolean freshKey = false;
+        List<Effect> effects = initialEffects;
+        for (int round = 0; round < 16 && !effects.isEmpty(); round++) {
+            java.util.ArrayList<Effect> following = new java.util.ArrayList<Effect>();
+            for (Effect effect : effects) {
+                if (effect.type() == Effect.Type.FRESH_KEY) {
+                    freshKey = true;
+                    continue;
+                }
+                if (effect.type() == Effect.Type.CAPTURE) {
+                    ToolSwapLightContext light = game.captureLightContext(
+                            reducer.clientTick(), reducer.chainActive());
+                    ToolSwapContext captured = light == null ? null : game.captureContext(light,
+                            effect.capturePlan(), effect.anchorSlot(), effect.candidateSlot());
+                    following.addAll(reducer.reduce(new EffectResultEvent(effect, captured != null, captured)));
+                    continue;
+                }
+                boolean submitted = effect.type() == Effect.Type.BEGIN_ROUND
+                        ? sendRound(effect.clientNonce()) : sendIntent(effect.intent());
+                following.addAll(reducer.reduce(new EffectResultEvent(effect, submitted, null)));
             }
+            effects = following;
         }
-        throw new IllegalStateException("tool swap command drain did not quiesce");
+        if (!effects.isEmpty()) throw new IllegalStateException("tool swap effect execution did not quiesce");
+        return freshKey;
     }
 
-    private boolean execute(ToolSwapCommand command) {
-        if (command.type == ToolSwapCommand.Type.BEGIN_ROUND) {
-            long nonce = protocol.beginRound();
-            if (nonce <= 0L || !sendRound(nonce, true)) {
-                protocolFailure();
-                return false;
-            }
-            return true;
-        }
-        if (command.type == ToolSwapCommand.Type.SEND_SWAP || command.type == ToolSwapCommand.Type.SEND_RESTORE) {
-            ToolSwapContext context = captureProtected(command);
-            if (context == null || !controller.onActionPreflight(command, context)) {
-                controller.onActionNotStarted(command.type == ToolSwapCommand.Type.SEND_SWAP
-                        ? AutoToolSwapAction.SWAP : AutoToolSwapAction.RESTORE);
-                return false;
-            }
-            SlotSnapshot anchor = context.inventory.slot(command.anchorSlot);
-            SlotSnapshot candidate = context.inventory.slot(command.candidateSlot);
-            AutoToolSwapAction action = command.type == ToolSwapCommand.Type.SEND_SWAP
-                    ? AutoToolSwapAction.SWAP : AutoToolSwapAction.RESTORE;
-            AutoToolSwapIntent intent = protocol.beginAction(action, command.anchorSlot, command.candidateSlot,
-                    anchor.contentFingerprint(), candidate.contentFingerprint());
-            if (intent == null) {
-                handleNotStartedAction(action);
-            } else if (!sendIntent(intent)) {
-                protocolFailure();
-            } else {
-                controller.onActionStarted(action);
-                actionSentTick = clientTick;
-                actionRetransmitted = false;
-            }
-            return false;
-        }
-        AutoToolSwapAction action = command.type == ToolSwapCommand.Type.SEND_FREEZE
-                ? AutoToolSwapAction.FREEZE : AutoToolSwapAction.CLOSE;
-        AutoToolSwapIntent intent = protocol.beginControlAction(action);
-        if (intent == null) {
-            handleNotStartedAction(action);
-        } else if (!sendIntent(intent)) {
-            protocolFailure();
-        } else {
-            controller.onActionStarted(action);
-            actionSentTick = clientTick;
-            actionRetransmitted = false;
-        }
-        return false;
-    }
-
-    /** 仅在旧协议精确复位后，于 tick 边界提交一次新的 RoundStart。 */
-    private boolean beginDeferredRoundIfEligible() {
-        if (protocol.snapshot().phase() != AutoToolSwapClientProtocolPhase.IDLE) return false;
-        if (!keyDown || !controller.prepareDeferredRoundCapture(game.isChainKeyPhysicallyDown())) return false;
-        ToolSwapLightContext light = game.captureLightContext(clientTick, true);
-        if (light == null) {
-            controller.cancelDeferredRound();
-            return false;
-        }
-        ToolSwapContext context = capture(light, ToolSwapCapturePlan.FULL,
-                controller.protectedAnchorSlot(), controller.protectedCandidateSlot());
-        if (context == null || !controller.beginDeferredRound(context)) {
-            controller.cancelDeferredRound();
-            return false;
-        }
-        boolean submitted = executeCommands();
-        if (submitted) dedicatedRoundEnded = false;
-        return submitted;
-    }
-
-    /** 空 intent 在 CLOSING 收敛 FREEZE；仅真实 orphan 升级为本地 fail-closed。 */
-    private void handleNotStartedAction(AutoToolSwapAction action) {
-        AutoToolSwapClientProtocolPhase phase = protocol.snapshot().phase();
-        controller.onControlActionNotStarted(action, phase == AutoToolSwapClientProtocolPhase.CLOSING);
-        if (phase == AutoToolSwapClientProtocolPhase.ORPHANED) protocolFailure();
-    }
-
-    private ToolSwapContext captureProtected(ToolSwapCommand command) {
-        ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive());
-        return light == null ? null : capture(light, ToolSwapCapturePlan.PROTECTED,
-                command.anchorSlot, command.candidateSlot);
-    }
-
-    private ToolSwapContext capture(ToolSwapLightContext light, ToolSwapCapturePlan plan,
-            int anchorSlot, int candidateSlot) {
-        return game.captureContext(light, plan, anchorSlot, candidateSlot);
-    }
-
-    private boolean sendRound(long nonce, boolean initialSend) {
+    private boolean sendRound(long nonce) {
         try {
-            if (!transport.sendRoundStart(nonce)) return false;
-            if (initialSend) {
-                roundSentTick = clientTick;
-                roundRetransmitted = false;
-            }
-            return true;
+            return transport.sendRoundStart(nonce);
         } catch (RuntimeException failure) {
             return false;
         } catch (LinkageError failure) {
@@ -324,47 +179,5 @@ public final class AutoToolSwapClientAdapter {
         } catch (LinkageError failure) {
             return false;
         }
-    }
-
-    private void retryOrOrphan() {
-        AutoToolSwapClientProtocolSnapshot snapshot = protocol.snapshot();
-        if ((snapshot.phase() == AutoToolSwapClientProtocolPhase.WAIT_ROUND
-                || snapshot.phase() == AutoToolSwapClientProtocolPhase.WAIT_ROUND_CLOSING) && roundSentTick >= 0L) {
-            if (clientTick - roundSentTick >= TRANSACTION_TIMEOUT_TICKS) {
-                protocolFailure();
-            } else if (!roundRetransmitted && clientTick - roundSentTick >= RETRANSMIT_TICKS) {
-                if (sendRound(snapshot.pendingNonce(), false)) roundRetransmitted = true;
-                else protocolFailure();
-            }
-            return;
-        }
-        AutoToolSwapIntent intent = protocol.inFlightIntent();
-        if (intent == null || actionSentTick < 0L) return;
-        if (clientTick - actionSentTick >= TRANSACTION_TIMEOUT_TICKS) {
-            protocolFailure();
-        } else if (!actionRetransmitted && clientTick - actionSentTick >= RETRANSMIT_TICKS) {
-            if (sendIntent(intent)) actionRetransmitted = true;
-            else protocolFailure();
-        }
-    }
-
-    private void protocolFailure() {
-        protocol.abandonCurrentRound();
-        controller.protocolOrphaned();
-        roundSentTick = -1L;
-        actionSentTick = -1L;
-    }
-
-    private boolean chainActive() { return keyDown && !dedicatedRoundEnded; }
-
-    private boolean consumePreEdgeDestroyLatch() {
-        return preEdgeDestroyTick == clientTick && preEdgeDestroyToken != null
-                && game.isChainKeyPhysicallyDown()
-                && ClientConnectionLifecycle.isWorldCurrentAndActive(preEdgeDestroyToken);
-    }
-
-    private void clearPreEdgeDestroyLatch() {
-        preEdgeDestroyTick = -1L;
-        preEdgeDestroyToken = null;
     }
 }
