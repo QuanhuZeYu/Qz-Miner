@@ -4,21 +4,22 @@
 
 - Qz-Miner 消费 Qz-UILib 的权威远端依赖源是 JitPack，标准坐标为 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`。`<tag>` 必须对应 Qz-UILib GitHub 仓库中不可移动的发布 tag。
 - 主动发布到 GTNH Maven / GTNH releases **不是** Qz-Miner 发布前置，也不要求维护者提供 Maven 凭据。GTNH Maven 可作为额外镜像，但其发布成功、失败或 404 均不决定 Miner 是否放行。
-- Miner 的依赖放行前置是目标 tag 的 JitPack Build API 显示成功，且同版本 POM、Gradle module metadata 与实际 `dev` classifier jar 均可访问。只看到 GitHub tag、Release、workflow 成功或 Release assets 不足以放行。
+- Miner 的依赖放行前置是五项门禁全部通过：目标 tag 的 JitPack Build API 显示成功，且同版本 POM、Gradle module metadata、main jar 与实际 `dev` classifier jar 均可访问。只看到 GitHub tag、Release、workflow 成功或 Release assets 不足以放行。
 - 活动消费者配置不得包含 Maven Local、`flatDir` 旧 group 或 URL 旁路来掩盖 JitPack 失败。发布验证必须证明 clean runner 能以标准坐标从 canonical JitPack 取得制品。
 - Miner 继续保持运行时 `required-after:qz_uilib@[4.6.0,)` 下限与开发期 `dev` classifier 要求；发布包不内嵌 UILib。
 - 所有 branch push/PR 由只读 clean runner 对同一 SHA 串行执行 `setupCIWorkspace`、`test`、`check`、`build`；该 tag 前证据与 tag 后 Release/assets 核验相互独立。
 
 ## 放行 URL 矩阵
 
-以 `<tag>` 替换目标版本；四项均通过才视为 JitPack 制品可消费：
+以 `<tag>` 替换目标版本；五项门禁（Build API + 四个 canonical artifact URL）均通过才视为 JitPack 制品可消费。四个制品请求必须使用非 `www`、无 query 的 canonical URL，普通 GET 返回 `200` 且响应为真实目标内容：
 
 | 检查项 | 权威 URL / 期望 |
 |---|---|
-| Build API | `https://jitpack.io/api/builds/com.github.QuanhuZeYu/Qz-UILib/<tag>`，目标版本状态为成功 |
-| POM | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>.pom`，可访问 |
-| Gradle module metadata | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>.module`，可访问 |
-| `dev` classifier | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>-dev.jar`，可访问且为实际目标制品 |
+| Build API | `https://jitpack.io/api/builds/com.github.QuanhuZeYu/Qz-UILib/<tag>`，目标版本状态为 `ok`，tag、public 仓库身份与 commit 均正确 |
+| POM | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>.pom`，返回 `200` 且为实际目标 POM |
+| Gradle module metadata | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>.module`，返回 `200` 且为实际目标 metadata |
+| main jar | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>.jar`，返回 `200` 且为实际目标制品 |
+| `dev` classifier jar | `https://jitpack.io/com/github/QuanhuZeYu/Qz-UILib/<tag>/Qz-UILib-<tag>-dev.jar`，返回 `200` 且为实际目标制品 |
 
 `4.5.2` 的 POM、module 与 `dev` jar 曾按上述路径真实可访问，证明该 classifier 可以由 JitPack 发布；这不代表后续 tag 自动通过。
 
