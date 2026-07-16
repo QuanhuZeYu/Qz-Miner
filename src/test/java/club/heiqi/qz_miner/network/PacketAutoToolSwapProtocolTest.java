@@ -1,5 +1,9 @@
 package club.heiqi.qz_miner.network;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -30,7 +34,8 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertTrue(start.isRawValid());
         Assert.assertEquals(11L, start.clientNonce);
 
-        PacketAutoToolSwapRoundResult round = decodeRoundResult(new PacketAutoToolSwapRoundResult(1, 11L, result));
+        PacketAutoToolSwapRoundResult round = decodeRoundResult(new PacketAutoToolSwapRoundResult(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 11L, result));
         Assert.assertTrue(round.isRawValid());
         Assert.assertEquals(11L, round.clientNonce);
         Assert.assertEquals(17L, round.serverRoundId);
@@ -55,7 +60,8 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertEquals(19, action.candidateSlot);
         Assert.assertEquals(4L, action.nextActionSequence);
 
-        PacketAutoToolSwapRoundPhase phase = decodeRoundPhase(new PacketAutoToolSwapRoundPhase(1, 17L, 5L, 3, 7, 99L));
+        PacketAutoToolSwapRoundPhase phase = decodeRoundPhase(new PacketAutoToolSwapRoundPhase(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 5L, 3, 7, 99L));
         Assert.assertTrue(phase.isRawValid());
         Assert.assertEquals(5L, phase.phaseSequence);
         Assert.assertEquals(3, phase.phaseOrdinal);
@@ -67,19 +73,21 @@ public class PacketAutoToolSwapProtocolTest {
         assertInvalidStart(new PacketAutoToolSwapRoundStart(1L));
         AutoToolSwapRoundResult result = new AutoToolSwapRoundResult(2L, AutoToolSwapResultCode.ACCEPTED,
                 AutoToolSwapRoundState.OPEN, 1L, 3L);
-        assertInvalidRoundResult(new PacketAutoToolSwapRoundResult(1, 1L, result));
-        AutoToolSwapIntent intent = new AutoToolSwapIntent(1, 2L, 1L, AutoToolSwapAction.FREEZE, 0, 0,
+        assertInvalidRoundResult(new PacketAutoToolSwapRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, 1L, result));
+        AutoToolSwapIntent intent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, 2L, 1L,
+                AutoToolSwapAction.FREEZE, 0, 0,
                 AutoToolSwapContentFingerprint.fromWire(1L, 2L, 3L, 4L),
                 AutoToolSwapContentFingerprint.fromWire(5L, 6L, 7L, 8L));
         assertInvalidIntent(new PacketAutoToolSwapIntent(intent));
         assertInvalidActionResult(new PacketAutoToolSwapActionResult(intent, result));
-        assertInvalidRoundPhase(new PacketAutoToolSwapRoundPhase(1, 2L, 1L, 0, 0, 3L));
+        assertInvalidRoundPhase(new PacketAutoToolSwapRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                2L, 1L, 0, 0, 3L));
     }
 
     @Test
     public void unknownWireCodesRemainRawForMainThreadFailClosedValidation() {
         ByteBuf intentBytes = Unpooled.buffer(PacketAutoToolSwapIntent.FIXED_PAYLOAD_BYTES);
-        intentBytes.writeInt(1);
+        intentBytes.writeInt(AutoToolSwapProtocol.PROTOCOL_VERSION);
         intentBytes.writeLong(7L);
         intentBytes.writeLong(1L);
         intentBytes.writeInt(999);
@@ -94,7 +102,7 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertEquals(999, intent.actionCode);
 
         ByteBuf resultBytes = Unpooled.buffer(PacketAutoToolSwapRoundResult.FIXED_PAYLOAD_BYTES);
-        resultBytes.writeInt(1);
+        resultBytes.writeInt(AutoToolSwapProtocol.PROTOCOL_VERSION);
         resultBytes.writeLong(1L);
         resultBytes.writeLong(7L);
         resultBytes.writeInt(998);
@@ -106,6 +114,39 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertTrue(result.isRawValid());
         Assert.assertEquals(998, result.resultCode);
         Assert.assertEquals(997, result.roundState);
+    }
+
+    @Test
+    public void abandonRoundTripsWithoutChangingFiveFrameLengthsOrRegistrations() throws Exception {
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent abandon = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 8L,
+                AutoToolSwapAction.ABANDON, 2, 19, empty, empty);
+        PacketAutoToolSwapIntent decoded = decodeIntent(new PacketAutoToolSwapIntent(abandon));
+
+        Assert.assertEquals(AutoToolSwapAction.ABANDON.wireCode(), decoded.actionCode);
+        Assert.assertEquals(12, PacketAutoToolSwapRoundStart.FIXED_PAYLOAD_BYTES);
+        Assert.assertEquals(44, PacketAutoToolSwapRoundResult.FIXED_PAYLOAD_BYTES);
+        Assert.assertEquals(96, PacketAutoToolSwapIntent.FIXED_PAYLOAD_BYTES);
+        Assert.assertEquals(56, PacketAutoToolSwapActionResult.FIXED_PAYLOAD_BYTES);
+        Assert.assertEquals(36, PacketAutoToolSwapRoundPhase.FIXED_PAYLOAD_BYTES);
+
+        String network = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/network/NetworkMain.java").toPath()), StandardCharsets.UTF_8);
+        Assert.assertEquals(5, count(network, "PacketAutoToolSwap", ".Handler.class"));
+        Assert.assertEquals(2, count(network, "PacketAutoToolSwap", "Side.SERVER"));
+        Assert.assertEquals(3, count(network, "PacketAutoToolSwap", "Side.CLIENT"));
+    }
+
+    private static int count(String source, String packetPrefix, String terminal) {
+        int count = 0;
+        int cursor = 0;
+        while ((cursor = source.indexOf(packetPrefix, cursor)) >= 0) {
+            int end = source.indexOf(terminal, cursor);
+            int nextPacket = source.indexOf(packetPrefix, cursor + packetPrefix.length());
+            if (end >= 0 && (nextPacket < 0 || end < nextPacket)) count++;
+            cursor += packetPrefix.length();
+        }
+        return count;
     }
 
     private static PacketAutoToolSwapRoundStart decodeStart(PacketAutoToolSwapRoundStart source) {

@@ -8,6 +8,7 @@ import java.util.UUID;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapActionResult;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
@@ -259,7 +260,9 @@ public final class AutoToolSwapRoundService {
         }
 
         AutoToolSwapRoundState stateBefore = record.state;
-        InventoryDiagnosticSnapshot before = captureInventoryDiagnostic(inventory, intent);
+        boolean inventoryFreeAction = intent.action() == AutoToolSwapAction.ABANDON;
+        InventoryDiagnosticSnapshot before = inventoryFreeAction
+                ? InventoryDiagnosticSnapshot.unavailable() : captureInventoryDiagnostic(inventory, intent);
         AutoToolSwapResultCode outcome;
         if (intent.action() == AutoToolSwapAction.SWAP) {
             outcome = applySwap(record, intent, inventory);
@@ -267,10 +270,13 @@ public final class AutoToolSwapRoundService {
             outcome = applyRestore(record, intent, inventory);
         } else if (intent.action() == AutoToolSwapAction.FREEZE) {
             outcome = applyFreeze(record);
+        } else if (intent.action() == AutoToolSwapAction.ABANDON) {
+            outcome = applyAbandon(record, intent);
         } else {
             outcome = applyClose(record);
         }
-        InventoryDiagnosticSnapshot after = captureInventoryDiagnostic(inventory, intent);
+        InventoryDiagnosticSnapshot after = inventoryFreeAction
+                ? InventoryDiagnosticSnapshot.unavailable() : captureInventoryDiagnostic(inventory, intent);
         logActionDiagnostic(playerId, record, intent, outcome, stateBefore, before, after);
         return cacheAndAdvance(record, intent, outcome, serverTick);
     }
@@ -354,7 +360,7 @@ public final class AutoToolSwapRoundService {
         if (currentAnchor == null || currentCandidate == null
                 || !currentAnchor.contentFingerprint().sameContent(intent.anchorContentFingerprint())
                 || !currentCandidate.contentFingerprint().sameContent(intent.candidateContentFingerprint())
-                || !ledger.originalAnchor.sameContent(currentCandidate)
+                || !ledger.originalAnchor.sameRole(currentCandidate)
                 || !(currentAnchor.isEmpty() || ledger.originalCandidate.sameRole(currentAnchor))) {
             return AutoToolSwapResultCode.REJECTED;
         }
@@ -382,6 +388,24 @@ public final class AutoToolSwapRoundService {
             return AutoToolSwapResultCode.REJECTED;
         }
         record.state = AutoToolSwapRoundState.FROZEN;
+        return AutoToolSwapResultCode.ACCEPTED;
+    }
+
+    /** 显式放弃无法安全恢复的账本；只清事务状态，绝不读取或写入库存。 */
+    private static AutoToolSwapResultCode applyAbandon(RoundRecord record, AutoToolSwapIntent intent) {
+        if (record.ledger == null || !allowsRestore(record.state)) {
+            return AutoToolSwapResultCode.REJECTED;
+        }
+        SwapLedger ledger = record.ledger;
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        if (intent.anchorSlot() != ledger.anchorSlot || intent.candidateSlot() != ledger.candidateSlot
+                || !empty.sameContent(intent.anchorContentFingerprint())
+                || !empty.sameContent(intent.candidateContentFingerprint())) {
+            return AutoToolSwapResultCode.REJECTED;
+        }
+        record.ledger = null;
+        record.keyDown = false;
+        record.state = AutoToolSwapRoundState.FINISHED;
         return AutoToolSwapResultCode.ACCEPTED;
     }
 

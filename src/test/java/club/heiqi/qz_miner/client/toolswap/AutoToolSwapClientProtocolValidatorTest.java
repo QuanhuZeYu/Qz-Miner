@@ -25,6 +25,10 @@ public class AutoToolSwapClientProtocolValidatorTest {
                 AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 1L, AutoToolSwapAction.SWAP.wireCode(),
                 AutoToolSwapResultCode.APPLIED.wireCode(), AutoToolSwapRoundState.SWAPPED.wireCode(),
                 0, 5, 2L, 1L, true).action());
+        Assert.assertEquals(AutoToolSwapAction.ABANDON, validator.validateActionResult(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 2L, AutoToolSwapAction.ABANDON.wireCode(),
+                AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.FINISHED.wireCode(),
+                0, 5, 3L, 1L, true).action());
         Assert.assertEquals(ChainPhase.RUNNING, validator.validatePhase(
                 AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 1L, ChainPhase.RUNNING.ordinal(),
                 3, 2L, true).phase());
@@ -36,6 +40,9 @@ public class AutoToolSwapClientProtocolValidatorTest {
                 AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(),
                 1L, 0L, false));
         Assert.assertNull(validator.validateRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION + 1, 7L,
+                AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(),
+                1L, 0L, true));
+        Assert.assertNull(validator.validateRoundResult(1, 7L,
                 AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(),
                 1L, 0L, true));
         Assert.assertNull(validator.validateRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, -1L,

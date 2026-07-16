@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
@@ -38,7 +39,8 @@ public class ServerAutoToolSwapRequestDispatchTest {
     public void firstAcceptedPendingStartDoesNotReplyBeforeKeyActivation() {
         Fixture fixture = new Fixture();
         Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitRoundStart(fixture.playerId, fixture.endpoint,
-                1, 41L, true, fixture.fifo, fixture, fixture.service, fixture, fixture));
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 41L, true, fixture.fifo, fixture, fixture.service,
+                fixture, fixture));
 
         fixture.fifo.runNext();
 
@@ -95,7 +97,8 @@ public class ServerAutoToolSwapRequestDispatchTest {
     public void identityReplacementDropsQueuedRequestBeforeServiceOrReply() {
         Fixture fixture = new Fixture();
         Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitRoundStart(fixture.playerId, fixture.endpoint,
-                1, 8L, true, fixture.fifo, fixture, fixture.service, fixture, fixture));
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 8L, true, fixture.fifo, fixture, fixture.service,
+                fixture, fixture));
         fixture.online.put(fixture.playerId, new Object());
         fixture.fifo.runNext();
 
@@ -132,8 +135,24 @@ public class ServerAutoToolSwapRequestDispatchTest {
         Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.lastActionResult.outcome());
     }
 
+    @Test
+    public void v1RoundStartFailsClosedBeforeServiceAndAbandonIsCarriedAsV2() {
+        Fixture fixture = new Fixture();
+        Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitRoundStart(fixture.playerId, fixture.endpoint,
+                1, 41L, true, fixture.fifo, fixture, fixture.service, fixture, fixture));
+        fixture.fifo.runNext();
+        Assert.assertEquals(0, fixture.service.beginCalls);
+        Assert.assertEquals(1, fixture.roundReplies);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.lastRoundResult.outcome());
+
+        submitIntent(fixture, AutoToolSwapAction.ABANDON.wireCode(), 0, 9);
+        fixture.fifo.runNext();
+        Assert.assertEquals(AutoToolSwapAction.ABANDON, fixture.service.lastIntent.action());
+    }
+
     private static void submitIntent(Fixture fixture, int actionCode, int anchorSlot, int candidateSlot) {
-        Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitIntent(fixture.playerId, fixture.endpoint, 1, 7L,
+        Assert.assertTrue(ServerAutoToolSwapRequestDispatch.submitIntent(fixture.playerId, fixture.endpoint,
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 7L,
                 1L, actionCode, anchorSlot, candidateSlot, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, true,
                 fixture.fifo, fixture, fixture.service, fixture, fixture, fixture));
     }
@@ -241,6 +260,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
     private static final class RecordingService implements ServerAutoToolSwapRequestDispatch.RoundService {
         private int beginCalls;
         private int intentCalls;
+        private AutoToolSwapIntent lastIntent;
         private AutoToolSwapRoundResult beginResult = new AutoToolSwapRoundResult(0L,
                 AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.PENDING_KEY, 1L, 12L);
 
@@ -254,6 +274,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
         public AutoToolSwapRoundResult handleIntent(UUID playerId, Object endpoint, AutoToolSwapIntent intent,
                 AutoToolSwapInventoryPort inventory, long serverTick) {
             intentCalls++;
+            lastIntent = intent;
             return new AutoToolSwapRoundResult(7L, AutoToolSwapResultCode.ACCEPTED,
                     AutoToolSwapRoundState.OPEN, 2L, serverTick);
         }

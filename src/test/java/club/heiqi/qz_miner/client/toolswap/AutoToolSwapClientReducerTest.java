@@ -120,7 +120,7 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
-    public void guiAndReanchorRestoreWithinRoundWhileRejectOrThirdLayoutFailClosed() {
+    public void guiAndReanchorRestoreWithinRoundWhileRejectOrThirdLayoutAbandonsSafely() {
         AutoToolSwapClientReducer gui = completedSwap(51L, 111L);
         Effect guiCapture = only(gui.reduce(new TickEvent(context(3L, true, swapped()), true)));
         AutoToolSwapIntent guiRestore = captureAndSubmit(gui, guiCapture, context(3L, swapped()));
@@ -147,8 +147,67 @@ public class AutoToolSwapClientReducerTest {
         AutoToolSwapClientReducer thirdLayout = completedSwap(81L, 131L);
         thirdLayout.reduce(new KeyStateEvent(false, context(3L, swapped())));
         Effect capture = only(thirdLayout.reduce(new TickEvent(context(4L, swapped()), false)));
-        thirdLayout.reduce(new EffectResultEvent(capture, true, context(4L, third())));
-        Assert.assertTrue(thirdLayout.isOrphaned());
+        Assert.assertTrue(thirdLayout.reduce(new EffectResultEvent(capture, true,
+                context(4L, third()))).isEmpty());
+        Effect abandonEffect = only(thirdLayout.reduce(new TickEvent(context(5L, third()), false)));
+        AutoToolSwapIntent abandon = abandonEffect.intent();
+        Assert.assertEquals(AutoToolSwapAction.ABANDON, abandon.action());
+        Assert.assertEquals(0, abandon.anchorSlot());
+        Assert.assertEquals(5, abandon.candidateSlot());
+        Assert.assertEquals(club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint.canonicalEmpty(),
+                abandon.anchorContentFingerprint());
+        submit(thirdLayout, abandonEffect);
+        settle(thirdLayout, abandon, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, thirdLayout.state());
+        Assert.assertFalse(thirdLayout.hasSwapExpectation());
+        Assert.assertFalse(thirdLayout.isOrphaned());
+    }
+
+    @Test
+    public void roleLeaseAllowsDynamicRestoreAndNaturalAbandonDefersFreshRound() {
+        AutoToolSwapClientReducer dynamic = completedSwap(82L, 132L);
+        dynamic.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 132L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 2L, true));
+        Effect captureRestore = only(dynamic.reduce(new TickEvent(context(3L, swappedAnchorChanged()), true)));
+        AutoToolSwapIntent restore = captureAndSubmit(dynamic, captureRestore,
+                context(3L, swappedAnchorChanged()));
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        Assert.assertFalse(dynamic.isOrphaned());
+
+        AutoToolSwapClientReducer abandonReducer = reducer(83L, 84L);
+        Effect round = only(abandonReducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(abandonReducer, round);
+        acceptRound(abandonReducer, 83L, 133L, 1L);
+        AutoToolSwapIntent swap = captureAndSubmit(abandonReducer,
+                only(abandonReducer.reduce(new TickEvent(context(0L, restored()), true))),
+                context(0L, restored()));
+        settle(abandonReducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        abandonReducer.reduce(new TickEvent(context(1L, swapped()), true));
+        abandonReducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 133L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 2L, true));
+        Effect abandonCapture = only(abandonReducer.reduce(new TickEvent(context(2L, third()), true)));
+        Assert.assertTrue(abandonReducer.reduce(new EffectResultEvent(abandonCapture, true,
+                context(2L, third()))).isEmpty());
+        Effect abandonEffect = only(abandonReducer.reduce(new TickEvent(context(3L, third()), true)));
+        submit(abandonReducer, abandonEffect);
+        settle(abandonReducer, abandonEffect.intent(), AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, abandonReducer.state());
+        Effect nextRound = only(abandonReducer.reduce(new TickEvent(context(4L, restored()), true)));
+        Assert.assertEquals(Effect.Type.BEGIN_ROUND, nextRound.type());
+        Assert.assertEquals(84L, nextRound.clientNonce());
+    }
+
+    @Test
+    public void abandonRejectionIsARealOrphan() {
+        AutoToolSwapClientReducer reducer = completedSwap(85L, 135L);
+        reducer.reduce(new KeyStateEvent(false, context(2L, swapped())));
+        Effect capture = only(reducer.reduce(new TickEvent(context(3L, swapped()), false)));
+        reducer.reduce(new EffectResultEvent(capture, true, context(3L, third())));
+        Effect abandon = only(reducer.reduce(new TickEvent(context(4L, third()), false)));
+        submit(reducer, abandon);
+        settle(reducer, abandon.intent(), AutoToolSwapResultCode.REJECTED, AutoToolSwapRoundState.CLOSING);
+        Assert.assertTrue(reducer.isOrphaned());
     }
 
     @Test
@@ -388,6 +447,12 @@ public class AutoToolSwapClientReducerTest {
 
     private static ToolSwapInventorySnapshot swapped() {
         return inventory(new SlotSnapshot(0, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
+                tool(0, "pick", true), tool(5, "hand", false));
+    }
+
+    private static ToolSwapInventorySnapshot swappedAnchorChanged() {
+        return inventory(new SlotSnapshot(0, "pick", "energy=20;damage=7"),
+                new SlotSnapshot(5, "hand", "count=3;nbt=merged"),
                 tool(0, "pick", true), tool(5, "hand", false));
     }
 

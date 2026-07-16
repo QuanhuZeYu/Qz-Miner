@@ -66,9 +66,14 @@ public final class AutoToolSwapStackState implements Serializable {
                 && roleKey.equals(other.roleKey) && contentFingerprint.sameContent(other.contentFingerprint);
     }
 
-    /** @return 是否仍可视为同一恢复角色；允许活动工具的内容和耐久变化。 */
+    /**
+     * @return 是否仍可视为同一稳定角色；允许数量、耐久、能量与 NBT 变化，空槽只兼容空槽
+     */
     public boolean sameRole(AutoToolSwapStackState other) {
-        return other != null && empty == other.empty && roleKey.equals(other.roleKey);
+        if (other == null || empty != other.empty) {
+            return false;
+        }
+        return empty || roleKey.equals(other.roleKey);
     }
 
     @Override

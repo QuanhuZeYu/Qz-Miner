@@ -11,11 +11,13 @@ public class AutoToolSwapProtocolTest {
 
     @Test
     public void wireCodesAreUniqueAndUnknownCodesFailClosed() {
+        Assert.assertEquals(2, AutoToolSwapProtocol.PROTOCOL_VERSION);
         assertUnique(AutoToolSwapAction.values());
         assertUnique(AutoToolSwapRoundState.values());
         assertUnique(AutoToolSwapResultCode.values());
 
         Assert.assertEquals(AutoToolSwapAction.SWAP, AutoToolSwapAction.fromWireCode(1));
+        Assert.assertEquals(AutoToolSwapAction.ABANDON, AutoToolSwapAction.fromWireCode(5));
         Assert.assertEquals(AutoToolSwapRoundState.OPEN, AutoToolSwapRoundState.fromWireCode(2));
         Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, AutoToolSwapResultCode.fromWireCode(5));
         assertUnknownActionRejected();
@@ -44,9 +46,13 @@ public class AutoToolSwapProtocolTest {
         AutoToolSwapContentFingerprint second = AutoToolSwapContentFingerprint.fromContent("mod:tool", "damage=2");
         AutoToolSwapStackState original = AutoToolSwapStackState.occupied("mod:tool", first, 99);
         AutoToolSwapStackState used = AutoToolSwapStackState.occupied("mod:tool", second, 98);
+        AutoToolSwapStackState otherSubtype = AutoToolSwapStackState.occupied("mod:tool@1", second, 98);
 
         Assert.assertTrue(original.sameRole(used));
         Assert.assertFalse(original.sameContent(used));
+        Assert.assertFalse(original.sameRole(otherSubtype));
+        Assert.assertFalse(AutoToolSwapStackState.empty().sameRole(original));
+        Assert.assertTrue(AutoToolSwapStackState.empty().sameRole(AutoToolSwapStackState.empty()));
         Assert.assertTrue(AutoToolSwapStackState.empty().isEmpty());
         try {
             AutoToolSwapStackState.occupied(AutoToolSwapProtocol.CANONICAL_EMPTY_ROLE_KEY,

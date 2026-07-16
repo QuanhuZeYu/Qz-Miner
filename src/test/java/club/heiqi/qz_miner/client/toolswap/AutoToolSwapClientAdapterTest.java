@@ -415,6 +415,30 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertFalse(adapter.reducerForTests().hasSwapExpectation());
     }
 
+    @Test
+    public void incompatibleRestoreSendsAbandonAndTransportFailureStillOrphans() {
+        completeSwap();
+        game.inventory = third();
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(1, transport.intents.size());
+        adapter.onClientTick();
+        AutoToolSwapIntent abandon = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.ABANDON, abandon.action());
+        settle(abandon, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, adapter.reducerForTests().state());
+        Assert.assertFalse(adapter.reducerForTests().hasSwapExpectation());
+
+        setUpFreshAdapter();
+        completeSwap();
+        game.inventory = third();
+        adapter.onChainKeyState(false);
+        transport.accept = false;
+        adapter.onClientTick();
+        Assert.assertEquals(AutoToolSwapAction.ABANDON,
+                transport.intents.get(transport.intents.size() - 1).action());
+        Assert.assertTrue(adapter.reducerForTests().isOrphaned());
+    }
+
     private void acceptRound() {
         acceptRound(0, 9L);
     }
@@ -484,6 +508,11 @@ public class AutoToolSwapClientAdapterTest {
     private static ToolSwapInventorySnapshot swapped() {
         return inventory(new SlotSnapshot(0, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
                 tool(0, "pick", true), tool(5, "hand", false));
+    }
+
+    private static ToolSwapInventorySnapshot third() {
+        return inventory(new SlotSnapshot(0, "pick", "energy=20"),
+                new SlotSnapshot(5, "foreign", "occupied"), tool(0, "pick", true));
     }
 
     private static ToolCandidate tool(int slot, String name, boolean usable) {

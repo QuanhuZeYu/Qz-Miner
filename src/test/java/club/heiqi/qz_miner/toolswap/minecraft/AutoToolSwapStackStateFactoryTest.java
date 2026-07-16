@@ -31,6 +31,9 @@ public class AutoToolSwapStackStateFactoryTest {
         Assert.assertEquals(4, AutoToolSwapStackStateFactory.stableSubtype(variant));
         Assert.assertTrue(AutoToolSwapStackStateFactory.roleKey(variant).endsWith("@4"));
         Assert.assertEquals(Integer.MAX_VALUE, AutoToolSwapStackStateFactory.capture(variant).remainingDurability());
+        ItemStack otherVariant = new ItemStack(variants, 1, 5);
+        Assert.assertFalse(AutoToolSwapStackStateFactory.capture(variant).sameRole(
+                AutoToolSwapStackStateFactory.capture(otherVariant)));
     }
 
     /** 栈数量、NBT 与耐久变化都必须改变严格内容，但保留相同恢复角色。 */
@@ -43,6 +46,7 @@ public class AutoToolSwapStackStateFactoryTest {
         ItemStack differentNbt = new ItemStack(item, 1, 10);
         NBTTagCompound tag = new NBTTagCompound();
         tag.setString("owner", "qz");
+        tag.setLong("GT.ItemCharge", 2048L);
         differentNbt.setTagCompound(tag);
 
         Assert.assertFalse(AutoToolSwapStackStateFactory.capture(original).sameContent(

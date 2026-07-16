@@ -55,9 +55,12 @@ public final class SlotSnapshot {
         return contentFingerprint;
     }
 
-    /** @return 是否仍是同一恢复角色；有意忽略耐久、NBT 与对象实例变化 */
+    /** @return 是否仍是同一稳定角色；有意忽略数量、耐久、能量、NBT 与对象实例变化 */
     public boolean sameRole(SlotSnapshot other) {
-        return other != null && roleKey.equals(other.roleKey);
+        if (other == null || isEmpty() != other.isEmpty()) {
+            return false;
+        }
+        return isEmpty() || roleKey.equals(other.roleKey);
     }
 
     /** @return 是否为同一严格内容；用于核对未被使用的原主手角色 */

@@ -510,11 +510,16 @@ public final class AutoToolSwapClientReducer {
             return noEffects();
         }
         AutoToolSwapRoundResult result = validated.result();
-        if (validated.action() == AutoToolSwapAction.RESTORE || validated.action() == AutoToolSwapAction.CLOSE) {
+        if (validated.action() == AutoToolSwapAction.RESTORE || validated.action() == AutoToolSwapAction.CLOSE
+                || validated.action() == AutoToolSwapAction.ABANDON) {
             diagnose(validated.action() == AutoToolSwapAction.RESTORE
-                            ? DiagnosticClass.ACTION_RESULT_RESTORE : DiagnosticClass.ACTION_RESULT_CLOSE,
+                            ? DiagnosticClass.ACTION_RESULT_RESTORE
+                            : validated.action() == AutoToolSwapAction.ABANDON
+                                    ? DiagnosticClass.ACTION_RESULT_ABANDON : DiagnosticClass.ACTION_RESULT_CLOSE,
                     validated.action() == AutoToolSwapAction.RESTORE
-                            ? DiagnosticReason.ACTION_RESULT_RESTORE : DiagnosticReason.ACTION_RESULT_CLOSE,
+                            ? DiagnosticReason.ACTION_RESULT_RESTORE
+                            : validated.action() == AutoToolSwapAction.ABANDON
+                                    ? DiagnosticReason.ACTION_RESULT_ABANDON : DiagnosticReason.ACTION_RESULT_CLOSE,
                     lastContext, "action-result", event.serverRoundId, event.actionSequence,
                     validated.action() + "/" + result.outcome() + "/" + result.roundState());
         }
@@ -694,11 +699,13 @@ public final class AutoToolSwapClientReducer {
     private List<Effect> drive() {
         if (round == null || !round.accepted || transmission != null || round.inFlight != null) return noEffects();
         if (closeRequested) {
-            if (swapExpectation != null && pendingAction != AutoToolSwapAction.RESTORE) {
+            if (swapExpectation != null && pendingAction != AutoToolSwapAction.RESTORE
+                    && pendingAction != AutoToolSwapAction.ABANDON) {
                 prepareRestore(closeDiagnosticReason == null
                         ? DiagnosticReason.PROTOCOL_ORPHAN : closeDiagnosticReason);
             }
             if (pendingAction == AutoToolSwapAction.RESTORE) return captureAction(AutoToolSwapAction.RESTORE);
+            if (pendingAction == AutoToolSwapAction.ABANDON) return beginAbandonIntent();
             if (swapExpectation == null) return beginControlIntent(AutoToolSwapAction.CLOSE);
             return noEffects();
         }
@@ -712,6 +719,7 @@ public final class AutoToolSwapClientReducer {
         }
         if (pendingAction == AutoToolSwapAction.SWAP) return captureAction(AutoToolSwapAction.SWAP);
         if (pendingAction == AutoToolSwapAction.RESTORE) return captureAction(AutoToolSwapAction.RESTORE);
+        if (pendingAction == AutoToolSwapAction.ABANDON) return beginAbandonIntent();
         return noEffects();
     }
 
@@ -732,6 +740,18 @@ public final class AutoToolSwapClientReducer {
         return intent == null ? handleUnavailableAction(action) : oneEffect(intentEffect(intent, false));
     }
 
+    /** 使用 ledger 对应双槽和 canonical control 指纹创建零库存写的放弃请求。 */
+    private List<Effect> beginAbandonIntent() {
+        if (swapExpectation == null) {
+            orphan();
+            return noEffects();
+        }
+        AutoToolSwapIntent intent = beginIntent(AutoToolSwapAction.ABANDON,
+                swapExpectation.anchorSlot, swapExpectation.candidateSlot, null, null);
+        return intent == null ? handleUnavailableAction(AutoToolSwapAction.ABANDON)
+                : oneEffect(intentEffect(intent, false));
+    }
+
     private AutoToolSwapIntent beginIntent(AutoToolSwapAction action, int actionAnchor, int actionCandidate,
             SlotSnapshot anchor, SlotSnapshot candidate) {
         if (!allowsAction(action) || round.inFlight != null || transmission != null
@@ -741,7 +761,8 @@ public final class AutoToolSwapClientReducer {
         }
         AutoToolSwapContentFingerprint anchorFingerprint;
         AutoToolSwapContentFingerprint candidateFingerprint;
-        if (action == AutoToolSwapAction.FREEZE || action == AutoToolSwapAction.CLOSE) {
+        if (action == AutoToolSwapAction.FREEZE || action == AutoToolSwapAction.CLOSE
+                || action == AutoToolSwapAction.ABANDON) {
             anchorFingerprint = AutoToolSwapContentFingerprint.canonicalEmpty();
             candidateFingerprint = AutoToolSwapContentFingerprint.canonicalEmpty();
         } else if (anchor == null || candidate == null) {
@@ -765,7 +786,7 @@ public final class AutoToolSwapClientReducer {
         if (!hasTrustedProtectedSlots(inventory)) return false;
         if (action == AutoToolSwapAction.RESTORE) {
             if (swapExpectation.matchesSwapped(inventory, generation)) return true;
-            orphan();
+            pendingAction = AutoToolSwapAction.ABANDON;
             return false;
         }
         if (swapExpectation.matchesStrictRestored(inventory, generation)) return true;
@@ -830,6 +851,15 @@ public final class AutoToolSwapClientReducer {
             } else orphan();
             return;
         }
+        if (action == AutoToolSwapAction.ABANDON) {
+            if (result == AutoToolSwapResultCode.ACCEPTED
+                    && serverState == AutoToolSwapRoundState.FINISHED) {
+                finishAbandon();
+            } else {
+                orphan();
+            }
+            return;
+        }
         orphan();
     }
 
@@ -851,7 +881,6 @@ public final class AutoToolSwapClientReducer {
             swapExpectation.verifyingAction = null;
             pendingAction = null;
             if (verified == AutoToolSwapAction.SWAP) {
-                swapExpectation.swapConfirmed = true;
                 finishSwap();
             } else {
                 swapExpectation = null;
@@ -922,6 +951,7 @@ public final class AutoToolSwapClientReducer {
 
     private void prepareRestore(DiagnosticReason reason) {
         if (swapExpectation == null || pendingAction == AutoToolSwapAction.SWAP && isActionPending()) return;
+        if (pendingAction == AutoToolSwapAction.ABANDON) return;
         if (pendingAction == AutoToolSwapAction.SWAP && !isActionPending()) {
             discardUnstartedSwap(lastTick());
             return;
@@ -974,6 +1004,18 @@ public final class AutoToolSwapClientReducer {
         resetCycleFlags();
     }
 
+    /** ABANDON 成功即终止旧 round；仅自然 IDLE 保留受限的 deferred rearm。 */
+    private void finishAbandon() {
+        boolean naturalRearm = closeCause == CloseCause.NATURAL_REARM && keyDown && configuredEnabled;
+        deferredRoundPending = naturalRearm;
+        state = naturalRearm || !keyDown ? State.IDLE : State.WAIT_RELEASE;
+        round = null;
+        transmission = null;
+        swapExpectation = null;
+        pendingAction = null;
+        resetCycleFlags();
+    }
+
     private void finishWaitRelease() {
         state = State.IDLE;
         round = null;
@@ -1022,6 +1064,10 @@ public final class AutoToolSwapClientReducer {
     private List<Effect> handleUnavailableAction(AutoToolSwapAction action) {
         if (state == State.ORPHANED) return noEffects();
         if (action == AutoToolSwapAction.SWAP) discardUnstartedSwap(lastTick());
+        if (action == AutoToolSwapAction.ABANDON) {
+            orphan();
+            return noEffects();
+        }
         if (action == AutoToolSwapAction.FREEZE && round != null && round.closing) {
             freezeRequested = false;
             requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.PROTOCOL_ORPHAN);
@@ -1035,7 +1081,8 @@ public final class AutoToolSwapClientReducer {
         if (action == AutoToolSwapAction.SWAP || action == AutoToolSwapAction.FREEZE) {
             return !round.closing;
         }
-        return action == AutoToolSwapAction.RESTORE || action == AutoToolSwapAction.CLOSE;
+        return action == AutoToolSwapAction.RESTORE || action == AutoToolSwapAction.CLOSE
+                || action == AutoToolSwapAction.ABANDON;
     }
 
     private boolean isDuplicateSettlement(ActionResultEvent event, AutoToolSwapAction action,
@@ -1254,6 +1301,7 @@ public final class AutoToolSwapClientReducer {
         ROUND_PHASE("round-phase"),
         LOCAL_DESTROY("local-destroy"),
         ACTION_RESULT_RESTORE("action-result-restore"),
+        ACTION_RESULT_ABANDON("action-result-abandon"),
         ACTION_RESULT_CLOSE("action-result-close");
 
         private final String wireName;
@@ -1283,6 +1331,7 @@ public final class AutoToolSwapClientReducer {
         ROUND_PHASE_IGNORED,
         LOCAL_DESTROY,
         ACTION_RESULT_RESTORE,
+        ACTION_RESULT_ABANDON,
         ACTION_RESULT_CLOSE,
         ACTION_RESULT_IGNORED,
         PROTOCOL_ORPHAN
@@ -1315,7 +1364,6 @@ public final class AutoToolSwapClientReducer {
         private final int candidateSlot;
         private final SlotSnapshot anchorRole;
         private final SlotSnapshot candidateRole;
-        private boolean swapConfirmed;
         private AutoToolSwapAction verifyingAction;
         private long verifyStartedTick;
 
@@ -1330,13 +1378,12 @@ public final class AutoToolSwapClientReducer {
 
         private boolean matchesSwapped(ToolSwapInventorySnapshot inventory, long currentGeneration) {
             return generation == currentGeneration && activeToolRoleMatches(candidateRole, inventory.slot(anchorSlot))
-                    && anchorRole.sameContent(inventory.slot(candidateSlot));
+                    && anchorRole.sameRole(inventory.slot(candidateSlot));
         }
 
         private boolean matchesRestored(ToolSwapInventorySnapshot inventory, long currentGeneration) {
-            return generation == currentGeneration && anchorRole.sameContent(inventory.slot(anchorSlot))
-                    && (swapConfirmed ? activeToolRoleMatches(candidateRole, inventory.slot(candidateSlot))
-                            : candidateRole.sameContent(inventory.slot(candidateSlot)));
+            return generation == currentGeneration && anchorRole.sameRole(inventory.slot(anchorSlot))
+                    && activeToolRoleMatches(candidateRole, inventory.slot(candidateSlot));
         }
 
         private boolean matchesStrictRestored(ToolSwapInventorySnapshot inventory, long currentGeneration) {

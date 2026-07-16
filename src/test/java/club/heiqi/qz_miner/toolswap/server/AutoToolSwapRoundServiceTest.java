@@ -281,20 +281,131 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
-    public void restoreRejectsOriginalAnchorRoleAndIntentRacesWithoutWriting() {
+    public void restoreAllowsOriginalAnchorDynamicsButRejectsRoleAndIntentRacesWithoutWriting() {
         Fixture originalChanged = swappedFixture();
         originalChanged.inventory.slots[9] = stack("mod:pickaxe", "changed", 89);
-        assertRestoreRejected(originalChanged, currentRestoreIntent(originalChanged, 2L));
+        AutoToolSwapRoundResult changed = originalChanged.service.handleIntent(originalChanged.player,
+                originalChanged.endpoint, currentRestoreIntent(originalChanged, 2L), originalChanged.inventory, 2L);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, changed.outcome());
+        Assert.assertTrue(originalChanged.inventory.slots[0].sameRole(ORIGINAL));
 
         Fixture roleChanged = swappedFixture();
         roleChanged.inventory.slots[0] = stack("mod:hammer", "used", 20);
         assertRestoreRejected(roleChanged, currentRestoreIntent(roleChanged, 2L));
+
+        Fixture subtypeChanged = swappedFixture();
+        subtypeChanged.inventory.slots[9] = stack("mod:pickaxe@1", "changed", 89);
+        assertRestoreRejected(subtypeChanged, currentRestoreIntent(subtypeChanged, 2L));
 
         Fixture intentStale = swappedFixture();
         AutoToolSwapIntent stale = intent(intentStale.roundId, 2L, AutoToolSwapAction.RESTORE, 0, 9,
                 CANDIDATE, ORIGINAL);
         intentStale.inventory.slots[0] = stack("mod:drill", "used", 20);
         assertRestoreRejected(intentStale, stale);
+    }
+
+    @Test
+    public void emptyOriginalAnchorOnlyLeasesEmptyWhileBrokenActiveToolMayRestore() {
+        Fixture emptyAnchor = fixture();
+        emptyAnchor.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapIntent swap = intent(emptyAnchor.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
+                AutoToolSwapStackState.empty(), CANDIDATE);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, emptyAnchor.service.handleIntent(emptyAnchor.player,
+                emptyAnchor.endpoint, swap, emptyAnchor.inventory, 1L).outcome());
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, emptyAnchor.service.handleIntent(emptyAnchor.player,
+                emptyAnchor.endpoint, currentRestoreIntent(emptyAnchor, 2L), emptyAnchor.inventory, 2L).outcome());
+
+        Fixture occupiedEmptyLease = fixture();
+        occupiedEmptyLease.inventory.slots[0] = AutoToolSwapStackState.empty();
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, occupiedEmptyLease.service.handleIntent(
+                occupiedEmptyLease.player, occupiedEmptyLease.endpoint,
+                intent(occupiedEmptyLease.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
+                        AutoToolSwapStackState.empty(), CANDIDATE), occupiedEmptyLease.inventory, 1L).outcome());
+        occupiedEmptyLease.inventory.slots[9] = stack("mod:foreign", "occupied", 10);
+        assertRestoreRejected(occupiedEmptyLease, currentRestoreIntent(occupiedEmptyLease, 2L));
+    }
+
+    @Test
+    public void abandonUsesCanonicalControlClearsLedgerWithoutInventoryAndReplaysIdempotently() {
+        Fixture fixture = swappedFixture();
+        fixture.inventory.readCount = 0;
+        fixture.inventory.swapCount = 0;
+        fixture.inventory.syncCount = 0;
+        AutoToolSwapIntent abandon = abandonIntent(fixture, 2L);
+
+        AutoToolSwapRoundResult finished = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                abandon, fixture.inventory, 2L);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, finished.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, finished.roundState());
+        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasLedger());
+        assertNoInventoryAccess(fixture.inventory);
+        Assert.assertEquals(finished, fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                abandon, fixture.inventory, 3L));
+        assertNoInventoryAccess(fixture.inventory);
+
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED,
+                fixture.service.beginRound(fixture.player, fixture.endpoint, 99L, 4L).outcome());
+        long nextRound = fixture.service.activatePendingRound(fixture.player, fixture.endpoint, 5L).serverRoundId();
+        Assert.assertTrue(nextRound > fixture.roundId);
+    }
+
+    @Test
+    public void abandonMismatchesAndNoncanonicalControlsCannotClearCurrentLedger() {
+        Fixture fixture = swappedFixture();
+        fixture.inventory.readCount = 0;
+        fixture.inventory.swapCount = 0;
+        fixture.inventory.syncCount = 0;
+
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                new Object(), abandonIntent(fixture, 2L), fixture.inventory, 2L).outcome());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                        fixture.roundId + 1L, 2L, AutoToolSwapAction.ABANDON, 0, 9,
+                        AutoToolSwapContentFingerprint.canonicalEmpty(),
+                        AutoToolSwapContentFingerprint.canonicalEmpty()), fixture.inventory, 2L).outcome());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, abandonIntent(fixture, 3L), fixture.inventory, 2L).outcome());
+        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
+        assertNoInventoryAccess(fixture.inventory);
+
+        Fixture wrongSlots = swappedFixture();
+        wrongSlots.inventory.readCount = 0;
+        wrongSlots.inventory.swapCount = 0;
+        wrongSlots.inventory.syncCount = 0;
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent wrongSlotIntent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                wrongSlots.roundId, 2L, AutoToolSwapAction.ABANDON, 0, 8, empty, empty);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, wrongSlots.service.handleIntent(wrongSlots.player,
+                wrongSlots.endpoint, wrongSlotIntent, wrongSlots.inventory, 2L).outcome());
+        Assert.assertTrue(wrongSlots.service.snapshot(wrongSlots.player).hasLedger());
+        assertNoInventoryAccess(wrongSlots.inventory);
+
+        AutoToolSwapIntent noncanonical = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fixture.roundId, 2L, AutoToolSwapAction.ABANDON, 0, 9,
+                ORIGINAL.contentFingerprint(), AutoToolSwapContentFingerprint.canonicalEmpty());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, noncanonical, fixture.inventory, 3L).outcome());
+        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
+        assertNoInventoryAccess(fixture.inventory);
+
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, abandonIntent(fixture, 3L), fixture.inventory, 4L).roundState());
+        assertNoInventoryAccess(fixture.inventory);
+    }
+
+    @Test
+    public void abandonIsAcceptedFromFrozenAndClosingLedgerStates() {
+        Fixture frozen = swappedFixture();
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, frozen.service.handleIntent(frozen.player,
+                frozen.endpoint, intent(frozen.roundId, 2L, AutoToolSwapAction.FREEZE, 0, 9,
+                        frozen.inventory.slots[0], frozen.inventory.slots[9]), frozen.inventory, 2L).roundState());
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, frozen.service.handleIntent(frozen.player,
+                frozen.endpoint, abandonIntent(frozen, 3L), frozen.inventory, 3L).roundState());
+
+        Fixture closing = swappedFixture();
+        closing.service.onKeyReleased(closing.player, closing.endpoint);
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, closing.service.handleIntent(closing.player,
+                closing.endpoint, abandonIntent(closing, 2L), closing.inventory, 2L).roundState());
     }
 
     @Test
@@ -540,6 +651,18 @@ public class AutoToolSwapRoundServiceTest {
     private static AutoToolSwapIntent currentRestoreIntent(Fixture fixture, long sequence) {
         return intent(fixture.roundId, sequence, AutoToolSwapAction.RESTORE, 0, 9,
                 fixture.inventory.slots[0], fixture.inventory.slots[9]);
+    }
+
+    private static AutoToolSwapIntent abandonIntent(Fixture fixture, long sequence) {
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, fixture.roundId, sequence,
+                AutoToolSwapAction.ABANDON, 0, 9, empty, empty);
+    }
+
+    private static void assertNoInventoryAccess(FakeInventory inventory) {
+        Assert.assertEquals(0, inventory.readCount);
+        Assert.assertEquals(0, inventory.swapCount);
+        Assert.assertEquals(0, inventory.syncCount);
     }
 
     private static AutoToolSwapIntent intent(long roundId, long sequence, AutoToolSwapAction action,
