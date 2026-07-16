@@ -33,6 +33,7 @@
 
 - GUI 打开或玩家切换热栏锚点时，只对已有换位执行 RESTORE，round 保持 OPEN；GUI 关闭或 re-anchor 完成后可在同一 round 继续匹配。
 - 松开连锁键、配置从启用改为禁用，或专用 round 收到 IDLE 时，按 RESTORE 后 CLOSE 的顺序收口。
+- 专用 round 自然进入 IDLE 时，即使物理连锁键仍持续按住，也必须先让旧 round 完整执行 RESTORE→CLOSE。只有 CLOSE 精确结算为 FINISHED、客户端协议已复位到 IDLE，且期间没有松键/快速重按、配置关闭、生命周期复位、拒绝或 orphan，才在下一次 `ClientTick` 创建新 nonce 并先提交 RoundStart；提交成功后由 `KeyListener` 补发 fresh `PacketKeyState(KEY_CHAIN, true)` 激活新服务端 round。旧 round 不复活，也不增加状态机捷径。
 - 连接断开、世界替换、协议超时、包失配或同步异常时不盲目发送恢复。客户端清空 controller/protocol，服务端生命周期清理销毁 round 账本，保留最后一次由服务端原版同步发布的库存状态。
 - 三个自动工具 S2C 先按连接 identity 捕获 token，再经客户端主线程的当前连接与当前世界 gate 发布到 adapter。publication 只更新本地协议状态；可能产生的后续 C2S 延迟到下一次 `ClientTick`，不在 lifecycle monitor 内执行网络 I/O。
 
@@ -53,7 +54,7 @@
 
 - 同版本客户端与 dedicated server 建连，以及版本不匹配的拒绝/失配收口。
 - 首轮立即匹配、每 10 tick 重匹配、当前主手有效时短路、首块成功后冻结。
-- 松键与自然 IDLE、GUI/re-anchor、快速开始后立即收口、工具破损后的 RESTORE。
+- 松键与自然 IDLE（含持续按键跨多个 round）、GUI/re-anchor、快速开始后立即收口、工具破损后的 RESTORE。
 - 断线、重生、切维度、创造模式与服务端生命周期清理。
 
 在上述矩阵完成前，不把自动工具运行态标记为实机已通过。

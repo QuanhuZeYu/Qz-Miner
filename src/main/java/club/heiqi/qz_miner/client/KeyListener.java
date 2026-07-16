@@ -155,7 +155,9 @@ public class KeyListener {
 
         wasPressed = isPressed;
         if (autoToolSwapAdapter != null) {
-            autoToolSwapAdapter.onClientTick();
+            if (autoToolSwapAdapter.onClientTick()) {
+                sendFreshChainKeyPressedToServer();
+            }
         }
     }
 
@@ -170,13 +172,7 @@ public class KeyListener {
         }
 
         if (pressed) {
-            if (MyMod.chainStateService != null) {
-                MyMod.chainStateService.setClientChainKeyPressed(true);
-            }
-            if (MyMod.networkMain != null) {
-                syncRequestedChainConfigToServer();
-                MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
-            }
+            sendFreshChainKeyPressedToServer();
             return;
         }
         if (MyMod.chainStateService != null) {
@@ -184,6 +180,17 @@ public class KeyListener {
         }
         if (MyMod.networkMain != null) {
             MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, false));
+        }
+    }
+
+    /** 复用真实上升沿的配置同步与 key=true 发包，但不制造新的物理边沿。 */
+    private void sendFreshChainKeyPressedToServer() {
+        if (MyMod.chainStateService != null) {
+            MyMod.chainStateService.setClientChainKeyPressed(true);
+        }
+        if (MyMod.networkMain != null) {
+            syncRequestedChainConfigToServer();
+            MyMod.networkMain.network.sendToServer(new PacketKeyState(KEY_CHAIN, true));
         }
     }
 

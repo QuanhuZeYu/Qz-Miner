@@ -7,6 +7,7 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
@@ -343,12 +344,70 @@ public class AutoToolSwapControllerTest {
         Assert.assertTrue(controller.drainCommands().isEmpty());
     }
 
+    @Test
+    public void naturalFinishedCloseDefersOneNewGenerationButReleaseAndNonFinishedCloseDisqualifyIt() {
+        AutoToolSwapController natural = acceptedRoundWithoutSwap();
+        natural.onDedicatedPhase(ChainPhase.IDLE);
+        ToolSwapCommand naturalClose = only(natural);
+        natural.onActionStarted(AutoToolSwapAction.CLOSE);
+        natural.onActionSettled(AutoToolSwapAction.CLOSE, AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FINISHED, 1L);
+
+        Assert.assertEquals(AutoToolSwapState.IDLE, natural.state());
+        Assert.assertTrue("CLOSE 回调内不得立即创建下一 round", natural.drainCommands().isEmpty());
+        long firstGeneration = natural.generation();
+        Assert.assertTrue(natural.beginDeferredRound(context(2L, noCandidate())));
+        Assert.assertEquals(firstGeneration + 1L, natural.generation());
+        Assert.assertEquals(ToolSwapCommand.Type.BEGIN_ROUND, only(natural).type);
+
+        AutoToolSwapController released = acceptedRoundWithoutSwap();
+        released.onDedicatedPhase(ChainPhase.IDLE);
+        ToolSwapCommand releasedClose = only(released);
+        released.onActionStarted(AutoToolSwapAction.CLOSE);
+        released.onActionSettled(AutoToolSwapAction.CLOSE, AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FINISHED, 1L);
+        released.onKeyState(false, context(2L, noCandidate()), false);
+        Assert.assertFalse(released.beginDeferredRound(context(3L, noCandidate())));
+
+        AutoToolSwapController nonFinished = acceptedRoundWithoutSwap();
+        nonFinished.onDedicatedPhase(ChainPhase.IDLE);
+        ToolSwapCommand nonFinishedClose = only(nonFinished);
+        nonFinished.onActionStarted(AutoToolSwapAction.CLOSE);
+        nonFinished.onActionSettled(AutoToolSwapAction.CLOSE, AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.CLOSING, 1L);
+        Assert.assertFalse(nonFinished.beginDeferredRound(context(2L, noCandidate())));
+    }
+
+    @Test
+    public void releaseGateOutranksNaturalCloseWhenKeyIsQuicklyRepressed() {
+        AutoToolSwapController controller = acceptedRoundWithoutSwap();
+        controller.onDedicatedPhase(ChainPhase.IDLE);
+        only(controller);
+        controller.onKeyState(false, context(1L, noCandidate()), false);
+        ToolSwapCommand close = only(controller);
+        controller.onActionStarted(AutoToolSwapAction.CLOSE);
+        controller.onKeyState(true, context(1L, noCandidate()), false);
+        controller.onActionSettled(AutoToolSwapAction.CLOSE, AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FINISHED, 1L);
+
+        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, controller.state());
+        Assert.assertFalse(controller.beginDeferredRound(context(2L, noCandidate())));
+    }
+
     private static AutoToolSwapController acceptedSwap() {
         AutoToolSwapController controller = controller();
         controller.onKeyState(true, context(0, restored()), false);
         only(controller);
         controller.onRoundAccepted();
         controller.onTick(context(0, restored()));
+        return controller;
+    }
+
+    private static AutoToolSwapController acceptedRoundWithoutSwap() {
+        AutoToolSwapController controller = controller();
+        controller.onKeyState(true, context(0L, noCandidate()), false);
+        only(controller);
+        controller.onRoundAccepted();
         return controller;
     }
 

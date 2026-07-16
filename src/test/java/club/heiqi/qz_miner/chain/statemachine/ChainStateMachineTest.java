@@ -1161,4 +1161,26 @@ public class ChainStateMachineTest {
             Assert.assertEquals("派生事件不得读取后来轮次", roundId, event.getServerRoundId());
         }
     }
+
+    /** 新 round 的 fresh key 只能先合法武装，随后带新 round 的观测才进入规划。 */
+    @Test
+    public void freshKeyArmsBeforeSecondRoundObservationStartsPlanning() {
+        final long firstRoundId = 901L;
+        final long secondRoundId = 902L;
+        Harness h = newHarness();
+        drive(h, new ChainKeyPressed(PLAYER_A, firstRoundId, 0, TICK, NANOS, true));
+        drive(h, new BlockBreakObserved(PLAYER_A, firstRoundId, 0, TICK, NANOS,
+                1, 2, 3, 0, 1, null, 0));
+        drive(h, new PlanCancelled(PLAYER_A, firstRoundId, 1, TICK, NANOS, "round-one-finished"));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+
+        drive(h, new ChainKeyPressed(PLAYER_A, secondRoundId, 1, TICK, NANOS, true));
+        Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        drive(h, new BlockBreakObserved(PLAYER_A, secondRoundId, 1, TICK, NANOS,
+                4, 5, 6, 0, 1, null, 0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(2, h.sm.getCurrentGeneration(PLAYER_A));
+    }
 }

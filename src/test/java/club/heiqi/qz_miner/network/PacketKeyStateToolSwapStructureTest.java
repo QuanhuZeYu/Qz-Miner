@@ -25,10 +25,18 @@ public class PacketKeyStateToolSwapStructureTest {
         Assert.assertTrue(stateWrite < keyEvent);
         Assert.assertTrue(source.substring(keyEvent, cleanupEvent).contains("serverRoundId"));
         Assert.assertTrue(source.substring(cleanupEvent).contains("serverRoundId"));
+        Assert.assertEquals("fresh key 必须仍只经同一 bridge 解析新 round", 1,
+                occurrences(source, "AutoToolSwapKeyStateBridge.onKeyState(player, pressed)"));
     }
 
     private static String source() throws Exception {
         return new String(Files.readAllBytes(new File(
                 "src/main/java/club/heiqi/qz_miner/network/PacketKeyState.java").toPath()), StandardCharsets.UTF_8);
+    }
+
+    private static int occurrences(String value, String token) {
+        int count = 0;
+        for (int at = value.indexOf(token); at >= 0; at = value.indexOf(token, at + token.length())) count++;
+        return count;
     }
 }

@@ -86,8 +86,12 @@ public final class AutoToolSwapClientAdapter {
         executeCommands();
     }
 
-    /** 每个 ClientTickEvent.END 调用一次。 */
-    public void onClientTick() {
+    /**
+     * 每个 ClientTickEvent.END 调用一次。
+     *
+     * @return 仅当 deferred RoundStart 已成功提交时返回 true
+     */
+    public boolean onClientTick() {
         ToolSwapLightContext light = game.captureLightContext(clientTick, chainActive());
         if (light != null) {
             ToolSwapContext context = capture(light, controller.capturePlanForTick(light),
@@ -97,9 +101,11 @@ public final class AutoToolSwapClientAdapter {
                 executeCommands();
             }
         }
+        boolean deferredRoundStarted = beginDeferredRoundIfEligible();
         retryOrOrphan();
         if (clientTick != Long.MAX_VALUE) clientTick++;
         clearPreEdgeDestroyLatch();
+        return deferredRoundStarted;
     }
 
     /** 配置热更新。 */
@@ -197,27 +203,33 @@ public final class AutoToolSwapClientAdapter {
     AutoToolSwapController controllerForTests() { return controller; }
     AutoToolSwapClientProtocolState protocolForTests() { return protocol; }
 
-    private void executeCommands() {
+    private boolean executeCommands() {
+        boolean roundSubmitted = false;
         for (int rounds = 0; rounds < 8; rounds++) {
             List<ToolSwapCommand> commands = controller.drainCommands();
-            if (commands.isEmpty()) return;
-            for (ToolSwapCommand command : commands) execute(command);
+            if (commands.isEmpty()) return roundSubmitted;
+            for (ToolSwapCommand command : commands) {
+                if (execute(command)) roundSubmitted = true;
+            }
         }
         throw new IllegalStateException("tool swap command drain did not quiesce");
     }
 
-    private void execute(ToolSwapCommand command) {
+    private boolean execute(ToolSwapCommand command) {
         if (command.type == ToolSwapCommand.Type.BEGIN_ROUND) {
             long nonce = protocol.beginRound();
-            if (nonce <= 0L || !sendRound(nonce, true)) protocolFailure();
-            return;
+            if (nonce <= 0L || !sendRound(nonce, true)) {
+                protocolFailure();
+                return false;
+            }
+            return true;
         }
         if (command.type == ToolSwapCommand.Type.SEND_SWAP || command.type == ToolSwapCommand.Type.SEND_RESTORE) {
             ToolSwapContext context = captureProtected(command);
             if (context == null || !controller.onActionPreflight(command, context)) {
                 controller.onActionNotStarted(command.type == ToolSwapCommand.Type.SEND_SWAP
                         ? AutoToolSwapAction.SWAP : AutoToolSwapAction.RESTORE);
-                return;
+                return false;
             }
             SlotSnapshot anchor = context.inventory.slot(command.anchorSlot);
             SlotSnapshot candidate = context.inventory.slot(command.candidateSlot);
@@ -234,7 +246,7 @@ public final class AutoToolSwapClientAdapter {
                 actionSentTick = clientTick;
                 actionRetransmitted = false;
             }
-            return;
+            return false;
         }
         AutoToolSwapAction action = command.type == ToolSwapCommand.Type.SEND_FREEZE
                 ? AutoToolSwapAction.FREEZE : AutoToolSwapAction.CLOSE;
@@ -248,6 +260,27 @@ public final class AutoToolSwapClientAdapter {
             actionSentTick = clientTick;
             actionRetransmitted = false;
         }
+        return false;
+    }
+
+    /** 仅在旧协议精确复位后，于 tick 边界提交一次新的 RoundStart。 */
+    private boolean beginDeferredRoundIfEligible() {
+        if (protocol.snapshot().phase() != AutoToolSwapClientProtocolPhase.IDLE) return false;
+        if (!keyDown || !controller.prepareDeferredRoundCapture(game.isChainKeyPhysicallyDown())) return false;
+        ToolSwapLightContext light = game.captureLightContext(clientTick, true);
+        if (light == null) {
+            controller.cancelDeferredRound();
+            return false;
+        }
+        ToolSwapContext context = capture(light, ToolSwapCapturePlan.FULL,
+                controller.protectedAnchorSlot(), controller.protectedCandidateSlot());
+        if (context == null || !controller.beginDeferredRound(context)) {
+            controller.cancelDeferredRound();
+            return false;
+        }
+        boolean submitted = executeCommands();
+        if (submitted) dedicatedRoundEnded = false;
+        return submitted;
     }
 
     /** 空 intent 在 CLOSING 收敛 FREEZE；仅真实 orphan 升级为本地 fail-closed。 */

@@ -117,6 +117,27 @@ public class AutoToolSwapKeyStateBridgeTest {
         Assert.assertEquals(1, mismatch.sendCount);
     }
 
+    @Test
+    public void finishedRoundCannotReviveButFreshNonceThenKeyPressOpensDifferentRound() {
+        Fixture fixture = new Fixture();
+        long firstRoundId = activate(fixture);
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, fixture.service.handleIntent(fixture.playerId,
+                fixture.endpoint, closeIntent(firstRoundId), null, 3L).roundState());
+
+        Assert.assertEquals(0L, AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true,
+                fixture.service, 4L, fixture));
+        Assert.assertEquals(1, fixture.sendCount);
+
+        fixture.service.beginRound(fixture.playerId, fixture.endpoint, 42L, 5L);
+        long secondRoundId = AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true,
+                fixture.service, 6L, fixture);
+        Assert.assertTrue(secondRoundId > firstRoundId);
+        Assert.assertNotEquals(firstRoundId, secondRoundId);
+        Assert.assertEquals(42L, fixture.clientNonce);
+        Assert.assertEquals(AutoToolSwapRoundState.OPEN, fixture.result.roundState());
+        Assert.assertEquals(2, fixture.sendCount);
+    }
+
     private static long activate(Fixture fixture) {
         fixture.service.beginRound(fixture.playerId, fixture.endpoint, 41L, 1L);
         return AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true, fixture.service, 2L,

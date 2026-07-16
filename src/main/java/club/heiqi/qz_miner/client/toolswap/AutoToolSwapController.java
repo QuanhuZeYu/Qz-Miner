@@ -39,7 +39,8 @@ public final class AutoToolSwapController {
     private boolean roundAccepted;
     private boolean freezeRequested;
     private boolean closeRequested;
-    private boolean closeToWaitRelease;
+    private CloseReason closeReason = CloseReason.NONE;
+    private boolean deferredRoundPending;
     private boolean rematchAfterRestore;
     private Integer pendingAnchor;
     private ToolSwapCommand.Type queuedCommandType;
@@ -97,6 +98,7 @@ public final class AutoToolSwapController {
         ledger = null;
         lastContext = null;
         consecutiveRestoreRejections = 0;
+        deferredRoundPending = false;
         resetCycleFlags();
     }
 
@@ -114,15 +116,16 @@ public final class AutoToolSwapController {
         if (down == keyDown) return;
         keyDown = down;
         if (!down) {
+            cancelDeferredRound();
             if (state == AutoToolSwapState.WAIT_RELEASE) {
                 finishWaitRelease();
                 return;
             }
-            requestClose(true);
+            requestClose(CloseReason.RELEASE_GATED);
             return;
         }
         if (state != AutoToolSwapState.IDLE) {
-            if (closeRequested) closeToWaitRelease = true;
+            if (closeRequested) requestClose(CloseReason.RELEASE_GATED);
             return;
         }
         startCycle(context, preFrozen);
@@ -160,7 +163,10 @@ public final class AutoToolSwapController {
         boolean wasEnabled = configuredEnabled;
         configuredEnabled = enabled;
         configuredSelectors = immutableSelectors(selectors);
-        if (wasEnabled && !enabled && state != AutoToolSwapState.IDLE) requestClose(keyDown);
+        if (wasEnabled && !enabled) {
+            cancelDeferredRound();
+            if (state != AutoToolSwapState.IDLE) requestClose(CloseReason.RELEASE_GATED);
+        }
     }
 
     /** 本地首块成功，按当前 generation 单向冻结。 */
@@ -173,7 +179,7 @@ public final class AutoToolSwapController {
         if (phase == ChainPhase.PLANNING || phase == ChainPhase.RUNNING || phase == ChainPhase.FINISHING) {
             requestFreeze(generation);
         } else if (phase == ChainPhase.IDLE) {
-            requestClose(keyDown);
+            requestClose(keyDown ? CloseReason.NATURAL_REARM : CloseReason.RELEASE_GATED);
         }
     }
 
@@ -194,6 +200,7 @@ public final class AutoToolSwapController {
         queuedCommandType = null;
         ledger = null;
         pendingAction = null;
+        deferredRoundPending = false;
         state = keyDown ? AutoToolSwapState.WAIT_RELEASE : AutoToolSwapState.IDLE;
         resetCycleFlags();
     }
@@ -245,7 +252,7 @@ public final class AutoToolSwapController {
         if (action != AutoToolSwapAction.FREEZE || !protocolClosing
                 || transactionState != ToolSwapTransactionState.IDLE) return;
         freezeRequested = false;
-        requestClose(keyDown);
+        requestClose(CloseReason.RELEASE_GATED);
     }
 
     /** 协议层已精确归因的单次结算。 */
@@ -267,7 +274,7 @@ public final class AutoToolSwapController {
                     state = AutoToolSwapState.FROZEN;
                 } else if (serverRoundState == AutoToolSwapRoundState.CLOSING) {
                     freezeRequested = false;
-                    requestClose(keyDown);
+                    requestClose(CloseReason.RELEASE_GATED);
                 } else if (serverRoundState == AutoToolSwapRoundState.OPEN) {
                     state = freezeRequested ? AutoToolSwapState.FROZEN : AutoToolSwapState.PREPARING;
                     if (lastContext != null) drive(lastContext);
@@ -303,7 +310,7 @@ public final class AutoToolSwapController {
                 && serverRoundState == AutoToolSwapRoundState.CLOSING) {
             pendingAction = null;
             freezeRequested = false;
-            requestClose(keyDown);
+            requestClose(CloseReason.RELEASE_GATED);
             return;
         }
         if (action == AutoToolSwapAction.CLOSE) {
@@ -312,7 +319,7 @@ public final class AutoToolSwapController {
                 state = AutoToolSwapState.RESTORING;
             } else if (result == AutoToolSwapResultCode.ACCEPTED || result == AutoToolSwapResultCode.APPLIED) {
                 pendingAction = null;
-                finishClose();
+                finishClose(serverRoundState == AutoToolSwapRoundState.FINISHED);
             } else protocolOrphaned();
             return;
         }
@@ -358,10 +365,40 @@ public final class AutoToolSwapController {
         roundAccepted = false;
         pendingAction = null;
         verifyingAction = null;
+        deferredRoundPending = false;
         resetCycleFlags();
     }
 
+    /** 在自然关闭后的后续 tick 消费一次重武装资格，不暴露新的公开状态。 */
+    boolean beginDeferredRound(ToolSwapContext context) {
+        if (!deferredRoundPending) return false;
+        deferredRoundPending = false;
+        if (context == null || !keyDown || state != AutoToolSwapState.IDLE
+                || transactionState != ToolSwapTransactionState.IDLE || !configuredEnabled) {
+            return false;
+        }
+        remember(context);
+        startCycle(context, false);
+        return queuedCommandType == ToolSwapCommand.Type.BEGIN_ROUND;
+    }
+
+    /** 物理松键、生命周期或其他 fail-closed 条件使自然重武装资格永久失效。 */
+    void cancelDeferredRound() {
+        deferredRoundPending = false;
+    }
+
+    /** 在捕获完整库存前廉价确认 deferred 资格；物理松键立即单调取消。 */
+    boolean prepareDeferredRoundCapture(boolean physicallyDown) {
+        if (!deferredRoundPending) return false;
+        if (!keyDown || !physicallyDown) {
+            cancelDeferredRound();
+            return false;
+        }
+        return true;
+    }
+
     private void startCycle(ToolSwapContext context, boolean preFrozen) {
+        deferredRoundPending = false;
         generation = incrementGeneration(generation);
         cycleEnabled = configuredEnabled;
         cycleSelectors = configuredSelectors;
@@ -370,7 +407,7 @@ public final class AutoToolSwapController {
         roundAccepted = false;
         freezeRequested = preFrozen;
         closeRequested = false;
-        closeToWaitRelease = false;
+        closeReason = CloseReason.NONE;
         rematchAfterRestore = false;
         pendingAnchor = null;
         ledger = null;
@@ -435,11 +472,14 @@ public final class AutoToolSwapController {
         if (lastContext != null) drive(lastContext);
     }
 
-    private void requestClose(boolean waitRelease) {
+    private void requestClose(CloseReason requestedReason) {
+        if (requestedReason == CloseReason.RELEASE_GATED) cancelDeferredRound();
         if (state == AutoToolSwapState.IDLE || state == AutoToolSwapState.ABORTED_SYNC) return;
         ToolSwapCommand.Type cancelled = cancelQueuedCommand();
         closeRequested = true;
-        closeToWaitRelease = waitRelease;
+        if (requestedReason == CloseReason.RELEASE_GATED || closeReason == CloseReason.NONE) {
+            closeReason = requestedReason;
+        }
         if (cancelled == ToolSwapCommand.Type.SEND_SWAP) {
             discardUnstartedSwap(lastContext == null ? 0L : lastContext.tick);
         } else {
@@ -492,8 +532,11 @@ public final class AutoToolSwapController {
         rematchAfterRestore = false;
     }
 
-    private void finishClose() {
-        state = closeToWaitRelease && keyDown ? AutoToolSwapState.WAIT_RELEASE : AutoToolSwapState.IDLE;
+    private void finishClose(boolean exactlyFinished) {
+        boolean naturalRearm = exactlyFinished && closeReason == CloseReason.NATURAL_REARM
+                && keyDown && configuredEnabled;
+        deferredRoundPending = naturalRearm;
+        state = naturalRearm || !keyDown ? AutoToolSwapState.IDLE : AutoToolSwapState.WAIT_RELEASE;
         roundAccepted = false;
         ledger = null;
         resetCycleFlags();
@@ -509,6 +552,7 @@ public final class AutoToolSwapController {
         ledger = null;
         pendingAction = null;
         verifyingAction = null;
+        deferredRoundPending = false;
         resetCycleFlags();
     }
 
@@ -580,7 +624,7 @@ public final class AutoToolSwapController {
         cycleSelectors = Collections.emptyList();
         freezeRequested = false;
         closeRequested = false;
-        closeToWaitRelease = false;
+        closeReason = CloseReason.NONE;
         rematchAfterRestore = false;
         pendingAnchor = null;
     }
@@ -617,6 +661,13 @@ public final class AutoToolSwapController {
     private static List<ToolSelector> immutableSelectors(List<ToolSelector> selectors) {
         return Collections.unmodifiableList(new ArrayList<ToolSelector>(
                 selectors == null ? Collections.<ToolSelector>emptyList() : selectors));
+    }
+
+    /** CLOSE 的内部归因；显式松键门一旦出现便单调覆盖自然重武装。 */
+    private enum CloseReason {
+        NONE,
+        NATURAL_REARM,
+        RELEASE_GATED
     }
 
     /** 单一可逆账本，严格内容用于源布局，活动工具角色允许耐久变化或耗尽。 */

@@ -153,6 +153,80 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void naturalFinishedCloseRearmsOnNextTickWithFreshNonceOnlyWhilePhysicalLevelStaysDown() {
+        game.physicalKeyDown = true;
+        adapter.onChainKeyState(true);
+        long firstNonce = transport.rounds.get(0).longValue();
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 1L, true);
+
+        Assert.assertFalse(adapter.onClientTick());
+        AutoToolSwapIntent close = transport.intents.get(0);
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals("S2C callback 内不得发送 RoundStart2", 1, transport.rounds.size());
+
+        Assert.assertTrue(adapter.onClientTick());
+        Assert.assertEquals(2, transport.rounds.size());
+        Assert.assertTrue(transport.rounds.get(1).longValue() > firstNonce);
+        Assert.assertEquals(AutoToolSwapClientProtocolPhase.WAIT_ROUND,
+                adapter.protocolForTests().snapshot().phase());
+        Assert.assertFalse("一次性信号不得重复", adapter.onClientTick());
+        rejectRound(1);
+        Assert.assertFalse("新 round 被拒绝后不得继续自动创建 nonce", adapter.onClientTick());
+        Assert.assertEquals(2, transport.rounds.size());
+    }
+
+    @Test
+    public void deferredRearmFailsClosedForPhysicalReleaseConfigDisableLifecycleAndRoundStartFailure() {
+        finishNaturalRoundWithPhysicalKeyDown();
+        game.physicalKeyDown = false;
+        Assert.assertFalse(adapter.onClientTick());
+        game.physicalKeyDown = true;
+        Assert.assertFalse(adapter.onClientTick());
+        Assert.assertEquals(1, transport.rounds.size());
+
+        setUpFreshAdapter();
+        finishNaturalRoundWithPhysicalKeyDown();
+        adapter.onConfigChanged(false, Collections.emptyList());
+        Assert.assertFalse(adapter.onClientTick());
+        Assert.assertEquals(1, transport.rounds.size());
+
+        setUpFreshAdapter();
+        finishNaturalRoundWithPhysicalKeyDown();
+        adapter.resetForLifecycle();
+        Assert.assertFalse(adapter.onClientTick());
+        Assert.assertEquals(1, transport.rounds.size());
+
+        setUpFreshAdapter();
+        finishNaturalRoundWithPhysicalKeyDown();
+        transport.accept = false;
+        Assert.assertFalse(adapter.onClientTick());
+        Assert.assertEquals(ToolSwapTransactionState.PROTOCOL_ORPHANED,
+                adapter.controllerForTests().transactionState());
+        transport.accept = true;
+        Assert.assertFalse(adapter.onClientTick());
+    }
+
+    @Test
+    public void releaseAndQuickRepressDuringNaturalClosingKeepWaitReleaseContract() {
+        game.physicalKeyDown = true;
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 1L, true);
+        adapter.onClientTick();
+        AutoToolSwapIntent close = transport.intents.get(0);
+
+        adapter.onChainKeyState(false);
+        adapter.onChainKeyState(true);
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapState.WAIT_RELEASE, adapter.controllerForTests().state());
+        Assert.assertFalse(adapter.onClientTick());
+        Assert.assertEquals(1, transport.rounds.size());
+    }
+
+    @Test
     public void inapplicableCyclesDoNotSendRoundStart() {
         adapter.onConfigChanged(false, Collections.emptyList());
         adapter.onChainKeyState(true);
@@ -360,6 +434,24 @@ public class AutoToolSwapClientAdapterTest {
         settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
         adapter.onClientTick();
         Assert.assertTrue(adapter.controllerForTests().hasLedger());
+    }
+
+    private void finishNaturalRoundWithPhysicalKeyDown() {
+        game.physicalKeyDown = true;
+        adapter.onChainKeyState(true);
+        acceptRound(transport.rounds.size() - 1, 9L);
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 1L, true);
+        adapter.onClientTick();
+        AutoToolSwapIntent close = transport.intents.get(transport.intents.size() - 1);
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+    }
+
+    private void setUpFreshAdapter() {
+        game = new FakeGame();
+        transport = new RecordingTransport();
+        adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport,
+                new AutoToolSwapClientProtocolState());
     }
 
     private void assertNoRoundStart(boolean breakCapable, boolean creative) {

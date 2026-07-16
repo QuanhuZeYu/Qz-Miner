@@ -21,6 +21,10 @@ public class AutoToolClientWiringStructureTest {
         Assert.assertTrue(source.indexOf("autoToolSwapAdapter.onChainKeyState(pressed)")
                 < source.indexOf("new PacketKeyState(KEY_CHAIN, true)"));
         Assert.assertEquals(2, occurrences(source, "autoToolSwapAdapter.onClientTick()"));
+        int deferredTick = source.indexOf("autoToolSwapAdapter.onClientTick()");
+        int freshKey = source.indexOf("sendFreshChainKeyPressedToServer()", deferredTick);
+        Assert.assertTrue("RoundStart tick 必须先于 fresh key=true", deferredTick < freshKey);
+        Assert.assertFalse(source.substring(deferredTick, freshKey).contains("onChainKeyState(true)"));
         Assert.assertFalse(source.contains("currentItem ="));
     }
 
