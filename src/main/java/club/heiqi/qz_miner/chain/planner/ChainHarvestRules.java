@@ -11,6 +11,14 @@ import net.minecraft.item.ItemStack;
  */
 public final class ChainHarvestRules {
 
+    /** 正式 matcher 复用的不可变采掘判定策略。 */
+    static final HarvestEvaluator DEFAULT_EVALUATOR = new HarvestEvaluator() {
+        @Override
+        public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
+            return evaluateHarvest(player, target, diagnosticTracking);
+        }
+    };
+
     private ChainHarvestRules() {}
 
     /**
@@ -68,41 +76,47 @@ public final class ChainHarvestRules {
      */
     static boolean canHarvest(EntityPlayer player, ChainTarget target,
             ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        HarvestEvaluation evaluation = DEFAULT_EVALUATOR.evaluate(player, target,
+                diagnostics != null && diagnostics.isTracking(target));
+        evaluation.record(diagnostics, target);
+        return evaluation.isAccepted();
+    }
+
+    /** 按原短路顺序读取一次业务状态，并返回供 matcher 统一记录的纯值结果。 */
+    private static HarvestEvaluation evaluateHarvest(EntityPlayer player, ChainTarget target,
+            boolean diagnosticTracking) {
         if (player == null || target == null) {
-            record(diagnostics, target, null, -1, "not-read", "not-run", "not-run", "invalid-input");
-            return false;
+            return new HarvestEvaluation(false, null, -1, "not-read", "not-run", "not-run", "invalid-input");
         }
 
         Block block = player.worldObj.getBlock(target.getX(), target.getY(), target.getZ());
         if (block == null || block == Blocks.air || block == Blocks.bedrock || block.getMaterial().isLiquid()) {
-            record(diagnostics, target, block, -1, "not-read", "not-run", "not-run", "world-view");
-            return false;
+            return new HarvestEvaluation(false, block, -1, "not-read", "not-run", "not-run", "world-view");
         }
 
         if (isStandingOnTarget(player, target)) {
-            record(diagnostics, target, block, -1, "not-read", "not-run", "not-run", "standing-on-target");
-            return false;
+            return new HarvestEvaluation(false, block, -1, "not-read", "not-run", "not-run",
+                    "standing-on-target");
         }
 
         ItemStack equippedItem = player.capabilities.isCreativeMode ? null : player.getCurrentEquippedItem();
         boolean enoughDurability = player.capabilities.isCreativeMode || hasEnoughDurability(equippedItem);
-        String toolSummary = diagnostics != null && diagnostics.isTracking(target)
+        String toolSummary = diagnosticTracking
                 ? MinecraftAutoToolSwapInventoryPort.describeStack(equippedItem) : "not-recorded";
         if (!enoughDurability) {
-            record(diagnostics, target, block, -1, toolSummary, "false", "not-run", "durability-insufficient");
-            return false;
+            return new HarvestEvaluation(false, block, -1, toolSummary, "false", "not-run",
+                    "durability-insufficient");
         }
 
         if (player.capabilities.isCreativeMode) {
-            record(diagnostics, target, block, -1, "creative-not-read", "true", "creative-bypass", "accepted");
-            return true;
+            return new HarvestEvaluation(true, block, -1, "creative-not-read", "true", "creative-bypass",
+                    "accepted");
         }
 
         int meta = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
         boolean canHarvestBlock = block.canHarvestBlock(player, meta);
-        record(diagnostics, target, block, meta, toolSummary, "true", String.valueOf(canHarvestBlock),
-                canHarvestBlock ? "accepted" : "can-harvest-block-rejected");
-        return canHarvestBlock;
+        return new HarvestEvaluation(canHarvestBlock, block, meta, toolSummary, "true",
+                String.valueOf(canHarvestBlock), canHarvestBlock ? "accepted" : "can-harvest-block-rejected");
     }
 
     /** 对已捕获 ItemStack 执行与公开耐久规则相同的纯值判定。 */
@@ -121,14 +135,49 @@ public final class ChainHarvestRules {
         return "can-harvest-block-rejected";
     }
 
-    /** 将一次短路结果交给诊断器；不持有 Minecraft 运行态对象。 */
-    private static void record(ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics, ChainTarget target,
-            Block block, int meta, String toolSummary, String durabilityResult, String canHarvestResult,
-            String reason) {
-        if (diagnostics != null) {
-            diagnostics.logWorkerReadOnce(Thread.currentThread().getName());
-            diagnostics.recordHarvestResult(target, block, meta, toolSummary, durabilityResult,
-                    canHarvestResult, reason);
+    /** 不可变采掘判定策略；实现只返回单次读取所得结果。 */
+    interface HarvestEvaluator {
+        HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking);
+    }
+
+    /** 不可变目标身份分类策略。 */
+    interface TargetClassifier {
+        boolean matches(EntityPlayer player, ChainTarget target);
+    }
+
+    /** 单次采掘判定的不可变纯值快照。 */
+    static final class HarvestEvaluation {
+
+        private final boolean accepted;
+        private final Block block;
+        private final int meta;
+        private final String toolSummary;
+        private final String durabilityResult;
+        private final String canHarvestResult;
+        private final String reason;
+
+        HarvestEvaluation(boolean accepted, Block block, int meta, String toolSummary, String durabilityResult,
+                String canHarvestResult, String reason) {
+            this.accepted = accepted;
+            this.block = block;
+            this.meta = meta;
+            this.toolSummary = toolSummary;
+            this.durabilityResult = durabilityResult;
+            this.canHarvestResult = canHarvestResult;
+            this.reason = reason;
+        }
+
+        boolean isAccepted() {
+            return accepted;
+        }
+
+        /** 由正式 matcher/共享规则统一记录，判定策略本身不写诊断状态。 */
+        void record(ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics, ChainTarget target) {
+            if (diagnostics != null) {
+                diagnostics.logWorkerReadOnce(Thread.currentThread().getName());
+                diagnostics.recordHarvestResult(target, block, meta, toolSummary, durabilityResult,
+                        canHarvestResult, reason);
+            }
         }
     }
 }

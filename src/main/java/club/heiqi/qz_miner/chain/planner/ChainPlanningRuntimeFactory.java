@@ -98,34 +98,43 @@ public final class ChainPlanningRuntimeFactory {
         }
         ChainResolverContext resolverContext = new ChainResolverContext(player, session, searchContext);
         ChainCandidateFilter candidateFilter = createCandidateFilter(searchContext, diagnostics);
-        searchContext.setCandidateFilter(candidateFilter);
 
         BudgetedChainTraverser traverser = definition.createTraverser(resolverContext);
         ChainBlockMatcher matcher = definition.createMatcher(resolverContext);
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;
         }
-        setMatcherDiagnostics(matcher, diagnostics);
+        matcher = bindMatcherDiagnostics(matcher, diagnostics);
         matcher = decorateModeExtensionMatcher(searchContext, matcher, diagnostics);
-        matcher = decorateMatcherWithDiagnostics(matcher, diagnostics);
+        DiagnosticAssembly diagnosticAssembly = assembleDiagnostics(candidateFilter, matcher, diagnostics);
+        candidateFilter = diagnosticAssembly.getCandidateFilter();
+        matcher = diagnosticAssembly.getMatcher();
+        searchContext.setCandidateFilter(candidateFilter);
 
         return new ChainPlanningRuntime(searchContext, resolverContext, candidateFilter, traverser, matcher);
     }
 
-    /** 为所有正式采掘 matcher 注入同一个 round 级诊断上下文。 */
-    static boolean setMatcherDiagnostics(ChainBlockMatcher matcher, PlanningDiagnostics diagnostics) {
+    /** 为所有正式采掘 matcher 返回绑定同一 round 诊断上下文的不可变副本。 */
+    static ChainBlockMatcher bindMatcherDiagnostics(ChainBlockMatcher matcher, PlanningDiagnostics diagnostics) {
         if (matcher instanceof HarvestableBlockMatcher) {
-            ((HarvestableBlockMatcher) matcher).setDiagnostics(diagnostics);
+            return ((HarvestableBlockMatcher) matcher).withDiagnostics(diagnostics);
         } else if (matcher instanceof SameBlockHarvestableMatcher) {
-            ((SameBlockHarvestableMatcher) matcher).setDiagnostics(diagnostics);
+            return ((SameBlockHarvestableMatcher) matcher).withDiagnostics(diagnostics);
         } else if (matcher instanceof OreBlockHarvestableMatcher) {
-            ((OreBlockHarvestableMatcher) matcher).setDiagnostics(diagnostics);
+            return ((OreBlockHarvestableMatcher) matcher).withDiagnostics(diagnostics);
         } else if (matcher instanceof LogBlockHarvestableMatcher) {
-            ((LogBlockHarvestableMatcher) matcher).setDiagnostics(diagnostics);
-        } else {
-            return false;
+            return ((LogBlockHarvestableMatcher) matcher).withDiagnostics(diagnostics);
         }
-        return true;
+        return matcher;
+    }
+
+    /**
+     * 原子装配最终 candidate/matcher 诊断包装；生产运行时与纯 JVM 测试共用此唯一接缝。
+     */
+    static DiagnosticAssembly assembleDiagnostics(ChainCandidateFilter candidateFilter, ChainBlockMatcher matcher,
+            PlanningDiagnostics diagnostics) {
+        return new DiagnosticAssembly(decorateCandidateFilterWithDiagnostics(candidateFilter, diagnostics),
+                decorateMatcherWithDiagnostics(matcher, diagnostics));
     }
 
     /**
@@ -241,7 +250,7 @@ public final class ChainPlanningRuntimeFactory {
         final ChainCandidateFilter base = ChainSubModeRegistry.createCandidateFilter(context, fallback);
         final ChainCandidateFilter decorated = ModeExtensionMatcherDecorator.decorateCandidateFilter(
             context.getSubMode(), base, context.getFrozenModePredicate(), context.getWorld());
-        return decorateCandidateFilterWithDiagnostics(decorated, diagnostics);
+        return decorated;
     }
 
     /** 最终 candidate filter 诊断包装只观察单次业务返回值，不重复调用原 predicate。 */
@@ -256,6 +265,26 @@ public final class ChainPlanningRuntimeFactory {
             diagnostics.recordCandidateResult(target, result);
             return result;
         };
+    }
+
+    /** 生产实际复用的不可变诊断装配结果。 */
+    static final class DiagnosticAssembly {
+
+        private final ChainCandidateFilter candidateFilter;
+        private final ChainBlockMatcher matcher;
+
+        private DiagnosticAssembly(ChainCandidateFilter candidateFilter, ChainBlockMatcher matcher) {
+            this.candidateFilter = candidateFilter;
+            this.matcher = matcher;
+        }
+
+        ChainCandidateFilter getCandidateFilter() {
+            return candidateFilter;
+        }
+
+        ChainBlockMatcher getMatcher() {
+            return matcher;
+        }
     }
 
     /** 单行文本诊断输出边界，便于纯 JVM 验证预算与格式。 */
@@ -361,6 +390,12 @@ public final class ChainPlanningRuntimeFactory {
             observation.durabilityResult = safe(durabilityResult);
             observation.canHarvestResult = safe(canHarvestResult);
             observation.harvestReason = safe(reason);
+        }
+
+        /** @return 当前候选由正式 matcher 记录的采掘原因，未记录时返回 {@code not-run} */
+        String getPendingHarvestReason(ChainTarget target) {
+            CandidateObservation observation = observations.get(target);
+            return observation == null ? "not-run" : observation.harvestReason;
         }
 
         /** 记录最终 decorated matcher 结果并输出一条完整候选明细。 */
