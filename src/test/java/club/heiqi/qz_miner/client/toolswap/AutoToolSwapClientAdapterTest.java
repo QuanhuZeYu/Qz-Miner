@@ -439,6 +439,29 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertTrue(adapter.reducerForTests().isOrphaned());
     }
 
+    @Test
+    public void emptyOriginalAnchorWithOccupiedCandidateSendsRestoreAndVerifiesRealExchange() {
+        game.inventory = emptyRestored();
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        AutoToolSwapIntent swap = transport.intents.get(0);
+        game.inventory = emptySwappedWithOccupant();
+        settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        adapter.onClientTick();
+
+        adapter.onChainKeyState(false);
+        AutoToolSwapIntent restore = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        game.inventory = emptyRestoreResult();
+        settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+
+        Assert.assertFalse(adapter.reducerForTests().hasSwapExpectation());
+        Assert.assertFalse(adapter.reducerForTests().isOrphaned());
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(2).action());
+    }
+
     private void acceptRound() {
         acceptRound(0, 9L);
     }
@@ -513,6 +536,21 @@ public class AutoToolSwapClientAdapterTest {
     private static ToolSwapInventorySnapshot third() {
         return inventory(new SlotSnapshot(0, "pick", "energy=20"),
                 new SlotSnapshot(5, "foreign", "occupied"), tool(0, "pick", true));
+    }
+
+    private static ToolSwapInventorySnapshot emptyRestored() {
+        return inventory(new SlotSnapshot(0, SlotSnapshot.EMPTY_ROLE_KEY, ""),
+                new SlotSnapshot(5, "pick", "fresh"), tool(5, "pick", true));
+    }
+
+    private static ToolSwapInventorySnapshot emptySwappedWithOccupant() {
+        return inventory(new SlotSnapshot(0, "pick", "used"),
+                new SlotSnapshot(5, "drop", "occupied"), tool(0, "pick", true));
+    }
+
+    private static ToolSwapInventorySnapshot emptyRestoreResult() {
+        return inventory(new SlotSnapshot(0, "drop", "occupied"),
+                new SlotSnapshot(5, "pick", "used"), tool(5, "pick", true));
     }
 
     private static ToolCandidate tool(int slot, String name, boolean usable) {

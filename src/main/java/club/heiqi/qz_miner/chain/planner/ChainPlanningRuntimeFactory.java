@@ -159,7 +159,7 @@ public final class ChainPlanningRuntimeFactory {
         return ModeExtensionMatcherDecorator.decorateMatcher(subMode, matcher,
                 (currentPlayer, target) -> currentPlayer != null
                         && extension.matches(currentPlayer.worldObj, target),
-                (currentPlayer, target) -> ChainHarvestRules.canHarvest(currentPlayer, target, diagnostics),
+                (currentPlayer, target) -> ChainHarvestRules.canPlanHarvest(currentPlayer, target, diagnostics),
                 (currentPlayer, target) -> false);
     }
 

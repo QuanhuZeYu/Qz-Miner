@@ -59,13 +59,13 @@ public final class ToolCandidate {
         return oreNames;
     }
 
-    /** @return 当前主手可继续使用的能力事实（不应用候选耐久下限） */
+    /** @return 当前主手是否满足统一能力与耐久储备门 */
     public boolean isUsableInHand() {
-        return effective && canHarvest;
+        return AutoToolUsabilityPolicy.canContinue(effective, canHarvest, remainingDurability);
     }
 
     /** @return 是否可从背包换入（至少剩余 2 点耐久） */
     public boolean isEligibleForSwap() {
-        return effective && canHarvest && remainingDurability >= 2;
+        return AutoToolUsabilityPolicy.canContinue(effective, canHarvest, remainingDurability);
     }
 }

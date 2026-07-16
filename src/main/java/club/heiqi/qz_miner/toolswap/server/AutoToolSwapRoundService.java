@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.toolswap.AutoToolUsabilityPolicy;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapActionResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint;
@@ -313,7 +314,8 @@ public final class AutoToolSwapRoundService {
         } catch (LinkageError error) {
             return AutoToolSwapResultCode.REJECTED;
         }
-        if (anchor == null || candidate == null || candidate.isEmpty() || candidate.remainingDurability() < 2
+        if (anchor == null || candidate == null || candidate.isEmpty()
+                || !AutoToolUsabilityPolicy.hasDurabilityReserve(candidate.remainingDurability())
                 || !anchor.contentFingerprint().sameContent(intent.anchorContentFingerprint())
                 || !candidate.contentFingerprint().sameContent(intent.candidateContentFingerprint())) {
             return AutoToolSwapResultCode.REJECTED;
@@ -360,7 +362,7 @@ public final class AutoToolSwapRoundService {
         if (currentAnchor == null || currentCandidate == null
                 || !currentAnchor.contentFingerprint().sameContent(intent.anchorContentFingerprint())
                 || !currentCandidate.contentFingerprint().sameContent(intent.candidateContentFingerprint())
-                || !ledger.originalAnchor.sameRole(currentCandidate)
+                || !(ledger.originalAnchor.isEmpty() || ledger.originalAnchor.sameRole(currentCandidate))
                 || !(currentAnchor.isEmpty() || ledger.originalCandidate.sameRole(currentAnchor))) {
             return AutoToolSwapResultCode.REJECTED;
         }

@@ -785,7 +785,10 @@ public final class AutoToolSwapClientReducer {
         ToolSwapInventorySnapshot inventory = context.inventory;
         if (!hasTrustedProtectedSlots(inventory)) return false;
         if (action == AutoToolSwapAction.RESTORE) {
-            if (swapExpectation.matchesSwapped(inventory, generation)) return true;
+            if (swapExpectation.matchesSwapped(inventory, generation)) {
+                swapExpectation.captureRestoreTarget(inventory);
+                return true;
+            }
             pendingAction = AutoToolSwapAction.ABANDON;
             return false;
         }
@@ -1364,6 +1367,7 @@ public final class AutoToolSwapClientReducer {
         private final int candidateSlot;
         private final SlotSnapshot anchorRole;
         private final SlotSnapshot candidateRole;
+        private SlotSnapshot restoreAnchorRole;
         private AutoToolSwapAction verifyingAction;
         private long verifyStartedTick;
 
@@ -1378,11 +1382,12 @@ public final class AutoToolSwapClientReducer {
 
         private boolean matchesSwapped(ToolSwapInventorySnapshot inventory, long currentGeneration) {
             return generation == currentGeneration && activeToolRoleMatches(candidateRole, inventory.slot(anchorSlot))
-                    && anchorRole.sameRole(inventory.slot(candidateSlot));
+                    && (anchorRole.isEmpty() || anchorRole.sameRole(inventory.slot(candidateSlot)));
         }
 
         private boolean matchesRestored(ToolSwapInventorySnapshot inventory, long currentGeneration) {
-            return generation == currentGeneration && anchorRole.sameRole(inventory.slot(anchorSlot))
+            SlotSnapshot expectedAnchor = restoreAnchorRole == null ? anchorRole : restoreAnchorRole;
+            return generation == currentGeneration && expectedAnchor.sameRole(inventory.slot(anchorSlot))
                     && activeToolRoleMatches(candidateRole, inventory.slot(candidateSlot));
         }
 
@@ -1394,6 +1399,11 @@ public final class AutoToolSwapClientReducer {
 
         private static boolean activeToolRoleMatches(SlotSnapshot expected, SlotSnapshot observed) {
             return expected.sameRole(observed) || observed != null && observed.isEmpty();
+        }
+
+        /** 固化 RESTORE 请求捕获当刻将交换到主手的真实角色。 */
+        private void captureRestoreTarget(ToolSwapInventorySnapshot inventory) {
+            restoreAnchorRole = inventory.slot(candidateSlot);
         }
     }
 

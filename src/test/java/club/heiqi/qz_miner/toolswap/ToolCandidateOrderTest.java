@@ -36,6 +36,24 @@ public class ToolCandidateOrderTest {
                 Integer.valueOf(1), Integer.valueOf(0)), slots(sorted));
     }
 
+    @Test
+    public void handAndSwapCandidatesShareTheTwoPointDurabilityReserve() {
+        ToolCandidate zero = candidate(0, "mod:zero", 0, true, true, 0);
+        ToolCandidate one = candidate(1, "mod:one", 0, true, true, 1);
+        ToolCandidate two = candidate(2, "mod:two", 0, true, true, 2);
+        ToolCandidate unbreakable = candidate(3, "mod:unbreakable", 0, true, true, Integer.MAX_VALUE);
+
+        Assert.assertFalse(zero.isUsableInHand());
+        Assert.assertFalse(one.isUsableInHand());
+        Assert.assertFalse(zero.isEligibleForSwap());
+        Assert.assertFalse(one.isEligibleForSwap());
+        Assert.assertTrue(two.isUsableInHand());
+        Assert.assertTrue(two.isEligibleForSwap());
+        Assert.assertTrue(unbreakable.isUsableInHand());
+        Assert.assertTrue(unbreakable.isEligibleForSwap());
+        Assert.assertEquals(2, AutoToolUsabilityPolicy.MIN_REMAINING_DURABILITY);
+    }
+
     private static ToolCandidate candidate(int slot, String id, int subtype,
             boolean effective, boolean harvest, int durability) {
         return new ToolCandidate(slot, id, subtype,

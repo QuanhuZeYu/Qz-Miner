@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import club.heiqi.qz_miner.toolswap.AutoToolUsabilityPolicy;
 import club.heiqi.qz_miner.toolswap.server.MinecraftAutoToolSwapInventoryPort;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
@@ -11,11 +12,19 @@ import net.minecraft.item.ItemStack;
  */
 public final class ChainHarvestRules {
 
-    /** 正式 matcher 复用的不可变采掘判定策略。 */
+    /** 规划 matcher 复用的不可变能力判定；瞬时耐久门留给主线程执行期。 */
     static final HarvestEvaluator DEFAULT_EVALUATOR = new HarvestEvaluator() {
         @Override
         public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
-            return evaluateHarvest(player, target, diagnosticTracking);
+            return evaluateHarvest(player, target, diagnosticTracking, false);
+        }
+    };
+
+    /** 主线程执行期复用的完整采掘判定。 */
+    private static final HarvestEvaluator EXECUTION_EVALUATOR = new HarvestEvaluator() {
+        @Override
+        public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
+            return evaluateHarvest(player, target, diagnosticTracking, true);
         }
     };
 
@@ -37,7 +46,8 @@ public final class ChainHarvestRules {
             return true;
         }
 
-        return equippedItem.getMaxDamage() - equippedItem.getItemDamage() > 1;
+        return AutoToolUsabilityPolicy.hasDurabilityReserve(
+                equippedItem.getMaxDamage() - equippedItem.getItemDamage());
     }
 
     /**
@@ -65,7 +75,19 @@ public final class ChainHarvestRules {
      * @return 是否允许挖掘
      */
     public static boolean canHarvest(EntityPlayer player, ChainTarget target) {
-        return canHarvest(player, target, null);
+        HarvestEvaluation evaluation = EXECUTION_EVALUATOR.evaluate(player, target, false);
+        return evaluation.isAccepted();
+    }
+
+    /**
+     * 仅用于规划线程判断目标与当前工具的采掘能力，不应用瞬时耐久储备门。
+     *
+     * @param player 玩家
+     * @param target 目标方块
+     * @return 目标是否应进入待执行队列
+     */
+    public static boolean canPlanHarvest(EntityPlayer player, ChainTarget target) {
+        return canPlanHarvest(player, target, null);
     }
 
     /**
@@ -74,7 +96,7 @@ public final class ChainHarvestRules {
      * @param diagnostics round 级诊断器，可为 null
      * @return 是否允许挖掘
      */
-    static boolean canHarvest(EntityPlayer player, ChainTarget target,
+    static boolean canPlanHarvest(EntityPlayer player, ChainTarget target,
             ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
         HarvestEvaluation evaluation = DEFAULT_EVALUATOR.evaluate(player, target,
                 diagnostics != null && diagnostics.isTracking(target));
@@ -84,7 +106,7 @@ public final class ChainHarvestRules {
 
     /** 按原短路顺序读取一次业务状态，并返回供 matcher 统一记录的纯值结果。 */
     private static HarvestEvaluation evaluateHarvest(EntityPlayer player, ChainTarget target,
-            boolean diagnosticTracking) {
+            boolean diagnosticTracking, boolean enforceDurabilityReserve) {
         if (player == null || target == null) {
             return new HarvestEvaluation(false, null, -1, "not-read", "not-run", "not-run", "invalid-input");
         }
@@ -100,10 +122,11 @@ public final class ChainHarvestRules {
         }
 
         ItemStack equippedItem = player.capabilities.isCreativeMode ? null : player.getCurrentEquippedItem();
-        boolean enoughDurability = player.capabilities.isCreativeMode || hasEnoughDurability(equippedItem);
+        boolean enoughDurability = player.capabilities.isCreativeMode || acceptsDurabilityForPhase(
+                remainingDurability(equippedItem), !enforceDurabilityReserve);
         String toolSummary = diagnosticTracking
                 ? MinecraftAutoToolSwapInventoryPort.describeStack(equippedItem) : "not-recorded";
-        if (!enoughDurability) {
+        if (enforceDurabilityReserve && !enoughDurability) {
             return new HarvestEvaluation(false, block, -1, toolSummary, "false", "not-run",
                     "durability-insufficient");
         }
@@ -115,14 +138,25 @@ public final class ChainHarvestRules {
 
         int meta = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
         boolean canHarvestBlock = block.canHarvestBlock(player, meta);
-        return new HarvestEvaluation(canHarvestBlock, block, meta, toolSummary, "true",
+        String durabilityResult = enforceDurabilityReserve ? "true" : "planning-deferred";
+        return new HarvestEvaluation(canHarvestBlock, block, meta, toolSummary, durabilityResult,
                 String.valueOf(canHarvestBlock), canHarvestBlock ? "accepted" : "can-harvest-block-rejected");
     }
 
     /** 对已捕获 ItemStack 执行与公开耐久规则相同的纯值判定。 */
     private static boolean hasEnoughDurability(ItemStack equippedItem) {
-        return equippedItem == null || !equippedItem.isItemStackDamageable()
-                || equippedItem.getMaxDamage() - equippedItem.getItemDamage() > 1;
+        return acceptsDurabilityForPhase(remainingDurability(equippedItem), false);
+    }
+
+    /** 将不可损耗物与空手统一映射为无限剩余耐久。 */
+    private static int remainingDurability(ItemStack equippedItem) {
+        return equippedItem == null || !equippedItem.isItemStackDamageable() ? Integer.MAX_VALUE
+                : equippedItem.getMaxDamage() - equippedItem.getItemDamage();
+    }
+
+    /** 纯值测试接缝：规划期不以瞬时耐久拒绝，执行期使用统一储备门。 */
+    static boolean acceptsDurabilityForPhase(int remainingDurability, boolean planningPhase) {
+        return planningPhase || AutoToolUsabilityPolicy.hasDurabilityReserve(remainingDurability);
     }
 
     /** 纯值原因编码接缝，供测试证明各拒绝层可区分。 */

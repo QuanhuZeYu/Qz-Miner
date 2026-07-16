@@ -199,6 +199,14 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
+    public void serverSwapUsesTheSharedTwoPointDurabilityReserve() {
+        assertSwapDurabilityOutcome(0, AutoToolSwapResultCode.REJECTED);
+        assertSwapDurabilityOutcome(1, AutoToolSwapResultCode.REJECTED);
+        assertSwapDurabilityOutcome(2, AutoToolSwapResultCode.APPLIED);
+        assertSwapDurabilityOutcome(Integer.MAX_VALUE, AutoToolSwapResultCode.APPLIED);
+    }
+
+    @Test
     public void endpointProtocolRoundAndCandidateChangesRejectBeforeInventoryWrite() {
         Fixture fixture = fixture();
         AutoToolSwapIntent swap = swapIntent(fixture, 1L);
@@ -305,7 +313,7 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
-    public void emptyOriginalAnchorOnlyLeasesEmptyWhileBrokenActiveToolMayRestore() {
+    public void emptyOriginalAnchorRestoresByExchangingAnyCurrentCandidateOccupant() {
         Fixture emptyAnchor = fixture();
         emptyAnchor.inventory.slots[0] = AutoToolSwapStackState.empty();
         AutoToolSwapIntent swap = intent(emptyAnchor.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
@@ -316,13 +324,26 @@ public class AutoToolSwapRoundServiceTest {
                 emptyAnchor.endpoint, currentRestoreIntent(emptyAnchor, 2L), emptyAnchor.inventory, 2L).outcome());
 
         Fixture occupiedEmptyLease = fixture();
-        occupiedEmptyLease.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapStackState originalEmpty = AutoToolSwapStackState.empty();
+        occupiedEmptyLease.inventory.slots[0] = originalEmpty;
         Assert.assertEquals(AutoToolSwapResultCode.APPLIED, occupiedEmptyLease.service.handleIntent(
                 occupiedEmptyLease.player, occupiedEmptyLease.endpoint,
                 intent(occupiedEmptyLease.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
-                        AutoToolSwapStackState.empty(), CANDIDATE), occupiedEmptyLease.inventory, 1L).outcome());
-        occupiedEmptyLease.inventory.slots[9] = stack("mod:foreign", "occupied", 10);
-        assertRestoreRejected(occupiedEmptyLease, currentRestoreIntent(occupiedEmptyLease, 2L));
+                        originalEmpty, CANDIDATE), occupiedEmptyLease.inventory, 1L).outcome());
+        AutoToolSwapStackState borrowedTool = occupiedEmptyLease.inventory.slots[0];
+        AutoToolSwapStackState occupyingDrop = stack("mod:foreign", "occupied", 10);
+        occupiedEmptyLease.inventory.slots[9] = occupyingDrop;
+
+        AutoToolSwapRoundResult restored = occupiedEmptyLease.service.handleIntent(occupiedEmptyLease.player,
+                occupiedEmptyLease.endpoint, currentRestoreIntent(occupiedEmptyLease, 2L),
+                occupiedEmptyLease.inventory, 2L);
+
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
+        Assert.assertSame("当前占位物必须原样交换到主手", occupyingDrop, occupiedEmptyLease.inventory.slots[0]);
+        Assert.assertSame("借用工具必须原样回到候选槽", borrowedTool, occupiedEmptyLease.inventory.slots[9]);
+        Assert.assertEquals(2, occupiedEmptyLease.inventory.swapCount);
+        Assert.assertEquals(2, occupiedEmptyLease.inventory.syncCount);
+        Assert.assertFalse(occupiedEmptyLease.service.snapshot(occupiedEmptyLease.player).hasLedger());
     }
 
     @Test
@@ -564,6 +585,19 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(AutoToolSwapResultCode.REJECTED, result.outcome());
         Assert.assertEquals(0, fixture.inventory.swapCount);
         Assert.assertEquals(0, fixture.inventory.syncCount);
+    }
+
+    private static void assertSwapDurabilityOutcome(int remainingDurability,
+            AutoToolSwapResultCode expectedOutcome) {
+        Fixture fixture = fixture();
+        fixture.inventory.slots[9] = stack("mod:drill", "durability-" + remainingDurability,
+                remainingDurability);
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent(fixture.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
+                        fixture.inventory.slots[0], fixture.inventory.slots[9]), fixture.inventory, 1L);
+        Assert.assertEquals(expectedOutcome, result.outcome());
+        Assert.assertEquals(expectedOutcome == AutoToolSwapResultCode.APPLIED ? 1 : 0,
+                fixture.inventory.swapCount);
     }
 
     private static void assertRestoreApplied(AutoToolSwapStackState activeTool) {

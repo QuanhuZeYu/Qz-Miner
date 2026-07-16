@@ -199,6 +199,32 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void emptyOriginalAnchorRestoresOccupiedCandidateInsteadOfAbandoning() {
+        AutoToolSwapClientReducer reducer = reducer(86L);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, emptyRestored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 86L, 136L, 1L);
+        AutoToolSwapIntent swap = captureAndSubmit(reducer,
+                only(reducer.reduce(new TickEvent(context(0L, emptyRestored()), true))),
+                context(0L, emptyRestored()));
+        settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        reducer.reduce(new TickEvent(context(1L, emptySwappedWithOccupant()), true));
+
+        Effect captureRestore = only(reducer.reduce(
+                new KeyStateEvent(false, context(2L, emptySwappedWithOccupant()))));
+        AutoToolSwapIntent restore = captureAndSubmit(reducer, captureRestore,
+                context(2L, emptySwappedWithOccupant()));
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        settle(reducer, restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        reducer.reduce(new TickEvent(context(3L, emptyRestoreResult()), false));
+        Effect close = only(reducer.reduce(new TickEvent(context(4L, emptyRestoreResult()), false)));
+
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, close.intent().action());
+        Assert.assertFalse(reducer.hasSwapExpectation());
+        Assert.assertFalse(reducer.isOrphaned());
+    }
+
+    @Test
     public void abandonRejectionIsARealOrphan() {
         AutoToolSwapClientReducer reducer = completedSwap(85L, 135L);
         reducer.reduce(new KeyStateEvent(false, context(2L, swapped())));
@@ -454,6 +480,21 @@ public class AutoToolSwapClientReducerTest {
         return inventory(new SlotSnapshot(0, "pick", "energy=20;damage=7"),
                 new SlotSnapshot(5, "hand", "count=3;nbt=merged"),
                 tool(0, "pick", true), tool(5, "hand", false));
+    }
+
+    private static ToolSwapInventorySnapshot emptyRestored() {
+        return inventory(new SlotSnapshot(0, SlotSnapshot.EMPTY_ROLE_KEY, ""),
+                new SlotSnapshot(5, "pick", "fresh"), tool(5, "pick", true));
+    }
+
+    private static ToolSwapInventorySnapshot emptySwappedWithOccupant() {
+        return inventory(new SlotSnapshot(0, "pick", "used"),
+                new SlotSnapshot(5, "drop", "occupied"), tool(0, "pick", true));
+    }
+
+    private static ToolSwapInventorySnapshot emptyRestoreResult() {
+        return inventory(new SlotSnapshot(0, "drop", "occupied"),
+                new SlotSnapshot(5, "pick", "used"), tool(5, "pick", true));
     }
 
     private static ToolSwapInventorySnapshot reanchoredRestored() {

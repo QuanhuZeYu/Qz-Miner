@@ -38,4 +38,21 @@ public class MinecraftAutoToolSwapInventoryPortTest {
         Assert.assertEquals(4096L, mainInventory[2].getTagCompound().getLong("GT.ItemCharge"));
         Assert.assertEquals(2, selectedSlot);
     }
+
+    /** 空主手借出工具后原槽被占用，恢复仍只交换两个当前真实引用。 */
+    @Test
+    public void restoreBorrowedToolExchangesCurrentOccupantIntoOriginallyEmptyAnchor() {
+        ItemStack borrowedTool = new ItemStack(new Item());
+        ItemStack occupyingDrop = new ItemStack(new Item());
+        ItemStack[] mainInventory = new ItemStack[36];
+        mainInventory[0] = null;
+        mainInventory[9] = borrowedTool;
+
+        MinecraftAutoToolSwapInventoryPort.swapMainInventorySlots(mainInventory, 0, 9);
+        mainInventory[9] = occupyingDrop;
+        MinecraftAutoToolSwapInventoryPort.swapMainInventorySlots(mainInventory, 0, 9);
+
+        Assert.assertSame(occupyingDrop, mainInventory[0]);
+        Assert.assertSame(borrowedTool, mainInventory[9]);
+    }
 }
