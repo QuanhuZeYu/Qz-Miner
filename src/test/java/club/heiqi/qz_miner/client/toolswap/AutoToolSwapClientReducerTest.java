@@ -10,6 +10,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ActionResultEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ConfigEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.Effect;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.EffectResultEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.KeyStateEvent;
@@ -19,6 +20,7 @@ import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundPhaseE
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundResultEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TickEvent;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
+import club.heiqi.qz_miner.toolswap.ToolSelector;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
@@ -463,9 +465,62 @@ public class AutoToolSwapClientReducerTest {
                 reducer.capturePlanForTick(light(100L, returnedTarget), true));
         reducer.reduce(new TickEvent(context(100L, returnedTarget, noCandidate()), true));
         Assert.assertEquals(ToolSwapCapturePlan.NONE,
-                reducer.capturePlanForTick(light(110L, returnedTarget), true));
+                reducer.capturePlanForTick(light(109L, returnedTarget), true));
         Assert.assertEquals("稳定有效目标保留十 tick 周期 FULL", ToolSwapCapturePlan.FULL,
-                reducer.capturePlanForTick(light(111L, returnedTarget), true));
+                reducer.capturePlanForTick(light(110L, returnedTarget), true));
+    }
+
+    @Test
+    public void closeAndFreezeHardStopOrdinaryFullButKeepProtectedLedgerCapture() {
+        ToolSwapTargetIdentity firstTarget = target(1, 0);
+        ToolSwapTargetIdentity changedTarget = target(2, 1);
+
+        AutoToolSwapClientReducer released = openWithoutCandidate(118L, 218L);
+        released.reduce(new TickEvent(context(0L, firstTarget, noCandidate()), true));
+        Assert.assertEquals(ToolSwapCapturePlan.FULL,
+                released.capturePlanForTick(light(10L, firstTarget), true));
+        Assert.assertEquals(AutoToolSwapAction.CLOSE,
+                only(released.reduce(new KeyStateEvent(false,
+                        context(10L, firstTarget, noCandidate())))).intent().action());
+        Assert.assertEquals("松键后目标变化与到期水位均不得触发普通 FULL", ToolSwapCapturePlan.NONE,
+                released.capturePlanForTick(light(10L, changedTarget), false));
+        assertNoNewSwap(released,
+                released.reduce(new TickEvent(context(10L, firstTarget, restored()), false)));
+
+        AutoToolSwapClientReducer disabled = openWithoutCandidate(119L, 219L);
+        disabled.reduce(new TickEvent(context(0L, firstTarget, noCandidate()), true));
+        Assert.assertEquals(AutoToolSwapAction.CLOSE,
+                only(disabled.reduce(new ConfigEvent(false, Collections.<ToolSelector>emptyList())))
+                        .intent().action());
+        Assert.assertEquals("配置关闭后不得因新目标触发普通 FULL", ToolSwapCapturePlan.NONE,
+                disabled.capturePlanForTick(light(10L, changedTarget), true));
+        assertNoNewSwap(disabled,
+                disabled.reduce(new TickEvent(context(10L, firstTarget, restored()), true)));
+
+        AutoToolSwapClientReducer frozen = openWithoutCandidate(120L, 220L);
+        frozen.reduce(new TickEvent(context(0L, firstTarget, noCandidate()), true));
+        Assert.assertEquals(AutoToolSwapAction.FREEZE,
+                only(frozen.reduce(new LocalBlockDestroyedEvent(true))).intent().action());
+        Assert.assertEquals("FREEZE 请求后不得因新目标触发普通 FULL", ToolSwapCapturePlan.NONE,
+                frozen.capturePlanForTick(light(10L, changedTarget), true));
+        assertNoNewSwap(frozen,
+                frozen.reduce(new TickEvent(context(10L, firstTarget, restored()), true)));
+
+        AutoToolSwapClientReducer restoring = completedSwap(121L, 221L);
+        Effect restoreCapture = only(restoring.reduce(new KeyStateEvent(false,
+                context(2L, firstTarget, swapped()))));
+        Assert.assertEquals(Effect.Type.CAPTURE, restoreCapture.type());
+        Assert.assertEquals("关闭期间已有 ledger 仍须优先采样受保护槽", ToolSwapCapturePlan.PROTECTED,
+                restoring.capturePlanForTick(light(2L, changedTarget), false));
+        Assert.assertEquals(AutoToolSwapAction.RESTORE,
+                captureAndSubmit(restoring, restoreCapture,
+                        context(2L, firstTarget, swapped())).action());
+
+        AutoToolSwapClientReducer freezingLedger = completedSwap(122L, 222L);
+        Assert.assertEquals(AutoToolSwapAction.FREEZE,
+                only(freezingLedger.reduce(new LocalBlockDestroyedEvent(true))).intent().action());
+        Assert.assertEquals("FREEZE 期间已有 ledger 仍须优先采样受保护槽", ToolSwapCapturePlan.PROTECTED,
+                freezingLedger.capturePlanForTick(light(2L, changedTarget), true));
     }
 
     @Test
@@ -581,6 +636,17 @@ public class AutoToolSwapClientReducerTest {
     private static Effect only(List<Effect> effects) {
         Assert.assertEquals("effects=" + effects.size(), 1, effects.size());
         return effects.get(0);
+    }
+
+    private static void assertNoNewSwap(AutoToolSwapClientReducer reducer, List<Effect> effects) {
+        Assert.assertFalse("硬收口后不得创建新的库存 ledger", reducer.hasSwapExpectation());
+        for (Effect effect : effects) {
+            Assert.assertFalse("硬收口后不得请求 SWAP 捕获", effect.type() == Effect.Type.CAPTURE);
+            if (effect.intent() != null) {
+                Assert.assertNotEquals("硬收口后不得发送新 SWAP", AutoToolSwapAction.SWAP,
+                        effect.intent().action());
+            }
+        }
     }
 
     private static ToolSwapContext context(long tick, ToolSwapInventorySnapshot inventory) {

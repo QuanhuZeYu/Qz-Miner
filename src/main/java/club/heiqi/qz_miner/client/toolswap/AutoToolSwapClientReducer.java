@@ -460,6 +460,7 @@ public final class AutoToolSwapClientReducer {
             return ToolSwapCapturePlan.NONE;
         }
         if (needsProtectedCapture() || context.guiOpen) return ToolSwapCapturePlan.PROTECTED;
+        if (closeRequested || freezeRequested) return ToolSwapCapturePlan.NONE;
         if (state == State.PREPARING && context.targetIdentity.isPresent()
                 && !context.targetIdentity.equals(matchedTarget)) return ToolSwapCapturePlan.FULL;
         if (state == State.PREPARING && context.targetIdentity.isPresent()
@@ -800,6 +801,7 @@ public final class AutoToolSwapClientReducer {
     }
 
     private void advanceCycle(ToolSwapContext context) {
+        if (closeRequested || freezeRequested) return;
         if (context.guiOpen) {
             if (swapExpectation != null || pendingAction == AutoToolSwapAction.SWAP) {
                 diagnose(DiagnosticClass.ADVANCE_GUI, DiagnosticReason.GUI_OPEN, context);
@@ -853,7 +855,7 @@ public final class AutoToolSwapClientReducer {
                 targetRematchPending = false;
             } else if (!latestTarget.equals(matchedTarget)) {
                 targetRematchPending = true;
-                nextMatchTick = nextTick(tick);
+                nextMatchTick = tick;
             }
             return;
         }
@@ -895,6 +897,7 @@ public final class AutoToolSwapClientReducer {
     }
 
     private void evaluate(ToolSwapContext context) {
+        if (closeRequested || freezeRequested) return;
         nextMatchTick = advanceWatermark(nextMatchTick, context.tick);
         if (!context.inventory.isFullCandidateScan() || !context.targetIdentity.isPresent()
                 || !context.targetIdentity.equals(latestTarget)) return;

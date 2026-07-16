@@ -549,11 +549,65 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertEquals(ToolSwapCapturePlan.FULL,
                 game.capturePlans.get(game.capturePlans.size() - 1));
 
-        for (int tick = 26; tick < 36; tick++) adapter.onClientTick();
+        for (int tick = 26; tick < 35; tick++) adapter.onClientTick();
         Assert.assertEquals("稳定有效目标到水位前不得额外 FULL", 3, game.fullCaptureCount);
         adapter.onClientTick();
         Assert.assertEquals("稳定有效目标保留十 tick 周期 FULL", 4, game.fullCaptureCount);
         Assert.assertTrue("无候选时采样回归不应依赖网络 effect", transport.intents.isEmpty());
+    }
+
+    @Test
+    public void releaseConfigDisableAndFreezeStopOrdinaryFullBeforeWatermarkEvaluation() {
+        game.inventory = noCandidate();
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        Assert.assertEquals(2, game.fullCaptureCount);
+
+        adapter.onChainKeyState(false);
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
+        game.inventory = restored();
+        game.targetIdentity = ToolSwapTargetIdentity.present(2, 1);
+        adapter.onClientTick();
+        game.targetIdentity = ToolSwapTargetIdentity.present(1, 0);
+        while (adapter.reducerForTests().clientTick() <= 10L) adapter.onClientTick();
+        Assert.assertEquals("松键后目标变化与到期水位均不得再遍历 36 槽", 2, game.fullCaptureCount);
+        Assert.assertFalse("松键后已捕获上下文也不得创建新 SWAP ledger",
+                adapter.reducerForTests().hasSwapExpectation());
+        Assert.assertEquals("松键后只能保留 CLOSE 控制动作", 1, transport.intents.size());
+
+        setUpFreshAdapter();
+        game.inventory = noCandidate();
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        adapter.onConfigChanged(false, Collections.emptyList());
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
+        game.inventory = restored();
+        game.targetIdentity = ToolSwapTargetIdentity.present(2, 1);
+        adapter.onClientTick();
+        game.targetIdentity = ToolSwapTargetIdentity.present(1, 0);
+        while (adapter.reducerForTests().clientTick() <= 10L) adapter.onClientTick();
+        Assert.assertEquals("配置关闭后目标变化与到期水位均不得再遍历 36 槽", 2, game.fullCaptureCount);
+        Assert.assertFalse("配置关闭后不得创建新 SWAP ledger",
+                adapter.reducerForTests().hasSwapExpectation());
+        Assert.assertEquals("配置关闭后只能保留 CLOSE 控制动作", 1, transport.intents.size());
+
+        setUpFreshAdapter();
+        game.inventory = noCandidate();
+        game.physicalKeyDown = true;
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        adapter.onLocalBlockDestroyed();
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, transport.intents.get(0).action());
+        game.inventory = restored();
+        game.targetIdentity = ToolSwapTargetIdentity.present(2, 1);
+        while (adapter.reducerForTests().clientTick() <= 10L) adapter.onClientTick();
+        Assert.assertEquals("FREEZE 请求后不得再遍历 36 槽", 2, game.fullCaptureCount);
+        Assert.assertFalse("FREEZE 请求后不得创建新 SWAP ledger",
+                adapter.reducerForTests().hasSwapExpectation());
+        Assert.assertEquals("FREEZE 请求后只能保留 FREEZE 控制动作", 1, transport.intents.size());
     }
 
     private void acceptRound() {
