@@ -266,6 +266,30 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void frozenSettlementThenActivePhasesKeepTheServerToolWithoutMoreIntents() {
+        game.physicalKeyDown = true;
+        completeSwap();
+        adapter.onLocalBlockDestroyed();
+        Assert.assertEquals(2, transport.intents.size());
+        AutoToolSwapIntent freeze = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freeze.action());
+        settle(freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+
+        ChainPhase[] phases = {ChainPhase.PLANNING, ChainPhase.RUNNING, ChainPhase.FINISHING,
+                ChainPhase.PLANNING, ChainPhase.RUNNING, ChainPhase.FINISHING};
+        for (int index = 0; index < phases.length; index++) {
+            adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, index + 1L,
+                    phases[index].ordinal(), 1, index + 2L, true);
+            adapter.onClientTick();
+            Assert.assertEquals("活跃 phase 不得发送第二次 FREEZE、RESTORE 或 CLOSE", 2,
+                    transport.intents.size());
+        }
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, adapter.reducerForTests().state());
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, adapter.reducerForTests().serverRoundState());
+        Assert.assertTrue(adapter.reducerForTests().hasSwapExpectation());
+    }
+
+    @Test
     public void closingUnavailableFreezeConvergesToOneCloseWithoutOrphaning() {
         adapter.onChainKeyState(true);
         acceptRound();

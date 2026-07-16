@@ -176,6 +176,53 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void frozenSettlementBeforeActivePhasesKeepsSwapWithoutASecondFreezeOrClose() {
+        final List<String> diagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer reducer = diagnosticReducer(92L, diagnostics);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 92L, 192L, 1L);
+        Effect capture = only(reducer.reduce(new TickEvent(context(0L, restored()), true)));
+        AutoToolSwapIntent swap = captureAndSubmit(reducer, capture, context(0L, restored()));
+        settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        reducer.reduce(new TickEvent(context(1L, swapped()), true));
+
+        Effect freezeEffect = only(reducer.reduce(new LocalBlockDestroyedEvent(true)));
+        AutoToolSwapIntent freeze = freezeEffect.intent();
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freeze.action());
+        submit(reducer, freezeEffect);
+        settle(reducer, freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+
+        assertActivePhasesDoNotDriveAnotherIntent(reducer, 192L, 1L, 2L);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, reducer.state());
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, reducer.serverRoundState());
+        Assert.assertTrue(reducer.hasSwapExpectation());
+        Assert.assertFalse(diagnostics.toString(), containsDiagnosticReason(diagnostics, "protocol-orphan"));
+    }
+
+    @Test
+    public void activePhasesBeforeFreezeSettlementShareTheSingleInFlightFreeze() {
+        AutoToolSwapClientReducer reducer = completedSwap(93L, 193L);
+        Assert.assertTrue(reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 193L, 1L,
+                ChainPhase.PLANNING.ordinal(), 1, 2L, true)).isEmpty());
+        Effect freezeEffect = only(reducer.reduce(new TickEvent(context(2L, swapped()), true)));
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freezeEffect.intent().action());
+        AutoToolSwapIntent freeze = freezeEffect.intent();
+        submit(reducer, freezeEffect);
+
+        Assert.assertTrue(reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 193L, 2L,
+                ChainPhase.RUNNING.ordinal(), 1, 3L, true)).isEmpty());
+        Assert.assertTrue(reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 193L, 3L,
+                ChainPhase.FINISHING.ordinal(), 1, 4L, true)).isEmpty());
+        settle(reducer, freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+
+        Assert.assertTrue(reducer.reduce(new TickEvent(context(3L, swapped()), true)).isEmpty());
+        Assert.assertEquals(3L, reducer.nextActionSequence());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, reducer.state());
+        Assert.assertTrue(reducer.hasSwapExpectation());
+    }
+
+    @Test
     public void restoreReasonDiagnosticContainsRoundStateSlotsAndGuiAndRepeatedTickIsBounded() {
         final List<String> diagnostics = new ArrayList<String>();
         AutoToolSwapClientReducer reducer = diagnosticReducer(101L, diagnostics);
@@ -262,6 +309,24 @@ public class AutoToolSwapClientReducerTest {
         }
         Assert.fail("missing diagnostic reason=" + reason + ": " + diagnostics);
         return "";
+    }
+
+    private static boolean containsDiagnosticReason(List<String> diagnostics, String reason) {
+        for (String diagnostic : diagnostics) {
+            if (diagnostic.contains("reason=" + reason + " ")) return true;
+        }
+        return false;
+    }
+
+    private static void assertActivePhasesDoNotDriveAnotherIntent(AutoToolSwapClientReducer reducer,
+            long roundId, long firstPhaseSequence, long tick) {
+        ChainPhase[] phases = {ChainPhase.PLANNING, ChainPhase.RUNNING, ChainPhase.FINISHING,
+                ChainPhase.PLANNING, ChainPhase.RUNNING, ChainPhase.FINISHING};
+        for (int index = 0; index < phases.length; index++) {
+            Assert.assertTrue(reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId,
+                    firstPhaseSequence + index, phases[index].ordinal(), 1, tick + index, true)).isEmpty());
+            Assert.assertTrue(reducer.reduce(new TickEvent(context(tick + index, swapped()), true)).isEmpty());
+        }
     }
 
     private static void acceptRound(AutoToolSwapClientReducer reducer, long nonce, long roundId, long sequence) {

@@ -26,6 +26,7 @@
 ## 协议与库存边界
 
 - `AutoToolSwapRoundService` 按玩家 UUID、在线 endpoint、`serverRoundId` 和严格递增 `actionSequence` 维护单个 round；重复请求只在身份与内容精确匹配时幂等返回。
+- `FROZEN` 是工具已固定但 round 仍可继续接收专用活跃 phase 的稳定活跃态；只有 `CLOSING` 取得单调关闭语义并禁止新 `SWAP/FREEZE`。`PLANNING/RUNNING/FINISHING` 只要求“确保已冻结”：服务端已 FROZEN、同一 FREEZE in-flight 或已成功结算时，客户端只维持本地 FROZEN 投影，不发送第二个 intent。
 - 候选由客户端按 `client.autoToolPrioritySelectors` 排序；服务端不相信候选结论，只校验个人库存 window 0、空 cursor、非创造模式、槽位范围、当前热栏、剩余耐久、内容 fingerprint 与可逆 ledger。
 - `MinecraftAutoToolSwapInventoryPort` 直接交换 `InventoryPlayer.mainInventory[0..35]`，调用 `markDirty()`，再由 `inventoryContainer.detectAndSendChanges()` 发布原版库存差异。
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
@@ -64,3 +65,4 @@
 ## 演进
 
 - 2026-07-16：客户端原子迁移为单一 `AutoToolSwapClientReducer`；删除并行的 controller、transaction enum 与有状态 protocol 子模型。五包 wire、服务端 round/ledger、库存事务、dispatcher、lifecycle gate 与产品时序不变。
+- 2026-07-16：纠正客户端将 `FROZEN` 折叠为 `CLOSING` 的派生错误，并将活跃 phase 的 FREEZE 请求收敛为按 round 幂等；真实 `CLOSING`、自然 IDLE 与 release 的恢复关闭合同不变。

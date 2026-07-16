@@ -490,7 +490,11 @@ public final class AutoToolSwapClientReducer {
         round.nextActionSequence = result.nextActionSequence();
         round.serverRoundState = result.roundState();
         round.acceptedResult = result;
-        if (closeRequested || result.roundState() != AutoToolSwapRoundState.OPEN) round.closing = true;
+        if (closeRequested || result.roundState() == AutoToolSwapRoundState.CLOSING) round.closing = true;
+        if (!round.closing && result.roundState() == AutoToolSwapRoundState.FROZEN) {
+            freezeRequested = false;
+            if (pendingAction == null) state = State.FROZEN;
+        }
         return noEffects();
     }
 
@@ -544,8 +548,7 @@ public final class AutoToolSwapClientReducer {
             orphan();
             return noEffects();
         }
-        if (result.roundState() == AutoToolSwapRoundState.FROZEN
-                || result.roundState() == AutoToolSwapRoundState.CLOSING) round.closing = true;
+        if (result.roundState() == AutoToolSwapRoundState.CLOSING) round.closing = true;
         settleProductAction(intent.action(), result.outcome(), result.roundState());
         if (intent.action() == AutoToolSwapAction.CLOSE
                 && result.roundState() == AutoToolSwapRoundState.FINISHED
@@ -699,7 +702,14 @@ public final class AutoToolSwapClientReducer {
             if (swapExpectation == null) return beginControlIntent(AutoToolSwapAction.CLOSE);
             return noEffects();
         }
-        if (freezeRequested && pendingAction == null) return beginControlIntent(AutoToolSwapAction.FREEZE);
+        if (freezeRequested && pendingAction == null) {
+            if (!round.closing && freezeAlreadyRequestedOrSettled()) {
+                freezeRequested = false;
+                state = State.FROZEN;
+                return noEffects();
+            }
+            return beginControlIntent(AutoToolSwapAction.FREEZE);
+        }
         if (pendingAction == AutoToolSwapAction.SWAP) return captureAction(AutoToolSwapAction.SWAP);
         if (pendingAction == AutoToolSwapAction.RESTORE) return captureAction(AutoToolSwapAction.RESTORE);
         return noEffects();
@@ -796,6 +806,10 @@ public final class AutoToolSwapClientReducer {
                 && (result == AutoToolSwapResultCode.ACCEPTED || result == AutoToolSwapResultCode.APPLIED)) {
             pendingAction = null;
             freezeRequested = false;
+            if (serverState == AutoToolSwapRoundState.CLOSING) {
+                requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.PROTOCOL_ORPHAN);
+                return;
+            }
             state = State.FROZEN;
             return;
         }
@@ -868,8 +882,24 @@ public final class AutoToolSwapClientReducer {
                 || state == State.ORPHANED) return;
         if (pendingAction == AutoToolSwapAction.SWAP && round != null && round.inFlight == null
                 && transmission == null) discardUnstartedSwap(lastTick());
+        if (round != null && !round.closing && freezeAlreadyRequestedOrSettled()) {
+            freezeRequested = false;
+            if (pendingAction == null) state = State.FROZEN;
+            return;
+        }
         freezeRequested = true;
         if (pendingAction == null) state = State.FROZEN;
+    }
+
+    /** 同一 round 已有有效 FREEZE 时只投影本地冻结态，不再分配新动作序列。 */
+    private boolean freezeAlreadyRequestedOrSettled() {
+        if (round == null) return false;
+        if (round.serverRoundState == AutoToolSwapRoundState.FROZEN) return true;
+        if (round.inFlight != null && round.inFlight.action() == AutoToolSwapAction.FREEZE) return true;
+        if (round.lastSettlementIntent == null || round.lastSettlementResult == null
+                || round.lastSettlementIntent.action() != AutoToolSwapAction.FREEZE) return false;
+        AutoToolSwapResultCode outcome = round.lastSettlementResult.outcome();
+        return outcome == AutoToolSwapResultCode.ACCEPTED || outcome == AutoToolSwapResultCode.APPLIED;
     }
 
     private void requestClose(CloseCause requestedCause, DiagnosticReason reason) {
