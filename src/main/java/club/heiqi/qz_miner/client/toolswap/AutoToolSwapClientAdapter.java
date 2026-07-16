@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.client.toolswap;
 
 import java.util.List;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ActionResultEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ConfigEvent;
@@ -27,6 +28,15 @@ import cpw.mods.fml.relauncher.SideOnly;
 @SideOnly(Side.CLIENT)
 public final class AutoToolSwapClientAdapter {
 
+    private static final AutoToolSwapClientReducer.DiagnosticSink PRODUCTION_DIAGNOSTIC_SINK =
+            new AutoToolSwapClientReducer.DiagnosticSink() {
+                @Override
+                public void log(String message) {
+                    // 原因探针按 round/类别和 reducer 生命周期双重有界，使用 INFO 保证实机日志可见。
+                    MyMod.LOG.info(message);
+                }
+            };
+
     /** Minecraft 事实读取边界。 */
     public interface GameFacade {
         ToolSwapLightContext captureLightContext(long tick, boolean chainActive);
@@ -44,7 +54,7 @@ public final class AutoToolSwapClientAdapter {
         if (game == null || transport == null) {
             throw new IllegalArgumentException("game and transport must not be null");
         }
-        reducer = new AutoToolSwapClientReducer(enabled, selectors);
+        reducer = new AutoToolSwapClientReducer(enabled, selectors, PRODUCTION_DIAGNOSTIC_SINK);
         this.game = game;
         this.transport = transport;
     }

@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.client.toolswap;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -30,10 +31,21 @@ public final class AutoToolSwapClientReducer {
     public static final int TRANSACTION_TIMEOUT_TICKS = 40;
     public static final int RETRANSMIT_TICKS = 20;
     public static final int MAX_CONSECUTIVE_RESTORE_REJECTIONS = 3;
+    public static final int MAX_DIAGNOSTIC_MESSAGES = 64;
 
     private static final NonceAllocator PROCESS_NONCE_ALLOCATOR = new ProcessNonceAllocator();
     private static final AutoToolSwapClientProtocolValidator VALIDATOR =
             new AutoToolSwapClientProtocolValidator();
+    private static final DiagnosticSink NO_DIAGNOSTIC_SINK = new DiagnosticSink() {
+        @Override
+        public void log(String message) {
+        }
+    };
+
+    /** 有界原因探针的日志出口；实现不得回调 reducer。 */
+    public interface DiagnosticSink {
+        void log(String message);
+    }
 
     /** 客户端唯一显式业务状态枚举。 */
     public enum State {
@@ -243,6 +255,9 @@ public final class AutoToolSwapClientReducer {
     }
 
     private final NonceAllocator nonceAllocator;
+    private final DiagnosticSink diagnosticSink;
+    private final EnumSet<DiagnosticClass> emittedDiagnosticClasses =
+            EnumSet.noneOf(DiagnosticClass.class);
     private State state = State.IDLE;
     private boolean configuredEnabled;
     private List<ToolSelector> configuredSelectors;
@@ -267,16 +282,30 @@ public final class AutoToolSwapClientReducer {
     private int consecutiveRestoreRejections;
     private long preEdgeDestroyTick = -1L;
     private long preEdgeWorldGeneration = -1L;
+    private int diagnosticMessageCount;
+    private DiagnosticReason restoreReason;
+    private DiagnosticReason closeDiagnosticReason;
 
     public AutoToolSwapClientReducer(boolean enabled, List<ToolSelector> selectors) {
-        this(enabled, selectors, PROCESS_NONCE_ALLOCATOR);
+        this(enabled, selectors, PROCESS_NONCE_ALLOCATOR, NO_DIAGNOSTIC_SINK);
+    }
+
+    AutoToolSwapClientReducer(boolean enabled, List<ToolSelector> selectors, DiagnosticSink diagnosticSink) {
+        this(enabled, selectors, PROCESS_NONCE_ALLOCATOR, diagnosticSink);
     }
 
     AutoToolSwapClientReducer(boolean enabled, List<ToolSelector> selectors, NonceAllocator nonceAllocator) {
+        this(enabled, selectors, nonceAllocator, NO_DIAGNOSTIC_SINK);
+    }
+
+    AutoToolSwapClientReducer(boolean enabled, List<ToolSelector> selectors, NonceAllocator nonceAllocator,
+            DiagnosticSink diagnosticSink) {
         if (nonceAllocator == null) throw new IllegalArgumentException("nonceAllocator must not be null");
+        if (diagnosticSink == null) throw new IllegalArgumentException("diagnosticSink must not be null");
         configuredEnabled = enabled;
         configuredSelectors = immutableSelectors(selectors);
         this.nonceAllocator = nonceAllocator;
+        this.diagnosticSink = diagnosticSink;
     }
 
     /** 将单个事实事件归约为不可变 effect 列表。 */
@@ -363,11 +392,11 @@ public final class AutoToolSwapClientReducer {
                 finishWaitRelease();
                 return noEffects();
             }
-            requestClose(CloseCause.RELEASE_GATED);
+            requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.RELEASE);
             return drive();
         }
         if (state != State.IDLE) {
-            if (closeRequested) requestClose(CloseCause.RELEASE_GATED);
+            if (closeRequested) requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.RELEASE);
             return noEffects();
         }
         return startCycle(event.context, preFrozen, false);
@@ -404,12 +433,15 @@ public final class AutoToolSwapClientReducer {
         if (wasEnabled && !event.enabled) {
             deferredRoundPending = false;
             markRoundClosing();
-            if (state != State.IDLE) requestClose(CloseCause.RELEASE_GATED);
+            if (state != State.IDLE) requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.CONFIG_DISABLED);
         }
         return drive();
     }
 
     private List<Effect> onLocalDestroy(LocalBlockDestroyedEvent event) {
+        diagnose(DiagnosticClass.LOCAL_DESTROY, DiagnosticReason.LOCAL_DESTROY, lastContext,
+                "local-destroy", 0L, event.worldGeneration,
+                Boolean.toString(event.physicallyDownAndWorldActive));
         if (!event.physicallyDownAndWorldActive) {
             clearPreEdgeDestroyLatch();
             return noEffects();
@@ -467,17 +499,40 @@ public final class AutoToolSwapClientReducer {
                 event.protocolVersion, event.serverRoundId, event.actionSequence, event.actionCode, event.resultCode,
                 event.roundState, event.anchorSlot, event.candidateSlot, event.nextActionSequence,
                 event.serverTick, event.rawValid);
-        if (validated == null || round == null) return noEffects();
+        if (validated == null || round == null) {
+            diagnose(DiagnosticClass.ACTION_RESULT_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
+                    "action-result-ignored", event.serverRoundId, event.actionSequence,
+                    Integer.toString(event.actionCode));
+            return noEffects();
+        }
         AutoToolSwapRoundResult result = validated.result();
+        if (validated.action() == AutoToolSwapAction.RESTORE || validated.action() == AutoToolSwapAction.CLOSE) {
+            diagnose(validated.action() == AutoToolSwapAction.RESTORE
+                            ? DiagnosticClass.ACTION_RESULT_RESTORE : DiagnosticClass.ACTION_RESULT_CLOSE,
+                    validated.action() == AutoToolSwapAction.RESTORE
+                            ? DiagnosticReason.ACTION_RESULT_RESTORE : DiagnosticReason.ACTION_RESULT_CLOSE,
+                    lastContext, "action-result", event.serverRoundId, event.actionSequence,
+                    validated.action() + "/" + result.outcome() + "/" + result.roundState());
+        }
         if (round.inFlight == null) {
-            return isDuplicateSettlement(event, validated.action(), result) ? noEffects() : noEffects();
+            if (!isDuplicateSettlement(event, validated.action(), result)) {
+                diagnose(DiagnosticClass.ACTION_RESULT_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
+                        "action-result-without-flight", event.serverRoundId, event.actionSequence,
+                        validated.action().name());
+            }
+            return noEffects();
         }
         AutoToolSwapIntent intent = round.inFlight;
         if (event.serverRoundId != round.serverRoundId || intent.serverRoundId() != event.serverRoundId
                 || intent.actionSequence() != event.actionSequence || intent.action() != validated.action()
                 || intent.anchorSlot() != event.anchorSlot || intent.candidateSlot() != event.candidateSlot
                 || event.actionSequence == Long.MAX_VALUE
-                || event.nextActionSequence != event.actionSequence + 1L) return noEffects();
+                || event.nextActionSequence != event.actionSequence + 1L) {
+            diagnose(DiagnosticClass.ACTION_RESULT_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
+                    "action-result-identity-mismatch", event.serverRoundId, event.actionSequence,
+                    validated.action().name());
+            return noEffects();
+        }
         round.inFlight = null;
         transmission = null;
         round.nextActionSequence = event.nextActionSequence;
@@ -507,14 +562,23 @@ public final class AutoToolSwapClientReducer {
                 event.generation, event.serverTick, event.rawValid);
         if (phase == null || round == null || !round.accepted || phase.serverRoundId() != round.serverRoundId
                 || phase.phaseSequence() <= round.lastPhaseSequence || state == State.ORPHANED) {
+            diagnose(DiagnosticClass.ROUND_PHASE_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
+                    "round-phase-ignored", event.serverRoundId, event.phaseSequence,
+                    Integer.toString(event.phaseOrdinal));
             return noEffects();
         }
         round.lastPhaseSequence = phase.phaseSequence();
+        round.lastPhase = phase.phase();
+        diagnose(phase.phase() == ChainPhase.IDLE ? DiagnosticClass.ROUND_PHASE_IDLE
+                        : DiagnosticClass.ROUND_PHASE_ACTIVE,
+                phase.phase() == ChainPhase.IDLE ? DiagnosticReason.NATURAL_IDLE : DiagnosticReason.ROUND_PHASE,
+                lastContext, "round-phase", event.serverRoundId, event.phaseSequence, phase.phase().name());
         if (phase.phase() == ChainPhase.PLANNING || phase.phase() == ChainPhase.RUNNING
                 || phase.phase() == ChainPhase.FINISHING) {
             requestFreeze(generation);
         } else if (phase.phase() == ChainPhase.IDLE) {
-            requestClose(keyDown ? CloseCause.NATURAL_REARM : CloseCause.RELEASE_GATED);
+            requestClose(keyDown ? CloseCause.NATURAL_REARM : CloseCause.RELEASE_GATED,
+                    DiagnosticReason.NATURAL_IDLE);
             markRoundClosing();
         }
         return noEffects();
@@ -559,6 +623,7 @@ public final class AutoToolSwapClientReducer {
 
     private List<Effect> startCycle(ToolSwapContext context, boolean preFrozen, boolean freshKeyAfterSubmit) {
         deferredRoundPending = false;
+        emittedDiagnosticClasses.clear();
         generation = incrementGeneration(generation);
         cycleEnabled = configuredEnabled;
         cycleSelectors = configuredSelectors;
@@ -571,6 +636,8 @@ public final class AutoToolSwapClientReducer {
         pendingAnchor = null;
         pendingAction = null;
         swapExpectation = null;
+        restoreReason = null;
+        closeDiagnosticReason = null;
         consecutiveRestoreRejections = 0;
         if (!cycleEnabled || !context.breakCapable || context.creative || !context.chainActive) {
             state = State.WAIT_RELEASE;
@@ -590,12 +657,16 @@ public final class AutoToolSwapClientReducer {
     private void advanceCycle(ToolSwapContext context) {
         if (context.guiOpen) {
             if (swapExpectation != null || pendingAction == AutoToolSwapAction.SWAP) {
+                diagnose(DiagnosticClass.ADVANCE_GUI, DiagnosticReason.GUI_OPEN, context);
                 rematchAfterRestore = state == State.PREPARING;
-                prepareRestore();
+                prepareRestore(DiagnosticReason.GUI_OPEN);
             }
             return;
         }
-        if (context.selectedHotbarSlot != anchorSlot) requestReanchor(context.selectedHotbarSlot);
+        if (context.selectedHotbarSlot != anchorSlot) {
+            diagnose(DiagnosticClass.ADVANCE_REANCHOR, DiagnosticReason.SELECTED_SLOT_REANCHOR, context);
+            requestReanchor(context.selectedHotbarSlot);
+        }
         if (state == State.PREPARING && pendingAction == null && swapExpectation == null
                 && context.tick >= nextMatchTick && round != null && round.accepted) evaluate(context);
     }
@@ -620,7 +691,10 @@ public final class AutoToolSwapClientReducer {
     private List<Effect> drive() {
         if (round == null || !round.accepted || transmission != null || round.inFlight != null) return noEffects();
         if (closeRequested) {
-            if (swapExpectation != null && pendingAction != AutoToolSwapAction.RESTORE) prepareRestore();
+            if (swapExpectation != null && pendingAction != AutoToolSwapAction.RESTORE) {
+                prepareRestore(closeDiagnosticReason == null
+                        ? DiagnosticReason.PROTOCOL_ORPHAN : closeDiagnosticReason);
+            }
             if (pendingAction == AutoToolSwapAction.RESTORE) return captureAction(AutoToolSwapAction.RESTORE);
             if (swapExpectation == null) return beginControlIntent(AutoToolSwapAction.CLOSE);
             return noEffects();
@@ -700,7 +774,7 @@ public final class AutoToolSwapClientReducer {
                     state = State.FROZEN;
                 } else if (serverState == AutoToolSwapRoundState.CLOSING) {
                     freezeRequested = false;
-                    requestClose(CloseCause.RELEASE_GATED);
+                    requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.PROTOCOL_ORPHAN);
                 } else if (serverState != AutoToolSwapRoundState.OPEN) orphan();
             } else orphan();
             return;
@@ -729,7 +803,7 @@ public final class AutoToolSwapClientReducer {
                 && serverState == AutoToolSwapRoundState.CLOSING) {
             pendingAction = null;
             freezeRequested = false;
-            requestClose(CloseCause.RELEASE_GATED);
+            requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.PROTOCOL_ORPHAN);
             return;
         }
         if (action == AutoToolSwapAction.CLOSE) {
@@ -798,34 +872,48 @@ public final class AutoToolSwapClientReducer {
         if (pendingAction == null) state = State.FROZEN;
     }
 
-    private void requestClose(CloseCause requestedCause) {
+    private void requestClose(CloseCause requestedCause, DiagnosticReason reason) {
+        diagnose(closeDiagnosticClass(reason), reason, lastContext);
         if (requestedCause == CloseCause.RELEASE_GATED) deferredRoundPending = false;
         if (state == State.IDLE || state == State.ORPHANED) return;
         closeRequested = true;
         if (requestedCause == CloseCause.RELEASE_GATED || closeCause == CloseCause.NONE) closeCause = requestedCause;
+        if (requestedCause == CloseCause.RELEASE_GATED || closeDiagnosticReason == null) {
+            closeDiagnosticReason = reason;
+        }
         rematchAfterRestore = false;
         pendingAnchor = null;
-        if (swapExpectation != null && !isActionPending() && !isInventorySyncPending()) prepareRestore();
+        if (swapExpectation != null && !isActionPending() && !isInventorySyncPending()) prepareRestore(reason);
     }
 
     private void markRoundClosing() {
         if (round != null) round.closing = true;
     }
 
-    private void prepareRestore() {
+    private void prepareRestore(DiagnosticReason reason) {
         if (swapExpectation == null || pendingAction == AutoToolSwapAction.SWAP && isActionPending()) return;
         if (pendingAction == AutoToolSwapAction.SWAP && !isActionPending()) {
             discardUnstartedSwap(lastTick());
             return;
         }
+        restoreReason = reason;
         state = State.RESTORING;
-        if (!isActionPending() && !isInventorySyncPending()) pendingAction = AutoToolSwapAction.RESTORE;
+        if (!isActionPending() && !isInventorySyncPending()) {
+            diagnose(prepareRestoreDiagnosticClass(reason), reason, lastContext);
+            pendingAction = AutoToolSwapAction.RESTORE;
+        }
     }
 
     private void finishSwap() {
         if (closeRequested || rematchAfterRestore || pendingAnchor != null
-                || lastContext != null && lastContext.guiOpen) prepareRestore();
-        else state = freezeRequested ? State.FROZEN : State.PREPARING;
+                || lastContext != null && lastContext.guiOpen) {
+            DiagnosticReason reason = closeRequested ? closeDiagnosticReason
+                    : pendingAnchor != null ? DiagnosticReason.SELECTED_SLOT_REANCHOR
+                    : lastContext != null && lastContext.guiOpen ? DiagnosticReason.GUI_OPEN : restoreReason;
+            if (reason == null) reason = DiagnosticReason.PROTOCOL_ORPHAN;
+            diagnose(DiagnosticClass.FINISH_SWAP_RESTORE, reason, lastContext);
+            prepareRestore(reason);
+        } else state = freezeRequested ? State.FROZEN : State.PREPARING;
     }
 
     private void finishRestore() {
@@ -844,6 +932,7 @@ public final class AutoToolSwapClientReducer {
             if (rematchAfterRestore && lastContext != null && !lastContext.guiOpen) nextMatchTick = lastContext.tick;
         }
         rematchAfterRestore = false;
+        restoreReason = null;
     }
 
     private void finishClose(boolean exactlyFinished) {
@@ -870,7 +959,7 @@ public final class AutoToolSwapClientReducer {
         if (swapExpectation != null || pendingAction != null) {
             pendingAnchor = Integer.valueOf(newAnchor);
             rematchAfterRestore = state == State.PREPARING;
-            prepareRestore();
+            prepareRestore(DiagnosticReason.SELECTED_SLOT_REANCHOR);
         } else {
             anchorSlot = newAnchor;
             nextMatchTick = lastTick();
@@ -905,7 +994,7 @@ public final class AutoToolSwapClientReducer {
         if (action == AutoToolSwapAction.SWAP) discardUnstartedSwap(lastTick());
         if (action == AutoToolSwapAction.FREEZE && round != null && round.closing) {
             freezeRequested = false;
-            requestClose(CloseCause.RELEASE_GATED);
+            requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.PROTOCOL_ORPHAN);
             return drive();
         }
         return noEffects();
@@ -937,6 +1026,7 @@ public final class AutoToolSwapClientReducer {
     }
 
     private void orphan() {
+        diagnose(DiagnosticClass.PROTOCOL_ORPHAN, DiagnosticReason.PROTOCOL_ORPHAN, lastContext);
         state = State.ORPHANED;
         if (round != null) round.inFlight = null;
         transmission = null;
@@ -970,6 +1060,8 @@ public final class AutoToolSwapClientReducer {
         closeCause = CloseCause.NONE;
         rematchAfterRestore = false;
         pendingAnchor = null;
+        restoreReason = null;
+        closeDiagnosticReason = null;
     }
 
     private boolean hasTrustedProtectedSlots(ToolSwapInventorySnapshot inventory) {
@@ -993,6 +1085,82 @@ public final class AutoToolSwapClientReducer {
 
     private long lastTick() {
         return lastContext == null ? clientTick : lastContext.tick;
+    }
+
+    /**
+     * 记录一次不读取运行态对象的有界原因诊断。
+     *
+     * @param diagnosticClass 每个 round 只允许出现一次的诊断类别
+     * @param reason 固定原因
+     * @param context 已由调用链捕获的上下文，可为空
+     */
+    private void diagnose(DiagnosticClass diagnosticClass, DiagnosticReason reason, ToolSwapContext context) {
+        diagnose(diagnosticClass, reason, context, "none", 0L, 0L, "none");
+    }
+
+    /** 记录带协议边界原始值的有界原因诊断。 */
+    private void diagnose(DiagnosticClass diagnosticClass, DiagnosticReason reason, ToolSwapContext context,
+            String boundary, long incomingRoundId, long incomingSequence, String incomingValue) {
+        if (diagnosticClass == null || reason == null || diagnosticMessageCount >= MAX_DIAGNOSTIC_MESSAGES
+                || emittedDiagnosticClasses.contains(diagnosticClass)) return;
+        emittedDiagnosticClasses.add(diagnosticClass);
+        diagnosticMessageCount++;
+        ToolSwapContext captured = context == null ? lastContext : context;
+        int selected = captured == null ? -1 : captured.selectedHotbarSlot;
+        boolean guiOpen = captured != null && captured.guiOpen;
+        long nonce = round == null ? 0L : round.clientNonce;
+        long roundId = round == null ? 0L : round.serverRoundId;
+        String phase = round == null || round.lastPhase == null ? "none" : round.lastPhase.name();
+        long phaseSequence = round == null ? 0L : round.lastPhaseSequence;
+        String serverState = round == null || round.serverRoundState == null
+                ? "none" : round.serverRoundState.name();
+        String message = "[AutoToolSwapClientDiag] reason=" + reason.wireName
+                + " class=" + diagnosticClass.name()
+                + " clientTick=" + clientTick
+                + " nonce=" + nonce
+                + " serverRoundId=" + roundId
+                + " state=" + state
+                + " keyDown=" + keyDown
+                + " freezeRequested=" + freezeRequested
+                + " closeRequested=" + closeRequested
+                + " closeCause=" + closeCause
+                + " pendingAction=" + (pendingAction == null ? "none" : pendingAction.name())
+                + " anchorSlot=" + anchorSlot
+                + " selectedHotbarSlot=" + selected
+                + " pendingAnchor=" + (pendingAnchor == null ? -1 : pendingAnchor.intValue())
+                + " guiOpen=" + guiOpen
+                + " round.phase=" + phase
+                + " round.serverState=" + serverState
+                + " round.lastPhaseSequence=" + phaseSequence
+                + " boundary=" + boundary
+                + " incomingRoundId=" + incomingRoundId
+                + " incomingSequence=" + incomingSequence
+                + " incomingValue=" + incomingValue;
+        try {
+            diagnosticSink.log(message);
+        } catch (RuntimeException ignored) {
+            // 探针失败不得改变 reducer 行为。
+        } catch (LinkageError ignored) {
+            // 日志实现不可用时同样静默降级。
+        }
+    }
+
+    private static DiagnosticClass closeDiagnosticClass(DiagnosticReason reason) {
+        if (reason == DiagnosticReason.RELEASE) return DiagnosticClass.REQUEST_CLOSE_RELEASE;
+        if (reason == DiagnosticReason.NATURAL_IDLE) return DiagnosticClass.REQUEST_CLOSE_NATURAL_IDLE;
+        if (reason == DiagnosticReason.CONFIG_DISABLED) return DiagnosticClass.REQUEST_CLOSE_CONFIG_DISABLED;
+        return DiagnosticClass.REQUEST_CLOSE_PROTOCOL;
+    }
+
+    private static DiagnosticClass prepareRestoreDiagnosticClass(DiagnosticReason reason) {
+        if (reason == DiagnosticReason.GUI_OPEN) return DiagnosticClass.PREPARE_RESTORE_GUI;
+        if (reason == DiagnosticReason.SELECTED_SLOT_REANCHOR) {
+            return DiagnosticClass.PREPARE_RESTORE_REANCHOR;
+        }
+        if (reason == DiagnosticReason.RELEASE) return DiagnosticClass.PREPARE_RESTORE_RELEASE;
+        if (reason == DiagnosticReason.NATURAL_IDLE) return DiagnosticClass.PREPARE_RESTORE_NATURAL_IDLE;
+        if (reason == DiagnosticReason.CONFIG_DISABLED) return DiagnosticClass.PREPARE_RESTORE_CONFIG_DISABLED;
+        return DiagnosticClass.PREPARE_RESTORE_PROTOCOL;
     }
 
     private Effect roundEffect(long nonce, boolean retry, boolean freshKeyAfterSubmit) {
@@ -1045,12 +1213,58 @@ public final class AutoToolSwapClientReducer {
     /** CLOSE 归因；释放门一旦出现便单调覆盖自然重武装。 */
     private enum CloseCause { NONE, NATURAL_REARM, RELEASE_GATED }
 
+    /** 探针原因使用固定、可检索的 wire 名称，不参与业务判定。 */
+    private enum DiagnosticReason {
+        GUI_OPEN("gui-open"),
+        SELECTED_SLOT_REANCHOR("selected-slot-reanchor"),
+        RELEASE("release"),
+        NATURAL_IDLE("natural-idle"),
+        CONFIG_DISABLED("config-disabled"),
+        PROTOCOL_ORPHAN("protocol-orphan"),
+        ROUND_PHASE("round-phase"),
+        LOCAL_DESTROY("local-destroy"),
+        ACTION_RESULT_RESTORE("action-result-restore"),
+        ACTION_RESULT_CLOSE("action-result-close");
+
+        private final String wireName;
+
+        private DiagnosticReason(String wireName) {
+            this.wireName = wireName;
+        }
+    }
+
+    /** 每个 round 各自限频的诊断类别。 */
+    private enum DiagnosticClass {
+        ADVANCE_GUI,
+        ADVANCE_REANCHOR,
+        REQUEST_CLOSE_RELEASE,
+        REQUEST_CLOSE_NATURAL_IDLE,
+        REQUEST_CLOSE_CONFIG_DISABLED,
+        REQUEST_CLOSE_PROTOCOL,
+        PREPARE_RESTORE_GUI,
+        PREPARE_RESTORE_REANCHOR,
+        PREPARE_RESTORE_RELEASE,
+        PREPARE_RESTORE_NATURAL_IDLE,
+        PREPARE_RESTORE_CONFIG_DISABLED,
+        PREPARE_RESTORE_PROTOCOL,
+        FINISH_SWAP_RESTORE,
+        ROUND_PHASE_ACTIVE,
+        ROUND_PHASE_IDLE,
+        ROUND_PHASE_IGNORED,
+        LOCAL_DESTROY,
+        ACTION_RESULT_RESTORE,
+        ACTION_RESULT_CLOSE,
+        ACTION_RESULT_IGNORED,
+        PROTOCOL_ORPHAN
+    }
+
     /** 当前服务端 round 的全部客户端关联身份。 */
     private static final class RoundContext {
         private final long clientNonce;
         private long serverRoundId;
         private long nextActionSequence = AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE;
         private long lastPhaseSequence;
+        private ChainPhase lastPhase;
         private boolean accepted;
         private boolean closing;
         private AutoToolSwapRoundState serverRoundState;

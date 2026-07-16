@@ -175,6 +175,50 @@ public class AutoToolSwapClientReducerTest {
                 reducer.capturePlanForKeyState(true, light, 7L));
     }
 
+    @Test
+    public void restoreReasonDiagnosticContainsRoundStateSlotsAndGuiAndRepeatedTickIsBounded() {
+        final List<String> diagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer reducer = diagnosticReducer(101L, diagnostics);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 101L, 201L, 1L);
+        Effect capture = only(reducer.reduce(new TickEvent(context(0L, restored()), true)));
+        AutoToolSwapIntent swap = captureAndSubmit(reducer, capture, context(0L, restored()));
+        settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        reducer.reduce(new TickEvent(context(1L, swapped()), true));
+
+        reducer.reduce(new TickEvent(context(2L, true, swapped()), true));
+        int boundedCount = diagnostics.size();
+        for (int tick = 3; tick < 200; tick++) {
+            reducer.reduce(new TickEvent(context(tick, true, swapped()), true));
+        }
+
+        Assert.assertEquals("同 round 同类重复 tick 不得继续生成诊断", boundedCount, diagnostics.size());
+        String guiReason = diagnosticWithReason(diagnostics, "gui-open");
+        Assert.assertTrue(guiReason.startsWith("[AutoToolSwapClientDiag] reason=gui-open"));
+        Assert.assertTrue(guiReason.contains("clientTick="));
+        Assert.assertTrue(guiReason.contains("nonce=101"));
+        Assert.assertTrue(guiReason.contains("serverRoundId=201"));
+        Assert.assertTrue(guiReason.contains("state="));
+        Assert.assertTrue(guiReason.contains("selectedHotbarSlot=0"));
+        Assert.assertTrue(guiReason.contains("anchorSlot=0"));
+        Assert.assertTrue(guiReason.contains("guiOpen=true"));
+        Assert.assertTrue(guiReason.contains("round.phase="));
+        Assert.assertTrue(guiReason.contains("round.lastPhaseSequence="));
+    }
+
+    @Test
+    public void diagnosticReasonVocabularyCoversAllRestoreAndCloseSources() {
+        String source = source("src/main/java/club/heiqi/qz_miner/client/toolswap/AutoToolSwapClientReducer.java");
+        Assert.assertTrue(source.contains("GUI_OPEN(\"gui-open\")"));
+        Assert.assertTrue(source.contains("SELECTED_SLOT_REANCHOR(\"selected-slot-reanchor\")"));
+        Assert.assertTrue(source.contains("RELEASE(\"release\")"));
+        Assert.assertTrue(source.contains("NATURAL_IDLE(\"natural-idle\")"));
+        Assert.assertTrue(source.contains("CONFIG_DISABLED(\"config-disabled\")"));
+        Assert.assertTrue(source.contains("PROTOCOL_ORPHAN(\"protocol-orphan\")"));
+        Assert.assertTrue(source.contains("MAX_DIAGNOSTIC_MESSAGES = 64"));
+    }
+
     private static AutoToolSwapClientReducer completedSwap(long nonce, long roundId) {
         AutoToolSwapClientReducer reducer = reducer(nonce);
         Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
@@ -200,6 +244,24 @@ public class AutoToolSwapClientReducerTest {
             private int index;
             @Override public long allocate() { return index < nonces.length ? nonces[index++] : 0L; }
         });
+    }
+
+    private static AutoToolSwapClientReducer diagnosticReducer(final long nonce,
+            final List<String> diagnostics) {
+        return new AutoToolSwapClientReducer(true, Collections.emptyList(),
+                new AutoToolSwapClientReducer.NonceAllocator() {
+                    @Override public long allocate() { return nonce; }
+                }, new AutoToolSwapClientReducer.DiagnosticSink() {
+                    @Override public void log(String message) { diagnostics.add(message); }
+                });
+    }
+
+    private static String diagnosticWithReason(List<String> diagnostics, String reason) {
+        for (String diagnostic : diagnostics) {
+            if (diagnostic.contains("reason=" + reason + " ")) return diagnostic;
+        }
+        Assert.fail("missing diagnostic reason=" + reason + ": " + diagnostics);
+        return "";
     }
 
     private static void acceptRound(AutoToolSwapClientReducer reducer, long nonce, long roundId, long sequence) {
