@@ -13,7 +13,7 @@
 
 ## 依赖与发布
 
-该能力要求 Qz-UILib `4.6.0`。当前 4.6.0 仅 Maven Local 可解析，远端尚未发布；Miner 正式发布因此受阻，直到远端正式坐标可复现解析。
+该能力要求 Qz-UILib `4.6.0`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；当前 JitPack `4.6.0` 为 Error，POM/module/实际 `dev` 制品不可访问，Miner 正式发布因此受阻。当前旧坐标与 Maven Local fallback 仅是待纠偏现状，不能作为发布验收。
 
 ## 不变量核对
 
