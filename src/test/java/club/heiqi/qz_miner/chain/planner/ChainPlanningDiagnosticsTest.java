@@ -1,9 +1,15 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assert;
@@ -21,7 +27,8 @@ public class ChainPlanningDiagnosticsTest {
         ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics = diagnostics(2, logs);
         final AtomicInteger predicateCalls = new AtomicInteger();
         final AtomicInteger matcherCalls = new AtomicInteger();
-        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly = ChainPlanningRuntimeFactory.assembleDiagnostics(
+        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly = ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(
+                searchContext(),
                 target -> {
                     predicateCalls.incrementAndGet();
                     return false;
@@ -110,7 +117,7 @@ public class ChainPlanningDiagnosticsTest {
             return true;
         };
         ChainPlanningRuntimeFactory.DiagnosticAssembly rejectedAssembly =
-                ChainPlanningRuntimeFactory.assembleDiagnostics(target -> {
+                ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(searchContext(), target -> {
                     order.add("candidate-rejected");
                     worldReads.incrementAndGet();
                     return false;
@@ -123,7 +130,7 @@ public class ChainPlanningDiagnosticsTest {
         Assert.assertEquals(0, playerReads.get());
 
         ChainPlanningRuntimeFactory.DiagnosticAssembly acceptedAssembly =
-                ChainPlanningRuntimeFactory.assembleDiagnostics(target -> {
+                ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(searchContext(), target -> {
                     order.add("candidate-accepted");
                     worldReads.incrementAndGet();
                     return true;
@@ -146,7 +153,8 @@ public class ChainPlanningDiagnosticsTest {
         final List<String> logs = new ArrayList<String>();
         ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics = diagnostics(0, logs);
         final AtomicInteger predicateCalls = new AtomicInteger();
-        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly = ChainPlanningRuntimeFactory.assembleDiagnostics(
+        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly = ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(
+                searchContext(),
                 target -> {
                     predicateCalls.incrementAndGet();
                     return true;
@@ -166,21 +174,54 @@ public class ChainPlanningDiagnosticsTest {
         Assert.assertTrue(logs.get(0).contains("contentHash=abc123"));
     }
 
+    /** createRuntime 只能从原子接缝取得最终 filter/matcher，禁止回到中间装配步骤。 */
+    @Test
+    public void productionRuntimeUsesAtomicAssemblySeam() throws IOException {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java").toPath()),
+                StandardCharsets.UTF_8);
+        int runtimeStart = source.indexOf("private static ChainPlanningRuntime createRuntime(");
+        int runtimeEnd = source.indexOf("    /** 为所有正式采掘 matcher", runtimeStart);
+        Assert.assertTrue("createRuntime source must be present", runtimeStart >= 0);
+        Assert.assertTrue("atomic assembly method must follow createRuntime", runtimeEnd > runtimeStart);
+        String runtimeSource = source.substring(runtimeStart, runtimeEnd);
+        Assert.assertEquals(1, countOccurrences(runtimeSource, "assembleDiagnosticRuntime("));
+        Assert.assertTrue(runtimeSource.contains(
+                "assembleDiagnosticRuntime(\n                searchContext, candidateFilter, matcher, diagnostics)"));
+        Assert.assertFalse(runtimeSource.contains("bindMatcherDiagnostics("));
+        Assert.assertFalse(runtimeSource.contains("decorateModeExtensionMatcher("));
+        Assert.assertFalse(runtimeSource.contains("assembleDiagnostics("));
+
+        int assemblyStart = source.indexOf("static DiagnosticAssembly assembleDiagnosticRuntime(");
+        int extensionStart = source.indexOf("    /**\n     * 为模式扩展装饰器", assemblyStart);
+        Assert.assertTrue("atomic assembly source must be present", assemblyStart >= 0);
+        Assert.assertTrue("atomic assembly body must be bounded", extensionStart > assemblyStart);
+        String assemblySource = source.substring(assemblyStart, extensionStart);
+        Assert.assertTrue(assemblySource.indexOf("bindMatcherDiagnostics(")
+                < assemblySource.indexOf("decorateModeExtensionMatcher("));
+        Assert.assertTrue(assemblySource.indexOf("decorateModeExtensionMatcher(")
+                < assemblySource.indexOf("decorateCandidateFilterWithDiagnostics("));
+        Assert.assertTrue(assemblySource.indexOf("decorateCandidateFilterWithDiagnostics(")
+                < assemblySource.indexOf("decorateMatcherWithDiagnostics("));
+    }
+
     private static void assertMatcherEvaluation(ChainBlockMatcher matcher, boolean expectedResult,
             String expectedReason, AtomicInteger harvestCalls, AtomicInteger classifierCalls) {
         final List<String> logs = new ArrayList<String>();
         ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics = diagnostics(1, logs);
-        ChainBlockMatcher boundMatcher = ChainPlanningRuntimeFactory.bindMatcherDiagnostics(matcher, diagnostics);
-        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly = ChainPlanningRuntimeFactory.assembleDiagnostics(
-                target -> true, boundMatcher, diagnostics);
+        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly =
+                ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(searchContext(), target -> true, matcher,
+                        diagnostics);
         ChainTarget target = new ChainTarget(1, 2, 3);
 
         Assert.assertTrue(assembly.getCandidateFilter().canTraverse(target));
-        boolean actualResult = boundMatcher.matches(null, target);
+        boolean actualResult = assembly.getMatcher().matches(null, target);
 
         Assert.assertEquals(expectedResult, actualResult);
-        Assert.assertEquals("真实 matcher 必须把 evaluator 原因交给统一诊断接线", expectedReason,
-                diagnostics.getPendingHarvestReason(target));
+        Assert.assertTrue("真实 matcher 必须把 evaluator 原因交给统一诊断接线",
+                contains(logs, "harvestReason=" + expectedReason));
+        Assert.assertTrue("最终 matcher 必须由 assembly 返回值执行",
+                contains(logs, "resultReason=" + (expectedResult ? "accepted" : expectedReason)));
         Assert.assertEquals("harvest evaluator 必须恰好执行一次", 1, harvestCalls.get());
         if (classifierCalls != null) {
             Assert.assertEquals("classifier 必须恰好执行一次", 1, classifierCalls.get());
@@ -191,9 +232,9 @@ public class ChainPlanningDiagnosticsTest {
             AtomicInteger harvestCalls) {
         final List<String> logs = new ArrayList<String>();
         ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics = diagnostics(1, logs);
-        ChainBlockMatcher boundMatcher = ChainPlanningRuntimeFactory.bindMatcherDiagnostics(matcher, diagnostics);
-        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly = ChainPlanningRuntimeFactory.assembleDiagnostics(
-                target -> true, boundMatcher, diagnostics);
+        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly =
+                ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(searchContext(), target -> true, matcher,
+                        diagnostics);
 
         Assert.assertFalse(matches(assembly, new ChainTarget(7, 8, 9)));
         Assert.assertEquals(1, classifierCalls.get());
@@ -221,6 +262,12 @@ public class ChainPlanningDiagnosticsTest {
         return assembly.getCandidateFilter().canTraverse(target) && assembly.getMatcher().matches(null, target);
     }
 
+    private static ChainSearchContext searchContext() {
+        return new ChainSearchContext(null, null, null, 0, null, null, 0, 0,
+                new ConcurrentLinkedQueue<ChainTarget>(), new ConcurrentLinkedQueue<ChainTarget>(),
+                Collections.<ChainTarget>emptySet());
+    }
+
     private static ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics(int budget,
             final List<String> logs) {
         return new ChainPlanningRuntimeFactory.PlanningDiagnostics(PLAYER, 71L, 9, "CHAIN", "CHAIN_BASE",
@@ -240,6 +287,16 @@ public class ChainPlanningDiagnosticsTest {
         int count = 0;
         for (String log : logs) {
             if (log.contains(fragment)) count++;
+        }
+        return count;
+    }
+
+    private static int countOccurrences(String source, String fragment) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = source.indexOf(fragment, offset)) >= 0) {
+            count++;
+            offset += fragment.length();
         }
         return count;
     }

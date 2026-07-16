@@ -104,9 +104,8 @@ public final class ChainPlanningRuntimeFactory {
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;
         }
-        matcher = bindMatcherDiagnostics(matcher, diagnostics);
-        matcher = decorateModeExtensionMatcher(searchContext, matcher, diagnostics);
-        DiagnosticAssembly diagnosticAssembly = assembleDiagnostics(candidateFilter, matcher, diagnostics);
+        DiagnosticAssembly diagnosticAssembly = assembleDiagnosticRuntime(
+                searchContext, candidateFilter, matcher, diagnostics);
         candidateFilter = diagnosticAssembly.getCandidateFilter();
         matcher = diagnosticAssembly.getMatcher();
         searchContext.setCandidateFilter(candidateFilter);
@@ -115,7 +114,8 @@ public final class ChainPlanningRuntimeFactory {
     }
 
     /** 为所有正式采掘 matcher 返回绑定同一 round 诊断上下文的不可变副本。 */
-    static ChainBlockMatcher bindMatcherDiagnostics(ChainBlockMatcher matcher, PlanningDiagnostics diagnostics) {
+    private static ChainBlockMatcher bindMatcherDiagnostics(ChainBlockMatcher matcher,
+            PlanningDiagnostics diagnostics) {
         if (matcher instanceof HarvestableBlockMatcher) {
             return ((HarvestableBlockMatcher) matcher).withDiagnostics(diagnostics);
         } else if (matcher instanceof SameBlockHarvestableMatcher) {
@@ -129,12 +129,20 @@ public final class ChainPlanningRuntimeFactory {
     }
 
     /**
-     * 原子装配最终 candidate/matcher 诊断包装；生产运行时与纯 JVM 测试共用此唯一接缝。
+     * 按生产顺序原子装配最终 candidate/matcher；生产运行时与纯 JVM 测试共用此唯一接缝。
+     *
+     * @param searchContext 当前规划搜索上下文
+     * @param candidateFilter 原始 candidate filter
+     * @param matcher 原始 matcher
+     * @param diagnostics 当前 planning round 诊断器
+     * @return 绑定、模式扩展和最终诊断包装后的不可变装配结果
      */
-    static DiagnosticAssembly assembleDiagnostics(ChainCandidateFilter candidateFilter, ChainBlockMatcher matcher,
-            PlanningDiagnostics diagnostics) {
+    static DiagnosticAssembly assembleDiagnosticRuntime(ChainSearchContext searchContext,
+            ChainCandidateFilter candidateFilter, ChainBlockMatcher matcher, PlanningDiagnostics diagnostics) {
+        ChainBlockMatcher boundMatcher = bindMatcherDiagnostics(matcher, diagnostics);
+        ChainBlockMatcher decoratedMatcher = decorateModeExtensionMatcher(searchContext, boundMatcher, diagnostics);
         return new DiagnosticAssembly(decorateCandidateFilterWithDiagnostics(candidateFilter, diagnostics),
-                decorateMatcherWithDiagnostics(matcher, diagnostics));
+                decorateMatcherWithDiagnostics(decoratedMatcher, diagnostics));
     }
 
     /**
@@ -156,7 +164,7 @@ public final class ChainPlanningRuntimeFactory {
     }
 
     /** 最终 matcher 诊断包装只观察单次业务返回值，不重复调用原 matcher。 */
-    static ChainBlockMatcher decorateMatcherWithDiagnostics(final ChainBlockMatcher matcher,
+    private static ChainBlockMatcher decorateMatcherWithDiagnostics(final ChainBlockMatcher matcher,
             final PlanningDiagnostics diagnostics) {
         if (diagnostics == null || matcher == null) {
             return matcher;
@@ -254,7 +262,7 @@ public final class ChainPlanningRuntimeFactory {
     }
 
     /** 最终 candidate filter 诊断包装只观察单次业务返回值，不重复调用原 predicate。 */
-    static ChainCandidateFilter decorateCandidateFilterWithDiagnostics(final ChainCandidateFilter filter,
+    private static ChainCandidateFilter decorateCandidateFilterWithDiagnostics(final ChainCandidateFilter filter,
             final PlanningDiagnostics diagnostics) {
         if (diagnostics == null || filter == null) {
             return filter;
