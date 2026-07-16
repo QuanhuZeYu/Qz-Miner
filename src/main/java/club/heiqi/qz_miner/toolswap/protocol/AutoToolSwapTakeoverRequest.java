@@ -53,11 +53,19 @@ public final class AutoToolSwapTakeoverRequest {
     public long serverTick() { return serverTick; }
     public long deadlineTick() { return deadlineTick; }
 
+    /** @return 当前执行目标是否仍与请求绑定的 round、代际、坐标和方块事实完全一致。 */
+    public boolean matchesTarget(long currentServerRoundId, int currentGeneration,
+            int currentTargetX, int currentTargetY, int currentTargetZ,
+            int currentTargetBlockId, int currentTargetBlockMetadata) {
+        return serverRoundId == currentServerRoundId && generation == currentGeneration
+                && targetX == currentTargetX && targetY == currentTargetY && targetZ == currentTargetZ
+                && targetBlockId == currentTargetBlockId && targetBlockMetadata == currentTargetBlockMetadata;
+    }
+
     /** @return 两个请求是否代表同一等待门。 */
     public boolean sameGate(AutoToolSwapTakeoverRequest other) {
         return other != null && serverRoundId == other.serverRoundId && actionSequence == other.actionSequence
-                && generation == other.generation && targetX == other.targetX && targetY == other.targetY
-                && targetZ == other.targetZ && targetBlockId == other.targetBlockId
-                && targetBlockMetadata == other.targetBlockMetadata;
+                && matchesTarget(other.serverRoundId, other.generation, other.targetX, other.targetY,
+                        other.targetZ, other.targetBlockId, other.targetBlockMetadata);
     }
 }

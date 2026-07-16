@@ -367,23 +367,21 @@ public class ChainExecutionEventBridge {
             if (target == null) {
                 break;
             }
+            AutoToolSwapTakeoverCoordinator.GateResult gate =
+                    AutoToolSwapTakeoverCoordinator.GateResult.PROCEED;
             if (takeoverCoordinator != null && usesTakeoverGate(session)) {
-                AutoToolSwapTakeoverCoordinator.GateResult gate = takeoverCoordinator.beforePoll(
+                gate = takeoverCoordinator.beforePoll(
                         player, context.getServerRoundId(), gen, target,
                         Math.max(0L, ChainTickSource.currentServerTick()));
-                if (gate == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) {
-                    return;
-                }
-                if (gate == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
-                    publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped");
-                    registry.remove(playerUUID, gen, context.getServerRoundId());
-                    return;
-                }
             }
-            // 接替门明确放行后才允许消费队首，保证 WAIT/STOP 不产生假消费。
-            target = context.getTargets().poll();
+            target = pollTargetAfterTakeoverGate(context, gate);
+            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) return;
+            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
+                publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped");
+                registry.remove(playerUUID, gen, context.getServerRoundId());
+                return;
+            }
             if (target == null) break;
-            context.recordExecutionConsumed();
             if (!actionExecutor.canExecute(player, session, target)) {
                 continue;
             }
@@ -543,6 +541,19 @@ public class ChainExecutionEventBridge {
         if (session == null || session.getRequest() == null) return false;
         ChainMode mode = session.getRequest().getMode();
         return mode == ChainMode.CHAIN || mode == ChainMode.AREA;
+    }
+
+    /**
+     * 普通执行循环共用的队首消费接缝：仅 PROCEED 可 poll 并记录一次消费。
+     *
+     * @return 被消费的队首；WAIT、STOP 或空队列返回 null
+     */
+    static ChainTarget pollTargetAfterTakeoverGate(ChainExecutionContext context,
+            AutoToolSwapTakeoverCoordinator.GateResult gate) {
+        if (context == null || gate != AutoToolSwapTakeoverCoordinator.GateResult.PROCEED) return null;
+        ChainTarget target = context.getTargets().poll();
+        if (target != null) context.recordExecutionConsumed();
+        return target;
     }
 
     // ============================ 纯逻辑构造（供单测覆盖） ============================

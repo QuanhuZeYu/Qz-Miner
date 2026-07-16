@@ -4,9 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -22,6 +19,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 
 /**
  * {@link ChainExecutionEventBridge} 纯逻辑单测。
@@ -417,16 +415,36 @@ public class ChainExecutionEventBridgeTest {
     }
 
     @Test
-    public void takeoverGateIsStructurallyBeforePollAndGtBranchRemainsSeparate() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge.java").toPath()),
-                StandardCharsets.UTF_8);
-        int nonGt = source.indexOf("// ===== 非 GT");
-        int peek = source.indexOf("context.getTargets().peek()", nonGt);
-        int gate = source.indexOf("takeoverCoordinator.beforePoll", peek);
-        int poll = source.indexOf("context.getTargets().poll()", gate);
-        Assert.assertTrue("WAIT 门必须在队首 peek 后", nonGt >= 0 && peek > nonGt && gate > peek);
-        Assert.assertTrue("只有 PROCEED 后才能 poll", poll > gate);
-        Assert.assertTrue("GT 分支必须位于普通接替门之前", source.indexOf("GT 线缆特例") < nonGt);
+    public void takeoverGateBehaviorSeamConsumesOnlyProceed() {
+        assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult.WAIT);
+        assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult.STOP);
+
+        ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
+        ChainTarget first = new ChainTarget(1, 2, 3);
+        ChainTarget second = new ChainTarget(4, 5, 6);
+        queue.add(first);
+        queue.add(second);
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
+
+        Assert.assertSame("APPLIED 映射的 PROCEED 必须消费当前队首", first,
+                ChainExecutionEventBridge.pollTargetAfterTakeoverGate(context,
+                        AutoToolSwapTakeoverCoordinator.GateResult.PROCEED));
+        Assert.assertEquals(1, queue.size());
+        Assert.assertSame(second, queue.peek());
+        Assert.assertEquals(1, context.getExecutionConsumedCount());
+    }
+
+    private static void assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult gate) {
+        ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
+        ChainTarget first = new ChainTarget(1, 2, 3);
+        ChainTarget second = new ChainTarget(4, 5, 6);
+        queue.add(first);
+        queue.add(second);
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
+
+        Assert.assertNull(ChainExecutionEventBridge.pollTargetAfterTakeoverGate(context, gate));
+        Assert.assertEquals(2, queue.size());
+        Assert.assertSame(first, queue.peek());
+        Assert.assertEquals(0, context.getExecutionConsumedCount());
     }
 }

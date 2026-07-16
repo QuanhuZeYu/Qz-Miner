@@ -18,6 +18,14 @@ public class AutoToolSwapTakeoverRequestTest {
         Assert.assertTrue(request.sameGate(new AutoToolSwapTakeoverRequest(
                 AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
                 -10, 64, 20, 42, 7, 101L, 110L)));
+        Assert.assertTrue(request.matchesTarget(9L, 4, -10, 64, 20, 42, 7));
+        Assert.assertFalse(request.matchesTarget(10L, 4, -10, 64, 20, 42, 7));
+        Assert.assertFalse(request.matchesTarget(9L, 5, -10, 64, 20, 42, 7));
+        Assert.assertFalse(request.matchesTarget(9L, 4, -9, 64, 20, 42, 7));
+        Assert.assertFalse(request.matchesTarget(9L, 4, -10, 65, 20, 42, 7));
+        Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 21, 42, 7));
+        Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 20, 43, 7));
+        Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 20, 42, 8));
     }
 
     @Test(expected = IllegalArgumentException.class)

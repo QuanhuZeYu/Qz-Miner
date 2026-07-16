@@ -21,8 +21,7 @@ public final class AutoToolSwapTakeoverCoordinator {
 
     private final AutoToolSwapRoundService roundService;
     private final RequestSender requestSender;
-    private final Map<UUID, AutoToolSwapTakeoverRequest> issued =
-            new HashMap<UUID, AutoToolSwapTakeoverRequest>();
+    private final Map<UUID, IssuedTakeover> issued = new HashMap<UUID, IssuedTakeover>();
 
     /** 使用生产网络发送器构造。 */
     public AutoToolSwapTakeoverCoordinator(AutoToolSwapRoundService roundService) {
@@ -64,12 +63,18 @@ public final class AutoToolSwapTakeoverCoordinator {
             int targetX, int targetY, int targetZ, int blockId, int metadata,
             AutoToolSwapInventoryPort inventory, long serverTick, int timeoutTicks) {
         if (playerId == null || endpoint == null || inventory == null || timeoutTicks <= 0) return GateResult.STOP;
-        AutoToolSwapTakeoverRequest active = issued.get(playerId);
+        IssuedTakeover active = issued.get(playerId);
         if (active != null) {
+            AutoToolSwapTakeoverRequest activeRequest = active.request;
+            if (!active.matchesEndpoint(endpoint) || !activeRequest.matchesTarget(serverRoundId, generation,
+                    targetX, targetY, targetZ, blockId, metadata)) {
+                stopAndConsumeIssued(playerId, active);
+                return GateResult.STOP;
+            }
             AutoToolSwapRoundService.TakeoverGateState state = roundService.takeoverGateState(
-                    playerId, endpoint, active, serverTick);
+                    playerId, endpoint, activeRequest, serverTick);
             if (state == AutoToolSwapRoundService.TakeoverGateState.WAITING) return GateResult.WAIT;
-            roundService.consumeTakeoverGate(playerId, endpoint, active);
+            roundService.consumeTakeoverGate(playerId, endpoint, activeRequest);
             issued.remove(playerId);
             return state == AutoToolSwapRoundService.TakeoverGateState.APPLIED
                     ? GateResult.PROCEED : GateResult.STOP;
@@ -98,17 +103,25 @@ public final class AutoToolSwapTakeoverCoordinator {
                 generation, targetX, targetY, targetZ, blockId, metadata, anchorSlot, anchor,
                 serverTick, deadline);
         if (request == null) return GateResult.STOP;
-        issued.put(playerId, request);
+        IssuedTakeover issuedTakeover = new IssuedTakeover(endpoint, request);
+        issued.put(playerId, issuedTakeover);
         try {
             requestSender.send(endpoint, request);
             return GateResult.WAIT;
         } catch (RuntimeException failure) {
-            issued.remove(playerId);
+            stopAndConsumeIssued(playerId, issuedTakeover);
             return GateResult.STOP;
         } catch (LinkageError failure) {
-            issued.remove(playerId);
+            stopAndConsumeIssued(playerId, issuedTakeover);
             return GateResult.STOP;
         }
+    }
+
+    /** 精确停止并消费已经发出的等待门，避免发送失败或目标漂移后迟到意图写库存。 */
+    private void stopAndConsumeIssued(UUID playerId, IssuedTakeover active) {
+        roundService.stopTakeoverGate(playerId, active.endpoint, active.request);
+        roundService.consumeTakeoverGate(playerId, active.endpoint, active.request);
+        issued.remove(playerId);
     }
 
     /** 生命周期清理本地发送记忆；round service 由既有统一入口清理。 */
@@ -123,5 +136,20 @@ public final class AutoToolSwapTakeoverCoordinator {
 
     interface RequestSender {
         void send(Object endpoint, AutoToolSwapTakeoverRequest request);
+    }
+
+    /** 本地发送记忆同时冻结 endpoint identity，防止重连后的新 endpoint 接管旧请求。 */
+    private static final class IssuedTakeover {
+        private final Object endpoint;
+        private final AutoToolSwapTakeoverRequest request;
+
+        private IssuedTakeover(Object endpoint, AutoToolSwapTakeoverRequest request) {
+            this.endpoint = endpoint;
+            this.request = request;
+        }
+
+        private boolean matchesEndpoint(Object currentEndpoint) {
+            return endpoint == currentEndpoint;
+        }
     }
 }
