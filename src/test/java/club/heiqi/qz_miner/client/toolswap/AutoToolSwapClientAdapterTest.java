@@ -509,6 +509,53 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, transport.intents.get(2).action());
     }
 
+    @Test
+    public void preparingTargetChangeRestoresBeforeLatestTargetSwap() {
+        completeSwap();
+        game.targetIdentity = ToolSwapTargetIdentity.present(2, 0);
+
+        adapter.onClientTick();
+        AutoToolSwapIntent restore = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        game.targetIdentity = ToolSwapTargetIdentity.present(3, 1);
+        game.inventory = restored();
+        settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.OPEN);
+        adapter.onClientTick();
+        Assert.assertEquals("RESTORE 可见性确认 tick 不得直接发送第二个 SWAP", 2,
+                transport.intents.size());
+
+        adapter.onClientTick();
+        Assert.assertEquals(AutoToolSwapAction.SWAP, transport.intents.get(2).action());
+    }
+
+    @Test
+    public void stableAbsentUsesNoRepeatedFullCaptureAndTargetReturnRestoresFullCadence() {
+        game.inventory = noCandidate();
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        Assert.assertEquals("按键 FULL 与首次匹配 FULL", 2, game.fullCaptureCount);
+
+        game.targetIdentity = ToolSwapTargetIdentity.ABSENT;
+        for (int tick = 1; tick < 25; tick++) adapter.onClientTick();
+        Assert.assertEquals("连续确认 ABSENT 并越过多个水位后不得再遍历 36 槽",
+                2, game.fullCaptureCount);
+        Assert.assertEquals(ToolSwapCapturePlan.NONE,
+                game.capturePlans.get(game.capturePlans.size() - 1));
+
+        game.targetIdentity = ToolSwapTargetIdentity.present(2, 1);
+        adapter.onClientTick();
+        Assert.assertEquals("目标恢复只新增一次即时 FULL", 3, game.fullCaptureCount);
+        Assert.assertEquals(ToolSwapCapturePlan.FULL,
+                game.capturePlans.get(game.capturePlans.size() - 1));
+
+        for (int tick = 26; tick < 36; tick++) adapter.onClientTick();
+        Assert.assertEquals("稳定有效目标到水位前不得额外 FULL", 3, game.fullCaptureCount);
+        adapter.onClientTick();
+        Assert.assertEquals("稳定有效目标保留十 tick 周期 FULL", 4, game.fullCaptureCount);
+        Assert.assertTrue("无候选时采样回归不应依赖网络 effect", transport.intents.isEmpty());
+    }
+
     private void acceptRound() {
         acceptRound(0, 9L);
     }
@@ -580,6 +627,11 @@ public class AutoToolSwapClientAdapterTest {
                 tool(0, "pick", true), tool(5, "hand", false));
     }
 
+    private static ToolSwapInventorySnapshot noCandidate() {
+        return inventory(new SlotSnapshot(0, "hand", "old"), new SlotSnapshot(5, "empty", ""),
+                tool(0, "hand", false));
+    }
+
     private static ToolSwapInventorySnapshot third() {
         return inventory(new SlotSnapshot(0, "pick", "energy=20"),
                 new SlotSnapshot(5, "foreign", "occupied"), tool(0, "pick", true));
@@ -643,11 +695,18 @@ public class AutoToolSwapClientAdapterTest {
         private boolean inventoryTransactionSafe = true;
         private int lastTargetBlockId;
         private int lastTargetMetadata;
+        private ToolSwapTargetIdentity targetIdentity = ToolSwapTargetIdentity.present(1, 0);
+        private final List<ToolSwapCapturePlan> capturePlans = new ArrayList<ToolSwapCapturePlan>();
+        private int fullCaptureCount;
         @Override public ToolSwapLightContext captureLightContext(long tick, boolean active) {
-            return new ToolSwapLightContext(tick, breakCapable, creative, guiOpen, active, 0);
+            return new ToolSwapLightContext(tick, breakCapable, creative, guiOpen, active, 0, targetIdentity);
         }
         @Override public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
                 int anchor, int candidate, int targetBlockId, int targetBlockMetadata) {
+            capturePlans.add(plan);
+            if (plan == ToolSwapCapturePlan.FULL || plan == ToolSwapCapturePlan.FULL_TARGET) {
+                fullCaptureCount++;
+            }
             lastTargetBlockId = targetBlockId;
             lastTargetMetadata = targetBlockMetadata;
             ToolSwapInventorySnapshot captured = inventory;

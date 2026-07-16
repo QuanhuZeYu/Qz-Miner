@@ -351,6 +351,135 @@ public class AutoToolSwapClientReducerTest {
         Assert.assertTrue(source.contains("MAX_DIAGNOSTIC_MESSAGES = 64"));
     }
 
+    @Test
+    public void changedTargetRestoresOldLedgerBeforeMatchingLatestTarget() {
+        AutoToolSwapClientReducer reducer = completedSwap(111L, 211L);
+
+        Effect restoreCapture = only(reducer.reduce(new TickEvent(
+                context(2L, target(2, 0), swapped()), true)));
+        AutoToolSwapIntent restore = captureAndSubmit(reducer, restoreCapture,
+                context(2L, target(2, 0), swapped()));
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        settle(reducer, restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.OPEN);
+        Assert.assertTrue(reducer.reduce(new TickEvent(
+                context(3L, target(2, 0), restored()), true)).isEmpty());
+
+        Effect nextSwapCapture = only(reducer.reduce(new TickEvent(
+                context(4L, target(2, 0), restoredB()), true)));
+        AutoToolSwapIntent nextSwap = captureAndSubmit(reducer, nextSwapCapture,
+                context(4L, target(2, 0), restoredB()));
+        Assert.assertEquals(AutoToolSwapAction.SWAP, nextSwap.action());
+        Assert.assertEquals(7, nextSwap.candidateSlot());
+        Assert.assertEquals("唯一 ledger 清账前不得发送第二个 SWAP", 3L, nextSwap.actionSequence());
+    }
+
+    @Test
+    public void latestTargetWinsWhileRestoreIsInFlightAndReturnCanOnlyCancelUnsubmittedRestore() {
+        AutoToolSwapClientReducer reducer = completedSwap(112L, 212L);
+        Effect unsubmitted = only(reducer.reduce(new TickEvent(
+                context(2L, target(2, 0), swapped()), true)));
+        Assert.assertEquals(Effect.Type.CAPTURE, unsubmitted.type());
+        Assert.assertTrue("回到 A 可取消尚未提交的目标专用恢复",
+                reducer.reduce(new TickEvent(context(3L, target(1, 0), swapped()), true)).isEmpty());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.PREPARING, reducer.state());
+
+        Effect secondCapture = only(reducer.reduce(new TickEvent(
+                context(4L, target(2, 0), swapped()), true)));
+        AutoToolSwapIntent restore = captureAndSubmit(reducer, secondCapture,
+                context(4L, target(2, 0), swapped()));
+        Assert.assertTrue(reducer.reduce(new TickEvent(
+                context(5L, target(3, 0), swapped()), true)).isEmpty());
+        Assert.assertTrue(reducer.reduce(new TickEvent(
+                context(6L, target(1, 0), swapped()), true)).isEmpty());
+
+        settle(reducer, restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.OPEN);
+        reducer.reduce(new TickEvent(context(7L, target(1, 0), restored()), true));
+        Effect rematchA = only(reducer.reduce(new TickEvent(
+                context(8L, target(1, 0), restored()), true)));
+        Assert.assertEquals("已发送 RESTORE 不得因回到 A 被取消", Effect.Type.CAPTURE, rematchA.type());
+    }
+
+    @Test
+    public void swapInFlightSettlesThenRestoresForLatestTarget() {
+        AutoToolSwapClientReducer reducer = reducer(113L);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true,
+                context(0L, target(1, 0), restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 113L, 213L, 1L);
+        AutoToolSwapIntent swap = captureAndSubmit(reducer,
+                only(reducer.reduce(new TickEvent(context(0L, target(1, 0), restored()), true))),
+                context(0L, target(1, 0), restored()));
+
+        Assert.assertTrue(reducer.reduce(new TickEvent(
+                context(1L, target(2, 0), restored()), true)).isEmpty());
+        settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        Effect restoreCapture = only(reducer.reduce(new TickEvent(
+                context(2L, target(3, 0), swapped()), true)));
+        Assert.assertEquals(Effect.Type.CAPTURE, restoreCapture.type());
+        AutoToolSwapIntent restore = captureAndSubmit(reducer, restoreCapture,
+                context(2L, target(3, 0), swapped()));
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+    }
+
+    @Test
+    public void absentNeedsTwoTicksAndNoLedgerOnlyRearmsWhenTargetReturns() {
+        AutoToolSwapClientReducer swappedReducer = completedSwap(114L, 214L);
+        Assert.assertTrue(swappedReducer.reduce(new TickEvent(
+                context(2L, ToolSwapTargetIdentity.ABSENT, swapped()), true)).isEmpty());
+        Effect restore = only(swappedReducer.reduce(new TickEvent(
+                context(3L, ToolSwapTargetIdentity.ABSENT, swapped()), true)));
+        Assert.assertEquals(Effect.Type.CAPTURE, restore.type());
+
+        AutoToolSwapClientReducer noLedger = openWithoutCandidate(115L, 215L);
+        noLedger.reduce(new TickEvent(context(0L, target(1, 0), noCandidate()), true));
+        Assert.assertTrue(noLedger.reduce(new TickEvent(
+                context(1L, ToolSwapTargetIdentity.ABSENT, noCandidate()), true)).isEmpty());
+        Assert.assertTrue(noLedger.reduce(new TickEvent(
+                context(2L, ToolSwapTargetIdentity.ABSENT, noCandidate()), true)).isEmpty());
+        Effect returned = only(noLedger.reduce(new TickEvent(
+                context(3L, target(2, 1), restoredB()), true)));
+        Assert.assertEquals(Effect.Type.CAPTURE, returned.type());
+    }
+
+    @Test
+    public void stableAbsentCapturePlanStaysNonePastWatermarkAndPresentTargetRestoresCadence() {
+        AutoToolSwapClientReducer reducer = openWithoutCandidate(117L, 217L);
+        ToolSwapTargetIdentity firstTarget = target(1, 0);
+
+        Assert.assertEquals(ToolSwapCapturePlan.FULL,
+                reducer.capturePlanForTick(light(0L, firstTarget), true));
+        reducer.reduce(new TickEvent(context(0L, firstTarget, noCandidate()), true));
+
+        for (long tick : new long[] {1L, 2L, 10L, 11L, 99L}) {
+            Assert.assertEquals("稳定 ABSENT 不得越过水位后重复 FULL，tick=" + tick,
+                    ToolSwapCapturePlan.NONE,
+                    reducer.capturePlanForTick(light(tick, ToolSwapTargetIdentity.ABSENT), true));
+            reducer.reduce(new TickEvent(
+                    context(tick, ToolSwapTargetIdentity.ABSENT, ToolSwapInventorySnapshot.none()), true));
+        }
+
+        ToolSwapTargetIdentity returnedTarget = target(2, 1);
+        Assert.assertEquals("有效目标恢复须立即 FULL", ToolSwapCapturePlan.FULL,
+                reducer.capturePlanForTick(light(100L, returnedTarget), true));
+        reducer.reduce(new TickEvent(context(100L, returnedTarget, noCandidate()), true));
+        Assert.assertEquals(ToolSwapCapturePlan.NONE,
+                reducer.capturePlanForTick(light(110L, returnedTarget), true));
+        Assert.assertEquals("稳定有效目标保留十 tick 周期 FULL", ToolSwapCapturePlan.FULL,
+                reducer.capturePlanForTick(light(111L, returnedTarget), true));
+    }
+
+    @Test
+    public void stableIdentityKeepsWatermarkButMetadataChangeRematchesImmediately() {
+        AutoToolSwapClientReducer reducer = openWithoutCandidate(116L, 216L);
+        reducer.reduce(new TickEvent(context(0L, target(1, 0), noCandidate()), true));
+        Assert.assertTrue(reducer.reduce(new TickEvent(
+                context(1L, target(1, 0), restoredB()), true)).isEmpty());
+
+        Effect changedMetadata = only(reducer.reduce(new TickEvent(
+                context(2L, target(1, 1), restoredB()), true)));
+        Assert.assertEquals(Effect.Type.CAPTURE, changedMetadata.type());
+    }
+
     private static AutoToolSwapClientReducer completedSwap(long nonce, long roundId) {
         AutoToolSwapClientReducer reducer = reducer(nonce);
         Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
@@ -459,11 +588,29 @@ public class AutoToolSwapClientReducerTest {
     }
 
     private static ToolSwapContext context(long tick, boolean gui, ToolSwapInventorySnapshot inventory) {
-        return new ToolSwapContext(tick, true, false, gui, !gui, true, 0, inventory);
+        return context(tick, gui, target(1, 0), inventory);
     }
 
     private static ToolSwapContext context(long tick, int slot, ToolSwapInventorySnapshot inventory) {
-        return new ToolSwapContext(tick, true, false, false, true, true, slot, inventory);
+        return new ToolSwapContext(tick, true, false, false, true, true, slot, inventory, target(1, 0));
+    }
+
+    private static ToolSwapContext context(long tick, ToolSwapTargetIdentity target,
+            ToolSwapInventorySnapshot inventory) {
+        return context(tick, false, target, inventory);
+    }
+
+    private static ToolSwapContext context(long tick, boolean gui, ToolSwapTargetIdentity target,
+            ToolSwapInventorySnapshot inventory) {
+        return new ToolSwapContext(tick, true, false, gui, !gui, true, 0, inventory, target);
+    }
+
+    private static ToolSwapTargetIdentity target(int blockId, int metadata) {
+        return ToolSwapTargetIdentity.present(blockId, metadata);
+    }
+
+    private static ToolSwapLightContext light(long tick, ToolSwapTargetIdentity target) {
+        return new ToolSwapLightContext(tick, true, false, false, true, 0, target);
     }
 
     private static ToolSwapInventorySnapshot restored() {
@@ -474,6 +621,11 @@ public class AutoToolSwapClientReducerTest {
     private static ToolSwapInventorySnapshot swapped() {
         return inventory(new SlotSnapshot(0, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
                 tool(0, "pick", true), tool(5, "hand", false));
+    }
+
+    private static ToolSwapInventorySnapshot restoredB() {
+        return inventory(new SlotSnapshot(0, "hand", "old"), new SlotSnapshot(7, "drill", "fresh"),
+                tool(0, "hand", false), tool(7, "drill", true));
     }
 
     private static ToolSwapInventorySnapshot swappedAnchorChanged() {

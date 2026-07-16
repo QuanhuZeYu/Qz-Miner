@@ -33,6 +33,7 @@ public final class AutoToolSwapClientReducer {
     public static final int RETRANSMIT_TICKS = 20;
     public static final int MAX_CONSECUTIVE_RESTORE_REJECTIONS = 3;
     public static final int MAX_DIAGNOSTIC_MESSAGES = 64;
+    public static final int TARGET_ABSENT_CONFIRM_TICKS = 2;
 
     private static final NonceAllocator PROCESS_NONCE_ALLOCATOR = new ProcessNonceAllocator();
     private static final AutoToolSwapClientProtocolValidator VALIDATOR =
@@ -335,6 +336,11 @@ public final class AutoToolSwapClientReducer {
     private DiagnosticReason closeDiagnosticReason;
     private AutoToolSwapTakeoverRequest pendingTakeoverRequest;
     private TakeoverExpectation takeoverExpectation;
+    private ToolSwapTargetIdentity latestTarget = ToolSwapTargetIdentity.ABSENT;
+    private ToolSwapTargetIdentity matchedTarget;
+    private int consecutiveAbsentTargetTicks;
+    private boolean targetRematchPending;
+    private boolean targetRestoreRequested;
 
     public AutoToolSwapClientReducer(boolean enabled, List<ToolSelector> selectors) {
         this(enabled, true, selectors, PROCESS_NONCE_ALLOCATOR, NO_DIAGNOSTIC_SINK);
@@ -454,7 +460,10 @@ public final class AutoToolSwapClientReducer {
             return ToolSwapCapturePlan.NONE;
         }
         if (needsProtectedCapture() || context.guiOpen) return ToolSwapCapturePlan.PROTECTED;
-        if (state == State.PREPARING && context.tick >= nextMatchTick) return ToolSwapCapturePlan.FULL;
+        if (state == State.PREPARING && context.targetIdentity.isPresent()
+                && !context.targetIdentity.equals(matchedTarget)) return ToolSwapCapturePlan.FULL;
+        if (state == State.PREPARING && context.targetIdentity.isPresent()
+                && context.tick >= nextMatchTick) return ToolSwapCapturePlan.FULL;
         return ToolSwapCapturePlan.NONE;
     }
 
@@ -486,6 +495,7 @@ public final class AutoToolSwapClientReducer {
         List<Effect> effects = new ArrayList<Effect>();
         if (event.context != null) {
             remember(event.context);
+            if (tracksPreparingTarget()) observePreparingTarget(event.context);
             if (takeoverExpectation != null && takeoverExpectation.verifying) {
                 observeTakeoverInventory(event.context.inventory, event.context.tick);
             } else if (isInventorySyncPending()) {
@@ -579,6 +589,7 @@ public final class AutoToolSwapClientReducer {
         if (closeRequested || result.roundState() == AutoToolSwapRoundState.CLOSING) round.closing = true;
         if (!round.closing && result.roundState() == AutoToolSwapRoundState.FROZEN) {
             freezeRequested = false;
+            clearPreparingTargetTracking();
             if (pendingAction == null) state = State.FROZEN;
         }
         return noEffects();
@@ -731,6 +742,17 @@ public final class AutoToolSwapClientReducer {
         if (action == null || captureEffect.intent == null || captureEffect.intent.action() != action) {
             return noEffects();
         }
+        if (action == AutoToolSwapAction.RESTORE && targetRestoreRequested && context != null
+                && context.targetIdentity.isPresent()) {
+            latestTarget = context.targetIdentity;
+            consecutiveAbsentTargetTicks = 0;
+            if (swapExpectation != null && context.targetIdentity.equals(swapExpectation.targetIdentity)
+                    && cancelUnsubmittedTargetRestore()) {
+                targetRematchPending = false;
+                return noEffects();
+            }
+            targetRematchPending = true;
+        }
         if (!preflight(action, context)) return noEffects();
         AutoToolSwapIntent intent = beginIntent(action, captureEffect.anchorSlot, captureEffect.candidateSlot,
                 context.inventory.slot(captureEffect.anchorSlot), context.inventory.slot(captureEffect.candidateSlot));
@@ -756,6 +778,11 @@ public final class AutoToolSwapClientReducer {
         restoreReason = null;
         closeDiagnosticReason = null;
         consecutiveRestoreRejections = 0;
+        latestTarget = context.targetIdentity;
+        matchedTarget = null;
+        consecutiveAbsentTargetTicks = 0;
+        targetRematchPending = context.targetIdentity.isPresent();
+        targetRestoreRequested = false;
         if (!cycleEnabled || !context.breakCapable || context.creative || !context.chainActive) {
             state = State.WAIT_RELEASE;
             resetCycleFlags();
@@ -768,6 +795,7 @@ public final class AutoToolSwapClientReducer {
         }
         round = new RoundContext(nonce);
         state = preFrozen ? State.FROZEN : State.PREPARING;
+        if (preFrozen) clearPreparingTargetTracking();
         return oneEffect(roundEffect(nonce, false, freshKeyAfterSubmit));
     }
 
@@ -785,12 +813,93 @@ public final class AutoToolSwapClientReducer {
             requestReanchor(context.selectedHotbarSlot);
         }
         if (state == State.PREPARING && pendingAction == null && swapExpectation == null
-                && context.tick >= nextMatchTick && round != null && round.accepted) evaluate(context);
+                && context.targetIdentity.isPresent() && context.targetIdentity.equals(latestTarget)
+                && (targetRematchPending || context.tick >= nextMatchTick)
+                && round != null && round.accepted) evaluate(context);
+    }
+
+    /** PREPARING 及其目标专用恢复期间持续接收 latest-target-wins 事实。 */
+    private boolean tracksPreparingTarget() {
+        return !closeRequested && !freezeRequested
+                && (state == State.PREPARING || state == State.RESTORING && targetRestoreRequested);
+    }
+
+    /** 观察单次 END tick 目标；ABSENT 仅在连续两次后成为有效变化。 */
+    private void observePreparingTarget(ToolSwapContext context) {
+        ToolSwapTargetIdentity observed = context.targetIdentity;
+        if (observed.isPresent()) {
+            consecutiveAbsentTargetTicks = 0;
+            if (!observed.equals(latestTarget)) {
+                latestTarget = observed;
+                reconcileLatestTarget(context.tick);
+            }
+            return;
+        }
+        if (consecutiveAbsentTargetTicks < TARGET_ABSENT_CONFIRM_TICKS) {
+            consecutiveAbsentTargetTicks++;
+        }
+        if (consecutiveAbsentTargetTicks == TARGET_ABSENT_CONFIRM_TICKS
+                && latestTarget.isPresent()) {
+            latestTarget = ToolSwapTargetIdentity.ABSENT;
+            reconcileLatestTarget(context.tick);
+        }
+    }
+
+    /** 将最新目标与唯一库存期望对齐，不取消已经提交的库存事务。 */
+    private void reconcileLatestTarget(long tick) {
+        if (swapExpectation == null) {
+            if (!latestTarget.isPresent()) {
+                matchedTarget = null;
+                targetRematchPending = false;
+            } else if (!latestTarget.equals(matchedTarget)) {
+                targetRematchPending = true;
+                nextMatchTick = nextTick(tick);
+            }
+            return;
+        }
+        boolean matchesBorrowedTarget = latestTarget.isPresent()
+                && latestTarget.equals(swapExpectation.targetIdentity);
+        if (matchesBorrowedTarget && targetRestoreRequested) {
+            if (cancelUnsubmittedTargetRestore()) {
+                targetRematchPending = false;
+            } else {
+                // 已提交 RESTORE 不可取消；完成后仍须对最终目标重新 FULL。
+                targetRematchPending = true;
+            }
+            return;
+        }
+        if (matchesBorrowedTarget) {
+            targetRematchPending = false;
+            return;
+        }
+        targetRematchPending = true;
+        if (pendingAction == AutoToolSwapAction.SWAP && !isActionPending()
+                && !isInventorySyncPending() && transmission == null) {
+            discardUnstartedSwapForTargetChange(tick);
+            return;
+        }
+        if (pendingAction == null && !isActionPending() && !isInventorySyncPending()) {
+            prepareRestore(DiagnosticReason.TARGET_CHANGED);
+        }
+    }
+
+    /** 仅撤销尚未发送、且唯一原因是目标变化的 RESTORE。 */
+    private boolean cancelUnsubmittedTargetRestore() {
+        if (!targetRestoreRequested || pendingAction != AutoToolSwapAction.RESTORE
+                || isActionPending() || isInventorySyncPending() || transmission != null) return false;
+        pendingAction = null;
+        targetRestoreRequested = false;
+        restoreReason = null;
+        state = State.PREPARING;
+        return true;
     }
 
     private void evaluate(ToolSwapContext context) {
         nextMatchTick = advanceWatermark(nextMatchTick, context.tick);
-        if (!context.inventory.isFullCandidateScan()) return;
+        if (!context.inventory.isFullCandidateScan() || !context.targetIdentity.isPresent()
+                || !context.targetIdentity.equals(latestTarget)) return;
+        matchedTarget = context.targetIdentity;
+        targetRematchPending = false;
         ToolCandidate held = context.inventory.candidateAt(anchorSlot);
         if (held != null && held.isUsableInHand()) return;
         for (ToolCandidate candidate : ToolCandidateOrder.sort(context.inventory.candidates(), cycleSelectors)) {
@@ -798,7 +907,8 @@ public final class AutoToolSwapClientReducer {
             SlotSnapshot anchor = context.inventory.slot(anchorSlot);
             SlotSnapshot candidateSlot = context.inventory.slot(candidate.slot());
             if (anchor != null && candidateSlot != null && !candidateSlot.isEmpty()) {
-                swapExpectation = new SwapExpectation(generation, anchorSlot, candidate.slot(), anchor, candidateSlot);
+                swapExpectation = new SwapExpectation(generation, anchorSlot, candidate.slot(), anchor,
+                        candidateSlot, context.targetIdentity);
                 pendingAction = AutoToolSwapAction.SWAP;
                 return;
             }
@@ -941,6 +1051,13 @@ public final class AutoToolSwapClientReducer {
             pendingAction = AutoToolSwapAction.ABANDON;
             return false;
         }
+        if (context.targetIdentity.isPresent()
+                && !context.targetIdentity.equals(swapExpectation.targetIdentity)) {
+            latestTarget = context.targetIdentity;
+            consecutiveAbsentTargetTicks = 0;
+            discardUnstartedSwapForTargetChange(context.tick);
+            return false;
+        }
         if (swapExpectation.matchesStrictRestored(inventory, generation)) return true;
         discardUnstartedSwap(context.tick);
         return false;
@@ -999,6 +1116,7 @@ public final class AutoToolSwapClientReducer {
                 && (result == AutoToolSwapResultCode.ACCEPTED || result == AutoToolSwapResultCode.APPLIED)) {
             pendingAction = null;
             freezeRequested = false;
+            clearPreparingTargetTracking();
             if (serverState == AutoToolSwapRoundState.CLOSING) {
                 requestClose(CloseCause.RELEASE_GATED, DiagnosticReason.PROTOCOL_ORPHAN);
                 return;
@@ -1078,7 +1196,9 @@ public final class AutoToolSwapClientReducer {
             SlotSnapshot originalAnchor = swapExpectation == null
                     ? expected.anchorBefore : swapExpectation.anchorRole;
             swapExpectation = new SwapExpectation(generation, expected.anchorSlot,
-                    expected.newCandidateSlot, originalAnchor, expected.newCandidateBefore);
+                    expected.newCandidateSlot, originalAnchor, expected.newCandidateBefore,
+                    ToolSwapTargetIdentity.present(pendingTakeoverRequest.targetBlockId(),
+                            pendingTakeoverRequest.targetBlockMetadata()));
             takeoverExpectation = null;
             pendingTakeoverRequest = null;
             pendingAction = null;
@@ -1109,6 +1229,7 @@ public final class AutoToolSwapClientReducer {
     private void requestFreeze(long eventGeneration) {
         if (eventGeneration != generation || state == State.IDLE || state == State.WAIT_RELEASE
                 || state == State.ORPHANED) return;
+        clearPreparingTargetTracking();
         if (pendingAction == AutoToolSwapAction.SWAP && round != null && round.inFlight == null
                 && transmission == null) discardUnstartedSwap(lastTick());
         if (round != null && !round.closing && freezeAlreadyRequestedOrSettled()) {
@@ -1141,6 +1262,9 @@ public final class AutoToolSwapClientReducer {
             closeDiagnosticReason = reason;
         }
         rematchAfterRestore = false;
+        targetRematchPending = false;
+        targetRestoreRequested = false;
+        consecutiveAbsentTargetTicks = 0;
         pendingAnchor = null;
         if (swapExpectation != null && !isActionPending() && !isInventorySyncPending()) prepareRestore(reason);
     }
@@ -1157,6 +1281,7 @@ public final class AutoToolSwapClientReducer {
             return;
         }
         restoreReason = reason;
+        targetRestoreRequested = reason == DiagnosticReason.TARGET_CHANGED;
         state = State.RESTORING;
         if (!isActionPending() && !isInventorySyncPending()) {
             diagnose(prepareRestoreDiagnosticClass(reason), reason, lastContext);
@@ -1165,11 +1290,12 @@ public final class AutoToolSwapClientReducer {
     }
 
     private void finishSwap() {
-        if (closeRequested || rematchAfterRestore || pendingAnchor != null
+        if (closeRequested || rematchAfterRestore || targetRematchPending || pendingAnchor != null
                 || lastContext != null && lastContext.guiOpen) {
             DiagnosticReason reason = closeRequested ? closeDiagnosticReason
                     : pendingAnchor != null ? DiagnosticReason.SELECTED_SLOT_REANCHOR
-                    : lastContext != null && lastContext.guiOpen ? DiagnosticReason.GUI_OPEN : restoreReason;
+                    : lastContext != null && lastContext.guiOpen ? DiagnosticReason.GUI_OPEN
+                    : targetRematchPending ? DiagnosticReason.TARGET_CHANGED : restoreReason;
             if (reason == null) reason = DiagnosticReason.PROTOCOL_ORPHAN;
             diagnose(DiagnosticClass.FINISH_SWAP_RESTORE, reason, lastContext);
             prepareRestore(reason);
@@ -1177,6 +1303,7 @@ public final class AutoToolSwapClientReducer {
     }
 
     private void finishRestore() {
+        boolean finishedTargetRestore = targetRestoreRequested;
         if (closeRequested) {
             state = State.RESTORING;
             pendingAction = null;
@@ -1189,9 +1316,16 @@ public final class AutoToolSwapClientReducer {
         if (freezeRequested) state = State.FROZEN;
         else {
             state = State.PREPARING;
-            if (rematchAfterRestore && lastContext != null && !lastContext.guiOpen) nextMatchTick = lastContext.tick;
+            if (finishedTargetRestore) {
+                matchedTarget = null;
+                targetRematchPending = latestTarget.isPresent();
+                nextMatchTick = nextTick(lastTick());
+            } else if (rematchAfterRestore && lastContext != null && !lastContext.guiOpen) {
+                nextMatchTick = lastContext.tick;
+            }
         }
         rematchAfterRestore = false;
+        targetRestoreRequested = false;
         restoreReason = null;
     }
 
@@ -1258,6 +1392,19 @@ public final class AutoToolSwapClientReducer {
             pendingAnchor = null;
         }
         nextMatchTick = advanceWatermark(nextMatchTick, tick);
+        if (!closeRequested && !freezeRequested) state = State.PREPARING;
+    }
+
+    /** 目标变化丢弃未提交 SWAP，并把 FULL 资格放到下一 END tick。 */
+    private void discardUnstartedSwapForTargetChange(long tick) {
+        if (pendingAction != AutoToolSwapAction.SWAP || isActionPending()
+                || isInventorySyncPending() || transmission != null) return;
+        pendingAction = null;
+        swapExpectation = null;
+        rematchAfterRestore = false;
+        targetRematchPending = latestTarget.isPresent();
+        matchedTarget = latestTarget.isPresent() ? matchedTarget : null;
+        nextMatchTick = nextTick(tick);
         if (!closeRequested && !freezeRequested) state = State.PREPARING;
     }
 
@@ -1331,6 +1478,11 @@ public final class AutoToolSwapClientReducer {
         lastContext = null;
         consecutiveRestoreRejections = 0;
         deferredRoundPending = false;
+        latestTarget = ToolSwapTargetIdentity.ABSENT;
+        matchedTarget = null;
+        consecutiveAbsentTargetTicks = 0;
+        targetRematchPending = false;
+        targetRestoreRequested = false;
         clearPreEdgeDestroyLatch();
         resetCycleFlags();
     }
@@ -1346,6 +1498,16 @@ public final class AutoToolSwapClientReducer {
         pendingAnchor = null;
         restoreReason = null;
         closeDiagnosticReason = null;
+        clearPreparingTargetTracking();
+    }
+
+    /** 清除只属于首块前 PREPARING 的目标重匹配资格。 */
+    private void clearPreparingTargetTracking() {
+        latestTarget = ToolSwapTargetIdentity.ABSENT;
+        matchedTarget = null;
+        consecutiveAbsentTargetTicks = 0;
+        targetRematchPending = false;
+        targetRestoreRequested = false;
     }
 
     private boolean hasTrustedProtectedSlots(ToolSwapInventorySnapshot inventory) {
@@ -1444,6 +1606,7 @@ public final class AutoToolSwapClientReducer {
         if (reason == DiagnosticReason.RELEASE) return DiagnosticClass.PREPARE_RESTORE_RELEASE;
         if (reason == DiagnosticReason.NATURAL_IDLE) return DiagnosticClass.PREPARE_RESTORE_NATURAL_IDLE;
         if (reason == DiagnosticReason.CONFIG_DISABLED) return DiagnosticClass.PREPARE_RESTORE_CONFIG_DISABLED;
+        if (reason == DiagnosticReason.TARGET_CHANGED) return DiagnosticClass.PREPARE_RESTORE_TARGET_CHANGED;
         return DiagnosticClass.PREPARE_RESTORE_PROTOCOL;
     }
 
@@ -1484,6 +1647,10 @@ public final class AutoToolSwapClientReducer {
         return next;
     }
 
+    private static long nextTick(long tick) {
+        return tick == Long.MAX_VALUE ? Long.MAX_VALUE : tick + 1L;
+    }
+
     private static long incrementGeneration(long value) {
         if (value == Long.MAX_VALUE) throw new IllegalStateException("cycle generation overflow");
         return value + 1L;
@@ -1504,6 +1671,7 @@ public final class AutoToolSwapClientReducer {
         RELEASE("release"),
         NATURAL_IDLE("natural-idle"),
         CONFIG_DISABLED("config-disabled"),
+        TARGET_CHANGED("target-changed"),
         PROTOCOL_ORPHAN("protocol-orphan"),
         ROUND_PHASE("round-phase"),
         LOCAL_DESTROY("local-destroy"),
@@ -1531,6 +1699,7 @@ public final class AutoToolSwapClientReducer {
         PREPARE_RESTORE_RELEASE,
         PREPARE_RESTORE_NATURAL_IDLE,
         PREPARE_RESTORE_CONFIG_DISABLED,
+        PREPARE_RESTORE_TARGET_CHANGED,
         PREPARE_RESTORE_PROTOCOL,
         FINISH_SWAP_RESTORE,
         ROUND_PHASE_ACTIVE,
@@ -1572,17 +1741,23 @@ public final class AutoToolSwapClientReducer {
         private final int candidateSlot;
         private final SlotSnapshot anchorRole;
         private final SlotSnapshot candidateRole;
+        private final ToolSwapTargetIdentity targetIdentity;
         private SlotSnapshot restoreAnchorRole;
         private AutoToolSwapAction verifyingAction;
         private long verifyStartedTick;
 
         private SwapExpectation(long generation, int anchorSlot, int candidateSlot,
-                SlotSnapshot anchorRole, SlotSnapshot candidateRole) {
+                SlotSnapshot anchorRole, SlotSnapshot candidateRole,
+                ToolSwapTargetIdentity targetIdentity) {
+            if (targetIdentity == null || !targetIdentity.isPresent()) {
+                throw new IllegalArgumentException("swap target identity must be present");
+            }
             this.generation = generation;
             this.anchorSlot = anchorSlot;
             this.candidateSlot = candidateSlot;
             this.anchorRole = anchorRole;
             this.candidateRole = candidateRole;
+            this.targetIdentity = targetIdentity;
         }
 
         private boolean matchesSwapped(ToolSwapInventorySnapshot inventory, long currentGeneration) {

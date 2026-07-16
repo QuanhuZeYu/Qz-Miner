@@ -35,8 +35,14 @@ public class ToolSwapMinecraftFacadeTest {
         String source = source();
         Assert.assertTrue(source.contains("ForgeHooks.canToolHarvestBlock(target, metadata, stack)"));
         Assert.assertTrue(source.contains("AutoToolSwapStackStateFactory.capture(stack)"));
-        Assert.assertTrue(source.contains("ToolSwapCapturePlan.FULL_TARGET ? Block.getBlockById(targetBlockId)"));
+        Assert.assertTrue(source.contains("plan == ToolSwapCapturePlan.FULL_TARGET"));
+        Assert.assertTrue(source.contains("Block.getBlockById(targetIdentity.blockId())"));
         Assert.assertTrue(source.contains("targetBlockMetadata"));
+        Assert.assertTrue(source.contains("captureTargetIdentity("));
+        String inventoryCapture = source.substring(source.indexOf("ToolSwapInventorySnapshot captureInventory"));
+        Assert.assertFalse("普通 FULL 不得二次读取准星", inventoryCapture.contains("objectMouseOver"));
+        Assert.assertTrue(inventoryCapture.contains("lightTarget"));
+        Assert.assertTrue(source.contains("return null;"));
     }
 
     private static String source() throws Exception {

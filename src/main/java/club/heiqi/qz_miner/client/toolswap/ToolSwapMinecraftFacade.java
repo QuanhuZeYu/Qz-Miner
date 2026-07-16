@@ -21,6 +21,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.MovingObjectPosition;
+import net.minecraft.world.World;
 import net.minecraftforge.common.ForgeHooks;
 import net.minecraftforge.oredict.OreDictionary;
 
@@ -42,16 +43,27 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         if (minecraft == null || player == null || minecraft.theWorld == null) {
             return null;
         }
-        ChainSubMode selected = MyMod.chainStateService == null
-                ? null : MyMod.chainStateService.getClientState().getSelectedSubMode();
-        boolean breakCapable = ChainSubModeRegistry.getTrigger(selected) == ChainSubModeTrigger.BREAK_BLOCK;
-        return new ToolSwapLightContext(
-                tick,
-                breakCapable,
-                player.capabilities.isCreativeMode,
-                minecraft.currentScreen != null,
-                chainActive,
-                player.inventory.currentItem);
+        try {
+            ChainSubMode selected = MyMod.chainStateService == null
+                    ? null : MyMod.chainStateService.getClientState().getSelectedSubMode();
+            boolean breakCapable = ChainSubModeRegistry.getTrigger(selected) == ChainSubModeTrigger.BREAK_BLOCK;
+            ToolSwapTargetIdentity targetIdentity = captureTargetIdentity(
+                    minecraft.theWorld, minecraft.objectMouseOver);
+            return new ToolSwapLightContext(
+                    tick,
+                    breakCapable,
+                    player.capabilities.isCreativeMode,
+                    minecraft.currentScreen != null,
+                    chainActive,
+                    player.inventory.currentItem,
+                    targetIdentity);
+        } catch (RuntimeException failure) {
+            noteCaptureFailure(failure);
+            return null;
+        } catch (LinkageError failure) {
+            noteCaptureFailure(failure);
+            return null;
+        }
     }
 
     @Override
@@ -65,7 +77,7 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         ToolSwapInventorySnapshot inventory;
         try {
             inventory = captureInventory(minecraft, player, plan, anchorSlot, candidateSlot,
-                    targetBlockId, targetBlockMetadata);
+                    targetBlockId, targetBlockMetadata, light.targetIdentity);
         } catch (RuntimeException failure) {
             noteCaptureFailure(failure);
             inventory = ToolSwapInventorySnapshot.untrusted();
@@ -93,7 +105,7 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
     /** 按计划原子捕获库存；任一回调失败由调用方丢弃全部部分结果。 */
     ToolSwapInventorySnapshot captureInventory(Minecraft minecraft, EntityPlayer player,
             ToolSwapCapturePlan plan, int anchorSlot, int candidateSlot,
-            int targetBlockId, int targetBlockMetadata) {
+            int targetBlockId, int targetBlockMetadata, ToolSwapTargetIdentity lightTarget) {
         if (plan == ToolSwapCapturePlan.NONE) {
             return ToolSwapInventorySnapshot.none();
         }
@@ -106,14 +118,11 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
             protectedSlots.add(snapshotSlot(candidateSlot, player.inventory.mainInventory[candidateSlot]));
             return ToolSwapInventorySnapshot.protectedSlots(protectedSlots);
         }
-        Block target = plan == ToolSwapCapturePlan.FULL_TARGET ? Block.getBlockById(targetBlockId) : null;
-        int metadata = plan == ToolSwapCapturePlan.FULL_TARGET ? targetBlockMetadata : 0;
-        MovingObjectPosition hit = minecraft.objectMouseOver;
-        if (plan != ToolSwapCapturePlan.FULL_TARGET && hit != null
-                && hit.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
-            target = minecraft.theWorld.getBlock(hit.blockX, hit.blockY, hit.blockZ);
-            metadata = minecraft.theWorld.getBlockMetadata(hit.blockX, hit.blockY, hit.blockZ);
-        }
+        ToolSwapTargetIdentity targetIdentity = plan == ToolSwapCapturePlan.FULL_TARGET
+                ? ToolSwapTargetIdentity.present(targetBlockId, targetBlockMetadata) : lightTarget;
+        if (targetIdentity == null) throw new IllegalArgumentException("lightTarget must not be null");
+        Block target = targetIdentity.isPresent() ? Block.getBlockById(targetIdentity.blockId()) : null;
+        int metadata = targetIdentity.isPresent() ? targetIdentity.metadata() : 0;
         List<SlotSnapshot> slots = new ArrayList<SlotSnapshot>(36);
         List<ToolCandidate> candidates = new ArrayList<ToolCandidate>();
         for (int slot = 0; slot < 36; slot++) {
@@ -127,12 +136,24 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         return new ToolSwapInventorySnapshot(slots, candidates);
     }
 
+    /** 将一次准星命中归一为不含坐标的方块身份。 */
+    static ToolSwapTargetIdentity captureTargetIdentity(World world, MovingObjectPosition hit) {
+        if (world == null || hit == null || hit.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK) {
+            return ToolSwapTargetIdentity.ABSENT;
+        }
+        Block block = world.getBlock(hit.blockX, hit.blockY, hit.blockZ);
+        int blockId = block == null ? 0 : Block.getIdFromBlock(block);
+        if (blockId <= 0) return ToolSwapTargetIdentity.ABSENT;
+        return ToolSwapTargetIdentity.present(blockId,
+                world.getBlockMetadata(hit.blockX, hit.blockY, hit.blockZ));
+    }
+
     private void noteCaptureFailure(Throwable failure) {
         long now = System.nanoTime();
         if (lastCaptureFailureLogNanos == Long.MIN_VALUE
                 || now - lastCaptureFailureLogNanos >= CAPTURE_LOG_INTERVAL_NS) {
             lastCaptureFailureLogNanos = now;
-            MyMod.LOG.warn("[AutoToolSwap] Inventory capture failed; snapshot discarded", failure);
+            MyMod.LOG.warn("[AutoToolSwap] Client fact capture failed; snapshot discarded", failure);
         }
     }
 

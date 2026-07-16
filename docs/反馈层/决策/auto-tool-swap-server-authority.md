@@ -36,6 +36,7 @@
 - `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。DECLINE 成功零库存读写并让执行门 STOP。
 - TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放。
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
+- 首块成功前的普通匹配使用客户端 light 快照中的 `ABSENT` 或 `blockId + metadata` 目标身份；坐标、TileEntity/NBT 不参与。同身份维持 10 tick 扫描水位，block/meta 变化立即触发 latest-target-wins，连续两个 END tick ABSENT 才确认丢失。已有 ledger 时先完成旧 RESTORE，再为最终有效目标 FULL；已发送 SWAP/RESTORE 不取消，也不在旧 ledger 上发送第二个普通 SWAP。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
 
 ## 生命周期边界
@@ -75,6 +76,7 @@
 
 ## 演进
 
+- 2026-07-16：补齐首块前目标身份与 latest-target-wins。普通 FULL 改为只消费 light 固化的 block/meta；目标变化按唯一 ledger 先 RESTORE 后重匹配，空气采用连续 2 个 END tick 防抖。协议 v3、服务端写权、TAKEOVER 与连锁五态不变。
 - 2026-07-16：客户端原子迁移为单一 `AutoToolSwapClientReducer`；删除并行的 controller、transaction enum 与有状态 protocol 子模型。当时的 wire、服务端 round/ledger、库存事务、dispatcher、lifecycle gate 与产品时序不变。
 - 2026-07-16：纠正客户端将 `FROZEN` 折叠为 `CLOSING` 的派生错误，并将活跃 phase 的 FREEZE 请求收敛为按 round 幂等；真实 `CLOSING`、自然 IDLE 与 release 的恢复关闭合同不变。
 - 2026-07-16：前序协议将请求 exact 新鲜度与跨 round stable-role 租约分层，并新增显式 `ABANDON(5)`，使无法安全恢复的 ledger 可在零库存访问下收口到 FINISHED。
