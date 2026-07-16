@@ -32,8 +32,8 @@ public final class AutoToolSwapClientAdapter {
             new AutoToolSwapClientReducer.DiagnosticSink() {
                 @Override
                 public void log(String message) {
-                    // 原因探针按 round/类别和 reducer 生命周期双重有界，使用 INFO 保证实机日志可见。
-                    MyMod.LOG.info(message);
+                    // 原因探针保留在文件级 DEBUG，避免默认终端输出刷屏。
+                    MyMod.LOG.debug(message);
                 }
             };
 

@@ -27,8 +27,8 @@ public final class AutoToolSwapRoundService {
     private static final DiagnosticSink PRODUCTION_DIAGNOSTIC_SINK = new DiagnosticSink() {
         @Override
         public void log(String message) {
-            // 默认日志配置并不保证收集 DEBUG；探针严格按动作/阶段有界，因此使用可见的 INFO。
-            MyMod.LOG.info(message);
+            // 探针保留在文件级 DEBUG，避免默认终端输出刷屏。
+            MyMod.LOG.debug(message);
         }
     };
     private static final DiagnosticSink NO_DIAGNOSTIC_SINK = new DiagnosticSink() {

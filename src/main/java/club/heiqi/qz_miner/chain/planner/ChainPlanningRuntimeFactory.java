@@ -321,14 +321,14 @@ public final class ChainPlanningRuntimeFactory {
         private final ConcurrentHashMap<ChainTarget, CandidateObservation> observations =
                 new ConcurrentHashMap<ChainTarget, CandidateObservation>();
 
-        /** 创建生产诊断器；INFO 用于保证默认实机日志可见，明细由 round 预算限制。 */
+        /** 创建生产诊断器；DEBUG 保留文件诊断并避免默认终端刷屏，明细由 round 预算限制。 */
         public static PlanningDiagnostics production(UUID playerUUID, long serverRoundId, int generation,
                 String mode, String subMode) {
             return new PlanningDiagnostics(playerUUID, serverRoundId, generation, mode, subMode,
                     DEFAULT_DIAGNOSTIC_CANDIDATE_BUDGET, new DiagnosticSink() {
                         @Override
                         public void log(String message) {
-                            MyMod.LOG.info(message);
+                            MyMod.LOG.debug(message);
                         }
                     });
         }

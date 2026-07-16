@@ -554,7 +554,7 @@ public class ChainExecutionEventBridge {
 
     /** 输出与 planner/工具换位 round 可关联的有界执行时间线。 */
     private void logTimeline(ChainExecutionContext context, String stage, String details) {
-        MyMod.LOG.info("[ChainPlanDiag] player={} round={} generation={} stage={} {}",
+        MyMod.LOG.debug("[ChainPlanDiag] player={} round={} generation={} stage={} {}",
                 context.getPlayerUUID(), Long.valueOf(context.getServerRoundId()),
                 Integer.valueOf(context.getGeneration()), stage, details);
     }
