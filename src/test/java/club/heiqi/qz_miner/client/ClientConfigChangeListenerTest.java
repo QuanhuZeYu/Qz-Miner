@@ -95,7 +95,8 @@ public class ClientConfigChangeListenerTest {
         String yaml = new String(
                 Files.readAllBytes(ConfigBootstrap.yamlFile().toPath()), StandardCharsets.UTF_8);
         Files.write(ConfigBootstrap.yamlFile().toPath(),
-                replaceYamlScalar(yaml, "clientEnablePreviewRender", "false")
+                replaceYamlScalar(replaceYamlScalar(yaml, "clientEnablePreviewRender", "false"),
+                        "autoToolTakeoverEnabled", "false")
                         .getBytes(StandardCharsets.UTF_8));
 
         Assert.assertNotNull(manager.reloadDraftFromDisk());
@@ -104,6 +105,7 @@ public class ClientConfigChangeListenerTest {
 
         ValidatedSnapshot current = ConfigBootstrap.currentValidatedSnapshot();
         Assert.assertFalse(current.clientEnablePreviewRender);
+        Assert.assertFalse(current.autoToolTakeoverEnabled);
         Assert.assertEquals(Boolean.FALSE, manager.authority().get("client.clientEnablePreviewRender"));
         Assert.assertEquals(1, eventSnapshots.size());
         Assert.assertSame(current, eventSnapshots.get(0));
@@ -114,6 +116,7 @@ public class ClientConfigChangeListenerTest {
 
         Assert.assertSame(current, harness.lastPublishedSnapshot);
         Assert.assertFalse(Config.clientEnablePreviewRender);
+        Assert.assertFalse(Config.autoToolTakeoverEnabled);
         Assert.assertEquals(current.clientEnablePreviewRender, harness.lastPublishedSnapshot.clientEnablePreviewRender);
         Assert.assertEquals(current.clientPreviewMaxRadius, Config.clientPreviewMaxRadius);
     }

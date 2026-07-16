@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -411,5 +414,19 @@ public class ChainExecutionEventBridgeTest {
         bus.drain();
 
         Assert.assertSame("旧轮取消不得移除新轮 context", r2, registry.get(PLAYER, 4, 502L));
+    }
+
+    @Test
+    public void takeoverGateIsStructurallyBeforePollAndGtBranchRemainsSeparate() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        int nonGt = source.indexOf("// ===== 非 GT");
+        int peek = source.indexOf("context.getTargets().peek()", nonGt);
+        int gate = source.indexOf("takeoverCoordinator.beforePoll", peek);
+        int poll = source.indexOf("context.getTargets().poll()", gate);
+        Assert.assertTrue("WAIT 门必须在队首 peek 后", nonGt >= 0 && peek > nonGt && gate > peek);
+        Assert.assertTrue("只有 PROCEED 后才能 poll", poll > gate);
+        Assert.assertTrue("GT 分支必须位于普通接替门之前", source.indexOf("GT 线缆特例") < nonGt);
     }
 }

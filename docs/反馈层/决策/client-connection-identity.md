@@ -18,8 +18,8 @@
   - Listener **仅** `transitioned && replacedPreviousLifecycle` 时调度 world 接管清理（首次 bind 不调度，避免首 load 空清理；幂等 cleanup 安全但以 replaced 收敛）。B world gate 内清 preview/GPU/phase/pending；**不**发连接级 C2S、不重置无关连接状态。
   - disconnect / unload / connection-takeover / world-takeover **共用** `cleanupLifecycleResources`，避免重复逻辑。
 - 收敛协议：init/cleanup/S2C 动作均经客户端主线程 dispatcher；token 在入口捕获、主线程 gate 后执行。后继 connect reset / disconnect cleanup 使旧排队任务 no-op。**不谎称** monitor 外长动作与 lifecycle 严格互斥——可测试的收敛靠 token generation + 主线程 gate。
-- 生产 callback 目前在 lifecycle monitor 内：接管 cleanup **不得**调用任何反向 lifecycle 入口；注释声明受控主线程 callback。连接初始化路径仍有 C2S（P2 残余：monitor 内 I/O；本轮不扩大架构重写），但自动工具三个 S2C 的 publication 只更新 adapter，可能产生的 C2S 延迟到下一次 `ClientTick`。
-- 本决策覆盖当前客户端方向的全部七个 S2C：原有三包、对象组配置确认和自动工具三包。
+- 生产 callback 目前在 lifecycle monitor 内：接管 cleanup **不得**调用任何反向 lifecycle 入口；注释声明受控主线程 callback。连接初始化路径仍有 C2S（P2 残余：monitor 内 I/O；本轮不扩大架构重写），但自动工具四个 S2C 的 publication 只更新 adapter，可能产生的 C2S 延迟到下一次 `ClientTick`。
+- 本决策覆盖当前客户端方向的全部八个 S2C：原有三包、对象组配置确认和自动工具四包。
   - `PacketChainConfigSync`：Handler 传 `ctx.netHandler`；ClientProxy `captureForConnection` → 主线程整包校验 → connection-active gate 写状态。
   - `PacketChainPhaseSnapshot`：传 `ctx.netHandler`；主线程 world-active gate 后才 publish client event bus；**禁止 Netty 直接写/发布语义状态**。
    - `PacketLootGamesMinesweeperPreviewResponse`：传 `ctx.netHandler`；主线程 world-active gate 后才应用 preview。
@@ -27,6 +27,7 @@
    - `PacketAutoToolSwapRoundResult`：传 `ctx.netHandler`；主线程 world-active gate 后仅结算当前 nonce/round 建立结果。
   - `PacketAutoToolSwapActionResult`：传 `ctx.netHandler`；主线程 world-active gate 后仅结算当前 round 的精确 in-flight action。
   - `PacketAutoToolSwapRoundPhase`：传 `ctx.netHandler`；主线程 world-active gate 后只接受当前 round 且严格递增的 `phaseSequence`，不借用通用 phase 投影关联工具事务。
+  - `PacketAutoToolSwapTakeoverRequest`：传 `ctx.netHandler`；主线程 world-active gate 后只登记当前 v3 round/generation/sequence/目标事实，库存 FULL 采样与 C2S 延迟到下一 ClientTick。
 - `CommonProxy` dedicated no-op；方法描述符仅 common 类型（`INetHandler`，非 `NetHandlerPlayClient`）。Packet/Handler 字节码不得引用 `net.minecraft.client.*`、client dispatcher 或 LWJGL（由 `CommonNetworkClassBoundaryTest` 字节码/签名断言）。
 - `ChainEventBus.clearPending()`：清 pending 不破坏订阅；客户端 lifecycle cleanup 调用，防旧 phase 随后 drain 回写。
 
@@ -40,7 +41,7 @@
 
 ## 不变量影响
 
-- **I4**：上述七个 S2C Handler 只捕获原始数据 + common `INetHandler`；主线程整包校验/gate 后写状态；Netty 不碰 `ChainClientState` / 投影容器 / event-bus 或自动工具协议语义 publication。
+- **I4**：上述八个 S2C Handler 只捕获原始数据 + common `INetHandler`；主线程整包校验/gate 后写状态；Netty 不碰 `ChainClientState` / 投影容器 / event-bus 或自动工具协议语义 publication。
 - **I7**：断线/世界卸载经 `ClientMainThreadDispatcher` + lifecycle gate 停预览、释 GPU、清 phase/pending；**连接/世界接管**同样经主线程 gate 统一 cleanup，使旧 cleanup no-op 后仍收敛。
 - **I6**：common 包/Proxy 描述符与字节码不拉 client 签名类。
 
@@ -51,5 +52,6 @@
 - 2026-07-10：绑定真实 `INetHandler`/`World` identity + connection/world generation；三 S2C 传 `ctx.netHandler`；init/cleanup 携 token gate；`clearPending` 防旧 phase 回写。
 - 2026-07-10：`TransitionResult`（token/transitioned/replacedPreviousLifecycle）；仅 transitioned 调度 init；connection/world 接管统一 cleanup；重复 connect/load 不重复 init/清理。
 - 2026-07-15：已删除旧自动工具预选生命周期子项；统一 cleanup 保留对象组、preview、GPU renderer、phase 与 event pending 五项故障隔离。
-- 2026-07-16：自动工具三个 S2C 纳入 connection/world token gate；publication 仅推进 adapter，C2S 延迟到下一次 `ClientTick`，生命周期 cleanup 增加自动工具 reducer 复位且不盲恢复库存；当前范围明确为原有三包、对象组配置确认和自动工具三包，共七个客户端 S2C。
+- 2026-07-16：首批自动工具 S2C 纳入 connection/world token gate；publication 仅推进 adapter，C2S 延迟到下一次 `ClientTick`，生命周期 cleanup 增加自动工具 reducer 复位且不盲恢复库存。
 - 2026-07-16：自动工具客户端状态原子收敛到单一 reducer；adapter 不再镜像按键、round 结束或重传业务标记，validator 不保留连接或序号历史，connection/world gate 与 publication 形状不变。
+- 2026-07-16：协议 v3 新增第四个自动工具 S2C 接替目标请求；沿用同一 connection/world gate，callback 仅发布事实，下一 ClientTick 才采样并发送 TAKEOVER/DECLINE。

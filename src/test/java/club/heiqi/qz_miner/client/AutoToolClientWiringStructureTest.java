@@ -44,6 +44,8 @@ public class AutoToolClientWiringStructureTest {
         Assert.assertTrue(proxy.contains("handleClientAutoToolSwapRoundResult"));
         Assert.assertTrue(proxy.contains("handleClientAutoToolSwapActionResult"));
         Assert.assertTrue(proxy.contains("handleClientAutoToolSwapRoundPhase"));
+        Assert.assertTrue(proxy.contains("handleClientAutoToolSwapTakeoverRequest"));
+        Assert.assertTrue(proxy.contains("autoToolSwapAdapter.onTakeoverRequest"));
         Assert.assertTrue(proxy.contains("AUTO_TOOL_SWAP_LIFECYCLE_GATE"));
     }
 

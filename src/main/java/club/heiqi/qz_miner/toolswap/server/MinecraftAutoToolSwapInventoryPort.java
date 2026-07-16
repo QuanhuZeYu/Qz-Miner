@@ -84,6 +84,20 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
         player.inventory.markDirty();
     }
 
+    /** 一次性轮转三个互异槽位并只标脏一次。 */
+    @Override
+    public void rotateInventorySlotsAtomically(int anchorSlot, int oldCandidateSlot, int newCandidateSlot) {
+        requireInventorySlot(anchorSlot);
+        requireInventorySlot(oldCandidateSlot);
+        requireInventorySlot(newCandidateSlot);
+        if (anchorSlot == oldCandidateSlot || anchorSlot == newCandidateSlot
+                || oldCandidateSlot == newCandidateSlot) {
+            throw new IllegalArgumentException("inventory slots must be distinct");
+        }
+        rotateMainInventorySlots(player.inventory.mainInventory, anchorSlot, oldCandidateSlot, newCandidateSlot);
+        player.inventory.markDirty();
+    }
+
     /** 将已应用的库存差异交给原版容器同步。 */
     @Override
     public void syncInventoryDifference() {
@@ -142,6 +156,16 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
         ItemStack first = mainInventory[firstSlot];
         mainInventory[firstSlot] = mainInventory[secondSlot];
         mainInventory[secondSlot] = first;
+    }
+
+    /** 按 A&lt;-D,C&lt;-A,D&lt;-C 轮转引用。 */
+    static void rotateMainInventorySlots(ItemStack[] mainInventory, int anchorSlot,
+            int oldCandidateSlot, int newCandidateSlot) {
+        ItemStack anchor = mainInventory[anchorSlot];
+        ItemStack oldCandidate = mainInventory[oldCandidateSlot];
+        mainInventory[anchorSlot] = mainInventory[newCandidateSlot];
+        mainInventory[oldCandidateSlot] = anchor;
+        mainInventory[newCandidateSlot] = oldCandidate;
     }
 
     /**

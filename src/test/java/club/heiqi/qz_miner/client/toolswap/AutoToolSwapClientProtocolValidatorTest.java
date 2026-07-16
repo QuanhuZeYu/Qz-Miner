@@ -32,6 +32,8 @@ public class AutoToolSwapClientProtocolValidatorTest {
         Assert.assertEquals(ChainPhase.RUNNING, validator.validatePhase(
                 AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 1L, ChainPhase.RUNNING.ordinal(),
                 3, 2L, true).phase());
+        Assert.assertNotNull(validator.validateTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                7L, 2L, 3, 1, 64, 2, 42, 7, 10L, 18L, true));
     }
 
     @Test
@@ -55,6 +57,8 @@ public class AutoToolSwapClientProtocolValidatorTest {
                 AutoToolSwapRoundState.PENDING_KEY.wireCode(), 0, 5, 2L, 1L, true));
         Assert.assertNull(validator.validatePhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 0L, 0L,
                 ChainPhase.values().length, -1, -1L, true));
+        Assert.assertNull(validator.validateTakeoverRequest(2, 7L, 2L, 3,
+                1, 64, 2, 42, 7, 10L, 18L, true));
     }
 
     @Test

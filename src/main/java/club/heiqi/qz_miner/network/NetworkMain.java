@@ -102,5 +102,10 @@ public final class NetworkMain {
                 PacketAutoToolSwapRoundPhase.class,
                 packetId++,
                 Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapTakeoverRequest.Handler.class,
+                PacketAutoToolSwapTakeoverRequest.class,
+                packetId++,
+                Side.CLIENT);
     }
 }

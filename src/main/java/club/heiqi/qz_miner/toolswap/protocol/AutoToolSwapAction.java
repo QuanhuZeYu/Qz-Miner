@@ -9,7 +9,9 @@ public enum AutoToolSwapAction {
     RESTORE(2),
     FREEZE(3),
     CLOSE(4),
-    ABANDON(5);
+    ABANDON(5),
+    TAKEOVER(6),
+    DECLINE_TAKEOVER(7);
 
     private static final Map<Integer, AutoToolSwapAction> BY_WIRE_CODE = indexByWireCode();
 

@@ -193,7 +193,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 21 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
+    /** 全 22 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 
@@ -216,6 +216,7 @@ public class ConfigSemanticValidatorTest {
             values.add(Boolean.valueOf(Config.enableFortuneForPlacedOre));
             values.add(Boolean.valueOf(Config.clientEnablePreviewRender));
             values.add(Boolean.valueOf(Config.autoToolSwapEnabled));
+            values.add(Boolean.valueOf(Config.autoToolTakeoverEnabled));
             values.add(Config.autoToolPrioritySelectors);
             values.add(Integer.valueOf(Config.parallelTickClientWorkBudgetUnits));
             values.add(Integer.valueOf(Config.clientPreviewMaxRadius));
@@ -252,6 +253,7 @@ public class ConfigSemanticValidatorTest {
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
+        Config.autoToolTakeoverEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
         Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;

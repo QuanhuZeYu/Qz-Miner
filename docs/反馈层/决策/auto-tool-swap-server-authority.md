@@ -4,15 +4,16 @@
 
 - 自动工具换位的唯一库存写权属于服务端主线程。客户端只读取库存事实、按本地优先级选择候选并提交 intent，不直接修改库存，也不通过原版容器点击完成事务。
 - Qz-Miner 协议负责 round 建立、动作意图、动作结算和专用阶段关联；真实库存视图仍由服务端应用交换后通过原版容器差异同步下发。
-- 自动工具协议 v2 作为客户端与服务端共同升级的原子边界，不是允许混合版本调用的公共 API；两端必须使用同一 Qz-Miner 版本，v1 在 RoundStart 信任边界即 fail-closed。
+- 自动工具协议 v3 作为客户端与服务端共同升级的原子边界，不允许 v2/v3 混合协商；两端必须使用同一 Qz-Miner 版本，旧端在 RoundStart/整包校验处 fail-closed。
 
 ## 实现锚
 
-- `NetworkMain.register()`：注册自动工具两个 C2S 与三个 S2C，定义其在 common 网络层的方向和注册点。
+- `NetworkMain.register()`：注册自动工具两个 C2S 与四个 S2C；新增固定 60 字节接替目标请求。
 - `ServerAutoToolSwapRequestDispatch`：将 C2S 原始请求投递到服务端主线程，并连接 round 服务、库存端口和 S2C 回执发送。
 - `AutoToolSwapRoundService`：维护服务端 round、动作序列和可逆账本，执行请求幂等与动作结算。
 - `MinecraftAutoToolSwapInventoryPort`：在服务端玩家个人库存中执行槽位交换，并交由原版容器发布库存差异。
-- `ClientProxy`：按 `ctx.netHandler` 捕获连接 token，经客户端主线程 connection/world gate 将三个 S2C 发布给 adapter。
+- `AutoToolSwapTakeoverCoordinator`：普通 CHAIN/AREA 在队首 `peek()` 后建立 `PROCEED/WAIT/STOP` 门，只有 APPLIED 后允许 `poll()`。
+- `ClientProxy`：按 `ctx.netHandler` 捕获连接 token，经客户端主线程 connection/world gate 将四个 S2C 发布给 adapter。
 - `AutoToolSwapClientReducer`：客户端 cycle、nonce/round/action/phase 归因、库存双门、关闭原因与重传的唯一可变业务权威，以 Event 输入并输出不可变 Effect。
 - `AutoToolSwapClientAdapter`：承接 gate 后的 S2C，只采样 Minecraft 事实、执行 reducer effect 和网络 I/O；后续 C2S 在 `ClientTick` 发送。
 - `AutoToolSwapClientProtocolValidator`：无字段，只负责 raw、wire enum、范围与单包结构校验，不判断历史关联。
@@ -32,6 +33,8 @@
 - 库存比较分两层：每个 SWAP/RESTORE intent 携带捕获当刻的双槽完整 fingerprint，服务端与当前双槽 exact 比较以阻断陈旧请求；ledger 跨 round 只租赁稳定 role（registry id + stable subtype），允许 count、damage、energy 与 NBT 合法变化。空槽只兼容空槽，活动工具允许同 role 或破损后的空槽。
 - RESTORE 交换的是校验通过后的两个当前真实栈，不使用 ledger 旧内容回写；因此不会回滚动态变化，也不会复制或吞掉栈。sameRole 只证明角色所有权，不承诺对象 instance identity。原 anchor 非空时 candidate 仍须保持同 role；原 anchor 为空时允许 candidate 被任意当前真实栈占用，RESTORE 将占位栈直接交换到主手并把借用工具送回原槽。该窄例外不放宽 intent 双槽 exact 新鲜度、活动工具 role/empty 或库存安全上下文。
 - `ABANDON(5)` 是无法安全 RESTORE 时的显式收口动作：请求使用 ledger 真实双槽与两个 canonical control fingerprint。服务端只接受当前 endpoint/round/sequence、`SWAPPED/FROZEN/CLOSING`、匹配 ledger 槽位；成功时不读取、不交换、不同步库存，只清 ledger/keyDown 并进入 FINISHED。重复相同 intent 复用动作缓存，旧身份或拒绝不得清当前账本。
+- `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。DECLINE 成功零库存读写并让执行门 STOP。
+- TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放。
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
 
@@ -41,13 +44,12 @@
 - 松开连锁键、配置从启用改为禁用，或专用 round 收到 IDLE 时，按 RESTORE 后 CLOSE 的顺序收口。
 - 专用 round 自然进入 IDLE 时，即使物理连锁键仍持续按住，也必须先让旧 round 完整执行 RESTORE→CLOSE。只有 CLOSE 精确结算为 FINISHED、客户端协议已复位到 IDLE，且期间没有松键/快速重按、配置关闭、生命周期复位、拒绝或 orphan，才在下一次 `ClientTick` 创建新 nonce 并先提交 RoundStart；提交成功后由 `KeyListener` 补发 fresh `PacketKeyState(KEY_CHAIN, true)` 激活新服务端 round。旧 round 不复活，也不增加状态机捷径。
 - 连接断开、世界替换、协议超时、包失配、ABANDON 拒绝或同步异常时不伪造成功也不盲目发送恢复。客户端进入 ORPHANED 或统一复位 reducer，服务端生命周期清理销毁 round 账本，保留最后一次由服务端原版同步发布的库存状态。
-- 三个自动工具 S2C 先按连接 identity 捕获 token，再经客户端主线程的当前连接与当前世界 gate 发布到 adapter。publication 只更新本地协议状态；可能产生的后续 C2S 延迟到下一次 `ClientTick`，不在 lifecycle monitor 内执行网络 I/O。
+- 四个自动工具 S2C 先按连接 identity 捕获 token，再经客户端主线程的当前连接与当前世界 gate 发布到 adapter。接替请求 publication 不扫描世界/库存、不发送 C2S；TAKEOVER/DECLINE 延迟到下一次 `ClientTick`。
 
 ## 规划与执行耐久边界
 
 - worker 规划 matcher 使用 `ChainHarvestRules.canPlanHarvest`，只判断目标、采掘能力与收获等级，不把当前工具瞬时剩余耐久作为目标入队门。
-- 主线程 `BlockHarvestActionExecutor` 继续使用 `ChainHarvestRules.canHarvest` 执行完整的剩余耐久门；工具不足时目标暂不破坏，但不会在 worker 阶段提前消失。
-- 本阶段不实现 FROZEN 中途 TAKEOVER/DECLINE 或执行队列等待门；工具耗尽后的中途接替仍由后续协议 v3 独立完成。
+- 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。工具仍可用时直接 PROCEED；不足时 WAIT 保留队首与 consumed count，APPLIED 后继续，DECLINE/拒绝/超时/生命周期失效按既有事件路径 STOP。GT 线缆 SPECIAL 不接入。
 
 ## 不变量影响
 
@@ -73,7 +75,8 @@
 
 ## 演进
 
-- 2026-07-16：客户端原子迁移为单一 `AutoToolSwapClientReducer`；删除并行的 controller、transaction enum 与有状态 protocol 子模型。五包 wire、服务端 round/ledger、库存事务、dispatcher、lifecycle gate 与产品时序不变。
+- 2026-07-16：客户端原子迁移为单一 `AutoToolSwapClientReducer`；删除并行的 controller、transaction enum 与有状态 protocol 子模型。当时的 wire、服务端 round/ledger、库存事务、dispatcher、lifecycle gate 与产品时序不变。
 - 2026-07-16：纠正客户端将 `FROZEN` 折叠为 `CLOSING` 的派生错误，并将活跃 phase 的 FREEZE 请求收敛为按 round 幂等；真实 `CLOSING`、自然 IDLE 与 release 的恢复关闭合同不变。
-- 2026-07-16：协议原子升级为 v2；将请求 exact 新鲜度与跨 round stable-role 租约分层，并新增显式 `ABANDON(5)`，使无法安全恢复的 ledger 可在零库存访问下收口到 FINISHED。五包字段、长度、方向与注册数量不变。
+- 2026-07-16：前序协议将请求 exact 新鲜度与跨 round stable-role 租约分层，并新增显式 `ABANDON(5)`，使无法安全恢复的 ledger 可在零库存访问下收口到 FINISHED。
 - 2026-07-16：统一剩余耐久至少 2 点的技术门，并把 worker 规划能力判定与主线程执行耐久判定拆分；原 anchor 为空且候选槽被掉落物占用时，RESTORE 改为交换当前真实双槽。协议版本、动作码与 framing 不变，中途接替留待协议 v3。
+- 2026-07-16：协议原子升级为 v3，新增同 round TAKEOVER/DECLINE、服务端目标请求、poll 前等待门、连续接替三槽轮转和 `client.autoToolTakeoverEnabled`；运行态仍待用户实机。

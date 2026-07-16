@@ -19,6 +19,7 @@ public class AutoToolSwapNetworkRegistrationStructureTest {
         int roundResult = source.indexOf("PacketAutoToolSwapRoundResult.Handler.class");
         int actionResult = source.indexOf("PacketAutoToolSwapActionResult.Handler.class");
         int roundPhase = source.indexOf("PacketAutoToolSwapRoundPhase.Handler.class");
+        int takeover = source.indexOf("PacketAutoToolSwapTakeoverRequest.Handler.class");
 
         Assert.assertTrue(existingTail >= 0);
         Assert.assertTrue(existingTail < roundStart);
@@ -26,11 +27,13 @@ public class AutoToolSwapNetworkRegistrationStructureTest {
         Assert.assertTrue(intent < roundResult);
         Assert.assertTrue(roundResult < actionResult);
         Assert.assertTrue(actionResult < roundPhase);
+        Assert.assertTrue(roundPhase < takeover);
         assertSide(source, roundStart, "Side.SERVER");
         assertSide(source, intent, "Side.SERVER");
         assertSide(source, roundResult, "Side.CLIENT");
         assertSide(source, actionResult, "Side.CLIENT");
         assertSide(source, roundPhase, "Side.CLIENT");
+        assertSide(source, takeover, "Side.CLIENT");
     }
 
     private static void assertSide(String source, int registrationStart, String expectedSide) {

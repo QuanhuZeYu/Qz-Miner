@@ -56,7 +56,7 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
 
     @Override
     public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
-            int anchorSlot, int candidateSlot) {
+            int anchorSlot, int candidateSlot, int targetBlockId, int targetBlockMetadata) {
         Minecraft minecraft = Minecraft.getMinecraft();
         EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
         if (light == null || minecraft == null || player == null || minecraft.theWorld == null) {
@@ -64,7 +64,8 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         }
         ToolSwapInventorySnapshot inventory;
         try {
-            inventory = captureInventory(minecraft, player, plan, anchorSlot, candidateSlot);
+            inventory = captureInventory(minecraft, player, plan, anchorSlot, candidateSlot,
+                    targetBlockId, targetBlockMetadata);
         } catch (RuntimeException failure) {
             noteCaptureFailure(failure);
             inventory = ToolSwapInventorySnapshot.untrusted();
@@ -91,7 +92,8 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
 
     /** 按计划原子捕获库存；任一回调失败由调用方丢弃全部部分结果。 */
     ToolSwapInventorySnapshot captureInventory(Minecraft minecraft, EntityPlayer player,
-            ToolSwapCapturePlan plan, int anchorSlot, int candidateSlot) {
+            ToolSwapCapturePlan plan, int anchorSlot, int candidateSlot,
+            int targetBlockId, int targetBlockMetadata) {
         if (plan == ToolSwapCapturePlan.NONE) {
             return ToolSwapInventorySnapshot.none();
         }
@@ -104,10 +106,11 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
             protectedSlots.add(snapshotSlot(candidateSlot, player.inventory.mainInventory[candidateSlot]));
             return ToolSwapInventorySnapshot.protectedSlots(protectedSlots);
         }
-        Block target = null;
-        int metadata = 0;
+        Block target = plan == ToolSwapCapturePlan.FULL_TARGET ? Block.getBlockById(targetBlockId) : null;
+        int metadata = plan == ToolSwapCapturePlan.FULL_TARGET ? targetBlockMetadata : 0;
         MovingObjectPosition hit = minecraft.objectMouseOver;
-        if (hit != null && hit.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
+        if (plan != ToolSwapCapturePlan.FULL_TARGET && hit != null
+                && hit.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
             target = minecraft.theWorld.getBlock(hit.blockX, hit.blockY, hit.blockZ);
             metadata = minecraft.theWorld.getBlockMetadata(hit.blockX, hit.blockY, hit.blockZ);
         }

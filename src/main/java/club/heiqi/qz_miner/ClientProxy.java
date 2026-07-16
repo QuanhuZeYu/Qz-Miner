@@ -109,6 +109,7 @@ public class ClientProxy extends CommonProxy {
                 MyMod.clientChainEventBus, clientPhaseProjection);
         autoToolSwapAdapter = new AutoToolSwapClientAdapter(
                 Config.autoToolSwapEnabled,
+                Config.autoToolTakeoverEnabled,
                 Config.autoToolPrioritySelectors,
                 new ToolSwapMinecraftFacade(),
                 new QzAutoToolSwapClientTransport());
@@ -252,6 +253,32 @@ public class ClientProxy extends CommonProxy {
                         if (autoToolSwapAdapter != null) {
                             autoToolSwapAdapter.onRoundPhase(protocolVersion, serverRoundId, phaseSequence,
                                     phaseOrdinal, generation, serverTick, rawValid);
+                        }
+                    }
+                });
+    }
+
+    /** 接替请求只经 world identity gate 发布事实，不在 S2C callback 内扫描库存或发 C2S。 */
+    @Override
+    public void handleClientAutoToolSwapTakeoverRequest(
+            final int protocolVersion, final long serverRoundId, final long actionSequence,
+            final int generation, final int targetX, final int targetY, final int targetZ,
+            final int targetBlockId, final int targetBlockMetadata, final long serverTick,
+            final long deadlineTick, final boolean rawValid, INetHandler netHandler) {
+        final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
+        ClientAutoToolSwapPacketDispatch.dispatch(token, AUTO_TOOL_SWAP_LIFECYCLE_GATE,
+                new ClientAutoToolSwapPacketDispatch.Dispatcher() {
+                    @Override
+                    public boolean dispatch(Runnable task) {
+                        return ClientMainThreadDispatcher.tryRun(task);
+                    }
+                }, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (autoToolSwapAdapter != null) {
+                            autoToolSwapAdapter.onTakeoverRequest(protocolVersion, serverRoundId, actionSequence,
+                                    generation, targetX, targetY, targetZ, targetBlockId, targetBlockMetadata,
+                                    serverTick, deadlineTick, rawValid);
                         }
                     }
                 });

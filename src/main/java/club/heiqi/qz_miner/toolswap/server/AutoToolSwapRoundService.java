@@ -16,6 +16,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapTakeoverRequest;
 
 /**
  * 服务端工具换位 round 的事务核心。调用方应在服务端主线程使用，方法同步仅用于封闭状态竞争。
@@ -23,6 +24,13 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
 public final class AutoToolSwapRoundService {
 
     public static final long NO_PHASE_SEQUENCE = 0L;
+
+    /** 执行桥观察到的接替事务状态。 */
+    public enum TakeoverGateState {
+        WAITING,
+        APPLIED,
+        STOP
+    }
 
     private static final RoundIdAllocator PROCESS_ROUND_ID_ALLOCATOR = new RoundIdAllocator(
             AutoToolSwapProtocol.NO_SERVER_ROUND_ID);
@@ -199,6 +207,7 @@ public final class AutoToolSwapRoundService {
         if (closeRound) {
             record.keyDown = false;
             record.state = AutoToolSwapRoundState.CLOSING;
+            stopPendingTakeover(record);
         }
         if (record.phaseSequence == Long.MAX_VALUE) {
             orphan(record);
@@ -228,6 +237,7 @@ public final class AutoToolSwapRoundService {
         }
         long releasedRoundId = record.serverRoundId;
         record.keyDown = false;
+        stopPendingTakeover(record);
         if (isActive(record.state)) {
             record.state = AutoToolSwapRoundState.CLOSING;
         }
@@ -251,6 +261,11 @@ public final class AutoToolSwapRoundService {
         if (record.lastActionResult != null && record.lastActionResult.intent().equals(intent)) {
             return record.lastActionResult.roundResult();
         }
+        boolean takeoverAction = intent.action() == AutoToolSwapAction.TAKEOVER
+                || intent.action() == AutoToolSwapAction.DECLINE_TAKEOVER;
+        if (record.pendingTakeover != null && !takeoverAction) {
+            return result(record, AutoToolSwapResultCode.REJECTED, serverTick);
+        }
         if (intent.actionSequence() != record.nextActionSequence) {
             return result(record, AutoToolSwapResultCode.REJECTED, serverTick);
         }
@@ -261,7 +276,8 @@ public final class AutoToolSwapRoundService {
         }
 
         AutoToolSwapRoundState stateBefore = record.state;
-        boolean inventoryFreeAction = intent.action() == AutoToolSwapAction.ABANDON;
+        boolean inventoryFreeAction = intent.action() == AutoToolSwapAction.ABANDON
+                || intent.action() == AutoToolSwapAction.DECLINE_TAKEOVER;
         InventoryDiagnosticSnapshot before = inventoryFreeAction
                 ? InventoryDiagnosticSnapshot.unavailable() : captureInventoryDiagnostic(inventory, intent);
         AutoToolSwapResultCode outcome;
@@ -273,6 +289,10 @@ public final class AutoToolSwapRoundService {
             outcome = applyFreeze(record);
         } else if (intent.action() == AutoToolSwapAction.ABANDON) {
             outcome = applyAbandon(record, intent);
+        } else if (intent.action() == AutoToolSwapAction.TAKEOVER) {
+            outcome = applyTakeover(record, intent, inventory);
+        } else if (intent.action() == AutoToolSwapAction.DECLINE_TAKEOVER) {
+            outcome = applyDeclineTakeover(record, intent);
         } else {
             outcome = applyClose(record);
         }
@@ -290,6 +310,67 @@ public final class AutoToolSwapRoundService {
     /** 丢弃全部 round 记录，不访问库存。 */
     public synchronized void clearAll() {
         rounds.clear();
+    }
+
+    /**
+     * 在 FROZEN round 中幂等建立唯一接替请求并预留当前动作序号。
+     * 调用方必须传入同一服务端主线程时刻捕获的锚点库存事实。
+     */
+    public synchronized AutoToolSwapTakeoverRequest prepareTakeover(UUID playerId, Object endpoint,
+            long serverRoundId, int generation, int targetX, int targetY, int targetZ,
+            int targetBlockId, int targetBlockMetadata, int anchorSlot, AutoToolSwapStackState anchorState,
+            long serverTick, long deadlineTick) {
+        requireServerTick(serverTick);
+        RoundRecord record = rounds.get(playerId);
+        if (record == null || !record.matchesEndpoint(endpoint) || record.serverRoundId != serverRoundId
+                || record.state != AutoToolSwapRoundState.FROZEN || !record.keyDown
+                || !AutoToolSwapProtocol.isHotbarSlot(anchorSlot) || anchorState == null
+                || !anchorState.isEmpty()
+                        && AutoToolUsabilityPolicy.hasDurabilityReserve(anchorState.remainingDurability())
+                || deadlineTick <= serverTick || record.nextActionSequence == Long.MAX_VALUE) {
+            return null;
+        }
+        AutoToolSwapTakeoverRequest request;
+        try {
+            request = new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                    serverRoundId, record.nextActionSequence, generation, targetX, targetY, targetZ,
+                    targetBlockId, targetBlockMetadata, serverTick, deadlineTick);
+        } catch (IllegalArgumentException invalidRequest) {
+            return null;
+        }
+        if (record.pendingTakeover != null) {
+            return record.pendingTakeover.request.sameGate(request) ? record.pendingTakeover.request : null;
+        }
+        record.pendingTakeover = new PendingTakeover(request, anchorSlot, anchorState);
+        return request;
+    }
+
+    /** 查询并在 deadline 到达时收口当前等待门。 */
+    public synchronized TakeoverGateState takeoverGateState(UUID playerId, Object endpoint,
+            AutoToolSwapTakeoverRequest request, long serverTick) {
+        requireServerTick(serverTick);
+        RoundRecord record = rounds.get(playerId);
+        if (record == null || !record.matchesEndpoint(endpoint) || record.pendingTakeover == null
+                || !record.pendingTakeover.request.sameGate(request) || record.serverRoundId != request.serverRoundId()) {
+            return TakeoverGateState.STOP;
+        }
+        PendingTakeover pending = record.pendingTakeover;
+        if (pending.state == TakeoverGateState.WAITING && (serverTick >= request.deadlineTick()
+                || !record.keyDown || record.state != AutoToolSwapRoundState.FROZEN)) {
+            pending.state = TakeoverGateState.STOP;
+        }
+        return pending.state;
+    }
+
+    /** APPLIED/STOP 已被执行桥消费后移除等待门。 */
+    public synchronized void consumeTakeoverGate(UUID playerId, Object endpoint,
+            AutoToolSwapTakeoverRequest request) {
+        RoundRecord record = rounds.get(playerId);
+        if (record != null && record.matchesEndpoint(endpoint) && record.pendingTakeover != null
+                && record.pendingTakeover.request.sameGate(request)
+                && record.pendingTakeover.state != TakeoverGateState.WAITING) {
+            record.pendingTakeover = null;
+        }
     }
 
     private AutoToolSwapResultCode applySwap(RoundRecord record, AutoToolSwapIntent intent,
@@ -382,6 +463,93 @@ public final class AutoToolSwapRoundService {
         }
     }
 
+    /** 同 round 接替：无 ledger 双槽交换，有 ledger 单次三槽轮转。 */
+    private AutoToolSwapResultCode applyTakeover(RoundRecord record, AutoToolSwapIntent intent,
+            AutoToolSwapInventoryPort inventory) {
+        PendingTakeover pending = record.pendingTakeover;
+        if (pending == null || pending.state != TakeoverGateState.WAITING || !record.keyDown
+                || record.state != AutoToolSwapRoundState.FROZEN || inventory == null
+                || intent.actionSequence() != pending.request.actionSequence()
+                || intent.anchorSlot() != pending.anchorSlot
+                || !AutoToolSwapProtocol.isInventorySlot(intent.candidateSlot())
+                || intent.candidateSlot() == pending.anchorSlot
+                || record.ledger != null && intent.candidateSlot() == record.ledger.candidateSlot) {
+            if (pending != null) pending.state = TakeoverGateState.STOP;
+            return AutoToolSwapResultCode.REJECTED;
+        }
+        AutoToolSwapStackState anchor;
+        AutoToolSwapStackState candidate;
+        AutoToolSwapStackState oldCandidate = null;
+        try {
+            if (!hasSafeInventoryContext(inventory) || inventory.selectedHotbarSlot() != pending.anchorSlot) {
+                pending.state = TakeoverGateState.STOP;
+                return AutoToolSwapResultCode.REJECTED;
+            }
+            anchor = inventory.readInventorySlot(pending.anchorSlot);
+            candidate = inventory.readInventorySlot(intent.candidateSlot());
+            if (record.ledger != null) oldCandidate = inventory.readInventorySlot(record.ledger.candidateSlot);
+        } catch (RuntimeException error) {
+            pending.state = TakeoverGateState.STOP;
+            return AutoToolSwapResultCode.REJECTED;
+        } catch (LinkageError error) {
+            pending.state = TakeoverGateState.STOP;
+            return AutoToolSwapResultCode.REJECTED;
+        }
+        if (anchor == null || candidate == null || candidate.isEmpty()
+                || !pending.anchorState.contentFingerprint().sameContent(anchor.contentFingerprint())
+                || !anchor.contentFingerprint().sameContent(intent.anchorContentFingerprint())
+                || !candidate.contentFingerprint().sameContent(intent.candidateContentFingerprint())
+                || !AutoToolUsabilityPolicy.hasDurabilityReserve(candidate.remainingDurability())
+                || record.ledger != null && (oldCandidate == null
+                        || !(record.ledger.originalAnchor.isEmpty()
+                                || record.ledger.originalAnchor.sameRole(oldCandidate))
+                        || !(anchor.isEmpty() || record.ledger.originalCandidate.sameRole(anchor)))) {
+            pending.state = TakeoverGateState.STOP;
+            return AutoToolSwapResultCode.REJECTED;
+        }
+
+        SwapLedger oldLedger = record.ledger;
+        try {
+            if (oldLedger == null) {
+                inventory.swapInventorySlotsAtomically(pending.anchorSlot, intent.candidateSlot());
+                record.ledger = new SwapLedger(pending.anchorSlot, intent.candidateSlot(), anchor, candidate);
+            } else {
+                inventory.rotateInventorySlotsAtomically(pending.anchorSlot, oldLedger.candidateSlot,
+                        intent.candidateSlot());
+                record.ledger = new SwapLedger(pending.anchorSlot, intent.candidateSlot(),
+                        oldLedger.originalAnchor, candidate);
+            }
+            inventory.syncInventoryDifference();
+            pending.state = TakeoverGateState.APPLIED;
+            return AutoToolSwapResultCode.APPLIED;
+        } catch (RuntimeException error) {
+            pending.state = TakeoverGateState.STOP;
+            orphan(record);
+            return AutoToolSwapResultCode.SYNC_FAILED;
+        } catch (LinkageError error) {
+            pending.state = TakeoverGateState.STOP;
+            orphan(record);
+            return AutoToolSwapResultCode.SYNC_FAILED;
+        }
+    }
+
+    /** DECLINE 只结算等待门，不读写或同步库存。 */
+    private static AutoToolSwapResultCode applyDeclineTakeover(RoundRecord record, AutoToolSwapIntent intent) {
+        PendingTakeover pending = record.pendingTakeover;
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        if (pending == null || pending.state != TakeoverGateState.WAITING || !record.keyDown
+                || record.state != AutoToolSwapRoundState.FROZEN
+                || intent.actionSequence() != pending.request.actionSequence()
+                || intent.anchorSlot() != pending.anchorSlot || intent.candidateSlot() != pending.anchorSlot
+                || !empty.sameContent(intent.anchorContentFingerprint())
+                || !empty.sameContent(intent.candidateContentFingerprint())) {
+            if (pending != null) pending.state = TakeoverGateState.STOP;
+            return AutoToolSwapResultCode.REJECTED;
+        }
+        pending.state = TakeoverGateState.STOP;
+        return AutoToolSwapResultCode.ACCEPTED;
+    }
+
     private static AutoToolSwapResultCode applyFreeze(RoundRecord record) {
         if (record.state == AutoToolSwapRoundState.FROZEN) {
             return AutoToolSwapResultCode.ACCEPTED;
@@ -452,6 +620,11 @@ public final class AutoToolSwapRoundService {
     private static void orphan(RoundRecord record) {
         record.state = AutoToolSwapRoundState.ORPHANED;
         record.keyDown = false;
+        stopPendingTakeover(record);
+    }
+
+    private static void stopPendingTakeover(RoundRecord record) {
+        if (record.pendingTakeover != null) record.pendingTakeover.state = TakeoverGateState.STOP;
     }
 
     private AutoToolSwapRoundResult cacheAndAdvance(RoundRecord record, AutoToolSwapIntent intent,
@@ -626,6 +799,7 @@ public final class AutoToolSwapRoundService {
         private AutoToolSwapRoundResult beginResult;
         private AutoToolSwapRoundResult activationResult;
         private AutoToolSwapActionResult lastActionResult;
+        private PendingTakeover pendingTakeover;
 
         private RoundRecord(Object endpoint, long clientNonce, long firstActionSequence, long firstPhaseSequence) {
             this.endpointReference = new WeakReference<Object>(endpoint);
@@ -636,6 +810,21 @@ public final class AutoToolSwapRoundService {
 
         private boolean matchesEndpoint(Object endpoint) {
             return endpoint != null && endpointReference.get() == endpoint;
+        }
+    }
+
+    /** 单一等待门，动作序号由 request 冻结。 */
+    private static final class PendingTakeover {
+        private final AutoToolSwapTakeoverRequest request;
+        private final int anchorSlot;
+        private final AutoToolSwapStackState anchorState;
+        private TakeoverGateState state = TakeoverGateState.WAITING;
+
+        private PendingTakeover(AutoToolSwapTakeoverRequest request, int anchorSlot,
+                AutoToolSwapStackState anchorState) {
+            this.request = request;
+            this.anchorSlot = anchorSlot;
+            this.anchorState = anchorState;
         }
     }
 

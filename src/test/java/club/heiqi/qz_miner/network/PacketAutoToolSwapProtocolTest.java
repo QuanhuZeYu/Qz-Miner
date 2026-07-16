@@ -14,11 +14,12 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapTakeoverRequest;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-/** 自动工具换位五类固定 wire 帧的 framing 与原始字段回归。 */
+    /** 自动工具换位六类固定 wire 帧的 framing 与原始字段回归。 */
 public class PacketAutoToolSwapProtocolTest {
 
     @Test
@@ -66,6 +67,13 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertEquals(5L, phase.phaseSequence);
         Assert.assertEquals(3, phase.phaseOrdinal);
         Assert.assertEquals(7, phase.generation);
+
+        PacketAutoToolSwapTakeoverRequest takeover = decodeTakeover(new PacketAutoToolSwapTakeoverRequest(
+                new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 6L,
+                        7, 1, 64, 2, 42, 3, 99L, 108L)));
+        Assert.assertTrue(takeover.isRawValid());
+        Assert.assertEquals(42, takeover.targetBlockId);
+        Assert.assertEquals(108L, takeover.deadlineTick);
     }
 
     @Test
@@ -82,6 +90,8 @@ public class PacketAutoToolSwapProtocolTest {
         assertInvalidActionResult(new PacketAutoToolSwapActionResult(intent, result));
         assertInvalidRoundPhase(new PacketAutoToolSwapRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION,
                 2L, 1L, 0, 0, 3L));
+        assertInvalidTakeover(new PacketAutoToolSwapTakeoverRequest(new AutoToolSwapTakeoverRequest(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 2L, 1L, 0, 0, 64, 0, 1, 0, 3L, 8L)));
     }
 
     @Test
@@ -132,9 +142,9 @@ public class PacketAutoToolSwapProtocolTest {
 
         String network = new String(Files.readAllBytes(new File(
                 "src/main/java/club/heiqi/qz_miner/network/NetworkMain.java").toPath()), StandardCharsets.UTF_8);
-        Assert.assertEquals(5, count(network, "PacketAutoToolSwap", ".Handler.class"));
+        Assert.assertEquals(6, count(network, "PacketAutoToolSwap", ".Handler.class"));
         Assert.assertEquals(2, count(network, "PacketAutoToolSwap", "Side.SERVER"));
-        Assert.assertEquals(3, count(network, "PacketAutoToolSwap", "Side.CLIENT"));
+        Assert.assertEquals(4, count(network, "PacketAutoToolSwap", "Side.CLIENT"));
     }
 
     private static int count(String source, String packetPrefix, String terminal) {
@@ -180,6 +190,13 @@ public class PacketAutoToolSwapProtocolTest {
     private static PacketAutoToolSwapRoundPhase decodeRoundPhase(PacketAutoToolSwapRoundPhase source) {
         ByteBuf buffer = encode(source, PacketAutoToolSwapRoundPhase.FIXED_PAYLOAD_BYTES);
         PacketAutoToolSwapRoundPhase decoded = new PacketAutoToolSwapRoundPhase();
+        decoded.fromBytes(buffer);
+        return decoded;
+    }
+
+    private static PacketAutoToolSwapTakeoverRequest decodeTakeover(PacketAutoToolSwapTakeoverRequest source) {
+        ByteBuf buffer = encode(source, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
+        PacketAutoToolSwapTakeoverRequest decoded = new PacketAutoToolSwapTakeoverRequest();
         decoded.fromBytes(buffer);
         return decoded;
     }
@@ -252,6 +269,19 @@ public class PacketAutoToolSwapProtocolTest {
         ByteBuf trailing = encode(source, PacketAutoToolSwapRoundPhase.FIXED_PAYLOAD_BYTES);
         trailing.writeByte(0);
         PacketAutoToolSwapRoundPhase extra = new PacketAutoToolSwapRoundPhase();
+        extra.fromBytes(trailing);
+        Assert.assertFalse(extra.isRawValid());
+    }
+
+    private static void assertInvalidTakeover(PacketAutoToolSwapTakeoverRequest source) {
+        ByteBuf bytes = encode(source, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
+        bytes.writerIndex(bytes.writerIndex() - 1);
+        PacketAutoToolSwapTakeoverRequest truncated = new PacketAutoToolSwapTakeoverRequest();
+        truncated.fromBytes(bytes);
+        Assert.assertFalse(truncated.isRawValid());
+        ByteBuf trailing = encode(source, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
+        trailing.writeByte(0);
+        PacketAutoToolSwapTakeoverRequest extra = new PacketAutoToolSwapTakeoverRequest();
         extra.fromBytes(trailing);
         Assert.assertFalse(extra.isRawValid());
     }

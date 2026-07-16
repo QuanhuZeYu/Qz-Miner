@@ -11,13 +11,15 @@ public class AutoToolSwapProtocolTest {
 
     @Test
     public void wireCodesAreUniqueAndUnknownCodesFailClosed() {
-        Assert.assertEquals(2, AutoToolSwapProtocol.PROTOCOL_VERSION);
+        Assert.assertEquals(3, AutoToolSwapProtocol.PROTOCOL_VERSION);
         assertUnique(AutoToolSwapAction.values());
         assertUnique(AutoToolSwapRoundState.values());
         assertUnique(AutoToolSwapResultCode.values());
 
         Assert.assertEquals(AutoToolSwapAction.SWAP, AutoToolSwapAction.fromWireCode(1));
         Assert.assertEquals(AutoToolSwapAction.ABANDON, AutoToolSwapAction.fromWireCode(5));
+        Assert.assertEquals(AutoToolSwapAction.TAKEOVER, AutoToolSwapAction.fromWireCode(6));
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, AutoToolSwapAction.fromWireCode(7));
         Assert.assertEquals(AutoToolSwapRoundState.OPEN, AutoToolSwapRoundState.fromWireCode(2));
         Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, AutoToolSwapResultCode.fromWireCode(5));
         assertUnknownActionRejected();

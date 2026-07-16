@@ -1,0 +1,34 @@
+package club.heiqi.qz_miner.toolswap.protocol;
+
+import org.junit.Assert;
+import org.junit.Test;
+
+/** 接替目标请求的范围与同门身份合同。 */
+public class AutoToolSwapTakeoverRequestTest {
+
+    @Test
+    public void validRequestCarriesAllIdentityAndTargetFields() {
+        AutoToolSwapTakeoverRequest request = new AutoToolSwapTakeoverRequest(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                -10, 64, 20, 42, 7, 100L, 109L);
+        Assert.assertEquals(9L, request.serverRoundId());
+        Assert.assertEquals(3L, request.actionSequence());
+        Assert.assertEquals(42, request.targetBlockId());
+        Assert.assertEquals(7, request.targetBlockMetadata());
+        Assert.assertTrue(request.sameGate(new AutoToolSwapTakeoverRequest(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                -10, 64, 20, 42, 7, 101L, 110L)));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void protocolV2FailsClosed() {
+        new AutoToolSwapTakeoverRequest(2, 9L, 3L, 4,
+                0, 64, 0, 1, 0, 1L, 2L);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void deadlineMustFollowServerTick() {
+        new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                0, 64, 0, 1, 0, 2L, 2L);
+    }
+}

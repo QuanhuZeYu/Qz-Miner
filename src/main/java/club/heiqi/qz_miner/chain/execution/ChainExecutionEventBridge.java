@@ -23,6 +23,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
@@ -100,6 +101,8 @@ public class ChainExecutionEventBridge {
     private final ChainEventBus bus;
     /** 注入的执行上下文注册表（worker put，本桥 get）。 */
     private final ChainExecutionContextRegistry registry;
+    /** 普通采掘分支在 poll 前调用的接替门；纯 JVM 旧构造可为空。 */
+    private final AutoToolSwapTakeoverCoordinator takeoverCoordinator;
 
     /**
      * 构造桥并订阅 {@link PlanCompleted}（不注册 FML bus，留 {@link #bootstrap()} 显式触发）。
@@ -117,8 +120,15 @@ public class ChainExecutionEventBridge {
      * @param registry 执行上下文注册表
      */
     public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry) {
+        this(bus, registry, null);
+    }
+
+    /** 构造带同 round 工具接替门的执行桥。 */
+    public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry,
+            AutoToolSwapTakeoverCoordinator takeoverCoordinator) {
         this.bus = bus;
         this.registry = registry;
+        this.takeoverCoordinator = takeoverCoordinator;
         bus.subscribe(PlanStarted.class, this::onPlanStarted);
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
         bus.subscribe(PlanCancelled.class, this::onPlanCancelled);
@@ -353,10 +363,26 @@ public class ChainExecutionEventBridge {
         }
         int executed = 0;
         while (executed < maxBreakPerTick) {
-            ChainTarget target = context.getTargets().poll();
+            ChainTarget target = context.getTargets().peek();
             if (target == null) {
                 break;
             }
+            if (takeoverCoordinator != null && usesTakeoverGate(session)) {
+                AutoToolSwapTakeoverCoordinator.GateResult gate = takeoverCoordinator.beforePoll(
+                        player, context.getServerRoundId(), gen, target,
+                        Math.max(0L, ChainTickSource.currentServerTick()));
+                if (gate == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) {
+                    return;
+                }
+                if (gate == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
+                    publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped");
+                    registry.remove(playerUUID, gen, context.getServerRoundId());
+                    return;
+                }
+            }
+            // 接替门明确放行后才允许消费队首，保证 WAIT/STOP 不产生假消费。
+            target = context.getTargets().poll();
+            if (target == null) break;
             context.recordExecutionConsumed();
             if (!actionExecutor.canExecute(player, session, target)) {
                 continue;
@@ -490,6 +516,7 @@ public class ChainExecutionEventBridge {
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
         UUID playerUUID = event.getPlayerUUID();
+        if (takeoverCoordinator != null) takeoverCoordinator.cleanup(playerUUID);
         if (event.isForced()) {
             // I7 全量收口不依赖事件占位身份；即使 registry 已空，也必须幂等关闭执行窗口。
             registry.remove(playerUUID);
@@ -509,6 +536,13 @@ public class ChainExecutionEventBridge {
                 "[ChainExecution] round-isolated LifecycleCleanup player={} gen={} round={} removed={} reason={}",
                 playerUUID, Integer.valueOf(event.getGeneration()), Long.valueOf(event.getServerRoundId()),
                 Boolean.valueOf(removed), event.getReason());
+    }
+
+    /** 仅普通 CHAIN/AREA 采掘使用接替门；GT SPECIAL 与交互分支保持原子/既有语义。 */
+    private static boolean usesTakeoverGate(ChainSession session) {
+        if (session == null || session.getRequest() == null) return false;
+        ChainMode mode = session.getRequest().getMode();
+        return mode == ChainMode.CHAIN || mode == ChainMode.AREA;
     }
 
     // ============================ 纯逻辑构造（供单测覆盖） ============================

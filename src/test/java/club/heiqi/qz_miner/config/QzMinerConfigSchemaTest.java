@@ -19,12 +19,13 @@ public class QzMinerConfigSchemaTest {
     public void schemaContainsAllLegacyFieldsIncludingGreeting() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(22, schema.allFields().size());
+        Assert.assertEquals(23, schema.allFields().size());
         Assert.assertTrue(schema.containsPath("general.greeting"));
         Assert.assertTrue(schema.containsPath("client.clientPreviewAlphaEndValue"));
         Assert.assertTrue(schema.containsPath("client.objectGroups"));
         Assert.assertTrue(schema.containsPath("client.autoToolSwapEnabled"));
         Assert.assertTrue(schema.containsPath("client.autoToolPrioritySelectors"));
+        Assert.assertTrue(schema.containsPath("client.autoToolTakeoverEnabled"));
     }
 
     @Test
@@ -44,6 +45,7 @@ public class QzMinerConfigSchemaTest {
 
         FieldSpec toolSwap = schema.field("client.autoToolSwapEnabled");
         Assert.assertEquals(Boolean.TRUE, toolSwap.defaultValue());
+        Assert.assertEquals(Boolean.TRUE, schema.field("client.autoToolTakeoverEnabled").defaultValue());
         FieldSpec selectors = schema.field("client.autoToolPrioritySelectors");
         Assert.assertEquals(FieldType.SIMPLE_LIST, selectors.type());
         Assert.assertEquals(java.util.Collections.emptyList(), selectors.defaultValue());

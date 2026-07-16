@@ -31,6 +31,7 @@ import club.heiqi.qz_miner.parallel.ParallelTickExecutor;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundPhaseProjectionBridge;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -55,6 +56,8 @@ public class MyMod {
     public static PlayerManager playerManager;
     /** 服务端自动工具换位唯一 round 账本。 */
     public static AutoToolSwapRoundService autoToolSwapRoundService;
+    /** 非 GT 执行队列的 poll 前接替门。 */
+    public static AutoToolSwapTakeoverCoordinator autoToolSwapTakeoverCoordinator;
     public static ChainStateService chainStateService;
     public static ChainPlanner chainPlanner;
     public static ChainInteractPlanner chainInteractPlanner;
@@ -119,6 +122,7 @@ public class MyMod {
         ChainSubModeBootstrap.bootstrap();
         playerManager = new PlayerManager();
         autoToolSwapRoundService = new AutoToolSwapRoundService();
+        autoToolSwapTakeoverCoordinator = new AutoToolSwapTakeoverCoordinator(autoToolSwapRoundService);
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
         chainInteractPlanner = new ChainInteractPlanner();
@@ -141,7 +145,8 @@ public class MyMod {
         // 接线顺序：状态机 → registry → 规划桥 → 执行桥（构造，订阅 PlanCompleted）→ Drainer.bootstrap() → 执行桥.bootstrap()。
         // Drainer 先注册 FML bus，确保 ServerTickEvent 分发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
         // → executionBridge.onServerTick（消费 context），同 tick 完成登记+消费，无延迟（阶段8 接管真实破坏时手感不受影响）。
-        chainExecutionEventBridge = new ChainExecutionEventBridge(chainEventBus, chainExecutionContextRegistry);
+        chainExecutionEventBridge = new ChainExecutionEventBridge(chainEventBus, chainExecutionContextRegistry,
+                autoToolSwapTakeoverCoordinator);
         // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
         // 守 I1：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
@@ -196,6 +201,9 @@ public class MyMod {
         PlayerManager.clearAllPlayersOnServerStopping();
         if (autoToolSwapRoundService != null) {
             autoToolSwapRoundService.clearAll();
+        }
+        if (autoToolSwapTakeoverCoordinator != null) {
+            autoToolSwapTakeoverCoordinator.clearAll();
         }
         ServerMainThreadDispatcher.onServerStopping();
         if (parallelTickExecutor != null) {

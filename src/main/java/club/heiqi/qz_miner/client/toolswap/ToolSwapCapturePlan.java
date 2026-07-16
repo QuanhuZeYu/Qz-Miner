@@ -4,5 +4,7 @@ package club.heiqi.qz_miner.client.toolswap;
 public enum ToolSwapCapturePlan {
     NONE,
     PROTECTED,
-    FULL
+    FULL,
+    /** 使用服务端请求携带的 block id/meta 做完整候选采样。 */
+    FULL_TARGET
 }

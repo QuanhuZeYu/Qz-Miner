@@ -62,6 +62,7 @@ public final class ConfigValueBridge {
         }
         Config.clientEnablePreviewRender = snapshot.clientEnablePreviewRender;
         Config.autoToolSwapEnabled = snapshot.autoToolSwapEnabled;
+        Config.autoToolTakeoverEnabled = snapshot.autoToolTakeoverEnabled;
         Config.autoToolPrioritySelectors = Collections.unmodifiableList(
                 new ArrayList<club.heiqi.qz_miner.toolswap.ToolSelector>(snapshot.autoToolPrioritySelectors));
         Config.parallelTickClientWorkBudgetUnits = snapshot.parallelTickClientWorkBudgetUnits;

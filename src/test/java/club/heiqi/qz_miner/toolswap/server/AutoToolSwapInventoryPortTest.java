@@ -24,5 +24,8 @@ public class AutoToolSwapInventoryPortTest {
         Assert.assertTrue(source.contains("syncInventoryDifference"));
         Assert.assertEquals(Void.TYPE, AutoToolSwapInventoryPort.class.getMethod(
                 "swapInventorySlotsAtomically", Integer.TYPE, Integer.TYPE).getReturnType());
+        Assert.assertEquals(Void.TYPE, AutoToolSwapInventoryPort.class.getMethod(
+                "rotateInventorySlotsAtomically", Integer.TYPE, Integer.TYPE, Integer.TYPE).getReturnType());
+        Assert.assertTrue(source.contains("三槽引用轮转"));
     }
 }

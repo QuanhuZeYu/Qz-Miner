@@ -462,6 +462,53 @@ public class AutoToolSwapClientAdapterTest {
         Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(2).action());
     }
 
+    @Test
+    public void takeoverRequestWaitsForNextTickUsesServerTargetAndRollsThreeSlotExpectation() {
+        game.physicalKeyDown = true;
+        completeSwap();
+        adapter.onLocalBlockDestroyed();
+        AutoToolSwapIntent freeze = transport.intents.get(1);
+        settle(freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.RUNNING.ordinal(), 4, 5L, true);
+        game.inventory = takeoverSource();
+
+        adapter.onTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                10, 64, 20, 42, 7, 6L, 12L, true);
+        Assert.assertEquals("S2C callback 不得发送 C2S", 2, transport.intents.size());
+
+        adapter.onClientTick();
+        AutoToolSwapIntent takeover = transport.intents.get(2);
+        Assert.assertEquals(AutoToolSwapAction.TAKEOVER, takeover.action());
+        Assert.assertEquals(7, takeover.candidateSlot());
+        Assert.assertEquals(42, game.lastTargetBlockId);
+        Assert.assertEquals(7, game.lastTargetMetadata);
+
+        game.inventory = takeoverTarget();
+        settle(takeover, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.FROZEN);
+        adapter.onClientTick();
+        Assert.assertFalse(adapter.reducerForTests().isInventorySyncPending());
+        Assert.assertEquals(7, adapter.reducerForTests().protectedCandidateSlot());
+    }
+
+    @Test
+    public void disabledTakeoverDeclinesOnNextTickWithoutInventoryTransaction() {
+        game.physicalKeyDown = true;
+        completeSwap();
+        adapter.onLocalBlockDestroyed();
+        AutoToolSwapIntent freeze = transport.intents.get(1);
+        settle(freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.RUNNING.ordinal(), 2, 2L, true);
+        adapter.onConfigChanged(true, false, Collections.emptyList());
+        adapter.onTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 2,
+                1, 60, 1, 1, 0, 3L, 9L, true);
+
+        Assert.assertEquals(2, transport.intents.size());
+        adapter.onClientTick();
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, transport.intents.get(2).action());
+    }
+
     private void acceptRound() {
         acceptRound(0, 9L);
     }
@@ -553,6 +600,18 @@ public class AutoToolSwapClientAdapterTest {
                 new SlotSnapshot(5, "pick", "used"), tool(5, "pick", true));
     }
 
+    private static ToolSwapInventorySnapshot takeoverSource() {
+        return inventory(new SlotSnapshot(0, "pick", "used"),
+                new SlotSnapshot(5, "hand", "old"), new SlotSnapshot(7, "drill", "fresh"),
+                tool(0, "pick", false), tool(7, "drill", true));
+    }
+
+    private static ToolSwapInventorySnapshot takeoverTarget() {
+        return inventory(new SlotSnapshot(0, "drill", "fresh"),
+                new SlotSnapshot(5, "pick", "used"), new SlotSnapshot(7, "hand", "old"),
+                tool(0, "drill", true));
+    }
+
     private static ToolCandidate tool(int slot, String name, boolean usable) {
         return new ToolCandidate(slot, "test:" + name, 0, Arrays.asList("toolPickaxe"), usable, usable, 100);
     }
@@ -582,11 +641,15 @@ public class AutoToolSwapClientAdapterTest {
         private boolean creative;
         private boolean guiOpen;
         private boolean inventoryTransactionSafe = true;
+        private int lastTargetBlockId;
+        private int lastTargetMetadata;
         @Override public ToolSwapLightContext captureLightContext(long tick, boolean active) {
             return new ToolSwapLightContext(tick, breakCapable, creative, guiOpen, active, 0);
         }
         @Override public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
-                int anchor, int candidate) {
+                int anchor, int candidate, int targetBlockId, int targetBlockMetadata) {
+            lastTargetBlockId = targetBlockId;
+            lastTargetMetadata = targetBlockMetadata;
             ToolSwapInventorySnapshot captured = inventory;
             if (plan == ToolSwapCapturePlan.PROTECTED) {
                 ArrayList<SlotSnapshot> slots = new ArrayList<SlotSnapshot>();

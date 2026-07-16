@@ -55,4 +55,22 @@ public class MinecraftAutoToolSwapInventoryPortTest {
         Assert.assertSame(occupyingDrop, mainInventory[0]);
         Assert.assertSame(borrowedTool, mainInventory[9]);
     }
+
+    /** 三槽接替必须以 A<-D,C<-A,D<-C 一次性保留全部引用。 */
+    @Test
+    public void takeoverRotationPreservesReferenceMultiset() {
+        ItemStack active = new ItemStack(new Item());
+        ItemStack original = new ItemStack(new Item());
+        ItemStack next = new ItemStack(new Item());
+        ItemStack[] inventory = new ItemStack[36];
+        inventory[0] = active;
+        inventory[9] = original;
+        inventory[17] = next;
+
+        MinecraftAutoToolSwapInventoryPort.rotateMainInventorySlots(inventory, 0, 9, 17);
+
+        Assert.assertSame(next, inventory[0]);
+        Assert.assertSame(active, inventory[9]);
+        Assert.assertSame(original, inventory[17]);
+    }
 }

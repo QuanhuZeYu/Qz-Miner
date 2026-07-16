@@ -41,6 +41,14 @@ public interface AutoToolSwapInventoryPort {
     void swapInventorySlotsAtomically(int anchorSlot, int candidateSlot);
 
     /**
+     * 原子执行三槽引用轮转：anchor&lt;-newCandidate，oldCandidate&lt;-anchor，newCandidate&lt;-oldCandidate。
+     * 正常返回即表示整次轮转已经应用，不得重放。
+     */
+    default void rotateInventorySlotsAtomically(int anchorSlot, int oldCandidateSlot, int newCandidateSlot) {
+        throw new UnsupportedOperationException("three-slot rotation is not implemented");
+    }
+
+    /**
      * 将已应用库存变更同步给客户端。此方法失败只表示同步失败，不改变前一交换已应用的事实。
      */
     void syncInventoryDifference();

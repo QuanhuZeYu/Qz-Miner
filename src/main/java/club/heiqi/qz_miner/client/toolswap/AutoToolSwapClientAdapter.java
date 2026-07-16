@@ -14,6 +14,7 @@ import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ResetEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundPhaseEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundResultEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TickEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TakeoverRequestEvent;
 import club.heiqi.qz_miner.toolswap.ToolSelector;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import cpw.mods.fml.relauncher.Side;
@@ -41,7 +42,7 @@ public final class AutoToolSwapClientAdapter {
     public interface GameFacade {
         ToolSwapLightContext captureLightContext(long tick, boolean chainActive);
         ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
-                int anchorSlot, int candidateSlot);
+                int anchorSlot, int candidateSlot, int targetBlockId, int targetBlockMetadata);
         boolean isChainKeyPhysicallyDown();
     }
 
@@ -51,10 +52,16 @@ public final class AutoToolSwapClientAdapter {
 
     public AutoToolSwapClientAdapter(boolean enabled, List<ToolSelector> selectors, GameFacade game,
             AutoToolSwapClientTransport transport) {
+        this(enabled, true, selectors, game, transport);
+    }
+
+    /** 创建带独立接替开关的客户端 adapter。 */
+    public AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
+            GameFacade game, AutoToolSwapClientTransport transport) {
         if (game == null || transport == null) {
             throw new IllegalArgumentException("game and transport must not be null");
         }
-        reducer = new AutoToolSwapClientReducer(enabled, selectors, PRODUCTION_DIAGNOSTIC_SINK);
+        reducer = new AutoToolSwapClientReducer(enabled, takeoverEnabled, selectors, PRODUCTION_DIAGNOSTIC_SINK);
         this.game = game;
         this.transport = transport;
     }
@@ -72,7 +79,7 @@ public final class AutoToolSwapClientAdapter {
                 ? token.worldGeneration() : -1L;
         ToolSwapCapturePlan plan = reducer.capturePlanForKeyState(down, light, worldGeneration);
         ToolSwapContext context = game.captureContext(light, plan,
-                reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot());
+                reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot(), 0, 0);
         if (context == null) {
             if (!down) resetForLifecycle();
             return;
@@ -92,14 +99,20 @@ public final class AutoToolSwapClientAdapter {
         if (light != null) {
             ToolSwapCapturePlan plan = reducer.capturePlanForTick(light, physical);
             context = game.captureContext(light, plan,
-                    reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot());
+                    reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot(),
+                    reducer.pendingTargetBlockId(), reducer.pendingTargetBlockMetadata());
         }
         return executeEffects(reducer.reduce(new TickEvent(context, physical)));
     }
 
     /** 配置热更新。 */
     public void onConfigChanged(boolean enabled, List<ToolSelector> selectors) {
-        executeEffects(reducer.reduce(new ConfigEvent(enabled, selectors)));
+        onConfigChanged(enabled, true, selectors);
+    }
+
+    /** 配置热更新；关闭接替只影响尚未提交的接替请求。 */
+    public void onConfigChanged(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors) {
+        executeEffects(reducer.reduce(new ConfigEvent(enabled, takeoverEnabled, selectors)));
     }
 
     /** 本地首块成功入口；lifecycle identity 只在 runtime 边界采样。 */
@@ -133,6 +146,15 @@ public final class AutoToolSwapClientAdapter {
                 generation, serverTick, rawValid));
     }
 
+    /** S2C callback 仅发布接替请求事实；发送动作留到下一次 ClientTick。 */
+    public void onTakeoverRequest(int protocolVersion, long serverRoundId, long actionSequence,
+            int generation, int targetX, int targetY, int targetZ, int targetBlockId,
+            int targetBlockMetadata, long serverTick, long deadlineTick, boolean rawValid) {
+        reducer.reduce(new TakeoverRequestEvent(protocolVersion, serverRoundId, actionSequence,
+                generation, targetX, targetY, targetZ, targetBlockId, targetBlockMetadata,
+                serverTick, deadlineTick, rawValid));
+    }
+
     /** 生命周期复位仅清 reducer；绝不跨连接发送恢复包。 */
     public void resetForLifecycle() {
         reducer.reduce(new ResetEvent());
@@ -157,7 +179,8 @@ public final class AutoToolSwapClientAdapter {
                     ToolSwapLightContext light = game.captureLightContext(
                             reducer.clientTick(), reducer.chainActive());
                     ToolSwapContext captured = light == null ? null : game.captureContext(light,
-                            effect.capturePlan(), effect.anchorSlot(), effect.candidateSlot());
+                            effect.capturePlan(), effect.anchorSlot(), effect.candidateSlot(),
+                            effect.targetBlockId(), effect.targetBlockMetadata());
                     following.addAll(reducer.reduce(new EffectResultEvent(effect, captured != null, captured)));
                     continue;
                 }

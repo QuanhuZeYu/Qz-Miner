@@ -15,6 +15,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapTakeoverRequest;
 
 /** 服务端工具换位 round 的纯 JVM 事务合同。 */
 public class AutoToolSwapRoundServiceTest {
@@ -577,6 +578,111 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(1, inventory.swapCount);
     }
 
+    @Test
+    public void takeoverWithoutLedgerSwapsOnceAndDeclineNeverReadsInventory() {
+        Fixture fixture = fixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        AutoToolSwapStackState low = stack("mod:pickaxe", "low", 1);
+        AutoToolSwapStackState next = stack("mod:drill2", "fresh", 80);
+        fixture.inventory.slots[0] = low;
+        fixture.inventory.slots[7] = next;
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+        Assert.assertNotNull(request);
+
+        AutoToolSwapRoundResult applied = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent(fixture.roundId, 1L, AutoToolSwapAction.TAKEOVER, 0, 7,
+                        fixture.inventory.slots[0], fixture.inventory.slots[7]), fixture.inventory, 11L);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, applied.outcome());
+        Assert.assertSame("候选引用进入主手", next, fixture.inventory.slots[0]);
+        Assert.assertSame("低耐久主手进入候选槽", low, fixture.inventory.slots[7]);
+        Assert.assertEquals(1, fixture.inventory.swapCount);
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.APPLIED,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
+
+        Fixture declined = fixture();
+        declined.service.observeChainPhase(declined.player, declined.endpoint, declined.roundId, true, false);
+        declined.inventory.slots[0] = stack("mod:pickaxe", "low", 1);
+        AutoToolSwapTakeoverRequest declineRequest = declined.service.prepareTakeover(declined.player,
+                declined.endpoint, declined.roundId, 2, 1, 64, 2, 1, 0, 0,
+                declined.inventory.slots[0], 20L, 28L);
+        declined.inventory.readCount = 0;
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent decline = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                declined.roundId, declineRequest.actionSequence(), AutoToolSwapAction.DECLINE_TAKEOVER,
+                0, 0, empty, empty);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, declined.service.handleIntent(declined.player,
+                declined.endpoint, decline, declined.inventory, 21L).outcome());
+        Assert.assertEquals(0, declined.inventory.readCount);
+        Assert.assertEquals(0, declined.inventory.swapCount);
+        Assert.assertEquals(0, declined.inventory.syncCount);
+    }
+
+    @Test
+    public void takeoverWithLedgerUsesOneThreeSlotRotationAndFinalRestoreIsReversible() {
+        Fixture fixture = swappedFixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        AutoToolSwapStackState lowActive = stack("mod:drill", "used-low", 1);
+        AutoToolSwapStackState next = stack("mod:hammer", "fresh", 70);
+        fixture.inventory.slots[0] = lowActive;
+        fixture.inventory.slots[7] = next;
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 5, 4, 70, 6, 2, 0, 0, lowActive, 30L, 38L);
+
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER,
+                        0, 7, lowActive, next), fixture.inventory, 31L).outcome());
+        Assert.assertEquals(1, fixture.inventory.rotateCount);
+        Assert.assertSame(next, fixture.inventory.slots[0]);
+        Assert.assertSame(lowActive, fixture.inventory.slots[9]);
+        Assert.assertSame(ORIGINAL, fixture.inventory.slots[7]);
+        Assert.assertEquals(7, fixture.service.snapshot(fixture.player).ledgerCandidateSlot());
+
+        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
+        AutoToolSwapStackState lowSecond = stack("mod:hammer", "used-low", 1);
+        AutoToolSwapStackState third = stack("mod:excavator", "fresh", 90);
+        fixture.inventory.slots[0] = lowSecond;
+        fixture.inventory.slots[8] = third;
+        AutoToolSwapTakeoverRequest secondRequest = fixture.service.prepareTakeover(fixture.player,
+                fixture.endpoint, fixture.roundId, 5, 5, 70, 6, 2, 0, 0,
+                lowSecond, 32L, 39L);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, intent(fixture.roundId, secondRequest.actionSequence(),
+                        AutoToolSwapAction.TAKEOVER, 0, 8, lowSecond, third), fixture.inventory, 33L).outcome());
+        Assert.assertEquals(2, fixture.inventory.rotateCount);
+        Assert.assertSame(third, fixture.inventory.slots[0]);
+        Assert.assertSame(lowSecond, fixture.inventory.slots[7]);
+        Assert.assertSame(ORIGINAL, fixture.inventory.slots[8]);
+        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, secondRequest);
+
+        AutoToolSwapRoundResult restored = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                currentRestoreIntentForSlots(fixture, 4L, 0, 8), fixture.inventory, 34L);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
+        Assert.assertSame(ORIGINAL, fixture.inventory.slots[0]);
+        Assert.assertSame(third, fixture.inventory.slots[8]);
+        Assert.assertSame(lowSecond, fixture.inventory.slots[7]);
+        Assert.assertSame("已耗损旧工具不被回滚", lowActive, fixture.inventory.slots[9]);
+    }
+
+    @Test
+    public void staleLowDurabilityAndDuplicateSlotTakeoversAreZeroWriteAndStopGate() {
+        Fixture fixture = swappedFixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        AutoToolSwapStackState low = stack("mod:drill", "low", 1);
+        fixture.inventory.slots[0] = low;
+        fixture.inventory.slots[7] = stack("mod:hammer", "fresh", 1);
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 3, 1, 64, 1, 1, 0, 0, low, 1L, 8L);
+        AutoToolSwapRoundResult rejected = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER, 0, 7,
+                        low, fixture.inventory.slots[7]), fixture.inventory, 2L);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
+        Assert.assertEquals(0, fixture.inventory.rotateCount);
+        Assert.assertEquals(1, fixture.inventory.swapCount);
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 3L));
+    }
+
     private static void assertSwapRejected(InventoryMutation mutation) {
         Fixture fixture = fixture();
         mutation.apply(fixture.inventory);
@@ -687,6 +793,12 @@ public class AutoToolSwapRoundServiceTest {
                 fixture.inventory.slots[0], fixture.inventory.slots[9]);
     }
 
+    private static AutoToolSwapIntent currentRestoreIntentForSlots(Fixture fixture, long sequence,
+            int anchor, int candidate) {
+        return intent(fixture.roundId, sequence, AutoToolSwapAction.RESTORE, anchor, candidate,
+                fixture.inventory.slots[anchor], fixture.inventory.slots[candidate]);
+    }
+
     private static AutoToolSwapIntent abandonIntent(Fixture fixture, long sequence) {
         AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
         return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, fixture.roundId, sequence,
@@ -761,6 +873,7 @@ public class AutoToolSwapRoundServiceTest {
         private int readCount;
         private int swapCount;
         private int syncCount;
+        private int rotateCount;
 
         @Override
         public boolean isPlayerAlive() {
@@ -804,6 +917,16 @@ public class AutoToolSwapRoundServiceTest {
             AutoToolSwapStackState value = slots[anchorSlot];
             slots[anchorSlot] = slots[candidateSlot];
             slots[candidateSlot] = value;
+        }
+
+        @Override
+        public void rotateInventorySlotsAtomically(int anchorSlot, int oldCandidateSlot, int newCandidateSlot) {
+            rotateCount++;
+            AutoToolSwapStackState anchor = slots[anchorSlot];
+            AutoToolSwapStackState oldCandidate = slots[oldCandidateSlot];
+            slots[anchorSlot] = slots[newCandidateSlot];
+            slots[oldCandidateSlot] = anchor;
+            slots[newCandidateSlot] = oldCandidate;
         }
 
         @Override

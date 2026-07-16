@@ -220,6 +220,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
         if (ClientProxy.autoToolSwapAdapter != null) {
             ClientProxy.autoToolSwapAdapter.onConfigChanged(
                     committed.snapshot.autoToolSwapEnabled,
+                    committed.snapshot.autoToolTakeoverEnabled,
                     committed.snapshot.autoToolPrioritySelectors);
         }
         syncClientRequestedChainConfig(committed.snapshot.chainRadius, committed.snapshot.chainMaxBlocks);

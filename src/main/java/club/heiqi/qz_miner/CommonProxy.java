@@ -141,6 +141,13 @@ public class CommonProxy {
             long serverTick, boolean rawValid, INetHandler netHandler) {
     }
 
+    /** 处理自动工具接替目标请求（dedicated no-op，签名仅 common 类型）。 */
+    public void handleClientAutoToolSwapTakeoverRequest(
+            int protocolVersion, long serverRoundId, long actionSequence, int generation,
+            int targetX, int targetY, int targetZ, int targetBlockId, int targetBlockMetadata,
+            long serverTick, long deadlineTick, boolean rawValid, INetHandler netHandler) {
+    }
+
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}
 }
