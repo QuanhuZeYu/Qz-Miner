@@ -17,6 +17,11 @@ import java.util.UUID;
  */
 public abstract class ChainEvent {
 
+    /** 兼容旧调用方的未关联服务端轮次标记。 */
+    public static final long NO_SERVER_ROUND_ID = 0L;
+
+    /** 服务端分配的不可变连锁轮次关联。 */
+    private final long serverRoundId;
     /** 所属连锁代际。 */
     private final int generation;
     /** 发布时服务端 tick 计数。 */
@@ -35,7 +40,21 @@ public abstract class ChainEvent {
      * @param timestampNanos 发布时刻纳秒戳
      */
     protected ChainEvent(UUID playerUUID, int generation, long serverTick, long timestampNanos) {
+        this(playerUUID, NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos);
+    }
+
+    /**
+     * 构造带服务端轮次关联的事件。
+     *
+     * @param playerUUID     触发玩家 UUID
+     * @param serverRoundId  服务端分配的不可变轮次 ID
+     * @param generation     所属连锁代际
+     * @param serverTick     发布时服务端 tick
+     * @param timestampNanos 发布时刻纳秒戳
+     */
+    protected ChainEvent(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos) {
         this.playerUUID = playerUUID;
+        this.serverRoundId = serverRoundId;
         this.generation = generation;
         this.serverTick = serverTick;
         this.timestampNanos = timestampNanos;
@@ -46,6 +65,13 @@ public abstract class ChainEvent {
      */
     public int getGeneration() {
         return generation;
+    }
+
+    /**
+     * @return 服务端分配的不可变轮次 ID；旧调用方构造的事件返回 {@link #NO_SERVER_ROUND_ID}
+     */
+    public long getServerRoundId() {
+        return serverRoundId;
     }
 
     /**

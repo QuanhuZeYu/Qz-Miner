@@ -1,6 +1,11 @@
 // Add any additional repositories for your dependencies here.
 
 repositories {
+    // 正式发布来源；beta 发布后即使本机没有 Maven Local 也应从这里解析。
+    maven {
+        name = 'GTNHReleases'
+        url = 'https://nexus.gtnewhorizons.com/repository/releases/'
+    }
     maven {
         name = 'JitPack'
         url = 'https://jitpack.io'

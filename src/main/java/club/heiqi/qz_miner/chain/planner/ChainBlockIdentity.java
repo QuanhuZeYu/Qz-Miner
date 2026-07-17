@@ -24,16 +24,33 @@ public final class ChainBlockIdentity {
      * @return 是否视为同类
      */
     public static boolean matches(World world, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity, ChainTarget target) {
+        return matches(world, sampleBlock, sampleMeta, sampleTileEntity, target, null);
+    }
+
+    /**
+     * 判断目标身份并复用本次读取结果填充有界诊断，不额外读取世界。
+     *
+     * @param diagnostics round 级诊断器，可为 null
+     * @return 是否视为同类
+     */
+    static boolean matches(World world, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity,
+            ChainTarget target, ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
         if (world == null || sampleBlock == null || target == null) {
             return false;
         }
 
         Block targetBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
+        if (diagnostics != null) {
+            diagnostics.captureCandidateBlock(target, targetBlock, -1);
+        }
         if (targetBlock == null || targetBlock == Blocks.air || targetBlock != sampleBlock) {
             return false;
         }
 
         int targetMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        if (diagnostics != null) {
+            diagnostics.captureCandidateBlock(target, targetBlock, targetMeta);
+        }
         if (targetMeta != sampleMeta) {
             return false;
         }

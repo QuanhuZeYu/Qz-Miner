@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LeftClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
@@ -233,6 +234,46 @@ public class ChainStateMachineTest {
         drive(h, planCancelled(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 带轮次的 PlanCancelled 收口后，派生 IDLE phase 必须复制同一不可变关联。 */
+    @Test
+    public void planningCancellationCopiesRoundToIdlePhase() {
+        long serverRoundId = 707L;
+        Harness h = newHarness();
+        List<ChainPhaseChanged> captured = new ArrayList<ChainPhaseChanged>();
+        h.bus.subscribe(ChainPhaseChanged.class, captured::add);
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        captured.clear();
+
+        drive(h, new PlanCancelled(PLAYER_A, serverRoundId, 1, TICK, NANOS, "shadow-runtime-null"));
+
+        Assert.assertEquals(1, captured.size());
+        ChainPhaseChanged idlePhase = captured.get(0);
+        Assert.assertEquals(ChainPhase.PLANNING, idlePhase.getFromPhase());
+        Assert.assertEquals(ChainPhase.IDLE, idlePhase.getToPhase());
+        Assert.assertEquals(serverRoundId, idlePhase.getServerRoundId());
+        Assert.assertEquals(1, idlePhase.getGeneration());
+    }
+
+    /** 旧调用方的 round=0 PlanCancelled 仍按兼容语义派生 round=0 的 IDLE phase。 */
+    @Test
+    public void legacyPlanningCancellationKeepsZeroRoundOnIdlePhase() {
+        Harness h = newHarness();
+        List<ChainPhaseChanged> captured = new ArrayList<ChainPhaseChanged>();
+        h.bus.subscribe(ChainPhaseChanged.class, captured::add);
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        captured.clear();
+
+        drive(h, planCancelled(1));
+
+        Assert.assertEquals(1, captured.size());
+        ChainPhaseChanged idlePhase = captured.get(0);
+        Assert.assertEquals(ChainPhase.IDLE, idlePhase.getToPhase());
+        Assert.assertEquals(ChainEvent.NO_SERVER_ROUND_ID, idlePhase.getServerRoundId());
+        Assert.assertEquals(1, idlePhase.getGeneration());
     }
 
     /** 8. RUNNING → FINISHING：ExecutionFinished。 */
@@ -1080,5 +1121,66 @@ public class ChainStateMachineTest {
         Assert.assertEquals("E2：FINISHING 收 forced LifecycleCleanup 应走 T8 回 IDLE",
                 ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals("removeSlot=false 保 gen 单调", 1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /**
+     * T1-T10 派生的 ChainPhaseChanged 与 T4 的 PlanStarted 必须复制触发事件的不可变轮次。
+     */
+    @Test
+    public void allTransitionsCopyTriggerServerRoundId() {
+        final long roundId = 808L;
+        Harness h = newHarness();
+        List<ChainEvent> captured = new ArrayList<ChainEvent>();
+        h.bus.subscribe(ChainPhaseChanged.class, captured::add);
+        h.bus.subscribe(PlanStarted.class, captured::add);
+
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 0, TICK, NANOS, true)); // T1
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 0, TICK, NANOS, false)); // T2
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 0, TICK, NANOS, true)); // T1
+        drive(h, new ModeSwitched(PLAYER_A, roundId, 0, TICK, NANOS, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE)); // T3
+
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 0, TICK, NANOS, true));
+        drive(h, new BlockBreakObserved(PLAYER_A, roundId, 0, TICK, NANOS, 1, 2, 3, 0, 1, null, 0)); // T4
+        drive(h, new PlanCompleted(PLAYER_A, roundId, 1, TICK, NANOS, 1)); // T5
+        drive(h, new ExecutionFinished(PLAYER_A, roundId, 1, TICK, NANOS, "done")); // T7
+        drive(h, new LifecycleCleanup(PLAYER_A, roundId, 1, TICK, NANOS, "done", false, false)); // T8
+
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 1, TICK, NANOS, true));
+        drive(h, new BlockBreakObserved(PLAYER_A, roundId, 1, TICK, NANOS, 1, 2, 3, 0, 1, null, 0));
+        drive(h, new PlanCancelled(PLAYER_A, roundId, 2, TICK, NANOS, "cancel")); // T6
+
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 2, TICK, NANOS, true));
+        drive(h, new BlockBreakObserved(PLAYER_A, roundId, 2, TICK, NANOS, 1, 2, 3, 0, 1, null, 0));
+        drive(h, new WatchdogTimeout(PLAYER_A, roundId, 3, TICK, NANOS, 1L)); // T10
+
+        drive(h, new ChainKeyPressed(PLAYER_A, roundId, 3, TICK, NANOS, true));
+        drive(h, new LifecycleCleanup(PLAYER_A, roundId, 3, TICK, NANOS, "forced", true, false)); // T9
+
+        Assert.assertFalse("应捕获状态机派生事件", captured.isEmpty());
+        for (ChainEvent event : captured) {
+            Assert.assertEquals("派生事件不得读取后来轮次", roundId, event.getServerRoundId());
+        }
+    }
+
+    /** 新 round 的 fresh key 只能先合法武装，随后带新 round 的观测才进入规划。 */
+    @Test
+    public void freshKeyArmsBeforeSecondRoundObservationStartsPlanning() {
+        final long firstRoundId = 901L;
+        final long secondRoundId = 902L;
+        Harness h = newHarness();
+        drive(h, new ChainKeyPressed(PLAYER_A, firstRoundId, 0, TICK, NANOS, true));
+        drive(h, new BlockBreakObserved(PLAYER_A, firstRoundId, 0, TICK, NANOS,
+                1, 2, 3, 0, 1, null, 0));
+        drive(h, new PlanCancelled(PLAYER_A, firstRoundId, 1, TICK, NANOS, "round-one-finished"));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+
+        drive(h, new ChainKeyPressed(PLAYER_A, secondRoundId, 1, TICK, NANOS, true));
+        Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+
+        drive(h, new BlockBreakObserved(PLAYER_A, secondRoundId, 1, TICK, NANOS,
+                4, 5, 6, 0, 1, null, 0));
+        Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(2, h.sm.getCurrentGeneration(PLAYER_A));
     }
 }

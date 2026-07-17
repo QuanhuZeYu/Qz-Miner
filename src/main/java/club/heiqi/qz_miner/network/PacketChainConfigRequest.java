@@ -1,9 +1,5 @@
 package club.heiqi.qz_miner.network;
 
-import club.heiqi.qz_miner.Config;
-import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.chain.state.ChainPlayerState;
-import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -12,6 +8,9 @@ import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
  * 客户端向服务端提交建议连锁参数。
+ *
+ * <p>Handler 只捕获原始 int 与端点身份，经 {@link ServerChainConfigRequestDispatch}
+ * 进入 keyed latest-wins 泳道；不直接每包入普通 FIFO。</p>
  */
 public class PacketChainConfigRequest implements IMessage {
 
@@ -47,23 +46,8 @@ public class PacketChainConfigRequest implements IMessage {
             final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
             final int requestedChainRadius = message.requestedChainRadius;
             final int requestedChainMaxBlocks = message.requestedChainMaxBlocks;
-            ServerMainThreadDispatcher.run(() -> {
-                if (MyMod.chainStateService == null || player == null) {
-                    return;
-                }
-
-                ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
-                int requestedRadius = requestedChainRadius > 0
-                    ? Math.min(Config.chainRadius, requestedChainRadius)
-                    : -1;
-                int requestedMaxBlocks = requestedChainMaxBlocks > 0
-                    ? Math.min(Config.chainMaxBlocks, requestedChainMaxBlocks)
-                    : -1;
-                state.setRequestedChainRadius(requestedRadius);
-                state.setRequestedChainMaxBlocks(requestedMaxBlocks);
-                MyMod.LOG.debug("[ChainConfig] Received client request config for player {} radius={} maxBlocks={}",
-                    player.getUniqueID(), state.getRequestedChainRadius(), state.getRequestedChainMaxBlocks());
-            });
+            // 守 I4：只捕获原始数据与端点身份；校验/写入在 keyed lane 的服务端主线程消费中完成
+            ServerChainConfigRequestDispatch.submit(player, requestedChainRadius, requestedChainMaxBlocks);
             return null;
         }
     }

@@ -11,8 +11,8 @@ import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 /**
  * {@link ChainPlanningEventBridge} 纯逻辑单测。
  *
- * <p>仅覆盖 {@link ChainPlanningEventBridge#buildPlanCompleted} 与
- * {@link ChainPlanningEventBridge#buildPlanCancelled} 两个纯逻辑构造方法：
+ * <p>覆盖 {@link ChainPlanningEventBridge#buildPlanCompleted}、
+ * {@link ChainPlanningEventBridge#buildPlanCancelled} 与 runtime-null 取消接缝：
  * 给定 gen + confirmedCount/reason → 构造正确事件，gen 字段一致。</p>
  *
  * <p><b>worker 真链路无法 JVM 覆盖</b>：依赖 {@code worldObj}/player/session 运行时装配，
@@ -65,6 +65,23 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertEquals(reason, event.getReason());
     }
 
+    /** runtime-null 生产接缝必须同时保留冻结轮次、代际与固定诊断原因。 */
+    @Test
+    public void runtimeNullCancellationCarriesRoundGenAndReason() {
+        long serverRoundId = 303L;
+        int planningGen = 9;
+
+        PlanCancelled event = ChainPlanningEventBridge.buildRuntimeNullPlanCancelled(
+                PLAYER, serverRoundId, planningGen, TICK, NANOS);
+
+        Assert.assertEquals(PLAYER, event.getPlayerUUID());
+        Assert.assertEquals("runtime-null 取消不得丢失原工具轮次", serverRoundId, event.getServerRoundId());
+        Assert.assertEquals("runtime-null 取消必须保留规划代际", planningGen, event.getGeneration());
+        Assert.assertEquals("shadow-runtime-null", event.getReason());
+        Assert.assertEquals(TICK, event.getServerTick());
+        Assert.assertEquals(NANOS, event.getTimestampNanos());
+    }
+
     /** buildPlanCancelled：null reason 透传不抛异常（取消原因自由文本）。 */
     @Test
     public void buildPlanCancelledNullReason() {
@@ -84,5 +101,19 @@ public class ChainPlanningEventBridgeTest {
         PlanCompleted completed = ChainPlanningEventBridge.buildPlanCompleted(PLAYER, planningGen, TICK, NANOS, 64);
         PlanCancelled cancelled = ChainPlanningEventBridge.buildPlanCancelled(PLAYER, planningGen, TICK, NANOS, "race");
         Assert.assertEquals("completed 与 cancelled 同代际 gen 必须一致", completed.getGeneration(), cancelled.getGeneration());
+    }
+
+    /** R1 异步结果在 R2 已开始后仍保留被冻结的 R1 轮次。 */
+    @Test
+    public void planningResultsKeepFrozenRoundInsteadOfLaterRound() {
+        long r1 = 101L;
+        long r2 = 102L;
+        PlanCompleted r1Completed = ChainPlanningEventBridge.buildPlanCompleted(PLAYER, r1, 5, TICK, NANOS, 64);
+        PlanCancelled r1Cancelled = ChainPlanningEventBridge.buildPlanCancelled(PLAYER, r1, 5, TICK, NANOS, "late-r1");
+        PlanCompleted r2Completed = ChainPlanningEventBridge.buildPlanCompleted(PLAYER, r2, 5, TICK, NANOS, 64);
+
+        Assert.assertEquals("R1 完成结果不得读取 R2", r1, r1Completed.getServerRoundId());
+        Assert.assertEquals("R1 取消结果不得读取 R2", r1, r1Cancelled.getServerRoundId());
+        Assert.assertEquals(r2, r2Completed.getServerRoundId());
     }
 }

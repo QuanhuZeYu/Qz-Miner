@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
@@ -16,6 +17,9 @@ import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.state.ChainStateService;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 
 /**
  * {@link ChainExecutionEventBridge} 纯逻辑单测。
@@ -237,25 +241,86 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertNull("看门狗后 registry 应清理", registry.get(PLAYER, 2));
     }
 
-    /**
-     * G1 生命周期清理收口：publish LifecycleCleanup → bridge.onLifecycleCleanup 清 registry +
-     * 幂等 setExecuting(false)（null chainStateService 安全跳过）。
-     */
+    /** 强制生命周期清理忽略 generation/round 占位值，按玩家 UUID 清除当前 context。 */
     @Test
-    public void lifecycleCleanupClearsRegistryAndIsReachable() {
+    public void forcedLifecycleCleanupClearsContextRegardlessOfRoundIdentity() {
         ChainEventBus bus = new ChainEventBus();
         bus.bindMainThread(Thread.currentThread());
         ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
-        registry.put(new ChainExecutionContext(PLAYER, 1,
+        registry.put(new ChainExecutionContext(PLAYER, 701L, 9,
                 new ConcurrentLinkedQueue<ChainTarget>(), null));
 
         @SuppressWarnings("unused")
         ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
 
-        bus.publish(new LifecycleCleanup(PLAYER, 1, TICK, NANOS, "player-logout", true, true));
+        bus.publish(new LifecycleCleanup(PLAYER, 0L, 0, TICK, NANOS, "player-logout", true, true));
         bus.drain();
 
-        Assert.assertNull("生命周期清理后 registry 应清理", registry.get(PLAYER, 1));
+        Assert.assertNull("强制清理必须忽略占位身份并按 UUID 删除 context", registry.get(PLAYER, 9, 701L));
+    }
+
+    /** 强制生命周期清理在 registry 已空时仍须幂等关闭执行窗口。 */
+    @Test
+    public void forcedLifecycleCleanupClosesExecutionWindowWithoutContext() {
+        ChainStateService previousService = MyMod.chainStateService;
+        ChainStateService testService = new ChainStateService();
+        MyMod.chainStateService = testService;
+        try {
+            ChainPlayerState playerState = testService.getOrCreatePlayerState(PLAYER);
+            playerState.setExecuting(true);
+
+            ChainEventBus bus = new ChainEventBus();
+            bus.bindMainThread(Thread.currentThread());
+            ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+            @SuppressWarnings("unused")
+            ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+            bus.publish(new LifecycleCleanup(PLAYER, 0L, 0, TICK, NANOS, "user-abort", true, false));
+            bus.drain();
+
+            Assert.assertFalse("registry 不存在 context 时 forced cleanup 仍必须关窗", playerState.isExecuting());
+        } finally {
+            MyMod.chainStateService = previousService;
+        }
+    }
+
+    /** 同 generation 的旧 round 非强制清理不得删除新 round context。 */
+    @Test
+    public void staleRoundLifecycleCleanupDoesNotClearNewRoundContext() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext newRound = new ChainExecutionContext(PLAYER, 802L, 6,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        registry.put(newRound);
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new LifecycleCleanup(PLAYER, 801L, 6, TICK, NANOS,
+                "late-execution-complete", false, false));
+        bus.drain();
+
+        Assert.assertSame("旧 round cleanup 不得删除新 round context", newRound, registry.get(PLAYER, 6, 802L));
+    }
+
+    /** 匹配三元身份的非强制生命周期清理正常删除对应 context。 */
+    @Test
+    public void matchingRoundLifecycleCleanupClearsContext() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        registry.put(new ChainExecutionContext(PLAYER, 901L, 7,
+                new ConcurrentLinkedQueue<ChainTarget>(), null));
+
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new LifecycleCleanup(PLAYER, 901L, 7, TICK, NANOS,
+                "execution-complete", false, false));
+        bus.drain();
+
+        Assert.assertNull("匹配 round cleanup 应删除对应 context", registry.get(PLAYER, 7, 901L));
     }
 
     // ============================ C 流式执行：PlanStarted 开窗 + PlanCancelled 清理 ============================
@@ -326,5 +391,60 @@ public class ChainExecutionEventBridgeTest {
         bus.drain();
         // 无 context 也应安全返回
         Assert.assertNull(registry.get(PLAYER, 1));
+    }
+
+    /** 同 generation 的 R1 PlanCancelled 不得清除或关闭 R2 的执行上下文。 */
+    @Test
+    public void oldRoundCancellationDoesNotClearNewRoundContext() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext r1 = new ChainExecutionContext(PLAYER, 501L, 4,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        ChainExecutionContext r2 = new ChainExecutionContext(PLAYER, 502L, 4,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        registry.put(r1);
+        registry.put(r2);
+        @SuppressWarnings("unused")
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+
+        bus.publish(new PlanCancelled(PLAYER, 501L, 4, TICK, NANOS, "late-r1"));
+        bus.drain();
+
+        Assert.assertSame("旧轮取消不得移除新轮 context", r2, registry.get(PLAYER, 4, 502L));
+    }
+
+    @Test
+    public void takeoverGateBehaviorSeamConsumesOnlyProceed() {
+        assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult.WAIT);
+        assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult.STOP);
+
+        ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
+        ChainTarget first = new ChainTarget(1, 2, 3);
+        ChainTarget second = new ChainTarget(4, 5, 6);
+        queue.add(first);
+        queue.add(second);
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
+
+        Assert.assertSame("APPLIED 映射的 PROCEED 必须消费当前队首", first,
+                ChainExecutionEventBridge.pollTargetAfterTakeoverGate(context,
+                        AutoToolSwapTakeoverCoordinator.GateResult.PROCEED));
+        Assert.assertEquals(1, queue.size());
+        Assert.assertSame(second, queue.peek());
+        Assert.assertEquals(1, context.getExecutionConsumedCount());
+    }
+
+    private static void assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult gate) {
+        ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
+        ChainTarget first = new ChainTarget(1, 2, 3);
+        ChainTarget second = new ChainTarget(4, 5, 6);
+        queue.add(first);
+        queue.add(second);
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
+
+        Assert.assertNull(ChainExecutionEventBridge.pollTargetAfterTakeoverGate(context, gate));
+        Assert.assertEquals(2, queue.size());
+        Assert.assertSame(first, queue.peek());
+        Assert.assertEquals(0, context.getExecutionConsumedCount());
     }
 }

@@ -47,9 +47,17 @@ public final class RightClickObserved extends ChainEvent {
      * @param hitZ           命中方块内 Z 偏移
      */
     public RightClickObserved(UUID playerUUID, int generation, long serverTick, long timestampNanos,
-                              int x, int y, int z, int dimensionId, int sideHit,
-                              float hitX, float hitY, float hitZ) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+                               int x, int y, int z, int dimensionId, int sideHit,
+                               float hitX, float hitY, float hitZ) {
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ);
+    }
+
+    /** 构造带服务端轮次关联的右键观测事件。 */
+    public RightClickObserved(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                               int x, int y, int z, int dimensionId, int sideHit,
+                               float hitX, float hitY, float hitZ) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.x = x;
         this.y = y;
         this.z = z;

@@ -28,7 +28,13 @@ public final class ModeSwitched extends ChainEvent {
      */
     public ModeSwitched(UUID playerUUID, int generation, long serverTick, long timestampNanos,
                         ChainMode newMode, ChainSubMode newSubMode) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos, newMode, newSubMode);
+    }
+
+    /** 构造带服务端轮次关联的模式切换事件。 */
+    public ModeSwitched(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                        ChainMode newMode, ChainSubMode newSubMode) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.newMode = newMode;
         this.newSubMode = newSubMode;
     }

@@ -1,22 +1,19 @@
 ---
 name: "[单人/服务器][BUG]:xxx"
-about: BUG概述(可以从carsh-report中截取``Description``开头的描述)
+about: 描述遇到的问题并上传对应日志
 title: ''
 labels: bug
 assignees: QuanhuZeYu
 
 ---
 
-**BUG文件 | 网页[崩溃提交](https://crashmc.com/contribute/crash-report)
-(通过上传txt文件的报告都将被直接删除不做处理，请使用上方的崩溃提交网页上传日志)
+## 遇到了什么问题？
 
-**游戏环境**
-[整合包名称/GTNH版本] & [单人/多人本地/多人服务器]
+请用自己的话描述实际表现。图片或视频可以附上，但不是必需的。
 
-**BUG如何复现**
-1.所使用的MOD版本和GTNH整合包版本
-2.尽可能详细的复现步骤
+## 上传日志
 
+- 客户端或单人游戏：上传 `run/client/logs/fml-client-latest.log`
+- 服务器问题：上传 `run/server/logs/fml-server-latest.log`
 
-**异常表现行为描述**
-简要描述不符合预期的行为，可以通过上传图片或者上传视频来描
+日志太大可以压缩为 zip；不知道该上传哪个时，上传手边最新的日志即可。无需筛选 marker 或分析日志。

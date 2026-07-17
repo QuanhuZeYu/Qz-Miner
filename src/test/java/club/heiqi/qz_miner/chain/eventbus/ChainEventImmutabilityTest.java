@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.eventbus;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Constructor;
 import java.util.UUID;
 
 import org.junit.Assert;
@@ -104,5 +105,61 @@ public class ChainEventImmutabilityTest {
         LifecycleCleanup compat = new LifecycleCleanup(player, 3, 42L, 999L, "compat");
         Assert.assertFalse("兼容构造器 forced 默认 false", compat.isForced());
         Assert.assertFalse("兼容构造器 removeSlot 默认 false", compat.isRemoveSlot());
+    }
+
+    /**
+     * 全部 14 个事件子类均保留旧构造器，并提供 UUID 后紧邻 serverRoundId 的新构造器。
+     */
+    @Test
+    public void allEventSubclassesKeepLegacyRoundDefaultAndExposeExplicitRoundConstructor() throws Exception {
+        for (int index = 1; index < EVENT_CLASSES.length; index++) {
+            Class<?> eventClass = EVENT_CLASSES[index];
+            Constructor<?> legacy = null;
+            Constructor<?> explicitRound = null;
+            for (Constructor<?> constructor : eventClass.getDeclaredConstructors()) {
+                Class<?>[] parameterTypes = constructor.getParameterTypes();
+                if (parameterTypes.length >= 2 && parameterTypes[0] == UUID.class && parameterTypes[1] == int.class) {
+                    legacy = constructor;
+                }
+                if (parameterTypes.length >= 3 && parameterTypes[0] == UUID.class
+                        && parameterTypes[1] == long.class && parameterTypes[2] == int.class) {
+                    explicitRound = constructor;
+                }
+            }
+            Assert.assertNotNull(eventClass.getSimpleName() + " 必须保留旧构造器", legacy);
+            Assert.assertNotNull(eventClass.getSimpleName() + " 必须提供 UUID 后的 serverRoundId 构造器", explicitRound);
+
+            ChainEvent legacyEvent = (ChainEvent) legacy.newInstance(defaultArguments(legacy.getParameterTypes()));
+            Assert.assertEquals(eventClass.getSimpleName() + " 旧构造器必须默认 NO_SERVER_ROUND_ID",
+                    ChainEvent.NO_SERVER_ROUND_ID, legacyEvent.getServerRoundId());
+
+            Object[] explicitArguments = defaultArguments(explicitRound.getParameterTypes());
+            explicitArguments[1] = Long.valueOf(91L);
+            ChainEvent explicitEvent = (ChainEvent) explicitRound.newInstance(explicitArguments);
+            Assert.assertEquals(eventClass.getSimpleName() + " 新构造器必须保留显式轮次", 91L,
+                    explicitEvent.getServerRoundId());
+        }
+    }
+
+    /** 为反射构造器测试提供无副作用的参数默认值。 */
+    private static Object[] defaultArguments(Class<?>[] parameterTypes) {
+        Object[] values = new Object[parameterTypes.length];
+        for (int index = 0; index < parameterTypes.length; index++) {
+            Class<?> type = parameterTypes[index];
+            if (type == UUID.class) {
+                values[index] = UUID.randomUUID();
+            } else if (type == boolean.class) {
+                values[index] = Boolean.FALSE;
+            } else if (type == int.class) {
+                values[index] = Integer.valueOf(0);
+            } else if (type == long.class) {
+                values[index] = Long.valueOf(0L);
+            } else if (type == float.class) {
+                values[index] = Float.valueOf(0.0F);
+            } else if (type.isEnum()) {
+                values[index] = type.getEnumConstants()[0];
+            }
+        }
+        return values;
     }
 }

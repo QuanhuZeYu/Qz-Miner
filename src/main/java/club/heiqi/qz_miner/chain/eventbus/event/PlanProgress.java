@@ -24,7 +24,14 @@ public final class PlanProgress extends ChainEvent {
      */
     public PlanProgress(UUID playerUUID, int generation, long serverTick, long timestampNanos,
                         int processedCount, int matchedCount) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                processedCount, matchedCount);
+    }
+
+    /** 构造带服务端轮次关联的规划进度事件。 */
+    public PlanProgress(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                        int processedCount, int matchedCount) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.processedCount = processedCount;
         this.matchedCount = matchedCount;
     }

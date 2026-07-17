@@ -51,6 +51,9 @@ public final class PlayerManager {
 
     /**
      * 清空所有玩家（由客户端 Mixin 调用，用于单人模式退出）。
+     *
+     * <p>经 {@link ServerMainThreadDispatcher} 收口；dispatcher 已关闭时任务会被拒绝。
+     * 服务端停止路径请改用 {@link #clearAllPlayersOnServerStopping()}。</p>
      */
     public static void clearAllPlayers() {
         if (instance == null || instance.players.isEmpty()) {
@@ -58,6 +61,15 @@ public final class PlayerManager {
         }
 
         ServerMainThreadDispatcher.run(PlayerManager::clearAllPlayersOnServerThread);
+    }
+
+    /**
+     * 仅服务端停止事件主线程调用的同步清理入口。
+     *
+     * <p>先完成玩家生命周期清理，再由调用方关闭 dispatcher，避免 stop 后 FIFO 拒绝导致清理丢失。</p>
+     */
+    public static void clearAllPlayersOnServerStopping() {
+        clearAllPlayersOnServerThread();
     }
 
     /**

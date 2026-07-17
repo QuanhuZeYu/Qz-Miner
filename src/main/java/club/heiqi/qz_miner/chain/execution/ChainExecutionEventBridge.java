@@ -23,6 +23,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
@@ -100,6 +101,8 @@ public class ChainExecutionEventBridge {
     private final ChainEventBus bus;
     /** 注入的执行上下文注册表（worker put，本桥 get）。 */
     private final ChainExecutionContextRegistry registry;
+    /** 普通采掘分支在 poll 前调用的接替门；纯 JVM 旧构造可为空。 */
+    private final AutoToolSwapTakeoverCoordinator takeoverCoordinator;
 
     /**
      * 构造桥并订阅 {@link PlanCompleted}（不注册 FML bus，留 {@link #bootstrap()} 显式触发）。
@@ -117,8 +120,15 @@ public class ChainExecutionEventBridge {
      * @param registry 执行上下文注册表
      */
     public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry) {
+        this(bus, registry, null);
+    }
+
+    /** 构造带同 round 工具接替门的执行桥。 */
+    public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry,
+            AutoToolSwapTakeoverCoordinator takeoverCoordinator) {
         this.bus = bus;
         this.registry = registry;
+        this.takeoverCoordinator = takeoverCoordinator;
         bus.subscribe(PlanStarted.class, this::onPlanStarted);
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
         bus.subscribe(PlanCancelled.class, this::onPlanCancelled);
@@ -179,19 +189,21 @@ public class ChainExecutionEventBridge {
     private void onPlanCompleted(PlanCompleted event) {
         UUID playerUUID = event.getPlayerUUID();
         int gen = event.getGeneration();
-        ChainExecutionContext context = registry.get(playerUUID, gen);
+        ChainExecutionContext context = registry.get(playerUUID, gen, event.getServerRoundId());
         if (context == null) {
             // 陈旧/不存在：worker 未 put 或 gen 不匹配，状态机 genCheck 已兜底丢弃
             MyMod.LOG.debug("[ChainExecution] PlanCompleted gen={} player={} has no matching context; skip",
                     Integer.valueOf(gen), playerUUID);
             return;
         }
+        logTimeline(context, "PlanCompleted", "workerConfirmed=" + event.getTotalTargets()
+                + " queueNow=" + context.getTargets().size());
 
         // 卡点5：空规划边界——totalTargets=0，队列初始即空，立即 publish ExecutionFinished + LifecycleCleanup，
         // 不能卡 RUNNING（否则玩家槽卡 RUNNING 致二次连锁哑火）
         if (context.isCompleted()) {
-            publishExecutionFinishedWithCleanup(playerUUID, gen, "empty-plan");
-            registry.remove(playerUUID);
+            publishExecutionFinishedWithCleanup(context, "empty-plan");
+            registry.remove(playerUUID, gen, context.getServerRoundId());
             return;
         }
 
@@ -252,8 +264,8 @@ public class ChainExecutionEventBridge {
         // 三元组1：解析玩家
         EntityPlayer rawPlayer = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerUUID);
         if (!(rawPlayer instanceof EntityPlayerMP)) {
-            publishExecutionFinishedWithCleanup(playerUUID, gen, "player-unavailable");
-            registry.remove(playerUUID);
+            publishExecutionFinishedWithCleanup(context, "player-unavailable");
+            registry.remove(playerUUID, gen, context.getServerRoundId());
             return;
         }
         EntityPlayerMP player = (EntityPlayerMP) rawPlayer;
@@ -270,8 +282,8 @@ public class ChainExecutionEventBridge {
             }
         }
         if (actionExecutor == null) {
-            publishExecutionFinishedWithCleanup(playerUUID, gen, "executor-unresolved");
-            registry.remove(playerUUID);
+            publishExecutionFinishedWithCleanup(context, "executor-unresolved");
+            registry.remove(playerUUID, gen, context.getServerRoundId());
             return;
         }
 
@@ -291,9 +303,9 @@ public class ChainExecutionEventBridge {
             if (precheckFail != null) {
                 // 预校验失败：取消连锁 + 聊天提示 + 清锁
                 notifyPlayer(player, "[QzMiner] " + precheckFail);
-                publishExecutionFinishedWithCleanup(playerUUID, gen, "cable-precheck-failed");
+                publishExecutionFinishedWithCleanup(context, "cable-precheck-failed");
                 GregTechCableSessionState.clear(playerUUID);
-                registry.remove(playerUUID);
+                registry.remove(playerUUID, gen, context.getServerRoundId());
                 return;
             }
 
@@ -306,6 +318,7 @@ public class ChainExecutionEventBridge {
                 if (target == null) {
                     break;
                 }
+                context.recordExecutionConsumed();
                 if (!actionExecutor.canExecute(player, session, target)) {
                     continue;
                 }
@@ -322,6 +335,7 @@ public class ChainExecutionEventBridge {
                     continue;
                 }
                 executed++;
+                logFirstSuccessfulExecution(context, target);
                 // 单 tick 原子执行仍需喂看门狗推进信号（虽然不跨 tick，但防 drain 帧内被误判）
             }
 
@@ -331,14 +345,14 @@ public class ChainExecutionEventBridge {
             }
 
             // 喂看门狗推进信号（即便单 tick 完成，也 publish 一次防状态机卡 RUNNING）
-            bus.publish(new ExecutionAdvanced(playerUUID, gen,
+            bus.publish(new ExecutionAdvanced(playerUUID, context.getServerRoundId(), gen,
                 ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                 executed, 0));
 
             // 完成：publish ExecutionFinished + 清会话锁（F2 补齐：正常完成路径显式清锁）
-            publishExecutionFinishedWithCleanup(playerUUID, gen, "cable-atomic-complete:" + executed);
+            publishExecutionFinishedWithCleanup(context, "cable-atomic-complete:" + executed);
             GregTechCableSessionState.clear(playerUUID);
-            registry.remove(playerUUID);
+            registry.remove(playerUUID, gen, context.getServerRoundId());
             return;
         }
 
@@ -349,10 +363,25 @@ public class ChainExecutionEventBridge {
         }
         int executed = 0;
         while (executed < maxBreakPerTick) {
-            ChainTarget target = context.getTargets().poll();
+            ChainTarget target = context.getTargets().peek();
             if (target == null) {
                 break;
             }
+            AutoToolSwapTakeoverCoordinator.GateResult gate =
+                    AutoToolSwapTakeoverCoordinator.GateResult.PROCEED;
+            if (takeoverCoordinator != null && usesTakeoverGate(session)) {
+                gate = takeoverCoordinator.beforePoll(
+                        player, context.getServerRoundId(), gen, target,
+                        Math.max(0L, ChainTickSource.currentServerTick()));
+            }
+            target = pollTargetAfterTakeoverGate(context, gate);
+            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) return;
+            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
+                publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped");
+                registry.remove(playerUUID, gen, context.getServerRoundId());
+                return;
+            }
+            if (target == null) break;
             if (!actionExecutor.canExecute(player, session, target)) {
                 continue;
             }
@@ -360,6 +389,7 @@ public class ChainExecutionEventBridge {
                 continue;
             }
             executed++;
+            logFirstSuccessfulExecution(context, target);
         }
 
         if (executed > 0) {
@@ -370,7 +400,7 @@ public class ChainExecutionEventBridge {
             // gen 来源用 context.getGeneration()（事件流注入），不实时读状态机。
             // remainingTargets 用 context.getTargets().size()——ConcurrentLinkedQueue.size() 是 O(n)，
             // 但执行队列通常不大，可接受；ChainExecutionContext 无 getTotalTargets/remaining 字段。
-            bus.publish(new ExecutionAdvanced(playerUUID, gen,
+            bus.publish(new ExecutionAdvanced(playerUUID, context.getServerRoundId(), gen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     executed, context.getTargets().size()));
         }
@@ -378,8 +408,8 @@ public class ChainExecutionEventBridge {
         if (context.isCompleted()) {
             // 队列消费完：publish ExecutionFinished → 状态机 T7 RUNNING→FINISHING
             // + 临时 LifecycleCleanup（E4-b 桥）→ 状态机 T8 FINISHING→IDLE
-            publishExecutionFinishedWithCleanup(playerUUID, gen, "executor-consumed-all-targets");
-            registry.remove(playerUUID);
+            publishExecutionFinishedWithCleanup(context, "executor-consumed-all-targets");
+            registry.remove(playerUUID, gen, context.getServerRoundId());
         }
         // 若未消费完，留下一 tick 继续消费（控速）
     }
@@ -387,20 +417,26 @@ public class ChainExecutionEventBridge {
     /**
      * publish ExecutionFinished + 临时 LifecycleCleanup（E4-b 桥）。
      *
-     * <p>gen 来源：经 ChainExecutionContext（事件流注入），绝不实时读状态机 generation 字段。
+     * <p>generation 与 serverRoundId 均来源于 ChainExecutionContext（事件流注入），绝不实时读状态机字段。
      * 两条事件 publish 间隔几乎为零（同 drain 帧），状态机 drain 时 T7 先于 T8 处理（合法转移）。</p>
      *
      * <p>tick/nanos 来源：{@link ChainTickSource}。ChainTickSource 自身兜底无 Forge 运行时环境
      * （如纯 JVM 单测）返回 {@code -1L}，故本方法无需防御性 catch（守 I4 ChainTickSource 仅诊断字段语义）。</p>
      *
-     * @param playerUUID 玩家 UUID
-     * @param gen        代际（事件流注入，回填 ExecutionFinished）
+     * @param context    三元身份已冻结的执行上下文
      * @param reason     ExecutionFinished 原因
      */
-    private void publishExecutionFinishedWithCleanup(UUID playerUUID, int gen, String reason) {
+    private void publishExecutionFinishedWithCleanup(ChainExecutionContext context, String reason) {
+        UUID playerUUID = context.getPlayerUUID();
+        int gen = context.getGeneration();
+        long serverRoundId = context.getServerRoundId();
         long tick = ChainTickSource.currentServerTick();
         long nanos = ChainTickSource.nowNanos();
-        bus.publish(buildExecutionFinished(playerUUID, gen, tick, nanos, reason));
+        bus.publish(buildExecutionFinished(playerUUID, serverRoundId, gen, tick, nanos, reason));
+        logTimeline(context, "ExecutionFinished", "reason=" + reason
+                + " workerConfirmed=" + context.getPlanningConfirmedCount()
+                + " executionConsumed=" + context.getExecutionConsumedCount()
+                + " executionSucceeded=" + context.getExecutionSucceededCount());
         // G1（I5 生命线）：正常完成关掉落收集窗口（executionStatus=IDLE）。
         // ChainDropCollector:58 检测到 IDLE 后下个 WorldTick 释放 buffer 中聚合的掉落。
         setExecutionWindow(playerUUID, false, "execution-finished:" + reason);
@@ -408,7 +444,7 @@ public class ChainExecutionEventBridge {
         // forced=false（走 genCheck，执行完成 gen 已知）+ removeSlot=false（玩家在线保 gen 单调）。
         // 三路铁律：本桥绝不删，FINISHING 只有 T8 能出，删了会卡死 FINISHING 致二次连锁哑火。
         bus.publish(new LifecycleCleanup(
-                playerUUID, gen, tick, nanos, "execution-complete", false, false));
+                playerUUID, serverRoundId, gen, tick, nanos, "execution-complete", false, false));
     }
 
     /**
@@ -428,12 +464,12 @@ public class ChainExecutionEventBridge {
     private void onPlanCancelled(PlanCancelled event) {
         UUID playerUUID = event.getPlayerUUID();
         int gen = event.getGeneration();
-        ChainExecutionContext ctx = registry.get(playerUUID, gen);
+        ChainExecutionContext ctx = registry.get(playerUUID, gen, event.getServerRoundId());
         if (ctx != null) {
-            registry.remove(playerUUID);
+            registry.remove(playerUUID, gen, event.getServerRoundId());
+            // 仅匹配上下文才允许旧事件关闭对应执行窗口。
+            setExecutionWindow(playerUUID, false, "plan-cancelled:" + event.getReason());
         }
-        // I5 生命线：关掉落窗口（PlanStarted 已开，此处幂等关）
-        setExecutionWindow(playerUUID, false, "plan-cancelled:" + event.getReason());
         MyMod.LOG.debug("[ChainExecution] registry cleanup on PlanCancelled player={} gen={} reason={}",
                 playerUUID, Integer.valueOf(gen), event.getReason());
     }
@@ -444,17 +480,19 @@ public class ChainExecutionEventBridge {
      * <p>看门狗 publish WatchdogTimeout 后状态机 T10 回 IDLE，但执行桥 registry 内的
      * {@link ChainExecutionContext} 队列可能仍有未消费目标（异常卡死时 worker 仍 put）。
      * 若不清理，下一 tick ServerTickEvent 仍会消费幽灵队列（{@code oracle A.4} 竞态）。
-     * 本桥订阅 WatchdogTimeout 后 {@code registry.remove(uuid)} 清幽灵队列。</p>
+     * 本桥订阅 WatchdogTimeout 后仅按三元身份移除匹配的幽灵队列。</p>
      *
      * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots；状态机 T10 自行处理 slots。</p>
      *
      * @param event 看门狗超时事件
      */
     private void onWatchdogTimeout(WatchdogTimeout event) {
-        registry.remove(event.getPlayerUUID());
+        boolean removed = registry.remove(event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId());
         // G1（I5 生命线，必须）：看门狗只 publish WatchdogTimeout + 清 registry，
         // 若漏设 executionStatus 会卡 RUNNING → ChainDropCollector:58 暂存条件永不满足 → buffer 永不释放。
-        setExecutionWindow(event.getPlayerUUID(), false, "watchdog-timeout");
+        if (removed) {
+            setExecutionWindow(event.getPlayerUUID(), false, "watchdog-timeout");
+        }
         MyMod.LOG.debug("[ChainExecution] registry cleanup on WatchdogTimeout player={} gen={}",
                 event.getPlayerUUID(), Integer.valueOf(event.getGeneration()));
     }
@@ -465,19 +503,57 @@ public class ChainExecutionEventBridge {
      * <p>玩家登出/重生/切维度时 {@code ChainLifecycleBridge} publish LifecycleCleanup，
      * 状态机 handler 处理 slots，本订阅者清理 registry（登出防泄漏，重生/维度切换清幽灵队列）。</p>
      *
+     * <p>{@code forced=true} 是 I7 全玩家生命周期收口：事件中的 generation/round 可为占位值，
+     * 必须按玩家 UUID 无条件移除当前 context，并无条件关闭执行窗口。{@code forced=false} 是执行轮
+     * 派生收口，仅在 UUID/generation/serverRoundId 三元身份匹配时移除并关闭对应窗口，防止旧轮事件
+     * 清理新轮 context。</p>
+     *
      * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots。</p>
      *
      * @param event 生命周期清理事件
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
-        registry.remove(event.getPlayerUUID());
-        // G1（I5 生命线，幂等）：clearRuntimeState 已通过 setExecutionStatus(IDLE) 收口，
-        // 此处再幂等 setExecuting(false) 补缺口——若事件由本桥自己 publish（execution-complete）
-        // 已经设过，幂等无副作用；若由 ChainLifecycleBridge publish（玩家登出/重生/切维度），
-        // cleanupPlayerState→clearRuntimeState 路径也会 setExecutionStatus(IDLE)，本处仍是幂等。
-        setExecutionWindow(event.getPlayerUUID(), false, "lifecycle-cleanup:" + event.getReason());
-        MyMod.LOG.debug("[ChainExecution] registry cleanup on LifecycleCleanup player={} reason={}",
-                event.getPlayerUUID(), event.getReason());
+        UUID playerUUID = event.getPlayerUUID();
+        if (takeoverCoordinator != null) takeoverCoordinator.cleanup(playerUUID);
+        if (event.isForced()) {
+            // I7 全量收口不依赖事件占位身份；即使 registry 已空，也必须幂等关闭执行窗口。
+            registry.remove(playerUUID);
+            setExecutionWindow(playerUUID, false, "lifecycle-cleanup-forced:" + event.getReason());
+            MyMod.LOG.debug(
+                    "[ChainExecution] forced LifecycleCleanup cleared player context player={} gen={} round={} reason={}",
+                    playerUUID, Integer.valueOf(event.getGeneration()), Long.valueOf(event.getServerRoundId()),
+                    event.getReason());
+            return;
+        }
+
+        boolean removed = registry.remove(playerUUID, event.getGeneration(), event.getServerRoundId());
+        if (removed) {
+            setExecutionWindow(playerUUID, false, "lifecycle-cleanup-round:" + event.getReason());
+        }
+        MyMod.LOG.debug(
+                "[ChainExecution] round-isolated LifecycleCleanup player={} gen={} round={} removed={} reason={}",
+                playerUUID, Integer.valueOf(event.getGeneration()), Long.valueOf(event.getServerRoundId()),
+                Boolean.valueOf(removed), event.getReason());
+    }
+
+    /** 仅普通 CHAIN/AREA 采掘使用接替门；GT SPECIAL 与交互分支保持原子/既有语义。 */
+    private static boolean usesTakeoverGate(ChainSession session) {
+        if (session == null || session.getRequest() == null) return false;
+        ChainMode mode = session.getRequest().getMode();
+        return mode == ChainMode.CHAIN || mode == ChainMode.AREA;
+    }
+
+    /**
+     * 普通执行循环共用的队首消费接缝：仅 PROCEED 可 poll 并记录一次消费。
+     *
+     * @return 被消费的队首；WAIT、STOP 或空队列返回 null
+     */
+    static ChainTarget pollTargetAfterTakeoverGate(ChainExecutionContext context,
+            AutoToolSwapTakeoverCoordinator.GateResult gate) {
+        if (context == null || gate != AutoToolSwapTakeoverCoordinator.GateResult.PROCEED) return null;
+        ChainTarget target = context.getTargets().poll();
+        if (target != null) context.recordExecutionConsumed();
+        return target;
     }
 
     // ============================ 纯逻辑构造（供单测覆盖） ============================
@@ -513,6 +589,21 @@ public class ChainExecutionEventBridge {
                 playerUUID, Boolean.valueOf(executing), reason);
     }
 
+    /** 仅在本 round 首个真实额外执行成功时输出一次坐标诊断。 */
+    private void logFirstSuccessfulExecution(ChainExecutionContext context, ChainTarget target) {
+        if (context.recordExecutionSucceeded()) {
+            logTimeline(context, "FirstExtraExecution", "pos=(" + target.getX() + "," + target.getY() + ","
+                    + target.getZ() + ") executionConsumed=" + context.getExecutionConsumedCount());
+        }
+    }
+
+    /** 输出与 planner/工具换位 round 可关联的有界执行时间线。 */
+    private void logTimeline(ChainExecutionContext context, String stage, String details) {
+        MyMod.LOG.debug("[ChainPlanDiag] player={} round={} generation={} stage={} {}",
+                context.getPlayerUUID(), Long.valueOf(context.getServerRoundId()),
+                Integer.valueOf(context.getGeneration()), stage, details);
+    }
+
     /**
      * 构造执行结束事件（纯逻辑，供单测覆盖）。
      *
@@ -527,7 +618,14 @@ public class ChainExecutionEventBridge {
      * @return 执行结束事件
      */
     public static ExecutionFinished buildExecutionFinished(UUID playerUUID, int gen, long tick, long nanos, String reason) {
-        return new ExecutionFinished(playerUUID, gen, tick, nanos, reason);
+        return buildExecutionFinished(playerUUID,
+                club.heiqi.qz_miner.chain.eventbus.ChainEvent.NO_SERVER_ROUND_ID, gen, tick, nanos, reason);
+    }
+
+    /** 构造带不可变服务端轮次关联的执行结束事件。 */
+    public static ExecutionFinished buildExecutionFinished(UUID playerUUID, long serverRoundId, int gen, long tick,
+                                                           long nanos, String reason) {
+        return new ExecutionFinished(playerUUID, serverRoundId, gen, tick, nanos, reason);
     }
 
     /**

@@ -1,9 +1,11 @@
 package club.heiqi.qz_miner.chain.executor;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.CableReplacementResult;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
@@ -57,6 +59,9 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         if (player == null || session == null || target == null) {
             return false;
         }
+        if (MyMod.chainStateService == null) {
+            return false;
+        }
 
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
         if (!CompatAdapters.cable().isCable(tileEntity)) {
@@ -79,8 +84,42 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         // 单阶段原子替换：内部直写 mConnections + causeCableUpdate
         // 删临时切手：replaceCable 不依赖 currentItem，只用 replacementStack/replacementSlotIndex
         // protectedSlot 传给 adapter 保护主手 slot 不被返还的旧线缆占用
-        return CompatAdapters.cable().replaceCableWithoutConnections(
+        CableReplacementResult result = CompatAdapters.cable().replaceCableWithoutConnections(
             player, tileEntity, lockedCableSlot.stack, lockedCableSlot.slotIndex, protectedSlot);
+        if (!result.isSuccessful()) {
+            return false;
+        }
+        returnOldCable(player, result.getReturnedStack(), protectedSlot);
+        return true;
+    }
+
+    /**
+     * 主线程优先返还背包；无法入包时写入玩家级掉落缓冲，禁止无保障生成实体。
+     */
+    private void returnOldCable(EntityPlayerMP player, ItemStack returnedStack, int protectedSlot) {
+        if (returnedStack == null || returnedStack.stackSize <= 0) return;
+        if (addToInventory(player, returnedStack, protectedSlot)) return;
+        MyMod.chainStateService.bufferPlayerDrop(player.getUniqueID(), returnedStack);
+    }
+
+    private boolean addToInventory(EntityPlayerMP player, ItemStack stack, int protectedSlot) {
+        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
+            if (i == protectedSlot) continue;
+            ItemStack existing = player.inventory.mainInventory[i];
+            if (existing != null && existing.isItemEqual(stack) && ItemStack.areItemStackTagsEqual(existing, stack)
+                && existing.stackSize + stack.stackSize <= Math.min(existing.getMaxStackSize(), player.inventory.getInventoryStackLimit())) {
+                existing.stackSize += stack.stackSize;
+                player.inventory.markDirty();
+                return true;
+            }
+        }
+        for (int i = 0; i < player.inventory.mainInventory.length; i++) {
+            if (i != protectedSlot && player.inventory.mainInventory[i] == null) {
+                player.inventory.setInventorySlotContents(i, stack.copy());
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

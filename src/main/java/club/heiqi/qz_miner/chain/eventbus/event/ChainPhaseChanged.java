@@ -45,9 +45,16 @@ public final class ChainPhaseChanged extends ChainEvent {
      * @param timestampNanos 发布时刻纳秒戳
      */
     public ChainPhaseChanged(UUID playerUUID, int generation,
+                              ChainPhase fromPhase, ChainPhase toPhase,
+                              long serverTick, long timestampNanos) {
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, fromPhase, toPhase, serverTick, timestampNanos);
+    }
+
+    /** 构造带服务端轮次关联的状态机进态广播。 */
+    public ChainPhaseChanged(UUID playerUUID, long serverRoundId, int generation,
                              ChainPhase fromPhase, ChainPhase toPhase,
                              long serverTick, long timestampNanos) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.fromPhaseOrdinal = fromPhase.ordinal();
         this.toPhaseOrdinal = toPhase.ordinal();
     }

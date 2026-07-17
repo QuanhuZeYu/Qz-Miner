@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapKeyStateBridge;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -66,6 +67,10 @@ public class PacketKeyState implements IMessage {
                     return;
                 }
 
+                long serverRoundId = 0L;
+                if (keyId == ChainConstants.KEY_CHAIN) {
+                    serverRoundId = AutoToolSwapKeyStateBridge.onKeyState(player, pressed);
+                }
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainStateService != null) {
                     MyMod.chainStateService.setPlayerChainKeyPressed(player.getUniqueID(), pressed);
                 }
@@ -74,7 +79,7 @@ public class PacketKeyState implements IMessage {
                 // 输入事件 generation 传 0 豁免代际判定（由转移规则本身约束消费态）
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainEventBus != null) {
                     MyMod.chainEventBus.publish(new ChainKeyPressed(
-                            player.getUniqueID(), 0,
+                            player.getUniqueID(), serverRoundId, 0,
                             ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                             pressed));
                     // E2 松键即停修复：松键（pressed=false）额外 publish LifecycleCleanup(reason="user-abort",
@@ -85,7 +90,7 @@ public class PacketKeyState implements IMessage {
                     // 中断活跃执行链（边搜边破坏的活跃连锁松键即停）。
                     if (!pressed) {
                         MyMod.chainEventBus.publish(new LifecycleCleanup(
-                                player.getUniqueID(), 0,
+                                player.getUniqueID(), serverRoundId, 0,
                                 ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                                 "user-abort", true, false));
                     }

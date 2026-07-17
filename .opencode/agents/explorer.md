@@ -1,13 +1,11 @@
 ---
 description: 代码侦察（传感层）。快速定位代码、追链路、返回压缩上下文。只读不改。
 mode: subagent
-model: anthropic/claude-opus-4-8
-thinking:
-  type: enabled
-  budgetTokens: 16000
+model: openai/gpt-5.6-sol
+variant: medium
 permission:
   edit: deny
-  bash: deny
+  bash: allow
   task: deny
 ---
 

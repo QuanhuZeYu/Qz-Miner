@@ -14,6 +14,7 @@ import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
 
 /**
  * 连锁状态服务。
@@ -46,10 +47,12 @@ public final class ChainStateService {
     }
 
     public void removePlayerState(UUID playerUUID, String reason) {
+        cleanupAutoToolSwapRound(playerUUID);
         GregTechCableSessionState.clear(playerUUID);
         ChainPlayerState state = playerStates.remove(playerUUID);
         if (state != null) {
             flushPlayerDrops(state, null, reason);
+            state.clearObjectGroupRules();
             state.clearRuntimeState(reason);
         }
     }
@@ -59,6 +62,7 @@ public final class ChainStateService {
     }
 
     public void cleanupPlayerState(UUID playerUUID, EntityPlayer player, String reason, boolean removeState) {
+        cleanupAutoToolSwapRound(playerUUID);
         ChainPlayerState state = getPlayerState(playerUUID);
         if (state == null) {
             return;
@@ -80,6 +84,18 @@ public final class ChainStateService {
 
     public ChainClientState getClientState() {
         return clientState;
+    }
+
+    /**
+     * 经玩家级状态服务缓冲无法直接交付的物品，保持与会话生命周期解耦。
+     *
+     * @param playerUUID 玩家 UUID
+     * @param stack 待缓冲物品
+     */
+    public void bufferPlayerDrop(UUID playerUUID, ItemStack stack) {
+        if (playerUUID != null && stack != null && stack.stackSize > 0) {
+            getOrCreatePlayerState(playerUUID).getDropBuffer().add(stack);
+        }
     }
 
     public void setPlayerChainKeyPressed(UUID playerUUID, boolean pressed) {
@@ -164,6 +180,7 @@ public final class ChainStateService {
         UUID playerUUID = event.player.getUniqueID();
         switch (event.reason) {
             case LOGIN:
+                cleanupAutoToolSwapRound(playerUUID);
                 getOrCreatePlayerState(playerUUID);
                 // 阶段8 块3：删旧 syncPlayerState（八字段链已删）。
                 // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN 下发基础 config 包。
@@ -213,5 +230,12 @@ public final class ChainStateService {
         }
 
         ChainDropReleaseHelper.discard(state.getPlayerUUID().toString(), state.getDropBuffer(), reason + "-missing-release-context");
+    }
+
+    /** 丢弃服务端工具换位账本，不创建 endpoint 或访问库存。 */
+    private void cleanupAutoToolSwapRound(UUID playerUUID) {
+        if (playerUUID != null && MyMod.autoToolSwapRoundService != null) {
+            MyMod.autoToolSwapRoundService.cleanup(playerUUID);
+        }
     }
 }

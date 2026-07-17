@@ -60,8 +60,10 @@ public class ChainInteractPlanner {
         // 阶段8：旧 startPlanning 已删，仅 publish 走新链路 T4 右键观测入口
         // 输入事件 generation 传 0 豁免代际判定；命中偏移携带是 T4 扩右键的根因
         if (MyMod.chainEventBus != null) {
+            long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
+                    : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
             MyMod.chainEventBus.publish(new RightClickObserved(
-                    player.getUniqueID(), 0,
+                    player.getUniqueID(), serverRoundId, 0,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     event.x, event.y, event.z, player.dimension,
                     normalizeFace(event.face),

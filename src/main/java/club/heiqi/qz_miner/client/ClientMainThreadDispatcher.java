@@ -18,20 +18,31 @@ public final class ClientMainThreadDispatcher {
      * @param task 待执行任务
      */
     public static void run(Runnable task) {
+        tryRun(task);
+    }
+
+    /**
+     * 尝试在客户端主线程执行任务。
+     *
+     * @param task 待执行任务
+     * @return 客户端可用且任务已执行或入队时为 true
+     */
+    public static boolean tryRun(Runnable task) {
         if (task == null) {
-            return;
+            return false;
         }
 
         Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft == null) {
-            return;
+            return false;
         }
 
         if (minecraft.func_152345_ab()) {
             task.run();
-            return;
+            return true;
         }
 
         minecraft.func_152344_a(task);
+        return true;
     }
 }

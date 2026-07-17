@@ -5,14 +5,15 @@ import com.llamalad7.mixinextras.expression.Definition;
 import com.llamalad7.mixinextras.expression.Expression;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.sugar.Local;
-import gregtech.common.ores.GTPPOreAdapter;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
 
 /**
  * 调整 GT++ 普通矿时运上限。
  */
-@Mixin(value = GTPPOreAdapter.class, remap = false)
+@Pseudo
+@Mixin(targets = "gregtech.common.ores.GTPPOreAdapter", remap = false)
 public abstract class MixinGTPPOreAdapter {
 
     /**
@@ -25,7 +26,8 @@ public abstract class MixinGTPPOreAdapter {
     @Expression("fortuneLevel > 3")
     @ModifyExpressionValue(
         method = "getBigOreDrops(Ljava/util/Random;Lgregtech/common/GTProxy$OreDropSystem;Lgregtech/common/ores/OreInfo;I)Ljava/util/ArrayList;",
-        at = @At(value = "MIXINEXTRAS:EXPRESSION"))
+        at = @At(value = "MIXINEXTRAS:EXPRESSION"),
+        require = 1)
     private boolean qzMiner$removeOreFortuneCap(boolean original) {
         return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);
     }

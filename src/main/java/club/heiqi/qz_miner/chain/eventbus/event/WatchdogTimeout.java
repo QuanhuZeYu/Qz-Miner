@@ -20,7 +20,13 @@ public final class WatchdogTimeout extends ChainEvent {
      * @param elapsedNanos   已耗用纳秒
      */
     public WatchdogTimeout(UUID playerUUID, int generation, long serverTick, long timestampNanos, long elapsedNanos) {
-        super(playerUUID, generation, serverTick, timestampNanos);
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos, elapsedNanos);
+    }
+
+    /** 构造带服务端轮次关联的看门狗超时事件。 */
+    public WatchdogTimeout(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                           long elapsedNanos) {
+        super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.elapsedNanos = elapsedNanos;
     }
 

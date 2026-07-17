@@ -235,4 +235,22 @@ public class ChainExecutionContextTest {
         Assert.assertTrue(registry.snapshot().contains(ctxA));
         Assert.assertTrue(registry.snapshot().contains(ctxB));
     }
+
+    /** 同 generation 的 R1/R2 必须按 round 隔离，旧轮不得领取或删除 R2 context。 */
+    @Test
+    public void registrySeparatesSameGenerationDifferentRounds() {
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext r1 = new ChainExecutionContext(PLAYER_A, 401L, 7,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        ChainExecutionContext r2 = new ChainExecutionContext(PLAYER_A, 402L, 7,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        registry.put(r1);
+        registry.put(r2);
+
+        Assert.assertNull("R1 不得领取 R2 context", registry.get(PLAYER_A, 7, 401L));
+        Assert.assertSame("R2 必须保留当前 context", r2, registry.get(PLAYER_A, 7, 402L));
+        Assert.assertFalse("R1 cleanup 不得删除 R2 context", registry.remove(PLAYER_A, 7, 401L));
+        Assert.assertSame(r2, registry.get(PLAYER_A, 7, 402L));
+        Assert.assertTrue(registry.remove(PLAYER_A, 7, 402L));
+    }
 }

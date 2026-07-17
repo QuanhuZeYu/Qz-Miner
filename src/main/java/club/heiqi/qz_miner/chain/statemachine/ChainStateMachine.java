@@ -154,7 +154,7 @@ public class ChainStateMachine {
             // 种子透传：破坏路径方块在下一 tick drain 时已被原版 removeBlock 成空气，
             // 必须把 BlockBreakObserved 携带的 seedBlock/seedMeta 透传给 PlanStarted，供 bridge 跳过 resolver
             bus.publish(new PlanStarted(
-                    event.getPlayerUUID(), nextGen,
+                    event.getPlayerUUID(), event.getServerRoundId(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
@@ -183,7 +183,7 @@ public class ChainStateMachine {
             // 阶段4：T4 转移后 publish PlanStarted，右键路径携带实际命中偏移供 INTERACT flood fill 方向判定
             // 右键路径块仍在世界，seed 传 null/0 由 bridge 走 WorldBlockSeedResolver 兜底
             bus.publish(new PlanStarted(
-                    event.getPlayerUUID(), nextGen,
+                    event.getPlayerUUID(), event.getServerRoundId(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
@@ -216,7 +216,7 @@ public class ChainStateMachine {
             // 阶段8：T4 转移后 publish PlanStarted，左键路径携带事件自带命中偏移（GT 线缆路径默认 0）
             // 左键路径块仍在世界，seed 传 null/0 由 bridge 走 WorldBlockSeedResolver 兜底
             bus.publish(new PlanStarted(
-                    event.getPlayerUUID(), nextGen,
+                    event.getPlayerUUID(), event.getServerRoundId(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
@@ -428,7 +428,7 @@ public class ChainStateMachine {
         // 守 I10：状态机 publish 是转移完成后的广播，不是外部改态入口；订阅者只读不可切态。
         // 与 T4 路径在 applyTransition 外单独 publish 的 PlanStarted 职责不同（PlanStarted 携带规划上下文，
         // ChainPhaseChanged 携带 from/to 通用进态信号），两者订阅集互不重叠，并行不冲突。
-        bus.publish(new ChainPhaseChanged(player, nextGen, from, to,
+        bus.publish(new ChainPhaseChanged(player, event.getServerRoundId(), nextGen, from, to,
                 ChainTickSource.currentServerTick(), ChainTickSource.nowNanos()));
     }
 

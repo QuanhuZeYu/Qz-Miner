@@ -46,6 +46,11 @@ public final class NetworkMain {
                 packetId++,
                 Side.SERVER);
         network.registerMessage(
+                PacketObjectGroupConfigRequest.Handler.class,
+                PacketObjectGroupConfigRequest.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
                 PacketLootGamesMinesweeperPreviewRequest.Handler.class,
                 PacketLootGamesMinesweeperPreviewRequest.class,
                 packetId++,
@@ -65,6 +70,41 @@ public final class NetworkMain {
         network.registerMessage(
                 PacketChainConfigSync.Handler.class,
                 PacketChainConfigSync.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketObjectGroupConfigSync.Handler.class,
+                PacketObjectGroupConfigSync.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapRoundStart.Handler.class,
+                PacketAutoToolSwapRoundStart.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
+                PacketAutoToolSwapIntent.Handler.class,
+                PacketAutoToolSwapIntent.class,
+                packetId++,
+                Side.SERVER);
+        network.registerMessage(
+                PacketAutoToolSwapRoundResult.Handler.class,
+                PacketAutoToolSwapRoundResult.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapActionResult.Handler.class,
+                PacketAutoToolSwapActionResult.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapRoundPhase.Handler.class,
+                PacketAutoToolSwapRoundPhase.class,
+                packetId++,
+                Side.CLIENT);
+        network.registerMessage(
+                PacketAutoToolSwapTakeoverRequest.Handler.class,
+                PacketAutoToolSwapTakeoverRequest.class,
                 packetId++,
                 Side.CLIENT);
     }

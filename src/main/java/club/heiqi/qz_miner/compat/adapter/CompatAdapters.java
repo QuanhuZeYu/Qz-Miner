@@ -168,12 +168,14 @@ public final class CompatAdapters {
 
     private static List<OreCompatAdapter> createOreAdapters() {
         List<OreCompatAdapter> adapters = new ArrayList<OreCompatAdapter>();
+        addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("gregtech.common.blocks.BlockOresAbstract", "gregtech.common.blocks.TileEntityOres"));
         // GTNH 2.9 矿石重构（GT5-Unofficial commit 20931d3b, 2025-10）后：
         // 新世界矿石方块改用 GTBlockOre（继承 GTGenericBlock，无 TileEntity，meta+OreInfo 编码）；
         // 旧存档矿石仍为 BlockOresAbstractLegacy（原 BlockOresAbstract 改名）+ TileEntityOres（仅保留数据字段）。
         // 二者均需注册，覆盖新存档与旧存档迁移前的矿石。
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("gregtech.common.blocks.GTBlockOre", null));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("gregtech.common.blocks.BlockOresAbstractLegacy", "gregtech.common.blocks.TileEntityOres"));
+        addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("gregtech.common.blocks.BlockOresLegacy", "gregtech.common.blocks.TileEntityOres"));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("bartworks.system.material.BWMetaGeneratedSmallOres", null));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter("bartworks.system.material.BWMetaGeneratedOres", null));
         addOreAdapterIfAvailable(adapters, new NamedClassOreCompatAdapter(null, "bartworks.system.material.BWTileEntityMetaGeneratedOre"));

@@ -1,14 +1,25 @@
 hud.qz_miner.status.running=Chain Mining Active
 hud.qz_miner.status.planning=Chain Plan In Progress
 hud.qz_miner.status.idle=Chain Ready
-hud.qz_miner.current_mode=Current Mode: %s
-hud.qz_miner.current_sub_mode=Current Sub Mode: %s
-hud.qz_miner.chain_config=Requested/Limit Radius: %d/%d, Requested/Limit Blocks: %d/%d
-hud.qz_miner.server_matched=Server Matched: %d blocks
-hud.qz_miner.preview_matched=Preview Matched: %d blocks
-hud.qz_miner.preview.completed=(Completed)
-hud.qz_miner.preview.calculating=(Calculating)
-hud.qz_miner.server_area=Server Area: %d x %d x %d = %d
+hud.qz_miner.status.label=Status:
+hud.qz_miner.current_mode.label=Current Mode:
+hud.qz_miner.current_sub_mode.label=Current Sub Mode:
+hud.qz_miner.chain_config.radius.label=Requested/Limit Radius:
+hud.qz_miner.chain_config.blocks.label=Requested/Limit Blocks:
+hud.qz_miner.server_matched.label=Server Matched:
+hud.qz_miner.preview_matched.label=Preview Matched:
+hud.qz_miner.preview.completed=Completed
+hud.qz_miner.preview.calculating=Calculating
+hud.qz_miner.server_area.label=Server Area:
+hud.qz_miner.object_group_sync.label=Object Groups:
+hud.qz_miner.separator=,
+hud.qz_miner.blocks.unit= blocks
+hud.qz_miner.count.prefix= (
+hud.qz_miner.count.suffix=)
+hud.qz_miner.area.equals==
+hud.qz_miner.volume.unit= blocks
+hud.qz_miner.sync.confirmed=Confirmed
+hud.qz_miner.sync.pending=Pending
 hud.qz_miner.mode.chain=Chain Mode
 hud.qz_miner.mode.area=Blasting Mode
 hud.qz_miner.mode.interact=Chain Block Interaction Mode

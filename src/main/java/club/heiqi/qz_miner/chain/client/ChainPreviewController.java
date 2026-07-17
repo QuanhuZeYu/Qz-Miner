@@ -21,6 +21,8 @@ import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
+import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -138,12 +140,19 @@ public class ChainPreviewController {
             startRemotePreview(selectedMode, selectedSubMode, target, previewRadius, previewMaxTargets);
             return;
         }
+        ModeExtensionSnapshot modeExtension = ModeExtensionSnapshot.EMPTY;
+        if (MyMod.chainStateService.getClientState().isObjectGroupSyncAccepted()) {
+            modeExtension = MyMod.chainStateService.getClientState().getServerObjectGroups().resolve(
+                    ObjectGroupMode.maskFor(selectedSubMode),
+                    club.heiqi.qz_miner.chain.planner.ObjectGroupBlockPredicate.registryName(sampleBlock), sampleMeta);
+        }
         final ChainSession previewSession = new ChainSession(
             player.getUniqueID(),
             selectedMode,
             selectedSubMode,
             target,
-            AxisAlignedTunnelDirection.resolveFace(player));
+            AxisAlignedTunnelDirection.resolveFace(player), 0.0F, 0.0F, 0.0F,
+            -1, -1, modeExtension);
         final BlockSeedSnapshot seedSnapshot = new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity);
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForPreview(
             world,

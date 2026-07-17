@@ -5,29 +5,29 @@ import com.llamalad7.mixinextras.expression.Definition;
 import com.llamalad7.mixinextras.expression.Expression;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.sugar.Local;
-import gregtech.common.ores.BWOreAdapter;
-import gregtech.common.ores.OreInfo;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
  * 调整 BW 普通矿时运限制。
  */
-@Mixin(value = BWOreAdapter.class, remap = false)
+@Pseudo
+@Mixin(targets = "gregtech.common.ores.BWOreAdapter", remap = false)
 public abstract class MixinBWOreAdapter {
 
     /**
      * 允许放置的 BW 矿也参与时运判断。
      *
-     * @param oreInfo 矿石信息
+     * @param original 上游自然矿标记
      * @return 是否视为自然矿
      */
-    @Redirect(
+    @ModifyExpressionValue(
         method = "getOreDrops(Ljava/util/Random;Lgregtech/common/ores/OreInfo;ZI)Ljava/util/ArrayList;",
-        at = @At(value = "FIELD", target = "Lgregtech/common/ores/OreInfo;isNatural:Z"))
-    private boolean qzMiner$allowPlacedOreFortune(OreInfo<?> oreInfo) {
-        return FortuneCompatHelper.shouldTreatOreAsNatural(oreInfo.isNatural);
+        at = @At(value = "FIELD", target = "Lgregtech/common/ores/OreInfo;isNatural:Z"),
+        require = 1)
+    private boolean qzMiner$allowPlacedOreFortune(boolean original) {
+        return FortuneCompatHelper.shouldTreatOreAsNatural(original);
     }
 
     /**
@@ -40,7 +40,8 @@ public abstract class MixinBWOreAdapter {
     @Expression("fortuneLevel > 3")
     @ModifyExpressionValue(
         method = "getBigOreDrops(Ljava/util/Random;Lgregtech/common/GTProxy$OreDropSystem;Lgregtech/common/ores/OreInfo;I)Ljava/util/ArrayList;",
-        at = @At(value = "MIXINEXTRAS:EXPRESSION"))
+        at = @At(value = "MIXINEXTRAS:EXPRESSION"),
+        require = 1)
     private boolean qzMiner$removeOreFortuneCap(boolean original) {
         return FortuneCompatHelper.shouldKeepFortuneCapCheck(original);
     }

@@ -116,7 +116,11 @@ public class ChainWatchdog {
         UUID uuid = event.getPlayerUUID();
         ChainPhase to = event.getToPhase();
         if (to == ChainPhase.IDLE) {
-            activePlayers.remove(uuid);
+            WatchEntry existing = activePlayers.get(uuid);
+            if (existing != null && existing.generation == event.getGeneration()
+                    && existing.serverRoundId == event.getServerRoundId()) {
+                activePlayers.remove(uuid);
+            }
             return;
         }
         // F.3 A-armed-skip：ARMED 不启动计时（遵循 T10 现状），已有条目保持
@@ -125,7 +129,8 @@ public class ChainWatchdog {
         }
         // to ∈ {PLANNING, RUNNING, FINISHING}：新增/刷新追踪条目（新一代覆盖旧 gen）
         // P2-2：同时记录 nowNanos 作为 lastNanos，checkTimeouts 据此算真 elapsedNanos delta
-        activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerTick(), ChainTickSource.nowNanos()));
+        activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerRoundId(), event.getServerTick(),
+                ChainTickSource.nowNanos()));
     }
 
     /**
@@ -139,8 +144,8 @@ public class ChainWatchdog {
      * <ul>
      *   <li>{@code existing == null} → return（无条目说明未在 PLANNING/RUNNING/FINISHING 追踪，
      *       不为 ARMED/IDLE 期迟到的事件误建条目）。</li>
-     *   <li>{@code existing.generation != eventGen} → return（陈旧 gen 防护：旧代际迟到的
-     *       PlanProgress/ExecutionAdvanced 不误刷新新代际条目，避免给已回 IDLE 后的新一代「续命」
+      *   <li>{@code existing.generation/serverRoundId} 不匹配 → return（陈旧轮次防护：旧代际或旧轮迟到的
+      *       PlanProgress/ExecutionAdvanced 不误刷新新条目，避免给已回 IDLE 后的新一代「续命」
      *       掩盖真卡死——世代隔离）。</li>
      *   <li>否则覆盖刷新：用事件的 serverTick 与 timestampNanos 重建不可变 WatchEntry
      *       （HashMap 单线程契约下安全，守 :52 注释；WatchEntry 保持不可变，最省改动）。</li>
@@ -156,12 +161,13 @@ public class ChainWatchdog {
             // 无条目：不为 ARMED/IDLE 期迟到的事件误建条目（守信号源分工）
             return;
         }
-        if (existing.generation != eventGen) {
-            // 陈旧 gen 防护：旧代际迟到事件不误刷新新代际条目
+        if (existing.generation != eventGen || existing.serverRoundId != event.getServerRoundId()) {
+            // 陈旧代际或轮次迟到事件不误刷新新条目
             return;
         }
         // 同代际推进刷新：用事件的 serverTick/timestampNanos 重建不可变条目
-        activePlayers.put(uuid, new WatchEntry(existing.generation, event.getServerTick(), event.getTimestampNanos()));
+        activePlayers.put(uuid, new WatchEntry(existing.generation, existing.serverRoundId,
+                event.getServerTick(), event.getTimestampNanos()));
     }
 
     /**
@@ -212,7 +218,8 @@ public class ChainWatchdog {
                 long nanos = ChainTickSource.nowNanos();
                 // P2-2：真实 elapsedNanos delta = nowNanos - 进态时记录的 lastNanos（不再占位）
                 long elapsedNanos = Math.max(0L, nanos - entry.lastNanos);
-                bus.publish(new WatchdogTimeout(uuid, entry.generation, currentTick, nanos, elapsedNanos));
+                bus.publish(new WatchdogTimeout(uuid, entry.serverRoundId, entry.generation,
+                        currentTick, nanos, elapsedNanos));
                 // F.4 C1：publish 后立即移除，避免后续 tick 重复 publish（看门狗风暴防护）
                 activePlayers.remove(uuid);
                 MyMod.LOG.warn("[ChainWatchdog] timeout player={} gen={} elapsedTick={} threshold={}; publish WatchdogTimeout",
@@ -227,13 +234,16 @@ public class ChainWatchdog {
     static final class WatchEntry {
         /** 该玩家最后一次推进时的代际（新一代 ChainPhaseChanged 覆盖）。 */
         final int generation;
+        /** 该玩家最后一次推进时的不可变服务端轮次关联。 */
+        final long serverRoundId;
         /** 该玩家最后一次推进时的服务端 tick（用于判定无推进时长）。 */
         final long lastProgressTick;
         /** 该玩家最后一次进态时记录的纳秒戳（P2-2：checkTimeouts 据此算真 elapsedNanos delta）。 */
         final long lastNanos;
 
-        WatchEntry(int generation, long lastProgressTick, long lastNanos) {
+        WatchEntry(int generation, long serverRoundId, long lastProgressTick, long lastNanos) {
             this.generation = generation;
+            this.serverRoundId = serverRoundId;
             this.lastProgressTick = lastProgressTick;
             this.lastNanos = lastNanos;
         }

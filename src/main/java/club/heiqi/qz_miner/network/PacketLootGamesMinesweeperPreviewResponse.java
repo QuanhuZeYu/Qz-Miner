@@ -12,6 +12,9 @@ import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 
 /**
  * LootGames 扫雷预览结果响应包。
+ *
+ * <p>Handler 将 {@code ctx.netHandler} 与预览数据转交 proxy；客户端主线程按 world-active
+ * token gate 后才应用 preview response。</p>
  */
 public class PacketLootGamesMinesweeperPreviewResponse implements IMessage {
 
@@ -61,16 +64,17 @@ public class PacketLootGamesMinesweeperPreviewResponse implements IMessage {
     }
 
     /**
-     * 客户端应用扫雷预览结果。
+     * 客户端应用扫雷预览结果（Netty 线程只转交 common 类型 + netHandler）。
      */
     public static class Handler implements IMessageHandler<PacketLootGamesMinesweeperPreviewResponse, IMessage> {
 
         @Override
         public IMessage onMessage(final PacketLootGamesMinesweeperPreviewResponse message, MessageContext ctx) {
             MyMod.proxy.handleClientLootGamesMinesweeperPreview(
-                message.requestId,
-                new ChainTarget(message.originX, message.originY, message.originZ),
-                new ArrayList<ChainTarget>(message.targets));
+                    message.requestId,
+                    new ChainTarget(message.originX, message.originY, message.originZ),
+                    new ArrayList<ChainTarget>(message.targets),
+                    ctx.netHandler);
             return null;
         }
     }
