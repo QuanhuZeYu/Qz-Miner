@@ -31,3 +31,11 @@
 该候选的自动化通过不等于真实 EndlessIDs 与连续 TAKEOVER 运行态通过；后续版本若发布必须创建新 tag 并重新执行自身门禁，不能复用或移动既有发布 tag。
 
 `5.0.19` tag 的 peeled commit 继续固定为 `e3a2243`；`5.0.20` tag 同样保持现有指向，不因本候选修改。
+
+## 5.0.21 热修风险接受
+
+`5.0.20` 的真实单人日志已确认 EndlessIDs 合法 16-bit `metadata=24902` 被旧上限拒绝，以及 TAKEOVER 在服务端 pending/current anchor 已 exact 后仍受冗余客户端 anchor echo 门影响。`5.0.21` 候选据此将 metadata 域放宽至 `0..0xFFFF`，仅移除该冗余门，并保留其余服务端新鲜度、候选、账本与库存安全门；同时补充 action/gate 单次固定 reason 诊断。
+
+候选的目标与全量 Gradle 验证、文档门禁及完整终审均已通过，终审无 P0/P1；但修复后的真实 EndlessIDs 与连续 TAKEOVER 运行态仍为 **INCOMPLETE**，自动化与终审成功不等于实机通过。用户在知悉 `5.0.20` 仍失败及候选验证边界后，明确授权直接发布 `5.0.21`；该风险接受仅适用于本次热修，不自动由后续版本继承。
+
+发布前仍须完成最终 feature commit、`5.0重构` merge commit 与 `5.0.21` tag 三段 CI，并在 Release 后核验主包、dev 包、sources 包三项资产。发布盯梢交由后续子 agent 执行；当前尚未 merge、push、tag 或创建 Release。`5.0.19`/`5.0.20` 既有 tag 与 Release 必须保持固定，`5.0.21` 只能创建新 tag。
