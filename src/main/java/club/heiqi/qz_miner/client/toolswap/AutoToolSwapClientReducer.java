@@ -469,8 +469,8 @@ public final class AutoToolSwapClientReducer {
     }
 
     private List<Effect> onKeyState(KeyStateEvent event) {
-        if (event.context == null || event.down == keyDown) return noEffects();
-        remember(event.context);
+        if (event.down == keyDown || event.context == null && event.down) return noEffects();
+        if (event.context != null) remember(event.context);
         boolean preFrozen = event.down && preEdgeDestroyTick == clientTick
                 && preEdgeWorldGeneration == event.worldGeneration;
         clearPreEdgeDestroyLatch();

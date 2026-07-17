@@ -12,6 +12,7 @@ public class AutoToolSwapProtocolTest {
     @Test
     public void wireCodesAreUniqueAndUnknownCodesFailClosed() {
         Assert.assertEquals(3, AutoToolSwapProtocol.PROTOCOL_VERSION);
+        Assert.assertEquals(0xFFFFFF, AutoToolSwapProtocol.MAX_BLOCK_ID);
         assertUnique(AutoToolSwapAction.values());
         assertUnique(AutoToolSwapRoundState.values());
         assertUnique(AutoToolSwapResultCode.values());

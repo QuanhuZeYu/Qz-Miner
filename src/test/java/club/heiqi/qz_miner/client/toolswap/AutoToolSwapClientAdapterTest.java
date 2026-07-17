@@ -255,6 +255,69 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void failedReleaseCapturePreservesLedgerRetriesRestoreThenClosesAndAllowsNewRound() {
+        final List<String> diagnostics = new ArrayList<String>();
+        adapter = new AutoToolSwapClientAdapter(true, true, Collections.emptyList(), game, transport,
+                new AutoToolSwapClientReducer.DiagnosticSink() {
+                    @Override public void log(String message) { diagnostics.add(message); }
+                });
+        completeSwap();
+        game.failContextCapture = true;
+
+        adapter.onChainKeyState(false);
+
+        Assert.assertFalse(adapter.reducerForTests().isKeyDown());
+        Assert.assertEquals(9L, adapter.reducerForTests().serverRoundId());
+        Assert.assertTrue(adapter.reducerForTests().hasSwapExpectation());
+        Assert.assertEquals(1, transport.intents.size());
+        Assert.assertEquals(1, Collections.frequency(diagnostics,
+                AutoToolSwapClientAdapter.RELEASE_CAPTURE_FAILED_MARKER));
+        adapter.onChainKeyState(false);
+        Assert.assertEquals("同一 release 边沿不得重复输出 marker", 1, Collections.frequency(diagnostics,
+                AutoToolSwapClientAdapter.RELEASE_CAPTURE_FAILED_MARKER));
+
+        game.failContextCapture = false;
+        adapter.onClientTick();
+        AutoToolSwapIntent restore = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        game.inventory = restored();
+        settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+        AutoToolSwapIntent close = transport.intents.get(2);
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, close.action());
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+
+        Assert.assertEquals(0L, adapter.reducerForTests().serverRoundId());
+        adapter.onChainKeyState(true);
+        Assert.assertEquals(2, transport.rounds.size());
+    }
+
+    @Test
+    public void failedLightCaptureOnNaturalIdleStillPublishesReleaseAndRisingNullStartsNothing() {
+        final List<String> diagnostics = new ArrayList<String>();
+        adapter = new AutoToolSwapClientAdapter(true, true, Collections.emptyList(), game, transport,
+                new AutoToolSwapClientReducer.DiagnosticSink() {
+                    @Override public void log(String message) { diagnostics.add(message); }
+                });
+        game.inventory = noCandidate();
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 1L, true);
+        game.failLightCapture = true;
+
+        adapter.onChainKeyState(false);
+
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, transport.intents.get(0).action());
+        Assert.assertEquals(1, Collections.frequency(diagnostics,
+                AutoToolSwapClientAdapter.RELEASE_CAPTURE_FAILED_MARKER));
+        AutoToolSwapIntent close = transport.intents.get(0);
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        adapter.onChainKeyState(true);
+        Assert.assertEquals("上升沿采样失败不得建立新 round", 1, transport.rounds.size());
+    }
+
+    @Test
     public void preEdgeDestroyLatchesFreezeAndDrainsAfterRoundAcceptance() {
         game.physicalKeyDown = true;
         adapter.onLocalBlockDestroyed();
@@ -747,16 +810,20 @@ public class AutoToolSwapClientAdapterTest {
         private boolean creative;
         private boolean guiOpen;
         private boolean inventoryTransactionSafe = true;
+        private boolean failLightCapture;
+        private boolean failContextCapture;
         private int lastTargetBlockId;
         private int lastTargetMetadata;
         private ToolSwapTargetIdentity targetIdentity = ToolSwapTargetIdentity.present(1, 0);
         private final List<ToolSwapCapturePlan> capturePlans = new ArrayList<ToolSwapCapturePlan>();
         private int fullCaptureCount;
         @Override public ToolSwapLightContext captureLightContext(long tick, boolean active) {
+            if (failLightCapture) return null;
             return new ToolSwapLightContext(tick, breakCapable, creative, guiOpen, active, 0, targetIdentity);
         }
         @Override public ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
                 int anchor, int candidate, int targetBlockId, int targetBlockMetadata) {
+            if (failContextCapture) return null;
             capturePlans.add(plan);
             if (plan == ToolSwapCapturePlan.FULL || plan == ToolSwapCapturePlan.FULL_TARGET) {
                 fullCaptureCount++;

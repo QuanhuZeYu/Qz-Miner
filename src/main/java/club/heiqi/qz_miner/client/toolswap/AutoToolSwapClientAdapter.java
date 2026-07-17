@@ -29,6 +29,9 @@ import cpw.mods.fml.relauncher.SideOnly;
 @SideOnly(Side.CLIENT)
 public final class AutoToolSwapClientAdapter {
 
+    static final String RELEASE_CAPTURE_FAILED_MARKER =
+            "[AutoToolSwap] release fact capture failed; preserving round for retry";
+
     private static final AutoToolSwapClientReducer.DiagnosticSink PRODUCTION_DIAGNOSTIC_SINK =
             new AutoToolSwapClientReducer.DiagnosticSink() {
                 @Override
@@ -49,6 +52,7 @@ public final class AutoToolSwapClientAdapter {
     private final AutoToolSwapClientReducer reducer;
     private final GameFacade game;
     private final AutoToolSwapClientTransport transport;
+    private final AutoToolSwapClientReducer.DiagnosticSink diagnosticSink;
 
     public AutoToolSwapClientAdapter(boolean enabled, List<ToolSelector> selectors, GameFacade game,
             AutoToolSwapClientTransport transport) {
@@ -58,12 +62,21 @@ public final class AutoToolSwapClientAdapter {
     /** 创建带独立接替开关的客户端 adapter。 */
     public AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
             GameFacade game, AutoToolSwapClientTransport transport) {
+        this(enabled, takeoverEnabled, selectors, game, transport, PRODUCTION_DIAGNOSTIC_SINK);
+    }
+
+    /** 创建可注入诊断出口的 adapter，供包内纯 JVM 合同验证。 */
+    AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
+            GameFacade game, AutoToolSwapClientTransport transport,
+            AutoToolSwapClientReducer.DiagnosticSink diagnosticSink) {
         if (game == null || transport == null) {
             throw new IllegalArgumentException("game and transport must not be null");
         }
-        reducer = new AutoToolSwapClientReducer(enabled, takeoverEnabled, selectors, PRODUCTION_DIAGNOSTIC_SINK);
+        if (diagnosticSink == null) throw new IllegalArgumentException("diagnosticSink must not be null");
+        reducer = new AutoToolSwapClientReducer(enabled, takeoverEnabled, selectors, diagnosticSink);
         this.game = game;
         this.transport = transport;
+        this.diagnosticSink = diagnosticSink;
     }
 
     /** 真实按键边沿入口；上升沿的 RoundStart effect 仍先于外层 KeyState。 */
@@ -71,7 +84,7 @@ public final class AutoToolSwapClientAdapter {
         if (down == reducer.isKeyDown()) return;
         ToolSwapLightContext light = game.captureLightContext(reducer.clientTick(), down);
         if (light == null) {
-            if (!down) resetForLifecycle();
+            if (!down) publishFailedRelease();
             return;
         }
         ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.capture();
@@ -81,7 +94,7 @@ public final class AutoToolSwapClientAdapter {
         ToolSwapContext context = game.captureContext(light, plan,
                 reducer.protectedAnchorSlot(), reducer.protectedCandidateSlot(), 0, 0);
         if (context == null) {
-            if (!down) resetForLifecycle();
+            if (!down) publishFailedRelease();
             return;
         }
         executeEffects(reducer.reduce(new KeyStateEvent(down, context, worldGeneration)));
@@ -162,6 +175,18 @@ public final class AutoToolSwapClientAdapter {
 
     AutoToolSwapClientReducer reducerForTests() {
         return reducer;
+    }
+
+    /** 发布无上下文松键事实；只保留恢复义务，不伪造生命周期复位。 */
+    private void publishFailedRelease() {
+        try {
+            diagnosticSink.log(RELEASE_CAPTURE_FAILED_MARKER);
+        } catch (RuntimeException ignored) {
+            // 诊断失败不得改变 release 收口。
+        } catch (LinkageError ignored) {
+            // 日志实现不可用时仍须保留协议账本。
+        }
+        executeEffects(reducer.reduce(new KeyStateEvent(false, null, -1L)));
     }
 
     /** 执行 effect，并将执行结果作为新事件同步回 reducer。 */
