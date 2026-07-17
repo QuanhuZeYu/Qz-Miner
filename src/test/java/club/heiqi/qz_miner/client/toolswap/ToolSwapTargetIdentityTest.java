@@ -21,6 +21,11 @@ public class ToolSwapTargetIdentityTest {
         Assert.assertEquals(32767, ToolSwapTargetIdentity.present(32767, 15).blockId());
         Assert.assertEquals(0xFFFFFF,
                 ToolSwapTargetIdentity.present(0xFFFFFF, 0).blockId());
+        assertValidMetadata(0);
+        assertValidMetadata(15);
+        assertValidMetadata(16);
+        assertValidMetadata(24902);
+        assertValidMetadata(65535);
     }
 
     @Test
@@ -29,7 +34,7 @@ public class ToolSwapTargetIdentityTest {
         assertInvalid(-1, 0);
         assertInvalid(0x1000000, 0);
         assertInvalid(1, -1);
-        assertInvalid(1, 16);
+        assertInvalid(1, 65536);
         try {
             new ToolSwapLightContext(0L, true, false, false, true, 0, null);
             Assert.fail("null target must fail");
@@ -48,5 +53,9 @@ public class ToolSwapTargetIdentityTest {
             Assert.assertTrue(expected.getMessage().contains("metadata=" + metadata));
             Assert.assertTrue(expected.getMessage().contains("max=16777215"));
         }
+    }
+
+    private static void assertValidMetadata(int metadata) {
+        Assert.assertEquals(metadata, ToolSwapTargetIdentity.present(1, metadata).metadata());
     }
 }

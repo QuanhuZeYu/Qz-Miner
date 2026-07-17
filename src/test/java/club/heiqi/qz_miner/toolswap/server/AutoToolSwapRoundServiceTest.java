@@ -554,6 +554,7 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertTrue(log.contains("[AutoToolSwapDiag]"));
         Assert.assertTrue(log.contains("round=" + roundId));
         Assert.assertTrue(log.contains("actionSeq=1"));
+        Assert.assertTrue(log.contains("reason=none"));
         Assert.assertTrue(log.contains("contentHash=short"));
         Assert.assertFalse(log.contains("secret-nbt"));
     }
@@ -616,6 +617,50 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(0, declined.inventory.readCount);
         Assert.assertEquals(0, declined.inventory.swapCount);
         Assert.assertEquals(0, declined.inventory.syncCount);
+    }
+
+    @Test
+    public void staleClientAnchorEchoDoesNotRejectExactServerAnchorAndCandidate() {
+        Fixture fixture = takeoverFixture();
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 24902, 0, fixture.inventory.slots[0], 10L, 18L);
+        AutoToolSwapStackState staleClientEcho = stack("mod:pickaxe", "client-old-durability", 2);
+        AutoToolSwapIntent intent = intent(fixture.roundId, request.actionSequence(),
+                AutoToolSwapAction.TAKEOVER, 0, 7, staleClientEcho, fixture.inventory.slots[7]);
+
+        AutoToolSwapRoundResult applied = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent, fixture.inventory, 11L);
+
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, applied.outcome());
+        Assert.assertEquals(1, fixture.inventory.swapCount);
+        Assert.assertEquals(1, fixture.inventory.syncCount);
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.APPLIED,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
+    }
+
+    @Test
+    public void takeoverDiagnosticsGiveOneBoundedReasonForEverySettlementGate() {
+        assertTakeoverReason(TakeoverReasonCase.INVENTORY_CONTEXT, "inventory-context",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.SELECTED_SLOT, "selected-slot",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.PENDING_ANCHOR_CHANGED, "pending-anchor-changed",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.CANDIDATE_FINGERPRINT, "candidate-fingerprint",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.CANDIDATE_LOW_RESERVE, "candidate-low-reserve",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.LEDGER_OLD_ROLE, "ledger-old-role",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.LEDGER_ACTIVE_ROLE, "ledger-active-role",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.SLOT_CONFLICT, "slot-conflict",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.INVENTORY_READ_FAILED, "inventory-read-failed",
+                AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.APPLIED, "applied", AutoToolSwapResultCode.APPLIED);
+        assertTakeoverReason(TakeoverReasonCase.SYNC_FAILED, "sync-failed",
+                AutoToolSwapResultCode.SYNC_FAILED);
     }
 
     @Test
@@ -792,6 +837,70 @@ public class AutoToolSwapRoundServiceTest {
         assertZeroTakeoverInventoryAccess(fixture.inventory);
     }
 
+    private static void assertTakeoverReason(TakeoverReasonCase reasonCase, String expectedReason,
+            AutoToolSwapResultCode expectedResult) {
+        final List<String> logs = new ArrayList<String>();
+        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L,
+                new AutoToolSwapRoundService.DiagnosticSink() {
+                    @Override
+                    public void log(String message) {
+                        logs.add(message);
+                    }
+                });
+        Fixture fixture = fixture(service);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, swapIntent(fixture, 1L), fixture.inventory, 1L).outcome());
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        fixture.inventory.slots[0] = stack("mod:drill", "active-low", 1);
+        fixture.inventory.slots[7] = stack("mod:hammer", "fresh", 80);
+        if (reasonCase == TakeoverReasonCase.CANDIDATE_LOW_RESERVE) {
+            fixture.inventory.slots[7] = stack("mod:hammer", "low", 1);
+        } else if (reasonCase == TakeoverReasonCase.LEDGER_ACTIVE_ROLE) {
+            fixture.inventory.slots[0] = stack("mod:wrong-active", "low", 1);
+        }
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 24902, 0, fixture.inventory.slots[0], 10L, 18L);
+        AutoToolSwapIntent intent = intent(fixture.roundId, request.actionSequence(),
+                AutoToolSwapAction.TAKEOVER, 0, 7, fixture.inventory.slots[0], fixture.inventory.slots[7]);
+        if (reasonCase == TakeoverReasonCase.INVENTORY_CONTEXT) {
+            fixture.inventory.alive = false;
+        } else if (reasonCase == TakeoverReasonCase.SELECTED_SLOT) {
+            fixture.inventory.selectedSlot = 1;
+        } else if (reasonCase == TakeoverReasonCase.PENDING_ANCHOR_CHANGED) {
+            fixture.inventory.slots[0] = stack("mod:drill", "active-changed", 1);
+        } else if (reasonCase == TakeoverReasonCase.CANDIDATE_FINGERPRINT) {
+            fixture.inventory.slots[7] = stack("mod:hammer", "candidate-changed", 79);
+        } else if (reasonCase == TakeoverReasonCase.LEDGER_OLD_ROLE) {
+            fixture.inventory.slots[9] = stack("mod:wrong-old", "changed", 90);
+        } else if (reasonCase == TakeoverReasonCase.SLOT_CONFLICT) {
+            intent = intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER,
+                    0, 9, fixture.inventory.slots[0], fixture.inventory.slots[9]);
+        } else if (reasonCase == TakeoverReasonCase.INVENTORY_READ_FAILED) {
+            fixture.inventory.failRead = true;
+        } else if (reasonCase == TakeoverReasonCase.SYNC_FAILED) {
+            fixture.inventory.syncFailure = FailureMode.RUNTIME;
+        }
+        logs.clear();
+        resetInventoryCounters(fixture.inventory);
+
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent, fixture.inventory, 11L);
+
+        Assert.assertEquals(expectedResult, result.outcome());
+        Assert.assertEquals("每个 TAKEOVER 结算只能输出一条 action", 1, logs.size());
+        Assert.assertTrue(logs.get(0).contains("action=TAKEOVER"));
+        Assert.assertTrue(logs.get(0).contains("reason=" + expectedReason));
+        Assert.assertFalse(logs.get(0).contains("secret-nbt"));
+        if (expectedResult == AutoToolSwapResultCode.REJECTED) {
+            Assert.assertEquals(0, fixture.inventory.swapCount);
+            Assert.assertEquals(0, fixture.inventory.rotateCount);
+            Assert.assertEquals(0, fixture.inventory.syncCount);
+        } else {
+            Assert.assertEquals(1, fixture.inventory.rotateCount);
+            Assert.assertEquals(1, fixture.inventory.syncCount);
+        }
+    }
+
     private static Fixture takeoverFixture() {
         Fixture fixture = fixture();
         fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
@@ -908,7 +1017,10 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     private static Fixture fixture() {
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L);
+        return fixture(new AutoToolSwapRoundService(0L));
+    }
+
+    private static Fixture fixture(AutoToolSwapRoundService service) {
         UUID player = UUID.randomUUID();
         Object endpoint = new Object();
         service.beginRound(player, endpoint, 17L, 0L);
@@ -984,6 +1096,20 @@ public class AutoToolSwapRoundServiceTest {
         NONE,
         RUNTIME,
         LINKAGE
+    }
+
+    private enum TakeoverReasonCase {
+        INVENTORY_CONTEXT,
+        SELECTED_SLOT,
+        PENDING_ANCHOR_CHANGED,
+        CANDIDATE_FINGERPRINT,
+        CANDIDATE_LOW_RESERVE,
+        LEDGER_OLD_ROLE,
+        LEDGER_ACTIVE_ROLE,
+        SLOT_CONFLICT,
+        INVENTORY_READ_FAILED,
+        APPLIED,
+        SYNC_FAILED
     }
 
     private static final class Fixture {
