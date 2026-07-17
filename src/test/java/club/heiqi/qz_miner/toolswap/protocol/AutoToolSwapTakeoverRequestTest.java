@@ -26,6 +26,10 @@ public class AutoToolSwapTakeoverRequestTest {
         Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 21, 42, 7));
         Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 20, 43, 7));
         Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 20, 42, 8));
+
+        assertValidExtendedId(4096);
+        assertValidExtendedId(32767);
+        assertValidExtendedId(AutoToolSwapProtocol.MAX_BLOCK_ID);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -38,5 +42,28 @@ public class AutoToolSwapTakeoverRequestTest {
     public void deadlineMustFollowServerTick() {
         new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
                 0, 64, 0, 1, 0, 2L, 2L);
+    }
+
+    @Test
+    public void negativeAndAbove24BitBlockIdsFailClosed() {
+        assertInvalidBlockId(-1);
+        assertInvalidBlockId(AutoToolSwapProtocol.MAX_BLOCK_ID + 1);
+    }
+
+    private static void assertValidExtendedId(int blockId) {
+        AutoToolSwapTakeoverRequest request = new AutoToolSwapTakeoverRequest(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                0, 64, 0, blockId, 0, 1L, 2L);
+        Assert.assertEquals(blockId, request.targetBlockId());
+    }
+
+    private static void assertInvalidBlockId(int blockId) {
+        try {
+            new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                    0, 64, 0, blockId, 0, 1L, 2L);
+            Assert.fail("invalid block id must fail");
+        } catch (IllegalArgumentException expected) {
+            // 合同断言
+        }
     }
 }

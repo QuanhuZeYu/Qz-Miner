@@ -123,6 +123,74 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void nullReleaseKeepsRoundAndLedgerUntilRestoreCloseWhileNullRiseIsIgnored() {
+        AutoToolSwapClientReducer reducer = reducer(42L, 43L);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 42L, 142L, 1L);
+        AutoToolSwapIntent swap = captureAndSubmit(reducer,
+                only(reducer.reduce(new TickEvent(context(0L, restored()), true))),
+                context(0L, restored()));
+        settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        reducer.reduce(new TickEvent(context(1L, swapped()), true));
+
+        Effect failedRestoreCapture = only(reducer.reduce(new KeyStateEvent(false, null)));
+        Assert.assertFalse(reducer.isKeyDown());
+        Assert.assertEquals(142L, reducer.serverRoundId());
+        Assert.assertTrue(reducer.hasSwapExpectation());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.RESTORING, reducer.state());
+        Assert.assertTrue(reducer.reduce(new EffectResultEvent(
+                failedRestoreCapture, false, null)).isEmpty());
+
+        Effect retryRestoreCapture = only(reducer.reduce(
+                new TickEvent(context(2L, swapped()), false)));
+        AutoToolSwapIntent restore = captureAndSubmit(reducer, retryRestoreCapture,
+                context(2L, swapped()));
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
+        settle(reducer, restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        Effect close = only(reducer.reduce(new TickEvent(context(3L, restored()), false)));
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, close.intent().action());
+        submit(reducer, close);
+        settle(reducer, close.intent(), AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FINISHED);
+
+        Assert.assertEquals(0L, reducer.serverRoundId());
+        Effect nextRound = only(reducer.reduce(new KeyStateEvent(true, context(4L, restored()))));
+        Assert.assertEquals(Effect.Type.BEGIN_ROUND, nextRound.type());
+        Assert.assertEquals(43L, nextRound.clientNonce());
+
+        AutoToolSwapClientReducer nullRise = reducer(44L);
+        Assert.assertTrue(nullRise.reduce(new KeyStateEvent(true, null)).isEmpty());
+        Assert.assertFalse(nullRise.isKeyDown());
+        Assert.assertEquals(0L, nullRise.serverRoundId());
+
+        AutoToolSwapClientReducer lifecycle = completedSwap(45L, 145L);
+        lifecycle.reduce(new ResetEvent());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, lifecycle.state());
+        Assert.assertFalse(lifecycle.isKeyDown());
+        Assert.assertEquals(0L, lifecycle.serverRoundId());
+        Assert.assertFalse(lifecycle.hasSwapExpectation());
+    }
+
+    @Test
+    public void nullReleaseOverridesNaturalRearmAndClosesRoundWithoutLedger() {
+        AutoToolSwapClientReducer reducer = openWithoutCandidate(46L, 146L);
+        reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 146L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 1L, true));
+
+        Effect close = only(reducer.reduce(new KeyStateEvent(false, null)));
+
+        Assert.assertFalse(reducer.isKeyDown());
+        Assert.assertEquals(146L, reducer.serverRoundId());
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, close.intent().action());
+        submit(reducer, close);
+        settle(reducer, close.intent(), AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FINISHED);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, reducer.state());
+        Assert.assertTrue(reducer.reduce(new TickEvent(context(2L, noCandidate()), true)).isEmpty());
+    }
+
+    @Test
     public void guiAndReanchorRestoreWithinRoundWhileRejectOrThirdLayoutAbandonsSafely() {
         AutoToolSwapClientReducer gui = completedSwap(51L, 111L);
         Effect guiCapture = only(gui.reduce(new TickEvent(context(3L, true, swapped()), true)));
