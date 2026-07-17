@@ -730,7 +730,8 @@ public class AutoToolSwapRoundServiceTest {
 
     @Test
     public void exactStopDoesNotAffectMismatchedEndpointOrGateAndRejectsLateIntent() {
-        Fixture fixture = takeoverFixture();
+        final List<String> logs = new ArrayList<String>();
+        Fixture fixture = takeoverFixture(recordingService(logs));
         AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
                 fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
         AutoToolSwapTakeoverRequest otherGate = new AutoToolSwapTakeoverRequest(
@@ -745,10 +746,21 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
                 fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
 
+        logs.clear();
         resetInventoryCounters(fixture.inventory);
+        AutoToolSwapIntent intent = takeoverIntent(fixture, request);
         AutoToolSwapRoundResult rejected = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                takeoverIntent(fixture, request), fixture.inventory, 11L);
+                intent, fixture.inventory, 11L);
         Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
+        assertTakeoverGateDiagnostic(logs, AutoToolSwapAction.TAKEOVER);
+        assertZeroTakeoverInventoryAccess(fixture.inventory);
+        long nextSequence = rejected.nextActionSequence();
+
+        Assert.assertEquals(rejected, fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent, fixture.inventory, 12L));
+        Assert.assertEquals("STOP 后重放不得二次推进 sequence", nextSequence,
+                fixture.service.snapshot(fixture.player).nextActionSequence());
+        Assert.assertEquals("STOP 后重放不得重复诊断", 1, logs.size());
         assertZeroTakeoverInventoryAccess(fixture.inventory);
     }
 
@@ -815,16 +827,19 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     private static void assertLateTakeoverActionRejected(AutoToolSwapAction action, long serverTick) {
-        Fixture fixture = takeoverFixture();
+        final List<String> logs = new ArrayList<String>();
+        Fixture fixture = takeoverFixture(recordingService(logs));
         AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
                 fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
         AutoToolSwapIntent intent = action == AutoToolSwapAction.TAKEOVER
                 ? takeoverIntent(fixture, request) : declineIntent(fixture, request);
+        logs.clear();
         resetInventoryCounters(fixture.inventory);
 
         AutoToolSwapRoundResult rejected = fixture.service.handleIntent(fixture.player, fixture.endpoint,
                 intent, fixture.inventory, serverTick);
         Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
+        assertTakeoverGateDiagnostic(logs, action);
         Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
                 fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, serverTick));
         assertZeroTakeoverInventoryAccess(fixture.inventory);
@@ -834,7 +849,22 @@ public class AutoToolSwapRoundServiceTest {
                 fixture.service.handleIntent(fixture.player, fixture.endpoint, intent,
                         fixture.inventory, serverTick + 1L));
         Assert.assertEquals(nextSequence, fixture.service.snapshot(fixture.player).nextActionSequence());
+        Assert.assertEquals("重复迟到 intent 不得重复诊断", 1, logs.size());
         assertZeroTakeoverInventoryAccess(fixture.inventory);
+    }
+
+    private static void assertTakeoverGateDiagnostic(List<String> logs, AutoToolSwapAction action) {
+        Assert.assertEquals("接替前置门首次结算只能输出一条 action", 1, logs.size());
+        String log = logs.get(0);
+        Assert.assertTrue(log.contains("action=" + action));
+        Assert.assertTrue(log.contains("stateBefore=FROZEN"));
+        Assert.assertTrue(log.contains("stateAfter=FROZEN"));
+        Assert.assertTrue(log.contains("outcome=REJECTED"));
+        Assert.assertTrue(log.contains("reason=takeover-gate"));
+        Assert.assertTrue(log.contains("before={selected=-1,anchor=[unavailable],candidate=[unavailable],"
+                + "currentItem=[unavailable]}"));
+        Assert.assertTrue(log.contains("after={selected=-1,anchor=[unavailable],candidate=[unavailable],"
+                + "currentItem=[unavailable]}"));
     }
 
     private static void assertTakeoverReason(TakeoverReasonCase reasonCase, String expectedReason,
@@ -902,11 +932,24 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     private static Fixture takeoverFixture() {
-        Fixture fixture = fixture();
+        return takeoverFixture(new AutoToolSwapRoundService(0L));
+    }
+
+    private static Fixture takeoverFixture(AutoToolSwapRoundService service) {
+        Fixture fixture = fixture(service);
         fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
         fixture.inventory.slots[0] = stack("mod:pickaxe", "low", 1);
         fixture.inventory.slots[7] = stack("mod:drill2", "fresh", 80);
         return fixture;
+    }
+
+    private static AutoToolSwapRoundService recordingService(final List<String> logs) {
+        return new AutoToolSwapRoundService(0L, new AutoToolSwapRoundService.DiagnosticSink() {
+            @Override
+            public void log(String message) {
+                logs.add(message);
+            }
+        });
     }
 
     private static AutoToolSwapIntent takeoverIntent(Fixture fixture, AutoToolSwapTakeoverRequest request) {

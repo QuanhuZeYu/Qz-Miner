@@ -292,7 +292,11 @@ public final class AutoToolSwapRoundService {
             return cacheWithoutAdvance(record, intent, AutoToolSwapResultCode.REJECTED, serverTick);
         }
         if (takeoverAction && !isTakeoverAttemptOpen(record, intent, serverTick)) {
+            AutoToolSwapRoundState stateBefore = record.state;
             stopPendingTakeover(record);
+            InventoryDiagnosticSnapshot unavailable = InventoryDiagnosticSnapshot.unavailable();
+            logActionDiagnostic(playerId, record, intent, AutoToolSwapResultCode.REJECTED,
+                    REASON_TAKEOVER_GATE, stateBefore, unavailable, unavailable);
             return cacheAndAdvance(record, intent, AutoToolSwapResultCode.REJECTED, serverTick);
         }
 
