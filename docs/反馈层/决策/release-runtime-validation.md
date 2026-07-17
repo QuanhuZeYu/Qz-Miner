@@ -34,8 +34,18 @@
 
 ## 5.0.21 热修风险接受
 
-`5.0.20` 的真实单人日志已确认 EndlessIDs 合法 16-bit `metadata=24902` 被旧上限拒绝，以及 TAKEOVER 在服务端 pending/current anchor 已 exact 后仍受冗余客户端 anchor echo 门影响。`5.0.21` 候选据此将 metadata 域放宽至 `0..0xFFFF`，仅移除该冗余门，并保留其余服务端新鲜度、候选、账本与库存安全门；同时补充 action/gate 单次固定 reason 诊断。
+`5.0.20` 的真实单人日志已确认 EndlessIDs 合法 16-bit `metadata=24902` 被旧上限拒绝，以及 TAKEOVER 在服务端 pending/current anchor 已 exact 后仍受冗余客户端 anchor echo 门影响。`5.0.21` 据此将 metadata 域放宽至 `0..0xFFFF`，仅移除该冗余门，并保留其余服务端新鲜度、候选、账本与库存安全门；同时补充 action/gate 单次固定 reason 诊断。该热修现已正式发布。
 
-候选的目标与全量 Gradle 验证、文档门禁及完整终审均已通过，终审无 P0/P1；但修复后的真实 EndlessIDs 与连续 TAKEOVER 运行态仍为 **INCOMPLETE**，自动化与终审成功不等于实机通过。用户在知悉 `5.0.20` 仍失败及候选验证边界后，明确授权直接发布 `5.0.21`；该风险接受仅适用于本次热修，不自动由后续版本继承。
+最终 feature CI [`29575171376`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29575171376) 与 `5.0重构` merge commit `b264aceb0d3180e80bb67ffc64b6f0dd057c1f4a` 的 CI [`29575675895`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29575675895) 均在 attempt 1 全绿。Annotated tag `5.0.21` 的 tag object 为 `4e4ddae524c4fd9a68b235ca148e90f65dacd3e5`，peeled commit 固定为 `b264ace`。Tag workflow [`29576125249`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29576125249) attempt 1 的核心 setup、assemble 与 GitHub Release 成功，Maven skipped；Modrinth/CurseForge 步骤虽为 success，但发布配置为空且无实际外部发布证据，不能宣称已发布到这两个平台。
 
-发布前仍须完成最终 feature commit、`5.0重构` merge commit 与 `5.0.21` tag 三段 CI，并在 Release 后核验主包、dev 包、sources 包三项资产。发布盯梢交由后续子 agent 执行；当前尚未 merge、push、tag 或创建 Release。`5.0.19`/`5.0.20` 既有 tag 与 Release 必须保持固定，`5.0.21` 只能创建新 tag。
+公开 GitHub Release 为 <https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.0.21>，非 draft/prerelease，正文与 `.changelogs/5.0.21.md` 一致。资产核验如下：
+
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.0.21.jar` | 749342 | `42d49aad1993fecc6cdf5810c1198af795039a3edd8a1aa2f9dac902f644b735` |
+| `qz_miner-5.0.21-dev.jar` | 743983 | `a011788769210213ab37a6ff558964c541168a656300a99197a2057fb254812d` |
+| `qz_miner-5.0.21-sources.jar` | 430827 | `36cac92ae746e2aa39d55ee640af3cc2ce52285bdbe55ed28c4843395d9fb6cd` |
+
+修复后的真实 EndlessIDs 与连续 TAKEOVER 运行态仍为 **INCOMPLETE**；自动化、终审、CI 与发布成功均不等于实机通过。用户在知悉验证边界后授权本次发布，该风险接受仅适用于 `5.0.21`，不自动由后续版本继承。后续玩家只需提供“问题描述 + 对应日志”，维护者负责分析并按需最小补强，不把人工测试负担转交玩家。
+
+`5.0.19`、`5.0.20` 与 `5.0.21` 的 tag/Release 均为不可移动发布事实；`5.0.21` tag 固定在 `b264ace`，本次发布后的文档提交不属于发布制品 SHA，也不得移动任何既有 tag。
