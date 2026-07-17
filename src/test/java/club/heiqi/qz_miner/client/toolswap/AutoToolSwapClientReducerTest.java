@@ -19,6 +19,7 @@ import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.ResetEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundPhaseEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundResultEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TickEvent;
+import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TakeoverRequestEvent;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
 import club.heiqi.qz_miner.toolswap.ToolSelector;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
@@ -354,6 +355,88 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void silentCycleAndSelectionDecisionsAreDiagnosedWithoutChangingEffectsOrState() {
+        List<String> disabledDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer disabled = diagnosticReducer(false, true, 301L, disabledDiagnostics);
+        for (int cycle = 0; cycle < 70; cycle++) {
+            Assert.assertTrue(disabled.reduce(new KeyStateEvent(true,
+                    context(cycle, noCandidate()))).isEmpty());
+            Assert.assertEquals(AutoToolSwapClientReducer.State.WAIT_RELEASE, disabled.state());
+            Assert.assertTrue(disabled.reduce(new KeyStateEvent(false,
+                    context(cycle, noCandidate()))).isEmpty());
+            Assert.assertEquals(AutoToolSwapClientReducer.State.IDLE, disabled.state());
+        }
+        Assert.assertEquals("每个新 cycle 必须恢复诊断预算", 70,
+                diagnosticCount(disabledDiagnostics, "cycle-disabled"));
+
+        List<String> ineligibleDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer ineligible = diagnosticReducer(true, true, 302L, ineligibleDiagnostics);
+        ToolSwapContext creative = new ToolSwapContext(0L, true, true, false, false,
+                true, 0, noCandidate(), target(1, 0));
+        Assert.assertTrue(ineligible.reduce(new KeyStateEvent(true, creative)).isEmpty());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.WAIT_RELEASE, ineligible.state());
+        Assert.assertTrue(containsDiagnosticReason(ineligibleDiagnostics, "cycle-ineligible"));
+
+        List<String> heldDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer held = diagnosticReducer(true, true, 303L, heldDiagnostics);
+        Effect heldRound = only(held.reduce(new KeyStateEvent(true, context(0L, swapped()))));
+        submit(held, heldRound);
+        acceptRound(held, 303L, 403L, 1L);
+        Assert.assertTrue(held.reduce(new TickEvent(context(0L, swapped()), true)).isEmpty());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.PREPARING, held.state());
+        Assert.assertTrue(containsDiagnosticReason(heldDiagnostics, "held-usable"));
+
+        List<String> noCandidateDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer noCandidate = diagnosticReducer(true, true, 304L, noCandidateDiagnostics);
+        Effect emptyRound = only(noCandidate.reduce(new KeyStateEvent(true, context(0L, noCandidate()))));
+        submit(noCandidate, emptyRound);
+        acceptRound(noCandidate, 304L, 404L, 1L);
+        Assert.assertTrue(noCandidate.reduce(new TickEvent(context(0L, noCandidate()), true)).isEmpty());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.PREPARING, noCandidate.state());
+        Assert.assertTrue(containsDiagnosticReason(noCandidateDiagnostics, "no-candidate"));
+    }
+
+    @Test
+    public void takeoverDeclineAndIgnoredReasonsAreBoundedAndKeepProtocolEffects() {
+        List<String> disabledDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer disabled = frozenForTakeover(311L, 411L, false, disabledDiagnostics);
+        submitTakeoverRequest(disabled, 411L, 2L, 4);
+        List<Effect> disabledDeclines = disabled.reduce(new TickEvent(context(2L, noCandidate()), true));
+        Assert.assertEquals("保持既有 prepare+drive effect 结果", 2, disabledDeclines.size());
+        for (Effect disabledDecline : disabledDeclines) {
+            Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, disabledDecline.intent().action());
+        }
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, disabled.state());
+        Assert.assertTrue(containsDiagnosticReason(disabledDiagnostics, "takeover-disabled"));
+
+        List<String> unsafeDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer unsafe = frozenForTakeover(312L, 412L, true, unsafeDiagnostics);
+        submitTakeoverRequest(unsafe, 412L, 2L, 4);
+        ToolSwapContext unsafeContext = new ToolSwapContext(2L, true, false, false, false,
+                true, 0, noCandidate(), target(1, 0));
+        Effect unsafeDecline = only(unsafe.reduce(new TickEvent(unsafeContext, true)));
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, unsafeDecline.intent().action());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, unsafe.state());
+        Assert.assertTrue(containsDiagnosticReason(unsafeDiagnostics, "takeover-inventory-unsafe"));
+
+        List<String> emptyDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer empty = frozenForTakeover(313L, 413L, true, emptyDiagnostics);
+        submitTakeoverRequest(empty, 413L, 2L, 4);
+        Effect emptyDecline = only(empty.reduce(new TickEvent(context(2L, noCandidate()), true)));
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, emptyDecline.intent().action());
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, empty.state());
+        Assert.assertTrue(containsDiagnosticReason(emptyDiagnostics, "takeover-no-candidate"));
+
+        List<String> ignoredDiagnostics = new ArrayList<String>();
+        AutoToolSwapClientReducer ignored = frozenForTakeover(314L, 414L, true, ignoredDiagnostics);
+        submitTakeoverRequest(ignored, 999L, 2L, 4);
+        submitTakeoverRequest(ignored, 998L, 2L, 4);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, ignored.state());
+        Assert.assertEquals("同 cycle 同类忽略只记录一次", 1,
+                diagnosticCount(ignoredDiagnostics, "takeover-request-ignored"));
+    }
+
+    @Test
     public void changedTargetRestoresOldLedgerBeforeMatchingLatestTarget() {
         AutoToolSwapClientReducer reducer = completedSwap(111L, 211L);
 
@@ -564,12 +647,41 @@ public class AutoToolSwapClientReducerTest {
 
     private static AutoToolSwapClientReducer diagnosticReducer(final long nonce,
             final List<String> diagnostics) {
-        return new AutoToolSwapClientReducer(true, Collections.emptyList(),
+        return diagnosticReducer(true, true, nonce, diagnostics);
+    }
+
+    private static AutoToolSwapClientReducer diagnosticReducer(boolean enabled, boolean takeoverEnabled,
+            final long nonce, final List<String> diagnostics) {
+        return new AutoToolSwapClientReducer(enabled, takeoverEnabled, Collections.emptyList(),
                 new AutoToolSwapClientReducer.NonceAllocator() {
                     @Override public long allocate() { return nonce; }
                 }, new AutoToolSwapClientReducer.DiagnosticSink() {
                     @Override public void log(String message) { diagnostics.add(message); }
                 });
+    }
+
+    private static AutoToolSwapClientReducer frozenForTakeover(long nonce, long roundId,
+            boolean takeoverEnabled, List<String> diagnostics) {
+        AutoToolSwapClientReducer reducer = diagnosticReducer(true, takeoverEnabled, nonce, diagnostics);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, noCandidate()))));
+        submit(reducer, round);
+        acceptRound(reducer, nonce, roundId, 1L);
+        reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId, 1L,
+                ChainPhase.RUNNING.ordinal(), 4, 1L, true));
+        Effect freezeEffect = only(reducer.reduce(new TickEvent(context(1L, noCandidate()), true)));
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freezeEffect.intent().action());
+        submit(reducer, freezeEffect);
+        settle(reducer, freezeEffect.intent(), AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FROZEN);
+        Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, reducer.state());
+        return reducer;
+    }
+
+    private static void submitTakeoverRequest(AutoToolSwapClientReducer reducer, long roundId,
+            long actionSequence, int generation) {
+        Assert.assertTrue(reducer.reduce(new TakeoverRequestEvent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                roundId, actionSequence, generation, 10, 64, 20, 42, 7,
+                2L, 10L, true)).isEmpty());
     }
 
     private static String diagnosticWithReason(List<String> diagnostics, String reason) {
@@ -585,6 +697,14 @@ public class AutoToolSwapClientReducerTest {
             if (diagnostic.contains("reason=" + reason + " ")) return true;
         }
         return false;
+    }
+
+    private static int diagnosticCount(List<String> diagnostics, String reason) {
+        int count = 0;
+        for (String diagnostic : diagnostics) {
+            if (diagnostic.contains("reason=" + reason + " ")) count++;
+        }
+        return count;
     }
 
     private static void assertActivePhasesDoNotDriveAnotherIntent(AutoToolSwapClientReducer reducer,

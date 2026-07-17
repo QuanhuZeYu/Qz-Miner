@@ -703,9 +703,15 @@ public final class AutoToolSwapClientReducer {
                 || round.chainGeneration != request.generation()
                 || round.lastPhase == null || round.lastPhase == ChainPhase.IDLE
                 || round.inFlight != null || transmission != null || takeoverExpectation != null) {
+            diagnose(DiagnosticClass.TAKEOVER_REQUEST_IGNORED, DiagnosticReason.TAKEOVER_REQUEST_IGNORED,
+                    lastContext, "takeover-request", event.serverRoundId, event.actionSequence,
+                    Integer.toString(event.generation));
             return noEffects();
         }
         if (pendingTakeoverRequest != null) {
+            diagnose(DiagnosticClass.TAKEOVER_REQUEST_IGNORED, DiagnosticReason.TAKEOVER_REQUEST_IGNORED,
+                    lastContext, "takeover-request-duplicate", event.serverRoundId, event.actionSequence,
+                    Integer.toString(event.generation));
             return pendingTakeoverRequest.sameGate(request) ? noEffects() : noEffects();
         }
         pendingTakeoverRequest = request;
@@ -763,6 +769,7 @@ public final class AutoToolSwapClientReducer {
     private List<Effect> startCycle(ToolSwapContext context, boolean preFrozen, boolean freshKeyAfterSubmit) {
         deferredRoundPending = false;
         emittedDiagnosticClasses.clear();
+        diagnosticMessageCount = 0;
         generation = incrementGeneration(generation);
         cycleEnabled = configuredEnabled;
         cycleTakeoverEnabled = configuredTakeoverEnabled;
@@ -785,6 +792,9 @@ public final class AutoToolSwapClientReducer {
         targetRematchPending = context.targetIdentity.isPresent();
         targetRestoreRequested = false;
         if (!cycleEnabled || !context.breakCapable || context.creative || !context.chainActive) {
+            diagnose(!cycleEnabled ? DiagnosticClass.CYCLE_DISABLED : DiagnosticClass.CYCLE_INELIGIBLE,
+                    !cycleEnabled ? DiagnosticReason.CYCLE_DISABLED : DiagnosticReason.CYCLE_INELIGIBLE,
+                    context);
             state = State.WAIT_RELEASE;
             resetCycleFlags();
             return noEffects();
@@ -904,7 +914,10 @@ public final class AutoToolSwapClientReducer {
         matchedTarget = context.targetIdentity;
         targetRematchPending = false;
         ToolCandidate held = context.inventory.candidateAt(anchorSlot);
-        if (held != null && held.isUsableInHand()) return;
+        if (held != null && held.isUsableInHand()) {
+            diagnose(DiagnosticClass.HELD_USABLE, DiagnosticReason.HELD_USABLE, context);
+            return;
+        }
         for (ToolCandidate candidate : ToolCandidateOrder.sort(context.inventory.candidates(), cycleSelectors)) {
             if (candidate.slot() == anchorSlot) continue;
             SlotSnapshot anchor = context.inventory.slot(anchorSlot);
@@ -916,19 +929,29 @@ public final class AutoToolSwapClientReducer {
                 return;
             }
         }
+        diagnose(DiagnosticClass.NO_CANDIDATE, DiagnosticReason.NO_CANDIDATE, context);
     }
 
     /** 使用服务端目标完成 FULL_TARGET 采样并形成 TAKEOVER/DECLINE。 */
     private List<Effect> prepareTakeoverDecision(ToolSwapContext context) {
         AutoToolSwapTakeoverRequest request = pendingTakeoverRequest;
         if (request == null || round == null || round.inFlight != null || transmission != null) return noEffects();
-        if (!cycleTakeoverEnabled || context == null || !context.inventoryTransactionSafe
-                || !context.inventory.isFullCandidateScan()) {
+        if (!cycleTakeoverEnabled) {
+            diagnose(DiagnosticClass.TAKEOVER_DISABLED, DiagnosticReason.TAKEOVER_DISABLED, context);
+            return oneEffect(intentEffect(declineIntent(request), false));
+        }
+        if (context == null || !context.inventoryTransactionSafe || !context.inventory.isFullCandidateScan()) {
+            diagnose(DiagnosticClass.TAKEOVER_INVENTORY_UNSAFE,
+                    DiagnosticReason.TAKEOVER_INVENTORY_UNSAFE, context);
             return oneEffect(intentEffect(declineIntent(request), false));
         }
         int oldCandidate = swapExpectation == null ? -1 : swapExpectation.candidateSlot;
         SlotSnapshot anchor = context.inventory.slot(anchorSlot);
-        if (anchor == null) return oneEffect(intentEffect(declineIntent(request), false));
+        if (anchor == null) {
+            diagnose(DiagnosticClass.TAKEOVER_INVENTORY_UNSAFE,
+                    DiagnosticReason.TAKEOVER_INVENTORY_UNSAFE, context);
+            return oneEffect(intentEffect(declineIntent(request), false));
+        }
         for (ToolCandidate candidate : ToolCandidateOrder.sort(context.inventory.candidates(), cycleSelectors)) {
             if (candidate.slot() == anchorSlot || candidate.slot() == oldCandidate
                     || !candidate.isUsableInHand()) continue;
@@ -943,6 +966,7 @@ public final class AutoToolSwapClientReducer {
             pendingAction = AutoToolSwapAction.TAKEOVER;
             return oneEffect(intentEffect(intent, false));
         }
+        diagnose(DiagnosticClass.TAKEOVER_NO_CANDIDATE, DiagnosticReason.TAKEOVER_NO_CANDIDATE, context);
         return oneEffect(intentEffect(declineIntent(request), false));
     }
 
@@ -958,6 +982,11 @@ public final class AutoToolSwapClientReducer {
         if (round == null || !round.accepted || transmission != null || round.inFlight != null) return noEffects();
         if (pendingTakeoverRequest != null && (closeRequested || !cycleTakeoverEnabled)
                 && takeoverExpectation == null) {
+            diagnose(!cycleTakeoverEnabled ? DiagnosticClass.TAKEOVER_DISABLED
+                            : DiagnosticClass.TAKEOVER_REQUEST_IGNORED,
+                    !cycleTakeoverEnabled ? DiagnosticReason.TAKEOVER_DISABLED
+                            : DiagnosticReason.TAKEOVER_REQUEST_IGNORED,
+                    lastContext);
             return oneEffect(intentEffect(declineIntent(pendingTakeoverRequest), false));
         }
         if (closeRequested) {
@@ -1557,6 +1586,11 @@ public final class AutoToolSwapClientReducer {
         ToolSwapContext captured = context == null ? lastContext : context;
         int selected = captured == null ? -1 : captured.selectedHotbarSlot;
         boolean guiOpen = captured != null && captured.guiOpen;
+        boolean breakCapable = captured != null && captured.breakCapable;
+        boolean creative = captured != null && captured.creative;
+        boolean chainActive = captured != null && captured.chainActive;
+        boolean inventoryTransactionSafe = captured != null && captured.inventoryTransactionSafe;
+        boolean fullCandidateScan = captured != null && captured.inventory.isFullCandidateScan();
         long nonce = round == null ? 0L : round.clientNonce;
         long roundId = round == null ? 0L : round.serverRoundId;
         String phase = round == null || round.lastPhase == null ? "none" : round.lastPhase.name();
@@ -1578,6 +1612,11 @@ public final class AutoToolSwapClientReducer {
                 + " selectedHotbarSlot=" + selected
                 + " pendingAnchor=" + (pendingAnchor == null ? -1 : pendingAnchor.intValue())
                 + " guiOpen=" + guiOpen
+                + " breakCapable=" + breakCapable
+                + " creative=" + creative
+                + " chainActive=" + chainActive
+                + " inventoryTransactionSafe=" + inventoryTransactionSafe
+                + " fullCandidateScan=" + fullCandidateScan
                 + " round.phase=" + phase
                 + " round.serverState=" + serverState
                 + " round.lastPhaseSequence=" + phaseSequence
@@ -1674,6 +1713,14 @@ public final class AutoToolSwapClientReducer {
         RELEASE("release"),
         NATURAL_IDLE("natural-idle"),
         CONFIG_DISABLED("config-disabled"),
+        CYCLE_DISABLED("cycle-disabled"),
+        CYCLE_INELIGIBLE("cycle-ineligible"),
+        HELD_USABLE("held-usable"),
+        NO_CANDIDATE("no-candidate"),
+        TAKEOVER_DISABLED("takeover-disabled"),
+        TAKEOVER_INVENTORY_UNSAFE("takeover-inventory-unsafe"),
+        TAKEOVER_NO_CANDIDATE("takeover-no-candidate"),
+        TAKEOVER_REQUEST_IGNORED("takeover-request-ignored"),
         TARGET_CHANGED("target-changed"),
         PROTOCOL_ORPHAN("protocol-orphan"),
         ROUND_PHASE("round-phase"),
@@ -1693,6 +1740,14 @@ public final class AutoToolSwapClientReducer {
     private enum DiagnosticClass {
         ADVANCE_GUI,
         ADVANCE_REANCHOR,
+        CYCLE_DISABLED,
+        CYCLE_INELIGIBLE,
+        HELD_USABLE,
+        NO_CANDIDATE,
+        TAKEOVER_DISABLED,
+        TAKEOVER_INVENTORY_UNSAFE,
+        TAKEOVER_NO_CANDIDATE,
+        TAKEOVER_REQUEST_IGNORED,
         REQUEST_CLOSE_RELEASE,
         REQUEST_CLOSE_NATURAL_IDLE,
         REQUEST_CLOSE_CONFIG_DISABLED,

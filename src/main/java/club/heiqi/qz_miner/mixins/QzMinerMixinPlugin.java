@@ -2,11 +2,14 @@ package club.heiqi.qz_miner.mixins;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.launchwrapper.Launch;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.spongepowered.asm.lib.tree.ClassNode;
 import org.spongepowered.asm.lib.tree.FieldInsnNode;
 import org.spongepowered.asm.lib.tree.AbstractInsnNode;
@@ -23,7 +26,10 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
  */
 public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
+    private static final Logger LOGGER = LogManager.getLogger("qz_miner");
     private static final Map<String, TargetCapability> OPTIONAL_MIXIN_TARGETS = createOptionalMixinTargets();
+    private static final Set<String> LOGGED_OPTIONAL_MIXINS =
+            Collections.synchronizedSet(new HashSet<String>());
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -37,7 +43,12 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         TargetCapability capability = OPTIONAL_MIXIN_TARGETS.get(mixinClassName);
-        return capability == null || hasMethod(capability);
+        if (capability == null) return true;
+        CapabilityDecision decision = inspectCapability(capability, QzMinerMixinPlugin::getClassBytes);
+        if (LOGGED_OPTIONAL_MIXINS.add(mixinClassName)) {
+            LOGGER.info(decisionLogMessage(mixinClassName, capability, decision));
+        }
+        return decision.apply();
     }
 
     @Override
@@ -72,23 +83,39 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
     /** 按字节码方法表判断能力，不加载或初始化目标类。 */
     private static boolean hasMethod(TargetCapability capability) {
-        return hasMethod(capability, QzMinerMixinPlugin::getClassBytes);
+        return inspectCapability(capability, QzMinerMixinPlugin::getClassBytes).apply();
     }
 
     static boolean hasMethod(TargetCapability capability, ClassBytesProvider provider) {
+        return inspectCapability(capability, provider).apply();
+    }
+
+    /** 只读取目标字节码，返回不触发目标类加载的纯能力决策。 */
+    static CapabilityDecision inspectCapability(TargetCapability capability, ClassBytesProvider provider) {
         byte[] bytes = provider.getClassBytes(capability.className);
-        if (bytes == null) return false;
+        if (bytes == null) return CapabilityDecision.skip(DecisionReason.TARGET_BYTES_MISSING);
         try {
             ClassNode node = new ClassNode();
             new ClassReader(bytes).accept(node, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
             for (MethodNode method : node.methods) {
                 if (!capability.methodName.equals(method.name) || !capability.descriptor.equals(method.desc)) continue;
-                return hasRequiredField(node, capability) && hasFortuneClamp(method, capability.fortuneLocal);
+                return hasRequiredField(node, capability) && hasFortuneClamp(method, capability.fortuneLocal)
+                        ? CapabilityDecision.apply(DecisionReason.CAPABILITY_PRESENT)
+                        : CapabilityDecision.skip(DecisionReason.METHOD_OR_SHAPE_MISMATCH);
             }
         } catch (RuntimeException | LinkageError ignored) {
-            return false;
+            return CapabilityDecision.skip(DecisionReason.INSPECTION_FAILED);
         }
-        return false;
+        return CapabilityDecision.skip(DecisionReason.METHOD_OR_SHAPE_MISMATCH);
+    }
+
+    /** 构造固定字段的启动期 fortune 能力门日志。 */
+    static String decisionLogMessage(String mixinClassName, TargetCapability capability,
+            CapabilityDecision decision) {
+        return "[Compat][Fortune] mixin=" + mixinClassName
+                + " target=" + capability.className
+                + " apply=" + decision.apply()
+                + " reason=" + decision.reason();
     }
 
     private static boolean hasRequiredField(ClassNode node, TargetCapability capability) {
@@ -157,6 +184,47 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
 
     interface ClassBytesProvider {
         byte[] getClassBytes(String className);
+    }
+
+    /** 不可变的可选 Mixin 能力门决策。 */
+    static final class CapabilityDecision {
+        private final boolean apply;
+        private final DecisionReason reason;
+
+        private CapabilityDecision(boolean apply, DecisionReason reason) {
+            this.apply = apply;
+            this.reason = reason;
+        }
+
+        private static CapabilityDecision apply(DecisionReason reason) {
+            return new CapabilityDecision(true, reason);
+        }
+
+        private static CapabilityDecision skip(DecisionReason reason) {
+            return new CapabilityDecision(false, reason);
+        }
+
+        boolean apply() {
+            return apply;
+        }
+
+        String reason() {
+            return reason.wireName;
+        }
+    }
+
+    /** 能力门的固定诊断原因。 */
+    private enum DecisionReason {
+        CAPABILITY_PRESENT("capability-present"),
+        TARGET_BYTES_MISSING("target-bytes-missing"),
+        METHOD_OR_SHAPE_MISMATCH("method-or-shape-mismatch"),
+        INSPECTION_FAILED("inspection-failed");
+
+        private final String wireName;
+
+        DecisionReason(String wireName) {
+            this.wireName = wireName;
+        }
     }
 
     static final class TargetCapability {

@@ -125,6 +125,8 @@ public class ClientProxy extends CommonProxy {
                 HudAnchor.TOP_LEFT,
                 new QzMinerHudSnapshotProvider(MyMod.chainStateService.getClientState(), clientPhaseProjection));
         new KeyListener(autoToolSwapAdapter).register();
+        MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
+                + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,compact-hud,key-listener");
     }
 
     /**

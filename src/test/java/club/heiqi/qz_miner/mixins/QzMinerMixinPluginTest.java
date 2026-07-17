@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.mixins;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -80,6 +81,43 @@ public class QzMinerMixinPluginTest {
         assertTrue(QzMinerMixinPlugin.hasMethod(capability, ignored -> adapterFixture(true, true)));
         assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> adapterFixture(false, true)));
         assertFalse(QzMinerMixinPlugin.hasMethod(capability, ignored -> adapterFixture(true, false)));
+    }
+
+    /** 能力门只消费目标字节码，并为 apply/skip 给出固定原因。 */
+    @Test
+    public void capabilityDecisionUsesBytesWithoutLoadingTargetClassAndExplainsResult() {
+        QzMinerMixinPlugin.TargetCapability capability = QzMinerMixinPlugin.capability(
+                "missing.optional.Target", "getDrops", "(I)Ljava/util/ArrayList;",
+                null, null, null, 1);
+        final String[] requestedClass = new String[1];
+
+        QzMinerMixinPlugin.CapabilityDecision present = QzMinerMixinPlugin.inspectCapability(
+                capability, className -> {
+                    requestedClass[0] = className;
+                    return fortuneFixture(true, true, 1);
+                });
+        assertTrue(present.apply());
+        assertEquals("capability-present", present.reason());
+        assertEquals("missing.optional.Target", requestedClass[0]);
+        assertEquals(
+                "[Compat][Fortune] mixin=test.Mixin target=missing.optional.Target "
+                        + "apply=true reason=capability-present",
+                QzMinerMixinPlugin.decisionLogMessage("test.Mixin", capability, present));
+
+        QzMinerMixinPlugin.CapabilityDecision missing = QzMinerMixinPlugin.inspectCapability(
+                capability, className -> null);
+        assertFalse(missing.apply());
+        assertEquals("target-bytes-missing", missing.reason());
+
+        QzMinerMixinPlugin.CapabilityDecision mismatch = QzMinerMixinPlugin.inspectCapability(
+                capability, className -> fortuneFixture(true, false, 1));
+        assertFalse(mismatch.apply());
+        assertEquals("method-or-shape-mismatch", mismatch.reason());
+
+        QzMinerMixinPlugin.CapabilityDecision failed = QzMinerMixinPlugin.inspectCapability(
+                capability, className -> new byte[] {0});
+        assertFalse(failed.apply());
+        assertEquals("inspection-failed", failed.reason());
     }
 
     /** 2.9 FIELD 修改 handler 必须消费并返回 boolean，避免 Object redirect 描述符漂移。 */

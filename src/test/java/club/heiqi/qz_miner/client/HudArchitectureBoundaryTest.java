@@ -60,6 +60,21 @@ public class HudArchitectureBoundaryTest {
     }
 
     @Test
+    public void clientInitReadyMarkerFollowsEveryUiLibIntegrationRegistration() throws Exception {
+        String proxy = read(new File("src/main/java/club/heiqi/qz_miner/ClientProxy.java"));
+        int marker = proxy.indexOf("[ClientInit] stage=uilib-integrations-ready");
+
+        Assert.assertTrue("ClientInit marker must exist", marker >= 0);
+        Assert.assertTrue(marker > proxy.indexOf("AutoToolSwapHooks.install(autoToolSwapAdapter)"));
+        Assert.assertTrue(marker > proxy.indexOf("chainPreviewController.register()"));
+        Assert.assertTrue(marker > proxy.indexOf("chainPreviewRenderer.register()"));
+        Assert.assertTrue(marker > proxy.indexOf("new ClientConnectionListener().register()"));
+        Assert.assertTrue(marker > proxy.indexOf("new ClientConfigChangeListener().register()"));
+        Assert.assertTrue(marker > proxy.indexOf("CompactHud.register("));
+        Assert.assertTrue(marker > proxy.indexOf("new KeyListener(autoToolSwapAdapter).register()"));
+    }
+
+    @Test
     public void classFileSectionStyleCheckOnlyInspectsUtf8Constants() throws Exception {
         assertClassBytesContainNoSectionStyle(classFileWithUtf8("safe", new byte[] { (byte) 0xc2, (byte) 0xa7 }));
         assertClassBytesContainNoSectionStyle(classFileWithLongAndDoubleConstants());
