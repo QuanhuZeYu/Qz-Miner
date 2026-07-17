@@ -22,7 +22,7 @@ public final class AutoToolSwapTakeoverRequest {
         if (protocolVersion != AutoToolSwapProtocol.PROTOCOL_VERSION
                 || serverRoundId == AutoToolSwapProtocol.NO_SERVER_ROUND_ID
                 || actionSequence < AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE || generation < 0
-                || targetY < 0 || targetY > 255 || targetBlockId < 0
+                || targetY < 0 || targetY > 255 || targetBlockId <= 0
                 || targetBlockId > AutoToolSwapProtocol.MAX_BLOCK_ID || targetBlockMetadata < 0
                 || targetBlockMetadata > AutoToolSwapProtocol.MAX_BLOCK_METADATA || serverTick < 0L
                 || deadlineTick <= serverTick) {

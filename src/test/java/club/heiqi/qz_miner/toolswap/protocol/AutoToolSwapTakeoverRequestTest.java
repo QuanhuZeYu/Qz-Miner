@@ -27,6 +27,7 @@ public class AutoToolSwapTakeoverRequestTest {
         Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 20, 43, 7));
         Assert.assertFalse(request.matchesTarget(9L, 4, -10, 64, 20, 42, 8));
 
+        assertValidExtendedId(1);
         assertValidExtendedId(4096);
         assertValidExtendedId(32767);
         assertValidExtendedId(AutoToolSwapProtocol.MAX_BLOCK_ID);
@@ -45,7 +46,8 @@ public class AutoToolSwapTakeoverRequestTest {
     }
 
     @Test
-    public void negativeAndAbove24BitBlockIdsFailClosed() {
+    public void zeroNegativeAndAbove24BitBlockIdsFailClosed() {
+        assertInvalidBlockId(0);
         assertInvalidBlockId(-1);
         assertInvalidBlockId(AutoToolSwapProtocol.MAX_BLOCK_ID + 1);
     }
