@@ -14,7 +14,8 @@ public final class AutoToolSwapProtocol {
     public static final String CANONICAL_EMPTY_ROLE_KEY = "qz_miner:empty";
     /** EndlessIDs 支持的完整 24-bit 方块 ID 上限。 */
     public static final int MAX_BLOCK_ID = (1 << 24) - 1;
-    public static final int MAX_BLOCK_METADATA = 15;
+    /** EndlessIDs 支持的完整 16-bit metadata 上限。 */
+    public static final int MAX_BLOCK_METADATA = 0xFFFF;
 
     private AutoToolSwapProtocol() {
     }

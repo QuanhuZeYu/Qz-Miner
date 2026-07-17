@@ -31,6 +31,11 @@ public class AutoToolSwapTakeoverRequestTest {
         assertValidExtendedId(4096);
         assertValidExtendedId(32767);
         assertValidExtendedId(AutoToolSwapProtocol.MAX_BLOCK_ID);
+        assertValidMetadata(0);
+        assertValidMetadata(15);
+        assertValidMetadata(16);
+        assertValidMetadata(24902);
+        assertValidMetadata(65535);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -52,6 +57,12 @@ public class AutoToolSwapTakeoverRequestTest {
         assertInvalidBlockId(AutoToolSwapProtocol.MAX_BLOCK_ID + 1);
     }
 
+    @Test
+    public void negativeAndAbove16BitMetadataFailClosed() {
+        assertInvalidMetadata(-1);
+        assertInvalidMetadata(65536);
+    }
+
     private static void assertValidExtendedId(int blockId) {
         AutoToolSwapTakeoverRequest request = new AutoToolSwapTakeoverRequest(
                 AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
@@ -64,6 +75,23 @@ public class AutoToolSwapTakeoverRequestTest {
             new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
                     0, 64, 0, blockId, 0, 1L, 2L);
             Assert.fail("invalid block id must fail");
+        } catch (IllegalArgumentException expected) {
+            // 合同断言
+        }
+    }
+
+    private static void assertValidMetadata(int metadata) {
+        AutoToolSwapTakeoverRequest request = new AutoToolSwapTakeoverRequest(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                0, 64, 0, 1, metadata, 1L, 2L);
+        Assert.assertEquals(metadata, request.targetBlockMetadata());
+    }
+
+    private static void assertInvalidMetadata(int metadata) {
+        try {
+            new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                    0, 64, 0, 1, metadata, 1L, 2L);
+            Assert.fail("invalid metadata must fail");
         } catch (IllegalArgumentException expected) {
             // 合同断言
         }
