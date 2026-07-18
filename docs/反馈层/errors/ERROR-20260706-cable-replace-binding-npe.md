@@ -37,7 +37,7 @@
    - `newCable.setBaseMetaTileEntity(base)` 建立双向绑定（一次调用，无邻居副作用）
    - `base.setMetaTileID(newMetaId)` 换 mID
    - 直写 `newCable.mConnections = oldConnections` + `base.mConnections = oldConnections`（两个 public byte 字段）恢复连接
-   - `refreshPipe`（issueTextureUpdate + issueBlockUpdate + issueTileUpdate + causeCableUpdate）刷新 + 重建网络图
+   - `refreshPipe`（issueTextureUpdate + issueTileUpdate + causeCableUpdate）刷新客户端 tile/纹理并重建网络图；`IRedstoneTileEntity.issueBlockUpdate` 的红石/邻居通知不属于替换必需链路
    - mutate 段 try/catch `RuntimeException` 精确回滚（oldCable 重绑 + 恢复 mID + 恢复位掩码 + refreshPipe + WARN 日志）
    - 成功后才 `consumeReplacementStack`
 2. **RECONNECT 两阶段停用**（`GregTechCableReplaceActionExecutor.java`）：
@@ -53,3 +53,4 @@
 3. **客户端视觉同步由 GT 标准 description packet 路径覆盖**（字节码已核对）：`getDescriptionPacket` → `getInitialDataForClient` 第一步 `putShort(mID)`；客户端 `receiveMetaTileEntityData` 检测 mID 变化后 `createNewMetatileEntity(newMID)` 重建 + `issueTextureUpdate` 刷新纹理。`issueTileUpdate()` → 下 tick `world.markBlockForUpdate` 触发发包。换 mID 后客户端一定能看到线缆类型变化，无需额外操作。
 4. **GT 源码不在项目源码树，契约复核靠 javap 字节码**：`D:\Apps\.Env\Gradle\.gradle\caches\modules-2\files-2.1\com.github.GTNewHorizons\GT5-Unofficial\5.09.52.594\` 下的 dev jar 可用 `javap -c -p -cp <jar> <类名>` 反查方法实现。GTNH 升级时此契约可能变化，需重新核对 `setBaseMetaTileEntity` 是否仍内部调 `base.setMetaTileEntity(this)`，以及 `mConnections` 是否仍 public。
 5. **两阶段架构在底层位掩码可直接操作时是过度设计**：原 REPLACE→RECONNECT 两阶段是为了绕开"替换时丢了连接方向"的问题，但既然 `mConnections` 是 public byte 可直接搬，单阶段即可完整恢复连接，两阶段反而引入了 connect() 危险 API 的二次调用。后续设计兼容层时，优先确认底层是否有直接数据通路，再决定是否需要多阶段。
+6. **刷新 API 要按语义和 owner 建 profile**：纹理、tile description packet 与 GT 网络分别由 `issueTextureUpdate`、`issueTileUpdate`、`causeCableUpdate` 承担；`issueBlockUpdate` 声明于红石接口且用于邻居通知，把它从 `IGregTechTileEntity` 解析并设为 required 会让两代合法 profile 整体误降级。

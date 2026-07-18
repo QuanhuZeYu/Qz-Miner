@@ -27,6 +27,7 @@ GT 线缆替换必须满足「单 tick 内原子替换完整链路」。落地�
 - 电压不匹配爆炸/烧毁是 GT 线缆替换的硬安全边界，违反即不可恢复地损坏玩家资产。
 - `cableReplaceMaxPerTick` 是预校验上限：超过此值的链路宁可拒绝也不冒险单 tick 卡爆主线程。
 - 部分失败策略：best-effort + 聊天提示成功/失败根数，不因单根失败整体回滚（已成功的替换无法回滚）。
+- 连接与刷新职责固定为：搬运 meta/base 两侧 `mConnections`，`issueTextureUpdate` 刷纹理，`issueTileUpdate` 发布 tile description packet，`GregTechAPI.causeCableUpdate` 重建 GT 网络。`issueBlockUpdate()` 声明于 `IRedstoneTileEntity` 且用于红石/邻居通知，不属于替换必需能力，也不从 `IGregTechTileEntity` 扩反射解析面。
 
 ## 偏离登记
 
@@ -46,6 +47,7 @@ GT 线缆替换必须满足「单 tick 内原子替换完整链路」。落地�
 
 ## 演进
 
+- **GT 5.09.54.20 profile 纠偏**：两项支持基线均由 `IRedstoneTileEntity` 声明 `issueBlockUpdate()V`；此前从 `IGregTechTileEntity` 精确解析并设为 required 会让完整 profile 整体误降级。现已移除该字段、解析、调用、缺失能力与 all-present 条件，保留 texture/tile/cable 三条真实刷新语义；两基线真实替换与连接刷新仍需实机验证。
 - **2026-07-06 初版**：Commit 1（物品来源简化，a9866e3）+ Commit 2（B1+B2+B3 安全核心 + §8 偏离登记 + P2 顺带修）落地。`shouldWaitForPlannerCompletion` 由死代码转为执行分叉开关，`GregTechCableReplaceActionExecutor` 覆盖为 true 触发 GT 单 tick 原子路径。
 - **跨 2.8/2.9 收口**：GT 访问改为完整反射 profile，任一类型、方法或字段缺失即关闭能力；替换/回滚均恢复 meta/base 两侧连接，返还物移交主线程执行器并接入玩家级掉落缓冲。
 - **GTNH 2.9.0-beta-2 适配**：静态核对的 GT 线缆反射成员仍存在，未改执行模型；真实 capability、替换与连接刷新仍需运行态回归。

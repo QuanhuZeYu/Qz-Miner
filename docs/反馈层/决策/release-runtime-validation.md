@@ -54,16 +54,20 @@ GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出�
 
 `5.0.19`、`5.0.20` 与 `5.0.21` 的 tag/Release 均为不可移动发布事实；`5.0.21` tag 固定在 `b264ace`，本次发布后的文档提交不属于发布制品 SHA，也不得移动任何既有 tag。
 
-## 5.0.22 一次性候选风险接受与发布门
+## 5.0.22 一次性风险接受与最终发布证据
 
-用户已明确授权将 `5.0.22` 作为完整候选推进，并接受真实 client/dedicated、HUD/预览、连续工具接替、空手/模组方块、GT 矿石/线缆、LootGames 与掉落运行态仍为 **INCOMPLETE** 的一次性风险。该授权只适用于 `5.0.22`，不自动成为未来版本的发布政策；上述运行态不会因自动化测试、编译、构建或发布流程成功而改写为通过。
+用户已明确接受 `5.0.22` 在真实 client/dedicated、HUD/预览、连续工具接替、空手/模组方块、GT 矿石/线缆、LootGames 与掉落运行态仍为 **INCOMPLETE** 的情况下发布。该版本现已完成公开发布闭环；风险接受只适用于 `5.0.22`，不自动成为未来版本政策，发布成功也不把上述运行态改写为通过。
 
-本候选的功能提交范围固定为 `96398ec`（统一连锁采掘能力与工具预览）、`189d6e4`（GTNH `2.9.0-beta-2` 适配）和 `7aaa3ed`（双基线 CI/exact-SHA 发布门）。默认 GTNH 基线为 `2.9.0-beta-2`，最低支持 `2.8.4`；Qz-UILib 要求 `4.6.0+`，本次基于公开 `4.6.1`。既有 `5.0.19`、`5.0.20`、`5.0.21` 的 tag identity 与历史发布事实保持不变。
+功能提交范围为 `96398ec`（统一连锁采掘能力与工具预览）、`189d6e4`（GTNH `2.9.0-beta-2` 适配）和 `7aaa3ed`（双基线 CI/exact-SHA 发布门），最终主线 merge commit 为 `3befb0c98e9ec362e9f967f76babb34c0e6d209a`。Annotated tag `5.0.22` 的 tag object 为 `e4e46bc84aa2503b8c9dda610aa854b94c6d63dc`，peeled commit 固定为 `3befb0c`。默认 GTNH 基线为 `2.9.0-beta-2`，最低支持 `2.8.4`；Qz-UILib 要求 `4.6.0+`，本次基于公开 `4.6.1`。
 
-`5.0.22` 的发布状态按以下三阶段推进：
+公开 GitHub Release 为 <https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.0.22>，非 draft/prerelease，正文明确声明真实运行态 **INCOMPLETE**。三项公开资产的 API 身份、字节数与 SHA-256 如下：
 
-1. **候选未发布**：创建 tag 前，最终 feature SHA 的双 GTNH 基线 matrix、最终主线 merge SHA 的双基线 matrix 必须全绿，并核对 exact-SHA 关系及 `5.0.22` tag 不存在。任一项未完成都不得创建或推送 tag。
-2. **tag 已推送待验收**：tag 前门全绿后，才可创建并推送不可移动的 annotated tag。tag push 触发 workflow 后，必须验收 tag workflow 核心步骤、annotated tag identity、公开 GitHub Release 正文与 draft/prerelease 状态，并下载 `qz_miner-5.0.22.jar`、`qz_miner-5.0.22-dev.jar`、`qz_miner-5.0.22-sources.jar` 核对身份与 SHA-256。上述 tag 后验收不是可选项；任一项未完成或失败，都不得标记为发布闭环。
-3. **已发布闭环**：仅当前述 tag 后验收全部通过，才可将 `5.0.22` 写为已发布闭环；tag 推送成功本身不等于发布完成。
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.0.22.jar` | 772727 | `829b5f4e50ff48ac391351c2e7ceb8634686c50ae7fcbca29c6f0bd70d0cf1a5` |
+| `qz_miner-5.0.22-dev.jar` | 767169 | `e0ffee60b450f9e559cfb317de188e527ca0b40c2106b42f0f6c675a3d8d76bd` |
+| `qz_miner-5.0.22-sources.jar` | 439489 | `be4301caadb23d7a1fb388530e997195e84b49c1ba66e68f2cb8fa783c5087be` |
 
-本次风险接受不替代任何 tag 前门或 tag 后验收，也不改变真实运行态仍为 **INCOMPLETE** 的状态。
+发布后的真实日志暴露三项新问题：接替 pending gate 阻断 CLOSE 导致 round 永久 CLOSING、`planningComplete` 早于 `PlanCompleted` publication 可见，以及 GT 5.09.54.20 线缆 profile 错把 `IRedstoneTileEntity.issueBlockUpdate()` 作为 `IGregTechTileEntity` required。它们只能由 tag 之后的新 hotfix 提交修复，不能移动 `5.0.22` tag 或改写既有 Release；hotfix 自动化与文档验证不替代自动工具事件顺序和两代 GT 线缆真实运行态，当前仍为 **INCOMPLETE**。
+
+`5.0.19`、`5.0.20`、`5.0.21`、`5.0.22` 的 tag/Release 均为不可移动发布事实；本次 hotfix 提交不属于 `5.0.22` 发布制品 SHA。

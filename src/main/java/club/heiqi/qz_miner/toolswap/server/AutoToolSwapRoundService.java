@@ -284,9 +284,6 @@ public final class AutoToolSwapRoundService {
         }
         boolean takeoverAction = intent.action() == AutoToolSwapAction.TAKEOVER
                 || intent.action() == AutoToolSwapAction.DECLINE_TAKEOVER;
-        if (record.pendingTakeover != null && !takeoverAction) {
-            return result(record, AutoToolSwapResultCode.REJECTED, serverTick);
-        }
         if (takeoverAction && hasTakeoverDeadlineElapsed(record, serverTick)) {
             stopPendingTakeover(playerId, record, GATE_CAUSE_DEADLINE);
         }
@@ -298,6 +295,16 @@ public final class AutoToolSwapRoundService {
             record.keyDown = false;
             stopPendingTakeover(playerId, record, GATE_CAUSE_ROUND_STATE);
             return cacheWithoutAdvance(record, intent, AutoToolSwapResultCode.REJECTED, serverTick);
+        }
+        // CLOSE/RESTORE/ABANDON 是服务端主线程收口动作：sequence 已先通过后，才退休
+        // pending，避免旧等待门阻断真实松键 CLOSE；其它动作仍必须等待门终态。
+        if (record.pendingTakeover != null && !takeoverAction) {
+            if (isRoundClosingAction(intent.action())) {
+                retirePendingTakeover(playerId, record, intent.action() == AutoToolSwapAction.CLOSE
+                        ? GATE_CAUSE_PHASE_CLOSE : GATE_CAUSE_ROUND_STATE);
+            } else {
+                return result(record, AutoToolSwapResultCode.REJECTED, serverTick);
+            }
         }
         if (takeoverAction && !isTakeoverAttemptOpen(record, intent, serverTick)) {
             AutoToolSwapRoundState stateBefore = record.state;
@@ -643,6 +650,24 @@ public final class AutoToolSwapRoundService {
         return pending != null && pending.state == TakeoverGateState.WAITING
                 && intent.actionSequence() == pending.request.actionSequence()
                 && serverTick < pending.request.deadlineTick();
+    }
+
+    /** @return 是否属于已通过 sequence 后可以退休等待门的 round 收口动作。 */
+    private static boolean isRoundClosingAction(AutoToolSwapAction action) {
+        return action == AutoToolSwapAction.CLOSE || action == AutoToolSwapAction.RESTORE
+                || action == AutoToolSwapAction.ABANDON;
+    }
+
+    /**
+     * 在 sequence/身份校验后退休 pending takeover；迟到 TAKEOVER 不会进入此路径，也不触碰库存。
+     */
+    private void retirePendingTakeover(UUID playerId, RoundRecord record, String cause) {
+        PendingTakeover pending = record.pendingTakeover;
+        if (pending == null) return;
+        if (pending.state == TakeoverGateState.WAITING) {
+            stopPendingTakeover(playerId, record, cause);
+        }
+        record.pendingTakeover = null;
     }
 
     /** @return 当前 pending 是否已经到达或越过服务端 deadline。 */

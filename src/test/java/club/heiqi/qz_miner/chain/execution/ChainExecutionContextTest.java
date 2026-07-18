@@ -181,6 +181,56 @@ public class ChainExecutionContextTest {
                 context.requestPlanningStop());
     }
 
+    /** publication 返回前不得对主线程暴露完成标志或空队列终态。 */
+    @Test
+    public void completionPublicationIsTheLinearizationPoint() throws Exception {
+        final ChainExecutionContext context = context();
+        final CountDownLatch publicationEntered = new CountDownLatch(1);
+        final CountDownLatch allowPublicationReturn = new CountDownLatch(1);
+        final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
+        Thread worker = new Thread(() -> {
+            try {
+                context.tryCompletePlanningAndPublish(9, () -> {
+                    Assert.assertFalse(context.isPlanningComplete());
+                    Assert.assertFalse(context.isCompleted());
+                    publicationEntered.countDown();
+                    await(allowPublicationReturn);
+                });
+            } catch (Throwable error) {
+                failure.set(error);
+            }
+        });
+        worker.start();
+        publicationEntered.await();
+        Assert.assertFalse("PlanCompleted 未返回前不得暴露完成", context.isPlanningComplete());
+        Assert.assertFalse("PlanCompleted 未返回前不得判定执行完成", context.isCompleted());
+        allowPublicationReturn.countDown();
+        worker.join();
+        Assert.assertNull(failure.get());
+        Assert.assertTrue(context.isPlanningComplete());
+        Assert.assertEquals(9, context.getPlanningConfirmedCount());
+    }
+
+    /** completion publication 失败时 context 保持 ACTIVE，供规划桥单次取消。 */
+    @Test
+    public void failedCompletionPublicationLeavesActiveForSingleCancellation() {
+        ChainExecutionContext context = context();
+        AtomicInteger cancellations = new AtomicInteger();
+        try {
+            context.tryCompletePlanningAndPublish(9, () -> {
+                throw new IllegalStateException("publication failed");
+            });
+            Assert.fail("publication 异常必须向规划桥传播");
+        } catch (RuntimeException expected) {
+            // 规划桥在外层捕获 RuntimeException 并发布 PlanCancelled。
+        }
+        Assert.assertFalse(context.isPlanningComplete());
+        Assert.assertFalse(context.isCompleted());
+        Assert.assertTrue(context.cancelPlanningAndPublishIfActive(cancellations::incrementAndGet));
+        Assert.assertEquals(1, cancellations.get());
+        Assert.assertFalse(context.tryCompletePlanningAndPublish(10, () -> { }));
+    }
+
     @Test
     public void planningCompletionAndCancellationRaceHasExactlyOneWinner() throws Exception {
         for (int attempt = 0; attempt < 100; attempt++) {

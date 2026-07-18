@@ -310,21 +310,29 @@ public class ChainPlanningEventBridge {
         boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
                 || traversalResult == TraversalStepResult.YIELDED;
         if (!shouldContinue) {
-            // C 流式执行修复：worker 完成路径不再 registry.put（context 已在 onPlanStarted 提前登记），
-            // 改为 markPlanningComplete 翻 planningComplete=true。主线程消费订阅者据此判定可 publish
-            // ExecutionFinished（planningComplete=true && queue 空）。
-            // 时序：volatile 写先于 bus.publish(PlanCompleted)（程序序），主线程读 planningComplete 时
-            // 由 volatile happens-before 保证 PlanCompleted 已入 bus queue，故下 tick drain 顺序：
-            // PlanCompleted 先（T5 PLANNING→RUNNING）→ 后续 ExecutionFinished（T7 RUNNING→FINISHING）。
-            boolean completed = context.tryCompletePlanningAndPublish(confirmedCount, new Runnable() {
+            // C 流式执行修复：worker 完成路径不再 registry.put（context 已在 onPlanStarted 提前登记）。
+            // PlanCompleted 入队成功返回后，context 才最后暴露 planningComplete=true；异常由桥统一
+            // 走单次 PlanCancelled，避免 publication 失败留下 COMPLETED 幽灵状态。
+            boolean completed = tryCompletePlanningOrCancel(context, confirmedCount, new Runnable() {
                 @Override
                 public void run() {
-                    diagnostics.logPlanCompleted(confirmedCount);
-                    // 完成发布与终局声明线性化，STOP 只能在其后等待主线程观察。
+                    // 生产 Runnable 只做 publication；诊断必须放在 publication 成功之后，
+                    // 防止诊断异常被误判为 PlanCompleted publication 失败。
                     bus.publish(buildPlanCompleted(playerUUID, serverRoundId, planningGen,
                             ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(), confirmedCount));
                 }
+            }, new Runnable() {
+                @Override
+                public void run() {
+                    final String reason = "plan-completion-publication-failed";
+                    diagnostics.logPlanCancelled(reason);
+                    bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
+                            ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(), reason));
+                }
             });
+            if (completed) {
+                diagnostics.logPlanCompleted(confirmedCount);
+            }
             return completed ? ParallelTaskResult.COMPLETED : ParallelTaskResult.TERMINATED;
         }
 
@@ -332,6 +340,24 @@ public class ChainPlanningEventBridge {
             return ParallelTaskResult.YIELDED;
         }
         return ChainTraversalSupport.toParallelTaskResult(traversalResult);
+    }
+
+    /**
+     * 将 PlanCompleted publication 异常收口为既有的单次 worker 取消 publication。
+     *
+     * @return true 表示 PlanCompleted publication 成功并固化完成；false 表示取消已发布或已有其它终局
+     */
+    static boolean tryCompletePlanningOrCancel(ChainExecutionContext context, int confirmedCount,
+            Runnable completionPublication, Runnable cancellationPublication) {
+        try {
+            return context.tryCompletePlanningAndPublish(confirmedCount, completionPublication);
+        } catch (RuntimeException failure) {
+            context.cancelPlanningAndPublishIfActive(cancellationPublication);
+            return false;
+        } catch (LinkageError failure) {
+            context.cancelPlanningAndPublishIfActive(cancellationPublication);
+            return false;
+        }
     }
 
     /** worker 自然取消只在仍活跃时发布；外部取消胜出后保持静默。 */
