@@ -31,4 +31,5 @@
 
 - 相关 mixin 依赖 `MixinExtras` 表达式注入能力，配置文件需保留 `mixinextras.minVersion`。
 - 若未来升级 GT / BW / GT++ 上游版本，需要优先核对 `getDrops` 中 `fortune > 3` 的字节码结构是否变化。
-- 每次升级必须同步核对 plugin descriptor，并运行双基线脚本；编译成功不能替代两代真实掉落验证。
+- 每次升级必须同步核对 plugin descriptor；受支持 manifest 与预期 GregTech 版本只更新 `gradle/gtnh-baselines.json`，由 branch CI matrix 在独立 clean runner 上执行精确依赖断言与完整构建门。维护者本地双基线脚本仅作可选诊断，不是发布权威。
+- I8 字节码形状能力门、两代真实掉落、client 与 dedicated server 是不同证据；编译或 CI 成功不能替代运行态，未取得时继续记为 **INCOMPLETE**。

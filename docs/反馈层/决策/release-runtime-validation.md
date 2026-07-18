@@ -4,6 +4,10 @@
 
 自动化 / CI 与人工运行态分别记录，不能把前者成功表述为后者通过，也不能用人工抽测替代自动门禁。某个版本的风险接受必须明确限定范围，不自动成为后续发布的默认政策。
 
+GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出包 manifest 仍以 `gradle.properties` 为唯一权威。branch CI 从清单生成独立 clean-runner matrix，逐项完成精确 GregTech 解析断言与 setup/test/check/build；tag workflow 必须在任何 checkout、构建或 Release 副作用前确认同 SHA、`push`、成功的 `branch-ci.yml` 运行。维护者本地双基线脚本只作可选诊断，不能替代上述发布门，也不授权 agent 执行。
+
+自动化仍不能替代 I8 字节码形状之外的真实掉落、client 与 dedicated server 运行态；缺少这些证据时继续记为 **INCOMPLETE**。branch matrix 的 CI 证据只有实际 push 后才成立，本地通过不得冒充。
+
 ## 5.0.19 一次性风险接受
 
 用户已明确授权 `5.0.19` 在人工客户端、dedicated server 与双 GT 运行态矩阵仍为 **INCOMPLETE** 的情况下发布，并接受剩余运行态与诊断盲区带来的风险。该版本现已正式发布；人工运行态未因此变为通过，也不再要求用户补做本版本人工矩阵。
