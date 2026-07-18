@@ -198,6 +198,121 @@ public class AutoToolSwapTakeoverCoordinatorTest {
         Assert.assertEquals(0, inventory.swapCount);
     }
 
+    @Test
+    public void stableEmptyHandLeaseSendsOneRequestAndRechecksAuthorityForEveryCoordinate() {
+        Fixture fixture = fixture();
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        final int[] authorityCalls = new int[1];
+        AutoToolSwapTakeoverCoordinator.HarvestAuthority countingAuthority =
+                new AutoToolSwapTakeoverCoordinator.HarvestAuthority() {
+                    @Override public boolean canHarvest() { authorityCalls[0]++; return true; }
+                };
+
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                fixture.beforePoll(10L, countingAuthority));
+        acceptLatestDecline(fixture, 11L);
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                fixture.beforePoll(12L, countingAuthority));
+        for (int x = 2; x <= 8; x++) {
+            Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                    fixture.coordinator.beforePoll(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                            x, 64, 2, 1, 0, fixture.inventory, 12L + x, 5, countingAuthority));
+        }
+
+        Assert.assertEquals("稳定 block/meta 的空手批次只允许首次真实候选请求", 1,
+                fixture.sender.requests.size());
+        Assert.assertEquals("DECLINE 安装与每个目标命中都必须实时复验权威", 8, authorityCalls[0]);
+    }
+
+    @Test
+    public void leaseInvalidatesOnTargetInventoryAnchorGuiCursorGenerationAndRoundChanges() {
+        Fixture target = installedLeaseFixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                target.coordinator.beforePoll(target.player, target.endpoint, target.roundId, 3,
+                        1, 64, 2, 2, 0, target.inventory, 20L, 5, authority(true)));
+        Assert.assertEquals(2, target.sender.requests.size());
+
+        Fixture metadata = installedLeaseFixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                metadata.coordinator.beforePoll(metadata.player, metadata.endpoint, metadata.roundId, 3,
+                        1, 64, 2, 1, 24902, metadata.inventory, 20L, 5, authority(true)));
+
+        Fixture inventory = installedLeaseFixture();
+        inventory.inventory.slots[35] = stack("tool:joined", "nbt-count-damage-changed", 20);
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                inventory.beforePoll(20L, authority(true)));
+
+        Fixture anchor = installedLeaseFixture();
+        anchor.inventory.selectedSlot = 1;
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                anchor.beforePoll(20L, authority(true)));
+
+        Fixture gui = installedLeaseFixture();
+        gui.inventory.personalWindow = false;
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                gui.beforePoll(20L, authority(true)));
+        gui.inventory.personalWindow = true;
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                gui.beforePoll(21L, authority(true)));
+
+        Fixture cursor = installedLeaseFixture();
+        cursor.inventory.cursorEmpty = false;
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                cursor.beforePoll(20L, authority(true)));
+        cursor.inventory.cursorEmpty = true;
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                cursor.beforePoll(21L, authority(true)));
+
+        Fixture generation = installedLeaseFixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                generation.coordinator.beforePoll(generation.player, generation.endpoint, generation.roundId, 4,
+                        1, 64, 2, 1, 0, generation.inventory, 20L, 5, authority(true)));
+
+        Fixture round = installedLeaseFixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                round.beforePoll(round.roundId + 1L, 20L, authority(true)));
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                round.beforePoll(21L, authority(true)));
+
+        Fixture endpoint = installedLeaseFixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                endpoint.coordinator.beforePoll(endpoint.player, new Object(), endpoint.roundId, 3,
+                        1, 64, 2, 1, 0, endpoint.inventory, 20L, 5, authority(true)));
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                endpoint.beforePoll(21L, authority(true)));
+    }
+
+    @Test
+    public void targetAtoBtoARequiresFreshNegotiationAndLeaseAuthorityFailureStops() {
+        Fixture fixture = installedLeaseFixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                fixture.beforePoll(20L, authority(false)));
+        Assert.assertEquals(1, fixture.sender.requests.size());
+
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                fixture.coordinator.beforePoll(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        1, 64, 2, 2, 0, fixture.inventory, 21L, 5, authority(true)));
+        acceptLatestDecline(fixture, 22L);
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                fixture.coordinator.beforePoll(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        1, 64, 2, 2, 0, fixture.inventory, 23L, 5, authority(true)));
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                fixture.beforePoll(24L, authority(true)));
+        Assert.assertEquals("A→B→A 必须分别重新协商", 3, fixture.sender.requests.size());
+    }
+
+    @Test
+    public void inventoryIdentityFailureInvalidatesLeaseAndFailsClosed() {
+        Fixture fixture = installedLeaseFixture();
+        fixture.inventory.identityFailure = new IllegalStateException("identity");
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                fixture.beforePoll(20L, authority(true)));
+        fixture.inventory.identityFailure = null;
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                fixture.beforePoll(21L, authority(true)));
+        Assert.assertEquals(2, fixture.sender.requests.size());
+    }
+
     private static void assertIdentityDriftStops(int variation, boolean applyFirst) {
         Fixture fixture = fixture();
         Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, fixture.beforePoll(10L));
@@ -257,6 +372,27 @@ public class AutoToolSwapTakeoverCoordinatorTest {
         Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.service.handleIntent(fixture.player,
                 fixture.endpoint, decline, fixture.inventory, 11L).outcome());
         return fixture;
+    }
+
+    private static Fixture installedLeaseFixture() {
+        Fixture fixture = fixture();
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                fixture.beforePoll(10L, authority(true)));
+        acceptLatestDecline(fixture, 11L);
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                fixture.beforePoll(12L, authority(true)));
+        return fixture;
+    }
+
+    private static void acceptLatestDecline(Fixture fixture, long serverTick) {
+        AutoToolSwapTakeoverRequest request = fixture.sender.requests.get(fixture.sender.requests.size() - 1);
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent decline = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fixture.roundId, request.actionSequence(), AutoToolSwapAction.DECLINE_TAKEOVER,
+                fixture.inventory.selectedSlot, fixture.inventory.selectedSlot, empty, empty);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, decline, fixture.inventory, serverTick).outcome());
     }
 
     private static AutoToolSwapTakeoverCoordinator.HarvestAuthority authority(final boolean result) {
@@ -332,19 +468,31 @@ public class AutoToolSwapTakeoverCoordinatorTest {
         private boolean returnNull;
         private RuntimeException readFailure;
         private boolean readLinkageFailure;
+        private RuntimeException identityFailure;
         private int readCount;
+        private int identityReadCount;
         private int contextReadCount;
+        private int selectedSlot;
         @Override public boolean isPlayerAlive() { contextReadCount++; return alive; }
         @Override public boolean isCreativeMode() { contextReadCount++; return creative; }
         @Override public boolean hasPersonalInventoryWindow0() { contextReadCount++; return personalWindow; }
         @Override public boolean isCursorEmpty() { contextReadCount++; return cursorEmpty; }
-        @Override public int selectedHotbarSlot() { contextReadCount++; return 0; }
+        @Override public int selectedHotbarSlot() { contextReadCount++; return selectedSlot; }
         @Override public AutoToolSwapStackState readInventorySlot(int slot) {
             readCount++;
             if (readFailure != null) throw readFailure;
             if (readLinkageFailure) throw new NoClassDefFoundError("read");
             if (returnNull) return null;
             return slots[slot] == null ? AutoToolSwapStackState.empty() : slots[slot];
+        }
+        @Override public AutoToolSwapRoundService.InventoryFingerprint readInventoryIdentity() {
+            identityReadCount++;
+            if (identityFailure != null) throw identityFailure;
+            AutoToolSwapStackState[] captured = new AutoToolSwapStackState[slots.length];
+            for (int slot = 0; slot < slots.length; slot++) {
+                captured[slot] = slots[slot] == null ? AutoToolSwapStackState.empty() : slots[slot];
+            }
+            return AutoToolSwapRoundService.InventoryFingerprint.fromSlots(captured);
         }
         @Override public void swapInventorySlotsAtomically(int anchor, int candidate) {
             swapCount++;

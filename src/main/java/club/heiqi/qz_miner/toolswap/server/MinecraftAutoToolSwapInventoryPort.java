@@ -68,6 +68,20 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
     }
 
     /**
+     * 逐槽捕获 0..35 的完整 exact content；返回值不保留任何 ItemStack 引用。
+     * 任一槽捕获异常会直接向上抛出，由协调门 fail-closed。
+     */
+    @Override
+    public AutoToolSwapRoundService.InventoryFingerprint readInventoryIdentity() {
+        AutoToolSwapStackState[] states = new AutoToolSwapStackState[AutoToolSwapProtocol.INVENTORY_SLOT_COUNT];
+        for (int slot = AutoToolSwapProtocol.INVENTORY_FIRST_SLOT;
+                slot <= AutoToolSwapProtocol.INVENTORY_LAST_SLOT; slot++) {
+            states[slot] = AutoToolSwapStackStateFactory.capture(player.inventory.mainInventory[slot]);
+        }
+        return AutoToolSwapRoundService.InventoryFingerprint.fromSlots(states);
+    }
+
+    /**
      * 直接交换两个不同的个人库存槽位，并立即将库存标记为脏。
      *
      * @param anchorSlot 原工具所在槽位

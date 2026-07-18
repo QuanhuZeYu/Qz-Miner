@@ -70,4 +70,6 @@ GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出�
 
 发布后的真实日志暴露三项新问题：接替 pending gate 阻断 CLOSE 导致 round 永久 CLOSING、`planningComplete` 早于 `PlanCompleted` publication 可见，以及 GT 5.09.54.20 线缆 profile 错把 `IRedstoneTileEntity.issueBlockUpdate()` 作为 `IGregTechTileEntity` required。它们只能由 tag 之后的新 hotfix 提交修复，不能移动 `5.0.22` tag 或改写既有 Release；hotfix 自动化与文档验证不替代自动工具事件顺序和两代 GT 线缆真实运行态，当前仍为 **INCOMPLETE**。
 
+后续 hotfix 日志又确认空手 round 约 1793 个目标虽能在约 2 秒内完成规划，却因每目标 TAKEOVER/DECLINE 等待而约每 tick 只消费一个目标，50 tick 后触发 watchdog。tag 后修复仅在服务端增加完整身份限界的 round-scoped 空手回退租约，保留首次真实候选优先与每目标实时采掘权威；不修改 wire、客户端候选、50ms/`maxBreakPerTick`、状态机或 GT 线缆代码。自动化通过仍不能证明真实大批量吞吐，client/dedicated 日志下“一次 DECLINE 后稳定同 key 连续消费且不触发 watchdog”继续为 **INCOMPLETE**。
+
 `5.0.19`、`5.0.20`、`5.0.21`、`5.0.22` 的 tag/Release 均为不可移动发布事实；本次 hotfix 提交不属于 `5.0.22` 发布制品 SHA。

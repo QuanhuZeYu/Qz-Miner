@@ -33,6 +33,106 @@ public final class AutoToolSwapRoundService {
         STOP
     }
 
+    /** 空手回退租约与当前纯值事实的匹配结果。 */
+    public enum EmptyHandFallbackLeaseMatch {
+        ABSENT,
+        MATCH,
+        INVALIDATED
+    }
+
+    /**
+     * 不含坐标的目标采掘能力键。完整 block id 与 metadata 共同决定一次空手候选资格。
+     */
+    public static final class TargetCapabilityKey {
+
+        private final int blockId;
+        private final int metadata;
+
+        private TargetCapabilityKey(int blockId, int metadata) {
+            if (blockId <= 0 || blockId > AutoToolSwapProtocol.MAX_BLOCK_ID
+                    || metadata < 0 || metadata > AutoToolSwapProtocol.MAX_BLOCK_METADATA) {
+                throw new IllegalArgumentException("target capability key is outside the supported domain");
+            }
+            this.blockId = blockId;
+            this.metadata = metadata;
+        }
+
+        /** 创建保留完整扩展 id 与 metadata 的纯值键。 */
+        public static TargetCapabilityKey of(int blockId, int metadata) {
+            return new TargetCapabilityKey(blockId, metadata);
+        }
+
+        /** @return 是否为同一 block id 与完整 metadata。 */
+        public boolean sameCapability(TargetCapabilityKey other) {
+            return other != null && blockId == other.blockId && metadata == other.metadata;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof TargetCapabilityKey
+                    && sameCapability((TargetCapabilityKey) other);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * blockId + metadata;
+        }
+    }
+
+    /** 个人 inventory 0..35 的完整逐槽 exact-content 纯值身份。 */
+    public static final class InventoryFingerprint {
+
+        private final AutoToolSwapStackState[] slots;
+
+        private InventoryFingerprint(AutoToolSwapStackState[] slots) {
+            if (slots == null || slots.length != AutoToolSwapProtocol.INVENTORY_SLOT_COUNT) {
+                throw new IllegalArgumentException("inventory fingerprint must contain exactly 36 slots");
+            }
+            this.slots = new AutoToolSwapStackState[slots.length];
+            for (int slot = 0; slot < slots.length; slot++) {
+                if (slots[slot] == null) {
+                    throw new IllegalArgumentException("inventory fingerprint slots must not be null");
+                }
+                this.slots[slot] = slots[slot];
+            }
+        }
+
+        /** 从 36 个不可变槽状态建立完整身份；输入数组会被防御性复制。 */
+        public static InventoryFingerprint fromSlots(AutoToolSwapStackState[] slots) {
+            return new InventoryFingerprint(slots);
+        }
+
+        /** @return 指定个人库存槽位的不可变状态。 */
+        public AutoToolSwapStackState slot(int inventorySlot) {
+            if (!AutoToolSwapProtocol.isInventorySlot(inventorySlot)) {
+                throw new IllegalArgumentException("inventorySlot must be 0..35");
+            }
+            return slots[inventorySlot];
+        }
+
+        /** @return 36 槽是否逐槽保持完整 exact content。 */
+        public boolean sameInventory(InventoryFingerprint other) {
+            if (other == null) return false;
+            for (int slot = 0; slot < slots.length; slot++) {
+                if (!slots[slot].sameContent(other.slots[slot])) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof InventoryFingerprint
+                    && sameInventory((InventoryFingerprint) other);
+        }
+
+        @Override
+        public int hashCode() {
+            int value = 1;
+            for (AutoToolSwapStackState slot : slots) value = 31 * value + slot.hashCode();
+            return value;
+        }
+    }
+
     private static final RoundIdAllocator PROCESS_ROUND_ID_ALLOCATOR = new RoundIdAllocator(
             AutoToolSwapProtocol.NO_SERVER_ROUND_ID);
     private static final DiagnosticSink PRODUCTION_DIAGNOSTIC_SINK = new DiagnosticSink() {
@@ -66,6 +166,7 @@ public final class AutoToolSwapRoundService {
     private static final String GATE_CAUSE_PHASE_CLOSE = "phase-close";
     private static final String GATE_CAUSE_ROUND_STATE = "round-state";
     private static final String GATE_CAUSE_EXTERNAL_STOP = "external-stop";
+    private static final String LEASE_INVALIDATED_REPLACED_BY_PENDING = "pending-created";
 
     private final Map<UUID, RoundRecord> rounds = new HashMap<UUID, RoundRecord>();
     private final RoundIdAllocator roundIdAllocator;
@@ -228,10 +329,12 @@ public final class AutoToolSwapRoundService {
             record.keyDown = false;
             record.state = AutoToolSwapRoundState.CLOSING;
             stopPendingTakeover(playerId, record, GATE_CAUSE_PHASE_CLOSE);
+            closeEmptyHandFallbackLease(playerId, record, "phase-close");
         }
         if (record.phaseSequence == Long.MAX_VALUE) {
             stopPendingTakeover(playerId, record, GATE_CAUSE_ROUND_STATE);
             orphan(record);
+            closeEmptyHandFallbackLease(playerId, record, "phase-sequence-overflow");
             return NO_PHASE_SEQUENCE;
         }
         long phaseSequence = ++record.phaseSequence;
@@ -262,6 +365,7 @@ public final class AutoToolSwapRoundService {
         if (isActive(record.state)) {
             record.state = AutoToolSwapRoundState.CLOSING;
         }
+        closeEmptyHandFallbackLease(playerId, record, "key-release");
         logDiagnostic("[AutoToolSwapDiag] key-release player=" + playerId
                 + " round=" + releasedRoundId
                 + " state=" + record.state
@@ -294,6 +398,7 @@ public final class AutoToolSwapRoundService {
             record.state = AutoToolSwapRoundState.ORPHANED;
             record.keyDown = false;
             stopPendingTakeover(playerId, record, GATE_CAUSE_ROUND_STATE);
+            closeEmptyHandFallbackLease(playerId, record, "action-sequence-overflow");
             return cacheWithoutAdvance(record, intent, AutoToolSwapResultCode.REJECTED, serverTick);
         }
         // CLOSE/RESTORE/ABANDON 是服务端主线程收口动作：sequence 已先通过后，才退休
@@ -343,18 +448,89 @@ public final class AutoToolSwapRoundService {
         }
         InventoryDiagnosticSnapshot after = inventoryFreeAction
                 ? InventoryDiagnosticSnapshot.unavailable() : captureInventoryDiagnostic(inventory, intent);
+        if (record.state == AutoToolSwapRoundState.CLOSING || isTerminal(record.state)) {
+            closeEmptyHandFallbackLease(playerId, record, "round-close");
+        }
         logActionDiagnostic(playerId, record, intent, outcome, diagnosticReason, stateBefore, before, after);
         return cacheAndAdvance(record, intent, outcome, serverTick);
     }
 
     /** 丢弃一个玩家的 round 记录，不访问库存。 */
     public synchronized void cleanup(UUID playerId) {
-        rounds.remove(playerId);
+        RoundRecord record = rounds.remove(playerId);
+        closeEmptyHandFallbackLease(playerId, record, "lifecycle-cleanup");
     }
 
     /** 丢弃全部 round 记录，不访问库存。 */
     public synchronized void clearAll() {
+        for (Map.Entry<UUID, RoundRecord> entry : rounds.entrySet()) {
+            closeEmptyHandFallbackLease(entry.getKey(), entry.getValue(), "service-clear");
+        }
         rounds.clear();
+    }
+
+    /** @return 玩家记录当前是否持有单项空手回退租约。 */
+    public synchronized boolean hasEmptyHandFallbackLease(UUID playerId) {
+        RoundRecord record = rounds.get(playerId);
+        return record != null && record.emptyHandFallbackLease != null;
+    }
+
+    /**
+     * 在合法 DECLINED 已消费、空手与实时权威均完成复验后安装单项 round 租约。
+     * 租约不得与 ledger 或 pending takeover 共存。
+     */
+    public synchronized boolean installEmptyHandFallbackLease(UUID playerId, Object endpoint,
+            long serverRoundId, int generation, TargetCapabilityKey targetCapability,
+            int anchorSlot, InventoryFingerprint inventoryFingerprint) {
+        RoundRecord record = rounds.get(playerId);
+        if (record == null || !record.matchesEndpoint(endpoint) || record.serverRoundId != serverRoundId
+                || record.state != AutoToolSwapRoundState.FROZEN || !record.keyDown
+                || record.ledger != null || record.pendingTakeover != null
+                || generation < 0 || !AutoToolSwapProtocol.isHotbarSlot(anchorSlot) || targetCapability == null
+                || inventoryFingerprint == null || !inventoryFingerprint.slot(anchorSlot).isEmpty()) {
+            return false;
+        }
+        record.emptyHandFallbackLease = new EmptyHandFallbackLease(endpoint, serverRoundId, generation,
+                targetCapability, anchorSlot, inventoryFingerprint);
+        record.emptyHandFallbackLeaseCreateCount++;
+        logDiagnostic("[AutoToolSwapDiag] empty-hand-lease player=" + playerId
+                + " round=" + serverRoundId
+                + " event=create"
+                + " creates=" + record.emptyHandFallbackLeaseCreateCount
+                + " hits=" + record.emptyHandFallbackLeaseHitCount
+                + " invalidated=" + record.emptyHandFallbackLeaseInvalidatedCount);
+        return true;
+    }
+
+    /**
+     * 用当前 endpoint/round/generation/目标/锚点/36 槽身份匹配租约。
+     * 任一身份变化都会单调清除旧租约，防止 A→B→A 绕过重新协商。
+     */
+    public synchronized EmptyHandFallbackLeaseMatch matchEmptyHandFallbackLease(UUID playerId, Object endpoint,
+            long serverRoundId, int generation, TargetCapabilityKey targetCapability,
+            int anchorSlot, InventoryFingerprint inventoryFingerprint) {
+        RoundRecord record = rounds.get(playerId);
+        if (record == null || record.emptyHandFallbackLease == null) {
+            return EmptyHandFallbackLeaseMatch.ABSENT;
+        }
+        EmptyHandFallbackLease lease = record.emptyHandFallbackLease;
+        boolean matches = record.matchesEndpoint(endpoint) && record.serverRoundId == serverRoundId
+                && record.state == AutoToolSwapRoundState.FROZEN && record.keyDown
+                && record.ledger == null && record.pendingTakeover == null
+                && lease.matches(endpoint, serverRoundId, generation, targetCapability,
+                        anchorSlot, inventoryFingerprint);
+        if (!matches) {
+            invalidateEmptyHandFallbackLease(playerId, record, "identity-changed");
+            return EmptyHandFallbackLeaseMatch.INVALIDATED;
+        }
+        record.emptyHandFallbackLeaseHitCount++;
+        return EmptyHandFallbackLeaseMatch.MATCH;
+    }
+
+    /** 按玩家精确清除当前空手回退租约；无租约时为幂等 no-op。 */
+    public synchronized void clearEmptyHandFallbackLease(UUID playerId, String reason) {
+        RoundRecord record = rounds.get(playerId);
+        invalidateEmptyHandFallbackLease(playerId, record, reason == null ? "unspecified" : reason);
     }
 
     /**
@@ -384,6 +560,7 @@ public final class AutoToolSwapRoundService {
         if (record.pendingTakeover != null) {
             return record.pendingTakeover.request.sameGate(request) ? record.pendingTakeover.request : null;
         }
+        invalidateEmptyHandFallbackLease(playerId, record, LEASE_INVALIDATED_REPLACED_BY_PENDING);
         record.pendingTakeover = new PendingTakeover(request, anchorSlot, anchorState);
         return request;
     }
@@ -753,6 +930,39 @@ public final class AutoToolSwapRoundService {
         if (record.pendingTakeover != null) record.pendingTakeover.state = TakeoverGateState.STOP;
     }
 
+    /** 身份变化只记录一次失效事件；命中次数留到 round close 汇总，避免逐目标刷屏。 */
+    private void invalidateEmptyHandFallbackLease(UUID playerId, RoundRecord record, String reason) {
+        if (record == null || record.emptyHandFallbackLease == null) return;
+        record.emptyHandFallbackLease = null;
+        record.emptyHandFallbackLeaseInvalidatedCount++;
+        logDiagnostic("[AutoToolSwapDiag] empty-hand-lease player=" + playerId
+                + " round=" + record.serverRoundId
+                + " event=invalidated"
+                + " reason=" + reason
+                + " creates=" + record.emptyHandFallbackLeaseCreateCount
+                + " hits=" + record.emptyHandFallbackLeaseHitCount
+                + " invalidated=" + record.emptyHandFallbackLeaseInvalidatedCount);
+    }
+
+    /** round 生命周期首次收口时清租约并输出一次纯计数摘要。 */
+    private void closeEmptyHandFallbackLease(UUID playerId, RoundRecord record, String reason) {
+        if (record == null || record.emptyHandFallbackLeaseSummaryLogged) return;
+        record.emptyHandFallbackLease = null;
+        record.emptyHandFallbackLeaseSummaryLogged = true;
+        if (record.emptyHandFallbackLeaseCreateCount == 0L
+                && record.emptyHandFallbackLeaseHitCount == 0L
+                && record.emptyHandFallbackLeaseInvalidatedCount == 0L) {
+            return;
+        }
+        logDiagnostic("[AutoToolSwapDiag] empty-hand-lease player=" + playerId
+                + " round=" + record.serverRoundId
+                + " event=round-close"
+                + " reason=" + reason
+                + " creates=" + record.emptyHandFallbackLeaseCreateCount
+                + " hits=" + record.emptyHandFallbackLeaseHitCount
+                + " invalidated=" + record.emptyHandFallbackLeaseInvalidatedCount);
+    }
+
     /** 首次收口等待门时输出固定纯值原因；既有 APPLIED/STOP 状态仅保持原停止语义。 */
     private void stopPendingTakeover(UUID playerId, RoundRecord record, String cause) {
         PendingTakeover pending = record.pendingTakeover;
@@ -973,6 +1183,11 @@ public final class AutoToolSwapRoundService {
         private AutoToolSwapActionResult lastActionResult;
         private PendingTakeover pendingTakeover;
         private long lastTakeoverGateDiagnosticSequence = NO_PHASE_SEQUENCE;
+        private EmptyHandFallbackLease emptyHandFallbackLease;
+        private long emptyHandFallbackLeaseCreateCount;
+        private long emptyHandFallbackLeaseHitCount;
+        private long emptyHandFallbackLeaseInvalidatedCount;
+        private boolean emptyHandFallbackLeaseSummaryLogged;
 
         private RoundRecord(Object endpoint, long clientNonce, long firstActionSequence, long firstPhaseSequence) {
             this.endpointReference = new WeakReference<Object>(endpoint);
@@ -999,6 +1214,43 @@ public final class AutoToolSwapRoundService {
             this.request = request;
             this.anchorSlot = anchorSlot;
             this.anchorState = anchorState;
+        }
+    }
+
+    /**
+     * 单个 round 只保存当前目标能力的空手回退租约；不形成按目标增长的 map。
+     * endpoint 使用弱 identity，库存身份只保存不可变槽状态。
+     */
+    private static final class EmptyHandFallbackLease {
+
+        private final WeakReference<Object> endpointReference;
+        private final long serverRoundId;
+        private final int generation;
+        private final TargetCapabilityKey targetCapability;
+        private final int anchorSlot;
+        private final InventoryFingerprint inventoryFingerprint;
+
+        private EmptyHandFallbackLease(Object endpoint, long serverRoundId, int generation,
+                TargetCapabilityKey targetCapability, int anchorSlot,
+                InventoryFingerprint inventoryFingerprint) {
+            this.endpointReference = new WeakReference<Object>(endpoint);
+            this.serverRoundId = serverRoundId;
+            this.generation = generation;
+            this.targetCapability = targetCapability;
+            this.anchorSlot = anchorSlot;
+            this.inventoryFingerprint = inventoryFingerprint;
+        }
+
+        /** @return 当前全部稳定身份是否仍与安装时 exact 一致。 */
+        private boolean matches(Object endpoint, long currentRoundId, int currentGeneration,
+                TargetCapabilityKey currentTargetCapability, int currentAnchorSlot,
+                InventoryFingerprint currentInventoryFingerprint) {
+            return endpoint != null && endpointReference.get() == endpoint
+                    && serverRoundId == currentRoundId && generation == currentGeneration
+                    && targetCapability.sameCapability(currentTargetCapability)
+                    && anchorSlot == currentAnchorSlot
+                    && inventoryFingerprint.sameInventory(currentInventoryFingerprint)
+                    && inventoryFingerprint.slot(anchorSlot).isEmpty();
         }
     }
 
