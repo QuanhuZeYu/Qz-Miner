@@ -38,6 +38,12 @@ public class LogBlockHarvestableMatcher implements ChainBlockMatcher {
         return new LogBlockHarvestableMatcher(classifier, harvestEvaluator, diagnostics);
     }
 
+    /** 返回同时绑定冻结 round evaluator 与诊断器的不可变副本。 */
+    LogBlockHarvestableMatcher withPlanningEvaluator(ChainHarvestRules.HarvestEvaluator evaluator,
+            ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        return new LogBlockHarvestableMatcher(classifier, evaluator, diagnostics);
+    }
+
     @Override
     public boolean matches(EntityPlayer player, ChainTarget target) {
         if (!classifier.matches(player, target)) {

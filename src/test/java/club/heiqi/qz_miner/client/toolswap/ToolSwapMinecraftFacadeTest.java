@@ -33,7 +33,11 @@ public class ToolSwapMinecraftFacadeTest {
         TestBlock block = new TestBlock();
         Assert.assertTrue(ToolSwapMinecraftFacade.isEffective(new ItemStack(new TestTool(4.0F)), block, 0));
         String source = source();
-        Assert.assertTrue(source.contains("ForgeHooks.canToolHarvestBlock(target, metadata, stack)"));
+        String eligibility = source("src/main/java/club/heiqi/qz_miner/toolswap/ToolHarvestEligibility.java");
+        Assert.assertTrue(eligibility.contains("ForgeHooks.canToolHarvestBlock(target, metadata, stack)"));
+        Assert.assertTrue(eligibility.contains("target.getMaterial().isToolNotRequired()"));
+        Assert.assertFalse(eligibility.contains("canToolHarvestBlock(target, metadata, null)"));
+        Assert.assertTrue(source.contains("ToolHarvestEligibility.snapshotCandidate"));
         Assert.assertTrue(source.contains("AutoToolSwapStackStateFactory.capture(stack)"));
         Assert.assertTrue(source.contains("plan == ToolSwapCapturePlan.FULL_TARGET"));
         Assert.assertTrue(source.contains("Block.getBlockById(targetIdentity.blockId())"));
@@ -46,9 +50,11 @@ public class ToolSwapMinecraftFacadeTest {
     }
 
     private static String source() throws Exception {
-        return new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/client/toolswap/ToolSwapMinecraftFacade.java").toPath()),
-                StandardCharsets.UTF_8);
+        return source("src/main/java/club/heiqi/qz_miner/client/toolswap/ToolSwapMinecraftFacade.java");
+    }
+
+    private static String source(String path) throws Exception {
+        return new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8);
     }
 
     private static final class TestBlock extends Block {

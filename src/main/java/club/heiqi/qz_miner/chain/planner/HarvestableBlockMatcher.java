@@ -34,6 +34,12 @@ public class HarvestableBlockMatcher implements ChainBlockMatcher {
         return new HarvestableBlockMatcher(harvestEvaluator, diagnostics);
     }
 
+    /** 返回同时绑定冻结 round evaluator 与诊断器的不可变副本。 */
+    HarvestableBlockMatcher withPlanningEvaluator(ChainHarvestRules.HarvestEvaluator evaluator,
+            ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        return new HarvestableBlockMatcher(evaluator, diagnostics);
+    }
+
     @Override
     public boolean matches(EntityPlayer player, ChainTarget target) {
         ChainHarvestRules.HarvestEvaluation evaluation = harvestEvaluator.evaluate(player, target,

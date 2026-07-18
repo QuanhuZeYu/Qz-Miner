@@ -187,7 +187,7 @@ public class ChainPlanningDiagnosticsTest {
         String runtimeSource = source.substring(runtimeStart, runtimeEnd);
         Assert.assertEquals(1, countOccurrences(runtimeSource, "assembleDiagnosticRuntime("));
         Assert.assertTrue(runtimeSource.contains(
-                "assembleDiagnosticRuntime(\n                searchContext, candidateFilter, matcher, diagnostics)"));
+                "assembleDiagnosticRuntime(\n                searchContext, candidateFilter, matcher, diagnostics, planningEvaluator)"));
         Assert.assertFalse(runtimeSource.contains("bindMatcherDiagnostics("));
         Assert.assertFalse(runtimeSource.contains("decorateModeExtensionMatcher("));
         Assert.assertFalse(runtimeSource.contains("assembleDiagnostics("));
@@ -197,7 +197,7 @@ public class ChainPlanningDiagnosticsTest {
         Assert.assertTrue("atomic assembly source must be present", assemblyStart >= 0);
         Assert.assertTrue("atomic assembly body must be bounded", extensionStart > assemblyStart);
         String assemblySource = source.substring(assemblyStart, extensionStart);
-        Assert.assertTrue(assemblySource.indexOf("bindMatcherDiagnostics(")
+        Assert.assertTrue(assemblySource.indexOf("bindMatcherPlanning(")
                 < assemblySource.indexOf("decorateModeExtensionMatcher("));
         Assert.assertTrue(assemblySource.indexOf("decorateModeExtensionMatcher(")
                 < assemblySource.indexOf("decorateCandidateFilterWithDiagnostics("));

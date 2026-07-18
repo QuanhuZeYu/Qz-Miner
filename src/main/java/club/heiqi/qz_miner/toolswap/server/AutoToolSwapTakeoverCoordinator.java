@@ -7,6 +7,7 @@ import java.util.UUID;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.planner.ChainHarvestRules;
 import club.heiqi.qz_miner.network.PacketAutoToolSwapTakeoverRequest;
 import club.heiqi.qz_miner.toolswap.AutoToolUsabilityPolicy;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
@@ -18,6 +19,11 @@ import net.minecraft.entity.player.EntityPlayerMP;
 public final class AutoToolSwapTakeoverCoordinator {
 
     public enum GateResult { PROCEED, WAIT, STOP }
+
+    /** 服务端当前真实玩家与目标的最终采掘权威。 */
+    interface HarvestAuthority {
+        boolean canHarvest();
+    }
 
     private final AutoToolSwapRoundService roundService;
     private final RequestSender requestSender;
@@ -55,14 +61,36 @@ public final class AutoToolSwapTakeoverCoordinator {
         return beforePoll(player.getUniqueID(), player, serverRoundId, generation,
                 target.getX(), target.getY(), target.getZ(), blockId, metadata,
                 new MinecraftAutoToolSwapInventoryPort(player), serverTick,
-                Math.max(1, Math.min(10, Config.chainWatchdogTimeoutTicks - 1)));
+                Math.max(1, Math.min(10, Config.chainWatchdogTimeoutTicks - 1)),
+                new HarvestAuthority() {
+                    @Override
+                    public boolean canHarvest() {
+                        return ChainHarvestRules.canHarvest(player, target);
+                    }
+                });
     }
 
     /** 纯逻辑协调入口；所有调用都必须位于服务端主线程。 */
     GateResult beforePoll(UUID playerId, Object endpoint, long serverRoundId, int generation,
             int targetX, int targetY, int targetZ, int blockId, int metadata,
             AutoToolSwapInventoryPort inventory, long serverTick, int timeoutTicks) {
+        return beforePoll(playerId, endpoint, serverRoundId, generation, targetX, targetY, targetZ,
+                blockId, metadata, inventory, serverTick, timeoutTicks, new HarvestAuthority() {
+                    @Override
+                    public boolean canHarvest() {
+                        return true;
+                    }
+                });
+    }
+
+    /** 纯逻辑协调入口，可注入执行权威以覆盖复验和异常 fail-closed。 */
+    GateResult beforePoll(UUID playerId, Object endpoint, long serverRoundId, int generation,
+            int targetX, int targetY, int targetZ, int blockId, int metadata,
+            AutoToolSwapInventoryPort inventory, long serverTick, int timeoutTicks,
+            HarvestAuthority authority) {
+        if (authority == null) return GateResult.STOP;
         if (playerId == null || endpoint == null || inventory == null || timeoutTicks <= 0) return GateResult.STOP;
+        if (serverRoundId == 0L) return evaluateAuthority(authority);
         IssuedTakeover active = issued.get(playerId);
         if (active != null) {
             AutoToolSwapTakeoverRequest activeRequest = active.request;
@@ -76,34 +104,45 @@ public final class AutoToolSwapTakeoverCoordinator {
             if (state == AutoToolSwapRoundService.TakeoverGateState.WAITING) return GateResult.WAIT;
             roundService.consumeTakeoverGate(playerId, endpoint, activeRequest);
             issued.remove(playerId);
-            return state == AutoToolSwapRoundService.TakeoverGateState.APPLIED
-                    ? GateResult.PROCEED : GateResult.STOP;
+            if (state == AutoToolSwapRoundService.TakeoverGateState.APPLIED) {
+                return evaluateAuthority(authority);
+            }
+            if (state == AutoToolSwapRoundService.TakeoverGateState.DECLINED) {
+                return validateEmptyHandFallback(inventory, active.anchorSlot, authority);
+            }
+            return GateResult.STOP;
         }
 
         AutoToolSwapStackState anchor;
         int anchorSlot;
         try {
-            if (!inventory.isPlayerAlive() || inventory.isCreativeMode()
+            if (!inventory.isPlayerAlive()
                     || !inventory.hasPersonalInventoryWindow0() || !inventory.isCursorEmpty()) {
                 return GateResult.STOP;
             }
             anchorSlot = inventory.selectedHotbarSlot();
             anchor = inventory.readInventorySlot(anchorSlot);
+            if (anchor == null) return GateResult.STOP;
+            if (inventory.isCreativeMode()) return evaluateAuthority(authority);
         } catch (RuntimeException failure) {
             return GateResult.STOP;
         } catch (LinkageError failure) {
             return GateResult.STOP;
         }
-        if (anchor != null && !anchor.isEmpty()
-                && AutoToolUsabilityPolicy.hasDurabilityReserve(anchor.remainingDurability())) {
-            return GateResult.PROCEED;
+        if (!anchor.isEmpty()) {
+            Boolean currentCanHarvest = queryAuthority(authority);
+            if (currentCanHarvest == null) return GateResult.STOP;
+            if (currentCanHarvest.booleanValue()
+                    && AutoToolUsabilityPolicy.hasDurabilityReserve(anchor.remainingDurability())) {
+                return GateResult.PROCEED;
+            }
         }
         long deadline = serverTick > Long.MAX_VALUE - timeoutTicks ? Long.MAX_VALUE : serverTick + timeoutTicks;
         AutoToolSwapTakeoverRequest request = roundService.prepareTakeover(playerId, endpoint, serverRoundId,
                 generation, targetX, targetY, targetZ, blockId, metadata, anchorSlot, anchor,
                 serverTick, deadline);
         if (request == null) return GateResult.STOP;
-        IssuedTakeover issuedTakeover = new IssuedTakeover(endpoint, request);
+        IssuedTakeover issuedTakeover = new IssuedTakeover(endpoint, request, anchorSlot);
         issued.put(playerId, issuedTakeover);
         try {
             requestSender.send(endpoint, request);
@@ -114,6 +153,42 @@ public final class AutoToolSwapTakeoverCoordinator {
         } catch (LinkageError failure) {
             stopAndConsumeIssued(playerId, issuedTakeover);
             return GateResult.STOP;
+        }
+    }
+
+    /** DECLINED 仅允许原空 anchor 在同一安全库存上下文中执行服务端空手复验。 */
+    private static GateResult validateEmptyHandFallback(AutoToolSwapInventoryPort inventory, int anchorSlot,
+            HarvestAuthority authority) {
+        try {
+            if (!inventory.isPlayerAlive() || inventory.isCreativeMode()
+                    || !inventory.hasPersonalInventoryWindow0() || !inventory.isCursorEmpty()
+                    || inventory.selectedHotbarSlot() != anchorSlot) {
+                return GateResult.STOP;
+            }
+            AutoToolSwapStackState current = inventory.readInventorySlot(anchorSlot);
+            if (current == null || !current.isEmpty()) return GateResult.STOP;
+        } catch (RuntimeException failure) {
+            return GateResult.STOP;
+        } catch (LinkageError failure) {
+            return GateResult.STOP;
+        }
+        return evaluateAuthority(authority);
+    }
+
+    /** 权威异常不得让目标越过 poll 前门。 */
+    private static GateResult evaluateAuthority(HarvestAuthority authority) {
+        Boolean result = queryAuthority(authority);
+        return Boolean.TRUE.equals(result) ? GateResult.PROCEED : GateResult.STOP;
+    }
+
+    /** @return 权威结果；异常返回 null。 */
+    private static Boolean queryAuthority(HarvestAuthority authority) {
+        try {
+            return Boolean.valueOf(authority.canHarvest());
+        } catch (RuntimeException failure) {
+            return null;
+        } catch (LinkageError failure) {
+            return null;
         }
     }
 
@@ -142,10 +217,12 @@ public final class AutoToolSwapTakeoverCoordinator {
     private static final class IssuedTakeover {
         private final Object endpoint;
         private final AutoToolSwapTakeoverRequest request;
+        private final int anchorSlot;
 
-        private IssuedTakeover(Object endpoint, AutoToolSwapTakeoverRequest request) {
+        private IssuedTakeover(Object endpoint, AutoToolSwapTakeoverRequest request, int anchorSlot) {
             this.endpoint = endpoint;
             this.request = request;
+            this.anchorSlot = anchorSlot;
         }
 
         private boolean matchesEndpoint(Object currentEndpoint) {

@@ -34,7 +34,8 @@ public final class ChainPlanningRuntimeFactory {
         EntityPlayer player,
         ChainSession session,
         BlockSeedSnapshot seedSnapshot) {
-        return createForServer(world, player, session, seedSnapshot, null);
+        return createForServer(world, player, session, seedSnapshot, null,
+                PlanningToolCapabilitySnapshot.capture(player, Config.autoToolPrioritySelectors, true));
     }
 
     /** 使用 round 级有界诊断器装配服务端规划运行时。 */
@@ -44,6 +45,18 @@ public final class ChainPlanningRuntimeFactory {
         ChainSession session,
         BlockSeedSnapshot seedSnapshot,
         PlanningDiagnostics diagnostics) {
+        return createForServer(world, player, session, seedSnapshot, diagnostics,
+                PlanningToolCapabilitySnapshot.capture(player, Config.autoToolPrioritySelectors, true));
+    }
+
+    /** 使用 PlanStarted 主线程冻结的工具能力装配服务端规划运行时。 */
+    public static ChainPlanningRuntime createForServer(
+        World world,
+        EntityPlayer player,
+        ChainSession session,
+        BlockSeedSnapshot seedSnapshot,
+        PlanningDiagnostics diagnostics,
+        PlanningToolCapabilitySnapshot capabilitySnapshot) {
         if (world == null || session == null || seedSnapshot == null) {
             return null;
         }
@@ -61,7 +74,8 @@ public final class ChainPlanningRuntimeFactory {
             effectiveMaxBlocks,
             session.getTraversalTargets(), session.getRequest().getModeExtension());
 
-        return createRuntime(player, session, searchContext, session.getRequest().getMode(), diagnostics);
+        return createRuntime(player, session, searchContext, session.getRequest().getMode(), diagnostics,
+                capabilitySnapshot);
     }
 
     public static ChainPlanningRuntime createForPreview(
@@ -83,7 +97,10 @@ public final class ChainPlanningRuntimeFactory {
             maxTargets,
             new ConcurrentLinkedQueue<ChainTarget>(), session.getRequest().getModeExtension());
 
-        return createRuntime(player, session, searchContext, session.getRequest().getMode(), null);
+        PlanningToolCapabilitySnapshot capabilitySnapshot = PlanningToolCapabilitySnapshot.capture(
+                player, Config.autoToolPrioritySelectors, Config.autoToolSwapEnabled);
+        return createRuntime(player, session, searchContext, session.getRequest().getMode(), null,
+                capabilitySnapshot);
     }
 
     private static ChainPlanningRuntime createRuntime(
@@ -91,7 +108,8 @@ public final class ChainPlanningRuntimeFactory {
         ChainSession session,
         ChainSearchContext searchContext,
         club.heiqi.qz_miner.chain.mode.ChainMode mode,
-        PlanningDiagnostics diagnostics) {
+        PlanningDiagnostics diagnostics,
+        PlanningToolCapabilitySnapshot capabilitySnapshot) {
         ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
         if (definition == null || searchContext == null) {
             return null;
@@ -104,8 +122,10 @@ public final class ChainPlanningRuntimeFactory {
         if (candidateFilter == null || traverser == null || matcher == null) {
             return null;
         }
+        ChainHarvestRules.HarvestEvaluator planningEvaluator =
+                ChainHarvestRules.planningEvaluator(capabilitySnapshot);
         DiagnosticAssembly diagnosticAssembly = assembleDiagnosticRuntime(
-                searchContext, candidateFilter, matcher, diagnostics);
+                searchContext, candidateFilter, matcher, diagnostics, planningEvaluator);
         candidateFilter = diagnosticAssembly.getCandidateFilter();
         matcher = diagnosticAssembly.getMatcher();
         searchContext.setCandidateFilter(candidateFilter);
@@ -128,6 +148,22 @@ public final class ChainPlanningRuntimeFactory {
         return matcher;
     }
 
+    /** 为四类正式采掘 matcher 绑定同一冻结 round evaluator。 */
+    private static ChainBlockMatcher bindMatcherPlanning(ChainBlockMatcher matcher,
+            ChainHarvestRules.HarvestEvaluator evaluator, PlanningDiagnostics diagnostics) {
+        if (evaluator == null) return bindMatcherDiagnostics(matcher, diagnostics);
+        if (matcher instanceof HarvestableBlockMatcher) {
+            return ((HarvestableBlockMatcher) matcher).withPlanningEvaluator(evaluator, diagnostics);
+        } else if (matcher instanceof SameBlockHarvestableMatcher) {
+            return ((SameBlockHarvestableMatcher) matcher).withPlanningEvaluator(evaluator, diagnostics);
+        } else if (matcher instanceof OreBlockHarvestableMatcher) {
+            return ((OreBlockHarvestableMatcher) matcher).withPlanningEvaluator(evaluator, diagnostics);
+        } else if (matcher instanceof LogBlockHarvestableMatcher) {
+            return ((LogBlockHarvestableMatcher) matcher).withPlanningEvaluator(evaluator, diagnostics);
+        }
+        return matcher;
+    }
+
     /**
      * 按生产顺序原子装配最终 candidate/matcher；生产运行时与纯 JVM 测试共用此唯一接缝。
      *
@@ -139,8 +175,15 @@ public final class ChainPlanningRuntimeFactory {
      */
     static DiagnosticAssembly assembleDiagnosticRuntime(ChainSearchContext searchContext,
             ChainCandidateFilter candidateFilter, ChainBlockMatcher matcher, PlanningDiagnostics diagnostics) {
-        ChainBlockMatcher boundMatcher = bindMatcherDiagnostics(matcher, diagnostics);
-        ChainBlockMatcher decoratedMatcher = decorateModeExtensionMatcher(searchContext, boundMatcher, diagnostics);
+        return assembleDiagnosticRuntime(searchContext, candidateFilter, matcher, diagnostics, null);
+    }
+
+    private static DiagnosticAssembly assembleDiagnosticRuntime(ChainSearchContext searchContext,
+            ChainCandidateFilter candidateFilter, ChainBlockMatcher matcher, PlanningDiagnostics diagnostics,
+            ChainHarvestRules.HarvestEvaluator planningEvaluator) {
+        ChainBlockMatcher boundMatcher = bindMatcherPlanning(matcher, planningEvaluator, diagnostics);
+        ChainBlockMatcher decoratedMatcher = decorateModeExtensionMatcher(
+                searchContext, boundMatcher, diagnostics, planningEvaluator);
         return new DiagnosticAssembly(decorateCandidateFilterWithDiagnostics(candidateFilter, diagnostics),
                 decorateMatcherWithDiagnostics(decoratedMatcher, diagnostics));
     }
@@ -149,17 +192,24 @@ public final class ChainPlanningRuntimeFactory {
      * 为模式扩展装饰器复用同一诊断接缝；无诊断或非采掘模式保持原装饰路径。
      */
     private static ChainBlockMatcher decorateModeExtensionMatcher(final ChainSearchContext searchContext,
-            ChainBlockMatcher matcher, final PlanningDiagnostics diagnostics) {
+            ChainBlockMatcher matcher, final PlanningDiagnostics diagnostics,
+            final ChainHarvestRules.HarvestEvaluator planningEvaluator) {
         final ChainSubMode subMode = searchContext.getSubMode();
         final FrozenModePredicate extension = searchContext.getFrozenModePredicate();
-        if (diagnostics == null || extension == null || extension.snapshot().isEmpty()
-                || !isHarvestSubMode(subMode)) {
+        if (extension == null || extension.snapshot().isEmpty() || !isHarvestSubMode(subMode)) {
             return ModeExtensionMatcherDecorator.decorateMatcher(subMode, matcher, extension);
         }
+        final ChainHarvestRules.HarvestEvaluator evaluator = planningEvaluator == null
+                ? ChainHarvestRules.DEFAULT_EVALUATOR : planningEvaluator;
         return ModeExtensionMatcherDecorator.decorateMatcher(subMode, matcher,
                 (currentPlayer, target) -> currentPlayer != null
                         && extension.matches(currentPlayer.worldObj, target),
-                (currentPlayer, target) -> ChainHarvestRules.canPlanHarvest(currentPlayer, target, diagnostics),
+                (currentPlayer, target) -> {
+                    ChainHarvestRules.HarvestEvaluation evaluation = evaluator.evaluate(currentPlayer, target,
+                            diagnostics != null && diagnostics.isTracking(target));
+                    evaluation.record(diagnostics, target);
+                    return evaluation.isAccepted();
+                },
                 (currentPlayer, target) -> false);
     }
 

@@ -29,6 +29,7 @@ public final class AutoToolSwapRoundService {
     public enum TakeoverGateState {
         WAITING,
         APPLIED,
+        DECLINED,
         STOP
     }
 
@@ -362,8 +363,6 @@ public final class AutoToolSwapRoundService {
         if (record == null || !record.matchesEndpoint(endpoint) || record.serverRoundId != serverRoundId
                 || record.state != AutoToolSwapRoundState.FROZEN || !record.keyDown
                 || !AutoToolSwapProtocol.isHotbarSlot(anchorSlot) || anchorState == null
-                || !anchorState.isEmpty()
-                        && AutoToolUsabilityPolicy.hasDurabilityReserve(anchorState.remainingDurability())
                 || deadlineTick <= serverTick || record.nextActionSequence == Long.MAX_VALUE) {
             return null;
         }
@@ -626,13 +625,14 @@ public final class AutoToolSwapRoundService {
         AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
         if (!isTakeoverAttemptOpen(record, intent, serverTick) || !record.keyDown
                 || record.state != AutoToolSwapRoundState.FROZEN
+                || pending == null || !pending.anchorState.isEmpty()
                 || intent.anchorSlot() != pending.anchorSlot || intent.candidateSlot() != pending.anchorSlot
                 || !empty.sameContent(intent.anchorContentFingerprint())
                 || !empty.sameContent(intent.candidateContentFingerprint())) {
             if (pending != null) pending.state = TakeoverGateState.STOP;
             return AutoToolSwapResultCode.REJECTED;
         }
-        pending.state = TakeoverGateState.STOP;
+        pending.state = TakeoverGateState.DECLINED;
         return AutoToolSwapResultCode.ACCEPTED;
     }
 

@@ -47,6 +47,15 @@ public class AutoToolClientWiringStructureTest {
         Assert.assertTrue(proxy.contains("handleClientAutoToolSwapTakeoverRequest"));
         Assert.assertTrue(proxy.contains("autoToolSwapAdapter.onTakeoverRequest"));
         Assert.assertTrue(proxy.contains("AUTO_TOOL_SWAP_LIFECYCLE_GATE"));
+        Assert.assertTrue(proxy.contains("PreviewInvalidationListener"));
+        Assert.assertTrue(proxy.contains("chainPreviewController.onToolLayoutVerified"));
+
+        String preview = source("src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java");
+        Assert.assertTrue(preview.contains("public void onToolLayoutVerified"));
+        Assert.assertTrue(preview.contains("!previewState.isActive()"));
+        Assert.assertTrue(preview.contains("startPreview(world, origin, previewSeedSnapshot, false)"));
+        Assert.assertTrue(preview.contains("world != previewSeedWorld"));
+        Assert.assertTrue(preview.contains("actionSequence == lastInvalidationActionSequence"));
     }
 
     @Test

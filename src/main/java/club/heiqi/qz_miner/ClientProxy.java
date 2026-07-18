@@ -26,6 +26,7 @@ import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
 import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
 import club.heiqi.qz_miner.client.toolswap.QzAutoToolSwapClientTransport;
 import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.uilib.ui.hud.api.CompactHud;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
@@ -107,15 +108,25 @@ public class ClientProxy extends CommonProxy {
         clientPhaseProjection = new ClientPhaseProjection();
         clientPhaseProjectionSubscriber = new ClientPhaseProjectionSubscriber(
                 MyMod.clientChainEventBus, clientPhaseProjection);
+        chainPreviewController = new ChainPreviewController();
+        chainPreviewController.register();
         autoToolSwapAdapter = new AutoToolSwapClientAdapter(
                 Config.autoToolSwapEnabled,
                 Config.autoToolTakeoverEnabled,
                 Config.autoToolPrioritySelectors,
                 new ToolSwapMinecraftFacade(),
-                new QzAutoToolSwapClientTransport());
+                new QzAutoToolSwapClientTransport(),
+                new AutoToolSwapClientAdapter.PreviewInvalidationListener() {
+                    @Override
+                    public void onPreviewInvalidated(long cycleGeneration, long serverRoundId,
+                            long actionSequence, AutoToolSwapAction action) {
+                        if (chainPreviewController != null) {
+                            chainPreviewController.onToolLayoutVerified(cycleGeneration, serverRoundId,
+                                    actionSequence, action);
+                        }
+                    }
+                });
         AutoToolSwapHooks.install(autoToolSwapAdapter);
-        chainPreviewController = new ChainPreviewController();
-        chainPreviewController.register();
         chainPreviewRenderer = new ChainPreviewRenderer();
         chainPreviewRenderer.register();
         new ClientConnectionListener().register();

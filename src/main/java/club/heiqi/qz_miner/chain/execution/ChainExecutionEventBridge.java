@@ -199,6 +199,14 @@ public class ChainExecutionEventBridge {
         logTimeline(context, "PlanCompleted", "workerConfirmed=" + event.getTotalTargets()
                 + " queueNow=" + context.getTargets().size());
 
+        // worker 完成先胜出但执行 STOP 已挂起：先让 PlanCompleted 合法进 RUNNING，
+        // 再按正常执行终局发布 ExecutionFinished + Cleanup，禁止 STOP 抢跑。
+        if (context.observePlanningCompletionAndShouldStop()) {
+            publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped-after-plan-completed");
+            registry.remove(playerUUID, gen, context.getServerRoundId());
+            return;
+        }
+
         // 卡点5：空规划边界——totalTargets=0，队列初始即空，立即 publish ExecutionFinished + LifecycleCleanup，
         // 不能卡 RUNNING（否则玩家槽卡 RUNNING 致二次连锁哑火）
         if (context.isCompleted()) {
@@ -377,8 +385,7 @@ public class ChainExecutionEventBridge {
             target = pollTargetAfterTakeoverGate(context, gate);
             if (gate == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) return;
             if (gate == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
-                publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped");
-                registry.remove(playerUUID, gen, context.getServerRoundId());
+                stopForTakeover(context);
                 return;
             }
             if (target == null) break;
@@ -448,6 +455,32 @@ public class ChainExecutionEventBridge {
     }
 
     /**
+     * TAKEOVER STOP 与 worker 完成线性化：取消胜出只发精确 Cleanup，完成胜出则等待
+     * PlanCompleted 被主线程观察后再走合法 ExecutionFinished 收口。
+     */
+    void stopForTakeover(ChainExecutionContext context) {
+        ChainExecutionContext.PlanningStopResult result = context.requestPlanningStop();
+        if (result == ChainExecutionContext.PlanningStopResult.COMPLETION_PENDING_OBSERVATION
+                || result == ChainExecutionContext.PlanningStopResult.CANCELLATION_ALREADY_WON) {
+            return;
+        }
+        if (result == ChainExecutionContext.PlanningStopResult.COMPLETION_OBSERVED) {
+            publishExecutionFinishedWithCleanup(context, "auto-tool-takeover-stopped");
+            registry.remove(context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId());
+            return;
+        }
+
+        UUID playerUUID = context.getPlayerUUID();
+        long tick = ChainTickSource.currentServerTick();
+        long nanos = ChainTickSource.nowNanos();
+        // PLANNING 期取消不得伪造 ExecutionFinished；非 forced cleanup 按冻结三元身份收口。
+        setExecutionWindow(playerUUID, false, "planning-cancelled:auto-tool-takeover-stopped");
+        bus.publish(new LifecycleCleanup(playerUUID, context.getServerRoundId(), context.getGeneration(),
+                tick, nanos, "auto-tool-takeover-stopped", false, false));
+        registry.remove(playerUUID, context.getGeneration(), context.getServerRoundId());
+    }
+
+    /**
      * C 流式登记后的清理：PlanCancelled 时 context 可能已 put 进 registry。
      *
      * <p>修复边搜边破坏引入的清理路径：{@link ChainPlanningEventBridge#onPlanStarted} 改为提前 registry.put
@@ -487,6 +520,9 @@ public class ChainExecutionEventBridge {
      * @param event 看门狗超时事件
      */
     private void onWatchdogTimeout(WatchdogTimeout event) {
+        ChainExecutionContext context = registry.get(
+                event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId());
+        if (context != null) context.requestPlanningStop();
         boolean removed = registry.remove(event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId());
         // G1（I5 生命线，必须）：看门狗只 publish WatchdogTimeout + 清 registry，
         // 若漏设 executionStatus 会卡 RUNNING → ChainDropCollector:58 暂存条件永不满足 → buffer 永不释放。
@@ -517,6 +553,14 @@ public class ChainExecutionEventBridge {
         if (takeoverCoordinator != null) takeoverCoordinator.cleanup(playerUUID);
         if (event.isForced()) {
             // I7 全量收口不依赖事件占位身份；即使 registry 已空，也必须幂等关闭执行窗口。
+            ChainExecutionContext active = null;
+            for (ChainExecutionContext candidate : registry.snapshot()) {
+                if (playerUUID.equals(candidate.getPlayerUUID())) {
+                    active = candidate;
+                    break;
+                }
+            }
+            if (active != null) active.requestPlanningStop();
             registry.remove(playerUUID);
             setExecutionWindow(playerUUID, false, "lifecycle-cleanup-forced:" + event.getReason());
             MyMod.LOG.debug(
@@ -526,6 +570,9 @@ public class ChainExecutionEventBridge {
             return;
         }
 
+        ChainExecutionContext context = registry.get(
+                playerUUID, event.getGeneration(), event.getServerRoundId());
+        if (context != null) context.requestPlanningStop();
         boolean removed = registry.remove(playerUUID, event.getGeneration(), event.getServerRoundId());
         if (removed) {
             setExecutionWindow(playerUUID, false, "lifecycle-cleanup-round:" + event.getReason());

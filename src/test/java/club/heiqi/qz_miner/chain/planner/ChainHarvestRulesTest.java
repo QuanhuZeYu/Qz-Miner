@@ -27,11 +27,14 @@ public class ChainHarvestRulesTest {
         String executor = source("src/main/java/club/heiqi/qz_miner/chain/executor/BlockHarvestActionExecutor.java");
         String rules = source("src/main/java/club/heiqi/qz_miner/chain/planner/ChainHarvestRules.java");
 
-        Assert.assertTrue(factory.contains("ChainHarvestRules.canPlanHarvest(currentPlayer, target, diagnostics)"));
+        Assert.assertTrue(factory.contains("ChainHarvestRules.planningEvaluator(capabilitySnapshot)"));
+        Assert.assertTrue(factory.contains("bindMatcherPlanning"));
+        Assert.assertTrue(factory.contains("evaluation.record(diagnostics, target)"));
         Assert.assertTrue(executor.contains("ChainHarvestRules.canHarvest(player, target)"));
         Assert.assertFalse(executor.contains("canPlanHarvest"));
         Assert.assertTrue(rules.contains("evaluateHarvest(player, target, diagnosticTracking, false)"));
         Assert.assertTrue(rules.contains("evaluateHarvest(player, target, diagnosticTracking, true)"));
+        Assert.assertTrue(rules.contains("evaluateFrozenPlanningHarvest"));
     }
 
     private static String source(String path) throws Exception {

@@ -66,6 +66,72 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void swapAndRestoreNotifyPreviewExactlyOnceAfterEachLayoutBecomesVisible() {
+        final List<PreviewNotice> notices = new ArrayList<PreviewNotice>();
+        adapter = adapterWithPreviewListener(notices);
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onClientTick();
+        AutoToolSwapIntent swap = transport.intents.get(0);
+        settle(swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+
+        adapter.onClientTick();
+        Assert.assertTrue("APPLIED 未可见不得通知", notices.isEmpty());
+        game.inventory = swapped();
+        adapter.onClientTick();
+        Assert.assertEquals(1, notices.size());
+        Assert.assertEquals(AutoToolSwapAction.SWAP, notices.get(0).action);
+        adapter.onClientTick();
+        Assert.assertEquals(1, notices.size());
+
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.IDLE.ordinal(), 1, 3L, true);
+        adapter.onClientTick();
+        AutoToolSwapIntent restore = transport.intents.get(1);
+        settle(restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
+        adapter.onClientTick();
+        Assert.assertEquals("RESTORE APPLIED 未可见不得通知", 1, notices.size());
+        game.inventory = restored();
+        adapter.onClientTick();
+        Assert.assertEquals(2, notices.size());
+        Assert.assertEquals(AutoToolSwapAction.RESTORE, notices.get(1).action);
+        adapter.onClientTick();
+        Assert.assertEquals(2, notices.size());
+    }
+
+    @Test
+    public void takeoverNotifiesPreviewOnlyWhenThreeSlotTargetLayoutIsVisible() {
+        final List<PreviewNotice> notices = new ArrayList<PreviewNotice>();
+        adapter = adapterWithPreviewListener(notices);
+        game.physicalKeyDown = true;
+        completeSwap();
+        notices.clear();
+        adapter.onLocalBlockDestroyed();
+        AutoToolSwapIntent freeze = transport.intents.get(1);
+        settle(freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.RUNNING.ordinal(), 4, 5L, true);
+        game.inventory = takeoverSource();
+        adapter.onTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                10, 64, 20, 42, 7, 6L, 12L, true);
+        adapter.onClientTick();
+        AutoToolSwapIntent takeover = transport.intents.get(2);
+        settle(takeover, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.FROZEN);
+
+        adapter.onClientTick();
+        Assert.assertTrue(notices.isEmpty());
+        game.inventory = takeoverTarget();
+        adapter.onClientTick();
+        Assert.assertEquals(1, notices.size());
+        PreviewNotice notice = notices.get(0);
+        Assert.assertEquals(AutoToolSwapAction.TAKEOVER, notice.action);
+        Assert.assertEquals(9L, notice.serverRoundId);
+        Assert.assertEquals(takeover.actionSequence(), notice.actionSequence);
+        adapter.onClientTick();
+        Assert.assertEquals(1, notices.size());
+    }
+
+    @Test
     public void waitsTwentyTicksToRetransmitSameRoundThenOrphansAtForty() {
         adapter.onChainKeyState(true);
         long nonce = transport.rounds.get(0).longValue();
@@ -717,6 +783,17 @@ public class AutoToolSwapClientAdapterTest {
         adapter = new AutoToolSwapClientAdapter(true, Collections.emptyList(), game, transport);
     }
 
+    private AutoToolSwapClientAdapter adapterWithPreviewListener(final List<PreviewNotice> notices) {
+        return new AutoToolSwapClientAdapter(true, true, Collections.emptyList(), game, transport,
+                new AutoToolSwapClientAdapter.PreviewInvalidationListener() {
+                    @Override
+                    public void onPreviewInvalidated(long cycleGeneration, long serverRoundId,
+                            long actionSequence, AutoToolSwapAction action) {
+                        notices.add(new PreviewNotice(cycleGeneration, serverRoundId, actionSequence, action));
+                    }
+                });
+    }
+
     private void assertNoRoundStart(boolean breakCapable, boolean creative) {
         FakeGame invalidGame = new FakeGame();
         invalidGame.breakCapable = breakCapable;
@@ -801,6 +878,21 @@ public class AutoToolSwapClientAdapterTest {
         private boolean accept = true;
         @Override public boolean sendRoundStart(long clientNonce) { rounds.add(Long.valueOf(clientNonce)); return accept; }
         @Override public boolean sendIntent(AutoToolSwapIntent intent) { intents.add(intent); return accept; }
+    }
+
+    private static final class PreviewNotice {
+        private final long cycleGeneration;
+        private final long serverRoundId;
+        private final long actionSequence;
+        private final AutoToolSwapAction action;
+
+        private PreviewNotice(long cycleGeneration, long serverRoundId,
+                long actionSequence, AutoToolSwapAction action) {
+            this.cycleGeneration = cycleGeneration;
+            this.serverRoundId = serverRoundId;
+            this.actionSequence = actionSequence;
+            this.action = action;
+        }
     }
 
     private static final class FakeGame implements AutoToolSwapClientAdapter.GameFacade {

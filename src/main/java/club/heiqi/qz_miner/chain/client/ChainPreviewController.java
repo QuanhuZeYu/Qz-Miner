@@ -23,6 +23,7 @@ import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -50,6 +51,12 @@ public class ChainPreviewController {
     private volatile ChainTarget currentTarget;
     private ParallelTickSubscription previewTaskSubscription;
     private int specialPreviewRequestId;
+    private BlockSeedSnapshot previewSeedSnapshot;
+    private World previewSeedWorld;
+    private long lastInvalidationCycleGeneration = Long.MIN_VALUE;
+    private long lastInvalidationServerRoundId = Long.MIN_VALUE;
+    private long lastInvalidationActionSequence = Long.MIN_VALUE;
+    private AutoToolSwapAction lastInvalidationAction;
 
     public void register() {
         FMLCommonHandler.instance().bus().register(this);
@@ -64,6 +71,41 @@ public class ChainPreviewController {
      */
     public void stopPreviewForLifecycle() {
         stopPreview();
+    }
+
+    /**
+     * 已验证工具布局首次可见后的精确预览失效入口。
+     *
+     * <p>调用发生在 ClientTick END 主线程。只有当前仍活跃的预览会被重启；直接复用同 origin，
+     * 因此不受 PLANNING/RUNNING/FINISHING phase lock 阻挡。旧 worker 由 subscription 取消和
+     * preview generation 双重隔离。</p>
+     */
+    public void onToolLayoutVerified(long cycleGeneration, long serverRoundId,
+            long actionSequence, AutoToolSwapAction action) {
+        if (!isPreviewRefreshAction(action) || currentTarget == null || !previewState.isActive()
+                || previewSeedSnapshot == null || previewSeedWorld == null
+                || MyMod.chainStateService == null
+                || !MyMod.chainStateService.getClientState().isChainKeyPressed()
+                || !Config.clientEnablePreviewRender) {
+            return;
+        }
+        if (cycleGeneration == lastInvalidationCycleGeneration
+                && serverRoundId == lastInvalidationServerRoundId
+                && actionSequence == lastInvalidationActionSequence
+                && action == lastInvalidationAction) {
+            return;
+        }
+        Minecraft minecraft = Minecraft.getMinecraft();
+        World world = minecraft.theWorld;
+        if (world == null || minecraft.thePlayer == null || world != previewSeedWorld
+                || !currentTarget.equals(previewSeedSnapshot.getOrigin())) return;
+
+        ChainTarget origin = currentTarget;
+        lastInvalidationCycleGeneration = cycleGeneration;
+        lastInvalidationServerRoundId = serverRoundId;
+        lastInvalidationActionSequence = actionSequence;
+        lastInvalidationAction = action;
+        startPreview(world, origin, previewSeedSnapshot, false);
     }
 
     @SubscribeEvent
@@ -112,7 +154,16 @@ public class ChainPreviewController {
     }
 
     private void startPreview(World world, ChainTarget target) {
-        stopPreview();
+        Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
+        int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        TileEntity sampleTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
+        startPreview(world, target, new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity), true);
+    }
+
+    /** 以已捕获 seed 启动或刷新预览；刷新不得重读已破坏 origin。 */
+    private void startPreview(World world, ChainTarget target, BlockSeedSnapshot seedSnapshot,
+            boolean replaceSeedLease) {
+        resetPreview(replaceSeedLease);
 
         Minecraft minecraft = Minecraft.getMinecraft();
         EntityPlayer player = minecraft.thePlayer;
@@ -121,13 +172,18 @@ public class ChainPreviewController {
         }
 
         currentTarget = target;
+        if (replaceSeedLease) {
+            previewSeedSnapshot = seedSnapshot;
+            previewSeedWorld = world;
+            clearInvalidationIdentity();
+        }
         previewState.begin(target);
         MyMod.chainStateService.getClientState().setPreviewActive(true);
 
         final int generation = previewState.getGeneration();
-        final Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
-        final int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
-        final TileEntity sampleTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
+        final Block sampleBlock = seedSnapshot.getSampleBlock();
+        final int sampleMeta = seedSnapshot.getSampleMeta();
+        final TileEntity sampleTileEntity = seedSnapshot.getSampleTileEntity();
         final int previewRadius = getEffectivePreviewRadius();
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
         final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
@@ -153,7 +209,6 @@ public class ChainPreviewController {
             target,
             AxisAlignedTunnelDirection.resolveFace(player), 0.0F, 0.0F, 0.0F,
             -1, -1, modeExtension);
-        final BlockSeedSnapshot seedSnapshot = new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity);
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForPreview(
             world,
             player,
@@ -349,6 +404,11 @@ public class ChainPreviewController {
     }
 
     private void stopPreview() {
+        resetPreview(true);
+    }
+
+    /** 取消旧 generation；生命周期/新目标同时释放 seed 租约和租约内去重身份。 */
+    private void resetPreview(boolean clearSeedLease) {
         if (previewTaskSubscription != null) {
             previewTaskSubscription.unregister();
             previewTaskSubscription = null;
@@ -361,9 +421,29 @@ public class ChainPreviewController {
         previewState.clear();
         currentTarget = null;
         specialPreviewRequestId++;
+        if (clearSeedLease) {
+            previewSeedSnapshot = null;
+            previewSeedWorld = null;
+            clearInvalidationIdentity();
+        }
         if (MyMod.chainStateService != null) {
             MyMod.chainStateService.getClientState().setPreviewActive(false);
         }
+    }
+
+    /** 只有三种真实库存布局变化会刷新预览。 */
+    private static boolean isPreviewRefreshAction(AutoToolSwapAction action) {
+        return action == AutoToolSwapAction.SWAP
+                || action == AutoToolSwapAction.TAKEOVER
+                || action == AutoToolSwapAction.RESTORE;
+    }
+
+    /** 去重身份只在一个 seed 租约内有效。 */
+    private void clearInvalidationIdentity() {
+        lastInvalidationCycleGeneration = Long.MIN_VALUE;
+        lastInvalidationServerRoundId = Long.MIN_VALUE;
+        lastInvalidationActionSequence = Long.MIN_VALUE;
+        lastInvalidationAction = null;
     }
 
     private ChainTarget getCurrentLookTarget(MovingObjectPosition movingObjectPosition) {
