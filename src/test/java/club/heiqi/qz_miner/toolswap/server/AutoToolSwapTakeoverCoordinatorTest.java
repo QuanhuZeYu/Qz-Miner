@@ -225,6 +225,38 @@ public class AutoToolSwapTakeoverCoordinatorTest {
     }
 
     @Test
+    public void leaseAuthorityFalseInvalidatesAndRequiresFreshNegotiationForSameKey() {
+        Fixture fixture = installedLeaseFixture();
+
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                fixture.beforePoll(20L, authority(false)));
+        Assert.assertEquals("权威失败的当前目标不得消费队首或重复发送", 1,
+                fixture.sender.requests.size());
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                fixture.beforePoll(21L, authority(true)));
+        Assert.assertEquals("同 key 恢复后必须重新发起 TAKEOVER 协商", 2,
+                fixture.sender.requests.size());
+    }
+
+    @Test
+    public void leaseAuthorityExceptionsInvalidateAndRequireFreshNegotiationForSameKey() {
+        for (int variation = 0; variation < 2; variation++) {
+            Fixture fixture = installedLeaseFixture();
+
+            Assert.assertEquals("variation=" + variation,
+                    AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                    fixture.beforePoll(20L, failingAuthority(variation == 1)));
+            Assert.assertEquals("异常失败不得消费队首或重复发送", 1,
+                    fixture.sender.requests.size());
+            Assert.assertEquals("variation=" + variation,
+                    AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                    fixture.beforePoll(21L, authority(true)));
+            Assert.assertEquals("异常恢复后必须重新发起 TAKEOVER 协商", 2,
+                    fixture.sender.requests.size());
+        }
+    }
+
+    @Test
     public void leaseInvalidatesOnTargetInventoryAnchorGuiCursorGenerationAndRoundChanges() {
         Fixture target = installedLeaseFixture();
         Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,

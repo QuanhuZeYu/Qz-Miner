@@ -168,7 +168,12 @@ public final class AutoToolSwapTakeoverCoordinator {
                     .matchEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
                             targetCapability, anchorSlot, inventoryFingerprint);
             if (leaseMatch == AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH) {
-                return evaluateAuthority(authority);
+                GateResult authorityResult = evaluateAuthority(authority);
+                if (authorityResult != GateResult.PROCEED) {
+                    // 上述精确身份匹配与清除同在服务端主线程调用内，旧目标不得保留失效租约。
+                    roundService.clearEmptyHandFallbackLease(playerId, "authority-failed");
+                }
+                return authorityResult;
             }
         }
         if (!anchor.isEmpty()) {
