@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -432,6 +433,58 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertEquals(1, queue.size());
         Assert.assertSame(second, queue.peek());
         Assert.assertEquals(1, context.getExecutionConsumedCount());
+    }
+
+    @Test
+    public void takeoverStopCancellationWinnerPublishesOnlyExactCleanupAndCancelsWorker() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1001L, 8,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        AtomicInteger unregisters = new AtomicInteger();
+        context.attachPlanningSubscription(unregisters::incrementAndGet);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<ExecutionFinished> finished = new ArrayList<ExecutionFinished>();
+        List<LifecycleCleanup> cleanups = new ArrayList<LifecycleCleanup>();
+        bus.subscribe(ExecutionFinished.class, finished::add);
+        bus.subscribe(LifecycleCleanup.class, cleanups::add);
+
+        bridge.stopForTakeover(context);
+        bus.drain();
+
+        Assert.assertEquals(1, unregisters.get());
+        Assert.assertTrue("PLANNING 取消不得伪造 ExecutionFinished", finished.isEmpty());
+        Assert.assertEquals(1, cleanups.size());
+        Assert.assertFalse(cleanups.get(0).isForced());
+        Assert.assertEquals(1001L, cleanups.get(0).getServerRoundId());
+        Assert.assertEquals(8, cleanups.get(0).getGeneration());
+        Assert.assertNull(registry.get(PLAYER, 8, 1001L));
+    }
+
+    @Test
+    public void takeoverStopCompletionWinnerWaitsForPlanCompletedBeforeLegalFinish() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1002L, 9,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<String> order = new ArrayList<String>();
+        bus.subscribe(PlanCompleted.class, event -> order.add("plan"));
+        bus.subscribe(ExecutionFinished.class, event -> order.add("finished"));
+        bus.subscribe(LifecycleCleanup.class, event -> order.add("cleanup"));
+        Assert.assertTrue(context.tryCompletePlanningAndPublish(0, () -> bus.publish(
+                new PlanCompleted(PLAYER, 1002L, 9, TICK, NANOS, 0))));
+
+        bridge.stopForTakeover(context);
+        Assert.assertTrue("PlanCompleted 未观察前不得抢先收口", order.isEmpty());
+        bus.drain();
+
+        Assert.assertEquals(java.util.Arrays.asList("plan", "finished", "cleanup"), order);
+        Assert.assertNull(registry.get(PLAYER, 9, 1002L));
     }
 
     private static void assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult gate) {

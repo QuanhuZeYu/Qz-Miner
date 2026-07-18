@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -25,11 +26,109 @@ jobs:
       PRERELEASE: ${{ endsWith(github.ref_name, '-pre') }}
       MAVEN_PUBLISHING_URL: ${{ vars.MAVEN_PUBLISHING_URL || 'https://nexus.gtnewhorizons.com/repository/releases/' }}
     steps:
+      - name: Require successful branch CI for exact SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="$(gh api --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/branch-ci.yml/runs" \
+            -f head_sha="${GITHUB_SHA}" \
+            -f event=push \
+            -f status=completed \
+            -f per_page=100)"
+          jq -e --arg sha "${GITHUB_SHA}" '
+            [.workflow_runs[] | select(
+              .path == ".github/workflows/branch-ci.yml"
+              and .head_sha == $sha
+              and .event == "push"
+              and .conclusion == "success"
+            )] | length > 0
+          ' <<<"${runs}" > /dev/null || {
+            echo "No successful branch-ci.yml push run found for ${GITHUB_SHA}" >&2
+            exit 1
+          }
+
       - name: Checkout mod repo
         uses: actions/checkout@v5
         with:
           fetch-depth: 32
           submodules: recursive
+
+      - name: Determine default GTNH baseline
+        id: default-baseline
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          SAFE_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+          def fail(message):
+              raise SystemExit(message)
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      fail(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              fail(f"invalid JSON constant: {value}")
+
+          raw = Path("gradle/gtnh-baselines.json").read_bytes()
+          if len(raw) > 16384:
+              fail("baseline manifest exceeds 16 KiB")
+          try:
+              text = raw.decode("ascii")
+          except UnicodeDecodeError:
+              fail("baseline manifest must contain ASCII only")
+          data = json.loads(
+              text,
+              object_pairs_hook=reject_duplicates,
+              parse_constant=reject_constant,
+          )
+          if type(data) is not dict or set(data) != {"schemaVersion", "baselines"}:
+              fail("baseline manifest must contain only schemaVersion and baselines")
+          if type(data["schemaVersion"]) is not int or data["schemaVersion"] != 1:
+              fail("unsupported baseline manifest schemaVersion")
+          baselines = data["baselines"]
+          if type(baselines) is not list or len(baselines) != 2:
+              fail("baseline manifest must contain exactly two baselines")
+          for index, baseline in enumerate(baselines):
+              if type(baseline) is not dict or set(baseline) != {"manifest", "gregTechVersion"}:
+                  fail(f"baseline {index} must contain only manifest and gregTechVersion")
+              for key in ("manifest", "gregTechVersion"):
+                  value = baseline[key]
+                  if type(value) is not str or SAFE_VALUE.fullmatch(value) is None:
+                      fail(f"baseline {index} has unsafe {key}")
+          manifests = [baseline["manifest"] for baseline in baselines]
+          if len(set(manifests)) != len(manifests):
+              fail("baseline manifests must be unique")
+
+          properties = Path("gradle.properties").read_text(encoding="utf-8")
+          default_matches = re.findall(
+              r"(?m)^\s*elytra\.manifest\.version\s*=\s*([^\s#]+)\s*$",
+              properties,
+          )
+          if len(default_matches) != 1 or SAFE_VALUE.fullmatch(default_matches[0]) is None:
+              fail("gradle.properties must define one safe default manifest")
+          default_manifest = default_matches[0]
+          selected = [baseline for baseline in baselines if baseline["manifest"] == default_manifest]
+          if len(selected) != 1:
+              fail("default manifest must occur exactly once in the baseline manifest")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"manifest={selected[0]['manifest']}", file=output)
+              print(f"gregTechVersion={selected[0]['gregTechVersion']}", file=output)
+          PY
 
       - name: Determine JDK versions
         id: list-jdk-versions
@@ -64,16 +163,13 @@ jobs:
         run: chmod +x gradlew
 
       - name: Setup the workspace
-        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' setupCIWorkspace
+        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' setupCIWorkspace
+
+      - name: Verify resolved GregTech baseline
+        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" "-Pqz.gtnh.expectedGregTechVersion=${{ steps.default-baseline.outputs.gregTechVersion }}" verifyGtnhBaseline
 
       - name: Build the mod
-        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble
-
-      - name: Delete old release if it already exists
-        run: gh release delete --yes "${RELEASE_VERSION}"
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble
 
       - name: Release under current tag
         run: |
@@ -98,12 +194,11 @@ jobs:
           cat "${CHANGELOG_FILE}"
           gh release create "${RELEASE_VERSION}" --title "${RELEASE_VERSION}" -F "${CHANGELOG_FILE}" ${PRERELEASE_FLAG} ./build/libs/*.jar
         shell: bash
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to Maven
-        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
+        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
         continue-on-error: true
         env:
           MAVEN_USER: ${{ secrets.MAVEN_USER }}
@@ -111,14 +206,14 @@ jobs:
         if: ${{ env.MAVEN_USER != '' }}
 
       - name: Publish to Modrinth
-        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
+        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
         continue-on-error: true
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
         if: ${{ env.SNAPSHOT != 'true' && env.PRERELEASE != 'true' }}
 
       - name: Publish to Curseforge
-        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
+        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
         continue-on-error: true
         env:
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}

@@ -28,13 +28,13 @@
 
 - `AutoToolSwapRoundService` 按玩家 UUID、在线 endpoint、`serverRoundId` 和严格递增 `actionSequence` 维护单个 round；重复请求只在身份与内容精确匹配时幂等返回。
 - `FROZEN` 是工具已固定但 round 仍可继续接收专用活跃 phase 的稳定活跃态；只有 `CLOSING` 取得单调关闭语义并禁止新 `SWAP/FREEZE`。`PLANNING/RUNNING/FINISHING` 只要求“确保已冻结”：服务端已 FROZEN、同一 FREEZE in-flight 或已成功结算时，客户端只维持本地 FROZEN 投影，不发送第二个 intent。
-- 候选由客户端按 `client.autoToolPrioritySelectors` 排序；主手短路、候选排序、服务端 SWAP 与主线程连锁执行统一使用 `AutoToolUsabilityPolicy` 的“剩余耐久至少 2 点”门，不可损耗工具使用 `Integer.MAX_VALUE`。服务端仍不相信客户端候选结论，只校验个人库存 window 0、空 cursor、非创造模式、槽位范围、当前热栏、剩余耐久、内容 fingerprint 与可逆 ledger。
+- 候选由客户端按 `client.autoToolPrioritySelectors` 排序；`ToolHarvestEligibility` 统一真实工具的目标效率、Forge 收获与“剩余耐久至少 2 点”资格，不可损耗工具使用 `Integer.MAX_VALUE`。服务端仍不相信客户端候选结论，只校验个人库存 window 0、空 cursor、非创造模式、槽位范围、当前热栏、剩余耐久、内容 fingerprint 与可逆 ledger。
 - `MinecraftAutoToolSwapInventoryPort` 直接交换 `InventoryPlayer.mainInventory[0..35]`，调用 `markDirty()`，再由 `inventoryContainer.detectAndSendChanges()` 发布原版库存差异。
 - 库存比较分两层：每个 SWAP/RESTORE intent 携带捕获当刻的双槽完整 fingerprint，服务端与当前双槽 exact 比较以阻断陈旧请求；ledger 跨 round 只租赁稳定 role（registry id + stable subtype），允许 count、damage、energy 与 NBT 合法变化。空槽只兼容空槽，活动工具允许同 role 或破损后的空槽。
 - RESTORE 交换的是校验通过后的两个当前真实栈，不使用 ledger 旧内容回写；因此不会回滚动态变化，也不会复制或吞掉栈。sameRole 只证明角色所有权，不承诺对象 instance identity。原 anchor 非空时 candidate 仍须保持同 role；原 anchor 为空时允许 candidate 被任意当前真实栈占用，RESTORE 将占位栈直接交换到主手并把借用工具送回原槽。该窄例外不放宽 intent 双槽 exact 新鲜度、活动工具 role/empty 或库存安全上下文。
 - `ABANDON(5)` 是无法安全 RESTORE 时的显式收口动作：请求使用 ledger 真实双槽与两个 canonical control fingerprint。服务端只接受当前 endpoint/round/sequence、`SWAPPED/FROZEN/CLOSING`、匹配 ledger 槽位；成功时不读取、不交换、不同步库存，只清 ledger/keyDown 并进入 FINISHED。重复相同 intent 复用动作缓存，旧身份或拒绝不得清当前账本。
-- `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。DECLINE 成功零库存读写并让执行门 STOP。
-- TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放。
+- `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。仅原 anchor 为空、deadline 前精确匹配 pending 的 DECLINE 才结算为内部 `DECLINED`；结算本身零库存访问，Coordinator 随后重验 round/target/槽位/空手/库存安全与实时采掘权威，通过才 PROCEED。
+- TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放；APPLIED 被执行桥消费后仍须按新主手实时 `ChainHarvestRules.canHarvest` 复验，错误候选不得 poll。
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
 - 首块成功前的普通匹配使用客户端 light 快照中的 `ABSENT` 或 `blockId + metadata` 目标身份；坐标、TileEntity/NBT 不参与。同身份维持 10 tick 扫描水位，block/meta 变化立即触发 latest-target-wins，连续两个 END tick ABSENT 才确认丢失。已有 ledger 时先完成旧 RESTORE，再为最终有效目标 FULL；已发送 SWAP/RESTORE 不取消，也不在旧 ledger 上发送第二个普通 SWAP。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
@@ -49,8 +49,15 @@
 
 ## 规划与执行耐久边界
 
-- worker 规划 matcher 使用 `ChainHarvestRules.canPlanHarvest`，只判断目标、采掘能力与收获等级，不把当前工具瞬时剩余耐久作为目标入队门。
-- 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。工具仍可用时直接 PROCEED；不足时 WAIT 保留队首与 consumed count，APPLIED 后继续，DECLINE/拒绝/超时/生命周期失效按既有事件路径 STOP。GT 线缆 SPECIAL 不接入。
+- PlanStarted 在服务端主线程捕获不可变 `PlanningToolCapabilitySnapshot`：当前可用手持优先，按 selector/槽位排序的背包真实工具其次，空手虚拟候选最后。真实工具与客户端候选共用 `ToolHarvestEligibility`，空手只按 Forge 通用无工具能力判定；四类正式采掘 matcher 与对象组采掘分支共用同一 round evaluator。worker 只读冻结能力与世界目标，不读实时库存。
+- 冻结集合只是 admission，可因规划期间库存变化而过宽；主线程 `ChainHarvestRules.canHarvest` 始终保留当前玩家、事件语义和耐久的最终权威。`serverRoundId=0` 不进入工具 round 或候选扫描，安全上下文中直接按当前真实主手裁决，普通连锁不因自动工具关闭失效。
+- 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。非空主手只有实时权威与耐久储备都成立才直通，否则可请求真实候选；空主手先 WAIT 请求候选，只有合法 DECLINED 后可空手兜底。APPLIED/DECLINED 都复验，其他失败均 STOP 且不消费队首。GT 线缆 SPECIAL 不接入。
+
+## 客户端预览刷新边界
+
+- reducer 只在 SWAP/TAKEOVER/RESTORE 的目标库存布局经原版同步首次可见时输出 verified-layout effect；APPLIED 回包、重复观察和非库存动作不刷新。
+- `ChainPreviewController` 为当前 origin 租赁首次捕获的完整 `BlockSeedSnapshot` 与 world identity。verified-layout 刷新绕过 phase lock 重算派生预览，但复用同一 block/meta/tile seed，不回读已破坏 origin。
+- 新目标、松键、禁用预览、断线或 world 生命周期失效会清 seed、租约内动作去重身份并协作取消旧 worker；generation 继续隔离迟到结果。
 
 ## 不变量影响
 
@@ -76,6 +83,7 @@
 
 ## 演进
 
+- 2026-07-18：统一规划、客户端候选与执行期采掘能力边界；新增冻结能力集合、空手最低优先级、内部 DECLINED、APPLIED 实时复验和 round=0 直判。同期将 planning STOP/complete 线性化，并以完整 seed 租约刷新三种库存布局对应的预览；wire、协议版本、配置 schema 与五态转移表不变，运行态仍待用户实机。
 - 2026-07-16：补齐首块前目标身份与 latest-target-wins。普通 FULL 改为只消费 light 固化的 block/meta；目标变化按唯一 ledger 先 RESTORE 后重匹配，空气采用连续 2 个 END tick 防抖。协议 v3、服务端写权、TAKEOVER 与连锁五态不变。
 - 2026-07-16：客户端原子迁移为单一 `AutoToolSwapClientReducer`；删除并行的 controller、transaction enum 与有状态 protocol 子模型。当时的 wire、服务端 round/ledger、库存事务、dispatcher、lifecycle gate 与产品时序不变。
 - 2026-07-16：纠正客户端将 `FROZEN` 折叠为 `CLOSING` 的派生错误，并将活跃 phase 的 FREEZE 请求收敛为按 round 幂等；真实 `CLOSING`、自然 IDLE 与 release 的恢复关闭合同不变。

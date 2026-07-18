@@ -2,12 +2,16 @@ package club.heiqi.qz_miner.chain.execution;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
  * {@link ChainExecutionContext} 与 {@link ChainExecutionContextRegistry} 纯逻辑单测。
@@ -140,6 +144,96 @@ public class ChainExecutionContextTest {
         ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1,
                 new ConcurrentLinkedQueue<ChainTarget>(), session);
         Assert.assertSame("session 必须原样携带（真实破坏桥参数载体）", session, context.getSession());
+    }
+
+    @Test
+    public void planningCancellationIsIdempotentBeforeAndAfterSubscriptionAttach() {
+        ChainExecutionContext cancelBeforeAttach = context();
+        Assert.assertEquals(ChainExecutionContext.PlanningStopResult.CANCELLATION_WON,
+                cancelBeforeAttach.requestPlanningStop());
+        CountingSubscription late = new CountingSubscription();
+        cancelBeforeAttach.attachPlanningSubscription(late);
+        Assert.assertEquals(1, late.unregisterCount.get());
+        Assert.assertEquals(ChainExecutionContext.PlanningStopResult.CANCELLATION_ALREADY_WON,
+                cancelBeforeAttach.requestPlanningStop());
+        Assert.assertEquals(1, late.unregisterCount.get());
+
+        ChainExecutionContext attachBeforeCancel = context();
+        CountingSubscription early = new CountingSubscription();
+        attachBeforeCancel.attachPlanningSubscription(early);
+        Assert.assertEquals(ChainExecutionContext.PlanningStopResult.CANCELLATION_WON,
+                attachBeforeCancel.requestPlanningStop());
+        Assert.assertEquals(1, early.unregisterCount.get());
+        attachBeforeCancel.requestPlanningStop();
+        Assert.assertEquals(1, early.unregisterCount.get());
+    }
+
+    @Test
+    public void completedPlanningDefersStopUntilMainThreadObservation() {
+        ChainExecutionContext context = context();
+        AtomicInteger publications = new AtomicInteger();
+        Assert.assertTrue(context.tryCompletePlanningAndPublish(7, publications::incrementAndGet));
+        Assert.assertEquals(ChainExecutionContext.PlanningStopResult.COMPLETION_PENDING_OBSERVATION,
+                context.requestPlanningStop());
+        Assert.assertEquals(1, publications.get());
+        Assert.assertTrue(context.observePlanningCompletionAndShouldStop());
+        Assert.assertEquals(ChainExecutionContext.PlanningStopResult.COMPLETION_OBSERVED,
+                context.requestPlanningStop());
+    }
+
+    @Test
+    public void planningCompletionAndCancellationRaceHasExactlyOneWinner() throws Exception {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            final ChainExecutionContext context = context();
+            final CountingSubscription subscription = new CountingSubscription();
+            context.attachPlanningSubscription(subscription);
+            final AtomicInteger completions = new AtomicInteger();
+            final AtomicReference<ChainExecutionContext.PlanningStopResult> stopResult =
+                    new AtomicReference<ChainExecutionContext.PlanningStopResult>();
+            final CountDownLatch start = new CountDownLatch(1);
+            Thread completer = new Thread(() -> {
+                await(start);
+                context.tryCompletePlanningAndPublish(1, completions::incrementAndGet);
+            });
+            Thread canceller = new Thread(() -> {
+                await(start);
+                stopResult.set(context.requestPlanningStop());
+            });
+            completer.start();
+            canceller.start();
+            start.countDown();
+            completer.join();
+            canceller.join();
+
+            if (completions.get() == 1) {
+                Assert.assertTrue(stopResult.get() == ChainExecutionContext.PlanningStopResult.COMPLETION_PENDING_OBSERVATION
+                        || stopResult.get() == ChainExecutionContext.PlanningStopResult.COMPLETION_OBSERVED);
+                Assert.assertEquals(0, subscription.unregisterCount.get());
+            } else {
+                Assert.assertEquals(ChainExecutionContext.PlanningStopResult.CANCELLATION_WON, stopResult.get());
+                Assert.assertEquals(1, subscription.unregisterCount.get());
+                Assert.assertFalse(context.publishPlanningProgressIfActive(completions::incrementAndGet));
+            }
+        }
+    }
+
+    private static ChainExecutionContext context() {
+        return new ChainExecutionContext(PLAYER_A, 17L, 3,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+        }
+    }
+
+    private static final class CountingSubscription implements ParallelTickSubscription {
+        private final AtomicInteger unregisterCount = new AtomicInteger();
+        @Override public void unregister() { unregisterCount.incrementAndGet(); }
     }
 
     /** session=null 边界（单测路径允许，真实破坏桥需自行判 null 走 publish ExecutionFinished）。 */

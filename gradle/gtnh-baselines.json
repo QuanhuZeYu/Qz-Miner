@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "baselines": [
+    {
+      "manifest": "2.8.4",
+      "gregTechVersion": "5.09.51.482"
+    },
+    {
+      "manifest": "2.9.0-beta-2",
+      "gregTechVersion": "5.09.54.20"
+    }
+  ]
+}

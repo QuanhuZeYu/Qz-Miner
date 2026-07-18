@@ -61,6 +61,39 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void previewInvalidationIsPureValueAndAppearsOnlyOnFirstVerifiedLayout() {
+        AutoToolSwapClientReducer reducer = reducer(12L);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 12L, 72L, 1L);
+        AutoToolSwapIntent swap = captureAndSubmit(reducer,
+                only(reducer.reduce(new TickEvent(context(0L, restored()), true))),
+                context(0L, restored()));
+
+        settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
+        Assert.assertTrue("APPLIED 但旧布局仍可见时不得刷新",
+                reducer.reduce(new TickEvent(context(1L, restored()), true)).isEmpty());
+        Effect invalidation = only(reducer.reduce(new TickEvent(context(2L, swapped()), true)));
+        Assert.assertEquals(Effect.Type.PREVIEW_INVALIDATE, invalidation.type());
+        Assert.assertEquals(1L, invalidation.cycleGeneration());
+        Assert.assertEquals(72L, invalidation.serverRoundId());
+        Assert.assertEquals(swap.actionSequence(), invalidation.actionSequence());
+        Assert.assertEquals(AutoToolSwapAction.SWAP, invalidation.action());
+        Assert.assertTrue("同一布局重复观察不得重复刷新",
+                reducer.reduce(new TickEvent(context(3L, swapped()), true)).isEmpty());
+
+        AutoToolSwapClientReducer rejected = reducer(13L);
+        Effect rejectedRound = only(rejected.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(rejected, rejectedRound);
+        acceptRound(rejected, 13L, 73L, 1L);
+        AutoToolSwapIntent rejectedSwap = captureAndSubmit(rejected,
+                only(rejected.reduce(new TickEvent(context(0L, restored()), true))),
+                context(0L, restored()));
+        settle(rejected, rejectedSwap, AutoToolSwapResultCode.REJECTED, AutoToolSwapRoundState.OPEN);
+        Assert.assertTrue(rejected.reduce(new TickEvent(context(1L, swapped()), true)).isEmpty());
+    }
+
+    @Test
     public void roundAndActionIdentityRejectStaleTuplesAndRetransmitSameImmutablePayloadOnce() {
         AutoToolSwapClientReducer reducer = reducer(21L);
         Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
@@ -148,7 +181,10 @@ public class AutoToolSwapClientReducerTest {
                 context(2L, swapped()));
         Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
         settle(reducer, restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.CLOSING);
-        Effect close = only(reducer.reduce(new TickEvent(context(3L, restored()), false)));
+        List<Effect> restoredEffects = reducer.reduce(new TickEvent(context(3L, restored()), false));
+        assertPreviewInvalidation(effectOfType(restoredEffects, Effect.Type.PREVIEW_INVALIDATE),
+                AutoToolSwapAction.RESTORE);
+        Effect close = onlyOfType(restoredEffects, Effect.Type.SEND_INTENT);
         Assert.assertEquals(AutoToolSwapAction.CLOSE, close.intent().action());
         submit(reducer, close);
         settle(reducer, close.intent(), AutoToolSwapResultCode.ACCEPTED,
@@ -514,8 +550,8 @@ public class AutoToolSwapClientReducerTest {
                 context(2L, target(2, 0), swapped()));
         Assert.assertEquals(AutoToolSwapAction.RESTORE, restore.action());
         settle(reducer, restore, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.OPEN);
-        Assert.assertTrue(reducer.reduce(new TickEvent(
-                context(3L, target(2, 0), restored()), true)).isEmpty());
+        assertPreviewInvalidation(reducer.reduce(new TickEvent(
+                context(3L, target(2, 0), restored()), true)), AutoToolSwapAction.RESTORE);
 
         Effect nextSwapCapture = only(reducer.reduce(new TickEvent(
                 context(4L, target(2, 0), restoredB()), true)));
@@ -566,8 +602,11 @@ public class AutoToolSwapClientReducerTest {
         Assert.assertTrue(reducer.reduce(new TickEvent(
                 context(1L, target(2, 0), restored()), true)).isEmpty());
         settle(reducer, swap, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.SWAPPED);
-        Effect restoreCapture = only(reducer.reduce(new TickEvent(
-                context(2L, target(3, 0), swapped()), true)));
+        List<Effect> swappedEffects = reducer.reduce(new TickEvent(
+                context(2L, target(3, 0), swapped()), true));
+        assertPreviewInvalidation(effectOfType(swappedEffects, Effect.Type.PREVIEW_INVALIDATE),
+                AutoToolSwapAction.SWAP);
+        Effect restoreCapture = onlyOfType(swappedEffects, Effect.Type.CAPTURE);
         Assert.assertEquals(Effect.Type.CAPTURE, restoreCapture.type());
         AutoToolSwapIntent restore = captureAndSubmit(reducer, restoreCapture,
                 context(2L, target(3, 0), swapped()));
@@ -824,6 +863,33 @@ public class AutoToolSwapClientReducerTest {
     private static Effect only(List<Effect> effects) {
         Assert.assertEquals("effects=" + effects.size(), 1, effects.size());
         return effects.get(0);
+    }
+
+    private static void assertPreviewInvalidation(List<Effect> effects, AutoToolSwapAction action) {
+        Effect effect = only(effects);
+        Assert.assertEquals(Effect.Type.PREVIEW_INVALIDATE, effect.type());
+        Assert.assertEquals(action, effect.action());
+    }
+
+    private static void assertPreviewInvalidation(Effect effect, AutoToolSwapAction action) {
+        Assert.assertEquals(Effect.Type.PREVIEW_INVALIDATE, effect.type());
+        Assert.assertEquals(action, effect.action());
+    }
+
+    private static Effect effectOfType(List<Effect> effects, Effect.Type type) {
+        return onlyOfType(effects, type);
+    }
+
+    private static Effect onlyOfType(List<Effect> effects, Effect.Type type) {
+        Effect matched = null;
+        for (Effect effect : effects) {
+            if (effect.type() == type) {
+                Assert.assertNull("duplicate effect type=" + type, matched);
+                matched = effect;
+            }
+        }
+        Assert.assertNotNull("missing effect type=" + type + " in " + effects.size(), matched);
+        return matched;
     }
 
     private static void assertNoNewSwap(AutoToolSwapClientReducer reducer, List<Effect> effects) {

@@ -603,7 +603,7 @@ public class AutoToolSwapRoundServiceTest {
 
         Fixture declined = fixture();
         declined.service.observeChainPhase(declined.player, declined.endpoint, declined.roundId, true, false);
-        declined.inventory.slots[0] = stack("mod:pickaxe", "low", 1);
+        declined.inventory.slots[0] = AutoToolSwapStackState.empty();
         AutoToolSwapTakeoverRequest declineRequest = declined.service.prepareTakeover(declined.player,
                 declined.endpoint, declined.roundId, 2, 1, 64, 2, 1, 0, 0,
                 declined.inventory.slots[0], 20L, 28L);
@@ -614,6 +614,8 @@ public class AutoToolSwapRoundServiceTest {
                 0, 0, empty, empty);
         Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, declined.service.handleIntent(declined.player,
                 declined.endpoint, decline, declined.inventory, 21L).outcome());
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.DECLINED,
+                declined.service.takeoverGateState(declined.player, declined.endpoint, declineRequest, 22L));
         Assert.assertEquals(0, declined.inventory.readCount);
         Assert.assertEquals(0, declined.inventory.swapCount);
         Assert.assertEquals(0, declined.inventory.syncCount);
@@ -852,12 +854,27 @@ public class AutoToolSwapRoundServiceTest {
     @Test
     public void declineDeadlineMinusOneIsAcceptedWithoutInventoryAccess() {
         Fixture fixture = takeoverFixture();
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
         AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
                 fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
         resetInventoryCounters(fixture.inventory);
 
         Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.service.handleIntent(fixture.player,
                 fixture.endpoint, declineIntent(fixture, request), fixture.inventory, 17L).outcome());
+        assertZeroTakeoverInventoryAccess(fixture.inventory);
+    }
+
+    @Test
+    public void nonEmptyAnchorCannotCreateDeclinedFallbackEvenWithCanonicalControlFingerprints() {
+        Fixture fixture = takeoverFixture();
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+        resetInventoryCounters(fixture.inventory);
+
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, declineIntent(fixture, request), fixture.inventory, 17L).outcome());
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 17L));
         assertZeroTakeoverInventoryAccess(fixture.inventory);
     }
 

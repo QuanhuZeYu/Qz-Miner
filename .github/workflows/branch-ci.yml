@@ -13,8 +13,99 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  prepare-baselines:
+    name: Prepare GTNH baseline matrix
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.baselines.outputs.matrix }}
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 32
+          submodules: recursive
+
+      - name: Validate baseline manifest and build matrix
+        id: baselines
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          SAFE_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+          def fail(message):
+              raise SystemExit(message)
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      fail(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              fail(f"invalid JSON constant: {value}")
+
+          manifest_path = Path("gradle/gtnh-baselines.json")
+          raw = manifest_path.read_bytes()
+          if len(raw) > 16384:
+              fail("baseline manifest exceeds 16 KiB")
+          try:
+              text = raw.decode("ascii")
+          except UnicodeDecodeError:
+              fail("baseline manifest must contain ASCII only")
+          data = json.loads(
+              text,
+              object_pairs_hook=reject_duplicates,
+              parse_constant=reject_constant,
+          )
+          if type(data) is not dict or set(data) != {"schemaVersion", "baselines"}:
+              fail("baseline manifest must contain only schemaVersion and baselines")
+          if type(data["schemaVersion"]) is not int or data["schemaVersion"] != 1:
+              fail("unsupported baseline manifest schemaVersion")
+          baselines = data["baselines"]
+          if type(baselines) is not list or len(baselines) != 2:
+              fail("baseline manifest must contain exactly two baselines")
+          for index, baseline in enumerate(baselines):
+              if type(baseline) is not dict or set(baseline) != {"manifest", "gregTechVersion"}:
+                  fail(f"baseline {index} must contain only manifest and gregTechVersion")
+              for key in ("manifest", "gregTechVersion"):
+                  value = baseline[key]
+                  if type(value) is not str or SAFE_VALUE.fullmatch(value) is None:
+                      fail(f"baseline {index} has unsafe {key}")
+          manifests = [baseline["manifest"] for baseline in baselines]
+          if len(set(manifests)) != len(manifests):
+              fail("baseline manifests must be unique")
+
+          properties = Path("gradle.properties").read_text(encoding="utf-8")
+          default_matches = re.findall(
+              r"(?m)^\s*elytra\.manifest\.version\s*=\s*([^\s#]+)\s*$",
+              properties,
+          )
+          if len(default_matches) != 1 or SAFE_VALUE.fullmatch(default_matches[0]) is None:
+              fail("gradle.properties must define one safe default manifest")
+          if manifests.count(default_matches[0]) != 1:
+              fail("default manifest must occur exactly once in the baseline manifest")
+
+          matrix = json.dumps({"include": baselines}, separators=(",", ":"))
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"matrix={matrix}", file=output)
+          PY
+
+  baseline:
+    name: GTNH ${{ matrix.manifest }}
+    needs: prepare-baselines
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare-baselines.outputs.matrix) }}
     steps:
       - name: Checkout mod repo
         uses: actions/checkout@v5
@@ -56,13 +147,28 @@ jobs:
         run: chmod +x gradlew
 
       - name: Setup the workspace
-        run: ./gradlew --info --stacktrace setupCIWorkspace
+        run: ./gradlew --info --stacktrace "-Pelytra.manifest.version=${{ matrix.manifest }}" setupCIWorkspace
+
+      - name: Verify resolved GregTech baseline
+        run: ./gradlew --info --stacktrace "-Pelytra.manifest.version=${{ matrix.manifest }}" "-Pqz.gtnh.expectedGregTechVersion=${{ matrix.gregTechVersion }}" verifyGtnhBaseline
 
       - name: Run tests
-        run: ./gradlew --info --stacktrace test
+        run: ./gradlew --info --stacktrace "-Pelytra.manifest.version=${{ matrix.manifest }}" test
 
       - name: Run checks
-        run: ./gradlew --info --stacktrace check
+        run: ./gradlew --info --stacktrace "-Pelytra.manifest.version=${{ matrix.manifest }}" check
 
       - name: Build the mod
-        run: ./gradlew --info --stacktrace build
+        run: ./gradlew --info --stacktrace "-Pelytra.manifest.version=${{ matrix.manifest }}" build
+
+  build:
+    name: build
+    if: ${{ always() }}
+    needs: [ prepare-baselines, baseline ]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every baseline job to succeed
+        shell: bash
+        run: |
+          test '${{ needs.prepare-baselines.result }}' = 'success'
+          test '${{ needs.baseline.result }}' = 'success'

@@ -30,6 +30,17 @@ public final class ChainHarvestRules {
 
     private ChainHarvestRules() {}
 
+    /** 为单个 planning round 创建只读冻结能力 evaluator。 */
+    static HarvestEvaluator planningEvaluator(final PlanningToolCapabilitySnapshot capabilitySnapshot) {
+        if (capabilitySnapshot == null) return DEFAULT_EVALUATOR;
+        return new HarvestEvaluator() {
+            @Override
+            public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
+                return evaluateFrozenPlanningHarvest(player, target, diagnosticTracking, capabilitySnapshot);
+            }
+        };
+    }
+
     /**
      * 判断当前工具耐久是否仍允许继续连锁。
      *
@@ -141,6 +152,30 @@ public final class ChainHarvestRules {
         String durabilityResult = enforceDurabilityReserve ? "true" : "planning-deferred";
         return new HarvestEvaluation(canHarvestBlock, block, meta, toolSummary, durabilityResult,
                 String.valueOf(canHarvestBlock), canHarvestBlock ? "accepted" : "can-harvest-block-rejected");
+    }
+
+    /** worker 只读取目标世界视图，并以 PlanStarted 冻结能力集合完成纯读 admission。 */
+    private static HarvestEvaluation evaluateFrozenPlanningHarvest(EntityPlayer player, ChainTarget target,
+            boolean diagnosticTracking, PlanningToolCapabilitySnapshot capabilitySnapshot) {
+        if (player == null || target == null || player.worldObj == null) {
+            return new HarvestEvaluation(false, null, -1, "frozen-capabilities", "planning-frozen",
+                    "not-run", "invalid-input");
+        }
+        Block block = player.worldObj.getBlock(target.getX(), target.getY(), target.getZ());
+        if (block == null || block == Blocks.air || block == Blocks.bedrock || block.getMaterial().isLiquid()) {
+            return new HarvestEvaluation(false, block, -1, "frozen-capabilities", "planning-frozen",
+                    "not-run", "world-view");
+        }
+        if (isStandingOnTarget(player, target)) {
+            return new HarvestEvaluation(false, block, -1, "frozen-capabilities", "planning-frozen",
+                    "not-run", "standing-on-target");
+        }
+        int meta = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        PlanningToolCapabilitySnapshot.MatchKind match = capabilitySnapshot.select(block, meta);
+        boolean accepted = match != PlanningToolCapabilitySnapshot.MatchKind.NONE;
+        String summary = diagnosticTracking ? "frozen-match=" + match : "frozen-capabilities";
+        return new HarvestEvaluation(accepted, block, meta, summary, "planning-frozen",
+                String.valueOf(accepted), accepted ? "accepted" : "frozen-capability-rejected");
     }
 
     /** 对已捕获 ItemStack 执行与公开耐久规则相同的纯值判定。 */

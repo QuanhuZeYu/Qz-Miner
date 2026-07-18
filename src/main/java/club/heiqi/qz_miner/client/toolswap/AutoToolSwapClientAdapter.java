@@ -16,6 +16,7 @@ import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.RoundResult
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TickEvent;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientReducer.TakeoverRequestEvent;
 import club.heiqi.qz_miner.toolswap.ToolSelector;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -49,10 +50,25 @@ public final class AutoToolSwapClientAdapter {
         boolean isChainKeyPhysicallyDown();
     }
 
+    /** 已验证库存布局对客户端预览的纯通知边界。 */
+    public interface PreviewInvalidationListener {
+        void onPreviewInvalidated(long cycleGeneration, long serverRoundId,
+                long actionSequence, AutoToolSwapAction action);
+    }
+
+    private static final PreviewInvalidationListener NO_PREVIEW_INVALIDATION_LISTENER =
+            new PreviewInvalidationListener() {
+                @Override
+                public void onPreviewInvalidated(long cycleGeneration, long serverRoundId,
+                        long actionSequence, AutoToolSwapAction action) {
+                }
+            };
+
     private final AutoToolSwapClientReducer reducer;
     private final GameFacade game;
     private final AutoToolSwapClientTransport transport;
     private final AutoToolSwapClientReducer.DiagnosticSink diagnosticSink;
+    private final PreviewInvalidationListener previewInvalidationListener;
 
     public AutoToolSwapClientAdapter(boolean enabled, List<ToolSelector> selectors, GameFacade game,
             AutoToolSwapClientTransport transport) {
@@ -62,20 +78,42 @@ public final class AutoToolSwapClientAdapter {
     /** 创建带独立接替开关的客户端 adapter。 */
     public AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
             GameFacade game, AutoToolSwapClientTransport transport) {
-        this(enabled, takeoverEnabled, selectors, game, transport, PRODUCTION_DIAGNOSTIC_SINK);
+        this(enabled, takeoverEnabled, selectors, game, transport,
+                NO_PREVIEW_INVALIDATION_LISTENER, PRODUCTION_DIAGNOSTIC_SINK);
+    }
+
+    /** 创建连接已验证库存布局与预览重启边界的客户端 adapter。 */
+    public AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
+            GameFacade game, AutoToolSwapClientTransport transport,
+            PreviewInvalidationListener previewInvalidationListener) {
+        this(enabled, takeoverEnabled, selectors, game, transport,
+                previewInvalidationListener, PRODUCTION_DIAGNOSTIC_SINK);
     }
 
     /** 创建可注入诊断出口的 adapter，供包内纯 JVM 合同验证。 */
     AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
             GameFacade game, AutoToolSwapClientTransport transport,
             AutoToolSwapClientReducer.DiagnosticSink diagnosticSink) {
+        this(enabled, takeoverEnabled, selectors, game, transport,
+                NO_PREVIEW_INVALIDATION_LISTENER, diagnosticSink);
+    }
+
+    /** 创建同时注入预览与诊断出口的 adapter，供包内纯 JVM 合同验证。 */
+    AutoToolSwapClientAdapter(boolean enabled, boolean takeoverEnabled, List<ToolSelector> selectors,
+            GameFacade game, AutoToolSwapClientTransport transport,
+            PreviewInvalidationListener previewInvalidationListener,
+            AutoToolSwapClientReducer.DiagnosticSink diagnosticSink) {
         if (game == null || transport == null) {
             throw new IllegalArgumentException("game and transport must not be null");
+        }
+        if (previewInvalidationListener == null) {
+            throw new IllegalArgumentException("previewInvalidationListener must not be null");
         }
         if (diagnosticSink == null) throw new IllegalArgumentException("diagnosticSink must not be null");
         reducer = new AutoToolSwapClientReducer(enabled, takeoverEnabled, selectors, diagnosticSink);
         this.game = game;
         this.transport = transport;
+        this.previewInvalidationListener = previewInvalidationListener;
         this.diagnosticSink = diagnosticSink;
     }
 
@@ -200,6 +238,10 @@ public final class AutoToolSwapClientAdapter {
                     freshKey = true;
                     continue;
                 }
+                if (effect.type() == Effect.Type.PREVIEW_INVALIDATE) {
+                    notifyPreviewInvalidated(effect);
+                    continue;
+                }
                 if (effect.type() == Effect.Type.CAPTURE) {
                     ToolSwapLightContext light = game.captureLightContext(
                             reducer.clientTick(), reducer.chainActive());
@@ -217,6 +259,18 @@ public final class AutoToolSwapClientAdapter {
         }
         if (!effects.isEmpty()) throw new IllegalStateException("tool swap effect execution did not quiesce");
         return freshKey;
+    }
+
+    /** ClientTick END 内同步通知；监听器异常不得改变库存协议状态。 */
+    private void notifyPreviewInvalidated(Effect effect) {
+        try {
+            previewInvalidationListener.onPreviewInvalidated(effect.cycleGeneration(),
+                    effect.serverRoundId(), effect.actionSequence(), effect.action());
+        } catch (RuntimeException ignored) {
+            // 预览刷新失败不得反向污染库存事务。
+        } catch (LinkageError ignored) {
+            // 客户端预览能力不可用时保持库存协议完成态。
+        }
     }
 
     private boolean sendRound(long nonce) {

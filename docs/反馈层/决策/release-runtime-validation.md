@@ -4,6 +4,10 @@
 
 自动化 / CI 与人工运行态分别记录，不能把前者成功表述为后者通过，也不能用人工抽测替代自动门禁。某个版本的风险接受必须明确限定范围，不自动成为后续发布的默认政策。
 
+GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出包 manifest 仍以 `gradle.properties` 为唯一权威。branch CI 从清单生成独立 clean-runner matrix，逐项完成精确 GregTech 解析断言与 setup/test/check/build；tag workflow 必须在任何 checkout、构建或 Release 副作用前确认同 SHA、`push`、成功的 `branch-ci.yml` 运行。维护者本地双基线脚本只作可选诊断，不能替代上述发布门，也不授权 agent 执行。
+
+自动化仍不能替代 I8 字节码形状之外的真实掉落、client 与 dedicated server 运行态；缺少这些证据时继续记为 **INCOMPLETE**。branch matrix 的 CI 证据只有实际 push 后才成立，本地通过不得冒充。
+
 ## 5.0.19 一次性风险接受
 
 用户已明确授权 `5.0.19` 在人工客户端、dedicated server 与双 GT 运行态矩阵仍为 **INCOMPLETE** 的情况下发布，并接受剩余运行态与诊断盲区带来的风险。该版本现已正式发布；人工运行态未因此变为通过，也不再要求用户补做本版本人工矩阵。
@@ -49,3 +53,17 @@
 修复后的真实 EndlessIDs 与连续 TAKEOVER 运行态仍为 **INCOMPLETE**；自动化、终审、CI 与发布成功均不等于实机通过。用户在知悉验证边界后授权本次发布，该风险接受仅适用于 `5.0.21`，不自动由后续版本继承。后续玩家只需提供“问题描述 + 对应日志”，维护者负责分析并按需最小补强，不把人工测试负担转交玩家。
 
 `5.0.19`、`5.0.20` 与 `5.0.21` 的 tag/Release 均为不可移动发布事实；`5.0.21` tag 固定在 `b264ace`，本次发布后的文档提交不属于发布制品 SHA，也不得移动任何既有 tag。
+
+## 5.0.22 一次性候选风险接受与发布门
+
+用户已明确授权将 `5.0.22` 作为完整候选推进，并接受真实 client/dedicated、HUD/预览、连续工具接替、空手/模组方块、GT 矿石/线缆、LootGames 与掉落运行态仍为 **INCOMPLETE** 的一次性风险。该授权只适用于 `5.0.22`，不自动成为未来版本的发布政策；上述运行态不会因自动化测试、编译、构建或发布流程成功而改写为通过。
+
+本候选的功能提交范围固定为 `96398ec`（统一连锁采掘能力与工具预览）、`189d6e4`（GTNH `2.9.0-beta-2` 适配）和 `7aaa3ed`（双基线 CI/exact-SHA 发布门）。默认 GTNH 基线为 `2.9.0-beta-2`，最低支持 `2.8.4`；Qz-UILib 要求 `4.6.0+`，本次基于公开 `4.6.1`。既有 `5.0.19`、`5.0.20`、`5.0.21` 的 tag identity 与历史发布事实保持不变。
+
+`5.0.22` 的发布状态按以下三阶段推进：
+
+1. **候选未发布**：创建 tag 前，最终 feature SHA 的双 GTNH 基线 matrix、最终主线 merge SHA 的双基线 matrix 必须全绿，并核对 exact-SHA 关系及 `5.0.22` tag 不存在。任一项未完成都不得创建或推送 tag。
+2. **tag 已推送待验收**：tag 前门全绿后，才可创建并推送不可移动的 annotated tag。tag push 触发 workflow 后，必须验收 tag workflow 核心步骤、annotated tag identity、公开 GitHub Release 正文与 draft/prerelease 状态，并下载 `qz_miner-5.0.22.jar`、`qz_miner-5.0.22-dev.jar`、`qz_miner-5.0.22-sources.jar` 核对身份与 SHA-256。上述 tag 后验收不是可选项；任一项未完成或失败，都不得标记为发布闭环。
+3. **已发布闭环**：仅当前述 tag 后验收全部通过，才可将 `5.0.22` 写为已发布闭环；tag 推送成功本身不等于发布完成。
+
+本次风险接受不替代任何 tag 前门或 tag 后验收，也不改变真实运行态仍为 **INCOMPLETE** 的状态。

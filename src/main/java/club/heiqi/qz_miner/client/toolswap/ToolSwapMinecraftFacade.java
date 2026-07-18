@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.client.toolswap;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -11,6 +10,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.client.KeyListener;
 import club.heiqi.qz_miner.toolswap.ToolCandidate;
+import club.heiqi.qz_miner.toolswap.ToolHarvestEligibility;
 import club.heiqi.qz_miner.toolswap.minecraft.AutoToolSwapStackStateFactory;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
 import cpw.mods.fml.relauncher.Side;
@@ -18,12 +18,9 @@ import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.world.World;
-import net.minecraftforge.common.ForgeHooks;
-import net.minecraftforge.oredict.OreDictionary;
 
 /**
  * Minecraft 客户端事实采样门面。
@@ -159,8 +156,7 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
 
     /** 普通可损耗物品不把 durability damage 当作 subtype。 */
     static int stableSubtype(ItemStack stack) {
-        return stack != null && stack.getItem() != null && stack.getItem().getHasSubtypes()
-                ? stack.getItemDamage() : 0;
+        return ToolHarvestEligibility.stableSubtype(stack);
     }
 
     private static SlotSnapshot snapshotSlot(int slot, ItemStack stack) {
@@ -169,53 +165,16 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
     }
 
     private static ToolCandidate snapshotCandidate(int slot, ItemStack stack, Block target, int metadata) {
-        if (stack == null || stack.getItem() == null) {
-            return null;
-        }
-        Item item = stack.getItem();
-        boolean effective = isEffective(stack, target, metadata);
-        boolean canHarvest = canHarvest(stack, target, metadata);
-        int remaining = stack.isItemStackDamageable()
-                ? Math.max(0, stack.getMaxDamage() - stack.getItemDamage()) : Integer.MAX_VALUE;
-        return new ToolCandidate(
-                slot,
-                registryId(item),
-                stableSubtype(stack),
-                oreNames(stack),
-                effective,
-                canHarvest,
-                remaining);
+        return ToolHarvestEligibility.snapshotCandidate(slot, stack, target, metadata);
     }
 
     /** 目标实际效率必须高于徒手基线。 */
     static boolean isEffective(ItemStack stack, Block target, int metadata) {
-        return stack != null && stack.getItem() != null && target != null
-                && stack.getItem().getDigSpeed(stack, target, metadata) > 1.0F;
+        return ToolHarvestEligibility.isEffective(stack, target, metadata);
     }
 
     /** 仅有采掘等级要求时校验 Forge 工具等级。 */
     static boolean canHarvest(ItemStack stack, Block target, int metadata) {
-        return stack != null && target != null && (target.getHarvestTool(metadata) == null
-                || ForgeHooks.canToolHarvestBlock(target, metadata, stack));
-    }
-
-    private static String registryId(Item item) {
-        Object name = Item.itemRegistry.getNameForObject(item);
-        return name == null ? "minecraft:unknown" : String.valueOf(name);
-    }
-
-    private static List<String> oreNames(ItemStack stack) {
-        int[] ids = OreDictionary.getOreIDs(stack);
-        if (ids == null || ids.length == 0) {
-            return Collections.emptyList();
-        }
-        List<String> names = new ArrayList<String>(ids.length);
-        for (int id : ids) {
-            String name = OreDictionary.getOreName(id);
-            if (name != null && name.length() > 0) {
-                names.add(name);
-            }
-        }
-        return Collections.unmodifiableList(names);
+        return ToolHarvestEligibility.canHarvest(stack, target, metadata);
     }
 }

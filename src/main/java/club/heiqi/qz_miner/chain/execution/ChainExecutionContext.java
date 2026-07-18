@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
  * 阶段5 起为单次执行承载目标队列与代际；阶段8 块2 起追加 session 字段，
@@ -40,6 +41,22 @@ import club.heiqi.qz_miner.chain.state.ChainSession;
  * ConcurrentHashMap 的 happens-before 保证内存可见性，无需额外同步。</p>
  */
 public final class ChainExecutionContext {
+
+    /** 主线程请求停止规划时的线性化结果。 */
+    public enum PlanningStopResult {
+        CANCELLATION_WON,
+        CANCELLATION_ALREADY_WON,
+        COMPLETION_PENDING_OBSERVATION,
+        COMPLETION_OBSERVED
+    }
+
+    /** 规划终局只允许在本对象监视器内单调推进。 */
+    private enum PlanningTerminal {
+        ACTIVE,
+        EXTERNAL_CANCELLED,
+        WORKER_CANCELLED,
+        COMPLETED
+    }
 
     /** 触发本次连锁的玩家 UUID。 */
     private final UUID playerUUID;
@@ -86,6 +103,12 @@ public final class ChainExecutionContext {
     private int executionConsumedCount;
     /** 主线程实际成功执行的额外目标数。 */
     private int executionSucceededCount;
+    /** registerPre 返回的协作取消句柄；安装与取消由本对象线性化。 */
+    private ParallelTickSubscription planningSubscription;
+    private PlanningTerminal planningTerminal = PlanningTerminal.ACTIVE;
+    private boolean subscriptionCancellationIssued;
+    private boolean planningCompletionObserved;
+    private boolean executionStopPending;
 
     /**
      * 构造执行上下文。
@@ -140,8 +163,110 @@ public final class ChainExecutionContext {
 
     /** 冻结 worker 确认数并标记规划完成。 */
     public void markPlanningComplete(int confirmedCount) {
-        this.planningConfirmedCount = Math.max(0, confirmedCount);
-        this.planningComplete = true;
+        tryCompletePlanningAndPublish(confirmedCount, new Runnable() {
+            @Override
+            public void run() {
+            }
+        });
+    }
+
+    /**
+     * 安装规划订阅；若外部取消已先胜出，安装线程立即补发一次协作取消请求。
+     *
+     * @param subscription registerPre 返回的订阅句柄
+     */
+    public void attachPlanningSubscription(ParallelTickSubscription subscription) {
+        if (subscription == null) throw new IllegalArgumentException("planning subscription must not be null");
+        boolean cancelNow = false;
+        synchronized (this) {
+            if (planningSubscription != null && planningSubscription != subscription) {
+                throw new IllegalStateException("planning subscription already attached");
+            }
+            planningSubscription = subscription;
+            if (planningTerminal == PlanningTerminal.EXTERNAL_CANCELLED
+                    && !subscriptionCancellationIssued) {
+                subscriptionCancellationIssued = true;
+                cancelNow = true;
+            }
+        }
+        if (cancelNow) subscription.unregister();
+    }
+
+    /**
+     * 主线程请求协作停止规划，并与 worker 完成声明线性化。
+     *
+     * @return 取消胜出、完成待主线程观察或完成已观察
+     */
+    public PlanningStopResult requestPlanningStop() {
+        ParallelTickSubscription cancelNow = null;
+        PlanningStopResult result;
+        synchronized (this) {
+            executionStopPending = true;
+            if (planningTerminal == PlanningTerminal.ACTIVE) {
+                planningTerminal = PlanningTerminal.EXTERNAL_CANCELLED;
+                result = PlanningStopResult.CANCELLATION_WON;
+                if (planningSubscription != null && !subscriptionCancellationIssued) {
+                    subscriptionCancellationIssued = true;
+                    cancelNow = planningSubscription;
+                }
+            } else if (planningTerminal == PlanningTerminal.EXTERNAL_CANCELLED
+                    || planningTerminal == PlanningTerminal.WORKER_CANCELLED) {
+                result = PlanningStopResult.CANCELLATION_ALREADY_WON;
+            } else {
+                result = planningCompletionObserved
+                        ? PlanningStopResult.COMPLETION_OBSERVED
+                        : PlanningStopResult.COMPLETION_PENDING_OBSERVATION;
+            }
+        }
+        if (cancelNow != null) cancelNow.unregister();
+        return result;
+    }
+
+    /** @return 外部主线程取消是否已赢得规划终局。 */
+    public synchronized boolean isExternalPlanningCancellationRequested() {
+        return planningTerminal == PlanningTerminal.EXTERNAL_CANCELLED;
+    }
+
+    /**
+     * worker 在同一线性化点冻结完成计数并发布 PlanCompleted。
+     * publication 只能执行一次，且外部取消先胜出时不会执行。
+     */
+    public synchronized boolean tryCompletePlanningAndPublish(int confirmedCount, Runnable publication) {
+        if (publication == null) throw new IllegalArgumentException("completion publication must not be null");
+        if (planningTerminal != PlanningTerminal.ACTIVE) return false;
+        planningConfirmedCount = Math.max(0, confirmedCount);
+        planningComplete = true;
+        planningTerminal = PlanningTerminal.COMPLETED;
+        publication.run();
+        return true;
+    }
+
+    /** worker 仅在规划仍活跃时发布一次进度，避免外部取消胜出后出现迟到事件。 */
+    public synchronized boolean publishPlanningProgressIfActive(Runnable publication) {
+        if (publication == null) throw new IllegalArgumentException("progress publication must not be null");
+        if (planningTerminal != PlanningTerminal.ACTIVE) return false;
+        publication.run();
+        return true;
+    }
+
+    /** worker 自然取消路径只允许发布一次 PlanCancelled。 */
+    public synchronized boolean cancelPlanningAndPublishIfActive(Runnable publication) {
+        if (publication == null) throw new IllegalArgumentException("cancellation publication must not be null");
+        if (planningTerminal != PlanningTerminal.ACTIVE) return false;
+        planningTerminal = PlanningTerminal.WORKER_CANCELLED;
+        publication.run();
+        return true;
+    }
+
+    /**
+     * 主线程观察已发布的 PlanCompleted，并取得此前积压的执行停止请求。
+     *
+     * @return true 表示完成虽先胜出，但应在 PlanCompleted 合法进态后立即收口
+     */
+    public synchronized boolean observePlanningCompletionAndShouldStop() {
+        if (planningTerminal != PlanningTerminal.COMPLETED) return false;
+        planningCompletionObserved = true;
+        return executionStopPending;
     }
 
     /** @return worker 是否已完成影子遍历（false 表示仍在搜，主线程消费 queue 空 不应 publish ExecutionFinished） */

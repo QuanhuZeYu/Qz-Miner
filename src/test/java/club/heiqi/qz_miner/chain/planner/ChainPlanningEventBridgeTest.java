@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.UUID;
 
 import org.junit.Assert;
@@ -115,5 +118,22 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertEquals("R1 完成结果不得读取 R2", r1, r1Completed.getServerRoundId());
         Assert.assertEquals("R1 取消结果不得读取 R2", r1, r1Cancelled.getServerRoundId());
         Assert.assertEquals(r2, r2Completed.getServerRoundId());
+    }
+
+    @Test
+    public void workerWiringAttachesSubscriptionAndSilencesExternalCancellation() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertTrue(source.contains("context.attachPlanningSubscription(subscription)"));
+        Assert.assertTrue(source.contains("context.isExternalPlanningCancellationRequested()"));
+        Assert.assertTrue(source.contains("tryCompletePlanningAndPublish"));
+        Assert.assertTrue(source.contains("publishPlanningProgressIfActive"));
+        Assert.assertTrue(source.contains("cancelPlanningAndPublishIfActive"));
+        Assert.assertTrue(source.contains("PlanningToolCapabilitySnapshot.capture("));
+        int workerStart = source.indexOf("private ParallelTaskResult runShadowSlice(");
+        String worker = source.substring(workerStart);
+        Assert.assertFalse(worker.contains("player.inventory"));
+        Assert.assertFalse(worker.contains("getCurrentEquippedItem()"));
     }
 }

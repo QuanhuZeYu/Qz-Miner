@@ -40,6 +40,12 @@ public class OreBlockHarvestableMatcher implements ChainBlockMatcher {
         return new OreBlockHarvestableMatcher(classifier, harvestEvaluator, diagnostics);
     }
 
+    /** 返回同时绑定冻结 round evaluator 与诊断器的不可变副本。 */
+    OreBlockHarvestableMatcher withPlanningEvaluator(ChainHarvestRules.HarvestEvaluator evaluator,
+            ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        return new OreBlockHarvestableMatcher(classifier, evaluator, diagnostics);
+    }
+
     @Override
     public boolean matches(EntityPlayer player, ChainTarget target) {
         if (!classifier.matches(player, target)) {
