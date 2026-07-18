@@ -42,9 +42,10 @@ GT 线缆替换必须满足「单 tick 内原子替换完整链路」。落地�
 ## 否决方案
 
 - **方案 Y（多 tick 流式 + 每根替换后立即 causeCableUpdate）**：否决。GT 网络重算成本高，且每根替换后的瞬时网络图仍含混压，无法保证下 tick 重算前不被另一段过载反向波及。
-- **方案 Z（多 tick 冻结 GT 电压检测）**：暂搁置。需要 GT API 暴露"暂停网络重算"钩子，当前 GTNH 2.9.0-beta-1 无此能力；待 GT API 支持后可作为 D-GTCABLE-ATOM 偏离的回填方案。
+- **方案 Z（多 tick 冻结 GT 电压检测）**：暂搁置。需要 GT API 暴露"暂停网络重算"钩子；当前 GTNH 2.9.0-beta-2 仅静态确认既有线缆反射成员仍存在，未获得新的暂停网络重算能力证据，运行态仍为 INCOMPLETE。待 GT API 支持后可作为 D-GTCABLE-ATOM 偏离的回填方案。
 
 ## 演进
 
 - **2026-07-06 初版**：Commit 1（物品来源简化，a9866e3）+ Commit 2（B1+B2+B3 安全核心 + §8 偏离登记 + P2 顺带修）落地。`shouldWaitForPlannerCompletion` 由死代码转为执行分叉开关，`GregTechCableReplaceActionExecutor` 覆盖为 true 触发 GT 单 tick 原子路径。
 - **跨 2.8/2.9 收口**：GT 访问改为完整反射 profile，任一类型、方法或字段缺失即关闭能力；替换/回滚均恢复 meta/base 两侧连接，返还物移交主线程执行器并接入玩家级掉落缓冲。
+- **GTNH 2.9.0-beta-2 适配**：静态核对的 GT 线缆反射成员仍存在，未改执行模型；真实 capability、替换与连接刷新仍需运行态回归。

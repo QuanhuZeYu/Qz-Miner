@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $baselines = @(
     @{ Manifest = "2.8.4"; GregTech = "5.09.51.482" },
-    @{ Manifest = "2.9.0-beta-1"; GregTech = "5.09.52.594" }
+    @{ Manifest = "2.9.0-beta-2"; GregTech = "5.09.54.20" }
 )
 
 if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) {
