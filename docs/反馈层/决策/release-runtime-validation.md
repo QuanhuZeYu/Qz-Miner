@@ -60,11 +60,10 @@ GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出�
 
 本候选的功能提交范围固定为 `96398ec`（统一连锁采掘能力与工具预览）、`189d6e4`（GTNH `2.9.0-beta-2` 适配）和 `7aaa3ed`（双基线 CI/exact-SHA 发布门）。默认 GTNH 基线为 `2.9.0-beta-2`，最低支持 `2.8.4`；Qz-UILib 要求 `4.6.0+`，本次基于公开 `4.6.1`。既有 `5.0.19`、`5.0.20`、`5.0.21` 的 tag identity 与历史发布事实保持不变。
 
-公开发布前仍必须完成以下开放门禁，任何一项未完成都不得创建 `5.0.22` tag：
+`5.0.22` 的发布状态按以下三阶段推进：
 
-1. feature matrix：在 clean runner 上完成双 GTNH 基线的精确解析、test、check、build。
-2. merge matrix：对同一候选合并提交完成对应的双基线 CI，并确认 exact-SHA 关系。
-3. tag workflow：仅在同 SHA、push 且 branch CI 成功后运行，并完成 tag workflow 的构建与发布前置检查。
-4. Release 与三项资产：核验 GitHub Release 及 `qz_miner-5.0.22.jar`、`qz_miner-5.0.22-dev.jar`、`qz_miner-5.0.22-sources.jar` 的生成和身份。
+1. **候选未发布**：创建 tag 前，最终 feature SHA 的双 GTNH 基线 matrix、最终主线 merge SHA 的双基线 matrix 必须全绿，并核对 exact-SHA 关系及 `5.0.22` tag 不存在。任一项未完成都不得创建或推送 tag。
+2. **tag 已推送待验收**：tag 前门全绿后，才可创建并推送不可移动的 annotated tag。tag push 触发 workflow 后，必须验收 tag workflow 核心步骤、annotated tag identity、公开 GitHub Release 正文与 draft/prerelease 状态，并下载 `qz_miner-5.0.22.jar`、`qz_miner-5.0.22-dev.jar`、`qz_miner-5.0.22-sources.jar` 核对身份与 SHA-256。上述 tag 后验收不是可选项；任一项未完成或失败，都不得标记为发布闭环。
+3. **已发布闭环**：仅当前述 tag 后验收全部通过，才可将 `5.0.22` 写为已发布闭环；tag 推送成功本身不等于发布完成。
 
-未完成上述门禁时，`5.0.22` 只能标记为候选，不能写成已发布；本次风险接受也不替代这些发布门禁。
+本次风险接受不替代任何 tag 前门或 tag 后验收，也不改变真实运行态仍为 **INCOMPLETE** 的状态。
