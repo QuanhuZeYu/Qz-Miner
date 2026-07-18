@@ -40,6 +40,50 @@ public final class AutoToolSwapRoundService {
         INVALIDATED
     }
 
+    /** 空手回退租约匹配的不可变结果；仅 MATCH 携带精确租约 token。 */
+    public static final class EmptyHandFallbackLeaseMatchResult {
+
+        private final EmptyHandFallbackLeaseMatch outcome;
+        private final EmptyHandFallbackLeaseToken token;
+
+        private EmptyHandFallbackLeaseMatchResult(EmptyHandFallbackLeaseMatch outcome,
+                EmptyHandFallbackLeaseToken token) {
+            this.outcome = outcome;
+            this.token = token;
+        }
+
+        /** @return 本次匹配结果。 */
+        public EmptyHandFallbackLeaseMatch outcome() {
+            return outcome;
+        }
+
+        /** @return MATCH 对应的不可变 token；其它结果返回 null。 */
+        public EmptyHandFallbackLeaseToken token() {
+            return token;
+        }
+    }
+
+    /**
+     * 一次成功匹配冻结的租约身份。endpoint 与 lease 均按对象 identity 比较，不能由值相等替代。
+     */
+    public static final class EmptyHandFallbackLeaseToken {
+
+        private final Object endpointIdentity;
+        private final long serverRoundId;
+        private final int generation;
+        private final long leaseId;
+        private final EmptyHandFallbackLease leaseIdentity;
+
+        private EmptyHandFallbackLeaseToken(Object endpointIdentity, long serverRoundId, int generation,
+                long leaseId, EmptyHandFallbackLease leaseIdentity) {
+            this.endpointIdentity = endpointIdentity;
+            this.serverRoundId = serverRoundId;
+            this.generation = generation;
+            this.leaseId = leaseId;
+            this.leaseIdentity = leaseIdentity;
+        }
+    }
+
     /**
      * 不含坐标的目标采掘能力键。完整 block id 与 metadata 共同决定一次空手候选资格。
      */
@@ -173,6 +217,7 @@ public final class AutoToolSwapRoundService {
     private final long firstActionSequence;
     private final long firstPhaseSequence;
     private final DiagnosticSink diagnosticSink;
+    private long lastEmptyHandFallbackLeaseId;
 
     /** 创建共享进程级 round id 分配器且 action sequence 从 1 开始的服务。 */
     public AutoToolSwapRoundService() {
@@ -490,8 +535,12 @@ public final class AutoToolSwapRoundService {
                 || inventoryFingerprint == null || !inventoryFingerprint.slot(anchorSlot).isEmpty()) {
             return false;
         }
+        if (lastEmptyHandFallbackLeaseId == Long.MAX_VALUE) {
+            return false;
+        }
+        long leaseId = ++lastEmptyHandFallbackLeaseId;
         record.emptyHandFallbackLease = new EmptyHandFallbackLease(endpoint, serverRoundId, generation,
-                targetCapability, anchorSlot, inventoryFingerprint);
+                leaseId, targetCapability, anchorSlot, inventoryFingerprint);
         record.emptyHandFallbackLeaseCreateCount++;
         logDiagnostic("[AutoToolSwapDiag] empty-hand-lease player=" + playerId
                 + " round=" + serverRoundId
@@ -506,12 +555,12 @@ public final class AutoToolSwapRoundService {
      * 用当前 endpoint/round/generation/目标/锚点/36 槽身份匹配租约。
      * 任一身份变化都会单调清除旧租约，防止 A→B→A 绕过重新协商。
      */
-    public synchronized EmptyHandFallbackLeaseMatch matchEmptyHandFallbackLease(UUID playerId, Object endpoint,
-            long serverRoundId, int generation, TargetCapabilityKey targetCapability,
+    public synchronized EmptyHandFallbackLeaseMatchResult matchEmptyHandFallbackLease(UUID playerId,
+            Object endpoint, long serverRoundId, int generation, TargetCapabilityKey targetCapability,
             int anchorSlot, InventoryFingerprint inventoryFingerprint) {
         RoundRecord record = rounds.get(playerId);
         if (record == null || record.emptyHandFallbackLease == null) {
-            return EmptyHandFallbackLeaseMatch.ABSENT;
+            return leaseMatchResult(EmptyHandFallbackLeaseMatch.ABSENT, null);
         }
         EmptyHandFallbackLease lease = record.emptyHandFallbackLease;
         boolean matches = record.matchesEndpoint(endpoint) && record.serverRoundId == serverRoundId
@@ -521,16 +570,44 @@ public final class AutoToolSwapRoundService {
                         anchorSlot, inventoryFingerprint);
         if (!matches) {
             invalidateEmptyHandFallbackLease(playerId, record, "identity-changed");
-            return EmptyHandFallbackLeaseMatch.INVALIDATED;
+            return leaseMatchResult(EmptyHandFallbackLeaseMatch.INVALIDATED, null);
         }
         record.emptyHandFallbackLeaseHitCount++;
-        return EmptyHandFallbackLeaseMatch.MATCH;
+        return leaseMatchResult(EmptyHandFallbackLeaseMatch.MATCH,
+                new EmptyHandFallbackLeaseToken(endpoint, serverRoundId, generation, lease.leaseId, lease));
+    }
+
+    /**
+     * 仅在当前 record 与 lease 仍是 token 命中的精确身份时清除租约。
+     *
+     * @return 是否清除了 token 对应租约；身份变化时为 no-op
+     */
+    public synchronized boolean compareAndClearEmptyHandFallbackLease(UUID playerId,
+            EmptyHandFallbackLeaseToken token, String reason) {
+        RoundRecord record = rounds.get(playerId);
+        if (record == null || token == null || !record.matchesEndpoint(token.endpointIdentity)
+                || record.serverRoundId != token.serverRoundId || record.emptyHandFallbackLease == null) {
+            return false;
+        }
+        EmptyHandFallbackLease lease = record.emptyHandFallbackLease;
+        if (lease != token.leaseIdentity || lease.leaseId != token.leaseId
+                || lease.serverRoundId != token.serverRoundId || lease.generation != token.generation
+                || !lease.matchesEndpoint(token.endpointIdentity)) {
+            return false;
+        }
+        invalidateEmptyHandFallbackLease(playerId, record, reason == null ? "unspecified" : reason);
+        return true;
     }
 
     /** 按玩家精确清除当前空手回退租约；无租约时为幂等 no-op。 */
     public synchronized void clearEmptyHandFallbackLease(UUID playerId, String reason) {
         RoundRecord record = rounds.get(playerId);
         invalidateEmptyHandFallbackLease(playerId, record, reason == null ? "unspecified" : reason);
+    }
+
+    private static EmptyHandFallbackLeaseMatchResult leaseMatchResult(EmptyHandFallbackLeaseMatch outcome,
+            EmptyHandFallbackLeaseToken token) {
+        return new EmptyHandFallbackLeaseMatchResult(outcome, token);
     }
 
     /**
@@ -1226,16 +1303,18 @@ public final class AutoToolSwapRoundService {
         private final WeakReference<Object> endpointReference;
         private final long serverRoundId;
         private final int generation;
+        private final long leaseId;
         private final TargetCapabilityKey targetCapability;
         private final int anchorSlot;
         private final InventoryFingerprint inventoryFingerprint;
 
-        private EmptyHandFallbackLease(Object endpoint, long serverRoundId, int generation,
+        private EmptyHandFallbackLease(Object endpoint, long serverRoundId, int generation, long leaseId,
                 TargetCapabilityKey targetCapability, int anchorSlot,
                 InventoryFingerprint inventoryFingerprint) {
             this.endpointReference = new WeakReference<Object>(endpoint);
             this.serverRoundId = serverRoundId;
             this.generation = generation;
+            this.leaseId = leaseId;
             this.targetCapability = targetCapability;
             this.anchorSlot = anchorSlot;
             this.inventoryFingerprint = inventoryFingerprint;
@@ -1245,12 +1324,17 @@ public final class AutoToolSwapRoundService {
         private boolean matches(Object endpoint, long currentRoundId, int currentGeneration,
                 TargetCapabilityKey currentTargetCapability, int currentAnchorSlot,
                 InventoryFingerprint currentInventoryFingerprint) {
-            return endpoint != null && endpointReference.get() == endpoint
+            return matchesEndpoint(endpoint)
                     && serverRoundId == currentRoundId && generation == currentGeneration
                     && targetCapability.sameCapability(currentTargetCapability)
                     && anchorSlot == currentAnchorSlot
                     && inventoryFingerprint.sameInventory(currentInventoryFingerprint)
                     && inventoryFingerprint.slot(anchorSlot).isEmpty();
+        }
+
+        /** @return endpoint 是否仍为安装租约时的同一对象。 */
+        private boolean matchesEndpoint(Object endpoint) {
+            return endpoint != null && endpointReference.get() == endpoint;
         }
     }
 

@@ -164,14 +164,16 @@ public final class AutoToolSwapTakeoverCoordinator {
                 roundService.clearEmptyHandFallbackLease(playerId, "inventory-identity-read-failed");
                 return GateResult.STOP;
             }
-            AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch leaseMatch = roundService
+            AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult leaseMatch = roundService
                     .matchEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
                             targetCapability, anchorSlot, inventoryFingerprint);
-            if (leaseMatch == AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH) {
+            if (leaseMatch.outcome() == AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH) {
+                AutoToolSwapRoundService.EmptyHandFallbackLeaseToken leaseToken = leaseMatch.token();
                 GateResult authorityResult = evaluateAuthority(authority);
                 if (authorityResult != GateResult.PROCEED) {
-                    // 上述精确身份匹配与清除同在服务端主线程调用内，旧目标不得保留失效租约。
-                    roundService.clearEmptyHandFallbackLease(playerId, "authority-failed");
+                    // 权威可同线程重入模组代码；只退休调用权威前实际命中的同一租约。
+                    roundService.compareAndClearEmptyHandFallbackLease(playerId, leaseToken,
+                            "authority-failed");
                 }
                 return authorityResult;
             }

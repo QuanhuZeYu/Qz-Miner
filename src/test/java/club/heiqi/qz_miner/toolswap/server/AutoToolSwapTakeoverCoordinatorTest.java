@@ -257,6 +257,39 @@ public class AutoToolSwapTakeoverCoordinatorTest {
     }
 
     @Test
+    public void reentrantAuthorityFailureCannotClearTheNewRoundLease() {
+        for (int variation = 0; variation < 3; variation++) {
+            final Fixture fixture = installedLeaseFixture();
+            final int failureVariation = variation;
+            AutoToolSwapTakeoverCoordinator.HarvestAuthority reentrantAuthority =
+                    new AutoToolSwapTakeoverCoordinator.HarvestAuthority() {
+                @Override
+                public boolean canHarvest() {
+                    fixture.service.cleanup(fixture.player);
+                    fixture.service.beginRound(fixture.player, fixture.endpoint, 99L, 30L);
+                    long newRoundId = fixture.service.activatePendingRound(
+                            fixture.player, fixture.endpoint, 31L).serverRoundId();
+                    fixture.service.observeChainPhase(fixture.player, fixture.endpoint, newRoundId,
+                            true, false);
+                    Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player,
+                            fixture.endpoint, newRoundId, 4,
+                            AutoToolSwapRoundService.TargetCapabilityKey.of(1, 0), 0,
+                            fixture.inventory.readInventoryIdentity()));
+                    if (failureVariation == 1) throw new IllegalStateException("reentrant authority");
+                    if (failureVariation == 2) throw new LinkageError("reentrant authority");
+                    return false;
+                }
+            };
+
+            Assert.assertEquals("variation=" + variation,
+                    AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                    fixture.beforePoll(20L, reentrantAuthority));
+            Assert.assertTrue("旧 authority 回调不得清除重入安装的新租约 variation=" + variation,
+                    fixture.service.hasEmptyHandFallbackLease(fixture.player));
+        }
+    }
+
+    @Test
     public void leaseInvalidatesOnTargetInventoryAnchorGuiCursorGenerationAndRoundChanges() {
         Fixture target = installedLeaseFixture();
         Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT,

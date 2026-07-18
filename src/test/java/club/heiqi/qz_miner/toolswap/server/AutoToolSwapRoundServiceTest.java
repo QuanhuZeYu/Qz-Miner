@@ -651,11 +651,11 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
                 fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
                         fixture.roundId, 7, AutoToolSwapRoundService.TargetCapabilityKey.of(1, 24902),
-                        0, fingerprint));
+                        0, fingerprint).outcome());
         Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.INVALIDATED,
                 fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
                         fixture.roundId, 7, AutoToolSwapRoundService.TargetCapabilityKey.of(1, 65535),
-                        0, fingerprint));
+                        0, fingerprint).outcome());
         Assert.assertFalse(fixture.service.hasEmptyHandFallbackLease(fixture.player));
 
         Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
@@ -691,10 +691,10 @@ public class AutoToolSwapRoundServiceTest {
                 fixture.roundId, 3, target, 0, fingerprint));
         Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
                 fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 3, target, 0, fingerprint));
+                        fixture.roundId, 3, target, 0, fingerprint).outcome());
         Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
                 fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 3, target, 0, fingerprint));
+                        fixture.roundId, 3, target, 0, fingerprint).outcome());
         Assert.assertEquals("命中不得逐目标刷日志", 1, logs.size());
 
         fixture.service.cleanup(fixture.player);
@@ -704,6 +704,50 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertTrue(logs.get(1).contains("creates=1"));
         Assert.assertTrue(logs.get(1).contains("hits=2"));
         Assert.assertTrue(logs.get(1).contains("invalidated=0"));
+    }
+
+    @Test
+    public void leaseCompareAndClearRequiresTheExactMatchedIdentity() {
+        Fixture fixture = fixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
+        AutoToolSwapRoundService.TargetCapabilityKey target =
+                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 0);
+        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                fixture.roundId, 3, target, 0, fingerprint));
+        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult firstMatch = fixture.service
+                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        target, 0, fingerprint);
+        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
+                firstMatch.outcome());
+        Assert.assertNotNull(firstMatch.token());
+
+        Assert.assertTrue("同 round 同 generation 的替换租约也必须获得新 lease identity",
+                fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                        fixture.roundId, 3, target, 0, fingerprint));
+        Assert.assertFalse("旧 token 不得清除替换后的租约", fixture.service
+                .compareAndClearEmptyHandFallbackLease(fixture.player, firstMatch.token(), "stale-lease"));
+        Assert.assertTrue(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+
+        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult secondMatch = fixture.service
+                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        target, 0, fingerprint);
+        Assert.assertTrue("generation 变化后的租约必须拒绝旧 token", fixture.service
+                .installEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 4,
+                        target, 0, fingerprint));
+        Assert.assertFalse(fixture.service.compareAndClearEmptyHandFallbackLease(
+                fixture.player, secondMatch.token(), "stale-generation"));
+        Assert.assertTrue(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+
+        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult generationMatch = fixture.service
+                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 4,
+                        target, 0, fingerprint);
+        Assert.assertTrue(fixture.service.compareAndClearEmptyHandFallbackLease(
+                fixture.player, generationMatch.token(), "exact-match"));
+        Assert.assertFalse(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+        Assert.assertFalse("已消费 token 必须幂等 no-op", fixture.service
+                .compareAndClearEmptyHandFallbackLease(fixture.player, generationMatch.token(), "replay"));
     }
 
     @Test
