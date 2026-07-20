@@ -23,6 +23,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 
 /**
  * {@link ChainStateMachine} 转移表与代际陈旧判定单测。
@@ -794,6 +795,36 @@ public class ChainStateMachineTest {
         Assert.assertEquals(0.0F, ps.getHitX(), 0.0F);
         Assert.assertEquals(0.0F, ps.getHitY(), 0.0F);
         Assert.assertEquals(0.0F, ps.getHitZ(), 0.0F);
+    }
+
+    /** BreakEvent 捕获的纯值身份必须经状态机原样传播到 PlanStarted。 */
+    @Test
+    public void breakSeedTileIdentityPropagatesUnchangedToPlanStarted() {
+        Harness h = newHarness();
+        List<PlanStarted> captured = new ArrayList<PlanStarted>();
+        h.bus.subscribe(PlanStarted.class, captured::add);
+        TileIdentityToken token = TileIdentityToken.present("runtime-class", "fixture.Tile", "runtime-type");
+        BlockBreakObserved breakEvent = new BlockBreakObserved(
+                PLAYER_A, 77L, 0, TICK, NANOS, 10, 20, 30, 7, 3, null, 2, token);
+
+        drive(h, key(true));
+        drive(h, breakEvent);
+
+        Assert.assertEquals(1, captured.size());
+        Assert.assertSame("不可变 token 应原样传播，不得重新捕获", token,
+                captured.get(0).getSeedTileIdentity());
+    }
+
+    /** 旧事件构造器缺少身份事实时必须默认 UNRESOLVED，而不是 ABSENT。 */
+    @Test
+    public void legacySeedEventConstructorsDefaultToUnresolved() {
+        BlockBreakObserved observed = new BlockBreakObserved(
+                PLAYER_A, 0, TICK, NANOS, 1, 2, 3, 0, 1, null, 0);
+        PlanStarted started = new PlanStarted(
+                PLAYER_A, 1, TICK, NANOS, 1, 2, 3, 0, 1, 0F, 0F, 0F, null, 0);
+
+        Assert.assertSame(TileIdentityToken.unresolved(), observed.getSeedTileIdentity());
+        Assert.assertSame(TileIdentityToken.unresolved(), started.getSeedTileIdentity());
     }
 
     /**

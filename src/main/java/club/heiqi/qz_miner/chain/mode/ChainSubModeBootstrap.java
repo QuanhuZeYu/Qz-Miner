@@ -199,7 +199,7 @@ public final class ChainSubModeBootstrap {
                 context.getWorld(),
                 context.getSampleBlock(),
                 context.getSampleMeta(),
-                context.getSampleTileEntity(),
+                context.getSampleTileIdentity(),
                 target);
         };
     }

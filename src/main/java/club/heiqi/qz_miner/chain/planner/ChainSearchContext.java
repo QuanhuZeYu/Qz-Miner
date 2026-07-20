@@ -4,6 +4,8 @@ import java.util.Queue;
 import java.util.Set;
 
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
@@ -23,6 +25,8 @@ public class ChainSearchContext {
     private final ChainTarget origin;
     private final Block sampleBlock;
     private final int sampleMeta;
+    private final TileIdentityToken sampleTileIdentity;
+    /** 仅供既有预览/特殊模式兼容，普通 same-block matcher 只读 sampleTileIdentity。 */
     private final TileEntity sampleTileEntity;
     private final ChainSubMode subMode;
     private final int maxRadius;
@@ -48,7 +52,8 @@ public class ChainSearchContext {
         Queue<ChainTarget> currentFrontier,
         Queue<ChainTarget> nextFrontier,
         Set<ChainTarget> visited) {
-        this(world, origin, sampleBlock, sampleMeta, sampleTileEntity, subMode, maxRadius, maxTargets,
+        this(world, origin, sampleBlock, sampleMeta, CompatAdapters.captureTileIdentity(sampleTileEntity),
+                sampleTileEntity, subMode, maxRadius, maxTargets,
                 currentFrontier, nextFrontier, visited, null);
     }
 
@@ -56,10 +61,21 @@ public class ChainSearchContext {
         World world, ChainTarget origin, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity,
         ChainSubMode subMode, int maxRadius, int maxTargets, Queue<ChainTarget> currentFrontier,
         Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ModeExtensionSnapshot modeExtension) {
+        this(world, origin, sampleBlock, sampleMeta, CompatAdapters.captureTileIdentity(sampleTileEntity),
+                sampleTileEntity, subMode, maxRadius, maxTargets, currentFrontier, nextFrontier, visited, modeExtension);
+    }
+
+    /** 创建显式携带纯值种子身份的搜索上下文。 */
+    public ChainSearchContext(
+        World world, ChainTarget origin, Block sampleBlock, int sampleMeta,
+        TileIdentityToken sampleTileIdentity, TileEntity sampleTileEntity,
+        ChainSubMode subMode, int maxRadius, int maxTargets, Queue<ChainTarget> currentFrontier,
+        Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ModeExtensionSnapshot modeExtension) {
         this.world = world;
         this.origin = origin;
         this.sampleBlock = sampleBlock;
         this.sampleMeta = sampleMeta;
+        this.sampleTileIdentity = sampleTileIdentity == null ? TileIdentityToken.unresolved() : sampleTileIdentity;
         this.sampleTileEntity = sampleTileEntity;
         this.subMode = subMode;
         this.maxRadius = maxRadius;
@@ -85,6 +101,11 @@ public class ChainSearchContext {
 
     public int getSampleMeta() {
         return sampleMeta;
+    }
+
+    /** @return 主线程捕获并冻结的 TileEntity 纯值身份 */
+    public TileIdentityToken getSampleTileIdentity() {
+        return sampleTileIdentity;
     }
 
     public TileEntity getSampleTileEntity() {

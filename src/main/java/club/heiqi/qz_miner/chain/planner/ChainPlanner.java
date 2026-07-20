@@ -6,8 +6,11 @@ import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.world.BlockEvent;
@@ -50,6 +53,15 @@ public class ChainPlanner {
         if (MyMod.chainEventBus != null) {
             long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
                     : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
+            // BreakEvent 仍在服务端主线程、原版 removeBlock 前：在此读取一次 live TE 并立即纯值化。
+            // token 不含 TileEntity/World/NBT/Class/坐标，可随事件安全传播到 worker。
+            TileIdentityToken seedTileIdentity;
+            try {
+                TileEntity seedTileEntity = player.worldObj.getTileEntity(event.x, event.y, event.z);
+                seedTileIdentity = CompatAdapters.captureTileIdentity(seedTileEntity);
+            } catch (RuntimeException | LinkageError failure) {
+                seedTileIdentity = TileIdentityToken.unresolved();
+            }
             // 破坏时刻捕获种子方块 + metadata：BlockEvent.BreakEvent 在 tryHarvestBlock 同步 removeBlock 之前触发，
             // 但 drainer 推迟到下一 tick START drain，届时方块已成空气，WorldBlockSeedResolver 会读空 null。
             // 故 publish 时把 event.block / event.blockMetadata 透传给 BlockBreakObserved，
@@ -58,7 +70,7 @@ public class ChainPlanner {
                     player.getUniqueID(), serverRoundId, 0,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     event.x, event.y, event.z, player.dimension, 0,
-                    event.block, event.blockMetadata));
+                    event.block, event.blockMetadata, seedTileIdentity));
             // 起点方块掉落捕获：原版 tryHarvestBlock 在本 tick 同步 removeBlock+触发 HarvestDropsEvent，
             // 早于 collector 窗口打开（onPlanCompleted 时 setExecutionWindow(true)，下 tick drain）；
             // 用一次 armed 标志让 collector 在守卫 isExecuting()=false 时也收起点方块掉落进 buffer。

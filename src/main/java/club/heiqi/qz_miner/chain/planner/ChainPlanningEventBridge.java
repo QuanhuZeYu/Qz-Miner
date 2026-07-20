@@ -135,7 +135,8 @@ public class ChainPlanningEventBridge {
         // 必须用事件携带的 seedBlock/seedMeta（破坏时刻捕获）构造种子；右键/左键路径块仍在世界，走兜底 WorldBlockSeedResolver。
         BlockSeedSnapshot seedSnapshot;
         if (event.getSeedBlock() != null) {
-            seedSnapshot = new BlockSeedSnapshot(origin, event.getSeedBlock(), event.getSeedMeta(), null);
+            seedSnapshot = new BlockSeedSnapshot(
+                    origin, event.getSeedBlock(), event.getSeedMeta(), event.getSeedTileIdentity());
         } else {
             BlockSeedResolver seedResolver = new WorldBlockSeedResolver();
             seedSnapshot = seedResolver.resolve(player, origin);
@@ -144,6 +145,11 @@ public class ChainPlanningEventBridge {
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     "shadow-seed-unresolvable"));
+            return;
+        }
+        if (!seedSnapshot.getSampleTileIdentity().isResolved()) {
+            bus.publish(buildUnresolvedSeedIdentityPlanCancelled(playerUUID, serverRoundId, planningGen,
+                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos()));
             return;
         }
 
@@ -427,7 +433,18 @@ public class ChainPlanningEventBridge {
      * @return reason 固定为 {@code shadow-runtime-null} 的规划取消事件
      */
     public static PlanCancelled buildRuntimeNullPlanCancelled(UUID playerUUID, long serverRoundId, int gen, long tick,
-                                                               long nanos) {
+                                                                long nanos) {
         return buildPlanCancelled(playerUUID, serverRoundId, gen, tick, nanos, "shadow-runtime-null");
+    }
+
+    /**
+     * 构造 seed TileEntity 身份无法可靠读取时的固定 fail-closed 取消事件。
+     *
+     * @return reason 固定为 {@code shadow-seed-tile-identity-unresolved}
+     */
+    public static PlanCancelled buildUnresolvedSeedIdentityPlanCancelled(UUID playerUUID, long serverRoundId,
+            int gen, long tick, long nanos) {
+        return buildPlanCancelled(playerUUID, serverRoundId, gen, tick, nanos,
+                "shadow-seed-tile-identity-unresolved");
     }
 }

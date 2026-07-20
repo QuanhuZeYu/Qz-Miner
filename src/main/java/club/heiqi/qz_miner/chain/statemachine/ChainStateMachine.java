@@ -159,7 +159,7 @@ public class ChainStateMachine {
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
                     0.0F, 0.0F, 0.0F,
-                    event.getSeedBlock(), event.getSeedMeta()));
+                    event.getSeedBlock(), event.getSeedMeta(), event.getSeedTileIdentity()));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }

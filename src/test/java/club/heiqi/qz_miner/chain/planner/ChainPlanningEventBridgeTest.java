@@ -179,4 +179,22 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertFalse(context.cancelPlanningAndPublishIfActive(cancellations::incrementAndGet));
         Assert.assertEquals(1, cancellations.get());
     }
+
+    /** seed 身份不可解析时必须在 worker 登记前固定取消，不能启动规划。 */
+    @Test
+    public void unresolvedSeedIdentityCancelsBeforeWorkerRegistration() throws Exception {
+        PlanCancelled cancelled = ChainPlanningEventBridge.buildUnresolvedSeedIdentityPlanCancelled(
+                PLAYER, 305L, 11, TICK, NANOS);
+        Assert.assertEquals("shadow-seed-tile-identity-unresolved", cancelled.getReason());
+        Assert.assertEquals(305L, cancelled.getServerRoundId());
+        Assert.assertEquals(11, cancelled.getGeneration());
+
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        int failClosed = source.indexOf("buildUnresolvedSeedIdentityPlanCancelled(");
+        int workerRegistration = source.indexOf("executionContextRegistry.put(context)");
+        Assert.assertTrue("UNRESOLVED fail-closed 必须先于 worker/context 登记",
+                failClosed >= 0 && workerRegistration > failClosed);
+    }
 }
