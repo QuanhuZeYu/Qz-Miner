@@ -4,12 +4,15 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
+import club.heiqi.qz_miner.chain.execution.ChainExecutionContext;
 
 /**
  * {@link ChainPlanningEventBridge} 纯逻辑单测。
@@ -135,5 +138,63 @@ public class ChainPlanningEventBridgeTest {
         String worker = source.substring(workerStart);
         Assert.assertFalse(worker.contains("player.inventory"));
         Assert.assertFalse(worker.contains("getCurrentEquippedItem()"));
+    }
+
+    /** RuntimeException publication 失败必须转成一次固定原因取消。 */
+    @Test
+    public void publicationFailureUsesExactlyOneCancellationAndFixedReason() throws Exception {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 303L, 9,
+                new ConcurrentLinkedQueue<club.heiqi.qz_miner.chain.planner.ChainTarget>(), null);
+        AtomicInteger cancellations = new AtomicInteger();
+        boolean completed = ChainPlanningEventBridge.tryCompletePlanningOrCancel(context, 12,
+                () -> { throw new IllegalStateException("bus failure"); }, cancellations::incrementAndGet);
+
+        Assert.assertFalse(completed);
+        Assert.assertFalse(context.isPlanningComplete());
+        Assert.assertFalse(context.isCompleted());
+        Assert.assertEquals(1, cancellations.get());
+
+        // 生产固定 reason 与 publication 异常路径必须保持可检索且只走一次取消。
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertTrue(source.contains("plan-completion-publication-failed"));
+        Assert.assertTrue(source.contains("catch (RuntimeException failure)"));
+        Assert.assertTrue(source.contains("catch (LinkageError failure)"));
+    }
+
+    /** LinkageError publication 失败与运行时异常共享单次取消合同。 */
+    @Test
+    public void linkageErrorDuringCompletionPublicationUsesExactlyOneCancellation() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 304L, 10,
+                new ConcurrentLinkedQueue<club.heiqi.qz_miner.chain.planner.ChainTarget>(), null);
+        AtomicInteger cancellations = new AtomicInteger();
+        boolean completed = ChainPlanningEventBridge.tryCompletePlanningOrCancel(context, 13,
+                () -> { throw new LinkageError("publication linkage failure"); }, cancellations::incrementAndGet);
+
+        Assert.assertFalse(completed);
+        Assert.assertFalse(context.isPlanningComplete());
+        Assert.assertFalse(context.isCompleted());
+        Assert.assertEquals("LinkageError 也只能发布一次取消", 1, cancellations.get());
+        Assert.assertFalse(context.cancelPlanningAndPublishIfActive(cancellations::incrementAndGet));
+        Assert.assertEquals(1, cancellations.get());
+    }
+
+    /** seed 身份不可解析时必须在 worker 登记前固定取消，不能启动规划。 */
+    @Test
+    public void unresolvedSeedIdentityCancelsBeforeWorkerRegistration() throws Exception {
+        PlanCancelled cancelled = ChainPlanningEventBridge.buildUnresolvedSeedIdentityPlanCancelled(
+                PLAYER, 305L, 11, TICK, NANOS);
+        Assert.assertEquals("shadow-seed-tile-identity-unresolved", cancelled.getReason());
+        Assert.assertEquals(305L, cancelled.getServerRoundId());
+        Assert.assertEquals(11, cancelled.getGeneration());
+
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        int failClosed = source.indexOf("buildUnresolvedSeedIdentityPlanCancelled(");
+        int workerRegistration = source.indexOf("executionContextRegistry.put(context)");
+        Assert.assertTrue("UNRESOLVED fail-closed 必须先于 worker/context 登记",
+                failClosed >= 0 && workerRegistration > failClosed);
     }
 }

@@ -228,16 +228,22 @@ public final class ChainExecutionContext {
     }
 
     /**
-     * worker 在同一线性化点冻结完成计数并发布 PlanCompleted。
+     * worker 在同一线性化点发布 PlanCompleted，并在 publication 成功返回后固化完成状态。
      * publication 只能执行一次，且外部取消先胜出时不会执行。
+     *
+     * <p>事件入队是先行线性化点：publication 尚未返回时，规划仍保持 ACTIVE，
+     * {@code planningComplete} 与 {@code isCompleted()} 均不可见为完成；publication 抛出
+     * {@link RuntimeException} 或 {@link LinkageError} 时同样保持 ACTIVE，由规划桥负责发布
+     * 固定原因的 PlanCancelled。</p>
      */
     public synchronized boolean tryCompletePlanningAndPublish(int confirmedCount, Runnable publication) {
         if (publication == null) throw new IllegalArgumentException("completion publication must not be null");
         if (planningTerminal != PlanningTerminal.ACTIVE) return false;
-        planningConfirmedCount = Math.max(0, confirmedCount);
-        planningComplete = true;
-        planningTerminal = PlanningTerminal.COMPLETED;
         publication.run();
+        planningConfirmedCount = Math.max(0, confirmedCount);
+        planningTerminal = PlanningTerminal.COMPLETED;
+        // 最后写 volatile 标志，确保主线程不会在 PlanCompleted publication 之前观察到完成。
+        planningComplete = true;
         return true;
     }
 

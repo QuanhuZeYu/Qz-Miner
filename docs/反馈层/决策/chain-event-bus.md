@@ -516,3 +516,21 @@ PlanStarted 从空骨架扩为承载规划启动上下文：`x/y/z/dimensionId/s
 - **I5**：不碰 ChainDropCollector/flushPlayerDrops（块2 已守）
 - **I7**：cleanupPlayerState/onPlayerStateChanged 保留（删 syncPlayerState 不影响生命周期收口）
 - **I10**：本批不碰状态机
+
+## 演进：通用 TileEntity 种子身份纯值传播
+
+正常 `BreakEvent` 在原版移除 origin 前、服务端主线程捕获 `TileIdentityToken`，并沿
+`BlockBreakObserved → ChainStateMachine → PlanStarted → BlockSeedSnapshot → ChainSearchContext`
+原样传播。右键/左键入口仍由主线程 `WorldBlockSeedResolver` 读取 seed，并立即转为同一纯值 token。
+普通 same-block 规划 worker 不持有或读取 seed TileEntity；候选侧维持当前 worker 只读 World 的现状，
+读取候选 TileEntity 后立即转 token 比较。本次没有完成全 worker 世界快照化，也不改变 traverser、预算、取消、掉落、网络或执行状态机。
+
+token 状态与默认矩阵固定如下：
+
+- `ABSENT ↔ ABSENT` 通过；单边有 TileEntity 拒绝。
+- `PRESENT` 仅在 `strategy/type/key` 全部相同时通过；block 与 metadata 仍先做精确比较。
+- 任一 `UNRESOLVED` 都 fail-closed；已识别 adapter 读取失败不得降级为 runtime class。
+- 未识别模组沿既有 runtime class 语义，以运行时类型名纯值比较，不设模组白名单。
+
+`TileIdentityToken` 不含 TileEntity、World、Block、NBT、Class、坐标或反射成员。既有 live TileEntity API
+仅作为兼容壳，内部立即转 token；GT 线缆特殊模式与客户端预览所需的专用兼容字段保留，不把该字段重新用于普通 same-block 身份判定。

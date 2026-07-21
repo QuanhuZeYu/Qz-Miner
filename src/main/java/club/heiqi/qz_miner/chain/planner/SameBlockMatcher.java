@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
@@ -11,7 +13,7 @@ public class SameBlockMatcher implements ChainBlockMatcher {
 
     private final Block sampleBlock;
     private final int sampleMeta;
-    private final TileEntity sampleTileEntity;
+    private final TileIdentityToken sampleTileIdentity;
 
     /**
      * 创建同类方块匹配器。
@@ -21,9 +23,14 @@ public class SameBlockMatcher implements ChainBlockMatcher {
      * @param sampleTileEntity 起点 TileEntity
      */
     public SameBlockMatcher(Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity) {
+        this(sampleBlock, sampleMeta, CompatAdapters.captureTileIdentity(sampleTileEntity));
+    }
+
+    /** 创建使用主线程冻结纯值身份的同类方块匹配器。 */
+    public SameBlockMatcher(Block sampleBlock, int sampleMeta, TileIdentityToken sampleTileIdentity) {
         this.sampleBlock = sampleBlock;
         this.sampleMeta = sampleMeta;
-        this.sampleTileEntity = sampleTileEntity;
+        this.sampleTileIdentity = sampleTileIdentity == null ? TileIdentityToken.unresolved() : sampleTileIdentity;
     }
 
     @Override
@@ -32,6 +39,6 @@ public class SameBlockMatcher implements ChainBlockMatcher {
             return false;
         }
 
-        return ChainBlockIdentity.matches(player.worldObj, sampleBlock, sampleMeta, sampleTileEntity, target);
+        return ChainBlockIdentity.matches(player.worldObj, sampleBlock, sampleMeta, sampleTileIdentity, target);
     }
 }

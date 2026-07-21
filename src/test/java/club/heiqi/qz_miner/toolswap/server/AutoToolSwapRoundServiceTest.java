@@ -622,6 +622,135 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
+    public void inventoryFingerprintUsesAllThirtySixExactSlotContentsAndDefensiveArrayCopy() {
+        AutoToolSwapStackState[] slots = new AutoToolSwapStackState[AutoToolSwapProtocol.INVENTORY_SLOT_COUNT];
+        for (int slot = 0; slot < slots.length; slot++) slots[slot] = AutoToolSwapStackState.empty();
+        slots[35] = stack("mod:last", "count-damage-nbt-a", 20);
+        AutoToolSwapRoundService.InventoryFingerprint first =
+                AutoToolSwapRoundService.InventoryFingerprint.fromSlots(slots);
+        slots[35] = stack("mod:last", "count-damage-nbt-b", 19);
+        AutoToolSwapRoundService.InventoryFingerprint second =
+                AutoToolSwapRoundService.InventoryFingerprint.fromSlots(slots);
+
+        Assert.assertFalse("第 35 槽完整内容变化必须改变库存身份", first.sameInventory(second));
+        Assert.assertEquals("构造后修改输入数组不得改写旧身份", 20,
+                first.slot(35).remainingDurability());
+    }
+
+    @Test
+    public void emptyHandLeaseIsSingleRoundScopedAndCannotCoexistWithLedgerOrPending() {
+        Fixture fixture = fixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
+        AutoToolSwapRoundService.TargetCapabilityKey target =
+                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 24902);
+
+        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                fixture.roundId, 7, target, 0, fingerprint));
+        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
+                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                        fixture.roundId, 7, AutoToolSwapRoundService.TargetCapabilityKey.of(1, 24902),
+                        0, fingerprint).outcome());
+        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.INVALIDATED,
+                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                        fixture.roundId, 7, AutoToolSwapRoundService.TargetCapabilityKey.of(1, 65535),
+                        0, fingerprint).outcome());
+        Assert.assertFalse(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+
+        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                fixture.roundId, 7, target, 0, fingerprint));
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 7, 1, 64, 2, 1, 24902, 0,
+                fixture.inventory.slots[0], 10L, 18L);
+        Assert.assertNotNull(request);
+        Assert.assertFalse("pending 建立前必须退休旧租约",
+                fixture.service.hasEmptyHandFallbackLease(fixture.player));
+        Assert.assertFalse("pending 与租约不得共存", fixture.service.installEmptyHandFallbackLease(
+                fixture.player, fixture.endpoint, fixture.roundId, 7, target, 0, fingerprint));
+
+        Fixture ledger = swappedFixture();
+        ledger.service.observeChainPhase(ledger.player, ledger.endpoint, ledger.roundId, true, false);
+        Assert.assertFalse("ledger 与租约不得共存", ledger.service.installEmptyHandFallbackLease(
+                ledger.player, ledger.endpoint, ledger.roundId, 7, target, 0,
+                inventoryFingerprint(ledger.inventory)));
+    }
+
+    @Test
+    public void leaseHitsAreCountedWithoutPerTargetLogsAndLifecycleCloseLogsOneSummary() {
+        final List<String> logs = new ArrayList<String>();
+        Fixture fixture = fixture(recordingService(logs));
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
+        AutoToolSwapRoundService.TargetCapabilityKey target =
+                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 0);
+        logs.clear();
+
+        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                fixture.roundId, 3, target, 0, fingerprint));
+        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
+                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                        fixture.roundId, 3, target, 0, fingerprint).outcome());
+        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
+                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                        fixture.roundId, 3, target, 0, fingerprint).outcome());
+        Assert.assertEquals("命中不得逐目标刷日志", 1, logs.size());
+
+        fixture.service.cleanup(fixture.player);
+        Assert.assertNull(fixture.service.snapshot(fixture.player));
+        Assert.assertEquals(2, logs.size());
+        Assert.assertTrue(logs.get(1).contains("event=round-close"));
+        Assert.assertTrue(logs.get(1).contains("creates=1"));
+        Assert.assertTrue(logs.get(1).contains("hits=2"));
+        Assert.assertTrue(logs.get(1).contains("invalidated=0"));
+    }
+
+    @Test
+    public void leaseCompareAndClearRequiresTheExactMatchedIdentity() {
+        Fixture fixture = fixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
+        AutoToolSwapRoundService.TargetCapabilityKey target =
+                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 0);
+        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                fixture.roundId, 3, target, 0, fingerprint));
+        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult firstMatch = fixture.service
+                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        target, 0, fingerprint);
+        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
+                firstMatch.outcome());
+        Assert.assertNotNull(firstMatch.token());
+
+        Assert.assertTrue("同 round 同 generation 的替换租约也必须获得新 lease identity",
+                fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
+                        fixture.roundId, 3, target, 0, fingerprint));
+        Assert.assertFalse("旧 token 不得清除替换后的租约", fixture.service
+                .compareAndClearEmptyHandFallbackLease(fixture.player, firstMatch.token(), "stale-lease"));
+        Assert.assertTrue(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+
+        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult secondMatch = fixture.service
+                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        target, 0, fingerprint);
+        Assert.assertTrue("generation 变化后的租约必须拒绝旧 token", fixture.service
+                .installEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 4,
+                        target, 0, fingerprint));
+        Assert.assertFalse(fixture.service.compareAndClearEmptyHandFallbackLease(
+                fixture.player, secondMatch.token(), "stale-generation"));
+        Assert.assertTrue(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+
+        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult generationMatch = fixture.service
+                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 4,
+                        target, 0, fingerprint);
+        Assert.assertTrue(fixture.service.compareAndClearEmptyHandFallbackLease(
+                fixture.player, generationMatch.token(), "exact-match"));
+        Assert.assertFalse(fixture.service.hasEmptyHandFallbackLease(fixture.player));
+        Assert.assertFalse("已消费 token 必须幂等 no-op", fixture.service
+                .compareAndClearEmptyHandFallbackLease(fixture.player, generationMatch.token(), "replay"));
+    }
+
+    @Test
     public void staleClientAnchorEchoDoesNotRejectExactServerAnchorAndCandidate() {
         Fixture fixture = takeoverFixture();
         AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
@@ -825,6 +954,115 @@ public class AutoToolSwapRoundServiceTest {
         assertSingleTakeoverGateStopDiagnostic(phaseLogs, "phase-close", phaseClose.roundId,
                 phaseRequest.actionSequence());
         assertZeroTakeoverInventoryAccess(phaseClose.inventory);
+    }
+
+    /** 收口动作仅在 sequence 合法后退休 WAITING pending，并保持既有动作语义。 */
+    @Test
+    public void closeRestoreAndAbandonRetirePendingGateOnlyAfterSequenceValidation() {
+        final List<String> closeLogs = new ArrayList<String>();
+        Fixture close = takeoverFixture(recordingService(closeLogs));
+        AutoToolSwapTakeoverRequest closeRequest = close.service.prepareTakeover(close.player, close.endpoint,
+                close.roundId, 4, 1, 64, 2, 1, 0, 0, close.inventory.slots[0], 10L, 18L);
+        closeLogs.clear();
+        AutoToolSwapRoundResult staleClose = close.service.handleIntent(close.player, close.endpoint,
+                intent(close.roundId, closeRequest.actionSequence() + 1L, AutoToolSwapAction.CLOSE, 0, 7,
+                        close.inventory.slots[0], close.inventory.slots[7]), close.inventory, 11L);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, staleClose.outcome());
+        Assert.assertEquals("sequence 拒绝不得退休 WAITING 等待门",
+                AutoToolSwapRoundService.TakeoverGateState.WAITING,
+                close.service.takeoverGateState(close.player, close.endpoint, closeRequest, 11L));
+        AutoToolSwapRoundResult closed = close.service.handleIntent(close.player, close.endpoint,
+                intent(close.roundId, closeRequest.actionSequence(), AutoToolSwapAction.CLOSE, 0, 7,
+                        close.inventory.slots[0], close.inventory.slots[7]), close.inventory, 12L);
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, closed.roundState());
+        Assert.assertEquals(0L, close.service.currentRoundId(close.player));
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+                close.service.takeoverGateState(close.player, close.endpoint, closeRequest, 11L));
+        assertSingleTakeoverGateStopDiagnostic(closeLogs, "phase-close", close.roundId,
+                closeRequest.actionSequence());
+
+        Fixture restore = swappedFixture();
+        restore.service.observeChainPhase(restore.player, restore.endpoint, restore.roundId, true, false);
+        AutoToolSwapTakeoverRequest restoreRequest = restore.service.prepareTakeover(restore.player,
+                restore.endpoint, restore.roundId, 4, 1, 64, 2, 1, 0, 0, restore.inventory.slots[0], 10L, 18L);
+        AutoToolSwapRoundResult restored = restore.service.handleIntent(restore.player, restore.endpoint,
+                currentRestoreIntent(restore, restoreRequest.actionSequence()), restore.inventory, 11L);
+        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
+        Assert.assertFalse(restore.service.snapshot(restore.player).hasLedger());
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+                restore.service.takeoverGateState(restore.player, restore.endpoint, restoreRequest, 11L));
+
+        Fixture abandon = swappedFixture();
+        abandon.service.observeChainPhase(abandon.player, abandon.endpoint, abandon.roundId, true, false);
+        AutoToolSwapTakeoverRequest abandonRequest = abandon.service.prepareTakeover(abandon.player,
+                abandon.endpoint, abandon.roundId, 4, 1, 64, 2, 1, 0, 0, abandon.inventory.slots[0], 10L, 18L);
+        resetInventoryCounters(abandon.inventory);
+        AutoToolSwapRoundResult abandoned = abandon.service.handleIntent(abandon.player, abandon.endpoint,
+                abandonIntent(abandon, abandonRequest.actionSequence()), abandon.inventory, 11L);
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, abandoned.roundState());
+        assertZeroTakeoverInventoryAccess(abandon.inventory);
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+                abandon.service.takeoverGateState(abandon.player, abandon.endpoint, abandonRequest, 11L));
+    }
+
+    /** CLOSE 已推进 sequence 后，迟到 TAKEOVER 必须在库存边界前拒绝。 */
+    @Test
+    public void lateTakeoverAfterCloseFailsSequenceBeforeInventoryAccess() {
+        Fixture fixture = takeoverFixture();
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+        AutoToolSwapRoundResult close = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.CLOSE, 0, 7,
+                        fixture.inventory.slots[0], fixture.inventory.slots[7]), fixture.inventory, 11L);
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, close.roundState());
+        resetInventoryCounters(fixture.inventory);
+
+        AutoToolSwapRoundResult late = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                takeoverIntent(fixture, request), fixture.inventory, 12L);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, late.outcome());
+        Assert.assertEquals("迟到 TAKEOVER 必须停在 sequence 门前", close.nextActionSequence(),
+                late.nextActionSequence());
+        assertZeroTakeoverInventoryAccess(fixture.inventory);
+    }
+
+    /** 真实 DECLINE、松键、CLOSE 顺序必须完成旧 round 并允许建立新 round。 */
+    @Test
+    public void declineKeyReleaseCloseFinishesRoundAndAllowsFreshRound() {
+        Fixture fixture = fixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+
+        AutoToolSwapRoundResult declined = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                declineIntent(fixture, request), fixture.inventory, 11L);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, declined.outcome());
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.DECLINED,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
+
+        fixture.service.onKeyReleased(fixture.player, fixture.endpoint);
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent staleClose = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fixture.roundId, request.actionSequence(), AutoToolSwapAction.CLOSE, 0, 0, empty, empty);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, staleClose, fixture.inventory, 12L).outcome());
+        Assert.assertEquals("key release 必须把 DECLINED 等待门收口为 STOP",
+                AutoToolSwapRoundService.TakeoverGateState.STOP,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
+
+        AutoToolSwapIntent closeIntent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fixture.roundId, declined.nextActionSequence(), AutoToolSwapAction.CLOSE, 0, 0, empty, empty);
+        AutoToolSwapRoundResult closed = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                closeIntent, fixture.inventory, 13L);
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, closed.roundState());
+        Assert.assertEquals(0L, fixture.service.currentRoundId(fixture.player));
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 13L));
+
+        fixture.service.beginRound(fixture.player, fixture.endpoint, 99L, 14L);
+        AutoToolSwapRoundResult fresh = fixture.service.activatePendingRound(fixture.player, fixture.endpoint, 15L);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fresh.outcome());
+        Assert.assertTrue("收口后新 round 必须拥有新身份", fresh.serverRoundId() > fixture.roundId);
     }
 
     @Test
@@ -1171,6 +1409,15 @@ public class AutoToolSwapRoundServiceTest {
         return inventory;
     }
 
+    private static AutoToolSwapRoundService.InventoryFingerprint inventoryFingerprint(FakeInventory inventory) {
+        AutoToolSwapStackState[] slots = new AutoToolSwapStackState[AutoToolSwapProtocol.INVENTORY_SLOT_COUNT];
+        for (int slot = 0; slot < slots.length; slot++) {
+            slots[slot] = inventory.slots[slot] == null
+                    ? AutoToolSwapStackState.empty() : inventory.slots[slot];
+        }
+        return AutoToolSwapRoundService.InventoryFingerprint.fromSlots(slots);
+    }
+
     private static AutoToolSwapIntent swapIntent(Fixture fixture, long sequence) {
         return intent(fixture.roundId, sequence, AutoToolSwapAction.SWAP, 0, 9, ORIGINAL, CANDIDATE);
     }
@@ -1316,6 +1563,11 @@ public class AutoToolSwapRoundServiceTest {
             }
             AutoToolSwapStackState state = slots[inventorySlot];
             return state == null ? AutoToolSwapStackState.empty() : state;
+        }
+
+        @Override
+        public AutoToolSwapRoundService.InventoryFingerprint readInventoryIdentity() {
+            return inventoryFingerprint(this);
         }
 
         @Override

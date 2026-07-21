@@ -11,12 +11,14 @@
 - `NetworkMain.register()`：注册自动工具两个 C2S 与四个 S2C；新增固定 60 字节接替目标请求。
 - `ServerAutoToolSwapRequestDispatch`：将 C2S 原始请求投递到服务端主线程，并连接 round 服务、库存端口和 S2C 回执发送。
 - `AutoToolSwapRoundService`：维护服务端 round、动作序列和可逆账本，执行请求幂等与动作结算。
+- `AutoToolSwapRoundService` 的 `RoundRecord`：额外维护至多一个空手回退租约及 create/hit/invalidated 汇总计数；不形成按目标增长的缓存。
 - `MinecraftAutoToolSwapInventoryPort`：在服务端玩家个人库存中执行槽位交换，并交由原版容器发布库存差异。
 - `AutoToolSwapTakeoverCoordinator`：普通 CHAIN/AREA 在队首 `peek()` 后建立 `PROCEED/WAIT/STOP` 门，只有 APPLIED 后允许 `poll()`。
 - `ClientProxy`：按 `ctx.netHandler` 捕获连接 token，经客户端主线程 connection/world gate 将四个 S2C 发布给 adapter。
 - `AutoToolSwapClientReducer`：客户端 cycle、nonce/round/action/phase 归因、库存双门、关闭原因与重传的唯一可变业务权威，以 Event 输入并输出不可变 Effect。
 - `AutoToolSwapClientAdapter`：承接 gate 后的 S2C，只采样 Minecraft 事实、执行 reducer effect 和网络 I/O；后续 C2S 在 `ClientTick` 发送。
 - `AutoToolSwapClientProtocolValidator`：无字段，只负责 raw、wire enum、范围与单包结构校验，不判断历史关联。
+- `ToolHarvestCompatAdapter` 与 `CompatAdapters`：仅为无显式 harvestTool 的目标提供四态可选工具终裁；当前唯一实现按已加载运行时父类名识别 TiC 工具，不形成 TConstruct 类型链接。
 
 ## 原因
 
@@ -34,10 +36,14 @@
 - RESTORE 交换的是校验通过后的两个当前真实栈，不使用 ledger 旧内容回写；因此不会回滚动态变化，也不会复制或吞掉栈。sameRole 只证明角色所有权，不承诺对象 instance identity。原 anchor 非空时 candidate 仍须保持同 role；原 anchor 为空时允许 candidate 被任意当前真实栈占用，RESTORE 将占位栈直接交换到主手并把借用工具送回原槽。该窄例外不放宽 intent 双槽 exact 新鲜度、活动工具 role/empty 或库存安全上下文。
 - `ABANDON(5)` 是无法安全 RESTORE 时的显式收口动作：请求使用 ledger 真实双槽与两个 canonical control fingerprint。服务端只接受当前 endpoint/round/sequence、`SWAPPED/FROZEN/CLOSING`、匹配 ledger 槽位；成功时不读取、不交换、不同步库存，只清 ledger/keyDown 并进入 FINISHED。重复相同 intent 复用动作缓存，旧身份或拒绝不得清当前账本。
 - `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。仅原 anchor 为空、deadline 前精确匹配 pending 的 DECLINE 才结算为内部 `DECLINED`；结算本身零库存访问，Coordinator 随后重验 round/target/槽位/空手/库存安全与实时采掘权威，通过才 PROCEED。
+- pending takeover 只约束继续执行动作，不得阻断 round 终裁。服务端先完成 endpoint/round/幂等/sequence 校验，再允许 `CLOSE`、`RESTORE`、`ABANDON` 退休等待门：WAITING 先转 STOP 并输出一次固定诊断，DECLINED/STOP/APPLIED 直接移除，随后严格沿既有 ledger 合同结算。旧 sequence 或旧身份的迟到 TAKEOVER 在任何库存读取、写入、同步和诊断快照前拒绝。
+- 合法空 anchor DECLINE 被执行桥消费后，只有同一主线程时刻的库存安全门、空手、完整 0..35 `AutoToolSwapStackState.sameContent` identity 与实时采掘权威都成立，才安装单项 round-scoped 空手回退租约。租约绑定 endpoint/round/generation、当前热栏锚点与不含坐标的 block id + 完整 metadata；不与 ledger/pending 共存，并随关闭、终态或生命周期清理。
+- 同一租约后续命中只省略 TAKEOVER/DECLINE 网络往返，不省略每目标 `ChainHarvestRules.canHarvest`。block/meta、任一槽数量/耐久/NBT/内容、选中槽、GUI/cursor、endpoint/round/generation 变化均清旧租约并重新执行真实候选优先决策；A→B→A 必须重新协商 A。诊断不逐目标记录 hit，只在 create/invalidated 与 round close 汇总计数。
 - TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放；APPLIED 被执行桥消费后仍须按新主手实时 `ChainHarvestRules.canHarvest` 复验，错误候选不得 poll。
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
 - 首块成功前的普通匹配使用客户端 light 快照中的 `ABSENT` 或 `blockId + metadata` 目标身份；坐标、TileEntity/NBT 不参与。同身份维持 10 tick 扫描水位，block/meta 变化立即触发 latest-target-wins，连续两个 END tick ABSENT 才确认丢失。已有 ledger 时先完成旧 RESTORE，再为最终有效目标 FULL；已发送 SWAP/RESTORE 不取消，也不在旧 ledger 上发送第二个普通 SWAP。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
+- 采掘资格先检查输入；目标声明 harvestTool 时只采用 Forge 等级语义，禁止兼容 fallback 绕过。仅 null harvestTool 且材质仍要求工具时进入可选 adapter registry；首个非 `NOT_APPLICABLE` 结果终裁，只有 `ALLOW` 放行，`DENY/UNRESOLVED`、异常与 null 结果全部 fail-closed。TiC 适配器不加载可选类、不解析成员，只按已加载 Item 父类完整名称识别后调用稳定 `Item.canHarvestBlock`。
 
 ## 生命周期边界
 
@@ -52,6 +58,7 @@
 - PlanStarted 在服务端主线程捕获不可变 `PlanningToolCapabilitySnapshot`：当前可用手持优先，按 selector/槽位排序的背包真实工具其次，空手虚拟候选最后。真实工具与客户端候选共用 `ToolHarvestEligibility`，空手只按 Forge 通用无工具能力判定；四类正式采掘 matcher 与对象组采掘分支共用同一 round evaluator。worker 只读冻结能力与世界目标，不读实时库存。
 - 冻结集合只是 admission，可因规划期间库存变化而过宽；主线程 `ChainHarvestRules.canHarvest` 始终保留当前玩家、事件语义和耐久的最终权威。`serverRoundId=0` 不进入工具 round 或候选扫描，安全上下文中直接按当前真实主手裁决，普通连锁不因自动工具关闭失效。
 - 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。非空主手只有实时权威与耐久储备都成立才直通，否则可请求真实候选；空主手先 WAIT 请求候选，只有合法 DECLINED 后可空手兜底。APPLIED/DECLINED 都复验，其他失败均 STOP 且不消费队首。GT 线缆 SPECIAL 不接入。
+- 空手兜底的稳定候选资格可在上述严格身份内按 round 租赁，使同 key 批次首次最多一次 WAIT；租约命中仍位于 `peek()` 与 `poll()` 之间并逐目标实时复验权威，因此脚底、世界状态和事件语义变化继续 fail-closed。
 
 ## 客户端预览刷新边界
 
@@ -83,6 +90,9 @@
 
 ## 演进
 
+- 2026-07-21：为 TiC `HarvestTool` 族增加无直接依赖的 null-harvestTool 旧式采掘适配；客户端候选与冻结规划仍共用资格入口，显式等级、效率、耐久和执行期服务端权威不变。自动化不替代 Smeltery 真实掉落验证，5.0.23 继续阻断。
+- 2026-07-18：新增服务端 round-scoped 单项空手回退租约，以完整 36 槽纯值 identity 消除稳定同 key 批次的逐目标 TAKEOVER/DECLINE；真实候选仍优先、每目标权威不缓存，wire、客户端候选、执行节流、状态机与 GT 线缆路径不变。自动化不替代真实吞吐与 watchdog 复验，运行态仍为 INCOMPLETE。
+- 2026-07-18：修复接替 pending 反向阻断松键 CLOSE 的 round 终裁；闭环动作在合法 sequence 后安全退休等待门，迟到 TAKEOVER 保持零库存副作用。同期将 PlanCompleted 成功入队设为规划完成 publication 线性化点，失败固定发布一次 `plan-completion-publication-failed` 取消；wire、版本、配置 schema 与五态转移表不变，hotfix 运行态仍为 INCOMPLETE。
 - 2026-07-18：统一规划、客户端候选与执行期采掘能力边界；新增冻结能力集合、空手最低优先级、内部 DECLINED、APPLIED 实时复验和 round=0 直判。同期将 planning STOP/complete 线性化，并以完整 seed 租约刷新三种库存布局对应的预览；wire、协议版本、配置 schema 与五态转移表不变，运行态仍待用户实机。
 - 2026-07-16：补齐首块前目标身份与 latest-target-wins。普通 FULL 改为只消费 light 固化的 block/meta；目标变化按唯一 ledger 先 RESTORE 后重匹配，空气采用连续 2 个 END tick 防抖。协议 v3、服务端写权、TAKEOVER 与连锁五态不变。
 - 2026-07-16：客户端原子迁移为单一 `AutoToolSwapClientReducer`；删除并行的 controller、transaction enum 与有状态 protocol 子模型。当时的 wire、服务端 round/ledger、库存事务、dispatcher、lifecycle gate 与产品时序不变。

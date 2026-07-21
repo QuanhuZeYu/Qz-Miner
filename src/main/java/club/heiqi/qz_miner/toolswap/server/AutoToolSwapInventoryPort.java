@@ -32,6 +32,16 @@ public interface AutoToolSwapInventoryPort {
     AutoToolSwapStackState readInventorySlot(int inventorySlot);
 
     /**
+     * 在同一服务端主线程时刻捕获个人 inventory 0..35 的完整纯值身份。
+     * 实现不得让 ItemStack 或其他 Minecraft 可变对象越过此边界；无法完整捕获时必须抛出异常。
+     *
+     * @return 逐槽 exact content 组成的不可变库存身份
+     */
+    default AutoToolSwapRoundService.InventoryFingerprint readInventoryIdentity() {
+        throw new UnsupportedOperationException("full inventory identity is not implemented");
+    }
+
+    /**
      * 原子交换两个个人 inventory 槽位。此调用正常返回即表示交换已经应用，
      * 后续差异同步失败不得通过再次调用本方法来重试交换。
      *

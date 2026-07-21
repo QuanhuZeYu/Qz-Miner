@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.ToolHarvestCompatAdapter;
 import net.minecraft.block.Block;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -33,11 +35,19 @@ public final class ToolHarvestEligibility {
                 && stack.getItem().getDigSpeed(stack, target, metadata) > 1.0F;
     }
 
-    /** 使用 Forge 工具等级语义判断一个真实栈能否收获目标。 */
+    /** 使用显式 Forge 工具等级或窄可选适配语义判断真实栈能否收获目标。 */
     public static boolean canHarvest(ItemStack stack, Block target, int metadata) {
-        return stack != null && stack.getItem() != null && target != null
-                && (target.getMaterial().isToolNotRequired()
-                        || ForgeHooks.canToolHarvestBlock(target, metadata, stack));
+        if (stack == null || stack.getItem() == null || target == null) {
+            return false;
+        }
+        if (target.getHarvestTool(metadata) != null) {
+            return ForgeHooks.canToolHarvestBlock(target, metadata, stack);
+        }
+        if (target.getMaterial().isToolNotRequired()) {
+            return true;
+        }
+        return CompatAdapters.evaluateToolHarvest(stack.getItem(), stack, target)
+                == ToolHarvestCompatAdapter.Result.ALLOW;
     }
 
     /** @return 剩余耐久；空栈与不可损耗物映射为无限。 */

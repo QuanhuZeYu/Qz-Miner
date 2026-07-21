@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.compat.adapter;
 import net.minecraft.tileentity.TileEntity;
 
 /**
- * TileEntity 同类判定适配器。
+ * TileEntity 纯值身份捕获适配器。
  */
 public interface TileIdentityCompatAdapter {
 
@@ -15,20 +15,21 @@ public interface TileIdentityCompatAdapter {
     boolean isAvailable();
 
     /**
-     * 判断当前适配器是否能处理这一组 TileEntity。
+     * 判断当前适配器是否能处理该 TileEntity。
      *
-     * @param sampleTileEntity 起点 TileEntity
-     * @param targetTileEntity 目标 TileEntity
+     * @param tileEntity 待捕获 TileEntity
      * @return 是否可处理
      */
-    boolean supports(TileEntity sampleTileEntity, TileEntity targetTileEntity);
+    boolean supports(TileEntity tileEntity);
 
     /**
-     * 判断两个 TileEntity 是否可视为同类。
+     * 捕获不可变纯值身份。
      *
-     * @param sampleTileEntity 起点 TileEntity
-     * @param targetTileEntity 目标 TileEntity
-     * @return 是否视为同类
+     * <p>已识别类型的任何成员缺失、读取异常或值类型错误都必须返回 UNRESOLVED，
+     * 禁止由门面继续降级到 runtime class。</p>
+     *
+     * @param tileEntity 待捕获 TileEntity
+     * @return 身份令牌
      */
-    boolean matches(TileEntity sampleTileEntity, TileEntity targetTileEntity);
+    TileIdentityToken capture(TileEntity tileEntity);
 }

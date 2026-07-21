@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.planner;
 
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
@@ -24,7 +25,14 @@ public final class ChainBlockIdentity {
      * @return 是否视为同类
      */
     public static boolean matches(World world, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity, ChainTarget target) {
-        return matches(world, sampleBlock, sampleMeta, sampleTileEntity, target, null);
+        return matches(world, sampleBlock, sampleMeta,
+                CompatAdapters.captureTileIdentity(sampleTileEntity), target, null);
+    }
+
+    /** 使用主线程冻结的纯值身份判断目标坐标上的方块是否同类。 */
+    public static boolean matches(World world, Block sampleBlock, int sampleMeta,
+            TileIdentityToken sampleTileIdentity, ChainTarget target) {
+        return matches(world, sampleBlock, sampleMeta, sampleTileIdentity, target, null);
     }
 
     /**
@@ -34,6 +42,13 @@ public final class ChainBlockIdentity {
      * @return 是否视为同类
      */
     static boolean matches(World world, Block sampleBlock, int sampleMeta, TileEntity sampleTileEntity,
+            ChainTarget target, ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
+        return matches(world, sampleBlock, sampleMeta,
+                CompatAdapters.captureTileIdentity(sampleTileEntity), target, diagnostics);
+    }
+
+    /** 先比较 block/meta，再把候选 live TE 立即纯值化后执行 token 矩阵。 */
+    static boolean matches(World world, Block sampleBlock, int sampleMeta, TileIdentityToken sampleTileIdentity,
             ChainTarget target, ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics) {
         if (world == null || sampleBlock == null || target == null) {
             return false;
@@ -55,8 +70,18 @@ public final class ChainBlockIdentity {
             return false;
         }
 
-        TileEntity targetTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
-        return matchesTileEntity(sampleTileEntity, targetTileEntity);
+        TileIdentityToken targetTileIdentity;
+        try {
+            TileEntity targetTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
+            targetTileIdentity = CompatAdapters.captureTileIdentity(targetTileEntity);
+        } catch (RuntimeException | LinkageError failure) {
+            targetTileIdentity = TileIdentityToken.unresolved();
+        }
+        boolean result = CompatAdapters.matchesTileIdentity(sampleTileIdentity, targetTileIdentity);
+        if (diagnostics != null) {
+            diagnostics.recordTileIdentityResult(target, sampleTileIdentity, targetTileIdentity, result);
+        }
+        return result;
     }
 
     /**
@@ -68,5 +93,10 @@ public final class ChainBlockIdentity {
      */
     public static boolean matchesTileEntity(TileEntity sampleTileEntity, TileEntity targetTileEntity) {
         return CompatAdapters.matchesTileEntity(sampleTileEntity, targetTileEntity);
+    }
+
+    /** 比较两个已冻结纯值身份。 */
+    public static boolean matchesTileIdentity(TileIdentityToken sampleIdentity, TileIdentityToken targetIdentity) {
+        return CompatAdapters.matchesTileIdentity(sampleIdentity, targetIdentity);
     }
 }

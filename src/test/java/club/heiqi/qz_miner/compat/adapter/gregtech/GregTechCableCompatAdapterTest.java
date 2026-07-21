@@ -51,7 +51,7 @@ public class GregTechCableCompatAdapterTest {
         profile.missingCapabilities.add("unexpected");
     }
 
-    /** 适配器源码不得恢复 GT 静态链接或仅新版本客户端刷新入口。 */
+    /** 适配器源码不得恢复 GT 静态链接或把不存在的 block update 当作共同必需能力。 */
     @Test
     public void sourceKeepsOptionalDependencyBoundary() throws Exception {
         Path source = Paths.get("src/main/java/club/heiqi/qz_miner/compat/adapter/gregtech/GregTechCableCompatAdapter.java");
@@ -60,6 +60,10 @@ public class GregTechCableCompatAdapterTest {
         assertFalse(content.contains("getMethods("));
         assertFalse(content.contains("getFields("));
         assertFalse(content.contains("issueClientUpdate"));
+        assertFalse(content.contains("issueBlockUpdate"));
+        assertTrue(content.contains("issueTextureUpdate"));
+        assertTrue(content.contains("issueTileUpdate"));
+        assertTrue(content.contains("causeCableUpdate"));
         assertTrue(content.contains("ClassNameCompatSupport.resolveClass"));
     }
 

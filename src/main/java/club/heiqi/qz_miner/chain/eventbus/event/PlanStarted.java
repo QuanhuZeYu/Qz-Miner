@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.eventbus.event;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import net.minecraft.block.Block;
 
 /**
@@ -40,6 +41,8 @@ public final class PlanStarted extends ChainEvent {
     private final Block seedBlock;
     /** 种子 metadata：与 seedBlock 配对，破坏路径透传；右键/左键路径传 0。 */
     private final int seedMeta;
+    /** 主线程捕获并传播的不可变种子 TileEntity 身份。 */
+    private final TileIdentityToken seedTileIdentity;
 
     /**
      * @param playerUUID     触发玩家 UUID
@@ -62,7 +65,17 @@ public final class PlanStarted extends ChainEvent {
                         float hitX, float hitY, float hitZ,
                         Block seedBlock, int seedMeta) {
         this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
-                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ, seedBlock, seedMeta);
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ, seedBlock, seedMeta,
+                TileIdentityToken.unresolved());
+    }
+
+    /** 构造带纯值种子身份的规划启动事件。 */
+    public PlanStarted(UUID playerUUID, int generation, long serverTick, long timestampNanos,
+                        int x, int y, int z, int dimensionId, int sideHit,
+                        float hitX, float hitY, float hitZ,
+                        Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity) {
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ, seedBlock, seedMeta, seedTileIdentity);
     }
 
     /** 构造带服务端轮次关联的规划启动事件。 */
@@ -70,6 +83,16 @@ public final class PlanStarted extends ChainEvent {
                        int x, int y, int z, int dimensionId, int sideHit,
                        float hitX, float hitY, float hitZ,
                        Block seedBlock, int seedMeta) {
+        this(playerUUID, serverRoundId, generation, serverTick, timestampNanos,
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ, seedBlock, seedMeta,
+                TileIdentityToken.unresolved());
+    }
+
+    /** 构造带服务端轮次和纯值种子身份的规划启动事件。 */
+    public PlanStarted(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                       int x, int y, int z, int dimensionId, int sideHit,
+                       float hitX, float hitY, float hitZ,
+                       Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity) {
         super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.x = x;
         this.y = y;
@@ -81,6 +104,7 @@ public final class PlanStarted extends ChainEvent {
         this.hitZ = hitZ;
         this.seedBlock = seedBlock;
         this.seedMeta = seedMeta;
+        this.seedTileIdentity = seedTileIdentity == null ? TileIdentityToken.unresolved() : seedTileIdentity;
     }
 
     /** @return 起点坐标 X */
@@ -103,4 +127,6 @@ public final class PlanStarted extends ChainEvent {
     public Block getSeedBlock() { return seedBlock; }
     /** @return 种子 metadata（与 getSeedBlock() 配对） */
     public int getSeedMeta() { return seedMeta; }
+    /** @return 主线程捕获的不可变 TileEntity 身份；旧构造器固定为 UNRESOLVED */
+    public TileIdentityToken getSeedTileIdentity() { return seedTileIdentity; }
 }

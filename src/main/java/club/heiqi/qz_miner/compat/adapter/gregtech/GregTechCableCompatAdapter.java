@@ -172,7 +172,6 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
 
     private void refreshPipe(Object base, TileEntity tile) throws ReflectiveOperationException {
         invokeRequired(profile.issueTextureUpdate, base);
-        invokeRequired(profile.issueBlockUpdate, base);
         invokeRequired(profile.issueTileUpdate, base);
         invokeRequired(profile.causeCableUpdate, null, tile.getWorldObj(), tile.xCoord, tile.yCoord, tile.zCoord);
     }
@@ -240,7 +239,7 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         List<String> missingCapabilities = Collections.emptyList();
         Class<?> gregTechTileType, metaTileType, basePipeType, cableType;
         Method getMetaTileId, setMetaTileId, getMetaTileEntity, getConnections, isConnectedAtSide;
-        Method newMetaEntity, setBaseMetaTileEntity, causeCableUpdate, issueTextureUpdate, issueBlockUpdate, issueTileUpdate;
+        Method newMetaEntity, setBaseMetaTileEntity, causeCableUpdate, issueTextureUpdate, issueTileUpdate;
         Field baseConnections, cableConnections, material, cableLoss, amperage, voltage, blockMachines, metaTileEntities;
 
         private CapabilityProfile(boolean complete) { this.complete = complete; }
@@ -270,7 +269,6 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
                 p.setBaseMetaTileEntity = method(p.metaTileType, "setBaseMetaTileEntity", p.gregTechTileType);
                 p.causeCableUpdate = method(api, "causeCableUpdate", World.class, int.class, int.class, int.class);
                 p.issueTextureUpdate = method(p.gregTechTileType, "issueTextureUpdate");
-                p.issueBlockUpdate = method(p.gregTechTileType, "issueBlockUpdate");
                 p.issueTileUpdate = method(p.gregTechTileType, "issueTileUpdate");
                 p.baseConnections = field(p.basePipeType, "mConnections");
                 p.cableConnections = field(metaPipeType, "mConnections");
@@ -315,7 +313,6 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
             addMissing(missing, p.setBaseMetaTileEntity, "method:IMetaTileEntity#setBaseMetaTileEntity(IGregTechTileEntity)");
             addMissing(missing, p.causeCableUpdate, "method:GregTechAPI#causeCableUpdate(World,int,int,int)");
             addMissing(missing, p.issueTextureUpdate, "method:IGregTechTileEntity#issueTextureUpdate()");
-            addMissing(missing, p.issueBlockUpdate, "method:IGregTechTileEntity#issueBlockUpdate()");
             addMissing(missing, p.issueTileUpdate, "method:IGregTechTileEntity#issueTileUpdate()");
             addMissing(missing, p.baseConnections, "field:BaseMetaPipeEntity#mConnections");
             addMissing(missing, p.cableConnections, "field:MetaPipeEntity#mConnections");
@@ -336,7 +333,7 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
             p.gregTechTileType=source.gregTechTileType; p.metaTileType=source.metaTileType; p.basePipeType=source.basePipeType; p.cableType=source.cableType;
             p.getMetaTileId=source.getMetaTileId; p.setMetaTileId=source.setMetaTileId; p.getMetaTileEntity=source.getMetaTileEntity; p.getConnections=source.getConnections;
             p.isConnectedAtSide=source.isConnectedAtSide; p.newMetaEntity=source.newMetaEntity; p.setBaseMetaTileEntity=source.setBaseMetaTileEntity;
-            p.causeCableUpdate=source.causeCableUpdate; p.issueTextureUpdate=source.issueTextureUpdate; p.issueBlockUpdate=source.issueBlockUpdate; p.issueTileUpdate=source.issueTileUpdate;
+            p.causeCableUpdate=source.causeCableUpdate; p.issueTextureUpdate=source.issueTextureUpdate; p.issueTileUpdate=source.issueTileUpdate;
             p.baseConnections=source.baseConnections; p.cableConnections=source.cableConnections; p.material=source.material; p.cableLoss=source.cableLoss;
             p.amperage=source.amperage; p.voltage=source.voltage; p.blockMachines=source.blockMachines; p.metaTileEntities=source.metaTileEntities;
             return p;
@@ -345,7 +342,7 @@ public final class GregTechCableCompatAdapter implements CableCompatAdapter {
         private static boolean allPresent(CapabilityProfile p) {
             return p.getMetaTileId!=null && p.setMetaTileId!=null && p.getMetaTileEntity!=null && p.getConnections!=null
                 && p.isConnectedAtSide!=null && p.newMetaEntity!=null && p.setBaseMetaTileEntity!=null && p.causeCableUpdate!=null
-                && p.issueTextureUpdate!=null && p.issueBlockUpdate!=null && p.issueTileUpdate!=null && p.baseConnections!=null
+                && p.issueTextureUpdate!=null && p.issueTileUpdate!=null && p.baseConnections!=null
                 && p.cableConnections!=null && p.material!=null && p.cableLoss!=null && p.amperage!=null && p.voltage!=null
                 && p.blockMachines!=null && p.metaTileEntities!=null;
         }

@@ -5,6 +5,13 @@ package club.heiqi.qz_miner.compat.adapter;
  */
 public final class ClassNameCompatSupport {
 
+    /** 不加载可选类时的运行时类层级匹配结果。 */
+    public enum HierarchyMatch {
+        MATCH,
+        NO_MATCH,
+        UNRESOLVED
+    }
+
     private ClassNameCompatSupport() {}
 
     /**
@@ -46,5 +53,31 @@ public final class ClassNameCompatSupport {
      */
     public static boolean isInstance(Class<?> type, Object instance) {
         return type != null && instance != null && type.isInstance(instance);
+    }
+
+    /**
+     * 只遍历已经加载的运行时父类，并按完整类名匹配。
+     *
+     * @param runtimeType 已加载的运行时类型
+     * @param expectedClassName 目标完整类名
+     * @return 匹配、未匹配或类形不可安全读取
+     */
+    public static HierarchyMatch matchesHierarchyName(Class<?> runtimeType, String expectedClassName) {
+        if (runtimeType == null || expectedClassName == null || expectedClassName.isEmpty()) {
+            return HierarchyMatch.UNRESOLVED;
+        }
+
+        Class<?> current = runtimeType;
+        try {
+            while (current != null) {
+                if (expectedClassName.equals(current.getName())) {
+                    return HierarchyMatch.MATCH;
+                }
+                current = current.getSuperclass();
+            }
+            return HierarchyMatch.NO_MATCH;
+        } catch (SecurityException | LinkageError ignored) {
+            return HierarchyMatch.UNRESOLVED;
+        }
     }
 }

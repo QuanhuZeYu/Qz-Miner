@@ -12,6 +12,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import tconstruct.library.tools.HarvestTool;
 
 /** 冻结规划能力的候选顺序、空手语义与库存隔离合同。 */
 public class PlanningToolCapabilitySnapshotTest {
@@ -55,6 +56,16 @@ public class PlanningToolCapabilitySnapshotTest {
                 snapshot.select(new TestBlock(Material.wood), 0));
     }
 
+    /** 冻结规划与客户端候选共用 TiC null-harvestTool 资格入口。 */
+    @Test
+    public void tconstructNullHarvestToolCapabilityIsFrozenThroughSharedEligibility() {
+        PlanningToolCapabilitySnapshot snapshot = PlanningToolCapabilitySnapshot.fromOrderedStacks(
+                null, Collections.<ItemStack>singletonList(new ItemStack(new LegacyHarvestTool())), false);
+
+        Assert.assertEquals(PlanningToolCapabilitySnapshot.MatchKind.INVENTORY_TOOL,
+                snapshot.select(new NullHarvestToolBlock(), 2));
+    }
+
     @Test
     public void productionSnapshotUsesSelectorOrderAndSharedEligibilityWithoutWorkerInventoryReads()
             throws Exception {
@@ -81,5 +92,17 @@ public class PlanningToolCapabilitySnapshotTest {
     private static final class TestTool extends Item {
         private TestTool() { setMaxDamage(100); }
         @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) { return 4.0F; }
+    }
+
+    /** TiC 合成旧式工具。 */
+    private static final class LegacyHarvestTool extends HarvestTool {
+        @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) { return 4.0F; }
+        @Override public boolean canHarvestBlock(Block block, ItemStack stack) { return true; }
+    }
+
+    /** 未声明 harvestTool、但材质需要工具的规划目标。 */
+    private static final class NullHarvestToolBlock extends Block {
+        private NullHarvestToolBlock() { super(Material.rock); }
+        @Override public String getHarvestTool(int metadata) { return null; }
     }
 }

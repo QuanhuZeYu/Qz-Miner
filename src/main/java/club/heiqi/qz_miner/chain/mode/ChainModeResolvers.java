@@ -69,7 +69,7 @@ public final class ChainModeResolvers {
             return new SameBlockHarvestableMatcher(
                 context.getSearchContext().getSampleBlock(),
                 context.getSearchContext().getSampleMeta(),
-                context.getSearchContext().getSampleTileEntity());
+                context.getSearchContext().getSampleTileIdentity());
         }
         return new HarvestableBlockMatcher();
     };
@@ -85,7 +85,7 @@ public final class ChainModeResolvers {
         return new SameBlockMatcher(
             context.getSearchContext().getSampleBlock(),
             context.getSearchContext().getSampleMeta(),
-            context.getSearchContext().getSampleTileEntity());
+            context.getSearchContext().getSampleTileIdentity());
     };
 
     private ChainModeResolvers() {}

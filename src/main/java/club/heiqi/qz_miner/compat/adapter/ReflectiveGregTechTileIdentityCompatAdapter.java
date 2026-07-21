@@ -13,6 +13,9 @@ import net.minecraft.tileentity.TileEntity;
  */
 public final class ReflectiveGregTechTileIdentityCompatAdapter implements TileIdentityCompatAdapter {
 
+    private static final String STRATEGY_ID = "gregtech-meta-tile";
+    private static final String ABSENT_META_TYPE = "<absent-meta-tile>";
+
     private final Class<?> gregTechTileEntityType;
     private final Map<String, Method> methodCache = new ConcurrentHashMap<String, Method>();
     private final Set<String> missingMethods = ConcurrentHashMap.newKeySet();
@@ -30,44 +33,49 @@ public final class ReflectiveGregTechTileIdentityCompatAdapter implements TileId
     }
 
     @Override
-    public boolean supports(TileEntity sampleTileEntity, TileEntity targetTileEntity) {
-        return ClassNameCompatSupport.isInstance(gregTechTileEntityType, sampleTileEntity)
-            && ClassNameCompatSupport.isInstance(gregTechTileEntityType, targetTileEntity);
+    public boolean supports(TileEntity tileEntity) {
+        return ClassNameCompatSupport.isInstance(gregTechTileEntityType, tileEntity);
     }
 
     @Override
-    public boolean matches(TileEntity sampleTileEntity, TileEntity targetTileEntity) {
-        if (invokeInt(sampleTileEntity, "getMetaTileID") != invokeInt(targetTileEntity, "getMetaTileID")) {
-            return false;
+    public TileIdentityToken capture(TileEntity tileEntity) {
+        InvocationResult metaIdResult = invoke(tileEntity, "getMetaTileID");
+        InvocationResult metaTileResult = invoke(tileEntity, "getMetaTileEntity");
+        if (!metaIdResult.success || !(metaIdResult.value instanceof Number) || !metaTileResult.success) {
+            return TileIdentityToken.unresolved();
         }
 
-        Object sampleMetaTileEntity = invoke(sampleTileEntity, "getMetaTileEntity");
-        Object targetMetaTileEntity = invoke(targetTileEntity, "getMetaTileEntity");
-        if (sampleMetaTileEntity == null || targetMetaTileEntity == null) {
-            return sampleMetaTileEntity == targetMetaTileEntity;
+        String metaTypeName = ABSENT_META_TYPE;
+        if (metaTileResult.value != null) {
+            try {
+                metaTypeName = metaTileResult.value.getClass().getName();
+            } catch (LinkageError | SecurityException ignored) {
+                return TileIdentityToken.unresolved();
+            }
         }
-        return sampleMetaTileEntity.getClass() == targetMetaTileEntity.getClass();
+        String identityKey = ((Number) metaIdResult.value).intValue() + "|" + metaTypeName;
+        try {
+            return TileIdentityToken.present(STRATEGY_ID, gregTechTileEntityType.getName(), identityKey);
+        } catch (RuntimeException | LinkageError failure) {
+            return TileIdentityToken.unresolved();
+        }
     }
 
-    private int invokeInt(Object owner, String methodName) {
-        Object value = invoke(owner, methodName);
-        return value instanceof Number ? ((Number) value).intValue() : Integer.MIN_VALUE;
-    }
-
-    private Object invoke(Object owner, String methodName) {
+    private InvocationResult invoke(Object owner, String methodName) {
         if (owner == null) {
-            return null;
+            return InvocationResult.failure();
         }
 
         Method method = resolveMethod(owner.getClass(), methodName);
         if (method == null) {
-            return null;
+            return InvocationResult.failure();
         }
 
         try {
-            return method.invoke(owner);
-        } catch (IllegalAccessException | InvocationTargetException ignored) {
-            return null;
+            return InvocationResult.success(method.invoke(owner));
+        } catch (IllegalAccessException | InvocationTargetException | IllegalArgumentException
+                | LinkageError | SecurityException ignored) {
+            return InvocationResult.failure();
         }
     }
 
@@ -92,5 +100,24 @@ public final class ReflectiveGregTechTileIdentityCompatAdapter implements TileId
         }
         Method previousMethod = methodCache.putIfAbsent(cacheKey, resolvedMethod);
         return previousMethod == null ? resolvedMethod : previousMethod;
+    }
+
+    /** 区分反射成功返回 null 与反射失败。 */
+    private static final class InvocationResult {
+        private final boolean success;
+        private final Object value;
+
+        private InvocationResult(boolean success, Object value) {
+            this.success = success;
+            this.value = value;
+        }
+
+        private static InvocationResult success(Object value) {
+            return new InvocationResult(true, value);
+        }
+
+        private static InvocationResult failure() {
+            return new InvocationResult(false, null);
+        }
     }
 }

@@ -108,8 +108,23 @@ public final class AutoToolSwapTakeoverCoordinator {
                 return evaluateAuthority(authority);
             }
             if (state == AutoToolSwapRoundService.TakeoverGateState.DECLINED) {
-                return validateEmptyHandFallback(inventory, active.anchorSlot, authority);
+                AutoToolSwapRoundService.TargetCapabilityKey targetCapability;
+                try {
+                    targetCapability = AutoToolSwapRoundService.TargetCapabilityKey.of(blockId, metadata);
+                } catch (IllegalArgumentException invalidTarget) {
+                    return GateResult.STOP;
+                }
+                return installEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
+                        targetCapability, inventory, active.anchorSlot, authority);
             }
+            return GateResult.STOP;
+        }
+
+        AutoToolSwapRoundService.TargetCapabilityKey targetCapability;
+        try {
+            targetCapability = AutoToolSwapRoundService.TargetCapabilityKey.of(blockId, metadata);
+        } catch (IllegalArgumentException invalidTarget) {
+            roundService.clearEmptyHandFallbackLease(playerId, "invalid-target");
             return GateResult.STOP;
         }
 
@@ -118,16 +133,50 @@ public final class AutoToolSwapTakeoverCoordinator {
         try {
             if (!inventory.isPlayerAlive()
                     || !inventory.hasPersonalInventoryWindow0() || !inventory.isCursorEmpty()) {
+                roundService.clearEmptyHandFallbackLease(playerId, "inventory-context");
                 return GateResult.STOP;
             }
             anchorSlot = inventory.selectedHotbarSlot();
             anchor = inventory.readInventorySlot(anchorSlot);
-            if (anchor == null) return GateResult.STOP;
-            if (inventory.isCreativeMode()) return evaluateAuthority(authority);
+            if (anchor == null) {
+                roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
+                return GateResult.STOP;
+            }
+            if (inventory.isCreativeMode()) {
+                roundService.clearEmptyHandFallbackLease(playerId, "creative-mode");
+                return evaluateAuthority(authority);
+            }
         } catch (RuntimeException failure) {
+            roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
             return GateResult.STOP;
         } catch (LinkageError failure) {
+            roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
             return GateResult.STOP;
+        }
+        if (roundService.hasEmptyHandFallbackLease(playerId)) {
+            AutoToolSwapRoundService.InventoryFingerprint inventoryFingerprint;
+            try {
+                inventoryFingerprint = inventory.readInventoryIdentity();
+            } catch (RuntimeException failure) {
+                roundService.clearEmptyHandFallbackLease(playerId, "inventory-identity-read-failed");
+                return GateResult.STOP;
+            } catch (LinkageError failure) {
+                roundService.clearEmptyHandFallbackLease(playerId, "inventory-identity-read-failed");
+                return GateResult.STOP;
+            }
+            AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult leaseMatch = roundService
+                    .matchEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
+                            targetCapability, anchorSlot, inventoryFingerprint);
+            if (leaseMatch.outcome() == AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH) {
+                AutoToolSwapRoundService.EmptyHandFallbackLeaseToken leaseToken = leaseMatch.token();
+                GateResult authorityResult = evaluateAuthority(authority);
+                if (authorityResult != GateResult.PROCEED) {
+                    // 权威可同线程重入模组代码；只退休调用权威前实际命中的同一租约。
+                    roundService.compareAndClearEmptyHandFallbackLease(playerId, leaseToken,
+                            "authority-failed");
+                }
+                return authorityResult;
+            }
         }
         if (!anchor.isEmpty()) {
             Boolean currentCanHarvest = queryAuthority(authority);
@@ -156,9 +205,11 @@ public final class AutoToolSwapTakeoverCoordinator {
         }
     }
 
-    /** DECLINED 仅允许原空 anchor 在同一安全库存上下文中执行服务端空手复验。 */
-    private static GateResult validateEmptyHandFallback(AutoToolSwapInventoryPort inventory, int anchorSlot,
-            HarvestAuthority authority) {
+    /** DECLINED 仅在同一安全空手上下文与实时权威均成立后安装 round-scoped 租约。 */
+    private GateResult installEmptyHandFallbackLease(UUID playerId, Object endpoint, long serverRoundId,
+            int generation, AutoToolSwapRoundService.TargetCapabilityKey targetCapability,
+            AutoToolSwapInventoryPort inventory, int anchorSlot, HarvestAuthority authority) {
+        AutoToolSwapRoundService.InventoryFingerprint inventoryFingerprint;
         try {
             if (!inventory.isPlayerAlive() || inventory.isCreativeMode()
                     || !inventory.hasPersonalInventoryWindow0() || !inventory.isCursorEmpty()
@@ -167,12 +218,18 @@ public final class AutoToolSwapTakeoverCoordinator {
             }
             AutoToolSwapStackState current = inventory.readInventorySlot(anchorSlot);
             if (current == null || !current.isEmpty()) return GateResult.STOP;
+            inventoryFingerprint = inventory.readInventoryIdentity();
+            if (inventoryFingerprint == null || !inventoryFingerprint.slot(anchorSlot).isEmpty()) {
+                return GateResult.STOP;
+            }
         } catch (RuntimeException failure) {
             return GateResult.STOP;
         } catch (LinkageError failure) {
             return GateResult.STOP;
         }
-        return evaluateAuthority(authority);
+        if (evaluateAuthority(authority) != GateResult.PROCEED) return GateResult.STOP;
+        return roundService.installEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
+                targetCapability, anchorSlot, inventoryFingerprint) ? GateResult.PROCEED : GateResult.STOP;
     }
 
     /** 权威异常不得让目标越过 poll 前门。 */

@@ -13,6 +13,7 @@ import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.state.ChainSession;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
@@ -245,12 +246,17 @@ public final class ChainPlanningRuntimeFactory {
         club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot modeExtension) {
         ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<ChainTarget>();
         Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
+        // 普通 same-block 规划只传播纯值 token，不把 seed TileEntity 交给 worker。
+        // GT 线缆特殊模式继续保留既有专用兼容字段，避免改变其 profile/preview 行为。
+        TileEntity specialModeTileEntity = subMode == ChainSubMode.SPECIAL_GT_CABLE_REPLACE
+                ? seedSnapshot.getSampleTileEntity() : null;
         return new ChainSearchContext(
             world,
             seedSnapshot.getOrigin(),
             seedSnapshot.getSampleBlock(),
             seedSnapshot.getSampleMeta(),
-            seedSnapshot.getSampleTileEntity(),
+            seedSnapshot.getSampleTileIdentity(),
+            specialModeTileEntity,
             subMode,
             maxRadius,
             maxTargets,
@@ -298,7 +304,7 @@ public final class ChainPlanningRuntimeFactory {
                     context.getWorld(),
                     context.getSampleBlock(),
                     context.getSampleMeta(),
-                    context.getSampleTileEntity(),
+                    context.getSampleTileIdentity(),
                     target,
                     diagnostics);
             }
@@ -417,6 +423,21 @@ public final class ChainPlanningRuntimeFactory {
             }
         }
 
+        /**
+         * 记录纯值 TileEntity 身份矩阵结果；只输出状态/策略/类型，不输出 identity key、NBT 或对象。
+         */
+        void recordTileIdentityResult(ChainTarget target, TileIdentityToken sampleIdentity,
+                TileIdentityToken targetIdentity, boolean result) {
+            CandidateObservation observation = observations.get(target);
+            if (observation == null) {
+                return;
+            }
+            observation.tileIdentityResult = tileIdentitySummary(sampleIdentity, targetIdentity, result);
+            if (!result) {
+                observation.reason = tileIdentityReason(sampleIdentity, targetIdentity);
+            }
+        }
+
         /** @return 当前候选是否已领取明细预算。 */
         boolean isTracking(ChainTarget target) {
             return target != null && observations.containsKey(target);
@@ -430,7 +451,9 @@ public final class ChainPlanningRuntimeFactory {
             }
             observation.candidateResult = result;
             if (!result) {
-                observation.reason = "candidate-filter";
+                if ("not-run".equals(observation.reason)) {
+                    observation.reason = "candidate-filter";
+                }
                 emitAndRemove(target, observation);
             }
         }
@@ -536,6 +559,7 @@ public final class ChainPlanningRuntimeFactory {
                     + " block=" + observation.blockRegistry + "@" + observation.blockMeta
                     + " canTraverse=" + observation.candidateResult
                     + " matcher=" + observation.matcherResult
+                    + " tileIdentity=" + observation.tileIdentityResult
                     + " durability=" + observation.durabilityResult
                     + " canHarvestBlock=" + observation.canHarvestResult
                     + " harvestReason=" + observation.harvestReason
@@ -574,6 +598,41 @@ public final class ChainPlanningRuntimeFactory {
         private static String safe(String value) {
             return value == null ? "unavailable" : value.replace('\n', '_').replace('\r', '_');
         }
+
+        private static String tileIdentitySummary(TileIdentityToken sampleIdentity,
+                TileIdentityToken targetIdentity, boolean result) {
+            return "seed=" + tileIdentityDescriptor(sampleIdentity)
+                    + ",target=" + tileIdentityDescriptor(targetIdentity)
+                    + ",match=" + result;
+        }
+
+        private static String tileIdentityDescriptor(TileIdentityToken identity) {
+            if (identity == null) {
+                return "UNRESOLVED";
+            }
+            if (identity.getState() != TileIdentityToken.State.PRESENT) {
+                return identity.getState().name();
+            }
+            return "PRESENT:" + safe(identity.getStrategyId()) + ":" + safe(identity.getTypeName());
+        }
+
+        private static String tileIdentityReason(TileIdentityToken sampleIdentity,
+                TileIdentityToken targetIdentity) {
+            if (sampleIdentity == null || targetIdentity == null
+                    || !sampleIdentity.isResolved() || !targetIdentity.isResolved()) {
+                return "tile-identity-unresolved";
+            }
+            if (sampleIdentity.getState() != targetIdentity.getState()) {
+                return "tile-identity-presence-mismatch";
+            }
+            if (!sampleIdentity.getStrategyId().equals(targetIdentity.getStrategyId())) {
+                return "tile-identity-strategy-mismatch";
+            }
+            if (!sampleIdentity.getTypeName().equals(targetIdentity.getTypeName())) {
+                return "tile-identity-type-mismatch";
+            }
+            return "tile-identity-key-mismatch";
+        }
     }
 
     /** 一条候选明细的 primitive/string 聚合，不持有 World/Player/Block。 */
@@ -586,6 +645,7 @@ public final class ChainPlanningRuntimeFactory {
         private int blockMeta = -1;
         private boolean candidateResult;
         private String matcherResult = "not-run";
+        private String tileIdentityResult = "not-run";
         private String durabilityResult = "not-run";
         private String canHarvestResult = "not-run";
         private String harvestReason = "not-run";
