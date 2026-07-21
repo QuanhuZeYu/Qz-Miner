@@ -74,14 +74,20 @@ GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出�
 
 `5.0.19`、`5.0.20`、`5.0.21`、`5.0.22` 的 tag/Release 均为不可移动发布事实；本次 hotfix 提交不属于 `5.0.22` 发布制品 SHA。
 
-## 5.0.23 标准发布授权与候选证据
+## 5.0.23 标准发布与运行态边界
 
-用户已再次授权 `5.0.23` 按标准完整流程发布。该授权不代表版本已经发布，也不豁免 exact-SHA branch CI、主线合并、tag workflow、GitHub Release 与资产核验；未取得实际终态证据的外部渠道不得写成成功。
+用户授权的 `5.0.23` 标准完整发布现已闭环。本次功能范围为 `5.0.22` 后六个提交：自动工具 round 关闭收口、规划完成 publication 顺序与 GT `5.09.54.20` 线缆 profile，round-scoped 空手回退租约及其精确失效，通用方块实体 seed token，以及无 TiC 直接依赖的 `HarvestTool` 窄适配。最终 `5.0重构` merge commit 为 `a64d1d7b0ef94559033a773a6059fa3b959b8b9b`；候选 CI [`29795173509`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29795173509)、merge exact-SHA CI [`29797374514`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29797374514) 与 release-tags run [`29799955205`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29799955205) 均 attempt 1 success。
 
-本次功能范围为 `5.0.22` 后六个提交：自动工具 round 关闭收口、规划完成 publication 顺序与 GT `5.09.54.20` 线缆 profile，round-scoped 空手回退租约及其精确失效，通用方块实体 seed token，以及无 TiC 直接依赖的 `HarvestTool` 窄适配。最新源代码 hotfix 提交为 `fad21dabc2fcfdc9383e5b695a6380b28e7e1ee0`；其既有自动化验证已通过，独立 review 未发现 P0/P1。
+Annotated tag `5.0.23` 的 tag object 为 `e0037f9d1a33620b7bad3c3066cff6d100a21fb5`，peeled commit 固定为 `a64d1d7`。公开 GitHub Release 为 <https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.0.23>，非 draft/prerelease，正文与 tagged changelog 字符一致。三项公开资产的实字节与 SHA-256 如下：
 
-最新实机加载 `5.0.22-fix-generic-tile-identity.6+fad21dabc2`。TiC Smeltery metadata 2 的 round 1 同时命中 seed/目标 token，`matcher=true`、冻结规划为 `CURRENT_HAND`，`workerConfirmed=8`、`queue=4`、执行消费/成功为 `4/4`，掉落正常释放并自然进入 `FINISHED`。该证据覆盖本次 TiC 假阴性、token 冻结规划及 round 收口，原 TiC 运行态发布阻断已解除。
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.0.23.jar` | 798735 | `5769ace3955de7b134505c85583270f202f50a6653749c0eeb98c6f6878bba2e` |
+| `qz_miner-5.0.23-dev.jar` | 793051 | `f86ed4911e3b458a74ad3e6576a3934095ee7dd154997e60bb718f2b891767f9` |
+| `qz_miner-5.0.23-sources.jar` | 452235 | `a757777330e6a651f9a536da2b761e44a84806d3baa21dc7e9955656c9b9aeaa` |
 
-日志中的 `Off-thread read ... serving from snapshot` 是 Qz-Miner 当前 worker 只读世界经 snapshot 服务的预期诊断，不是意外回归，也不作为本次发布风险；记录该裁决不等于宣称运行日志完全没有 warning。round-scoped 空手租约的大批次吞吐/watchdog、GT 两项支持基线的真实线缆替换与 dedicated server 运行态仍缺直接证据，按本次授权作为已知边界保留，不伪报为通过。
+渠道终态为 GitHub Release success；Maven、Modrinth、CurseForge 均 skipped，不能写成外部发布成功。独立 review 无 P0/P1，仅保留 P2 观察：Release 正文仍含“后续 tag 注入”的发布前时态；该措辞不影响制品身份，本次不反向修改 tagged changelog、历史 Release 或 tag。
 
-实际发布主线为 `5.0重构`，不是 `main`；准备时 `origin/5.0重构` 仍为 `3befb0c98e9ec362e9f967f76babb34c0e6d209a`。后续须先 push 候选并取得候选 exact-SHA branch CI，再以 `--no-ff` 合入 `5.0重构`，取得 merge commit exact-SHA branch CI 后才能创建 annotated tag `5.0.23`。正式版本由 tag 名注入，不修改 `gradle.properties`；预期 GitHub Release 包含主、`dev`、`sources` 三项 JAR，tag 指向、workflow、Release 正文、资产身份/校验和及 Modrinth、CurseForge 等外部渠道终态均须发布后独立核验。
+实机仍以 `5.0.22-fix-generic-tile-identity.6+fad21dabc2` 为证据来源：TiC Smeltery metadata 2 的 round 1 同时命中 seed/目标 token，`matcher=true`、冻结规划为 `CURRENT_HAND`，`workerConfirmed=8`、`queue=4`、执行消费/成功为 `4/4`，掉落正常释放并自然进入 `FINISHED`。日志中的 `Off-thread read ... serving from snapshot` 是用户确认的设计内 worker 只读 snapshot 诊断，不作为发布风险，也不等于宣称运行日志完全没有 warning。
+
+Round-scoped 空手租约的大批次吞吐/watchdog、GT 两项支持基线的真实线缆替换与 dedicated server 运行态仍缺直接证据，继续记为 **INCOMPLETE**，不由 CI 或发布成功替代。`5.0.23` tag/Release 是不可移动发布事实；发布后的文档提交不属于该制品 SHA，不得移动 tag 或改写历史 Release。
