@@ -15,6 +15,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraversalSupport;
 import club.heiqi.qz_miner.chain.planner.BudgetedChainTraverser;
 import club.heiqi.qz_miner.chain.planner.TraversalStepResult;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.ClientProxy;
@@ -53,6 +54,7 @@ public class ChainPreviewController {
     private int specialPreviewRequestId;
     private BlockSeedSnapshot previewSeedSnapshot;
     private World previewSeedWorld;
+    private int previewConcreteFace;
     private long lastInvalidationCycleGeneration = Long.MIN_VALUE;
     private long lastInvalidationServerRoundId = Long.MIN_VALUE;
     private long lastInvalidationActionSequence = Long.MIN_VALUE;
@@ -105,7 +107,7 @@ public class ChainPreviewController {
         lastInvalidationServerRoundId = serverRoundId;
         lastInvalidationActionSequence = actionSequence;
         lastInvalidationAction = action;
-        startPreview(world, origin, previewSeedSnapshot, false);
+        startPreview(world, origin, previewSeedSnapshot, previewConcreteFace, false);
     }
 
     @SubscribeEvent
@@ -148,21 +150,28 @@ public class ChainPreviewController {
             return;
         }
 
-        if (!target.equals(currentTarget)) {
-            startPreview(world, target);
+        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        TunnelDirectionSource acceptedSource = MyMod.chainStateService.getClientState()
+                .getAcceptedTunnelDirectionSource();
+        int concreteFace = resolveConcreteFace(
+                selectedSubMode, acceptedSource, player, minecraft.objectMouseOver, target);
+        if (shouldRestartPreview(previewSeedWorld, world, currentTarget, target,
+                previewConcreteFace, concreteFace)) {
+            startPreview(world, target, concreteFace);
         }
     }
 
-    private void startPreview(World world, ChainTarget target) {
+    private void startPreview(World world, ChainTarget target, int concreteFace) {
         Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
         TileEntity sampleTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
-        startPreview(world, target, new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity), true);
+        startPreview(world, target, new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity),
+                concreteFace, true);
     }
 
     /** 以已捕获 seed 启动或刷新预览；刷新不得重读已破坏 origin。 */
     private void startPreview(World world, ChainTarget target, BlockSeedSnapshot seedSnapshot,
-            boolean replaceSeedLease) {
+            int concreteFace, boolean replaceSeedLease) {
         resetPreview(replaceSeedLease);
 
         Minecraft minecraft = Minecraft.getMinecraft();
@@ -172,6 +181,7 @@ public class ChainPreviewController {
         }
 
         currentTarget = target;
+        previewConcreteFace = AxisAlignedTunnelDirection.normalizeFace(concreteFace);
         if (replaceSeedLease) {
             previewSeedSnapshot = seedSnapshot;
             previewSeedWorld = world;
@@ -207,7 +217,7 @@ public class ChainPreviewController {
             selectedMode,
             selectedSubMode,
             target,
-            AxisAlignedTunnelDirection.resolveFace(player), 0.0F, 0.0F, 0.0F,
+            previewConcreteFace, 0.0F, 0.0F, 0.0F,
             -1, -1, modeExtension);
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForPreview(
             world,
@@ -223,6 +233,7 @@ public class ChainPreviewController {
         final ChainSearchContext searchContext = runtime.getSearchContext();
         final BudgetedChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
+        final int frozenConcreteFace = previewConcreteFace;
 
         if (blockMatcher.matches(player, target)) {
             previewState.addPreviewTarget(target);
@@ -237,7 +248,7 @@ public class ChainPreviewController {
         previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
             "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
             control -> {
-                if (control.isCancelRequested() || !isPreviewStillValid(generation, target)) {
+                if (control.isCancelRequested() || !isPreviewStillValid(generation, target, frozenConcreteFace)) {
                     return ParallelTaskResult.TERMINATED;
                 }
 
@@ -250,10 +261,11 @@ public class ChainPreviewController {
                     searchContext,
                     control,
                     matchedTarget -> !control.isCancelRequested()
-                        && isPreviewStillValid(generation, target)
+                        && isPreviewStillValid(generation, target, frozenConcreteFace)
                         && blockMatcher.matches(player, matchedTarget),
                     matchedTarget -> {
-                        if (!control.isCancelRequested() && isPreviewStillValid(generation, target)) {
+                        if (!control.isCancelRequested()
+                                && isPreviewStillValid(generation, target, frozenConcreteFace)) {
                             previewState.addPreviewTarget(matchedTarget);
                         }
                     });
@@ -261,7 +273,7 @@ public class ChainPreviewController {
                     return ParallelTaskResult.TERMINATED;
                 }
 
-                if (control.isCancelRequested() || !isPreviewStillValid(generation, target)) {
+                if (control.isCancelRequested() || !isPreviewStillValid(generation, target, frozenConcreteFace)) {
                     return ParallelTaskResult.TERMINATED;
                 }
 
@@ -360,14 +372,14 @@ public class ChainPreviewController {
         return Math.max(1, Math.min(serverChainMaxBlocks, Config.clientPreviewMaxTargets));
     }
 
-    private boolean isPreviewStillValid(int generation, ChainTarget target) {
+    private boolean isPreviewStillValid(int generation, ChainTarget target, int concreteFace) {
         if (MyMod.chainStateService == null || !MyMod.chainStateService.getClientState().isChainKeyPressed()) {
             return false;
         }
         if (previewState.getGeneration() != generation) {
             return false;
         }
-        return target.equals(currentTarget);
+        return target.equals(currentTarget) && concreteFace == previewConcreteFace;
     }
 
     /**
@@ -420,6 +432,7 @@ public class ChainPreviewController {
 
         previewState.clear();
         currentTarget = null;
+        previewConcreteFace = 0;
         specialPreviewRequestId++;
         if (clearSeedLease) {
             previewSeedSnapshot = null;
@@ -452,5 +465,27 @@ public class ChainPreviewController {
         }
 
         return new ChainTarget(movingObjectPosition.blockX, movingObjectPosition.blockY, movingObjectPosition.blockZ);
+    }
+
+    /** 只对 AREA_TUNNEL 解析 accepted source；HIT_FACE 缺失或非法时回退当前 look。 */
+    private static int resolveConcreteFace(ChainSubMode subMode, TunnelDirectionSource source,
+            EntityPlayer player, MovingObjectPosition hit, ChainTarget target) {
+        if (subMode != ChainSubMode.AREA_TUNNEL) {
+            return 0;
+        }
+        int lookFace = AxisAlignedTunnelDirection.resolveFace(player);
+        if (source != TunnelDirectionSource.HIT_FACE || hit == null || target == null
+                || hit.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK
+                || hit.blockX != target.getX() || hit.blockY != target.getY() || hit.blockZ != target.getZ()) {
+            return lookFace;
+        }
+        return AxisAlignedTunnelDirection.resolveHitFaceOrLook(hit.sideHit, lookFace);
+    }
+
+    /** 纯身份判定：同 origin 只要 world 或 concrete face 变化也必须换 generation。 */
+    static boolean shouldRestartPreview(Object currentWorld, Object nextWorld,
+            ChainTarget currentTarget, ChainTarget nextTarget, int currentFace, int nextFace) {
+        return currentWorld != nextWorld || currentTarget == null || !currentTarget.equals(nextTarget)
+                || currentFace != nextFace;
     }
 }

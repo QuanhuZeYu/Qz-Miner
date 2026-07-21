@@ -91,3 +91,13 @@ Annotated tag `5.0.23` 的 tag object 为 `e0037f9d1a33620b7bad3c3066cff6d100a21
 实机仍以 `5.0.22-fix-generic-tile-identity.6+fad21dabc2` 为证据来源：TiC Smeltery metadata 2 的 round 1 同时命中 seed/目标 token，`matcher=true`、冻结规划为 `CURRENT_HAND`，`workerConfirmed=8`、`queue=4`、执行消费/成功为 `4/4`，掉落正常释放并自然进入 `FINISHED`。日志中的 `Off-thread read ... serving from snapshot` 是用户确认的设计内 worker 只读 snapshot 诊断，不作为发布风险，也不等于宣称运行日志完全没有 warning。
 
 Round-scoped 空手租约的大批次吞吐/watchdog、GT 两项支持基线的真实线缆替换与 dedicated server 运行态仍缺直接证据，继续记为 **INCOMPLETE**，不由 CI 或发布成功替代。`5.0.23` tag/Release 是不可移动发布事实；发布后的文档提交不属于该制品 SHA，不得移动 tag 或改写历史 Release。
+
+## 5.0.24 发布候选与运行态边界
+
+`5.0.24` 候选修复 Issue #244 的隧道方向来源：默认 LOOK 在服务端冻结，HIT_FACE 取命中外法线 opposite，客户端预览只读服务端 accepted ACK；旧帧前缀保持可读，新旧混连只安全降级 LOOK。修复提交 `d5c6244acffd544671c5e5731ffa920abea7a857` 的全量 `test/check/build` 与文档门禁已通过，独立 reviewer 无 P0/P1/P2。
+
+用户已用 `qz_miner-5.0.23-fix-issue-244-tunnel-direction.1+af2cd5d390-dirty` 确认 Issue #244 原症状得到修复。该包基于 `af2cd5d` 且带 dirty 改动，不是 `d5c6244` exact-SHA 制品，因此只作为原症状与对应运行路径的实机证据，不能表述为候选 SHA 的完整实机通过。
+
+默认 LOOK 的日志与隧道几何交叉覆盖 `+X/+Z/-X/+Y`：round 10/12/14/16 分别执行 `143/143`、`143/143`、`65/65`、`130/130`；round 10/12/16 释放掉落并合法收口，round 14 在工具接替后停止并合法收口。日志没有 source/face 显式 marker。`-Y/-Z`、HIT_FACE 六面、四象限新旧混连和 dedicated server 仍为 **INCOMPLETE**，用户对原症状的确认不能扩写为完整矩阵。
+
+用户已批准 `5.0.24` 标准 GitHub Release，但 branch exact-SHA CI、主线合并、annotated tag、tag workflow、GitHub Release 与资产均尚无本版本成功证据，不得提前声明。Maven、Modrinth、CurseForge 只可在发布后按实际配置与 workflow 终态记录；允许 skipped 不等于外部发布成功。`5.0.23` tag object/peeled 继续固定为 `e0037f9`/`a64d1d7`，不得移动或改写。

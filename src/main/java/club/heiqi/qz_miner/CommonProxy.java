@@ -69,6 +69,14 @@ public class CommonProxy {
     }
 
     /**
+     * v2 配置同步入口；dedicated no-op，语义校验由客户端主线程 dispatcher 完成。
+     */
+    public void handleClientChainConfigSync(
+            int chainRadius, int chainMaxBlocks, int matchedTargetCount,
+            int protocolVersion, int tunnelDirectionCode, boolean rawValid, INetHandler netHandler) {
+    }
+
+    /**
      * Dedicated server no-op；客户端实现经 connection identity 和主线程 gate 发布确认。
      *
      * @param protocolVersion 协议版本原始值

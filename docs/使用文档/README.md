@@ -11,6 +11,10 @@
 
 - `general.parallelTickServerWorkBudgetUnits`：服务端并行 Tick 任务单个分片的工作预算单位，默认 `64`。调大可让服务端规划单片推进更多工作，但可能增加并行窗口等待时间；调小更平滑但规划完成更慢。
 - `client.parallelTickClientWorkBudgetUnits`：客户端并行 Tick 任务单个分片的工作预算单位，默认 `640`。调大可让客户端预览更快完成，但可能增加单片耗时；调小更平滑但预览收敛更慢。
+- `client.tunnelDirectionSource`：每位玩家的 `AREA_TUNNEL` 方向偏好，默认 `look_direction`。`look_direction` 取玩家视线中绝对值最大的轴；`hit_face` 取左键命中方块面的反向，也就是从被点击表面朝方块内部开掘。六个视线轴与六个命中面均受支持。
+  - 服务端只使用已经整包接受并回执的偏好；客户端预览也只使用服务端 ACK 后的 accepted 值，保存后等待 ACK 期间不会乐观切换方向。
+  - `hit_face` 的左键命中只与随后同维度、同坐标的破坏事件匹配一次；缺失、非法或失配时回退该次破坏时冻结的视线方向。松键、切换模式/子模式及玩家生命周期清理都会使未消费命中失效。
+  - 新旧端混连时固定降级为 `look_direction`：旧 C2S 8 字节与旧 S2C 12 字节仍可读取；新 C2S 为 16 字节、新 S2C 为 20 字节，并保留旧字段前缀。运行态的新新、旧新、新旧、旧旧四象限仍待实机验证。
 - `client.autoToolSwapEnabled`：是否启用自动工具换位，默认 `true`。仅在按住连锁键且当前子模式由破坏方块触发时参与；创造模式不参与。当前主手已能有效采掘并满足收获条件时不会换位，候选工具至少保留 2 点耐久。
 - `client.autoToolTakeoverEnabled`：是否在普通 CHAIN/AREA 连锁执行中自动接替耗尽工具，默认 `true`。关闭后服务端提出的新接替请求会安全拒绝并结束本次剩余执行，不影响已有 SWAP/RESTORE 收口。
 - `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。

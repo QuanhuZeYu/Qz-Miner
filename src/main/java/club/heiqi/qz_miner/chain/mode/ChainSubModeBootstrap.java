@@ -4,7 +4,6 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.executor.GregTechCableReplaceActionExecutor;
-import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.ChainBlockIdentity;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver;
@@ -85,7 +84,7 @@ public final class ChainSubModeBootstrap {
             context -> {
                 int face = context != null && context.getSession() != null && context.getSession().getRequest() != null
                     ? context.getSession().getRequest().getInteractFace()
-                    : AxisAlignedTunnelDirection.resolveFace(context == null ? null : context.getPlayer());
+                    : 1;
                 return new TunnelBoxScanTraverser(face);
             },
             null,

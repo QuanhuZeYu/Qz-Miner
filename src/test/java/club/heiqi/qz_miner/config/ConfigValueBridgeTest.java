@@ -13,9 +13,10 @@ import club.heiqi.config.runtime.DraftBuffer;
 import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
- * Authority → 静态字段：全 21 字段 + 非法值不 round。
+ * Authority → 静态字段：全 23 字段 + 非法值不 round。
  */
 public class ConfigValueBridgeTest {
 
@@ -36,7 +37,7 @@ public class ConfigValueBridgeTest {
     }
 
     @Test
-    public void applyAllMapsAllTwentyOneFields() throws Exception {
+    public void applyAllMapsAllRuntimeFields() throws Exception {
         File yaml = new File(tempDir, "qz_miner.yaml");
         ConfigSchema schema = QzMinerConfigSchema.create();
         ConfigManager manager = ConfigManager.bootstrap(yaml, schema, ConfigSemanticValidator.draftValidator());
@@ -53,6 +54,7 @@ public class ConfigValueBridgeTest {
         draft.setDraft("general.enableUnlimitedOreFortune", Boolean.TRUE);
         draft.setDraft("general.enableFortuneForPlacedOre", Boolean.TRUE);
         draft.setDraft("client.clientEnablePreviewRender", Boolean.FALSE);
+        draft.setDraft("client.tunnelDirectionSource", "hit_face");
         draft.setDraft("client.autoToolSwapEnabled", Boolean.FALSE);
         draft.setDraft("client.autoToolTakeoverEnabled", Boolean.FALSE);
         draft.setDraft("client.autoToolPrioritySelectors",
@@ -83,6 +85,7 @@ public class ConfigValueBridgeTest {
         Assert.assertTrue(Config.enableUnlimitedOreFortune);
         Assert.assertTrue(Config.enableFortuneForPlacedOre);
         Assert.assertFalse(Config.clientEnablePreviewRender);
+        Assert.assertEquals(TunnelDirectionSource.HIT_FACE, Config.tunnelDirectionSource);
         Assert.assertFalse(Config.autoToolSwapEnabled);
         Assert.assertFalse(Config.autoToolTakeoverEnabled);
         Assert.assertEquals("ore:toolPickaxe", Config.autoToolPrioritySelectors.get(0).canonicalText());
@@ -150,6 +153,7 @@ public class ConfigValueBridgeTest {
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+        Config.tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
         Config.autoToolTakeoverEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();

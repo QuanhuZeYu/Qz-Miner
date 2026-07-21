@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 
 /**
@@ -24,6 +25,8 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private volatile int requestedChainRadius = -1;
     private volatile int requestedChainMaxBlocks = -1;
+    private volatile TunnelDirectionSource acceptedTunnelDirectionSource = TunnelDirectionSource.legacyDefault();
+    private volatile PendingTunnelHit pendingTunnelHit;
     private volatile ObjectGroupRuleSet objectGroupRules = ObjectGroupRuleSet.EMPTY;
     private volatile long objectGroupRevision;
     private volatile ChainSession session;
@@ -81,6 +84,9 @@ public class ChainPlayerState extends AbstractChainModeState {
             MyMod.LOG.debug("[ChainState] Player {} chainKeyPressed {} -> {}", playerUUID, this.chainKeyPressed, chainKeyPressed);
         }
         this.chainKeyPressed = chainKeyPressed;
+        if (!chainKeyPressed) {
+            clearPendingTunnelHit();
+        }
     }
 
     public boolean isExecuting() {
@@ -125,6 +131,9 @@ public class ChainPlayerState extends AbstractChainModeState {
             MyMod.LOG.debug("[ChainState] Player {} selectedMode {} -> {}", playerUUID, previousMode, newMode);
         }
         setSelectedModeInternal(newMode);
+        if (previousMode != newMode) {
+            clearPendingTunnelHit();
+        }
     }
 
     /**
@@ -148,6 +157,9 @@ public class ChainPlayerState extends AbstractChainModeState {
             MyMod.LOG.debug("[ChainState] Player {} selectedSubMode {} -> {}", playerUUID, previousSubMode, newSubMode);
         }
         setSelectedSubModeInternal(selectedSubMode);
+        if (previousSubMode != newSubMode) {
+            clearPendingTunnelHit();
+        }
     }
 
     public ChainSession getSession() {
@@ -184,6 +196,57 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void setRequestedChainMaxBlocks(int requestedChainMaxBlocks) {
         this.requestedChainMaxBlocks = requestedChainMaxBlocks;
+    }
+
+    /** @return 服务端主线程最近一次整包接受的隧道方向来源 */
+    public TunnelDirectionSource getAcceptedTunnelDirectionSource() {
+        return acceptedTunnelDirectionSource;
+    }
+
+    /** 玩家连接生命周期清理时回落 legacy LOOK。 */
+    public void resetAcceptedTunnelDirectionSource() {
+        acceptedTunnelDirectionSource = TunnelDirectionSource.legacyDefault();
+    }
+
+    /** 服务端主线程原子发布已接受的半径、上限与方向来源。 */
+    public void setAcceptedChainConfig(int radius, int maxBlocks, TunnelDirectionSource source) {
+        if (radius <= 0 || maxBlocks <= 0 || source == null) {
+            throw new IllegalArgumentException("accepted chain config must be valid");
+        }
+        requestedChainRadius = radius;
+        requestedChainMaxBlocks = maxBlocks;
+        acceptedTunnelDirectionSource = source;
+    }
+
+    /** latest-wins 记录左键命中面；只保存纯值。 */
+    public void recordPendingTunnelHit(int dimensionId, int x, int y, int z, int face) {
+        pendingTunnelHit = new PendingTunnelHit(dimensionId, x, y, z, face);
+    }
+
+    /**
+     * 一次性消费 pending。任何坐标/维度失配同样立即丢弃并返回 fallback。
+     *
+     * @param fallbackFace BreakEvent 时冻结的 look face
+     * @return 匹配时为命中外法线的 opposite，否则为 fallback
+     */
+    public int consumePendingTunnelFace(int dimensionId, int x, int y, int z, int fallbackFace) {
+        PendingTunnelHit pending = pendingTunnelHit;
+        pendingTunnelHit = null;
+        if (pending == null || !pending.matches(dimensionId, x, y, z)) {
+            return club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection.normalizeFace(fallbackFace);
+        }
+        return club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection.resolveHitFaceOrLook(
+                pending.face, fallbackFace);
+    }
+
+    /** 清除尚未消费的命中面。 */
+    public void clearPendingTunnelHit() {
+        pendingTunnelHit = null;
+    }
+
+    /** @return 当前是否存在 pending；仅供诊断与测试 */
+    public boolean hasPendingTunnelHit() {
+        return pendingTunnelHit != null;
     }
 
     /** @return 当前玩家服务端已接受的不可变对象组规则 */
@@ -250,6 +313,7 @@ public class ChainPlayerState extends AbstractChainModeState {
         // 守 I7：掉落释放失败计数随运行时状态一并清零，防跨生命周期残留脏计数
         // （玩家重生/切维度/克隆后下一轮释放从 0 起算，避免误触发 discard 兜底）。
         resetDropReleaseFailure();
+        clearPendingTunnelHit();
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
     }
 
@@ -316,5 +380,26 @@ public class ChainPlayerState extends AbstractChainModeState {
      */
     public void resetDropReleaseFailure() {
         dropReleaseConsecutiveFailures = 0;
+    }
+
+    /** 不持有 World/Player/Event 的一次性左键命中快照。 */
+    private static final class PendingTunnelHit {
+        private final int dimensionId;
+        private final int x;
+        private final int y;
+        private final int z;
+        private final int face;
+
+        private PendingTunnelHit(int dimensionId, int x, int y, int z, int face) {
+            this.dimensionId = dimensionId;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.face = face;
+        }
+
+        private boolean matches(int dimensionId, int x, int y, int z) {
+            return this.dimensionId == dimensionId && this.x == x && this.y == y && this.z == z;
+        }
     }
 }

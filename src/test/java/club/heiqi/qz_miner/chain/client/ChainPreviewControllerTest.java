@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.planner.ChainTarget;
+
 /** seed 租约刷新与生命周期隔离的无 GL 结构合同。 */
 public class ChainPreviewControllerTest {
 
@@ -14,7 +16,7 @@ public class ChainPreviewControllerTest {
     public void verifiedLayoutRefreshReusesCapturedSeedAndBypassesPhaseLock() throws Exception {
         String source = source();
         Assert.assertEquals(1, count(source, "new BlockSeedSnapshot("));
-        Assert.assertTrue(source.contains("startPreview(world, origin, previewSeedSnapshot, false)"));
+        Assert.assertTrue(source.contains("startPreview(world, origin, previewSeedSnapshot, previewConcreteFace, false)"));
         Assert.assertTrue(source.contains("final Block sampleBlock = seedSnapshot.getSampleBlock()"));
         Assert.assertTrue(source.contains("final int sampleMeta = seedSnapshot.getSampleMeta()"));
         Assert.assertTrue(source.contains("final TileEntity sampleTileEntity = seedSnapshot.getSampleTileEntity()"));
@@ -33,6 +35,20 @@ public class ChainPreviewControllerTest {
         Assert.assertTrue(source.contains("previewSeedWorld = null"));
         Assert.assertTrue(source.contains("clearInvalidationIdentity()"));
         Assert.assertTrue(source.contains("previewState.getGeneration() != generation"));
+        Assert.assertTrue(source.contains("concreteFace == previewConcreteFace"));
+    }
+
+    @Test
+    public void sameOriginConcreteFaceOrWorldChangeRestartsGenerationIdentity() {
+        Object worldA = new Object();
+        Object worldB = new Object();
+        ChainTarget origin = new ChainTarget(1, 2, 3);
+        Assert.assertFalse(ChainPreviewController.shouldRestartPreview(
+                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2));
+        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
+                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 3));
+        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
+                worldA, worldB, origin, new ChainTarget(1, 2, 3), 2, 2));
     }
 
     private static String source() throws Exception {

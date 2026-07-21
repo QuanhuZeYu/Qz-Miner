@@ -4,6 +4,7 @@ import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.config.schema.SearchPickerSpec;
 import club.heiqi.config.schema.Values;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
  * Qz-Miner 配置 Schema（server-safe，零 MC UI / LWJGL 依赖）。
@@ -94,6 +95,12 @@ public final class QzMinerConfigSchema {
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER))
                         .label("clientEnablePreviewRender")
                         .helper("是否启用客户端连锁预览计算与渲染；关闭后将不再执行任何预览相关渲染操作")
+                        .build()
+                    .choice("tunnelDirectionSource")
+                        .defaultValue(QzMinerConfigDefaults.CLIENT_TUNNEL_DIRECTION_SOURCE)
+                        .options(TunnelDirectionSource.ids())
+                        .label("隧道方向来源")
+                        .helper("look_direction 按视线主轴；hit_face 按命中面向方块内部")
                         .build()
                     .bool("autoToolSwapEnabled")
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED))
