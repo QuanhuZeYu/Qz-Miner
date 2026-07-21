@@ -13,6 +13,8 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockCrops;
 import net.minecraft.block.BlockOre;
 import net.minecraft.block.BlockRedstoneOre;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 
 /**
@@ -25,6 +27,7 @@ public final class CompatAdapters {
     private static final List<OreCompatAdapter> ORE_ADAPTERS = createOreAdapters();
     private static final List<CropCompatAdapter> CROP_ADAPTERS = createCropAdapters();
     private static final List<TileIdentityCompatAdapter> TILE_IDENTITY_ADAPTERS = createTileIdentityAdapters();
+    private static final List<ToolHarvestCompatAdapter> TOOL_HARVEST_ADAPTERS = createToolHarvestAdapters();
 
     private CompatAdapters() {}
 
@@ -197,6 +200,44 @@ public final class CompatAdapters {
         return matchesTileIdentity(captureTileIdentity(sampleTileEntity), captureTileIdentity(targetTileEntity));
     }
 
+    /**
+     * 对无显式 harvestTool 的真实工具执行可选兼容采掘求值。
+     *
+     * @param item 栈持有的 Item
+     * @param stack 当前工具栈
+     * @param target 目标方块
+     * @return 首个适用适配器的四态终裁
+     */
+    public static ToolHarvestCompatAdapter.Result evaluateToolHarvest(Item item, ItemStack stack, Block target) {
+        return evaluateToolHarvest(item, stack, target, TOOL_HARVEST_ADAPTERS);
+    }
+
+    /** 包级适配器矩阵接缝，验证首个适用结果终裁与异常 fail-closed。 */
+    static ToolHarvestCompatAdapter.Result evaluateToolHarvest(Item item, ItemStack stack, Block target,
+            List<ToolHarvestCompatAdapter> adapters) {
+        if (item == null || stack == null || target == null || adapters == null) {
+            return ToolHarvestCompatAdapter.Result.UNRESOLVED;
+        }
+        for (ToolHarvestCompatAdapter adapter : adapters) {
+            if (adapter == null) {
+                return ToolHarvestCompatAdapter.Result.UNRESOLVED;
+            }
+            final ToolHarvestCompatAdapter.Result result;
+            try {
+                result = adapter.evaluate(item, stack, target);
+            } catch (RuntimeException | LinkageError failure) {
+                return ToolHarvestCompatAdapter.Result.UNRESOLVED;
+            }
+            if (result == null) {
+                return ToolHarvestCompatAdapter.Result.UNRESOLVED;
+            }
+            if (result != ToolHarvestCompatAdapter.Result.NOT_APPLICABLE) {
+                return result;
+            }
+        }
+        return ToolHarvestCompatAdapter.Result.NOT_APPLICABLE;
+    }
+
     private static CableCompatAdapter createCableAdapter() {
         if (ClassNameCompatSupport.isClassPresent("gregtech.api.interfaces.tileentity.IGregTechTileEntity")
             && ClassNameCompatSupport.isClassPresent("gregtech.api.metatileentity.implementations.MTECable")
@@ -251,6 +292,10 @@ public final class CompatAdapters {
         addTileIdentityAdapterIfAvailable(adapters, new ReflectiveFieldTileIdentityCompatAdapter("gregtech.common.blocks.TileEntityOres", "mMetaData"));
         addTileIdentityAdapterIfAvailable(adapters, new ReflectiveFieldTileIdentityCompatAdapter("bartworks.system.material.TileEntityMetaGeneratedBlock", "mMetaData"));
         return Collections.unmodifiableList(adapters);
+    }
+
+    private static List<ToolHarvestCompatAdapter> createToolHarvestAdapters() {
+        return Collections.<ToolHarvestCompatAdapter>singletonList(new TConstructToolHarvestCompatAdapter());
     }
 
     private static void addOreAdapterIfAvailable(List<OreCompatAdapter> adapters, OreCompatAdapter adapter) {

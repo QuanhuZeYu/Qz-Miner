@@ -27,7 +27,7 @@ public class ToolSwapMinecraftFacadeTest {
     }
 
     @Test
-    public void durabilityDamageIsNotSubtypeAndMatcherUsesForgeHarvestGate() throws Exception {
+    public void durabilityDamageIsNotSubtypeAndMatcherUsesSharedHarvestGate() throws Exception {
         Item damageable = new Item().setMaxDamage(100);
         Assert.assertEquals(0, ToolSwapMinecraftFacade.stableSubtype(new ItemStack(damageable, 1, 37)));
         TestBlock block = new TestBlock();
@@ -36,6 +36,10 @@ public class ToolSwapMinecraftFacadeTest {
         String eligibility = source("src/main/java/club/heiqi/qz_miner/toolswap/ToolHarvestEligibility.java");
         Assert.assertTrue(eligibility.contains("ForgeHooks.canToolHarvestBlock(target, metadata, stack)"));
         Assert.assertTrue(eligibility.contains("target.getMaterial().isToolNotRequired()"));
+        Assert.assertTrue(eligibility.contains("CompatAdapters.evaluateToolHarvest"));
+        Assert.assertFalse(eligibility.contains("tconstruct"));
+        Assert.assertFalse(eligibility.contains("HARVEST_TOOL_TYPE"));
+        Assert.assertFalse(eligibility.contains("TConstructToolHarvestCompatAdapter"));
         Assert.assertFalse(eligibility.contains("canToolHarvestBlock(target, metadata, null)"));
         Assert.assertTrue(source.contains("ToolHarvestEligibility.snapshotCandidate"));
         Assert.assertTrue(source.contains("AutoToolSwapStackStateFactory.capture(stack)"));

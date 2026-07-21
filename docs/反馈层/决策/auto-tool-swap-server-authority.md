@@ -18,6 +18,7 @@
 - `AutoToolSwapClientReducer`：客户端 cycle、nonce/round/action/phase 归因、库存双门、关闭原因与重传的唯一可变业务权威，以 Event 输入并输出不可变 Effect。
 - `AutoToolSwapClientAdapter`：承接 gate 后的 S2C，只采样 Minecraft 事实、执行 reducer effect 和网络 I/O；后续 C2S 在 `ClientTick` 发送。
 - `AutoToolSwapClientProtocolValidator`：无字段，只负责 raw、wire enum、范围与单包结构校验，不判断历史关联。
+- `ToolHarvestCompatAdapter` 与 `CompatAdapters`：仅为无显式 harvestTool 的目标提供四态可选工具终裁；当前唯一实现按已加载运行时父类名识别 TiC 工具，不形成 TConstruct 类型链接。
 
 ## 原因
 
@@ -42,6 +43,7 @@
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
 - 首块成功前的普通匹配使用客户端 light 快照中的 `ABSENT` 或 `blockId + metadata` 目标身份；坐标、TileEntity/NBT 不参与。同身份维持 10 tick 扫描水位，block/meta 变化立即触发 latest-target-wins，连续两个 END tick ABSENT 才确认丢失。已有 ledger 时先完成旧 RESTORE，再为最终有效目标 FULL；已发送 SWAP/RESTORE 不取消，也不在旧 ledger 上发送第二个普通 SWAP。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
+- 采掘资格先检查输入；目标声明 harvestTool 时只采用 Forge 等级语义，禁止兼容 fallback 绕过。仅 null harvestTool 且材质仍要求工具时进入可选 adapter registry；首个非 `NOT_APPLICABLE` 结果终裁，只有 `ALLOW` 放行，`DENY/UNRESOLVED`、异常与 null 结果全部 fail-closed。TiC 适配器不加载可选类、不解析成员，只按已加载 Item 父类完整名称识别后调用稳定 `Item.canHarvestBlock`。
 
 ## 生命周期边界
 
@@ -88,6 +90,7 @@
 
 ## 演进
 
+- 2026-07-21：为 TiC `HarvestTool` 族增加无直接依赖的 null-harvestTool 旧式采掘适配；客户端候选与冻结规划仍共用资格入口，显式等级、效率、耐久和执行期服务端权威不变。自动化不替代 Smeltery 真实掉落验证，5.0.23 继续阻断。
 - 2026-07-18：新增服务端 round-scoped 单项空手回退租约，以完整 36 槽纯值 identity 消除稳定同 key 批次的逐目标 TAKEOVER/DECLINE；真实候选仍优先、每目标权威不缓存，wire、客户端候选、执行节流、状态机与 GT 线缆路径不变。自动化不替代真实吞吐与 watchdog 复验，运行态仍为 INCOMPLETE。
 - 2026-07-18：修复接替 pending 反向阻断松键 CLOSE 的 round 终裁；闭环动作在合法 sequence 后安全退休等待门，迟到 TAKEOVER 保持零库存副作用。同期将 PlanCompleted 成功入队设为规划完成 publication 线性化点，失败固定发布一次 `plan-completion-publication-failed` 取消；wire、版本、配置 schema 与五态转移表不变，hotfix 运行态仍为 INCOMPLETE。
 - 2026-07-18：统一规划、客户端候选与执行期采掘能力边界；新增冻结能力集合、空手最低优先级、内部 DECLINED、APPLIED 实时复验和 round=0 直判。同期将 planning STOP/complete 线性化，并以完整 seed 租约刷新三种库存布局对应的预览；wire、协议版本、配置 schema 与五态转移表不变，运行态仍待用户实机。
