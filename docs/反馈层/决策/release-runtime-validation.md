@@ -73,3 +73,15 @@ GTNH 兼容构建的机器数据源为 `gradle/gtnh-baselines.json`，默认出�
 后续 hotfix 日志又确认空手 round 约 1793 个目标虽能在约 2 秒内完成规划，却因每目标 TAKEOVER/DECLINE 等待而约每 tick 只消费一个目标，50 tick 后触发 watchdog。tag 后修复仅在服务端增加完整身份限界的 round-scoped 空手回退租约，保留首次真实候选优先与每目标实时采掘权威；不修改 wire、客户端候选、50ms/`maxBreakPerTick`、状态机或 GT 线缆代码。自动化通过仍不能证明真实大批量吞吐，client/dedicated 日志下“一次 DECLINE 后稳定同 key 连续消费且不触发 watchdog”继续为 **INCOMPLETE**。
 
 `5.0.19`、`5.0.20`、`5.0.21`、`5.0.22` 的 tag/Release 均为不可移动发布事实；本次 hotfix 提交不属于 `5.0.22` 发布制品 SHA。
+
+## 5.0.23 标准发布授权与候选证据
+
+用户已再次授权 `5.0.23` 按标准完整流程发布。该授权不代表版本已经发布，也不豁免 exact-SHA branch CI、主线合并、tag workflow、GitHub Release 与资产核验；未取得实际终态证据的外部渠道不得写成成功。
+
+本次功能范围为 `5.0.22` 后六个提交：自动工具 round 关闭收口、规划完成 publication 顺序与 GT `5.09.54.20` 线缆 profile，round-scoped 空手回退租约及其精确失效，通用方块实体 seed token，以及无 TiC 直接依赖的 `HarvestTool` 窄适配。最新源代码 hotfix 提交为 `fad21dabc2fcfdc9383e5b695a6380b28e7e1ee0`；其既有自动化验证已通过，独立 review 未发现 P0/P1。
+
+最新实机加载 `5.0.22-fix-generic-tile-identity.6+fad21dabc2`。TiC Smeltery metadata 2 的 round 1 同时命中 seed/目标 token，`matcher=true`、冻结规划为 `CURRENT_HAND`，`workerConfirmed=8`、`queue=4`、执行消费/成功为 `4/4`，掉落正常释放并自然进入 `FINISHED`。该证据覆盖本次 TiC 假阴性、token 冻结规划及 round 收口，原 TiC 运行态发布阻断已解除。
+
+日志中的 `Off-thread read ... serving from snapshot` 是 Qz-Miner 当前 worker 只读世界经 snapshot 服务的预期诊断，不是意外回归，也不作为本次发布风险；记录该裁决不等于宣称运行日志完全没有 warning。round-scoped 空手租约的大批次吞吐/watchdog、GT 两项支持基线的真实线缆替换与 dedicated server 运行态仍缺直接证据，按本次授权作为已知边界保留，不伪报为通过。
+
+实际发布主线为 `5.0重构`，不是 `main`；准备时 `origin/5.0重构` 仍为 `3befb0c98e9ec362e9f967f76babb34c0e6d209a`。后续须先 push 候选并取得候选 exact-SHA branch CI，再以 `--no-ff` 合入 `5.0重构`，取得 merge commit exact-SHA branch CI 后才能创建 annotated tag `5.0.23`。正式版本由 tag 名注入，不修改 `gradle.properties`；预期 GitHub Release 包含主、`dev`、`sources` 三项 JAR，tag 指向、workflow、Release 正文、资产身份/校验和及 Modrinth、CurseForge 等外部渠道终态均须发布后独立核验。
