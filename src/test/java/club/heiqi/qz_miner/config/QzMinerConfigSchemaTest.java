@@ -9,6 +9,7 @@ import club.heiqi.config.schema.FieldType;
 import club.heiqi.config.schema.SearchPickerSpec;
 import club.heiqi.config.schema.ValueKind;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
  * Schema 字段完备性与 Defaults 对齐。
@@ -19,13 +20,14 @@ public class QzMinerConfigSchemaTest {
     public void schemaContainsAllLegacyFieldsIncludingGreeting() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(23, schema.allFields().size());
+        Assert.assertEquals(24, schema.allFields().size());
         Assert.assertTrue(schema.containsPath("general.greeting"));
         Assert.assertTrue(schema.containsPath("client.clientPreviewAlphaEndValue"));
         Assert.assertTrue(schema.containsPath("client.objectGroups"));
         Assert.assertTrue(schema.containsPath("client.autoToolSwapEnabled"));
         Assert.assertTrue(schema.containsPath("client.autoToolPrioritySelectors"));
         Assert.assertTrue(schema.containsPath("client.autoToolTakeoverEnabled"));
+        Assert.assertTrue(schema.containsPath("client.tunnelDirectionSource"));
     }
 
     @Test
@@ -42,6 +44,11 @@ public class QzMinerConfigSchemaTest {
         FieldSpec preview = schema.field("client.clientEnablePreviewRender");
         Assert.assertEquals(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER),
                 preview.defaultValue());
+        FieldSpec direction = schema.field("client.tunnelDirectionSource");
+        Assert.assertEquals(FieldType.CHOICE, direction.type());
+        Assert.assertEquals(QzMinerConfigDefaults.CLIENT_TUNNEL_DIRECTION_SOURCE, direction.defaultValue());
+        Assert.assertArrayEquals(TunnelDirectionSource.ids(),
+                direction.constraints().choices().toArray(new String[0]));
 
         FieldSpec toolSwap = schema.field("client.autoToolSwapEnabled");
         Assert.assertEquals(Boolean.TRUE, toolSwap.defaultValue());

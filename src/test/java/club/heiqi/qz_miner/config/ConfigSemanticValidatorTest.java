@@ -20,6 +20,7 @@ import club.heiqi.config.runtime.DraftBuffer;
 import club.heiqi.config.runtime.SaveOutcome;
 import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 
 /** DraftValidator 提交事务与零副作用断言。 */
@@ -71,6 +72,16 @@ public class ConfigSemanticValidatorTest {
                 draft.setDraft(path, Double.valueOf(5.0D));
             }
         }, path, Double.valueOf(5.0D));
+    }
+
+    @Test
+    public void unknownTunnelDirectionChoiceIsStrictlyRejected() throws Exception {
+        assertInvalidTransaction(new DraftMutation() {
+            @Override
+            public void mutate(DraftBuffer draft) {
+                draft.setDraft("client.tunnelDirectionSource", "camera_guess");
+            }
+        }, "client.tunnelDirectionSource", "camera_guess");
     }
 
     @Test
@@ -193,7 +204,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 22 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
+    /** 全 23 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 
@@ -215,6 +226,7 @@ public class ConfigSemanticValidatorTest {
             values.add(Boolean.valueOf(Config.enableUnlimitedOreFortune));
             values.add(Boolean.valueOf(Config.enableFortuneForPlacedOre));
             values.add(Boolean.valueOf(Config.clientEnablePreviewRender));
+            values.add(Config.tunnelDirectionSource);
             values.add(Boolean.valueOf(Config.autoToolSwapEnabled));
             values.add(Boolean.valueOf(Config.autoToolTakeoverEnabled));
             values.add(Config.autoToolPrioritySelectors);
@@ -252,6 +264,7 @@ public class ConfigSemanticValidatorTest {
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
+        Config.tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
         Config.autoToolTakeoverEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();

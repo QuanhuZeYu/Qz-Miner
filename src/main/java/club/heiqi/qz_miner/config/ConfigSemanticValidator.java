@@ -15,6 +15,7 @@ import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.qz_miner.toolswap.ToolSelector;
 import club.heiqi.qz_miner.toolswap.ToolSelectorParser;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
  * Qz-Miner 配置的共用语义读取器与 UILib 提交前校验器。
@@ -80,6 +81,7 @@ public final class ConfigSemanticValidator {
         putBoolean(typed, errors, draft, "general.enableUnlimitedOreFortune");
         putBoolean(typed, errors, draft, "general.enableFortuneForPlacedOre");
         putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
+        putTunnelDirectionSource(typed, errors, draft);
         putBoolean(typed, errors, draft, "client.autoToolSwapEnabled");
         putBoolean(typed, errors, draft, "client.autoToolTakeoverEnabled");
         putToolSelectors(typed, errors, draft);
@@ -145,6 +147,22 @@ public final class ConfigSemanticValidator {
             return;
         }
         typed.put(path, parsed.selectors());
+    }
+
+    private static void putTunnelDirectionSource(Map<String, Object> typed, Map<String, String> errors,
+            DraftView draft) {
+        String path = "client.tunnelDirectionSource";
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof String)) {
+            errors.put(path, path + " must be CHOICE, got " + typeName(raw));
+            return;
+        }
+        TunnelDirectionSource source = TunnelDirectionSource.fromId((String) raw);
+        if (source == null) {
+            errors.put(path, path + " has unknown choice " + raw);
+            return;
+        }
+        typed.put(path, source);
     }
 
     private static void putString(Map<String, Object> typed, Map<String, String> errors,
@@ -289,6 +307,7 @@ public final class ConfigSemanticValidator {
         public final boolean enableUnlimitedOreFortune;
         public final boolean enableFortuneForPlacedOre;
         public final boolean clientEnablePreviewRender;
+        public final TunnelDirectionSource tunnelDirectionSource;
         public final boolean autoToolSwapEnabled;
         public final boolean autoToolTakeoverEnabled;
         public final java.util.List<ToolSelector> autoToolPrioritySelectors;
@@ -314,6 +333,7 @@ public final class ConfigSemanticValidator {
             enableUnlimitedOreFortune = ((Boolean) typed.get("general.enableUnlimitedOreFortune")).booleanValue();
             enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
+            tunnelDirectionSource = (TunnelDirectionSource) typed.get("client.tunnelDirectionSource");
             autoToolSwapEnabled = ((Boolean) typed.get("client.autoToolSwapEnabled")).booleanValue();
             autoToolTakeoverEnabled = ((Boolean) typed.get("client.autoToolTakeoverEnabled")).booleanValue();
             autoToolPrioritySelectors = immutableSelectors(typed.get("client.autoToolPrioritySelectors"));

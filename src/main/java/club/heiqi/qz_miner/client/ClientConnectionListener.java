@@ -367,14 +367,13 @@ public class ClientConnectionListener {
         MyMod.chainStateService.getClientState().setServerChainRadius(snapshot.chainRadius);
         MyMod.chainStateService.getClientState().setServerChainMaxBlocks(snapshot.chainMaxBlocks);
         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(0);
+        MyMod.chainStateService.getClientState().resetAcceptedTunnelDirectionSource();
 
         if (MyMod.networkMain == null) {
             return;
         }
-        if (!FMLClientHandler.instance().getClient().isSingleplayer()) {
-            MyMod.networkMain.network.sendToServer(
-                    new PacketChainConfigRequest(snapshot.chainRadius, snapshot.chainMaxBlocks));
-        }
+        MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(
+                snapshot.chainRadius, snapshot.chainMaxBlocks, snapshot.tunnelDirectionSource));
         MyMod.networkMain.network.sendToServer(new PacketObjectGroupConfigRequest(
                 ObjectGroupWireConfig.fromRuleSet(committed.epoch, snapshot.objectGroups)));
     }
@@ -396,6 +395,11 @@ public class ClientConnectionListener {
             return;
         }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
+        runCleanupStep("tunnel-direction", new Runnable() { @Override public void run() {
+            if (MyMod.chainStateService != null) {
+                MyMod.chainStateService.getClientState().resetAcceptedTunnelDirectionSource();
+            }
+        }});
         runCleanupStep("auto-tool-swap", new Runnable() { @Override public void run() {
             if (cleanupActions != null) cleanupActions.resetToolSwap();
             else if (ClientProxy.autoToolSwapAdapter != null) ClientProxy.autoToolSwapAdapter.resetForLifecycle();

@@ -14,6 +14,7 @@ import club.heiqi.qz_miner.config.ConfigValueBridge;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import club.heiqi.qz_miner.network.PacketObjectGroupConfigRequest;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import cpw.mods.fml.client.FMLClientHandler;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -223,7 +224,8 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
                     committed.snapshot.autoToolTakeoverEnabled,
                     committed.snapshot.autoToolPrioritySelectors);
         }
-        syncClientRequestedChainConfig(committed.snapshot.chainRadius, committed.snapshot.chainMaxBlocks);
+        syncClientRequestedChainConfig(committed.snapshot.chainRadius, committed.snapshot.chainMaxBlocks,
+                committed.snapshot.tunnelDirectionSource);
         syncClientObjectGroups(committed);
     }
 
@@ -234,16 +236,24 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
      * @param requestedMaxBlocks 已校验上限
      */
     public static void syncClientRequestedChainConfig(int requestedRadius, int requestedMaxBlocks) {
+        syncClientRequestedChainConfig(requestedRadius, requestedMaxBlocks,
+                TunnelDirectionSource.legacyDefault());
+    }
+
+    /** 将客户端 requested 三字段发送给服务端终裁。 */
+    public static void syncClientRequestedChainConfig(int requestedRadius, int requestedMaxBlocks,
+            TunnelDirectionSource source) {
         if (MyMod.chainStateService == null) {
             return;
         }
 
         MyMod.chainStateService.setClientRequestedChainConfig(requestedRadius, requestedMaxBlocks);
-        if (MyMod.networkMain == null || FMLClientHandler.instance().getClient().isSingleplayer()) {
+        if (MyMod.networkMain == null) {
             return;
         }
 
-        MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(requestedRadius, requestedMaxBlocks));
+        MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(
+                requestedRadius, requestedMaxBlocks, source));
     }
 
     /**
@@ -251,7 +261,8 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
      */
     public static void syncClientRequestedChainConfig() {
         ValidatedSnapshot snapshot = ConfigBootstrap.currentValidatedSnapshot();
-        syncClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
+        syncClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks,
+                snapshot.tunnelDirectionSource);
     }
 
     /** 保存/RELOAD 后发送完整对象组配置；revision 与 rules 使用同一不可变提交包装。 */

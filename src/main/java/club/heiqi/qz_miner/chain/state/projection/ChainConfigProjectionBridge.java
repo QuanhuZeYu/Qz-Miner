@@ -63,7 +63,7 @@ public class ChainConfigProjectionBridge {
      */
     private void onPlanCompleted(PlanCompleted event) {
         // 守 I1：只读订阅，不碰世界；下面只 sendTo 下发配置
-        sendConfig(event.getPlayerUUID(), event.getTotalTargets());
+        sendAcceptedConfig(event.getPlayerUUID(), event.getTotalTargets());
     }
 
     /**
@@ -79,7 +79,7 @@ public class ChainConfigProjectionBridge {
             return;
         }
         // LOGIN：下发基础 config（matchedCount=0），radius/maxBlocks 取 Config
-        sendConfig(event.player.getUniqueID(), 0);
+        sendAcceptedConfig(event.player.getUniqueID(), 0);
     }
 
     /**
@@ -88,7 +88,7 @@ public class ChainConfigProjectionBridge {
      * @param playerUUID       目标玩家
      * @param matchedTargetCount 已匹配目标数（PlanCompleted 时 = totalTargets；LOGIN 时 = 0）
      */
-    private void sendConfig(UUID playerUUID, int matchedTargetCount) {
+    public void sendAcceptedConfig(UUID playerUUID, int matchedTargetCount) {
         if (MyMod.networkMain == null || MyMod.playerManager == null) {
             return;
         }
@@ -96,10 +96,17 @@ public class ChainConfigProjectionBridge {
         if (!(player instanceof EntityPlayerMP)) {
             return;
         }
+        club.heiqi.qz_miner.chain.state.ChainPlayerState state = MyMod.chainStateService == null
+                ? null : MyMod.chainStateService.getPlayerState(playerUUID);
+        int acceptedRadius = state != null && state.getRequestedChainRadius() > 0
+                ? state.getRequestedChainRadius() : Config.chainRadius;
+        int acceptedMaxBlocks = state != null && state.getRequestedChainMaxBlocks() > 0
+                ? state.getRequestedChainMaxBlocks() : Config.chainMaxBlocks;
+        club.heiqi.qz_miner.chain.planner.TunnelDirectionSource source = state == null
+                ? club.heiqi.qz_miner.chain.planner.TunnelDirectionSource.legacyDefault()
+                : state.getAcceptedTunnelDirectionSource();
         PacketChainConfigSync packet = new PacketChainConfigSync(
-                Config.chainRadius,
-                Config.chainMaxBlocks,
-                matchedTargetCount);
+                acceptedRadius, acceptedMaxBlocks, matchedTargetCount, source);
         MyMod.networkMain.network.sendTo(packet, (EntityPlayerMP) player);
     }
 }

@@ -38,7 +38,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `AREA_SAME_BLOCK`：范围内仅处理同类方块
 - `AREA_HARVESTABLE_ALL`：范围内处理所有当前可收获方块
 - `AREA_ORE`：范围内按宽泛矿石匹配
-- `AREA_TUNNEL`：按视线方向生成 `3 x 3 x radius` 的指向性隧道区域
+- `AREA_TUNNEL`：按配置选择视线主轴或命中面朝方块内部，生成 `3 x 3 x radius` 的指向性隧道区域
 - `AREA_SECTION_CLEAR`：按被挖方块所在的 `16 x 16 x 16` 区段生成固定清理区域
 - `INTERACT_BASE`：默认同类右键交互
 - `INTERACT_CROP`：作物交互模式，支持原版小麦与 IC2 作物
@@ -86,7 +86,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 - `CHAIN` 模式完整闭环：输入、规划、执行、HUD、预览已接通
 - `AREA` 模式完整闭环：盒扫搜索、执行、HUD、预览已接通
-- `AREA_TUNNEL`：支持按玩家视线方向生成 `3 x 3 x radius` 的指向性隧道区域
+- `AREA_TUNNEL`：支持按玩家偏好选择视线主轴或命中面方向，生成 `3 x 3 x radius` 的指向性隧道区域
 - `AREA_SECTION_CLEAR`：支持按被挖方块所在 `16 x 16 x 16` 区段生成固定清理区域
 - `INTERACT` 模式完整闭环：右键触发、默认同类交互、作物交互已接通
 - 统一子模式框架：主模式下可挂载多个子模式，并同步到客户端与服务端
@@ -111,6 +111,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `maxBreakPerTick`：每 tick 最大实际破坏数量
 - `chainLoggingShellLayers`：`CHAIN` 伐木子模式每次向外扩张的壳层数
 - `clientEnablePreviewRender`：是否启用客户端预览计算与渲染
+- `tunnelDirectionSource`：`AREA_TUNNEL` 的方向来源；`look_direction` 沿视线主轴，`hit_face` 沿命中面朝方块内部，默认 `look_direction`
 - `clientPreviewMaxRadius`：客户端最大预览半径
 - `clientPreviewMaxTargets`：客户端最大预览目标数
 - `enableUnlimitedOreFortune`：是否解除 GT / BW / GT++ 普通矿的时运上限

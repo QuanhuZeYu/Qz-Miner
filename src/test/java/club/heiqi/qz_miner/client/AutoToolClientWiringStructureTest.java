@@ -53,7 +53,8 @@ public class AutoToolClientWiringStructureTest {
         String preview = source("src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java");
         Assert.assertTrue(preview.contains("public void onToolLayoutVerified"));
         Assert.assertTrue(preview.contains("!previewState.isActive()"));
-        Assert.assertTrue(preview.contains("startPreview(world, origin, previewSeedSnapshot, false)"));
+        Assert.assertTrue(preview.contains(
+                "startPreview(world, origin, previewSeedSnapshot, previewConcreteFace, false)"));
         Assert.assertTrue(preview.contains("world != previewSeedWorld"));
         Assert.assertTrue(preview.contains("actionSequence == lastInvalidationActionSequence"));
     }

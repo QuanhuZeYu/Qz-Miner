@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
  * 客户端连锁状态。
@@ -25,6 +26,7 @@ public class ChainClientState extends AbstractChainModeState {
     private volatile int serverChainRadius = Config.chainRadius;
     private volatile int serverChainMaxBlocks = Config.chainMaxBlocks;
     private volatile int serverMatchedTargetCount;
+    private volatile TunnelDirectionSource acceptedTunnelDirectionSource = TunnelDirectionSource.legacyDefault();
     private volatile ObjectGroupRuleSet serverObjectGroups = ObjectGroupRuleSet.EMPTY;
     private volatile long serverObjectGroupRevision;
     private volatile boolean objectGroupSyncAccepted;
@@ -107,6 +109,22 @@ public class ChainClientState extends AbstractChainModeState {
 
     public void setServerMatchedTargetCount(int serverMatchedTargetCount) {
         this.serverMatchedTargetCount = Math.max(0, serverMatchedTargetCount);
+    }
+
+    /** @return 服务端 ACK 后的 accepted 隧道方向来源 */
+    public TunnelDirectionSource getAcceptedTunnelDirectionSource() {
+        return acceptedTunnelDirectionSource;
+    }
+
+    /** 仅客户端主线程合法 S2C publication 调用。 */
+    public void setAcceptedTunnelDirectionSource(TunnelDirectionSource source) {
+        acceptedTunnelDirectionSource = source == null
+                ? TunnelDirectionSource.legacyDefault() : source;
+    }
+
+    /** 连接初始化/清理时回落 legacy LOOK，禁止跨连接沿用 ACK。 */
+    public void resetAcceptedTunnelDirectionSource() {
+        acceptedTunnelDirectionSource = TunnelDirectionSource.legacyDefault();
     }
 
     public ObjectGroupRuleSet getServerObjectGroups() {

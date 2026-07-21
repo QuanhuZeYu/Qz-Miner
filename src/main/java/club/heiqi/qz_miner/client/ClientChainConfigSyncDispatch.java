@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.client;
 
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
+import club.heiqi.qz_miner.network.PacketChainConfigSync;
 /**
  * 客户端连锁配置同步的纯数据调度边界。
  *
@@ -42,6 +44,11 @@ public final class ClientChainConfigSyncDispatch {
          * @param matchedCount 已匹配目标数
          */
         void publish(int radius, int maxBlocks, int matchedCount);
+    }
+
+    /** 四个 accepted 配置值的原子发布边界。 */
+    public interface AcceptedPublication {
+        void publish(int radius, int maxBlocks, int matchedCount, TunnelDirectionSource source);
     }
 
     /**
@@ -126,6 +133,27 @@ public final class ClientChainConfigSyncDispatch {
             final LifecycleGate gate,
             Dispatcher dispatcher,
             final Publication publication) {
+        if (publication == null) {
+            throw new IllegalArgumentException("publication must not be null");
+        }
+        return dispatch(radius, maxBlocks, matchedCount,
+                PacketChainConfigSync.LEGACY_PROTOCOL_VERSION,
+                TunnelDirectionSource.legacyDefault().wireCode(), true,
+                capturedToken, gate, dispatcher, new AcceptedPublication() {
+                    @Override
+                    public void publish(int publishedRadius, int publishedMaxBlocks, int publishedMatchedCount,
+                            TunnelDirectionSource source) {
+                        publication.publish(publishedRadius, publishedMaxBlocks, publishedMatchedCount);
+                    }
+                });
+    }
+
+    /** v2 调度入口：先整包校验 framing/version/code，再在 lifecycle gate 内原子发布四字段。 */
+    public static boolean dispatch(
+            final int radius, final int maxBlocks, final int matchedCount,
+            final int protocolVersion, final int directionCode, final boolean rawValid,
+            final Object capturedToken, final LifecycleGate gate,
+            Dispatcher dispatcher, final AcceptedPublication publication) {
         if (dispatcher == null || publication == null) {
             throw new IllegalArgumentException("dispatcher/publication must not be null");
         }
@@ -140,18 +168,19 @@ public final class ClientChainConfigSyncDispatch {
             @Override
             public void run() {
                 // 1) 先整包数值校验（gate 外，避免非法包进入 lifecycle monitor）
-                if (!isValidPacket(radius, maxBlocks, matchedCount)) {
+                final TunnelDirectionSource source = resolveSource(protocolVersion, directionCode, rawValid);
+                if (!isValidPacket(radius, maxBlocks, matchedCount) || source == null) {
                     return;
                 }
                 if (capturedToken == null) {
-                    publication.publish(radius, maxBlocks, matchedCount);
+                    publication.publish(radius, maxBlocks, matchedCount, source);
                     return;
                 }
                 // 2) 再在 lifecycle 线性化边界内复核 token 并 publication（禁 check 后裸调用）
                 gate.publishIfCurrentAndActive(capturedToken, new Runnable() {
                     @Override
                     public void run() {
-                        publication.publish(radius, maxBlocks, matchedCount);
+                        publication.publish(radius, maxBlocks, matchedCount, source);
                     }
                 });
             }
@@ -164,5 +193,16 @@ public final class ClientChainConfigSyncDispatch {
      */
     private static boolean isValidPacket(int radius, int maxBlocks, int matchedCount) {
         return radius > 0 && maxBlocks > 0 && matchedCount >= 0;
+    }
+
+    static TunnelDirectionSource resolveSource(int protocolVersion, int directionCode, boolean rawValid) {
+        if (!rawValid) {
+            return null;
+        }
+        if (protocolVersion == PacketChainConfigSync.LEGACY_PROTOCOL_VERSION) {
+            return TunnelDirectionSource.legacyDefault();
+        }
+        return protocolVersion == PacketChainConfigSync.PROTOCOL_VERSION
+                ? TunnelDirectionSource.fromWireCode(directionCode) : null;
     }
 }

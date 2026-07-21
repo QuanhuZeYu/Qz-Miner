@@ -78,6 +78,7 @@ public final class ChainStateService {
         }
 
         state.clearRuntimeState(reason);
+        state.resetAcceptedTunnelDirectionSource();
         // 阶段8 块3：删旧 syncPlayerState 调用（八字段同步链已删）。
         // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN/PlanCompleted 下发，无需此处兜底。
     }

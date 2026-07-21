@@ -18,6 +18,9 @@ import club.heiqi.qz_miner.network.ServerChainConfigRequestDispatch.EndpointKey;
 import club.heiqi.qz_miner.network.ServerChainConfigRequestDispatch.KeyedDispatcher;
 import club.heiqi.qz_miner.network.ServerChainConfigRequestDispatch.PlayerLookup;
 import club.heiqi.qz_miner.network.ServerChainConfigRequestDispatch.StateWriter;
+import club.heiqi.qz_miner.network.ServerChainConfigRequestDispatch.AcceptedStateWriter;
+import club.heiqi.qz_miner.network.ServerChainConfigRequestDispatch.Acknowledgement;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.thread.KeyedLatestTaskLane;
 
 /** C2S 配置请求 keyed 调度适配的纯 JVM 测试。 */
@@ -134,6 +137,72 @@ public class ServerChainConfigRequestDispatchTest {
         lane.drain();
         Assert.assertNull(written.get());
         Assert.assertEquals(0, writeCount.get());
+    }
+
+    @Test
+    public void extendedAcceptedConfigWritesAllFieldsBeforeSingleAck() {
+        UUID uuid = UUID.randomUUID();
+        Object endpoint = new Object();
+        online.put(uuid, endpoint);
+        final AtomicReference<Object[]> accepted = new AtomicReference<Object[]>();
+        final AtomicInteger acknowledgements = new AtomicInteger();
+
+        Assert.assertTrue(ServerChainConfigRequestDispatch.submit(
+                uuid, endpoint, 200, 5000,
+                PacketChainConfigRequest.PROTOCOL_VERSION, TunnelDirectionSource.HIT_FACE.wireCode(), true,
+                new KeyedDispatcher() {
+                    @Override public boolean tryRunLatest(Object key, Runnable task) { return lane.submit(key, task); }
+                },
+                new PlayerLookup() {
+                    @Override public Object getPlayer(UUID playerId) { return online.get(playerId); }
+                },
+                new ConfigCaps() {
+                    @Override public int chainRadius() { return 64; }
+                    @Override public int chainMaxBlocks() { return 4096; }
+                },
+                new AcceptedStateWriter() {
+                    @Override public void write(UUID playerId, int radius, int maxBlocks,
+                            TunnelDirectionSource source) {
+                        accepted.set(new Object[] {radius, maxBlocks, source});
+                        Assert.assertEquals(0, acknowledgements.get());
+                    }
+                },
+                new Acknowledgement() {
+                    @Override public void acknowledge(UUID playerId) { acknowledgements.incrementAndGet(); }
+                }));
+        lane.drain();
+
+        Assert.assertArrayEquals(new Object[] {64, 4096, TunnelDirectionSource.HIT_FACE}, accepted.get());
+        Assert.assertEquals(1, acknowledgements.get());
+    }
+
+    @Test
+    public void unknownExtendedDirectionDoesNotPartiallyWriteOrAck() {
+        UUID uuid = UUID.randomUUID();
+        Object endpoint = new Object();
+        online.put(uuid, endpoint);
+        final AtomicInteger sideEffects = new AtomicInteger();
+        Assert.assertTrue(ServerChainConfigRequestDispatch.submit(
+                uuid, endpoint, 12, 300, PacketChainConfigRequest.PROTOCOL_VERSION, 99, true,
+                new KeyedDispatcher() {
+                    @Override public boolean tryRunLatest(Object key, Runnable task) { return lane.submit(key, task); }
+                },
+                new PlayerLookup() {
+                    @Override public Object getPlayer(UUID playerId) { return online.get(playerId); }
+                },
+                new ConfigCaps() {
+                    @Override public int chainRadius() { return 64; }
+                    @Override public int chainMaxBlocks() { return 4096; }
+                },
+                new AcceptedStateWriter() {
+                    @Override public void write(UUID playerId, int radius, int maxBlocks,
+                            TunnelDirectionSource source) { sideEffects.incrementAndGet(); }
+                },
+                new Acknowledgement() {
+                    @Override public void acknowledge(UUID playerId) { sideEffects.incrementAndGet(); }
+                }));
+        lane.drain();
+        Assert.assertEquals(0, sideEffects.get());
     }
 
     /**

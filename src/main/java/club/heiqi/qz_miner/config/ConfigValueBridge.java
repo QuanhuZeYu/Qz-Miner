@@ -61,6 +61,7 @@ public final class ConfigValueBridge {
             throw new IllegalArgumentException("snapshot must not be null");
         }
         Config.clientEnablePreviewRender = snapshot.clientEnablePreviewRender;
+        Config.tunnelDirectionSource = snapshot.tunnelDirectionSource;
         Config.autoToolSwapEnabled = snapshot.autoToolSwapEnabled;
         Config.autoToolTakeoverEnabled = snapshot.autoToolTakeoverEnabled;
         Config.autoToolPrioritySelectors = Collections.unmodifiableList(

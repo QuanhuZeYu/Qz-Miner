@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.network.ServerChainConfigRequestValidator.Result;
 import club.heiqi.qz_miner.thread.KeyedLatestTaskLane;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
@@ -160,6 +161,16 @@ public final class ServerChainConfigRequestDispatch {
         void write(UUID uuid, int radius, int maxBlocks);
     }
 
+    /** v2 三字段原子写入边界。 */
+    public interface AcceptedStateWriter {
+        void write(UUID uuid, int radius, int maxBlocks, TunnelDirectionSource source);
+    }
+
+    /** 成功接受后的即时 S2C ACK 边界。 */
+    public interface Acknowledgement {
+        void acknowledge(UUID uuid);
+    }
+
     /**
      * 生产路径：捕获端点并提交到服务端 keyed lane。
      *
@@ -172,6 +183,15 @@ public final class ServerChainConfigRequestDispatch {
             EntityPlayerMP player,
             int requestedChainRadius,
             int requestedChainMaxBlocks) {
+        return submit(player, requestedChainRadius, requestedChainMaxBlocks,
+                PacketChainConfigRequest.LEGACY_PROTOCOL_VERSION,
+                TunnelDirectionSource.legacyDefault().wireCode(), true);
+    }
+
+    /** 生产 v2 路径：raw 捕获后进入 keyed 服务端主线程整包校验。 */
+    public static boolean submit(
+            EntityPlayerMP player, int requestedChainRadius, int requestedChainMaxBlocks,
+            int protocolVersion, int tunnelDirectionCode, boolean rawValid) {
         if (player == null) {
             return false;
         }
@@ -180,6 +200,9 @@ public final class ServerChainConfigRequestDispatch {
                 player,
                 requestedChainRadius,
                 requestedChainMaxBlocks,
+                protocolVersion,
+                tunnelDirectionCode,
+                rawValid,
                 new KeyedDispatcher() {
                     @Override
                     public boolean tryRunLatest(Object key, Runnable task) {
@@ -206,15 +229,22 @@ public final class ServerChainConfigRequestDispatch {
                         return Config.chainMaxBlocks;
                     }
                 },
-                new StateWriter() {
+                new AcceptedStateWriter() {
                     @Override
-                    public void write(UUID uuid, int radius, int maxBlocks) {
+                    public void write(UUID uuid, int radius, int maxBlocks, TunnelDirectionSource source) {
                         if (MyMod.chainStateService == null) {
                             return;
                         }
                         ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(uuid);
-                        state.setRequestedChainRadius(radius);
-                        state.setRequestedChainMaxBlocks(maxBlocks);
+                        state.setAcceptedChainConfig(radius, maxBlocks, source);
+                    }
+                },
+                new Acknowledgement() {
+                    @Override
+                    public void acknowledge(UUID uuid) {
+                        if (MyMod.chainConfigProjectionBridge != null) {
+                            MyMod.chainConfigProjectionBridge.sendAcceptedConfig(uuid, 0);
+                        }
                     }
                 });
     }
@@ -244,8 +274,33 @@ public final class ServerChainConfigRequestDispatch {
             final PlayerLookup lookup,
             final ConfigCaps caps,
             final StateWriter writer) {
+        if (writer == null) {
+            return false;
+        }
+        return submit(uuid, playerEndpoint, requestedChainRadius, requestedChainMaxBlocks,
+                PacketChainConfigRequest.LEGACY_PROTOCOL_VERSION,
+                TunnelDirectionSource.legacyDefault().wireCode(), true,
+                dispatcher, lookup, caps, new AcceptedStateWriter() {
+                    @Override
+                    public void write(UUID playerId, int radius, int maxBlocks, TunnelDirectionSource source) {
+                        writer.write(playerId, radius, maxBlocks);
+                    }
+                }, new Acknowledgement() {
+                    @Override
+                    public void acknowledge(UUID playerId) {
+                    }
+                });
+    }
+
+    /** 可注入 v2 核心路径，整包接受后先原子写入再触发一次 ACK。 */
+    public static boolean submit(
+            final UUID uuid, final Object playerEndpoint,
+            final int requestedChainRadius, final int requestedChainMaxBlocks,
+            final int protocolVersion, final int tunnelDirectionCode, final boolean rawValid,
+            KeyedDispatcher dispatcher, final PlayerLookup lookup, final ConfigCaps caps,
+            final AcceptedStateWriter writer, final Acknowledgement acknowledgement) {
         if (uuid == null || playerEndpoint == null || dispatcher == null
-                || lookup == null || caps == null || writer == null) {
+                || lookup == null || caps == null || writer == null || acknowledgement == null) {
             return false;
         }
         final EndpointKey key = new EndpointKey(uuid, playerEndpoint);
@@ -253,7 +308,9 @@ public final class ServerChainConfigRequestDispatch {
         boolean accepted = dispatcher.tryRunLatest(key, new Runnable() {
             @Override
             public void run() {
-                consume(uuid, weakEndpoint, requestedChainRadius, requestedChainMaxBlocks, lookup, caps, writer);
+                consume(uuid, weakEndpoint, requestedChainRadius, requestedChainMaxBlocks,
+                        protocolVersion, tunnelDirectionCode, rawValid,
+                        lookup, caps, writer, acknowledgement);
             }
         });
         if (!accepted) {
@@ -268,9 +325,13 @@ public final class ServerChainConfigRequestDispatch {
             WeakReference<Object> weakEndpoint,
             int requestedChainRadius,
             int requestedChainMaxBlocks,
+            int protocolVersion,
+            int tunnelDirectionCode,
+            boolean rawValid,
             PlayerLookup lookup,
             ConfigCaps caps,
-            StateWriter writer) {
+            AcceptedStateWriter writer,
+            Acknowledgement acknowledgement) {
         Object captured = weakEndpoint.get();
         if (captured == null) {
             noteStale();
@@ -285,12 +346,16 @@ public final class ServerChainConfigRequestDispatch {
                 requestedChainRadius,
                 requestedChainMaxBlocks,
                 caps.chainRadius(),
-                caps.chainMaxBlocks());
+                caps.chainMaxBlocks(),
+                protocolVersion,
+                tunnelDirectionCode,
+                rawValid);
         if (!validated.accepted) {
             noteInvalid();
             return;
         }
-        writer.write(uuid, validated.radius, validated.maxBlocks);
+        writer.write(uuid, validated.radius, validated.maxBlocks, validated.tunnelDirectionSource);
+        acknowledgement.acknowledge(uuid);
     }
 
     private static void noteInvalid() {

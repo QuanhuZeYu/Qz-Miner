@@ -207,6 +207,7 @@ public class KeyListener {
         MyMod.chainStateService.setClientRequestedChainConfig(snapshot.chainRadius, snapshot.chainMaxBlocks);
         MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(
             MyMod.chainStateService.getClientState().getRequestedChainRadius(),
-            MyMod.chainStateService.getClientState().getRequestedChainMaxBlocks()));
+            MyMod.chainStateService.getClientState().getRequestedChainMaxBlocks(),
+            snapshot.tunnelDirectionSource));
     }
 }

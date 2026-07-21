@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ClientChainEventBusDrainer;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import club.heiqi.qz_miner.client.ClientChainConfigSyncDispatch;
 import club.heiqi.qz_miner.client.ClientConfigChangeListener;
@@ -31,6 +32,7 @@ import club.heiqi.uilib.ui.hud.api.CompactHud;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
+import club.heiqi.qz_miner.network.PacketChainConfigSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import net.minecraft.network.INetHandler;
 
@@ -160,6 +162,16 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void handleClientChainConfigSync(
             int chainRadius, int chainMaxBlocks, int matchedTargetCount, INetHandler netHandler) {
+        handleClientChainConfigSync(chainRadius, chainMaxBlocks, matchedTargetCount,
+                PacketChainConfigSync.LEGACY_PROTOCOL_VERSION,
+                TunnelDirectionSource.legacyDefault().wireCode(), true, netHandler);
+    }
+
+    /** v2 S2C：raw 数据只在客户端主线程整包通过后发布 accepted 四字段。 */
+    @Override
+    public void handleClientChainConfigSync(
+            int chainRadius, int chainMaxBlocks, int matchedTargetCount,
+            int protocolVersion, int tunnelDirectionCode, boolean rawValid, INetHandler netHandler) {
         final ClientConnectionLifecycle.Token capturedToken =
                 ClientConnectionLifecycle.captureForConnection(netHandler);
         // identity 不匹配或连接 inactive：intentional drop，非 dispatcher rejection
@@ -169,10 +181,16 @@ public class ClientProxy extends CommonProxy {
         final int receivedRadius = chainRadius;
         final int receivedMaxBlocks = chainMaxBlocks;
         final int receivedMatchedTargetCount = matchedTargetCount;
+        final int receivedProtocolVersion = protocolVersion;
+        final int receivedTunnelDirectionCode = tunnelDirectionCode;
+        final boolean receivedRawValid = rawValid;
         boolean accepted = ClientChainConfigSyncDispatch.dispatch(
                 receivedRadius,
                 receivedMaxBlocks,
                 receivedMatchedTargetCount,
+                receivedProtocolVersion,
+                receivedTunnelDirectionCode,
+                receivedRawValid,
                 capturedToken,
                 LIFECYCLE_GATE,
                 new ClientChainConfigSyncDispatch.Dispatcher() {
@@ -181,15 +199,17 @@ public class ClientProxy extends CommonProxy {
                         return ClientMainThreadDispatcher.tryRun(task);
                     }
                 },
-                new ClientChainConfigSyncDispatch.Publication() {
+                new ClientChainConfigSyncDispatch.AcceptedPublication() {
                     @Override
-                    public void publish(int radius, int maxBlocks, int matchedCount) {
+                    public void publish(int radius, int maxBlocks, int matchedCount,
+                            TunnelDirectionSource source) {
                         if (MyMod.chainStateService == null) {
                             return;
                         }
                         MyMod.chainStateService.getClientState().setServerChainRadius(radius);
                         MyMod.chainStateService.getClientState().setServerChainMaxBlocks(maxBlocks);
                         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedCount);
+                        MyMod.chainStateService.getClientState().setAcceptedTunnelDirectionSource(source);
                     }
                 });
         if (!accepted) {
