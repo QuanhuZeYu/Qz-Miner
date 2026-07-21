@@ -92,12 +92,24 @@ Annotated tag `5.0.23` 的 tag object 为 `e0037f9d1a33620b7bad3c3066cff6d100a21
 
 Round-scoped 空手租约的大批次吞吐/watchdog、GT 两项支持基线的真实线缆替换与 dedicated server 运行态仍缺直接证据，继续记为 **INCOMPLETE**，不由 CI 或发布成功替代。`5.0.23` tag/Release 是不可移动发布事实；发布后的文档提交不属于该制品 SHA，不得移动 tag 或改写历史 Release。
 
-## 5.0.24 发布候选与运行态边界
+## 5.0.24 标准发布与运行态边界
 
-`5.0.24` 候选修复 Issue #244 的隧道方向来源：默认 LOOK 在服务端冻结，HIT_FACE 取命中外法线 opposite，客户端预览只读服务端 accepted ACK；旧帧前缀保持可读，新旧混连只安全降级 LOOK。修复提交 `d5c6244acffd544671c5e5731ffa920abea7a857` 的全量 `test/check/build` 与文档门禁已通过，独立 reviewer 无 P0/P1/P2。
+`5.0.24` 修复 Issue #244 的隧道方向来源：默认 LOOK 在服务端冻结，HIT_FACE 取命中外法线 opposite，客户端预览只读服务端 accepted ACK；旧帧前缀保持可读，新旧混连只安全降级 LOOK。修复提交 `d5c6244acffd544671c5e5731ffa920abea7a857` 的全量 `test/check/build` 与文档门禁已通过，独立 reviewer 无 P0/P1/P2。
 
-用户已用 `qz_miner-5.0.23-fix-issue-244-tunnel-direction.1+af2cd5d390-dirty` 确认 Issue #244 原症状得到修复。该包基于 `af2cd5d` 且带 dirty 改动，不是 `d5c6244` exact-SHA 制品，因此只作为原症状与对应运行路径的实机证据，不能表述为候选 SHA 的完整实机通过。
+发布证据现已闭环：feature 候选 `269399ddcf10fc0bebef090a879ed26ffd4b0849` 的 branch CI [`29832837769`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29832837769)、`5.0重构` merge commit `350aa102b7f7c498a1212c4a8bc759b3aa787d1a` 的 exact-SHA CI [`29834175117`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29834175117) 与 release-tags run [`29835307331`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/29835307331) 均 attempt 1 success。Annotated tag `5.0.24` 的 tag object 为 `2c30a93087c65659187b3ed5090c95d2bec97bb6`，peeled commit 固定为 `350aa10`，tag message 为 `[Release]: Qz-Miner 5.0.24`。
 
-默认 LOOK 的日志与隧道几何交叉覆盖 `+X/+Z/-X/+Y`：round 10/12/14/16 分别执行 `143/143`、`143/143`、`65/65`、`130/130`；round 10/12/16 释放掉落并合法收口，round 14 在工具接替后停止并合法收口。日志没有 source/face 显式 marker。`-Y/-Z`、HIT_FACE 六面、四象限新旧混连和 dedicated server 仍为 **INCOMPLETE**，用户对原症状的确认不能扩写为完整矩阵。
+公开 GitHub Release 为 <https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.0.24>，非 draft/prerelease，正文与 tagged changelog 一致。三项公开资产的实字节与 SHA-256 如下：
 
-用户已批准 `5.0.24` 标准 GitHub Release，但 branch exact-SHA CI、主线合并、annotated tag、tag workflow、GitHub Release 与资产均尚无本版本成功证据，不得提前声明。Maven、Modrinth、CurseForge 只可在发布后按实际配置与 workflow 终态记录；允许 skipped 不等于外部发布成功。`5.0.23` tag object/peeled 继续固定为 `e0037f9`/`a64d1d7`，不得移动或改写。
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.0.24.jar` | 814515 | `71649b0416a3d1ebda96f4b30c417a957f15e9678f3bebee8921657d4b6d0739` |
+| `qz_miner-5.0.24-dev.jar` | 808813 | `9c0507785e0256fd4be39ac15947bd464cbd585a7d09f0334cc9e23c54388b3e` |
+| `qz_miner-5.0.24-sources.jar` | 458519 | `bdd86b356d37ac43dbcf79efb9d1fcfb9076f0990576b25753f2652dcaac44e6` |
+
+渠道终态仅 GitHub Release 有实际发布证据。Maven step 为 skipped；Modrinth 与 CurseForge step 虽为 success，但 `:publish` 无 action、project ID 为空且无远端上传证据，因此只能记为“无实际发布证据”，不能宣称外部发布成功，也不能机械写成 skipped。
+
+Issue #244 已以[唯一回复](https://github.com/QuanhuZeYu/Qz-Miner/issues/244#issuecomment-5034905749)（ID `5034905749`）说明 `5.0.24` 修复、用户确认及剩余边界，随后按 `completed` 关闭，`closed_at=2026-07-21T13:54:35Z`；独立 review 无 P0/P1/P2。
+
+用户仍只用 `qz_miner-5.0.23-fix-issue-244-tunnel-direction.1+af2cd5d390-dirty` 确认 Issue #244 原症状得到修复。该包基于 `af2cd5d` 且带 dirty 改动，不是 `d5c6244` exact-SHA 制品，因此只作为原症状与对应运行路径的实机证据，不能表述为发布 SHA 的完整实机通过。默认 LOOK 的日志与隧道几何交叉覆盖 `+X/+Z/-X/+Y`：round 10/12/14/16 分别执行 `143/143`、`143/143`、`65/65`、`130/130`；round 10/12/16 释放掉落并合法收口，round 14 在工具接替后停止并合法收口。日志没有 source/face 显式 marker。`-Y/-Z`、HIT_FACE 六面、四象限新旧混连和 dedicated server 仍为已接受的 **INCOMPLETE** 发布边界，Issue 关闭与发布成功均不把它们改写为通过。
+
+`5.0.19`、`5.0.20`、`5.0.21`、`5.0.22`、`5.0.23` 与 `5.0.24` 的 tag/Release 均为不可移动发布事实；本次发布后的文档提交不属于 `5.0.24` 发布制品 SHA，不得移动 tag 或改写历史 Release。
