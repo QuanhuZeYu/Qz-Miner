@@ -29,9 +29,11 @@
 - **I7**：连接及玩家生命周期清理会清 accepted/pending，旧连接 ACK 不得跨生命周期回写。
 - **I2/I3/I5/I6/I8/I9/I10**：取消、遍历、掉落、反射、时运、屏障与五态转移表均未改变。
 
-## 运行态验收
+## 运行态验收与当前证据
 
 - 六个视线轴、六个命中面与预览/实际隧道同向。
 - pending 失配回退、同 origin 换 face 的预览 generation 隔离。
 - 新新、旧新、新旧、旧旧四象限；混连必须降级 `LOOK_DIRECTION`。
-- client/dedicated 与真实方块破坏矩阵当前均为 **INCOMPLETE**，待用户实机和日志回流。
+- 用户已用 `qz_miner-5.0.23-fix-issue-244-tunnel-direction.1+af2cd5d390-dirty` 确认 Issue #244 原症状得到修复；该包基于 `af2cd5d` 且带 dirty 改动，不等同于修复提交 `d5c6244` 的 exact-SHA 制品。
+- 默认 LOOK 的实机日志与隧道几何交叉覆盖 `+X/+Z/-X/+Y`：round 10/12/14/16 分别执行 `143/143`、`143/143`、`65/65`、`130/130`；round 10/12/16 释放掉落并合法收口，round 14 在工具接替后停止并合法收口。日志没有 source/face 显式 marker，方向结论来自轮次日志与几何的交叉证据。
+- `-Y/-Z`、HIT_FACE 六面、预览/实际完整矩阵、四象限混连与 dedicated server 仍为 **INCOMPLETE**；原症状确认不得扩写为完整运行态通过。
