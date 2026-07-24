@@ -78,10 +78,61 @@ public class AutoToolSwapTakeoverCoordinatorTest {
 
         Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
                 fixture.beforePoll(0L, 10L, authority(true)));
-        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 fixture.beforePoll(0L, 11L, authority(false)));
         Assert.assertEquals(0, fixture.inventory.readCount);
         Assert.assertEquals(0, fixture.inventory.contextReadCount);
+        Assert.assertTrue(fixture.sender.requests.isEmpty());
+    }
+
+    @Test
+    public void roundZeroAuthorityExceptionsSkipTargetWithoutInventoryOrNetworkAccess() {
+        for (int variation = 0; variation < 2; variation++) {
+            Fixture fixture = fixture();
+            resetInventoryAccess(fixture.inventory);
+
+            Assert.assertEquals("variation=" + variation,
+                    AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                    fixture.beforePoll(0L, 10L, failingAuthority(variation == 1)));
+            assertNoInventoryAccess(fixture.inventory);
+            Assert.assertTrue(fixture.sender.requests.isEmpty());
+        }
+    }
+
+    @Test
+    public void roundZeroRetiresStaleIssuedGateAndLateIntentHasNoInventorySideEffect() {
+        Fixture fixture = fixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, fixture.beforePoll(10L));
+        AutoToolSwapTakeoverRequest request = fixture.sender.requests.get(0);
+        AutoToolSwapStackState candidate = stack("tool:next", "fresh", 20);
+        fixture.inventory.slots[7] = candidate;
+        resetInventoryAccess(fixture.inventory);
+
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                fixture.beforePoll(0L, 11L, authority(true)));
+        assertNoInventoryAccess(fixture.inventory);
+
+        AutoToolSwapIntent late = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER, 0, 7,
+                fixture.inventory.slots[0].contentFingerprint(), candidate.contentFingerprint());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, late, fixture.inventory, 12L).outcome());
+        assertNoInventoryAccess(fixture.inventory);
+        Assert.assertEquals(0, fixture.inventory.swapCount);
+    }
+
+    @Test
+    public void invalidCurrentBlockOrMetadataSkipsBeforeInventoryAndRequestBoundaries() {
+        Fixture fixture = fixture();
+        resetInventoryAccess(fixture.inventory);
+
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                fixture.coordinator.beforePoll(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        1, 64, 2, 0, 0, fixture.inventory, 10L, 5, authority(true)));
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                fixture.coordinator.beforePoll(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        1, 64, 2, 1, -1, fixture.inventory, 11L, 5, authority(true)));
+        assertNoInventoryAccess(fixture.inventory);
         Assert.assertTrue(fixture.sender.requests.isEmpty());
     }
 
@@ -102,13 +153,89 @@ public class AutoToolSwapTakeoverCoordinatorTest {
                 allowed.beforePoll(12L, authority(true)));
 
         Fixture denied = declinedEmptyFixture();
-        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 denied.beforePoll(12L, authority(false)));
 
         Fixture occupied = declinedEmptyFixture();
         occupied.inventory.slots[0] = stack("tool:foreign", "occupied", 10);
         Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
                 occupied.beforePoll(12L, authority(true)));
+    }
+
+    @Test
+    public void safelySettledCandidateRejectionsAndNonEmptyDeclineSkipOnlyCurrentTarget() {
+        Fixture fingerprint = fixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, fingerprint.beforePoll(10L));
+        AutoToolSwapTakeoverRequest fingerprintRequest = fingerprint.sender.requests.get(0);
+        AutoToolSwapStackState offered = stack("tool:next", "offered", 20);
+        fingerprint.inventory.slots[7] = offered;
+        AutoToolSwapIntent stale = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fingerprint.roundId, fingerprintRequest.actionSequence(), AutoToolSwapAction.TAKEOVER,
+                0, 7, fingerprint.inventory.slots[0].contentFingerprint(), offered.contentFingerprint());
+        fingerprint.inventory.slots[7] = stack("tool:next", "changed", 19);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fingerprint.service.handleIntent(
+                fingerprint.player, fingerprint.endpoint, stale, fingerprint.inventory, 11L).outcome());
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                fingerprint.beforePoll(12L));
+
+        Fixture lowReserve = fixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, lowReserve.beforePoll(10L));
+        AutoToolSwapTakeoverRequest lowRequest = lowReserve.sender.requests.get(0);
+        AutoToolSwapStackState low = stack("tool:next", "low", 1);
+        lowReserve.inventory.slots[7] = low;
+        AutoToolSwapIntent lowIntent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                lowReserve.roundId, lowRequest.actionSequence(), AutoToolSwapAction.TAKEOVER,
+                0, 7, lowReserve.inventory.slots[0].contentFingerprint(), low.contentFingerprint());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, lowReserve.service.handleIntent(
+                lowReserve.player, lowReserve.endpoint, lowIntent, lowReserve.inventory, 11L).outcome());
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                lowReserve.beforePoll(12L));
+
+        Fixture noCandidate = fixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, noCandidate.beforePoll(10L));
+        acceptLatestDecline(noCandidate, 11L);
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                noCandidate.beforePoll(12L));
+    }
+
+    @Test
+    public void keyReleaseAndPhaseCloseOverrideSettledTargetSkipWithSessionStop() {
+        for (int variation = 0; variation < 2; variation++) {
+            Fixture fixture = fixture();
+            Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, fixture.beforePoll(10L));
+            AutoToolSwapTakeoverRequest request = fixture.sender.requests.get(0);
+            AutoToolSwapStackState offered = stack("tool:next", "offered", 20);
+            fixture.inventory.slots[7] = offered;
+            AutoToolSwapIntent stale = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                    fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER,
+                    0, 7, fixture.inventory.slots[0].contentFingerprint(), offered.contentFingerprint());
+            fixture.inventory.slots[7] = stack("tool:next", "changed", 19);
+            Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(
+                    fixture.player, fixture.endpoint, stale, fixture.inventory, 11L).outcome());
+
+            if (variation == 0) {
+                fixture.service.onKeyReleased(fixture.player, fixture.endpoint);
+            } else {
+                fixture.service.observeChainPhase(
+                        fixture.player, fixture.endpoint, fixture.roundId, false, true);
+            }
+            resetInventoryAccess(fixture.inventory);
+
+            Assert.assertEquals("variation=" + variation,
+                    AutoToolSwapTakeoverCoordinator.GateResult.STOP, fixture.beforePoll(12L));
+            assertNoInventoryAccess(fixture.inventory);
+        }
+    }
+
+    @Test
+    public void waitingTargetInvalidationStillStopsBecauseSequenceIsUnsettled() {
+        Fixture fixture = fixture();
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.WAIT, fixture.beforePoll(10L));
+
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                fixture.coordinator.beforePoll(fixture.player, fixture.endpoint, fixture.roundId, 3,
+                        1, 64, 2, 0, 0, fixture.inventory, 11L, 5, authority(true)));
+        Assert.assertEquals(1, fixture.sender.requests.size());
     }
 
     @Test
@@ -125,18 +252,18 @@ public class AutoToolSwapTakeoverCoordinatorTest {
                 fixture.inventory.slots[0].contentFingerprint(), candidate.contentFingerprint());
         Assert.assertEquals(AutoToolSwapResultCode.APPLIED, fixture.service.handleIntent(fixture.player,
                 fixture.endpoint, takeover, fixture.inventory, 11L).outcome());
-        Assert.assertEquals("错误候选换入后必须在 poll 前停止",
-                AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals("错误候选换入后必须在 poll 前只跳过当前目标",
+                AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 fixture.beforePoll(12L, authority(false)));
     }
 
     @Test
     public void authorityRuntimeAndLinkageFailuresAreFailClosed() {
         Fixture runtime = fixture();
-        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 runtime.beforePoll(10L, failingAuthority(false)));
         Fixture linkage = fixture();
-        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 linkage.beforePoll(10L, failingAuthority(true)));
         Assert.assertTrue(runtime.sender.requests.isEmpty());
         Assert.assertTrue(linkage.sender.requests.isEmpty());
@@ -161,7 +288,7 @@ public class AutoToolSwapTakeoverCoordinatorTest {
     }
 
     @Test
-    public void everyEndpointOrTargetIdentityDriftStopsWaitingAndAppliedGates() {
+    public void sessionIdentityDriftStopsWhileSettledBlockDriftSkipsOnlyTarget() {
         for (int variation = 0; variation < 8; variation++) {
             assertIdentityDriftStops(variation, false);
             assertIdentityDriftStops(variation, true);
@@ -228,7 +355,7 @@ public class AutoToolSwapTakeoverCoordinatorTest {
     public void leaseAuthorityFalseInvalidatesAndRequiresFreshNegotiationForSameKey() {
         Fixture fixture = installedLeaseFixture();
 
-        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 fixture.beforePoll(20L, authority(false)));
         Assert.assertEquals("权威失败的当前目标不得消费队首或重复发送", 1,
                 fixture.sender.requests.size());
@@ -244,7 +371,7 @@ public class AutoToolSwapTakeoverCoordinatorTest {
             Fixture fixture = installedLeaseFixture();
 
             Assert.assertEquals("variation=" + variation,
-                    AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                    AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                     fixture.beforePoll(20L, failingAuthority(variation == 1)));
             Assert.assertEquals("异常失败不得消费队首或重复发送", 1,
                     fixture.sender.requests.size());
@@ -282,7 +409,7 @@ public class AutoToolSwapTakeoverCoordinatorTest {
             };
 
             Assert.assertEquals("variation=" + variation,
-                    AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                    AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                     fixture.beforePoll(20L, reentrantAuthority));
             Assert.assertTrue("旧 authority 回调不得清除重入安装的新租约 variation=" + variation,
                     fixture.service.hasEmptyHandFallbackLease(fixture.player));
@@ -348,9 +475,9 @@ public class AutoToolSwapTakeoverCoordinatorTest {
     }
 
     @Test
-    public void targetAtoBtoARequiresFreshNegotiationAndLeaseAuthorityFailureStops() {
+    public void targetAtoBtoARequiresFreshNegotiationAndLeaseAuthorityFailureSkipsTarget() {
         Fixture fixture = installedLeaseFixture();
-        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        Assert.assertEquals(AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
                 fixture.beforePoll(20L, authority(false)));
         Assert.assertEquals(1, fixture.sender.requests.size());
 
@@ -401,8 +528,10 @@ public class AutoToolSwapTakeoverCoordinatorTest {
         int blockId = variation == 6 ? 2 : 1;
         int metadata = variation == 7 ? 1 : 0;
 
-        Assert.assertEquals("identity variation=" + variation + " applied=" + applyFirst,
-                AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+        AutoToolSwapTakeoverCoordinator.GateResult expected = applyFirst && variation >= 6
+                ? AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET
+                : AutoToolSwapTakeoverCoordinator.GateResult.STOP;
+        Assert.assertEquals("identity variation=" + variation + " applied=" + applyFirst, expected,
                 fixture.coordinator.beforePoll(fixture.player, endpoint, roundId, generation,
                         targetX, targetY, targetZ, blockId, metadata, fixture.inventory, 12L, 5));
         Assert.assertEquals(1, fixture.sender.requests.size());
@@ -473,6 +602,20 @@ public class AutoToolSwapTakeoverCoordinatorTest {
                 throw new IllegalStateException("authority");
             }
         };
+    }
+
+    private static void resetInventoryAccess(FakeInventory inventory) {
+        inventory.readCount = 0;
+        inventory.identityReadCount = 0;
+        inventory.contextReadCount = 0;
+        inventory.swapCount = 0;
+    }
+
+    private static void assertNoInventoryAccess(FakeInventory inventory) {
+        Assert.assertEquals("不得读取库存上下文", 0, inventory.contextReadCount);
+        Assert.assertEquals("不得读取库存槽位", 0, inventory.readCount);
+        Assert.assertEquals("不得读取完整库存身份", 0, inventory.identityReadCount);
+        Assert.assertEquals("不得写入库存", 0, inventory.swapCount);
     }
 
     private static AutoToolSwapStackState stack(String role, String content, int remaining) {

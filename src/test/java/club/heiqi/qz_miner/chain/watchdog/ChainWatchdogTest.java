@@ -407,6 +407,19 @@ public class ChainWatchdogTest {
         Assert.assertEquals("镜像条目不应被移除", 1, h.watchdog.activeCount());
     }
 
+    /** 消费但零成功同样是真实推进，executedThisTick=0 必须刷新 RUNNING 看门狗。 */
+    @Test
+    public void zeroSuccessExecutionAdvancedStillFeedsWatchdog() {
+        Harness h = newHarness();
+        drive(h, phase(PLAYER, 1, 2, 3, 200L));
+
+        driveProgress(h, new ExecutionAdvanced(PLAYER, 1, 225L, 225_000_000L, 0, 4));
+
+        ChainWatchdog.WatchEntry entry = h.watchdog.getEntry(PLAYER);
+        Assert.assertNotNull(entry);
+        Assert.assertEquals("目标跳过/执行失败的消费推进也必须喂狗", 225L, entry.lastProgressTick);
+    }
+
     // ============================ P2-1 漏路径补强（B 方案边界不变量） ============================
 
     /**

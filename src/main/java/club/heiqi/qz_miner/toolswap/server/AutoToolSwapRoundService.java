@@ -30,6 +30,7 @@ public final class AutoToolSwapRoundService {
         WAITING,
         APPLIED,
         DECLINED,
+        SKIP_TARGET,
         STOP
     }
 
@@ -204,6 +205,7 @@ public final class AutoToolSwapRoundService {
     private static final String REASON_SLOT_CONFLICT = "slot-conflict";
     private static final String REASON_INVENTORY_READ_FAILED = "inventory-read-failed";
     private static final String REASON_APPLIED = "applied";
+    private static final String REASON_NO_CANDIDATE = "no-candidate";
     private static final String REASON_SYNC_FAILED = "sync-failed";
     private static final String GATE_CAUSE_DEADLINE = "deadline";
     private static final String GATE_CAUSE_KEY_RELEASE = "key-release";
@@ -487,7 +489,9 @@ public final class AutoToolSwapRoundService {
             outcome = settlement.resultCode;
             diagnosticReason = settlement.diagnosticReason;
         } else if (intent.action() == AutoToolSwapAction.DECLINE_TAKEOVER) {
-            outcome = applyDeclineTakeover(record, intent, serverTick);
+            TakeoverSettlement settlement = applyDeclineTakeover(record, intent, serverTick);
+            outcome = settlement.resultCode;
+            diagnosticReason = settlement.diagnosticReason;
         } else {
             outcome = applyClose(record);
         }
@@ -664,7 +668,7 @@ public final class AutoToolSwapRoundService {
         return pending.state;
     }
 
-    /** APPLIED/STOP 已被执行桥消费后移除等待门。 */
+    /** 任一非 WAITING 终态已被执行桥消费后移除等待门。 */
     public synchronized void consumeTakeoverGate(UUID playerId, Object endpoint,
             AutoToolSwapTakeoverRequest request) {
         RoundRecord record = rounds.get(playerId);
@@ -834,15 +838,8 @@ public final class AutoToolSwapRoundService {
             pending.state = TakeoverGateState.STOP;
             return TakeoverSettlement.rejected(REASON_PENDING_ANCHOR_CHANGED);
         }
-        if (candidate.isEmpty()
-                || !candidate.contentFingerprint().sameContent(intent.candidateContentFingerprint())) {
-            pending.state = TakeoverGateState.STOP;
-            return TakeoverSettlement.rejected(REASON_CANDIDATE_FINGERPRINT);
-        }
-        if (!AutoToolUsabilityPolicy.hasDurabilityReserve(candidate.remainingDurability())) {
-            pending.state = TakeoverGateState.STOP;
-            return TakeoverSettlement.rejected(REASON_CANDIDATE_LOW_RESERVE);
-        }
+        // 会话级 ledger 身份故障优先于候选目标软拒绝，不能因同时发生 fingerprint/耐久
+        // 失败而被降级成 SKIP_TARGET。
         if (record.ledger != null && !(record.ledger.originalAnchor.isEmpty()
                 || record.ledger.originalAnchor.sameRole(oldCandidate))) {
             pending.state = TakeoverGateState.STOP;
@@ -852,6 +849,15 @@ public final class AutoToolSwapRoundService {
                 && !(anchor.isEmpty() || record.ledger.originalCandidate.sameRole(anchor))) {
             pending.state = TakeoverGateState.STOP;
             return TakeoverSettlement.rejected(REASON_LEDGER_ACTIVE_ROLE);
+        }
+        if (candidate.isEmpty()
+                || !candidate.contentFingerprint().sameContent(intent.candidateContentFingerprint())) {
+            pending.state = TakeoverGateState.SKIP_TARGET;
+            return TakeoverSettlement.rejected(REASON_CANDIDATE_FINGERPRINT);
+        }
+        if (!AutoToolUsabilityPolicy.hasDurabilityReserve(candidate.remainingDurability())) {
+            pending.state = TakeoverGateState.SKIP_TARGET;
+            return TakeoverSettlement.rejected(REASON_CANDIDATE_LOW_RESERVE);
         }
 
         SwapLedger oldLedger = record.ledger;
@@ -879,22 +885,26 @@ public final class AutoToolSwapRoundService {
         }
     }
 
-    /** DECLINE 只结算等待门，不读写或同步库存。 */
-    private static AutoToolSwapResultCode applyDeclineTakeover(RoundRecord record, AutoToolSwapIntent intent,
+    /** DECLINE 只结算等待门，不读写或同步库存；非空锚点的精确无候选结算仅跳过当前目标。 */
+    private static TakeoverSettlement applyDeclineTakeover(RoundRecord record, AutoToolSwapIntent intent,
             long serverTick) {
         PendingTakeover pending = record.pendingTakeover;
         AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
         if (!isTakeoverAttemptOpen(record, intent, serverTick) || !record.keyDown
                 || record.state != AutoToolSwapRoundState.FROZEN
-                || pending == null || !pending.anchorState.isEmpty()
+                || pending == null
                 || intent.anchorSlot() != pending.anchorSlot || intent.candidateSlot() != pending.anchorSlot
                 || !empty.sameContent(intent.anchorContentFingerprint())
                 || !empty.sameContent(intent.candidateContentFingerprint())) {
             if (pending != null) pending.state = TakeoverGateState.STOP;
-            return AutoToolSwapResultCode.REJECTED;
+            return TakeoverSettlement.rejected(REASON_NONE);
+        }
+        if (!pending.anchorState.isEmpty()) {
+            pending.state = TakeoverGateState.SKIP_TARGET;
+            return TakeoverSettlement.of(AutoToolSwapResultCode.ACCEPTED, REASON_NO_CANDIDATE);
         }
         pending.state = TakeoverGateState.DECLINED;
-        return AutoToolSwapResultCode.ACCEPTED;
+        return TakeoverSettlement.of(AutoToolSwapResultCode.ACCEPTED, REASON_NONE);
     }
 
     /** deadline 前仅允许精确 pending sequence 的首次 TAKEOVER/DECLINE 进入库存路径。 */

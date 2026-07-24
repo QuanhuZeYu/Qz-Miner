@@ -13,7 +13,7 @@
 - `AutoToolSwapRoundService`：维护服务端 round、动作序列和可逆账本，执行请求幂等与动作结算。
 - `AutoToolSwapRoundService` 的 `RoundRecord`：额外维护至多一个空手回退租约及 create/hit/invalidated 汇总计数；不形成按目标增长的缓存。
 - `MinecraftAutoToolSwapInventoryPort`：在服务端玩家个人库存中执行槽位交换，并交由原版容器发布库存差异。
-- `AutoToolSwapTakeoverCoordinator`：普通 CHAIN/AREA 在队首 `peek()` 后建立 `PROCEED/WAIT/STOP` 门，只有 APPLIED 后允许 `poll()`。
+- `AutoToolSwapTakeoverCoordinator`：普通 CHAIN/AREA 在队首 `peek()` 后建立 `PROCEED/WAIT/SKIP_TARGET/STOP` 门；目标局部拒绝只消费精确队首，会话/事务故障仍协作取消。
 - `ClientProxy`：按 `ctx.netHandler` 捕获连接 token，经客户端主线程 connection/world gate 将四个 S2C 发布给 adapter。
 - `AutoToolSwapClientReducer`：客户端 cycle、nonce/round/action/phase 归因、库存双门、关闭原因与重传的唯一可变业务权威，以 Event 输入并输出不可变 Effect。
 - `AutoToolSwapClientAdapter`：承接 gate 后的 S2C，只采样 Minecraft 事实、执行 reducer effect 和网络 I/O；后续 C2S 在 `ClientTick` 发送。
@@ -35,11 +35,11 @@
 - 库存比较分两层：每个 SWAP/RESTORE intent 携带捕获当刻的双槽完整 fingerprint，服务端与当前双槽 exact 比较以阻断陈旧请求；ledger 跨 round 只租赁稳定 role（registry id + stable subtype），允许 count、damage、energy 与 NBT 合法变化。空槽只兼容空槽，活动工具允许同 role 或破损后的空槽。
 - RESTORE 交换的是校验通过后的两个当前真实栈，不使用 ledger 旧内容回写；因此不会回滚动态变化，也不会复制或吞掉栈。sameRole 只证明角色所有权，不承诺对象 instance identity。原 anchor 非空时 candidate 仍须保持同 role；原 anchor 为空时允许 candidate 被任意当前真实栈占用，RESTORE 将占位栈直接交换到主手并把借用工具送回原槽。该窄例外不放宽 intent 双槽 exact 新鲜度、活动工具 role/empty 或库存安全上下文。
 - `ABANDON(5)` 是无法安全 RESTORE 时的显式收口动作：请求使用 ledger 真实双槽与两个 canonical control fingerprint。服务端只接受当前 endpoint/round/sequence、`SWAPPED/FROZEN/CLOSING`、匹配 ledger 槽位；成功时不读取、不交换、不同步库存，只清 ledger/keyDown 并进入 FINISHED。重复相同 intent 复用动作缓存，旧身份或拒绝不得清当前账本。
-- `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。仅原 anchor 为空、deadline 前精确匹配 pending 的 DECLINE 才结算为内部 `DECLINED`；结算本身零库存访问，Coordinator 随后重验 round/target/槽位/空手/库存安全与实时采掘权威，通过才 PROCEED。
+- `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。原 anchor 为空、deadline 前精确匹配 pending 的 DECLINE 结算为内部 `DECLINED`，Coordinator 随后重验空手、库存安全与实时采掘权威；非空 anchor 的同结构精确 DECLINE 表示无候选，零库存访问结算为 `SKIP_TARGET` 并记录固定 `no-candidate`。畸形 DECLINE 仍 STOP。
 - pending takeover 只约束继续执行动作，不得阻断 round 终裁。服务端先完成 endpoint/round/幂等/sequence 校验，再允许 `CLOSE`、`RESTORE`、`ABANDON` 退休等待门：WAITING 先转 STOP 并输出一次固定诊断，DECLINED/STOP/APPLIED 直接移除，随后严格沿既有 ledger 合同结算。旧 sequence 或旧身份的迟到 TAKEOVER 在任何库存读取、写入、同步和诊断快照前拒绝。
 - 合法空 anchor DECLINE 被执行桥消费后，只有同一主线程时刻的库存安全门、空手、完整 0..35 `AutoToolSwapStackState.sameContent` identity 与实时采掘权威都成立，才安装单项 round-scoped 空手回退租约。租约绑定 endpoint/round/generation、当前热栏锚点与不含坐标的 block id + 完整 metadata；不与 ledger/pending 共存，并随关闭、终态或生命周期清理。
 - 同一租约后续命中只省略 TAKEOVER/DECLINE 网络往返，不省略每目标 `ChainHarvestRules.canHarvest`。block/meta、任一槽数量/耐久/NBT/内容、选中槽、GUI/cursor、endpoint/round/generation 变化均清旧租约并重新执行真实候选优先决策；A→B→A 必须重新协商 A。诊断不逐目标记录 hit，只在 create/invalidated 与 round close 汇总计数。
-- TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放；APPLIED 被执行桥消费后仍须按新主手实时 `ChainHarvestRules.canHarvest` 复验，错误候选不得 poll。
+- TAKEOVER 写前重新校验 endpoint/round/generation/sequence、pending 目标身份、热栏锚点、exact fingerprint、候选剩余至少 2 点、受保护槽角色及槽位互异。candidate fingerprint 或低耐久拒绝发生在零写入边界且由当前 intent 推进 sequence，门终态为 `SKIP_TARGET`；库存上下文、锚点、ledger role、槽冲突、sync/orphan 等仍 STOP。交换已应用后的同步失败进入 ORPHANED/SYNC_FAILED，禁止重放；APPLIED 被执行桥消费后仍须按新主手实时 `ChainHarvestRules.canHarvest` 复验，失败只跳过当前目标。
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
 - 首块成功前的普通匹配使用客户端 light 快照中的 `ABSENT` 或 `blockId + metadata` 目标身份；坐标、TileEntity/NBT 不参与。同身份维持 10 tick 扫描水位，block/meta 变化立即触发 latest-target-wins，连续两个 END tick ABSENT 才确认丢失。已有 ledger 时先完成旧 RESTORE，再为最终有效目标 FULL；已发送 SWAP/RESTORE 不取消，也不在旧 ledger 上发送第二个普通 SWAP。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
@@ -57,8 +57,10 @@
 
 - PlanStarted 在服务端主线程捕获不可变 `PlanningToolCapabilitySnapshot`：当前可用手持优先，按 selector/槽位排序的背包真实工具其次，空手虚拟候选最后。真实工具与客户端候选共用 `ToolHarvestEligibility`，空手只按 Forge 通用无工具能力判定；四类正式采掘 matcher 与对象组采掘分支共用同一 round evaluator。worker 只读冻结能力与世界目标，不读实时库存。
 - 冻结集合只是 admission，可因规划期间库存变化而过宽；主线程 `ChainHarvestRules.canHarvest` 始终保留当前玩家、事件语义和耐久的最终权威。`serverRoundId=0` 不进入工具 round 或候选扫描，安全上下文中直接按当前真实主手裁决，普通连锁不因自动工具关闭失效。
-- 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。非空主手只有实时权威与耐久储备都成立才直通，否则可请求真实候选；空主手先 WAIT 请求候选，只有合法 DECLINED 后可空手兜底。APPLIED/DECLINED 都复验，其他失败均 STOP 且不消费队首。GT 线缆 SPECIAL 不接入。
+- 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。非空主手只有实时权威与耐久储备都成立才直通，否则可请求真实候选；空主手先 WAIT 请求候选，只有合法 DECLINED 后可空手兜底。WAIT 不 poll；SKIP_TARGET poll 后不调用执行器；STOP 保持规划协作取消。仅已结算目标拒绝、round 0/租约/APPLIED 的实时权威失败及安全目标失效进入 SKIP_TARGET，未结算事务与会话身份故障不降级。GT 线缆 SPECIAL 与 INTERACT 不接入。
 - 空手兜底的稳定候选资格可在上述严格身份内按 round 租赁，使同 key 批次首次最多一次 WAIT；租约命中仍位于 `peek()` 与 `poll()` 之间并逐目标实时复验权威，因此脚底、世界状态和事件语义变化继续 fail-closed。
+- 普通 `CHAIN/AREA` 执行的 `maxBreakPerTick` 是 poll/processed 预算，不是成功数预算；成功、执行器拒绝/失败与目标跳过共同计数。任一消费均发布 `ExecutionAdvanced`（可为零成功），只有成功执行设置 50ms 节流；规划完成后全跳过也沿正常 `ExecutionFinished → LifecycleCleanup` 收口，掉落窗口不因单目标跳过关闭。`INTERACT` 与非 GT `SPECIAL` 不进入该分支。
+- `CHAIN_LOGGING` 额外区分“连通资格”与“入队资格”：原木 candidate filter 已接受后，即使冻结采掘 matcher 软拒绝，该节点也只是不入执行队列、不增加 confirmed，仍可预算化扩展相邻原木；candidate=false 的非原木/非对象组节点继续阻断。后续节点仍各自经过 matcher 与主线程实时权威，被拒节点自身绝不破坏。
 
 ## 客户端预览刷新边界
 
@@ -90,6 +92,7 @@
 
 ## 演进
 
+- 2026-07-24：将普通 CHAIN/AREA 的接替校验拆为目标级 `SKIP_TARGET` 与会话级 STOP。仅实时目标权威、失效 block/meta 及已推进 sequence 的 candidate fingerprint/低耐久/精确无候选结算局部跳过；未结算事务、身份、库存、ledger、sync/orphan 故障不放宽。执行预算改按 poll 计数，零成功消费继续发布推进并自然完成；`CHAIN_LOGGING` 的 matcher 软拒绝节点保留 candidate 连通资格但不入队。wire v3、配置 schema、五态转移表、INTERACT 与 GT SPECIAL 不变，client/dedicated 运行态仍为 INCOMPLETE。
 - 2026-07-21：为 TiC `HarvestTool` 族增加无直接依赖的 null-harvestTool 旧式采掘适配；客户端候选与冻结规划仍共用资格入口，显式等级、效率、耐久和执行期服务端权威不变。自动化不替代 Smeltery 真实掉落验证，5.0.23 继续阻断。
 - 2026-07-18：新增服务端 round-scoped 单项空手回退租约，以完整 36 槽纯值 identity 消除稳定同 key 批次的逐目标 TAKEOVER/DECLINE；真实候选仍优先、每目标权威不缓存，wire、客户端候选、执行节流、状态机与 GT 线缆路径不变。自动化不替代真实吞吐与 watchdog 复验，运行态仍为 INCOMPLETE。
 - 2026-07-18：修复接替 pending 反向阻断松键 CLOSE 的 round 终裁；闭环动作在合法 sequence 后安全退休等待门，迟到 TAKEOVER 保持零库存副作用。同期将 PlanCompleted 成功入队设为规划完成 publication 线性化点，失败固定发布一次 `plan-completion-publication-failed` 取消；wire、版本、配置 schema 与五态转移表不变，hotfix 运行态仍为 INCOMPLETE。

@@ -119,6 +119,21 @@ public class ChainExecutionContextTest {
         Assert.assertEquals(12345L, context.getNextExecutorAllowedMillis());
     }
 
+    /** 目标局部跳过计数独立于 consumed/succeeded，并从零单调增加。 */
+    @Test
+    public void skippedTargetCountIsObservableAndIndependent() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1,
+                new ConcurrentLinkedQueue<ChainTarget>(), null);
+        Assert.assertEquals(0, context.getExecutionSkippedCount());
+        context.recordExecutionConsumed();
+        context.recordExecutionSkipped();
+        context.recordExecutionSkipped();
+
+        Assert.assertEquals(1, context.getExecutionConsumedCount());
+        Assert.assertEquals(2, context.getExecutionSkippedCount());
+        Assert.assertEquals(0, context.getExecutionSucceededCount());
+    }
+
     /** isExecutorReady 控速闸门：未到允许戳返回 false，已到或越过返回 true。 */
     @Test
     public void isExecutorReadyThrottleGate() {

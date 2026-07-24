@@ -263,7 +263,7 @@ public class ChainExecutionEventBridge {
      * session 仅作配置载体（mode/subMode/interactFace/hit），不破坏世界。</p>
      *
      * @param context         执行上下文
-     * @param maxBreakPerTick 本 tick 最大破坏数（控速，对齐旧 ChainExecutor:89）
+     * @param maxBreakPerTick CHAIN/AREA 的最大 poll 数；其他模式保留既有最大成功数语义
      */
     private void consumeContext(ChainExecutionContext context, int maxBreakPerTick) {
         UUID playerUUID = context.getPlayerUUID();
@@ -343,7 +343,7 @@ public class ChainExecutionEventBridge {
                     continue;
                 }
                 executed++;
-                logFirstSuccessfulExecution(context, target);
+                if (context.recordExecutionSucceeded()) logFirstSuccessfulExecution(context, target);
                 // 单 tick 原子执行仍需喂看门狗推进信号（虽然不跨 tick，但防 drain 帧内被误判）
             }
 
@@ -364,61 +364,98 @@ public class ChainExecutionEventBridge {
             return;
         }
 
-        // ===== 非 GT：原 maxBreakPerTick + 50ms 节流逻辑（流式，不动）=====
+        // ===== 非 GT：按实际 poll 计预算的流式执行 =====
         long nowMillis = System.currentTimeMillis();
         if (!context.isExecutorReady(nowMillis)) {
             return;
         }
+        if (!usesTakeoverGate(session)) {
+            // INTERACT 与非 GT SPECIAL 不属于本次目标级门修复，保持原成功数预算与推进语义。
+            consumeNonTakeoverTargets(player, session, actionExecutor, context, maxBreakPerTick);
+            return;
+        }
+        final EntityPlayerMP ordinaryPlayer = player;
+        final ChainSession ordinarySession = session;
+        final ChainActionExecutor ordinaryExecutor = actionExecutor;
+        final boolean gateEnabled = takeoverCoordinator != null;
+        OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, maxBreakPerTick,
+                new OrdinaryTargetGate() {
+                    @Override
+                    public AutoToolSwapTakeoverCoordinator.GateResult beforePoll(ChainTarget target) {
+                        if (!gateEnabled) return AutoToolSwapTakeoverCoordinator.GateResult.PROCEED;
+                        return takeoverCoordinator.beforePoll(
+                                ordinaryPlayer, context.getServerRoundId(), gen, target,
+                                Math.max(0L, ChainTickSource.currentServerTick()));
+                    }
+                }, new OrdinaryTargetExecutor() {
+                    @Override
+                    public boolean canExecute(ChainTarget target) {
+                        return ordinaryExecutor.canExecute(ordinaryPlayer, ordinarySession, target);
+                    }
+
+                    @Override
+                    public boolean execute(ChainTarget target) {
+                        return ordinaryExecutor.execute(ordinaryPlayer, ordinarySession, target);
+                    }
+                });
+        if (tickResult.isStopped()) {
+            stopForTakeover(context);
+            return;
+        }
+        finishOrdinaryTick(context, tickResult);
+    }
+
+    /** 保留 INTERACT 与非 GT SPECIAL 的既有消费、节流和推进行为。 */
+    private void consumeNonTakeoverTargets(EntityPlayerMP player, ChainSession session,
+            ChainActionExecutor actionExecutor, ChainExecutionContext context, int maxBreakPerTick) {
         int executed = 0;
         while (executed < maxBreakPerTick) {
-            ChainTarget target = context.getTargets().peek();
-            if (target == null) {
-                break;
-            }
-            AutoToolSwapTakeoverCoordinator.GateResult gate =
-                    AutoToolSwapTakeoverCoordinator.GateResult.PROCEED;
-            if (takeoverCoordinator != null && usesTakeoverGate(session)) {
-                gate = takeoverCoordinator.beforePoll(
-                        player, context.getServerRoundId(), gen, target,
-                        Math.max(0L, ChainTickSource.currentServerTick()));
-            }
-            target = pollTargetAfterTakeoverGate(context, gate);
-            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) return;
-            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
-                stopForTakeover(context);
-                return;
-            }
+            ChainTarget target = context.getTargets().poll();
             if (target == null) break;
-            if (!actionExecutor.canExecute(player, session, target)) {
-                continue;
-            }
-            if (!actionExecutor.execute(player, session, target)) {
-                continue;
-            }
+            context.recordExecutionConsumed();
+            if (!actionExecutor.canExecute(player, session, target)) continue;
+            if (!actionExecutor.execute(player, session, target)) continue;
             executed++;
-            logFirstSuccessfulExecution(context, target);
+            if (context.recordExecutionSucceeded()) logFirstSuccessfulExecution(context, target);
         }
 
         if (executed > 0) {
-            // 控速：本 tick 破坏过方块，设下次允许戳为 now+50（对齐旧 ChainExecutor:110）
             context.setNextExecutorAllowedMillis(System.currentTimeMillis() + 50L);
-            // B 方案：每 tick 有破坏则 publish ExecutionAdvanced 喂看门狗（天然节流：仅 executed>0 时发），
-            // 让 RUNNING 阶段两次状态机转移之间有真实工作推进信号，避免长执行被误判卡死。
-            // gen 来源用 context.getGeneration()（事件流注入），不实时读状态机。
-            // remainingTargets 用 context.getTargets().size()——ConcurrentLinkedQueue.size() 是 O(n)，
-            // 但执行队列通常不大，可接受；ChainExecutionContext 无 getTotalTargets/remaining 字段。
-            bus.publish(new ExecutionAdvanced(playerUUID, context.getServerRoundId(), gen,
-                    ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+            bus.publish(new ExecutionAdvanced(context.getPlayerUUID(), context.getServerRoundId(),
+                    context.getGeneration(), ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     executed, context.getTargets().size()));
+        }
+        if (context.isCompleted()) {
+            publishExecutionFinishedWithCleanup(context, "executor-consumed-all-targets");
+            registry.remove(context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId());
+        }
+    }
+
+    /**
+     * 完成普通 CHAIN/AREA 单 tick 的推进尾处理。WAIT 若发生在已有消费之后也必须走到这里。
+     */
+    void finishOrdinaryTick(ChainExecutionContext context, OrdinaryTickResult tickResult) {
+        if (context == null || tickResult == null) {
+            throw new IllegalArgumentException("ordinary tick context and result must not be null");
+        }
+        if (tickResult.getProcessedTargets() > 0) {
+            if (tickResult.getExecutedTargets() > 0) {
+                // 只有真实成功执行才设置 50ms 节流；纯跳过/失败可以在下一 tick 继续。
+                context.setNextExecutorAllowedMillis(System.currentTimeMillis() + 50L);
+            }
+            if (tickResult.getFirstRoundSuccessfulTarget() != null) {
+                logFirstSuccessfulExecution(context, tickResult.getFirstRoundSuccessfulTarget());
+            }
+            // consumed 是看门狗的真实推进；即使 executed=0 也必须发布，防全跳过批次被误判卡死。
+            bus.publish(new ExecutionAdvanced(context.getPlayerUUID(), context.getServerRoundId(),
+                    context.getGeneration(), ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                    tickResult.getExecutedTargets(), context.getTargets().size()));
         }
 
         if (context.isCompleted()) {
-            // 队列消费完：publish ExecutionFinished → 状态机 T7 RUNNING→FINISHING
-            // + 临时 LifecycleCleanup（E4-b 桥）→ 状态机 T8 FINISHING→IDLE
             publishExecutionFinishedWithCleanup(context, "executor-consumed-all-targets");
-            registry.remove(playerUUID, gen, context.getServerRoundId());
+            registry.remove(context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId());
         }
-        // 若未消费完，留下一 tick 继续消费（控速）
     }
 
     /**
@@ -441,9 +478,10 @@ public class ChainExecutionEventBridge {
         long nanos = ChainTickSource.nowNanos();
         bus.publish(buildExecutionFinished(playerUUID, serverRoundId, gen, tick, nanos, reason));
         logTimeline(context, "ExecutionFinished", "reason=" + reason
-                + " workerConfirmed=" + context.getPlanningConfirmedCount()
-                + " executionConsumed=" + context.getExecutionConsumedCount()
-                + " executionSucceeded=" + context.getExecutionSucceededCount());
+                + " confirmed=" + context.getPlanningConfirmedCount()
+                + " consumed=" + context.getExecutionConsumedCount()
+                + " skipped=" + context.getExecutionSkippedCount()
+                + " succeeded=" + context.getExecutionSucceededCount());
         // G1（I5 生命线）：正常完成关掉落收集窗口（executionStatus=IDLE）。
         // ChainDropCollector:58 检测到 IDLE 后下个 WorldTick 释放 buffer 中聚合的掉落。
         setExecutionWindow(playerUUID, false, "execution-finished:" + reason);
@@ -586,20 +624,104 @@ public class ChainExecutionEventBridge {
     /** 仅普通 CHAIN/AREA 采掘使用接替门；GT SPECIAL 与交互分支保持原子/既有语义。 */
     private static boolean usesTakeoverGate(ChainSession session) {
         if (session == null || session.getRequest() == null) return false;
-        ChainMode mode = session.getRequest().getMode();
+        return usesTakeoverGate(session.getRequest().getMode());
+    }
+
+    /** 纯模式范围判定；AREA 包含 AREA_TUNNEL，INTERACT/SPECIAL 保持既有执行分支。 */
+    static boolean usesTakeoverGate(ChainMode mode) {
         return mode == ChainMode.CHAIN || mode == ChainMode.AREA;
     }
 
+    /** 普通执行队首的 poll 前门；测试可注入纯逻辑决策而不加载 Forge 玩家。 */
+    interface OrdinaryTargetGate {
+        AutoToolSwapTakeoverCoordinator.GateResult beforePoll(ChainTarget target);
+    }
+
+    /** 普通目标执行边界；生产实现委托给当前模式的 ChainActionExecutor。 */
+    interface OrdinaryTargetExecutor {
+        boolean canExecute(ChainTarget target);
+        boolean execute(ChainTarget target);
+    }
+
+    /** 单 tick 普通执行纯值结果，用于统一推进、节流和完成尾处理。 */
+    static final class OrdinaryTickResult {
+        private final int processedTargets;
+        private final int executedTargets;
+        private final boolean waiting;
+        private final boolean stopped;
+        private final ChainTarget firstRoundSuccessfulTarget;
+
+        private OrdinaryTickResult(int processedTargets, int executedTargets, boolean waiting, boolean stopped,
+                ChainTarget firstRoundSuccessfulTarget) {
+            this.processedTargets = processedTargets;
+            this.executedTargets = executedTargets;
+            this.waiting = waiting;
+            this.stopped = stopped;
+            this.firstRoundSuccessfulTarget = firstRoundSuccessfulTarget;
+        }
+
+        int getProcessedTargets() { return processedTargets; }
+        int getExecutedTargets() { return executedTargets; }
+        boolean isWaiting() { return waiting; }
+        boolean isStopped() { return stopped; }
+        ChainTarget getFirstRoundSuccessfulTarget() { return firstRoundSuccessfulTarget; }
+    }
+
     /**
-     * 普通执行循环共用的队首消费接缝：仅 PROCEED 可 poll 并记录一次消费。
+     * 按实际 poll 数而非成功数消费普通目标；SKIP_TARGET 只消费队首且绝不到达执行器。
+     */
+    static OrdinaryTickResult consumeOrdinaryTargets(ChainExecutionContext context, int maxBreakPerTick,
+            OrdinaryTargetGate gate, OrdinaryTargetExecutor executor) {
+        if (context == null || gate == null || executor == null) {
+            throw new IllegalArgumentException("ordinary execution dependencies must not be null");
+        }
+        int processed = 0;
+        int executed = 0;
+        boolean waiting = false;
+        boolean stopped = false;
+        ChainTarget firstRoundSuccessfulTarget = null;
+        int processingBudget = Math.max(0, maxBreakPerTick);
+        while (processed < processingBudget) {
+            ChainTarget target = context.getTargets().peek();
+            if (target == null) break;
+            AutoToolSwapTakeoverCoordinator.GateResult decision = gate.beforePoll(target);
+            if (decision == null || decision == AutoToolSwapTakeoverCoordinator.GateResult.STOP) {
+                stopped = true;
+                break;
+            }
+            if (decision == AutoToolSwapTakeoverCoordinator.GateResult.WAIT) {
+                waiting = true;
+                break;
+            }
+            target = pollTargetAfterTakeoverGate(context, decision);
+            if (target == null) break;
+            processed++;
+            if (decision == AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET) continue;
+            if (!executor.canExecute(target) || !executor.execute(target)) continue;
+            executed++;
+            if (context.recordExecutionSucceeded() && firstRoundSuccessfulTarget == null) {
+                firstRoundSuccessfulTarget = target;
+            }
+        }
+        return new OrdinaryTickResult(processed, executed, waiting, stopped, firstRoundSuccessfulTarget);
+    }
+
+    /**
+     * 普通执行循环共用的队首消费接缝：PROCEED/SKIP_TARGET 可 poll，后者额外记录跳过。
      *
      * @return 被消费的队首；WAIT、STOP 或空队列返回 null
      */
     static ChainTarget pollTargetAfterTakeoverGate(ChainExecutionContext context,
             AutoToolSwapTakeoverCoordinator.GateResult gate) {
-        if (context == null || gate != AutoToolSwapTakeoverCoordinator.GateResult.PROCEED) return null;
+        if (context == null || gate != AutoToolSwapTakeoverCoordinator.GateResult.PROCEED
+                && gate != AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET) return null;
         ChainTarget target = context.getTargets().poll();
-        if (target != null) context.recordExecutionConsumed();
+        if (target != null) {
+            context.recordExecutionConsumed();
+            if (gate == AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET) {
+                context.recordExecutionSkipped();
+            }
+        }
         return target;
     }
 
@@ -636,12 +758,10 @@ public class ChainExecutionEventBridge {
                 playerUUID, Boolean.valueOf(executing), reason);
     }
 
-    /** 仅在本 round 首个真实额外执行成功时输出一次坐标诊断。 */
+    /** 仅为本 round 已确认的首个真实额外执行成功输出一次坐标诊断。 */
     private void logFirstSuccessfulExecution(ChainExecutionContext context, ChainTarget target) {
-        if (context.recordExecutionSucceeded()) {
-            logTimeline(context, "FirstExtraExecution", "pos=(" + target.getX() + "," + target.getY() + ","
-                    + target.getZ() + ") executionConsumed=" + context.getExecutionConsumedCount());
-        }
+        logTimeline(context, "FirstExtraExecution", "pos=(" + target.getX() + "," + target.getY() + ","
+                + target.getZ() + ") executionConsumed=" + context.getExecutionConsumedCount());
     }
 
     /** 输出与 planner/工具换位 round 可关联的有界执行时间线。 */

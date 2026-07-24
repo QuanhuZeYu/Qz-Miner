@@ -18,7 +18,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 /** 服务端主线程上的 poll 前工具接替协调门。 */
 public final class AutoToolSwapTakeoverCoordinator {
 
-    public enum GateResult { PROCEED, WAIT, STOP }
+    public enum GateResult { PROCEED, WAIT, SKIP_TARGET, STOP }
 
     /** 服务端当前真实玩家与目标的最终采掘权威。 */
     interface HarvestAuthority {
@@ -90,32 +90,49 @@ public final class AutoToolSwapTakeoverCoordinator {
             HarvestAuthority authority) {
         if (authority == null) return GateResult.STOP;
         if (playerId == null || endpoint == null || inventory == null || timeoutTicks <= 0) return GateResult.STOP;
-        if (serverRoundId == 0L) return evaluateAuthority(authority);
         IssuedTakeover active = issued.get(playerId);
+        if (serverRoundId == 0L) {
+            // round 0 不得继承旧 round 的本地发送记忆；精确退休后仍只查询当前目标权威。
+            if (active != null) stopAndConsumeIssued(playerId, active);
+            return evaluateTargetAuthority(authority);
+        }
         if (active != null) {
             AutoToolSwapTakeoverRequest activeRequest = active.request;
-            if (!active.matchesEndpoint(endpoint) || !activeRequest.matchesTarget(serverRoundId, generation,
-                    targetX, targetY, targetZ, blockId, metadata)) {
+            if (!active.matchesEndpoint(endpoint) || !active.matchesExecutionIdentity(serverRoundId, generation,
+                    targetX, targetY, targetZ)) {
                 stopAndConsumeIssued(playerId, active);
                 return GateResult.STOP;
             }
             AutoToolSwapRoundService.TakeoverGateState state = roundService.takeoverGateState(
                     playerId, endpoint, activeRequest, serverTick);
+            if (!active.matchesTargetBlock(blockId, metadata)) {
+                if (state == AutoToolSwapRoundService.TakeoverGateState.WAITING) {
+                    // 未结算等待门没有退休 sequence，目标漂移必须停止会话，避免迟到 intent 串门。
+                    stopAndConsumeIssued(playerId, active);
+                    return GateResult.STOP;
+                }
+                roundService.consumeTakeoverGate(playerId, endpoint, activeRequest);
+                issued.remove(playerId);
+                return isSafelySettledTargetGate(state) ? GateResult.SKIP_TARGET : GateResult.STOP;
+            }
             if (state == AutoToolSwapRoundService.TakeoverGateState.WAITING) return GateResult.WAIT;
             roundService.consumeTakeoverGate(playerId, endpoint, activeRequest);
             issued.remove(playerId);
             if (state == AutoToolSwapRoundService.TakeoverGateState.APPLIED) {
-                return evaluateAuthority(authority);
+                return evaluateTargetAuthority(authority);
             }
             if (state == AutoToolSwapRoundService.TakeoverGateState.DECLINED) {
                 AutoToolSwapRoundService.TargetCapabilityKey targetCapability;
                 try {
                     targetCapability = AutoToolSwapRoundService.TargetCapabilityKey.of(blockId, metadata);
                 } catch (IllegalArgumentException invalidTarget) {
-                    return GateResult.STOP;
+                    return GateResult.SKIP_TARGET;
                 }
                 return installEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
                         targetCapability, inventory, active.anchorSlot, authority);
+            }
+            if (state == AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET) {
+                return GateResult.SKIP_TARGET;
             }
             return GateResult.STOP;
         }
@@ -125,7 +142,7 @@ public final class AutoToolSwapTakeoverCoordinator {
             targetCapability = AutoToolSwapRoundService.TargetCapabilityKey.of(blockId, metadata);
         } catch (IllegalArgumentException invalidTarget) {
             roundService.clearEmptyHandFallbackLease(playerId, "invalid-target");
-            return GateResult.STOP;
+            return GateResult.SKIP_TARGET;
         }
 
         AutoToolSwapStackState anchor;
@@ -144,7 +161,7 @@ public final class AutoToolSwapTakeoverCoordinator {
             }
             if (inventory.isCreativeMode()) {
                 roundService.clearEmptyHandFallbackLease(playerId, "creative-mode");
-                return evaluateAuthority(authority);
+                return evaluateTargetAuthority(authority);
             }
         } catch (RuntimeException failure) {
             roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
@@ -169,7 +186,7 @@ public final class AutoToolSwapTakeoverCoordinator {
                             targetCapability, anchorSlot, inventoryFingerprint);
             if (leaseMatch.outcome() == AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH) {
                 AutoToolSwapRoundService.EmptyHandFallbackLeaseToken leaseToken = leaseMatch.token();
-                GateResult authorityResult = evaluateAuthority(authority);
+                GateResult authorityResult = evaluateTargetAuthority(authority);
                 if (authorityResult != GateResult.PROCEED) {
                     // 权威可同线程重入模组代码；只退休调用权威前实际命中的同一租约。
                     roundService.compareAndClearEmptyHandFallbackLease(playerId, leaseToken,
@@ -180,7 +197,7 @@ public final class AutoToolSwapTakeoverCoordinator {
         }
         if (!anchor.isEmpty()) {
             Boolean currentCanHarvest = queryAuthority(authority);
-            if (currentCanHarvest == null) return GateResult.STOP;
+            if (currentCanHarvest == null) return GateResult.SKIP_TARGET;
             if (currentCanHarvest.booleanValue()
                     && AutoToolUsabilityPolicy.hasDurabilityReserve(anchor.remainingDurability())) {
                 return GateResult.PROCEED;
@@ -227,15 +244,23 @@ public final class AutoToolSwapTakeoverCoordinator {
         } catch (LinkageError failure) {
             return GateResult.STOP;
         }
-        if (evaluateAuthority(authority) != GateResult.PROCEED) return GateResult.STOP;
+        GateResult authorityResult = evaluateTargetAuthority(authority);
+        if (authorityResult != GateResult.PROCEED) return authorityResult;
         return roundService.installEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
                 targetCapability, anchorSlot, inventoryFingerprint) ? GateResult.PROCEED : GateResult.STOP;
     }
 
-    /** 权威异常不得让目标越过 poll 前门。 */
-    private static GateResult evaluateAuthority(HarvestAuthority authority) {
+    /** 权威拒绝或异常不得执行当前目标，但不放大为已安全隔离事务之外的会话取消。 */
+    private static GateResult evaluateTargetAuthority(HarvestAuthority authority) {
         Boolean result = queryAuthority(authority);
-        return Boolean.TRUE.equals(result) ? GateResult.PROCEED : GateResult.STOP;
+        return Boolean.TRUE.equals(result) ? GateResult.PROCEED : GateResult.SKIP_TARGET;
+    }
+
+    /** @return 该终态是否已经安全结算并退休动作 sequence，可局部跳过当前目标。 */
+    private static boolean isSafelySettledTargetGate(AutoToolSwapRoundService.TakeoverGateState state) {
+        return state == AutoToolSwapRoundService.TakeoverGateState.APPLIED
+                || state == AutoToolSwapRoundService.TakeoverGateState.DECLINED
+                || state == AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET;
     }
 
     /** @return 权威结果；异常返回 null。 */
@@ -284,6 +309,19 @@ public final class AutoToolSwapTakeoverCoordinator {
 
         private boolean matchesEndpoint(Object currentEndpoint) {
             return endpoint == currentEndpoint;
+        }
+
+        /** @return round、generation 与队首坐标是否仍属于同一执行身份。 */
+        private boolean matchesExecutionIdentity(long serverRoundId, int generation,
+                int targetX, int targetY, int targetZ) {
+            return request.serverRoundId() == serverRoundId && request.generation() == generation
+                    && request.targetX() == targetX && request.targetY() == targetY
+                    && request.targetZ() == targetZ;
+        }
+
+        /** @return 当前 block/meta 是否仍与请求冻结事实一致。 */
+        private boolean matchesTargetBlock(int blockId, int metadata) {
+            return request.targetBlockId() == blockId && request.targetBlockMetadata() == metadata;
         }
     }
 }

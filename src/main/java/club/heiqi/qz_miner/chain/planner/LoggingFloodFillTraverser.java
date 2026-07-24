@@ -61,19 +61,76 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                 continue;
             }
 
-            if (currentTarget == null) {
-                if (context.getCurrentFrontier().isEmpty()) {
-                    if (!control.tryConsumeWork(1)) {
-                        return yieldOrTerminate(control);
-                    }
-                    if (!context.getNextFrontier().isEmpty()) {
-                        budgetPhase = TraversalPhase.ROTATE_FRONTIER;
-                        continue;
-                    }
-                    resetBudgetState();
+            if (budgetPhase == TraversalPhase.CHECK_CURRENT_CANDIDATE) {
+                if (currentTarget == null) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (!context.canTraverse(currentTarget)) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                budgetPhase = TraversalPhase.CHECK_CURRENT_MATCHER;
+                continue;
+            }
+
+            if (budgetPhase == TraversalPhase.CHECK_CURRENT_MATCHER) {
+                if (currentTarget == null) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (!matcher.matches(currentTarget)) {
+                    // candidate filter 已确认该点属于原木/对象组连通图；采掘 matcher 的软拒绝
+                    // 只阻止入执行队列，不得把该连通节点放大成整棵树的遍历断点。
+                    beginNeighborGeneration(currentTarget);
+                    continue;
+                }
+                budgetPhase = TraversalPhase.SUBMIT_CURRENT_TARGET;
+                continue;
+            }
+
+            if (budgetPhase == TraversalPhase.SUBMIT_CURRENT_TARGET) {
+                if (currentTarget == null) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (control.isCancelRequested()) {
+                    return TraversalStepResult.TERMINATED;
+                }
+                consumer.accept(currentTarget);
+                context.incrementConfirmedCount();
+
+                if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                    clearCurrentTarget();
                     return TraversalStepResult.COMPLETED;
                 }
 
+                beginNeighborGeneration(currentTarget);
+                continue;
+            }
+
+            if (currentTarget == null && context.getCurrentFrontier().isEmpty()) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (!context.getNextFrontier().isEmpty()) {
+                    budgetPhase = TraversalPhase.ROTATE_FRONTIER;
+                    continue;
+                }
+                resetBudgetState();
+                return TraversalStepResult.COMPLETED;
+            }
+
+            if (currentTarget == null) {
                 if (!control.tryConsumeWork(1)) {
                     return yieldOrTerminate(control);
                 }
@@ -82,38 +139,7 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                     continue;
                 }
             }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!context.canTraverse(currentTarget)) {
-                clearCurrentTarget();
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!matcher.matches(currentTarget)) {
-                clearCurrentTarget();
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (control.isCancelRequested()) {
-                return TraversalStepResult.TERMINATED;
-            }
-            consumer.accept(currentTarget);
-            context.incrementConfirmedCount();
-
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                clearCurrentTarget();
-                return TraversalStepResult.COMPLETED;
-            }
-
-            beginNeighborGeneration(currentTarget);
+            budgetPhase = TraversalPhase.CHECK_CURRENT_CANDIDATE;
         }
     }
 
@@ -234,6 +260,9 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
     private enum TraversalPhase {
         PROCESS_CURRENT_FRONTIER,
+        CHECK_CURRENT_CANDIDATE,
+        CHECK_CURRENT_MATCHER,
+        SUBMIT_CURRENT_TARGET,
         GENERATE_NEIGHBORS,
         ROTATE_FRONTIER
     }

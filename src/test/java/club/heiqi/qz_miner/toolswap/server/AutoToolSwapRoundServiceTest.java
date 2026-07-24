@@ -783,6 +783,8 @@ public class AutoToolSwapRoundServiceTest {
                 AutoToolSwapResultCode.REJECTED);
         assertTakeoverReason(TakeoverReasonCase.LEDGER_OLD_ROLE, "ledger-old-role",
                 AutoToolSwapResultCode.REJECTED);
+        assertTakeoverReason(TakeoverReasonCase.LEDGER_OLD_ROLE_WITH_STALE_CANDIDATE, "ledger-old-role",
+                AutoToolSwapResultCode.REJECTED);
         assertTakeoverReason(TakeoverReasonCase.LEDGER_ACTIVE_ROLE, "ledger-active-role",
                 AutoToolSwapResultCode.REJECTED);
         assertTakeoverReason(TakeoverReasonCase.SLOT_CONFLICT, "slot-conflict",
@@ -841,7 +843,7 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
-    public void staleLowDurabilityAndDuplicateSlotTakeoversAreZeroWriteAndStopGate() {
+    public void staleLowDurabilityTakeoverIsZeroWriteAndSkipsOnlyTheTarget() {
         Fixture fixture = swappedFixture();
         fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
         AutoToolSwapStackState low = stack("mod:drill", "low", 1);
@@ -855,8 +857,29 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
         Assert.assertEquals(0, fixture.inventory.rotateCount);
         Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
                 fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 3L));
+    }
+
+    @Test
+    public void staleCandidateFingerprintSettlesSequenceAsTargetSkipWithoutInventoryWrite() {
+        Fixture fixture = takeoverFixture();
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+        AutoToolSwapIntent stale = takeoverIntent(fixture, request);
+        fixture.inventory.slots[7] = stack("mod:drill2", "changed-after-intent", 79);
+        resetInventoryCounters(fixture.inventory);
+
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                stale, fixture.inventory, 11L);
+
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, result.outcome());
+        Assert.assertEquals(request.actionSequence() + 1L, result.nextActionSequence());
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
+        Assert.assertEquals(0, fixture.inventory.swapCount);
+        Assert.assertEquals(0, fixture.inventory.rotateCount);
+        Assert.assertEquals(0, fixture.inventory.syncCount);
     }
 
     @Test
@@ -1103,14 +1126,40 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
-    public void nonEmptyAnchorCannotCreateDeclinedFallbackEvenWithCanonicalControlFingerprints() {
+    public void exactNonEmptyDeclineSettlesAsNoCandidateTargetSkipWithoutInventoryAccess() {
+        final List<String> logs = new ArrayList<String>();
+        Fixture fixture = takeoverFixture(recordingService(logs));
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+        logs.clear();
+        resetInventoryCounters(fixture.inventory);
+
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player,
+                fixture.endpoint, declineIntent(fixture, request), fixture.inventory, 17L);
+
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, result.outcome());
+        Assert.assertEquals(request.actionSequence() + 1L, result.nextActionSequence());
+        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 17L));
+        Assert.assertEquals(1, logs.size());
+        Assert.assertTrue(logs.get(0).contains("action=DECLINE_TAKEOVER"));
+        Assert.assertTrue(logs.get(0).contains("reason=no-candidate"));
+        assertZeroTakeoverInventoryAccess(fixture.inventory);
+    }
+
+    @Test
+    public void malformedNonEmptyDeclineStillStopsTheGateWithoutInventoryAccess() {
         Fixture fixture = takeoverFixture();
         AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
                 fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent malformed = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                fixture.roundId, request.actionSequence(), AutoToolSwapAction.DECLINE_TAKEOVER,
+                0, 0, fixture.inventory.slots[0].contentFingerprint(), empty);
         resetInventoryCounters(fixture.inventory);
 
         Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, declineIntent(fixture, request), fixture.inventory, 17L).outcome());
+                fixture.endpoint, malformed, fixture.inventory, 17L).outcome());
         Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
                 fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 17L));
         assertZeroTakeoverInventoryAccess(fixture.inventory);
@@ -1226,6 +1275,9 @@ public class AutoToolSwapRoundServiceTest {
             fixture.inventory.slots[7] = stack("mod:hammer", "candidate-changed", 79);
         } else if (reasonCase == TakeoverReasonCase.LEDGER_OLD_ROLE) {
             fixture.inventory.slots[9] = stack("mod:wrong-old", "changed", 90);
+        } else if (reasonCase == TakeoverReasonCase.LEDGER_OLD_ROLE_WITH_STALE_CANDIDATE) {
+            fixture.inventory.slots[7] = stack("mod:hammer", "candidate-changed", 79);
+            fixture.inventory.slots[9] = stack("mod:wrong-old", "changed", 90);
         } else if (reasonCase == TakeoverReasonCase.SLOT_CONFLICT) {
             intent = intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER,
                     0, 9, fixture.inventory.slots[0], fixture.inventory.slots[9]);
@@ -1245,6 +1297,15 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertTrue(logs.get(0).contains("action=TAKEOVER"));
         Assert.assertTrue(logs.get(0).contains("reason=" + expectedReason));
         Assert.assertFalse(logs.get(0).contains("secret-nbt"));
+        AutoToolSwapRoundService.TakeoverGateState expectedGate =
+                reasonCase == TakeoverReasonCase.CANDIDATE_FINGERPRINT
+                        || reasonCase == TakeoverReasonCase.CANDIDATE_LOW_RESERVE
+                ? AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET
+                : reasonCase == TakeoverReasonCase.APPLIED
+                        ? AutoToolSwapRoundService.TakeoverGateState.APPLIED
+                        : AutoToolSwapRoundService.TakeoverGateState.STOP;
+        Assert.assertEquals("目标软拒绝不得掩盖会话级结算故障", expectedGate,
+                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
         if (expectedResult == AutoToolSwapResultCode.REJECTED) {
             Assert.assertEquals(0, fixture.inventory.swapCount);
             Assert.assertEquals(0, fixture.inventory.rotateCount);
@@ -1481,6 +1542,7 @@ public class AutoToolSwapRoundServiceTest {
         CANDIDATE_FINGERPRINT,
         CANDIDATE_LOW_RESERVE,
         LEDGER_OLD_ROLE,
+        LEDGER_OLD_ROLE_WITH_STALE_CANDIDATE,
         LEDGER_ACTIVE_ROLE,
         SLOT_CONFLICT,
         INVENTORY_READ_FAILED,
