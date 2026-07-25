@@ -75,7 +75,7 @@
 ### 1.6 Subagent 编排
 - 编排走 `docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md`；非平凡任务以 `.opencode/task.md` 作为唯一活动任务单，格式见 `docs/控制律层/编排模式/TASK-BRIEF.md`
 - 主 agent 只向子 agent 传任务单路径和一句执行指令；fixer 按任务单写集实施、验证并提交，写盘改动随后由 reviewer 读取同一任务单与 Git diff 独立复审
-- 任何 Task 调用一旦返回主 agent，旧 `task_id` 不得复用。纠偏、重试或继续工作必须覆盖任务单为更窄范围，并创建全新 task
+- 任何 Task 返回首个非空回执后，旧 `task_id` 不得复用；纠偏、重试或继续工作必须覆盖任务单为更窄范围并创建全新 task。仅当 `task_result` 缺失/空串/纯空白时，可在同一主会话、同一任务单和同一 agent 上复用原 ID 索取缺失回执；写盘已发生时只补结果、不得重复实施。非空结果、明确失败/取消、合同变化或跨会话后立即失效，空返回 ID 不写入 handoff
 - `qz-control-envelope/v1` 已弃用，不再是写盘或复审前置条件
 - 决策点用中文 question 向用户拍板，subagent 不替用户做架构决定
 
