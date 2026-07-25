@@ -13,9 +13,7 @@ public class BlockInteractActionExecutorStructureTest {
     /** 每个目标使用当前手持检查保护与编辑权限，并只调用带目标坐标的 Forge 交互入口。 */
     @Test
     public void executorUsesPerTargetPermissionsAndTargetedActivationOnly() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/executor/BlockInteractActionExecutor.java").toPath()),
-                StandardCharsets.UTF_8);
+        String source = readSource();
         int canExecuteStart = source.indexOf("public boolean canExecute(");
         int executeStart = source.indexOf("public boolean execute(", canExecuteStart);
         String canExecute = source.substring(canExecuteStart, executeStart);
@@ -36,5 +34,49 @@ public class BlockInteractActionExecutorStructureTest {
         Assert.assertFalse("禁止恢复无目标坐标的空气右键 fallback", source.contains("tryUseItem("));
         Assert.assertTrue("模组异常必须 fail-closed",
                 source.contains("catch (RuntimeException | LinkageError failure)"));
+    }
+
+    /** 交互后置必须在 finally 归一真实当前槽、同步容器并可靠恢复数量变更标志。 */
+    @Test
+    public void executorNormalizesAndSyncsCurrentSlotInFinally() throws Exception {
+        String source = readSource();
+        int executeStart = source.indexOf("public boolean execute(");
+        String execute = source.substring(executeStart);
+        int activation = execute.indexOf("activateBlockOrUseItem(");
+        int postUseFinally = execute.indexOf("finally {", activation);
+        int currentItem = execute.indexOf("int currentItem = player.inventory.currentItem;", postUseFinally);
+        int currentStack = execute.indexOf(
+                "ItemStack currentStackAfterUse = player.inventory.getCurrentItem();", currentItem);
+        int nonPositive = execute.indexOf("currentStackAfterUse.stackSize <= 0", currentStack);
+        int clearSlot = execute.indexOf("player.inventory.mainInventory[currentItem] = null;", nonPositive);
+        int markDirty = execute.indexOf("player.inventory.markDirty();", clearSlot);
+        int rememberFlag = execute.indexOf(
+                "boolean wasChangingQuantityOnly = player.isChangingQuantityOnly;", markDirty);
+        int enableFlag = execute.indexOf("player.isChangingQuantityOnly = true;", rememberFlag);
+        int sync = execute.indexOf("player.openContainer.detectAndSendChanges();", enableFlag);
+        int restoreFinally = execute.indexOf("finally {", sync);
+        int restoreFlag = execute.indexOf(
+                "player.isChangingQuantityOnly = wasChangingQuantityOnly;", restoreFinally);
+        int syncCatch = execute.indexOf("catch (RuntimeException | LinkageError failure)", restoreFlag);
+        int failClosed = execute.indexOf("interactionSucceeded = false;", syncCatch);
+
+        Assert.assertTrue("后置归一必须位于交互调用后的 finally", activation >= 0
+                && postUseFinally > activation && currentItem > postUseFinally);
+        Assert.assertTrue("必须重新读取交互后的真实当前栈", currentStack > currentItem);
+        Assert.assertTrue("只清理零或负数量的真实当前槽",
+                nonPositive > currentStack && clearSlot > nonPositive);
+        Assert.assertTrue("归一后必须标脏并同步当前 openContainer",
+                markDirty > clearSlot && sync > markDirty);
+        Assert.assertTrue("数量变更标志必须由嵌套 finally 恢复",
+                rememberFlag > markDirty && enableFlag > rememberFlag
+                        && restoreFinally > sync && restoreFlag > restoreFinally);
+        Assert.assertTrue("库存后置异常必须 fail-closed", syncCatch > restoreFlag && failClosed > syncCatch);
+        Assert.assertFalse("禁止恢复无目标坐标的空气右键 fallback", source.contains("tryUseItem("));
+    }
+
+    private static String readSource() throws Exception {
+        return new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/executor/BlockInteractActionExecutor.java").toPath()),
+                StandardCharsets.UTF_8);
     }
 }

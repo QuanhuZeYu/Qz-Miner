@@ -37,11 +37,11 @@ public final class PlanStarted extends ChainEvent {
     private final float hitY;
     /** 命中方块内 Z 偏移（0-1），破坏路径填 0。 */
     private final float hitZ;
-    /** 种子方块：破坏路径透传自 BlockBreakObserved（破坏时刻捕获，drain 时方块已被移除需用此携带值）；右键/左键路径块仍在世界，传 null。 */
+    /** 种子方块：破坏与右键路径在各自最后存活窗口冻结并透传；左键兼容路径传 null，由主线程 resolver 解析。 */
     private final Block seedBlock;
-    /** 种子 metadata：与 seedBlock 配对，破坏路径透传；右键/左键路径传 0。 */
+    /** 种子 metadata：与 seedBlock 配对，破坏与右键路径透传完整冻结值；左键兼容路径传 0。 */
     private final int seedMeta;
-    /** 主线程捕获并传播的不可变种子 TileEntity 身份。 */
+    /** 破坏与右键路径在最后存活窗口捕获并传播的不可变种子 TileEntity 身份。 */
     private final TileIdentityToken seedTileIdentity;
 
     /**
@@ -57,8 +57,8 @@ public final class PlanStarted extends ChainEvent {
      * @param hitX           命中方块内 X 偏移（破坏路径填 0）
      * @param hitY           命中方块内 Y 偏移（破坏路径填 0）
      * @param hitZ           命中方块内 Z 偏移（破坏路径填 0）
-     * @param seedBlock      种子方块：破坏路径透传自 BlockBreakObserved（破坏时刻捕获，drain 时方块已被移除需用此携带值）；右键/左键路径块仍在世界走 resolver，传 null
-     * @param seedMeta       种子 metadata：与 seedBlock 配对，破坏路径透传；右键/左键路径传 0
+     * @param seedBlock      种子方块：破坏与右键路径透传各自最后存活窗口的冻结值；左键兼容路径走 resolver 时传 null
+     * @param seedMeta       种子 metadata：与 seedBlock 配对，破坏与右键路径透传完整冻结值；左键兼容路径传 0
      */
     public PlanStarted(UUID playerUUID, int generation, long serverTick, long timestampNanos,
                         int x, int y, int z, int dimensionId, int sideHit,
@@ -123,10 +123,10 @@ public final class PlanStarted extends ChainEvent {
     public float getHitY() { return hitY; }
     /** @return 命中方块内 Z 偏移（破坏路径为 0） */
     public float getHitZ() { return hitZ; }
-    /** @return 种子方块（破坏路径透传自 BlockBreakObserved；右键/左键路径返回 null） */
+    /** @return 种子方块（破坏与右键路径为最后存活窗口冻结值；左键兼容路径可为 null） */
     public Block getSeedBlock() { return seedBlock; }
     /** @return 种子 metadata（与 getSeedBlock() 配对） */
     public int getSeedMeta() { return seedMeta; }
-    /** @return 主线程捕获的不可变 TileEntity 身份；旧构造器固定为 UNRESOLVED */
+    /** @return 破坏与右键路径冻结的不可变 TileEntity 身份；旧构造器固定为 UNRESOLVED */
     public TileIdentityToken getSeedTileIdentity() { return seedTileIdentity; }
 }

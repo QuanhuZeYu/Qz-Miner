@@ -48,10 +48,11 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
                 || player.worldObj == null || player.theItemInWorldManager == null) {
             return false;
         }
+        boolean interactionSucceeded = false;
         try {
             // 每个目标执行前重新读取当前主手；玩家中途换物或上一目标耗尽时不得复用旧引用。
             ItemStack currentStack = player.getCurrentEquippedItem();
-            return player.theItemInWorldManager.activateBlockOrUseItem(
+            interactionSucceeded = player.theItemInWorldManager.activateBlockOrUseItem(
                 player,
                 player.worldObj,
                 currentStack,
@@ -65,7 +66,29 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
         } catch (RuntimeException | LinkageError failure) {
             MyMod.LOG.error("[BlockInteractActionExecutor] Failed to interact block for player {} at ({}, {}, {})",
                 player.getUniqueID(), target.getX(), target.getY(), target.getZ(), failure);
-            return false;
+        } finally {
+            try {
+                // 直调交互入口绕过 NetHandler 的库存后置步骤；只归一交互后仍处于当前槽的真实栈。
+                int currentItem = player.inventory.currentItem;
+                ItemStack currentStackAfterUse = player.inventory.getCurrentItem();
+                if (currentStackAfterUse != null && currentStackAfterUse.stackSize <= 0) {
+                    player.inventory.mainInventory[currentItem] = null;
+                }
+                player.inventory.markDirty();
+                boolean wasChangingQuantityOnly = player.isChangingQuantityOnly;
+                player.isChangingQuantityOnly = true;
+                try {
+                    player.openContainer.detectAndSendChanges();
+                } finally {
+                    player.isChangingQuantityOnly = wasChangingQuantityOnly;
+                }
+            } catch (RuntimeException | LinkageError failure) {
+                MyMod.LOG.error(
+                    "[BlockInteractActionExecutor] Failed post-interaction inventory sync for player {} at ({}, {}, {})",
+                    player.getUniqueID(), target.getX(), target.getY(), target.getZ(), failure);
+                interactionSucceeded = false;
+            }
         }
+        return interactionSucceeded;
     }
 }
