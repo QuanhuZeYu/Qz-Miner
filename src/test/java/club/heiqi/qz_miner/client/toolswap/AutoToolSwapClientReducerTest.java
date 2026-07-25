@@ -212,6 +212,50 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void configCloseAfterOrdinaryFreezeDeclinesPendingTakeoverBeforeClose() {
+        AutoToolSwapClientReducer reducer = diagnosticReducer(
+                true, true, 24L, new ArrayList<String>());
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 24L, 84L, 1L);
+        reducer.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 84L, 1L,
+                ChainPhase.RUNNING.ordinal(), 4, 1L, true));
+
+        Effect freezeEffect = only(reducer.reduce(new TickEvent(context(1L, restored()), true)));
+        AutoToolSwapIntent freeze = freezeEffect.intent();
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freeze.action());
+        submit(reducer, freezeEffect);
+        submitTakeoverRequest(reducer, 84L, 17L, 4);
+        Assert.assertTrue("普通 FREEZE 未结算时热关闭不得覆盖 in-flight",
+                reducer.reduce(new ConfigEvent(false, true, Collections.<ToolSelector>emptyList())).isEmpty());
+        Assert.assertSame(freeze, reducer.inFlightIntent());
+
+        settle(reducer, freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        Assert.assertEquals("关闭意图下 pending takeover 不得请求 FULL_TARGET",
+                ToolSwapCapturePlan.NONE,
+                reducer.capturePlanForTick(light(2L, target(42, 7)), true));
+        Effect declineEffect = only(reducer.reduce(new TickEvent(
+                context(2L, ToolSwapInventorySnapshot.none()), true)));
+        AutoToolSwapIntent decline = declineEffect.intent();
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, decline.action());
+        submit(reducer, declineEffect);
+        Assert.assertSame("首个可发行 tick 的唯一 in-flight 必须是 DECLINE", decline,
+                reducer.inFlightIntent());
+
+        Assert.assertTrue("DECLINE 未结算时不得发行 CLOSE",
+                reducer.reduce(new TickEvent(context(3L, ToolSwapInventorySnapshot.none()), true)).isEmpty());
+        Assert.assertSame(decline, reducer.inFlightIntent());
+        settle(reducer, decline, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        Assert.assertNull(reducer.inFlightIntent());
+
+        Effect close = only(reducer.reduce(new TickEvent(
+                context(4L, ToolSwapInventorySnapshot.none()), true)));
+        Assert.assertEquals("DECLINE 结算后的下一 tick 才能发行 CLOSE",
+                AutoToolSwapAction.CLOSE, close.intent().action());
+        Assert.assertFalse(reducer.isOrphaned());
+    }
+
+    @Test
     public void naturalFinishedCloseDefersFreshRoundButReleaseGateAndResetDisqualifyIt() {
         AutoToolSwapClientReducer natural = openWithoutCandidate(31L, 91L);
         natural.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 91L, 1L,
@@ -595,11 +639,12 @@ public class AutoToolSwapClientReducerTest {
         List<String> disabledDiagnostics = new ArrayList<String>();
         AutoToolSwapClientReducer disabled = frozenForTakeover(311L, 411L, false, disabledDiagnostics);
         submitTakeoverRequest(disabled, 411L, 2L, 4);
+        Assert.assertEquals("接替关闭时 pending request 不得请求 FULL_TARGET",
+                ToolSwapCapturePlan.NONE,
+                disabled.capturePlanForTick(light(2L, target(42, 7)), true));
         List<Effect> disabledDeclines = disabled.reduce(new TickEvent(context(2L, noCandidate()), true));
-        Assert.assertEquals("保持既有 prepare+drive effect 结果", 2, disabledDeclines.size());
-        for (Effect disabledDecline : disabledDeclines) {
-            Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, disabledDecline.intent().action());
-        }
+        Effect disabledDecline = only(disabledDeclines);
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, disabledDecline.intent().action());
         Assert.assertEquals(AutoToolSwapClientReducer.State.FROZEN, disabled.state());
         Assert.assertTrue(containsDiagnosticReason(disabledDiagnostics, "takeover-disabled"));
 

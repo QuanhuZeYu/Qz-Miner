@@ -476,7 +476,8 @@ public final class AutoToolSwapClientReducer {
     public ToolSwapCapturePlan capturePlanForTick(ToolSwapLightContext context, boolean physicallyDown) {
         if (context == null) return ToolSwapCapturePlan.NONE;
         if (isPublicationRetryPending()) return ToolSwapCapturePlan.NONE;
-        if (pendingTakeoverRequest != null && round != null && round.inFlight == null
+        if (!closeRequested && cycleTakeoverEnabled && pendingTakeoverRequest != null
+                && round != null && round.inFlight == null
                 && transmission == null && takeoverExpectation == null) {
             return ToolSwapCapturePlan.FULL_TARGET;
         }
@@ -535,7 +536,7 @@ public final class AutoToolSwapClientReducer {
             } else if (isInventorySyncPending()) {
                 Effect invalidation = observeInventory(event.context.inventory, event.context.tick);
                 if (invalidation != null) effects.add(invalidation);
-            } else if (pendingTakeoverRequest != null) {
+            } else if (!closeRequested && cycleTakeoverEnabled && pendingTakeoverRequest != null) {
                 effects.addAll(prepareTakeoverDecision(event.context));
             } else if (state != State.IDLE && state != State.WAIT_RELEASE && state != State.ORPHANED) {
                 advanceCycle(event.context);
