@@ -4,6 +4,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
@@ -172,10 +173,17 @@ public class ChainPlanningEventBridge {
         diagnostics.logPlanStarted(seedRegistryName == null ? "minecraft:unknown" : String.valueOf(seedRegistryName),
                 seedSnapshot.getSampleMeta(), origin, Thread.currentThread().getName(), player.inventory.currentItem,
                 MinecraftAutoToolSwapInventoryPort.describeStack(player.inventory.getCurrentItem()));
+        // CHAIN 的拓扑能力在 PlanStarted 主线程冻结；AREA/INTERACT/SPECIAL 不捕获工具能力，
+        // 继续按世界、空间和各子模式结构宽进。worker 后续只读该不可变副本。
+        final PlanningToolCapabilitySnapshot capabilitySnapshot =
+                ChainPlanningRuntimeFactory.usesFrozenToolCapabilities(mode)
+                        ? PlanningToolCapabilitySnapshot.capture(
+                                player, Config.autoToolPrioritySelectors, true)
+                        : null;
         // 阶段8 块3：删旧 shadowSession.beginPlanning()（ChainSession 委托方法已删，新链路无需 plannerRunning 标志）。
         // 新链路 worker 活性由状态机 generation 判定，session 仅作配置载体 + traversalTargets 装配。
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(
-                player.worldObj, player, shadowSession, seedSnapshot, diagnostics);
+                player.worldObj, player, shadowSession, seedSnapshot, diagnostics, capabilitySnapshot);
         if (runtime == null) {
             diagnostics.logPlanCancelled("shadow-runtime-null");
             bus.publish(buildRuntimeNullPlanCancelled(playerUUID, serverRoundId, planningGen,

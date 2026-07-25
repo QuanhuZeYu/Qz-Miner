@@ -28,8 +28,16 @@ public final class ToolHarvestEligibility {
 
     /** 采样目标实际效率是否高于徒手基线；该事实不直接否决候选资格。 */
     public static boolean isEffective(ItemStack stack, Block target, int metadata) {
-        return stack != null && stack.getItem() != null && target != null
-                && stack.getItem().getDigSpeed(stack, target, metadata) > 1.0F;
+        if (stack == null || stack.getItem() == null || target == null) {
+            return false;
+        }
+        try {
+            return stack.getItem().getDigSpeed(stack, target, metadata) > 1.0F;
+        } catch (RuntimeException failure) {
+            return false;
+        } catch (LinkageError failure) {
+            return false;
+        }
     }
 
     /** 使用显式 Forge 工具等级或稳定 Item API 判断真实栈能否收获目标。 */
@@ -43,7 +51,7 @@ public final class ToolHarvestEligibility {
         if (target.getMaterial().isToolNotRequired()) {
             return true;
         }
-        // 不得退回 CompatAdapters.evaluateToolHarvest 的模组类白名单；稳定 Item API 对未知工具同样适用。
+        // 不维护模组类白名单；稳定 Item API 对未知工具同样适用。
         try {
             return stack.getItem().canHarvestBlock(target, stack);
         } catch (RuntimeException failure) {

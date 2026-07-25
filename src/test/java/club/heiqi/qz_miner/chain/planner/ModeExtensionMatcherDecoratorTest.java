@@ -104,12 +104,19 @@ public class ModeExtensionMatcherDecoratorTest {
     }
 
     @Test
-    public void productionHarvestExtensionUsesPlanningAdmissionInsteadOfExecutionToolAuthority() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
+    public void productionHarvestExtensionUsesTopLevelModeSelectedPlanningGate() throws Exception {
+        String decorator = new String(Files.readAllBytes(new File(
                 "src/main/java/club/heiqi/qz_miner/chain/planner/ModeExtensionMatcherDecorator.java").toPath()),
                 StandardCharsets.UTF_8);
-        Assert.assertTrue(source.contains("ChainHarvestRules::canPlanHarvest"));
-        Assert.assertFalse(source.contains("ChainHarvestRules::canHarvest,"));
+        String factory = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertTrue("直接装饰器的兼容入口保持 AREA 宽进 admission",
+                decorator.contains("ChainHarvestRules::canPlanHarvest"));
+        Assert.assertFalse(decorator.contains("ChainHarvestRules::canHarvest,"));
+        Assert.assertTrue(factory.contains("selectPlanningEvaluator(mode, capabilitySnapshot)"));
+        Assert.assertTrue(factory.contains("boundMatcher, diagnostics, planningEvaluator"));
+        Assert.assertTrue(factory.contains("evaluator.evaluate(currentPlayer, target"));
     }
 
     private static ChainBlockMatcher matcher(ChainSubMode mode, boolean base, boolean extension, boolean gate) {

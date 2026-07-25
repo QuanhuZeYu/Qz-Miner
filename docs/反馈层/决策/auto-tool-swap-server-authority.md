@@ -55,12 +55,13 @@
 
 ## 规划宽进与执行实时权威边界
 
-- PlanStarted 不再捕获工具能力用于规划 admission。server 与 preview planner 对 `CHAIN`、`AREA_HARVESTABLE_ALL`、`AREA_TUNNEL`、`AREA_SAME_BLOCK`、区段清理及其结构化子模式，只按预算化世界/几何/结构身份宽进：空气、液体、基岩与脚底安全门保留，同块、矿石、原木和 TileEntity 纯值身份仍各自生效；worker 不读实时库存、不调用 `Block.canHarvestBlock(player, meta)` 或未知 Item 回调。
-- `PlanningToolCapabilitySnapshot` 保留为未删除内部类型及历史测试接缝，但生产 `ChainPlanningEventBridge` 与 `ChainPlanningRuntimeFactory` 不再捕获、传递或绑定它。主线程 `ChainHarvestRules.canHarvest` 始终按当前玩家、工具、世界、脚底与耐久逐目标终裁；规划确认数表达拓扑候选，不保证全部可破坏。
+- planner admission 按顶层模式分流。`CHAIN_BASE/ORE/LOGGING` 在 PlanStarted 主线程冻结当前主手、selector 排序后的背包全部工具与空手能力并集，server 与 preview 的正式 matcher 及对象组扩展共用该 evaluator；匹配方块没有任何冻结可用能力时不入队、不生成邻居，形成明确断链。worker 只读冻结 ItemStack 副本，不读实时库存。
+- `AREA_HARVESTABLE_ALL/TUNNEL/SAME_BLOCK/ORE/SECTION_CLEAR` 不捕获或绑定 `PlanningToolCapabilitySnapshot`，继续按预算化空间范围、同块/矿石结构身份以及空气、液体、基岩和脚底安全宽进。爆破确认数表示应由主线程逐个尝试的目标，不是工具能力承诺；INTERACT 与 GT SPECIAL 保持既有专用路径。
+- `PlanningToolCapabilitySnapshot` 是 CHAIN 规划的不可变能力输入，不是执行权威。主线程 `ChainHarvestRules.canHarvest` 始终按当前玩家、工具、世界、脚底与耐久逐目标终裁；执行中工具损坏不改写已规划拓扑，单目标无候选或实时拒绝只跳当前目标，之后补入库存仍可影响尚未消费目标。
 - 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。非空主手只有实时权威与耐久储备都成立才直通，否则可请求真实候选；空主手先 WAIT 请求候选，只有合法 DECLINED 后可空手兜底。WAIT 不 poll；SKIP_TARGET poll 后不调用执行器；STOP 保持规划协作取消。仅已结算目标拒绝、round 0/租约/APPLIED 的实时权威失败及安全目标失效进入 SKIP_TARGET，未结算事务与会话身份故障不降级。GT 线缆 SPECIAL 与 INTERACT 不接入。
 - 空手兜底的稳定候选资格可在上述严格身份内按 round 租赁，使同 key 批次首次最多一次 WAIT；租约命中仍位于 `peek()` 与 `poll()` 之间并逐目标实时复验权威，因此脚底、世界状态和事件语义变化继续 fail-closed。
 - 非 GT 普通 `CHAIN/AREA/INTERACT/SPECIAL` 的 `maxBreakPerTick` 都是 poll/processed 预算，不是成功数预算；成功、执行器拒绝/失败与目标跳过共同计数。任一消费均发布 `ExecutionAdvanced`（可为零成功），只有成功执行设置 50ms 节流；同 tick 已消费后出现既有 STOP 时先发布推进再按旧 STOP 收口。规划完成后全跳过也沿正常 `ExecutionFinished → LifecycleCleanup` 收口，掉落窗口不因单目标跳过关闭。GT 线缆的等待、预校验、单 tick 原子执行和旧取消例外不变。
-- `CHAIN_LOGGING` 额外区分“连通资格”与“入队资格”：原木 candidate filter 已接受后，即使世界/安全 matcher 软拒绝，该节点也只是不入执行队列、不增加 confirmed，仍可预算化扩展相邻原木；candidate=false 的非原木/非对象组节点继续阻断。后续节点仍各自经过 matcher 与主线程实时权威，被拒节点自身绝不破坏。
+- `CHAIN_LOGGING` 不把能力拒绝解释为可桥接软失败：candidate=false 或最终 matcher=false 都不入队、不增加 confirmed，也不生成邻居；只有 candidate/matcher 均接受的原木或对象组节点才继续预算化扩展。
 
 ## 客户端预览刷新边界
 
@@ -92,9 +93,9 @@
 
 ## 演进
 
-- 2026-07-25：恢复 planner 宽进语义：生产 server/preview planner 删除冻结工具 admission，只保留世界/几何/结构身份；主线程继续逐目标实时终裁。未知 null-harvestTool 工具改走通用稳定 Item API，效率退出候选硬门；INTERACT/非 GT SPECIAL 与 CHAIN/AREA 统一按 poll 预算并发布零成功推进，`tryHarvestBlock=false` 不再计成功。toolswap v3 wire、配置 schema、五态转移表、既有 STOP 来源与 GT 线缆原子例外不变；client/dedicated 与真实爆破体验仍为 INCOMPLETE。
-- 2026-07-24：将普通 CHAIN/AREA 的接替校验拆为目标级 `SKIP_TARGET` 与会话级 STOP。仅实时目标权威、失效 block/meta 及已推进 sequence 的 candidate fingerprint/低耐久/精确无候选结算局部跳过；未结算事务、身份、库存、ledger、sync/orphan 故障不放宽。执行预算改按 poll 计数，零成功消费继续发布推进并自然完成；`CHAIN_LOGGING` 的 matcher 软拒绝节点保留 candidate 连通资格但不入队。wire v3、配置 schema、五态转移表、INTERACT 与 GT SPECIAL 不变，client/dedicated 运行态仍为 INCOMPLETE。
-- 2026-07-21：为 TiC `HarvestTool` 族增加无直接依赖的 null-harvestTool 旧式采掘适配；客户端候选与冻结规划仍共用资格入口，显式等级、效率、耐久和执行期服务端权威不变。自动化不替代 Smeltery 真实掉落验证，5.0.23 继续阻断。
+- 2026-07-25：按最终语义把 planner 分为 CHAIN 冻结能力断链与 AREA 爆破宽进：CHAIN server/preview 绑定主手、背包全部工具与空手并集，含对象组和伐木 matcher=false 都阻断邻居；AREA 只守空间与子模式结构并把目标逐个交主线程尝试。保留真实 `tryHarvestBlock` 结果、实际 poll 预算、零成功推进与通用 Item API；效率采样异常只降级为 false。toolswap v3 wire、配置 schema、五态转移表、既有 STOP 来源与 GT 线缆原子例外不变，运行态仍为 INCOMPLETE。
+- 2026-07-24：将普通 CHAIN/AREA 的接替校验拆为目标级 `SKIP_TARGET` 与会话级 STOP。仅实时目标权威、失效 block/meta 及已推进 sequence 的 candidate fingerprint/低耐久/精确无候选结算局部跳过；未结算事务、身份、库存、ledger、sync/orphan 故障不放宽。执行预算改按 poll 计数，零成功消费继续发布推进并自然完成。当时把 `CHAIN_LOGGING` matcher 拒绝视为可桥接软失败的中间方案已由 2026-07-25 最终断链语义取代。
+- 2026-07-21：曾为 TiC `HarvestTool` 族增加 null-harvestTool 类名适配；该白名单方案现已被所有未知工具共用的稳定 `Item.canHarvestBlock` 虚调用取代，显式 harvestTool 仍由 Forge 终裁。
 - 2026-07-18：新增服务端 round-scoped 单项空手回退租约，以完整 36 槽纯值 identity 消除稳定同 key 批次的逐目标 TAKEOVER/DECLINE；真实候选仍优先、每目标权威不缓存，wire、客户端候选、执行节流、状态机与 GT 线缆路径不变。自动化不替代真实吞吐与 watchdog 复验，运行态仍为 INCOMPLETE。
 - 2026-07-18：修复接替 pending 反向阻断松键 CLOSE 的 round 终裁；闭环动作在合法 sequence 后安全退休等待门，迟到 TAKEOVER 保持零库存副作用。同期将 PlanCompleted 成功入队设为规划完成 publication 线性化点，失败固定发布一次 `plan-completion-publication-failed` 取消；wire、版本、配置 schema 与五态转移表不变，hotfix 运行态仍为 INCOMPLETE。
 - 2026-07-18：统一规划、客户端候选与执行期采掘能力边界；新增冻结能力集合、空手最低优先级、内部 DECLINED、APPLIED 实时复验和 round=0 直判。同期将 planning STOP/complete 线性化，并以完整 seed 租约刷新三种库存布局对应的预览；wire、协议版本、配置 schema 与五态转移表不变，运行态仍待用户实机。

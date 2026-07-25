@@ -86,9 +86,9 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                     return yieldOrTerminate(control);
                 }
                 if (!matcher.matches(currentTarget)) {
-                    // candidate filter 已确认该点属于原木/对象组连通图；采掘 matcher 的软拒绝
-                    // 只阻止入执行队列，不得把该连通节点放大成整棵树的遍历断点。
-                    beginNeighborGeneration(currentTarget);
+                    // CHAIN_LOGGING 的 matcher 同时承担冻结采掘能力门；拒绝节点既不入队，
+                    // 也不得生成邻居，避免无可用能力的原木桥接后续拓扑。
+                    clearCurrentTarget();
                     continue;
                 }
                 budgetPhase = TraversalPhase.SUBMIT_CURRENT_TARGET;

@@ -2,24 +2,26 @@
 
 ## 错误现象
 
-TiC 镐对 Smeltery metadata 2 的效率与耐久均满足自动工具门，玩家实际破坏也可正常掉落，但共享 `ToolHarvestEligibility` 只采用 `ForgeHooks.canToolHarvestBlock`，得到 false，导致客户端候选与冻结规划共同拒绝该工具。
+TiC 镐对 Smeltery metadata 2 可正常破坏并掉落，但目标没有声明 Forge harvestTool。共享 `ToolHarvestEligibility` 曾只采用 Forge 等级路径，得到 false，导致客户端候选与 CHAIN 冻结规划共同拒绝该工具。
 
 ## 触发场景
 
 - 目标材质要求工具，但 `Block.getHarvestTool(metadata)` 返回 null。
-- 当前 Item 的运行时父类属于 TiC `HarvestTool` 族，并由旧式 `Item.canHarvestBlock` 实现材料级采掘判断。
+- 当前 Item 通过旧式 `Item.canHarvestBlock` 实现材料级采掘判断；TiC 只是最早暴露问题的实例，未知模组工具同样可能采用该稳定虚调用。
 - Qz-Miner 在候选或规划阶段把 Forge 栈级结论误当成完整工具语义。
 
 ## 根本原因
 
-Forge 的工具等级表依赖目标声明 harvestTool；目标未声明时，栈级查询无法表达 TiC 工具自己的旧式材料判断。共享层若直接对所有 Item 调用旧式 API，又会把一个模组的兼容规则错误扩散为通用 fallback，并可能绕过显式等级权威。
+Forge 的工具等级表依赖目标声明 harvestTool；目标未声明时，栈级查询无法表达 Item 自己的旧式材料判断。初版修复把问题归因于 TiC 类族并建立白名单，既漏掉其它合法实现，也把稳定 Minecraft Item API 误当成模组私有兼容规则。
 
 ## 修复方案
 
-新增四态 `ToolHarvestCompatAdapter` registry。目标有显式 harvestTool 时仍只走 Forge；null harvestTool 且材质要求工具时，唯一 TiC adapter 只遍历已加载 Item 父类并按完整类名识别 `HarvestTool` 族，再通过稳定 Minecraft `Item.canHarvestBlock` 虚调用取得结果。只有 `ALLOW` 放行，其余状态及异常全部 fail-closed。
+当前方案已取代 TiC 白名单：目标有显式 harvestTool 时仍只走 Forge，禁止 fallback 绕过等级；null harvestTool 且材质要求工具时，对任意 Item 直接调用 Minecraft 稳定 `Item.canHarvestBlock(Block, ItemStack)`。调用异常 fail-closed。候选与 CHAIN 冻结能力共用该入口，AREA planner 不按工具过滤。
+
+效率不参与收获资格硬门。`getDigSpeed` 的低值、`RuntimeException` 或 `LinkageError` 只记录为 effective=false，不能否决 canHarvest=true 且耐久足够的候选，也不能把完整库存快照标成 untrusted。
 
 ## 预防措施
 
-- 可选工具兼容保持单模组、单 adapter、单一完整类名，不增加直接依赖、import、可选类加载或成员反射。
-- 回归必须覆盖 TiC 允许/拒绝、非 TiC 旧式 true、相似类名、显式等级零 fallback、低效率/低耐久/破损及类形、调用、registry 异常。
-- 自动化通过只证明共享判定和隔离边界；真实 Smeltery 掉落仍需用户实机验证，完成前版本发布保持阻断。
+- 不为 TiC 或其它模组维护工具类名白名单，也不为资格识别增加直接依赖、可选类加载、成员解析或反射扫描。
+- 回归必须直接断言未知 Item 的稳定虚调用，覆盖允许/拒绝/异常、显式等级零 fallback、低效率、效率采样异常、低耐久与破损；源码注释字符串不得充当调用证据。
+- CHAIN 冻结能力与客户端候选共用资格入口，但快照不替代执行期服务端实时权威；自动化也不能替代真实 Smeltery 掉落验证。

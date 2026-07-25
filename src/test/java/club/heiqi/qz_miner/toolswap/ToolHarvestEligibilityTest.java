@@ -102,12 +102,32 @@ public class ToolHarvestEligibilityTest {
         Assert.assertTrue(candidate.isEligibleForSwap());
     }
 
+    /** RuntimeException/LinkageError 只令效率事实为 false，候选的收获与耐久事实仍完整。 */
+    @Test
+    public void digSpeedFailuresRemainOptionalCandidateFacts() {
+        Block target = new NullHarvestToolBlock();
+        assertOptionalSpeedFailure(new RuntimeFailingSpeedItem(), target);
+        assertOptionalSpeedFailure(new LinkageFailingSpeedItem(), target);
+    }
+
     /** 无效输入保持拒绝，不进入适配器。 */
     @Test
     public void invalidInputsAreRejected() {
         Assert.assertFalse(ToolHarvestEligibility.canHarvest(null, new NullHarvestToolBlock(), 0));
         Assert.assertFalse(ToolHarvestEligibility.canHarvest(
                 new ItemStack(new CountingOrdinaryItem(true, 4.0F, 0)), null, 0));
+    }
+
+    private static void assertOptionalSpeedFailure(Item item, Block target) {
+        ItemStack stack = new ItemStack(item);
+        boolean effective = ToolHarvestEligibility.isEffective(stack, target, 0);
+        boolean canHarvest = ToolHarvestEligibility.canHarvest(stack, target, 0);
+        ToolCandidate candidate = new ToolCandidate(3, "unknown:throwing-speed", 0,
+                Collections.<String>emptyList(), effective, canHarvest,
+                ToolHarvestEligibility.remainingDurability(stack));
+        Assert.assertFalse(effective);
+        Assert.assertTrue(canHarvest);
+        Assert.assertTrue("效率采样失败不得污染 canHarvest=true 的候选", candidate.isEligibleForSwap());
     }
 
     /** 模拟 Smeltery 一类材质需工具、但未声明 Forge harvestTool 的目标。 */
@@ -139,6 +159,24 @@ public class ToolHarvestEligibilityTest {
         @Override
         public boolean canHarvestBlock(Block block, ItemStack stack) {
             throw new IllegalStateException("synthetic invocation failure");
+        }
+    }
+
+    /** 合成可选效率事实的运行时异常。 */
+    private static final class RuntimeFailingSpeedItem extends Item {
+        private RuntimeFailingSpeedItem() { setMaxDamage(100); }
+        @Override public boolean canHarvestBlock(Block block, ItemStack stack) { return true; }
+        @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) {
+            throw new IllegalStateException("synthetic speed failure");
+        }
+    }
+
+    /** 合成可选效率事实的链接异常。 */
+    private static final class LinkageFailingSpeedItem extends Item {
+        private LinkageFailingSpeedItem() { setMaxDamage(100); }
+        @Override public boolean canHarvestBlock(Block block, ItemStack stack) { return true; }
+        @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) {
+            throw new LinkageError("synthetic speed linkage failure");
         }
     }
 

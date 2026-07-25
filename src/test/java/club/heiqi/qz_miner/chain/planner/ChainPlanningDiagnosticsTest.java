@@ -147,6 +147,24 @@ public class ChainPlanningDiagnosticsTest {
         Assert.assertTrue(contains(logs, "resultReason=accepted"));
     }
 
+    /** CHAIN runtime 注入的冻结 evaluator 必须替换正式 matcher 的默认宽进 evaluator。 */
+    @Test
+    public void runtimeAssemblyBindsInjectedChainEvaluatorToFormalMatcher() {
+        final List<String> logs = new ArrayList<String>();
+        AtomicInteger originalCalls = new AtomicInteger();
+        AtomicInteger frozenCalls = new AtomicInteger();
+        HarvestableBlockMatcher matcher = new HarvestableBlockMatcher(
+                evaluator(originalCalls, true, "accepted"));
+        ChainPlanningRuntimeFactory.DiagnosticAssembly assembly =
+                ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(searchContext(), target -> true, matcher,
+                        diagnostics(1, logs), evaluator(frozenCalls, false, "frozen-capability-rejected"));
+
+        Assert.assertFalse(matches(assembly, new ChainTarget(6, 7, 8)));
+        Assert.assertEquals("原 matcher 的默认 evaluator 必须被 CHAIN 冻结能力替换", 0, originalCalls.get());
+        Assert.assertEquals(1, frozenCalls.get());
+        Assert.assertTrue(contains(logs, "harvestReason=frozen-capability-rejected"));
+    }
+
     /** 预算耗尽只关闭明细，业务返回值与安全摘要格式不受影响。 */
     @Test
     public void zeroBudgetSuppressesOnlyDetailsAndDoesNotLeakNbt() {
@@ -181,14 +199,15 @@ public class ChainPlanningDiagnosticsTest {
                 "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java").toPath()),
                 StandardCharsets.UTF_8);
         int runtimeStart = source.indexOf("private static ChainPlanningRuntime createRuntime(");
-        int runtimeEnd = source.indexOf("    /** 为所有正式采掘 matcher", runtimeStart);
+        int runtimeEnd = source.indexOf("    /** 只有顶层 CHAIN", runtimeStart);
         Assert.assertTrue("createRuntime source must be present", runtimeStart >= 0);
         Assert.assertTrue("atomic assembly method must follow createRuntime", runtimeEnd > runtimeStart);
         String runtimeSource = source.substring(runtimeStart, runtimeEnd);
         Assert.assertEquals(1, countOccurrences(runtimeSource, "assembleDiagnosticRuntime("));
         Assert.assertTrue(runtimeSource.contains(
-                "assembleDiagnosticRuntime(\n                searchContext, candidateFilter, matcher, diagnostics)"));
+                "assembleDiagnosticRuntime(\n                searchContext, candidateFilter, matcher, diagnostics, planningEvaluator)"));
         Assert.assertFalse(runtimeSource.contains("bindMatcherDiagnostics("));
+        Assert.assertFalse(runtimeSource.contains("bindMatcherPlanning("));
         Assert.assertFalse(runtimeSource.contains("decorateModeExtensionMatcher("));
         Assert.assertFalse(runtimeSource.contains("assembleDiagnostics("));
 
@@ -197,7 +216,7 @@ public class ChainPlanningDiagnosticsTest {
         Assert.assertTrue("atomic assembly source must be present", assemblyStart >= 0);
         Assert.assertTrue("atomic assembly body must be bounded", extensionStart > assemblyStart);
         String assemblySource = source.substring(assemblyStart, extensionStart);
-        Assert.assertTrue(assemblySource.indexOf("bindMatcherDiagnostics(")
+        Assert.assertTrue(assemblySource.indexOf("bindMatcherPlanning(")
                 < assemblySource.indexOf("decorateModeExtensionMatcher("));
         Assert.assertTrue(assemblySource.indexOf("decorateModeExtensionMatcher(")
                 < assemblySource.indexOf("decorateCandidateFilterWithDiagnostics("));

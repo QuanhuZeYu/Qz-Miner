@@ -22,9 +22,9 @@ public class LoggingFloodFillTraverserTest {
     private static final ChainTarget B = new ChainTarget(1, 0, 0);
     private static final ChainTarget C = new ChainTarget(2, 0, 0);
 
-    /** matcher 软拒绝的候选节点不入队、不计 confirmed，但仍可桥接后续原木。 */
+    /** matcher 能力拒绝的候选节点不入队、不计 confirmed，也不得桥接后续原木。 */
     @Test
-    public void matcherRejectedCandidateRemainsConnectivityNode() {
+    public void matcherRejectedCandidateBlocksTraversal() {
         Set<ChainTarget> candidates = setOf(A, B, C);
         List<ChainTarget> matcherCalls = new ArrayList<ChainTarget>();
         TraversalOutcome outcome = traverse(4096, candidates, target -> {
@@ -32,9 +32,10 @@ public class LoggingFloodFillTraverserTest {
             return !B.equals(target);
         });
 
-        Assert.assertEquals(Arrays.asList(A, B, C), matcherCalls);
-        Assert.assertEquals("B 不得入执行队列，C 必须仍可经 B 到达", Arrays.asList(A, C), outcome.accepted);
-        Assert.assertEquals("matcher=false 的 B 不得增加 confirmed", 2, outcome.context.getConfirmedCount());
+        Assert.assertEquals(Arrays.asList(A, B), matcherCalls);
+        Assert.assertEquals("B 不得入执行队列，C 也不得经 B 到达", Arrays.asList(A), outcome.accepted);
+        Assert.assertEquals("matcher=false 的 B 不得增加 confirmed", 1, outcome.context.getConfirmedCount());
+        Assert.assertFalse("matcher=false 的 B 不得生成 C", outcome.context.getVisited().contains(C));
     }
 
     /** candidate filter 拒绝仍是拓扑硬边界，不能借被拒节点绕到后续目标。 */
@@ -52,6 +53,21 @@ public class LoggingFloodFillTraverserTest {
         Assert.assertEquals(1, outcome.context.getConfirmedCount());
         Assert.assertTrue("B 会被检查并标记 visited", outcome.context.getVisited().contains(B));
         Assert.assertFalse("candidate=false 的 B 不得生成 C", outcome.context.getVisited().contains(C));
+    }
+
+    /** candidate 与 matcher 均接受时才可入队并继续扩展。 */
+    @Test
+    public void matcherAcceptedCandidateExpandsTraversal() {
+        Set<ChainTarget> candidates = setOf(A, B, C);
+        List<ChainTarget> matcherCalls = new ArrayList<ChainTarget>();
+        TraversalOutcome outcome = traverse(4096, candidates, target -> {
+            matcherCalls.add(target);
+            return true;
+        });
+
+        Assert.assertEquals(Arrays.asList(A, B, C), matcherCalls);
+        Assert.assertEquals(Arrays.asList(A, B, C), outcome.accepted);
+        Assert.assertEquals(3, outcome.context.getConfirmedCount());
     }
 
     /** 每片仅一个工作单位时应跨分片恢复，并与充足预算得到完全相同的结果。 */

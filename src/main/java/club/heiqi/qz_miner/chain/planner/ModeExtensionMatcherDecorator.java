@@ -11,7 +11,7 @@ public final class ModeExtensionMatcherDecorator {
 
     private ModeExtensionMatcherDecorator() {}
 
-    /** 为目标匹配器附加模式安全门。 */
+    /** 为目标匹配器附加默认宽进安全门；生产 runtime 会按顶层 mode 注入 CHAIN 冻结能力门。 */
     public static ChainBlockMatcher decorateMatcher(
         ChainSubMode subMode, ChainBlockMatcher base, FrozenModePredicate extension) {
         if (base == null || extension == null || extension.snapshot().isEmpty() || !isSupported(subMode)) {
@@ -29,7 +29,7 @@ public final class ModeExtensionMatcherDecorator {
         return decorateMatcher(subMode, base, new FrozenModePredicate(snapshot));
     }
 
-    /** 为候选过滤器附加 Q OR X；采掘门只在最终 matcher 阶段执行。 */
+    /** 为候选过滤器附加 Q OR X；顶层 mode 选择的采掘门只在最终 matcher 阶段执行。 */
     public static ChainCandidateFilter decorateCandidateFilter(
         ChainSubMode subMode, ChainCandidateFilter base, FrozenModePredicate extension,
         net.minecraft.world.World world) {

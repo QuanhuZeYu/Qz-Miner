@@ -22,7 +22,7 @@
 
 ## 修复方案
 
-- 由 `ToolHarvestEligibility` 统一真实工具的效率、Forge 收获与耐久门；`PlanningToolCapabilitySnapshot` 在 PlanStarted 主线程冻结当前手持、selector 排序的背包真实工具与空手候选，worker 只以冻结集合做 admission。执行仍由主线程 `ChainHarvestRules.canHarvest` 实时复验。
+- 由 `ToolHarvestEligibility` 统一真实工具的收获与耐久硬门；效率只保留为可选候选事实。`PlanningToolCapabilitySnapshot` 仅为顶层 CHAIN 在 PlanStarted 主线程冻结当前手持、selector 排序的背包全部工具与空手候选，worker 只以冻结集合决定 CHAIN admission 和断链。AREA 爆破不绑定该快照，按空间与子模式结构宽进。执行仍由主线程 `ChainHarvestRules.canHarvest` 实时复验。
 - `AutoToolSwapRoundService` 仅把合法、精确且原 anchor 为空的 `DECLINE_TAKEOVER` 结算为内部 `DECLINED`；Coordinator 对 APPLIED 和 DECLINED 都在 poll 前复验。超时、拒绝、身份/库存漂移和权威异常保持 STOP。
 - `ChainExecutionContext` 线性化订阅安装、协作取消和完成发布；取消胜出时 worker 静默终止，完成胜出时先观察合法 `PlanCompleted` 再收口。
 - `AutoToolSwapRoundService` 在身份与 sequence 校验后允许 CLOSE/RESTORE/ABANDON 停止并退休等待门，再按既有 ledger 语义收口；`ChainExecutionContext` 以 PlanCompleted 成功 publication 为先行线性化点并最后暴露 `planningComplete`，失败时由规划桥单次发布固定原因 PlanCancelled。
@@ -31,6 +31,8 @@
 ## 预防措施
 
 - 资源候选必须显式定义顺序与最终权威：当前可用手持优先，真实候选其次，空手最后；不得用方块名单或空值分支代替能力模型。
-- admission 快照不得冒充执行权威；worker 禁读实时库存，主线程在每次队列消费前保留完整玩家/事件/耐久复验。
+- admission 必须先按顶层 mode 定义所有权：CHAIN 冻结能力用于拓扑断链，AREA 不按工具删空间目标；不得把任一侧规则外推到全部模式。
+- CHAIN 快照不得冒充执行权威；worker 禁读实时库存，主线程在每次队列消费前保留完整玩家/事件/耐久复验。执行中工具损坏不回写已规划拓扑。
+- `getDigSpeed` 的低值或异常都不是候选资格硬门；只有 canHarvest 与统一耐久储备决定工具是否可用。
 - 异步终局必须由单一线性化对象决定发布权；协作取消只请求 worker 到安全点，不强杀或绕过 `endStage`。
 - 重算派生结果时先区分“不可变输入租约”和“可变派生状态”；已破坏 origin 的 seed 不得从世界回读。

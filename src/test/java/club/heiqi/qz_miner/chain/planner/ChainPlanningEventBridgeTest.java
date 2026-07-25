@@ -133,8 +133,12 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertTrue(source.contains("tryCompletePlanningAndPublish"));
         Assert.assertTrue(source.contains("publishPlanningProgressIfActive"));
         Assert.assertTrue(source.contains("cancelPlanningAndPublishIfActive"));
-        Assert.assertFalse("PlanStarted 不得再冻结工具能力用于 admission",
-                source.contains("PlanningToolCapabilitySnapshot.capture("));
+        Assert.assertTrue("PlanStarted 必须只按顶层 CHAIN 冻结工具能力",
+                source.contains("ChainPlanningRuntimeFactory.usesFrozenToolCapabilities(mode)"));
+        Assert.assertTrue(source.contains("PlanningToolCapabilitySnapshot.capture("));
+        Assert.assertTrue("CHAIN 快照必须包含背包全部候选",
+                source.contains("Config.autoToolPrioritySelectors, true"));
+        Assert.assertTrue(source.contains("diagnostics, capabilitySnapshot"));
         int workerStart = source.indexOf("private ParallelTaskResult runShadowSlice(");
         String worker = source.substring(workerStart);
         Assert.assertFalse(worker.contains("player.inventory"));

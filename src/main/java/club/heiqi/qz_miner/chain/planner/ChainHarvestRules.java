@@ -12,7 +12,7 @@ import net.minecraft.item.ItemStack;
  */
 public final class ChainHarvestRules {
 
-    /** 规划 matcher 复用的世界与安全 admission；不读取工具或库存能力。 */
+    /** AREA/INTERACT/SPECIAL 规划 matcher 复用的世界与安全 admission；不读取工具或库存能力。 */
     static final HarvestEvaluator DEFAULT_EVALUATOR = new HarvestEvaluator() {
         @Override
         public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
@@ -30,9 +30,11 @@ public final class ChainHarvestRules {
 
     private ChainHarvestRules() {}
 
-    /** 保留给冻结能力内部类型测试的 evaluator；生产 planner 不再绑定该路径。 */
+    /** 为 CHAIN 单个 planning round 创建只读冻结能力 evaluator。 */
     static HarvestEvaluator planningEvaluator(final PlanningToolCapabilitySnapshot capabilitySnapshot) {
-        if (capabilitySnapshot == null) return DEFAULT_EVALUATOR;
+        if (capabilitySnapshot == null) {
+            throw new IllegalArgumentException("capabilitySnapshot must not be null");
+        }
         return new HarvestEvaluator() {
             @Override
             public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
@@ -177,7 +179,7 @@ public final class ChainHarvestRules {
                 String.valueOf(canHarvestBlock), canHarvestBlock ? "accepted" : "can-harvest-block-rejected");
     }
 
-    /** 保留的内部冻结能力类型测试路径；生产 planner 不再调用。 */
+    /** CHAIN worker 只读目标世界视图，并以 PlanStarted 冻结能力集合完成 admission。 */
     private static HarvestEvaluation evaluateFrozenPlanningHarvest(EntityPlayer player, ChainTarget target,
             boolean diagnosticTracking, PlanningToolCapabilitySnapshot capabilitySnapshot) {
         if (player == null || target == null || player.worldObj == null) {
