@@ -4,18 +4,19 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.compat.adapter.gregtech.GregTechCableCompatAdapter;
 import club.heiqi.qz_miner.compat.adapter.lootgames.LootGamesMinesweeperCompatAdapter;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockCrops;
+import net.minecraft.block.IGrowable;
 import net.minecraft.block.BlockOre;
 import net.minecraft.block.BlockRedstoneOre;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.World;
 
 /**
  * 可选模组兼容适配器门面。
@@ -118,11 +119,98 @@ public final class CompatAdapters {
         }
 
         for (CropCompatAdapter adapter : CROP_ADAPTERS) {
-            if (adapter.isCropBlock(block, tileEntity)) {
-                return true;
+            try {
+                if (adapter != null && adapter.isAvailable() && adapter.isCropBlock(block, tileEntity)) {
+                    return true;
+                }
+            } catch (RuntimeException | LinkageError failure) {
+                return false;
             }
         }
         return false;
+    }
+
+    /**
+     * 查询当前 live 方块的可靠作物生长状态。
+     *
+     * <p>方块/metadata 已漂移、可选兼容异常或任何未知结果都返回 UNKNOWN。</p>
+     *
+     * @param world 当前只读世界
+     * @param x 目标 X
+     * @param y 目标 Y
+     * @param z 目标 Z
+     * @param block 调用方刚读取的方块
+     * @param metadata 调用方刚读取的完整 metadata
+     * @param tileEntity 调用方刚读取的 TileEntity，可为 null
+     * @return 三态生长结果
+     */
+    public static CropGrowthState growthState(World world, int x, int y, int z, Block block, int metadata,
+            TileEntity tileEntity) {
+        if (!matchesLiveBlock(world, x, y, z, block, metadata)) {
+            return CropGrowthState.UNKNOWN;
+        }
+
+        if (block instanceof BlockCrops) {
+            return vanillaCropGrowthState(world, x, y, z, block);
+        }
+        return growthState(world, x, y, z, block, metadata, tileEntity, CROP_ADAPTERS);
+    }
+
+    /** 包级适配器矩阵接缝，验证首个已知结果与异常 fail-closed。 */
+    static CropGrowthState growthState(World world, int x, int y, int z, Block block, int metadata,
+            TileEntity tileEntity, List<CropCompatAdapter> adapters) {
+        if (block == null || adapters == null) {
+            return CropGrowthState.UNKNOWN;
+        }
+        for (CropCompatAdapter adapter : adapters) {
+            if (adapter == null) {
+                return CropGrowthState.UNKNOWN;
+            }
+            try {
+                if (!adapter.isAvailable() || !adapter.isCropBlock(block, tileEntity)) {
+                    continue;
+                }
+                CropGrowthState state = adapter.growthState(
+                        world, x, y, z, block, metadata, tileEntity);
+                if (state == null) {
+                    return CropGrowthState.UNKNOWN;
+                }
+                if (state != CropGrowthState.UNKNOWN) {
+                    return state;
+                }
+            } catch (RuntimeException | LinkageError failure) {
+                return CropGrowthState.UNKNOWN;
+            }
+        }
+        return CropGrowthState.UNKNOWN;
+    }
+
+    /** 包级纯值映射接缝，固定 vanilla can-grow 的三态语义。 */
+    static CropGrowthState classifyVanillaGrowth(boolean canContinueGrowing) {
+        return canContinueGrowing ? CropGrowthState.IMMATURE : CropGrowthState.MATURE;
+    }
+
+    private static boolean matchesLiveBlock(World world, int x, int y, int z, Block block, int metadata) {
+        if (world == null || block == null || metadata < 0) {
+            return false;
+        }
+        try {
+            return world.getBlock(x, y, z) == block && world.getBlockMetadata(x, y, z) == metadata;
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    private static CropGrowthState vanillaCropGrowthState(World world, int x, int y, int z, Block block) {
+        if (!(block instanceof IGrowable)) {
+            return CropGrowthState.UNKNOWN;
+        }
+        try {
+            boolean canContinueGrowing = ((IGrowable) block).func_149851_a(world, x, y, z, world.isRemote);
+            return classifyVanillaGrowth(canContinueGrowing);
+        } catch (RuntimeException | LinkageError failure) {
+            return CropGrowthState.UNKNOWN;
+        }
     }
 
     /**
@@ -281,7 +369,7 @@ public final class CompatAdapters {
 
     private static List<CropCompatAdapter> createCropAdapters() {
         List<CropCompatAdapter> adapters = new ArrayList<CropCompatAdapter>();
-        addCropAdapterIfAvailable(adapters, new NamedClassCropCompatAdapter(null, "ic2.core.crop.TileEntityCrop"));
+        addCropAdapterIfAvailable(adapters, new Ic2CropCompatAdapter());
         addCropAdapterIfAvailable(adapters, new EtFuturumCropCompatAdapter());
         return Collections.unmodifiableList(adapters);
     }

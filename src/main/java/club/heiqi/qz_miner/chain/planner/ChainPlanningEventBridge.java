@@ -165,7 +165,9 @@ public class ChainPlanningEventBridge {
         final ChainSession shadowSession = new ChainSession(
                 playerUUID, mode, subMode, origin,
                 event.getSideHit(), event.getHitX(), event.getHitY(), event.getHitZ(),
-                requestedRadius, requestedMaxBlocks, modeExtension);
+                requestedRadius, requestedMaxBlocks, modeExtension,
+                seedSnapshot.getSampleBlock(), seedSnapshot.getSampleMeta(),
+                seedSnapshot.getSampleTileIdentity());
         final ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics =
                 ChainPlanningRuntimeFactory.PlanningDiagnostics.production(playerUUID, serverRoundId, planningGen,
                         String.valueOf(mode), String.valueOf(subMode));

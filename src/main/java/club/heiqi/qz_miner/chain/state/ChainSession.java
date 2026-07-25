@@ -6,8 +6,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
+import net.minecraft.block.Block;
 
 /**
  * 单次连锁任务会话。
@@ -16,7 +18,7 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
  * getMatchedTargetCount/setMatchedTargetCount/isPlannerCompleted/isPlannerRunning/isExecutorReady/
  * scheduleNextExecutorRun/stopExecutionPreservingDrops）。新链路目标队列/节流/matchedCount 由
  * {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，session 仅作配置载体
- * （mode/subMode/origin/interactFace/hitOffset/radius/maxBlocks）+ 装配 traverser 的 traversalTargets。
+ * （mode/subMode/origin/interactFace/hitOffset/radius/maxBlocks/交互 seed）+ 装配 traverser 的 traversalTargets。
  * 真实破坏桥（{@link club.heiqi.qz_miner.chain.execution.ChainExecutionEventBridge}）只读 session 配置字段，
  * 不读运行态字段（块3 已删）。</p>
  */
@@ -68,6 +70,16 @@ public class ChainSession {
             int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension) {
         this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY,
                 interactHitZ, requestedChainRadius, requestedChainMaxBlocks, modeExtension));
+    }
+
+    /** 创建同时携带触发时交互 seed 的单次会话。 */
+    public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin,
+            int interactFace, float interactHitX, float interactHitY, float interactHitZ,
+            int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension,
+            Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity) {
+        this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY,
+                interactHitZ, requestedChainRadius, requestedChainMaxBlocks, modeExtension,
+                seedBlock, seedMeta, seedTileIdentity));
     }
 
     public ChainSession(ChainRequest request) {
@@ -129,6 +141,21 @@ public class ChainSession {
 
     public ChainRequest getRequest() {
         return request;
+    }
+
+    /** @return 触发窗口冻结的 seed 方块，可为 null */
+    public Block getSeedBlock() {
+        return request == null ? null : request.getSeedBlock();
+    }
+
+    /** @return 未截断的非负 seed metadata */
+    public int getSeedMeta() {
+        return request == null ? 0 : request.getSeedMeta();
+    }
+
+    /** @return 非 null 的 seed TileEntity 纯值身份 */
+    public TileIdentityToken getSeedTileIdentity() {
+        return request == null ? TileIdentityToken.unresolved() : request.getSeedTileIdentity();
     }
 
     /**
