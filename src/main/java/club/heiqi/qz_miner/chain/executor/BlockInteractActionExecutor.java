@@ -75,12 +75,8 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
                     player.inventory.mainInventory[currentItem] = null;
                 }
                 player.inventory.markDirty();
-                boolean wasChangingQuantityOnly = player.isChangingQuantityOnly;
-                player.isChangingQuantityOnly = true;
-                try {
+                if (player.openContainer != null) {
                     player.openContainer.detectAndSendChanges();
-                } finally {
-                    player.isChangingQuantityOnly = wasChangingQuantityOnly;
                 }
             } catch (RuntimeException | LinkageError failure) {
                 MyMod.LOG.error(

@@ -36,7 +36,7 @@ public class BlockInteractActionExecutorStructureTest {
                 source.contains("catch (RuntimeException | LinkageError failure)"));
     }
 
-    /** 交互后置必须在 finally 归一真实当前槽、同步容器并可靠恢复数量变更标志。 */
+    /** 交互后置必须在 finally 归一真实当前槽，并通过正常容器 listener 同步。 */
     @Test
     public void executorNormalizesAndSyncsCurrentSlotInFinally() throws Exception {
         String source = readSource();
@@ -50,14 +50,9 @@ public class BlockInteractActionExecutorStructureTest {
         int nonPositive = execute.indexOf("currentStackAfterUse.stackSize <= 0", currentStack);
         int clearSlot = execute.indexOf("player.inventory.mainInventory[currentItem] = null;", nonPositive);
         int markDirty = execute.indexOf("player.inventory.markDirty();", clearSlot);
-        int rememberFlag = execute.indexOf(
-                "boolean wasChangingQuantityOnly = player.isChangingQuantityOnly;", markDirty);
-        int enableFlag = execute.indexOf("player.isChangingQuantityOnly = true;", rememberFlag);
-        int sync = execute.indexOf("player.openContainer.detectAndSendChanges();", enableFlag);
-        int restoreFinally = execute.indexOf("finally {", sync);
-        int restoreFlag = execute.indexOf(
-                "player.isChangingQuantityOnly = wasChangingQuantityOnly;", restoreFinally);
-        int syncCatch = execute.indexOf("catch (RuntimeException | LinkageError failure)", restoreFlag);
+        int openContainerGuard = execute.indexOf("if (player.openContainer != null) {", markDirty);
+        int sync = execute.indexOf("player.openContainer.detectAndSendChanges();", openContainerGuard);
+        int syncCatch = execute.indexOf("catch (RuntimeException | LinkageError failure)", sync);
         int failClosed = execute.indexOf("interactionSucceeded = false;", syncCatch);
 
         Assert.assertTrue("后置归一必须位于交互调用后的 finally", activation >= 0
@@ -65,12 +60,13 @@ public class BlockInteractActionExecutorStructureTest {
         Assert.assertTrue("必须重新读取交互后的真实当前栈", currentStack > currentItem);
         Assert.assertTrue("只清理零或负数量的真实当前槽",
                 nonPositive > currentStack && clearSlot > nonPositive);
-        Assert.assertTrue("归一后必须标脏并同步当前 openContainer",
-                markDirty > clearSlot && sync > markDirty);
-        Assert.assertTrue("数量变更标志必须由嵌套 finally 恢复",
-                rememberFlag > markDirty && enableFlag > rememberFlag
-                        && restoreFinally > sync && restoreFlag > restoreFinally);
-        Assert.assertTrue("库存后置异常必须 fail-closed", syncCatch > restoreFlag && failClosed > syncCatch);
+        Assert.assertEquals("合法的正数量容器替换不得被额外清槽", clearSlot,
+                execute.lastIndexOf("player.inventory.mainInventory[currentItem] = null;"));
+        Assert.assertTrue("归一后必须标脏，并在容器非空时走正常 listener 同步",
+                markDirty > clearSlot && openContainerGuard > markDirty && sync > openContainerGuard);
+        Assert.assertFalse("禁止用数量变更标志抑制当前玩家的标准槽包",
+                source.contains("isChangingQuantityOnly"));
+        Assert.assertTrue("库存后置异常必须 fail-closed", syncCatch > sync && failClosed > syncCatch);
         Assert.assertFalse("禁止恢复无目标坐标的空气右键 fallback", source.contains("tryUseItem("));
     }
 
