@@ -17,8 +17,6 @@ import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
 /**
  * 仅让当前手持可接收容器作用于精确计划液体 source 的服务端交互执行器。
- *
- * <p>该内部能力尚未注册到任何用户可见子模式。</p>
  */
 public final class LiquidSourceInteractActionExecutor implements ChainActionExecutor {
 

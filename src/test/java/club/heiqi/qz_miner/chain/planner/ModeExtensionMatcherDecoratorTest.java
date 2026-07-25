@@ -90,10 +90,17 @@ public class ModeExtensionMatcherDecoratorTest {
     public void unsupportedModeFailsClosedWithOriginalInstances() {
         ChainBlockMatcher matcher = (player, target) -> false;
         ChainCandidateFilter filter = target -> false;
-        Assert.assertSame(matcher, ModeExtensionMatcherDecorator.decorateMatcher(ChainSubMode.AREA_TUNNEL, matcher,
-            (player, target) -> true, (player, target) -> true, (player, target) -> true));
-        Assert.assertSame(filter, ModeExtensionMatcherDecorator.decorateCandidateFilter(
-            ChainSubMode.AREA_TUNNEL, filter, target -> true));
+        for (ChainSubMode unsupported : Arrays.asList(
+                ChainSubMode.AREA_TUNNEL,
+                ChainSubMode.INTERACT_LIQUID_SOURCE,
+                ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP)) {
+            Assert.assertSame(unsupported.name(), matcher,
+                ModeExtensionMatcherDecorator.decorateMatcher(unsupported, matcher,
+                    (player, target) -> true, (player, target) -> true, (player, target) -> true));
+            Assert.assertSame(unsupported.name(), filter,
+                ModeExtensionMatcherDecorator.decorateCandidateFilter(
+                    unsupported, filter, target -> true));
+        }
     }
 
     @Test

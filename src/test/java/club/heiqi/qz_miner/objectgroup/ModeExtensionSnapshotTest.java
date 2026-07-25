@@ -20,6 +20,9 @@ public class ModeExtensionSnapshotTest {
         Assert.assertEquals(32L, ObjectGroupMode.maskFor(ChainSubMode.INTERACT_BASE));
         Assert.assertEquals(64L, ObjectGroupMode.maskFor(ChainSubMode.INTERACT_CROP));
         Assert.assertEquals(0L, ObjectGroupMode.maskFor(ChainSubMode.AREA_TUNNEL));
+        Assert.assertEquals(0L, ObjectGroupMode.maskFor(ChainSubMode.INTERACT_LIQUID_SOURCE));
+        Assert.assertEquals(0L,
+                ObjectGroupMode.maskFor(ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP));
     }
 
     @Test

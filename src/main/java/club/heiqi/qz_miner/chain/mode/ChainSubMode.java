@@ -51,7 +51,15 @@ public enum ChainSubMode {
     /**
      * SPECIAL GT 线缆替换子模式。
      */
-    SPECIAL_GT_CABLE_REPLACE(ChainMode.SPECIAL, false, false, false);
+    SPECIAL_GT_CABLE_REPLACE(ChainMode.SPECIAL, false, false, false),
+    /**
+     * INTERACT 同种液体源交互子模式。
+     */
+    INTERACT_LIQUID_SOURCE(ChainMode.INTERACT, false, false, false),
+    /**
+     * INTERACT 可靠未成熟作物施肥子模式。
+     */
+    INTERACT_FERTILIZE_IMMATURE_CROP(ChainMode.INTERACT, false, false, false);
 
     private final ChainMode parentMode;
     private final boolean sameBlockMatchRequired;
@@ -132,6 +140,10 @@ public enum ChainSubMode {
                 return "hud.qz_miner.sub_mode.interact.base";
             case INTERACT_CROP:
                 return "hud.qz_miner.sub_mode.interact.crop";
+            case INTERACT_LIQUID_SOURCE:
+                return "hud.qz_miner.sub_mode.interact.liquid_source";
+            case INTERACT_FERTILIZE_IMMATURE_CROP:
+                return "hud.qz_miner.sub_mode.interact.fertilize_immature_crop";
             case SPECIAL_LOOTGAMES_MINESWEEPER:
                 return "hud.qz_miner.sub_mode.special.lootgames_minesweeper";
             case SPECIAL_GT_CABLE_REPLACE:

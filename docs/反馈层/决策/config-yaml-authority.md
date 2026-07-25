@@ -33,7 +33,7 @@
 - **I4**：配置网络 Handler 只捕获原始数据，最终整包校验与状态写入均在对应主线程；C2S 经 keyed lane 背压（START drain 不可重入），S2C 经客户端 lifecycle **连接 identity** token + dispatcher 收口。
 - **I7**：服务端停止时玩家清理先于 dispatcher 关闭，避免 stop 后 FIFO 拒绝导致生命周期清理丢失；客户端断线/卸载经 lifecycle gate 清预览/GPU/phase/pending。
 - **对象组生命周期**：服务端规则按玩家 UUID 独立保存；统一玩家状态移除时随状态清理。每次任务只使用启动时冻结的组快照，配置 reload 只影响下一任务。
-- **运行时扩展语义**：对象组不占用独立 `ChainSubMode`，仅映射到七个既有模式。主线程以 mode+seed 从已接受玩家规则解析唯一组并冻结为 registry→不可变 metadata domain；domain 表达通配或由有界输入形成的完整非负 int 集合，同 registry 多成员在快照中取并集，跨组共享 mode 时按 domain 交集拒绝，不再使用 16-bit mask。parser 保留各输入成员的 canonical 顺序与独立 1024-byte wire 边界；schema 仍是 LIST<STRING>，C2S 仍传 canonical 字符串。规划与已确认客户端预览共享纯快照解析和同一运行时工厂。candidate 为 `Q OR X`；matcher 先按 Q 短路，五个采掘模式为 `Q OR (X AND ChainHarvestRules.canHarvest)`，`INTERACT_BASE` 为 `Q OR X`，`INTERACT_CROP` 为 `Q OR (X AND non-null/non-air/non-liquid)`。空扩展、非支持模式或 pending 均返回原判定实例；traverser/executor/drop/state machine 不变。
+- **运行时扩展语义**：对象组不占用独立 `ChainSubMode`，仅映射到七个既有模式。主线程以 mode+seed 从已接受玩家规则解析唯一组并冻结为 registry→不可变 metadata domain；domain 表达通配或由有界输入形成的完整非负 int 集合，同 registry 多成员在快照中取并集，跨组共享 mode 时按 domain 交集拒绝，不再使用 16-bit mask。parser 保留各输入成员的 canonical 顺序与独立 1024-byte wire 边界；schema 仍是 LIST<STRING>，C2S 仍传 canonical 字符串。规划与已确认客户端预览共享纯快照解析和同一运行时工厂。candidate 为 `Q OR X`；matcher 先按 Q 短路，五个采掘模式为 `Q OR (X AND ChainHarvestRules.canHarvest)`，`INTERACT_BASE` 为 `Q OR X`，`INTERACT_CROP` 为 `Q OR (X AND non-null/non-air/non-liquid)`。尾部追加的 `INTERACT_LIQUID_SOURCE=12` 与 `INTERACT_FERTILIZE_IMMATURE_CROP=13` 均映射 0，不新增 bit；`INTERACT_BASE=32`、`INTERACT_CROP=64`、`KNOWN_MASK=127` 与 C2S framing 保持。空扩展、非支持模式或 pending 均返回原判定实例；配置 schema、drop 与 state machine 不变。
 - 服务端代码禁止引用 `club.heiqi.config.ui`、屏幕桥接壳、LWJGL；仅 client GUI 包可引用。
 
 ## 演进
@@ -66,3 +66,4 @@
 - 2026-07-14：成员管理选择器补齐常驻摘要/管理入口、受约束 portal、顶部搜索、3:5 动态分区、稳定 ID 编辑、二次确认删除、重复诊断、malformed 常规界面隐藏与 overlay 焦点约束；raw 仅作为默认折叠的高级无损入口。
 - 2026-07-21：schema 增加每玩家 `client.tunnelDirectionSource`，配置帧以兼容尾部扩展为 C2S 8/16、S2C 12/20；服务端 accepted 三字段原子写入后 ACK，客户端只按 ACK 发布方向，旧新混连精确降级 `LOOK_DIRECTION`。方向行为见 `tunnel-direction-source.md`。
 - 2026-07-25：对象组 metadata 从 16-bit mask 迁移为完整非负 int domain；parser 不再合并同 registry 成员，冻结快照负责 union，跨组 overlap 使用 domain intersection。`registry@meta` canonical、LIST<STRING> schema、wire v2 framing、1024-byte 字符串和成员/组/载荷上限均保持。
+- 2026-07-26：范围交互尾部追加液体源与未成熟作物施肥子模式；对象组仍仅映射原七种模式，新 ordinal 12/13 的 `maskFor` 固定为 0，旧 bit、mask、schema 与 wire framing 不变。

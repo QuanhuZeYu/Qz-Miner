@@ -7,6 +7,13 @@ import java.nio.file.Files;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
+import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
+
 /** 目标化液体执行器的权限、精确射线、事件、恢复与禁用路径结构合同。 */
 public class LiquidSourceInteractActionExecutorStructureTest {
 
@@ -82,14 +89,23 @@ public class LiquidSourceInteractActionExecutorStructureTest {
         Assert.assertTrue(source.contains("mode == ChainMode.INTERACT"));
     }
 
-    /** 内部执行器不得提前替换当前用户可见 INTERACT executor。 */
+    /** 液体执行器只覆盖液体源子模式，不替换其它三种范围交互执行器。 */
     @Test
-    public void executorRemainsUnregistered() throws Exception {
-        String bootstrap = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/mode/ChainModeBootstrap.java").toPath()),
-                StandardCharsets.UTF_8);
+    public void executorIsRegisteredOnlyForLiquidSourceSubMode() {
+        ChainModeBootstrap.bootstrap();
+        ChainSubModeBootstrap.bootstrap();
+        ChainModeDefinition definition = ChainModeRegistry.getDefinition(ChainMode.INTERACT);
 
-        Assert.assertFalse(bootstrap.contains("LiquidSourceInteractActionExecutor"));
+        Assert.assertTrue(definition.resolveActionExecutor(ChainSubMode.INTERACT_LIQUID_SOURCE)
+                instanceof LiquidSourceInteractActionExecutor);
+        Assert.assertFalse(definition.getActionExecutor() instanceof LiquidSourceInteractActionExecutor);
+        Assert.assertFalse(definition.resolveActionExecutor(ChainSubMode.INTERACT_BASE)
+                instanceof LiquidSourceInteractActionExecutor);
+        Assert.assertFalse(definition.resolveActionExecutor(ChainSubMode.INTERACT_CROP)
+                instanceof LiquidSourceInteractActionExecutor);
+        Assert.assertFalse(definition.resolveActionExecutor(
+                ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP)
+                instanceof LiquidSourceInteractActionExecutor);
     }
 
     private static String readSource() throws Exception {

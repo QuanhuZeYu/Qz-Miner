@@ -60,6 +60,8 @@ public class ObjectGroupWireConfigTest {
 
     @Test
     public void v1UnknownBitsAndCountsAreRejectedAtWireBoundary() {
+        Assert.assertEquals(127, ObjectGroupMode.KNOWN_MASK);
+        Assert.assertFalse(ObjectGroupMode.isValidMask(128L));
         ObjectGroupWireConfig source = ObjectGroupWireConfig.fromRuleSet(2L, ObjectGroupRuleSet.EMPTY);
         ByteBuf badVersion = Unpooled.buffer(source.encodedSize());
         source.write(badVersion);
