@@ -82,6 +82,46 @@ public final class ChainSearchAlgorithm {
                 continue;
             }
 
+            if (state.phase == BudgetPhase.CHECK_CURRENT_MATCHER) {
+                if (state.currentTarget == null) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (!matcher.matches(state.currentTarget)) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
+                state.phase = BudgetPhase.SUBMIT_CURRENT_TARGET;
+                continue;
+            }
+
+            if (state.phase == BudgetPhase.SUBMIT_CURRENT_TARGET) {
+                if (state.currentTarget == null) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (control.isCancelRequested()) {
+                    return TraversalStepResult.TERMINATED;
+                }
+                consumer.accept(state.currentTarget);
+                context.incrementConfirmedCount();
+
+                if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                    state.clearCurrentTarget();
+                    return TraversalStepResult.COMPLETED;
+                }
+
+                state.phase = BudgetPhase.GENERATE_NEIGHBORS;
+                state.neighborIndex = 0;
+                continue;
+            }
+
             if (state.currentTarget == null) {
                 if (context.getCurrentFrontier().isEmpty()) {
                     if (!control.tryConsumeWork(1)) {
@@ -95,48 +135,30 @@ public final class ChainSearchAlgorithm {
                     return TraversalStepResult.COMPLETED;
                 }
 
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
+                ChainTarget queuedTarget = context.getCurrentFrontier().peek();
+                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                        context.tryCommitPlanningCandidate(control, queuedTarget);
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
                 }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
+                }
+
                 state.currentTarget = context.getCurrentFrontier().poll();
                 if (state.currentTarget == null) {
                     continue;
                 }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
+                if (!context.canTraverse(state.currentTarget)) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
             }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!context.canTraverse(state.currentTarget)) {
-                state.clearCurrentTarget();
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!matcher.matches(state.currentTarget)) {
-                state.clearCurrentTarget();
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (control.isCancelRequested()) {
-                return TraversalStepResult.TERMINATED;
-            }
-            consumer.accept(state.currentTarget);
-            context.incrementConfirmedCount();
-
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                state.clearCurrentTarget();
-                return TraversalStepResult.COMPLETED;
-            }
-
-            state.phase = BudgetPhase.GENERATE_NEIGHBORS;
-            state.neighborIndex = 0;
-            state.pendingNeighbor = null;
+            state.phase = BudgetPhase.CHECK_CURRENT_MATCHER;
         }
     }
 
@@ -159,7 +181,7 @@ public final class ChainSearchAlgorithm {
             return TraversalStepResult.CONTINUE;
         }
 
-        while (state.neighborIndex < NEIGHBOR_OFFSETS.size() || state.pendingNeighbor != null) {
+        while (state.neighborIndex < NEIGHBOR_OFFSETS.size()) {
             if (control.isCancelRequested()) {
                 return TraversalStepResult.TERMINATED;
             }
@@ -167,25 +189,6 @@ public final class ChainSearchAlgorithm {
                 return TraversalStepResult.YIELDED;
             }
 
-            if (state.pendingNeighbor != null) {
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
-                }
-                ChainTarget pending = state.pendingNeighbor;
-                state.pendingNeighbor = null;
-                state.neighborIndex++;
-                if (!context.getVisited().add(pending)) {
-                    continue;
-                }
-                if (context.canTraverse(pending)) {
-                    context.getNextFrontier().add(pending);
-                }
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
             ChainTarget offset = NEIGHBOR_OFFSETS.get(state.neighborIndex);
             ChainTarget next = new ChainTarget(
                 state.currentTarget.getX() + offset.getX(),
@@ -195,11 +198,30 @@ public final class ChainSearchAlgorithm {
             if (context.getVisited().contains(next)
                 || getDistance(next, context.getOrigin()) > context.getMaxRadius()
                 || context.getConfirmedCount() >= context.getMaxTargets()) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
                 state.neighborIndex++;
                 continue;
             }
 
-            state.pendingNeighbor = next;
+            PlanningCandidateWorkBudget.CommitResult candidateResult =
+                    context.tryCommitPlanningCandidate(control, next);
+            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                return TraversalStepResult.YIELDED;
+            }
+            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                return TraversalStepResult.TERMINATED;
+            }
+
+            state.neighborIndex++;
+            if (!context.getVisited().add(next)
+                    || candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                continue;
+            }
+            if (context.canTraverse(next)) {
+                context.getNextFrontier().add(next);
+            }
         }
 
         state.clearCurrentTarget();
@@ -212,13 +234,19 @@ public final class ChainSearchAlgorithm {
     public static final class BudgetState {
         private BudgetPhase phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
         private ChainTarget currentTarget;
-        private ChainTarget pendingNeighbor;
         private int neighborIndex;
+
+        /** 初始化破坏后 origin 的预算化邻居生成，不在 seed 阶段读取世界。 */
+        void beginSeedNeighborGeneration(ChainTarget origin) {
+            reset();
+            currentTarget = origin;
+            neighborIndex = 0;
+            phase = BudgetPhase.GENERATE_NEIGHBORS;
+        }
 
         private void clearCurrentTarget() {
             phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
             currentTarget = null;
-            pendingNeighbor = null;
             neighborIndex = 0;
         }
 
@@ -230,6 +258,8 @@ public final class ChainSearchAlgorithm {
 
     private enum BudgetPhase {
         PROCESS_CURRENT_FRONTIER,
+        CHECK_CURRENT_MATCHER,
+        SUBMIT_CURRENT_TARGET,
         GENERATE_NEIGHBORS,
         ROTATE_FRONTIER
     }

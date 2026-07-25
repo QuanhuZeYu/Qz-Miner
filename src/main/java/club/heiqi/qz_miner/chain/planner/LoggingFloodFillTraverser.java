@@ -10,7 +10,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
     private final int shellLayers;
     private TraversalPhase budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
     private ChainTarget currentTarget;
-    private ChainTarget pendingNeighbor;
     private int offsetX;
     private int offsetY;
     private int offsetZ;
@@ -58,22 +57,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                 if (neighborResult != TraversalStepResult.CONTINUE) {
                     return neighborResult;
                 }
-                continue;
-            }
-
-            if (budgetPhase == TraversalPhase.CHECK_CURRENT_CANDIDATE) {
-                if (currentTarget == null) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
-                }
-                if (!context.canTraverse(currentTarget)) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                budgetPhase = TraversalPhase.CHECK_CURRENT_MATCHER;
                 continue;
             }
 
@@ -131,15 +114,29 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
             }
 
             if (currentTarget == null) {
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
+                ChainTarget queuedTarget = context.getCurrentFrontier().peek();
+                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                        context.tryCommitPlanningCandidate(control, queuedTarget);
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
+                }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
                 }
                 currentTarget = context.getCurrentFrontier().poll();
                 if (currentTarget == null) {
                     continue;
                 }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!context.canTraverse(currentTarget)) {
+                    clearCurrentTarget();
+                    continue;
+                }
             }
-            budgetPhase = TraversalPhase.CHECK_CURRENT_CANDIDATE;
+            budgetPhase = TraversalPhase.CHECK_CURRENT_MATCHER;
         }
     }
 
@@ -163,7 +160,7 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
             return TraversalStepResult.CONTINUE;
         }
 
-        while (hasMoreOffsets() || pendingNeighbor != null) {
+        while (hasMoreOffsets()) {
             if (control.isCancelRequested()) {
                 return TraversalStepResult.TERMINATED;
             }
@@ -171,30 +168,15 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                 return TraversalStepResult.YIELDED;
             }
 
-            if (pendingNeighbor != null) {
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
-                }
-                ChainTarget pending = pendingNeighbor;
-                pendingNeighbor = null;
-                if (!context.getVisited().add(pending)) {
-                    continue;
-                }
-                if (context.canTraverse(pending)) {
-                    context.getNextFrontier().add(pending);
-                }
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
             int dx = offsetX;
             int dy = offsetY;
             int dz = offsetZ;
-            advanceOffsetCursor();
 
             if (dx == 0 && dy == 0 && dz == 0) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                advanceOffsetCursor();
                 continue;
             }
 
@@ -203,10 +185,30 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                 currentTarget.getY() + dy,
                 currentTarget.getZ() + dz);
             if (context.getVisited().contains(next)) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                advanceOffsetCursor();
                 continue;
             }
 
-            pendingNeighbor = next;
+            PlanningCandidateWorkBudget.CommitResult candidateResult =
+                    context.tryCommitPlanningCandidate(control, next);
+            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                return TraversalStepResult.YIELDED;
+            }
+            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                return TraversalStepResult.TERMINATED;
+            }
+
+            advanceOffsetCursor();
+            if (!context.getVisited().add(next)
+                    || candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                continue;
+            }
+            if (context.canTraverse(next)) {
+                context.getNextFrontier().add(next);
+            }
         }
 
         clearCurrentTarget();
@@ -215,7 +217,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
     private void beginNeighborGeneration(ChainTarget center) {
         currentTarget = center;
-        pendingNeighbor = null;
         offsetX = -shellLayers;
         offsetY = -shellLayers;
         offsetZ = -shellLayers;
@@ -247,7 +248,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
     private void clearCurrentTarget() {
         budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
         currentTarget = null;
-        pendingNeighbor = null;
         offsetX = -shellLayers;
         offsetY = -shellLayers;
         offsetZ = -shellLayers;
@@ -260,7 +260,6 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
     private enum TraversalPhase {
         PROCESS_CURRENT_FRONTIER,
-        CHECK_CURRENT_CANDIDATE,
         CHECK_CURRENT_MATCHER,
         SUBMIT_CURRENT_TARGET,
         GENERATE_NEIGHBORS,

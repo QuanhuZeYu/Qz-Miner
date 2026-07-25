@@ -9,8 +9,9 @@
 
 ## 配置项
 
-- `general.parallelTickServerWorkBudgetUnits`：服务端并行 Tick 任务单个分片的工作预算单位，默认 `64`。调大可让服务端规划单片推进更多工作，但可能增加并行窗口等待时间；调小更平滑但规划完成更慢。
+- `general.parallelTickServerWorkBudgetUnits`：服务端并行 Tick 任务单个分片的工作预算单位，默认 `640`。调大可让服务端规划单片推进更多工作，但可能增加并行窗口等待时间；调小更平滑但规划完成更慢。
 - `client.parallelTickClientWorkBudgetUnits`：客户端并行 Tick 任务单个分片的工作预算单位，默认 `640`。调大可让客户端预览更快完成，但可能增加单片耗时；调小更平滑但预览收敛更慢。
+- 服务端规划与客户端预览对原版 `Blocks.air` 使用固定 1024:1 候选计费：同一次规划累计确认 1024 个空气坐标才扣 1 个正 work budget，余数跨分片与 tick 保留，规划自然结束时不补收。每个空气坐标仍先检查取消、窗口与时间边界；shell/slice 切换、frontier、重复坐标、matcher、consumer，以及 null、液体、基岩、业务拒绝和模组 air-like 方块仍按正常预算处理。因此该折扣提高大空区扫描吞吐，但不代表整次遍历总成本只有 `air/1024`。
 - `client.tunnelDirectionSource`：每位玩家的 `AREA_TUNNEL` 方向偏好，默认 `look_direction`。`look_direction` 取玩家视线中绝对值最大的轴；`hit_face` 取左键命中方块面的反向，也就是从被点击表面朝方块内部开掘。六个视线轴与六个命中面均受支持。
   - 服务端只使用已经整包接受并回执的偏好；客户端预览也只使用服务端 ACK 后的 accepted 值，保存后等待 ACK 期间不会乐观切换方向。
   - `hit_face` 的左键命中只与随后同维度、同坐标的破坏事件匹配一次；缺失、非法或失配时回退该次破坏时冻结的视线方向。松键、切换模式/子模式及玩家生命周期清理都会使未消费命中失效。
