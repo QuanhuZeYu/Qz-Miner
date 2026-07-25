@@ -36,37 +36,25 @@ public class BlockInteractActionExecutorStructureTest {
                 source.contains("catch (RuntimeException | LinkageError failure)"));
     }
 
-    /** 交互后置必须在 finally 归一真实当前槽，并通过正常容器 listener 同步。 */
+    /** 交互后置必须在 finally 委托共享库存支持，且同步失败继续 fail-closed。 */
     @Test
-    public void executorNormalizesAndSyncsCurrentSlotInFinally() throws Exception {
+    public void executorDelegatesInventoryPostProcessingInFinally() throws Exception {
         String source = readSource();
         int executeStart = source.indexOf("public boolean execute(");
         String execute = source.substring(executeStart);
         int activation = execute.indexOf("activateBlockOrUseItem(");
         int postUseFinally = execute.indexOf("finally {", activation);
-        int currentItem = execute.indexOf("int currentItem = player.inventory.currentItem;", postUseFinally);
-        int currentStack = execute.indexOf(
-                "ItemStack currentStackAfterUse = player.inventory.getCurrentItem();", currentItem);
-        int nonPositive = execute.indexOf("currentStackAfterUse.stackSize <= 0", currentStack);
-        int clearSlot = execute.indexOf("player.inventory.mainInventory[currentItem] = null;", nonPositive);
-        int markDirty = execute.indexOf("player.inventory.markDirty();", clearSlot);
-        int openContainerGuard = execute.indexOf("if (player.openContainer != null) {", markDirty);
-        int sync = execute.indexOf("player.openContainer.detectAndSendChanges();", openContainerGuard);
-        int syncCatch = execute.indexOf("catch (RuntimeException | LinkageError failure)", sync);
-        int failClosed = execute.indexOf("interactionSucceeded = false;", syncCatch);
+        int sharedSupport = execute.indexOf(
+                "InteractionInventorySupport.normalizeAndSync(player, target)", postUseFinally);
+        int failClosed = execute.indexOf("interactionSucceeded = false;", sharedSupport);
 
         Assert.assertTrue("后置归一必须位于交互调用后的 finally", activation >= 0
-                && postUseFinally > activation && currentItem > postUseFinally);
-        Assert.assertTrue("必须重新读取交互后的真实当前栈", currentStack > currentItem);
-        Assert.assertTrue("只清理零或负数量的真实当前槽",
-                nonPositive > currentStack && clearSlot > nonPositive);
-        Assert.assertEquals("合法的正数量容器替换不得被额外清槽", clearSlot,
-                execute.lastIndexOf("player.inventory.mainInventory[currentItem] = null;"));
-        Assert.assertTrue("归一后必须标脏，并在容器非空时走正常 listener 同步",
-                markDirty > clearSlot && openContainerGuard > markDirty && sync > openContainerGuard);
+                && postUseFinally > activation && sharedSupport > postUseFinally);
+        Assert.assertTrue("共享后置失败必须令本目标 fail-closed", failClosed > sharedSupport);
+        Assert.assertFalse("generic executor 不得保留第二份库存后置实现",
+                execute.contains("player.inventory.mainInventory[currentItem] = null;"));
         Assert.assertFalse("禁止用数量变更标志抑制当前玩家的标准槽包",
                 source.contains("isChangingQuantityOnly"));
-        Assert.assertTrue("库存后置异常必须 fail-closed", syncCatch > sync && failClosed > syncCatch);
         Assert.assertFalse("禁止恢复无目标坐标的空气右键 fallback", source.contains("tryUseItem("));
     }
 

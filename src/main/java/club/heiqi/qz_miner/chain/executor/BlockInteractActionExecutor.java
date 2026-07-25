@@ -67,21 +67,7 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
             MyMod.LOG.error("[BlockInteractActionExecutor] Failed to interact block for player {} at ({}, {}, {})",
                 player.getUniqueID(), target.getX(), target.getY(), target.getZ(), failure);
         } finally {
-            try {
-                // 直调交互入口绕过 NetHandler 的库存后置步骤；只归一交互后仍处于当前槽的真实栈。
-                int currentItem = player.inventory.currentItem;
-                ItemStack currentStackAfterUse = player.inventory.getCurrentItem();
-                if (currentStackAfterUse != null && currentStackAfterUse.stackSize <= 0) {
-                    player.inventory.mainInventory[currentItem] = null;
-                }
-                player.inventory.markDirty();
-                if (player.openContainer != null) {
-                    player.openContainer.detectAndSendChanges();
-                }
-            } catch (RuntimeException | LinkageError failure) {
-                MyMod.LOG.error(
-                    "[BlockInteractActionExecutor] Failed post-interaction inventory sync for player {} at ({}, {}, {})",
-                    player.getUniqueID(), target.getX(), target.getY(), target.getZ(), failure);
+            if (!InteractionInventorySupport.normalizeAndSync(player, target)) {
                 interactionSucceeded = false;
             }
         }
