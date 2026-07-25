@@ -20,7 +20,7 @@
 - metadata 仍沿用 vanilla 0..15 假设，未对齐 EndlessIDs 在 `ExtendedBlockStorage` 中保存的完整 16-bit metadata 域。
 - TAKEOVER 的客户端 anchor echo 重复证明了 pending/current 服务端 exact 门已经证明的事实，把正常耐久/NBT 同步延迟误判为冲突；该回显门对候选、ledger 或库存安全没有新增证明力。
 
-## 修复方案
+## 5.0.21 历史修复方案
 
 - 将协议合法域扩展为正 24-bit ID 与 metadata 0..`0xFFFF`，不 mask/truncate；保持 `int` wire、60-byte framing、协议版本 v3 和同版本要求不变，越界异常只记录安全标量。
 - adapter 在松键 light/context 捕获失败时发布 `KeyStateEvent(false, null)`，不再调用 lifecycle reset，并输出单次边沿 marker。
@@ -28,9 +28,16 @@
 - 真实连接/世界生命周期入口仍通过 `ResetEvent` 硬复位，禁止跨连接盲目恢复。
 - TAKEOVER 保留 pending/current 服务端 anchor exact、候选 exact/耐久、ledger role、槽位与库存上下文，只删除客户端 anchor echo exact 门；结算日志增加固定有界 reason 供后续真实日志定位。
 
+## 当前演进修复
+
+- 上述正 24-bit ID 与 16-bit metadata 是 `5.0.21` 已发布版本的历史合同，不反向改写其 tag、Release 或日志事实。当前实现进一步确认 packet 两字段本来就是 signed `int`，因此去除剩余人为窄化：存在目标 block ID 接受 `1..Integer.MAX_VALUE`，metadata 接受 `0..Integer.MAX_VALUE`，block ID `0` 仍为空气/缺席 sentinel。
+- DTO、服务端 round capability key、客户端目标身份与对象组 selector/domain 共用完整 int 边界；负值与存在目标 ID 0 继续拒绝。协议 v3、字段顺序、60-byte framing、六包注册、对象组字符串 schema/wire 和库存事务均不变。
+- 测试不得用 `Integer.MAX_VALUE + 1` 构造伪越界 int；以负值、ID 0 与十进制字符串 `2147483648` 分别覆盖值域和 parser 越界。
+
 ## 预防措施
 
 - 声明兼容 ID 扩展器时，协议、值对象与网络请求必须共享 ID/metadata 域常量，并覆盖 4096、32767、24-bit ID 最大值、metadata 16/24902/65535 及越界值。
+- 当前边界以字段真实类型为准：覆盖 16、24902、65535、16777216 与 `Integer.MAX_VALUE`，不从旧存储实现或历史扩展器位宽继续推导新的人工上限。
 - 区分“事实暂不可采样”与“生命周期已结束”：前者保留事务账本并安全重试，后者才允许硬复位。
 - 对库存事务的 release 路径建立 `null capture → RESTORE → CLOSE → next round` 回归，并固定检索 marker：`[AutoToolSwap] release fact capture failed; preserving round for retry`。
 - 新鲜度门逐项标注事实权威与证明对象；服务端 pending/current 已 exact 的事实不得再依赖客户端滞后 echo，且每个 TAKEOVER 结算以单条固定 reason 记录首个拒绝门。

@@ -22,7 +22,8 @@ public class ObjectGroupWireConfigTest {
         ObjectGroupRuleSet rules = new ObjectGroupRuleSet(Collections.singletonList(
                 new ObjectGroup("logs", Collections.singletonList(ObjectGroupMode.CHAIN_LOGGING), 4L, Arrays.asList(
                         ObjectGroupParser.parseSelector("minecraft:log@0"),
-                        ObjectGroupParser.parseSelector("minecraft:log@[4,8,12]")))));
+                        ObjectGroupParser.parseSelector(
+                                "minecraft:log@[4,8,12,16,24902,65535,16777216,2147483647]")))));
         ObjectGroupWireConfig source = ObjectGroupWireConfig.fromRuleSet(7L, rules);
         ByteBuf buf = Unpooled.buffer(source.encodedSize());
         source.write(buf);
@@ -32,7 +33,16 @@ public class ObjectGroupWireConfigTest {
         Assert.assertEquals(ObjectGroupWireConfig.PROTOCOL_VERSION, decoded.protocolVersion());
         Assert.assertEquals(7L, decoded.revision());
         Assert.assertEquals(4L, decoded.groups().get(0).modeMask());
-        Assert.assertEquals("minecraft:log@[4,8,12]", decoded.groups().get(0).members().get(1));
+        Assert.assertEquals("minecraft:log@[4,8,12,16,24902,65535,16777216,2147483647]",
+                decoded.groups().get(0).members().get(1));
+        ObjectGroupParser.ParseResult reparsed = ObjectGroupParser.parse(decoded);
+        Assert.assertTrue(reparsed.isValid());
+        Assert.assertEquals(2, reparsed.rules().groups().get(0).members().size());
+        Assert.assertEquals("minecraft:log@0",
+                reparsed.rules().groups().get(0).members().get(0).canonical());
+        Assert.assertTrue(reparsed.rules().groups().get(0).matches("minecraft:log", Integer.MAX_VALUE));
+        Assert.assertEquals(ObjectGroupWireConfig.MAX_STRING_BYTES,
+                ObjectGroupSelector.MAX_CANONICAL_LENGTH);
     }
 
     @Test

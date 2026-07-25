@@ -638,6 +638,31 @@ public class AutoToolSwapRoundServiceTest {
     }
 
     @Test
+    public void targetCapabilityAndTakeoverKeepTheFullNonNegativeIntDomain() {
+        AutoToolSwapRoundService.TargetCapabilityKey maximum =
+                AutoToolSwapRoundService.TargetCapabilityKey.of(Integer.MAX_VALUE, Integer.MAX_VALUE);
+        Assert.assertTrue(maximum.sameCapability(
+                AutoToolSwapRoundService.TargetCapabilityKey.of(Integer.MAX_VALUE, Integer.MAX_VALUE)));
+        Assert.assertFalse(maximum.sameCapability(
+                AutoToolSwapRoundService.TargetCapabilityKey.of(16777216, Integer.MAX_VALUE)));
+        Assert.assertFalse(maximum.sameCapability(
+                AutoToolSwapRoundService.TargetCapabilityKey.of(Integer.MAX_VALUE, 16777216)));
+        assertInvalidTargetCapability(0, 0);
+        assertInvalidTargetCapability(-1, 0);
+        assertInvalidTargetCapability(1, -1);
+
+        Fixture fixture = fixture();
+        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(
+                fixture.player, fixture.endpoint, fixture.roundId, 7,
+                1, 64, 2, Integer.MAX_VALUE, Integer.MAX_VALUE,
+                0, fixture.inventory.slots[0], 10L, 18L);
+        Assert.assertNotNull(request);
+        Assert.assertEquals(Integer.MAX_VALUE, request.targetBlockId());
+        Assert.assertEquals(Integer.MAX_VALUE, request.targetBlockMetadata());
+    }
+
+    @Test
     public void emptyHandLeaseIsSingleRoundScopedAndCannotCoexistWithLedgerOrPending() {
         Fixture fixture = fixture();
         fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
@@ -1220,6 +1245,15 @@ public class AutoToolSwapRoundServiceTest {
         Assert.assertEquals(nextSequence, fixture.service.snapshot(fixture.player).nextActionSequence());
         Assert.assertEquals("重复迟到 intent 不得重复诊断", 1, logs.size());
         assertZeroTakeoverInventoryAccess(fixture.inventory);
+    }
+
+    private static void assertInvalidTargetCapability(int blockId, int metadata) {
+        try {
+            AutoToolSwapRoundService.TargetCapabilityKey.of(blockId, metadata);
+            Assert.fail("invalid target capability must fail");
+        } catch (IllegalArgumentException expected) {
+            // 合同断言
+        }
     }
 
     private static void assertSingleTakeoverGateStopDiagnostic(List<String> logs, String cause,

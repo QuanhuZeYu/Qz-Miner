@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,6 +16,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 import club.heiqi.qz_miner.parallel.ParallelTickStage;
+import net.minecraftforge.common.util.ForgeDirection;
 
 /** 六个预算化 traverser 共用空气候选事务的合同测试。 */
 public class BudgetedChainTraverserAirBudgetContractTest {
@@ -119,6 +121,53 @@ public class BudgetedChainTraverserAirBudgetContractTest {
         assertAirBreaksChain(new LoggingFloodFillTraverser(1), ChainSubMode.CHAIN_LOGGING, false);
         assertAirBreaksChain(
                 new GregTechCableTraverser(null), ChainSubMode.SPECIAL_GT_CABLE_REPLACE, true);
+    }
+
+    /** GT origin 成功后，connected-neighbor 空气在配额失败时可重试且不桥接后方实体。 */
+    @Test
+    public void gregTechConnectedAirQuotaRetryDoesNotBridge() throws Exception {
+        MutableBlocks blocks = new MutableBlocks(true);
+        blocks.put(ORIGIN, false);
+        blocks.put(X2, false);
+        ChainSearchContext context = context(
+                ChainSubMode.SPECIAL_GT_CABLE_REPLACE, ORIGIN, 4, 8, blocks);
+        for (int index = 0; index < 1023; index++) {
+            Assert.assertEquals(PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED,
+                    context.tryCommitPlanningCandidate(new SliceControl(1),
+                            new ChainTarget(index + 100, 0, 0)));
+        }
+        GregTechCableTraverser traverser = new GregTechCableTraverser(null);
+        List<ChainTarget> accepted = new ArrayList<ChainTarget>();
+        List<ChainTarget> matcherCalls = new ArrayList<ChainTarget>();
+        traverser.seed(context);
+
+        TraversalStepResult originSubmitted = traverser.step(context, new SliceControl(5), target -> {
+            matcherCalls.add(target);
+            return true;
+        }, accepted::add);
+        Assert.assertEquals(TraversalStepResult.YIELDED, originSubmitted);
+        Assert.assertEquals(singleton(ORIGIN), accepted);
+        Assert.assertEquals(singleton(ORIGIN), matcherCalls);
+        installConnectedDirections(traverser, ForgeDirection.EAST);
+
+        TraversalStepResult quotaFailure = traverser.step(
+                context, new QuotaRejectingControl(), target -> true, accepted::add);
+        Assert.assertEquals(TraversalStepResult.YIELDED, quotaFailure);
+        Assert.assertEquals(1023, context.getPlanningAirRemainder());
+        Assert.assertFalse("扣费失败不得提交 connected neighbor", context.getVisited().contains(X1));
+        Assert.assertEquals(1, blocks.getProbeCount(X1));
+
+        TraversalStepResult retried = traverser.step(
+                context, new SliceControl(1), target -> true, accepted::add);
+        Assert.assertEquals(TraversalStepResult.YIELDED, retried);
+        Assert.assertEquals(0, context.getPlanningAirRemainder());
+        Assert.assertTrue("重试成功后记录空气 neighbor 已观察", context.getVisited().contains(X1));
+        Assert.assertEquals(2, blocks.getProbeCount(X1));
+
+        Assert.assertEquals(TraversalStepResult.COMPLETED,
+                runToCompletion(traverser, context, 64, target -> true, accepted));
+        Assert.assertEquals(singleton(ORIGIN), accepted);
+        Assert.assertEquals("connected 空气不得桥接后方实体", 0, blocks.getProbeCount(X2));
     }
 
     private static TraversalOutcome floodOutcome(int budget) {
@@ -285,6 +334,14 @@ public class BudgetedChainTraverserAirBudgetContractTest {
         List<ChainTarget> result = new ArrayList<ChainTarget>();
         result.add(target);
         return result;
+    }
+
+    /** 纯 JVM fixture 注入 origin 已捕获的 GT 连接面，后续仍执行真实邻居状态机。 */
+    private static void installConnectedDirections(
+            GregTechCableTraverser traverser, ForgeDirection... directions) throws Exception {
+        Field field = GregTechCableTraverser.class.getDeclaredField("neighborDirections");
+        field.setAccessible(true);
+        field.set(traverser, new ArrayList<ForgeDirection>(java.util.Arrays.asList(directions)));
     }
 
     private static final class TraversalOutcome {

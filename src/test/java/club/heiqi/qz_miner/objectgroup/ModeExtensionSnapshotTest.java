@@ -33,12 +33,32 @@ public class ModeExtensionSnapshotTest {
         Assert.assertTrue(frozen.matches("minecraft:stone", 8));
         Assert.assertFalse(frozen.matches("minecraft:stone", 2));
         Assert.assertTrue(frozen.matches("minecraft:log", 15));
+        Assert.assertTrue(frozen.matches("minecraft:log", Integer.MAX_VALUE));
 
         ObjectGroup replacement = new ObjectGroup("new", Collections.singletonList(ObjectGroupMode.CHAIN_ORE), 2L,
                 Collections.singletonList(ObjectGroupSelector.single("minecraft:dirt", 0)));
         rules = new ObjectGroupRuleSet(Collections.singletonList(replacement));
         Assert.assertTrue(rules.resolve(2L, "minecraft:dirt", 0).matches("minecraft:dirt", 0));
         Assert.assertTrue(frozen.matches("minecraft:log", 7));
+    }
+
+    @Test
+    public void duplicateRegistryMembersUnionAcrossTheFullIntDomain() {
+        ObjectGroup group = new ObjectGroup("extended", Collections.singletonList(ObjectGroupMode.CHAIN_BASE), 1L,
+                Arrays.asList(ObjectGroupSelector.single("test:block", 16),
+                        ObjectGroupSelector.set("test:block", Arrays.asList(24902, 65535)),
+                        ObjectGroupSelector.single("test:block", 16777216),
+                        ObjectGroupSelector.single("test:block", Integer.MAX_VALUE)));
+
+        ModeExtensionSnapshot frozen = ModeExtensionSnapshot.from(group);
+
+        Assert.assertTrue(frozen.matches("test:block", 16));
+        Assert.assertTrue(frozen.matches("test:block", 24902));
+        Assert.assertTrue(frozen.matches("test:block", 65535));
+        Assert.assertTrue(frozen.matches("test:block", 16777216));
+        Assert.assertTrue(frozen.matches("test:block", Integer.MAX_VALUE));
+        Assert.assertFalse(frozen.matches("test:block", -1));
+        Assert.assertFalse(frozen.matches("test:block", 17));
     }
 
     @Test

@@ -4,31 +4,34 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/** 单次任务冻结的对象组扩展，热路径按 registry 查 16-bit metadata mask。 */
+/** 单次任务冻结的对象组扩展，热路径按 registry 查完整非负 int metadata 域。 */
 public final class ModeExtensionSnapshot {
-    public static final ModeExtensionSnapshot EMPTY = new ModeExtensionSnapshot(null, Collections.<String, Integer>emptyMap());
+    public static final ModeExtensionSnapshot EMPTY = new ModeExtensionSnapshot(
+            null, Collections.<String, ObjectGroupMetadataDomain>emptyMap());
 
     private final String groupId;
-    private final Map<String, Integer> metadataMasks;
+    private final Map<String, ObjectGroupMetadataDomain> metadataDomains;
 
-    private ModeExtensionSnapshot(String groupId, Map<String, Integer> metadataMasks) {
+    private ModeExtensionSnapshot(String groupId, Map<String, ObjectGroupMetadataDomain> metadataDomains) {
         this.groupId = groupId;
-        this.metadataMasks = metadataMasks;
+        this.metadataDomains = metadataDomains;
     }
 
     /** 从已选择对象组构建不可变索引。 */
     public static ModeExtensionSnapshot from(ObjectGroup group) {
-        Map<String, Integer> masks = new HashMap<String, Integer>();
+        Map<String, ObjectGroupMetadataDomain> domains =
+                new HashMap<String, ObjectGroupMetadataDomain>();
         for (ObjectGroupSelector selector : group.members()) {
-            int mask = masks.containsKey(selector.registry()) ? masks.get(selector.registry()).intValue() : 0;
-            masks.put(selector.registry(), Integer.valueOf(mask | selector.metadataMask()));
+            ObjectGroupMetadataDomain domain = ObjectGroupMetadataDomain.from(selector);
+            ObjectGroupMetadataDomain previous = domains.get(selector.registry());
+            domains.put(selector.registry(), previous == null ? domain : previous.union(domain));
         }
-        return new ModeExtensionSnapshot(group.id(), Collections.unmodifiableMap(masks));
+        return new ModeExtensionSnapshot(group.id(), Collections.unmodifiableMap(domains));
     }
 
     public boolean matches(String registry, int meta) {
-        Integer mask = registry == null ? null : metadataMasks.get(registry);
-        return mask != null && meta >= 0 && meta < 16 && (mask.intValue() & (1 << meta)) != 0;
+        ObjectGroupMetadataDomain domain = registry == null ? null : metadataDomains.get(registry);
+        return domain != null && domain.matches(meta);
     }
 
     public boolean isEmpty() { return groupId == null; }

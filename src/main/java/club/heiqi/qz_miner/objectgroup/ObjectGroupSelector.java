@@ -10,6 +10,8 @@ import java.util.List;
 public final class ObjectGroupSelector {
 
     public static final int MAX_REGISTRY_LENGTH = 256;
+    /** canonical selector 仅含 ASCII，字符数同时就是 UTF-8 wire 字节数。 */
+    public static final int MAX_CANONICAL_LENGTH = 1024;
 
     /** 选择器具体性，数值越小优先级越高。 */
     public enum Specificity {
@@ -27,10 +29,11 @@ public final class ObjectGroupSelector {
         this.registry = registry;
         this.specificity = specificity;
         this.metadata = Collections.unmodifiableList(new ArrayList<Integer>(metadata));
+        String value;
         if (specificity == Specificity.SINGLE) {
-            canonical = registry + "@" + metadata.get(0);
+            value = registry + "@" + metadata.get(0);
         } else if (specificity == Specificity.WILDCARD) {
-            canonical = registry + "@*";
+            value = registry + "@*";
         } else {
             StringBuilder out = new StringBuilder(registry).append("@[");
             for (int i = 0; i < metadata.size(); i++) {
@@ -38,9 +41,16 @@ public final class ObjectGroupSelector {
                     out.append(',');
                 }
                 out.append(metadata.get(i));
+                if (out.length() >= MAX_CANONICAL_LENGTH) {
+                    throw new IllegalArgumentException("selector exceeds 1024-byte wire limit");
+                }
             }
-            canonical = out.append(']').toString();
+            value = out.append(']').toString();
         }
+        if (value.length() > MAX_CANONICAL_LENGTH) {
+            throw new IllegalArgumentException("selector exceeds 1024-byte wire limit");
+        }
+        canonical = value;
     }
 
     /** 创建单 metadata 选择器。 */
@@ -56,6 +66,10 @@ public final class ObjectGroupSelector {
         checkRegistry(registry);
         if (metas == null || metas.isEmpty()) {
             throw new IllegalArgumentException("metadata set must not be empty");
+        }
+        int largestPossibleMemberCount = (MAX_CANONICAL_LENGTH - registry.length() - 2) / 2;
+        if (metas.size() > largestPossibleMemberCount) {
+            throw new IllegalArgumentException("selector exceeds 1024-byte wire limit");
         }
         List<Integer> copy = new ArrayList<Integer>();
         for (Integer meta : metas) {
@@ -92,40 +106,11 @@ public final class ObjectGroupSelector {
     }
 
     public boolean matches(String candidateRegistry, int candidateMeta) {
-        if (!registry.equals(candidateRegistry) || candidateMeta < 0 || candidateMeta > 15) {
+        if (!registry.equals(candidateRegistry) || candidateMeta < 0) {
             return false;
         }
         return specificity == Specificity.WILDCARD
-                || metadata.contains(Integer.valueOf(candidateMeta));
-    }
-
-    /** @return selector 覆盖的 metadata 16-bit mask。 */
-    public int metadataMask() {
-        if (specificity == Specificity.WILDCARD) {
-            return 0xFFFF;
-        }
-        int mask = 0;
-        for (Integer meta : metadata) {
-            mask |= 1 << meta.intValue();
-        }
-        return mask;
-    }
-
-    /** 从非零 16-bit metadata mask 创建规范化 selector。 */
-    public static ObjectGroupSelector fromMask(String registry, int mask) {
-        if ((mask & 0xFFFF) == 0) {
-            throw new IllegalArgumentException("metadata mask must not be empty");
-        }
-        if ((mask & 0xFFFF) == 0xFFFF) {
-            return wildcard(registry);
-        }
-        List<Integer> metas = new ArrayList<Integer>();
-        for (int meta = 0; meta < 16; meta++) {
-            if ((mask & (1 << meta)) != 0) {
-                metas.add(Integer.valueOf(meta));
-            }
-        }
-        return metas.size() == 1 ? single(registry, metas.get(0).intValue()) : set(registry, metas);
+                || Collections.binarySearch(metadata, Integer.valueOf(candidateMeta)) >= 0;
     }
 
     /** @return 标准化后的完整 selector 语法 */
@@ -148,8 +133,8 @@ public final class ObjectGroupSelector {
     }
 
     private static void checkMeta(int meta) {
-        if (meta < 0 || meta > 15) {
-            throw new IllegalArgumentException("metadata must be in [0,15]: " + meta);
+        if (meta < 0) {
+            throw new IllegalArgumentException("metadata must be a non-negative int: " + meta);
         }
     }
 }

@@ -26,7 +26,10 @@ public final class AutoToolSwapTakeoverRequest {
                 || targetBlockId > AutoToolSwapProtocol.MAX_BLOCK_ID || targetBlockMetadata < 0
                 || targetBlockMetadata > AutoToolSwapProtocol.MAX_BLOCK_METADATA || serverTick < 0L
                 || deadlineTick <= serverTick) {
-            throw new IllegalArgumentException("invalid auto tool takeover request");
+            throw new IllegalArgumentException("invalid auto tool takeover request: targetBlockId="
+                    + targetBlockId + " blockIdMax=" + AutoToolSwapProtocol.MAX_BLOCK_ID
+                    + " targetBlockMetadata=" + targetBlockMetadata
+                    + " metadataMax=" + AutoToolSwapProtocol.MAX_BLOCK_METADATA);
         }
         this.protocolVersion = protocolVersion;
         this.serverRoundId = serverRoundId;

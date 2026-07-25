@@ -102,7 +102,7 @@ public final class AutoToolSwapRoundService {
             this.metadata = metadata;
         }
 
-        /** 创建保留完整扩展 id 与 metadata 的纯值键。 */
+        /** 创建保留完整正 int id 与非负 int metadata 的纯值键。 */
         public static TargetCapabilityKey of(int blockId, int metadata) {
             return new TargetCapabilityKey(blockId, metadata);
         }

@@ -36,6 +36,7 @@
 - RESTORE 交换的是校验通过后的两个当前真实栈，不使用 ledger 旧内容回写；因此不会回滚动态变化，也不会复制或吞掉栈。sameRole 只证明角色所有权，不承诺对象 instance identity。原 anchor 非空时 candidate 仍须保持同 role；原 anchor 为空时允许 candidate 被任意当前真实栈占用，RESTORE 将占位栈直接交换到主手并把借用工具送回原槽。该窄例外不放宽 intent 双槽 exact 新鲜度、活动工具 role/empty 或库存安全上下文。
 - `ABANDON(5)` 是无法安全 RESTORE 时的显式收口动作：请求使用 ledger 真实双槽与两个 canonical control fingerprint。服务端只接受当前 endpoint/round/sequence、`SWAPPED/FROZEN/CLOSING`、匹配 ledger 槽位；成功时不读取、不交换、不同步库存，只清 ledger/keyDown 并进入 FINISHED。重复相同 intent 复用动作缓存，旧身份或拒绝不得清当前账本。
 - `TAKEOVER(6)`/`DECLINE_TAKEOVER(7)` 是 FROZEN 中途的独立同 round 事务。服务端为队首目标建立唯一 pending 并预留 next sequence；客户端下一 ClientTick 使用请求 block id/meta 采样。无 ledger 双槽交换；有 ledger 单次轮转 `A<-D,C<-A,D<-C`，ledger 滚动到新候选且保留最初 anchor。原 anchor 为空、deadline 前精确匹配 pending 的 DECLINE 结算为内部 `DECLINED`，Coordinator 随后重验空手、库存安全与实时采掘权威；非空 anchor 的同结构精确 DECLINE 表示无候选，零库存访问结算为 `SKIP_TARGET` 并记录固定 `no-candidate`。畸形 DECLINE 仍 STOP。
+- takeover target 与首块前准星身份共用完整 signed `int` 值域：存在目标的 block ID 为 `1..Integer.MAX_VALUE`，metadata 为 `0..Integer.MAX_VALUE`，block ID `0` 保留为空气/缺席 sentinel。协议 v3 的两个 `int` 字段、字段顺序、60-byte 固定帧、六包注册和同版本原子升级边界均不变；负值与存在目标 ID 0 fail-closed。
 - pending takeover 只约束继续执行动作，不得阻断 round 终裁。服务端先完成 endpoint/round/幂等/sequence 校验，再允许 `CLOSE`、`RESTORE`、`ABANDON` 退休等待门：WAITING 先转 STOP 并输出一次固定诊断，DECLINED/STOP/APPLIED 直接移除，随后严格沿既有 ledger 合同结算。旧 sequence 或旧身份的迟到 TAKEOVER 在任何库存读取、写入、同步和诊断快照前拒绝。
 - 合法空 anchor DECLINE 被执行桥消费后，只有同一主线程时刻的库存安全门、空手、完整 0..35 `AutoToolSwapStackState.sameContent` identity 与实时采掘权威都成立，才安装单项 round-scoped 空手回退租约。租约绑定 endpoint/round/generation、当前热栏锚点与不含坐标的 block id + 完整 metadata；不与 ledger/pending 共存，并随关闭、终态或生命周期清理。
 - 同一租约后续命中只省略 TAKEOVER/DECLINE 网络往返，不省略每目标 `ChainHarvestRules.canHarvest`。block/meta、任一槽数量/耐久/NBT/内容、选中槽、GUI/cursor、endpoint/round/generation 变化均清旧租约并重新执行真实候选优先决策；A→B→A 必须重新协商 A。诊断不逐目标记录 hit，只在 create/invalidated 与 round close 汇总计数。
@@ -93,6 +94,7 @@
 
 ## 演进
 
+- 2026-07-25：去除自动工具目标身份残留的 24-bit/16-bit 人为上限，DTO、packet 校验、空手租约 capability key 与客户端目标身份统一接受完整正/非负 int 域。保留 block ID 0 sentinel、协议 v3、两个 int 字段、60-byte framing、库存事务与状态机语义；运行态继续标记 INCOMPLETE。
 - 2026-07-25：按最终语义把 planner 分为 CHAIN 冻结能力断链与 AREA 爆破宽进：CHAIN server/preview 绑定主手、背包全部工具与空手并集，含对象组和伐木 matcher=false 都阻断邻居；AREA 只守空间与子模式结构并把目标逐个交主线程尝试。保留真实 `tryHarvestBlock` 结果、实际 poll 预算、零成功推进与通用 Item API；效率采样异常只降级为 false。toolswap v3 wire、配置 schema、五态转移表、既有 STOP 来源与 GT 线缆原子例外不变，运行态仍为 INCOMPLETE。
 - 2026-07-24：将普通 CHAIN/AREA 的接替校验拆为目标级 `SKIP_TARGET` 与会话级 STOP。仅实时目标权威、失效 block/meta 及已推进 sequence 的 candidate fingerprint/低耐久/精确无候选结算局部跳过；未结算事务、身份、库存、ledger、sync/orphan 故障不放宽。执行预算改按 poll 计数，零成功消费继续发布推进并自然完成。当时把 `CHAIN_LOGGING` matcher 拒绝视为可桥接软失败的中间方案已由 2026-07-25 最终断链语义取代。
 - 2026-07-21：曾为 TiC `HarvestTool` 族增加 null-harvestTool 类名适配；该白名单方案现已被所有未知工具共用的稳定 `Item.canHarvestBlock` 虚调用取代，显式 harvestTool 仍由 Forge 终裁。
