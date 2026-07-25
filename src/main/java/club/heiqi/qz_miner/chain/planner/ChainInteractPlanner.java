@@ -6,8 +6,13 @@ import club.heiqi.qz_miner.chain.eventbus.event.RightClickObserved;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeTrigger;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
+import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 import net.minecraftforge.common.MinecraftForge;
@@ -55,6 +60,9 @@ public class ChainInteractPlanner {
             return;
         }
 
+        // RIGHT_CLICK_BLOCK 发布前是 seed 世界事实的最后存活窗口：先冻结 block/meta/TE token，
+        // 后续 drain/规划不得用已经被本次右键改变的 live world 覆盖。
+        FrozenInteractSeed frozenSeed = freezeInteractSeed(player, event);
         HitOffset hitOffset = resolveHitOffset(player, event);
         // 守 I1：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
         // 阶段8：旧 startPlanning 已删，仅 publish 走新链路 T4 右键观测入口
@@ -67,8 +75,32 @@ public class ChainInteractPlanner {
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     event.x, event.y, event.z, player.dimension,
                     normalizeFace(event.face),
-                    hitOffset.hitX, hitOffset.hitY, hitOffset.hitZ));
+                    hitOffset.hitX, hitOffset.hitY, hitOffset.hitZ,
+                    frozenSeed.block, frozenSeed.metadata, frozenSeed.tileIdentity));
         }
+    }
+
+    /**
+     * 在原服务端右键事件窗口冻结规划种子；任一世界读取异常都保留 UNRESOLVED，禁止跨 tick 猜测。
+     */
+    private FrozenInteractSeed freezeInteractSeed(EntityPlayerMP player, PlayerInteractEvent event) {
+        Block seedBlock = Blocks.air;
+        int seedMeta = 0;
+        TileIdentityToken seedTileIdentity = TileIdentityToken.unresolved();
+        try {
+            Block observedBlock = player.worldObj.getBlock(event.x, event.y, event.z);
+            int observedMeta = player.worldObj.getBlockMetadata(event.x, event.y, event.z);
+            TileEntity observedTileEntity = player.worldObj.getTileEntity(event.x, event.y, event.z);
+            TileIdentityToken observedTileIdentity = CompatAdapters.captureTileIdentity(observedTileEntity);
+
+            seedBlock = observedBlock == null ? Blocks.air : observedBlock;
+            seedMeta = Math.max(0, observedMeta);
+            seedTileIdentity = observedBlock == null || observedBlock == Blocks.air || observedMeta < 0
+                    ? TileIdentityToken.unresolved() : observedTileIdentity;
+        } catch (RuntimeException | LinkageError failure) {
+            seedTileIdentity = TileIdentityToken.unresolved();
+        }
+        return new FrozenInteractSeed(seedBlock, seedMeta, seedTileIdentity);
     }
 
     /**
@@ -172,6 +204,20 @@ public class ChainInteractPlanner {
             this.hitX = hitX;
             this.hitY = hitY;
             this.hitZ = hitZ;
+        }
+    }
+
+    /** 原右键事件窗口冻结的纯值规划种子。 */
+    private static final class FrozenInteractSeed {
+
+        private final Block block;
+        private final int metadata;
+        private final TileIdentityToken tileIdentity;
+
+        private FrozenInteractSeed(Block block, int metadata, TileIdentityToken tileIdentity) {
+            this.block = block;
+            this.metadata = metadata;
+            this.tileIdentity = tileIdentity == null ? TileIdentityToken.unresolved() : tileIdentity;
         }
     }
 }

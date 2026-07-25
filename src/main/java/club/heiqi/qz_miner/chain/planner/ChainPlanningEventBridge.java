@@ -131,8 +131,8 @@ public class ChainPlanningEventBridge {
         }
 
         final ChainTarget origin = new ChainTarget(event.getX(), event.getY(), event.getZ());
-        // 种子解析：破坏路径（BlockBreakObserved）在 drainer 推迟到下一 tick drain 时方块已被原版 removeBlock 成空气，
-        // 必须用事件携带的 seedBlock/seedMeta（破坏时刻捕获）构造种子；右键/左键路径块仍在世界，走兜底 WorldBlockSeedResolver。
+        // 种子解析：破坏与右键路径都优先使用各自原事件窗口冻结的 block/meta/token；
+        // 右键可能已在同次原版交互中改变世界，规划时不得覆盖冻结值。仅无冻结 seed 的左键兼容路径走 resolver。
         BlockSeedSnapshot seedSnapshot;
         if (event.getSeedBlock() != null) {
             seedSnapshot = new BlockSeedSnapshot(
@@ -293,7 +293,6 @@ public class ChainPlanningEventBridge {
                             && !context.isExternalPlanningCancellationRequested()) {
                         // 阶段 4：影子 queue 仅推进 traverser 用，不驱动执行
                         shadowQueue.add(target);
-                        searchContext.incrementConfirmedCount();
                     }
                 });
         if (traversalResult == TraversalStepResult.TERMINATED) {

@@ -180,15 +180,15 @@ public class ChainStateMachine {
         if (slot.phase == ChainPhase.ARMED) {
             int nextGen = slot.generation + 1;
             applyTransition(slot, slot.phase, ChainPhase.PLANNING, event, nextGen);
-            // 阶段4：T4 转移后 publish PlanStarted，右键路径携带实际命中偏移供 INTERACT flood fill 方向判定
-            // 右键路径块仍在世界，seed 传 null/0 由 bridge 走 WorldBlockSeedResolver 兜底
+            // T4 转移后 publish PlanStarted；右键路径同时原样传播原事件窗口冻结的完整 seed，
+            // 禁止规划时用已被本次右键改变的 live world 覆盖。
             bus.publish(new PlanStarted(
                     event.getPlayerUUID(), event.getServerRoundId(), nextGen,
                     event.getServerTick(), ChainTickSource.nowNanos(),
                     event.getX(), event.getY(), event.getZ(),
                     event.getDimensionId(), event.getSideHit(),
                     event.getHitX(), event.getHitY(), event.getHitZ(),
-                    null, 0));
+                    event.getSeedBlock(), event.getSeedMeta(), event.getSeedTileIdentity()));
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.PLANNING);
         }

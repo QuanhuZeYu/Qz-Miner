@@ -19,21 +19,42 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
 
     @Override
     public boolean canExecute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
-        if (player == null || session == null || target == null) {
+        if (player == null || session == null || session.getRequest() == null || target == null
+                || player.worldObj == null) {
             return false;
         }
 
-        return player.worldObj.blockExists(target.getX(), target.getY(), target.getZ());
+        int x = target.getX();
+        int y = target.getY();
+        int z = target.getZ();
+        int face = session.getRequest().getInteractFace();
+        try {
+            if (!player.worldObj.blockExists(x, y, z)
+                    || !player.worldObj.canMineBlock(player, x, y, z)) {
+                return false;
+            }
+            ItemStack currentStack = player.getCurrentEquippedItem();
+            return player.canPlayerEdit(x, y, z, face, currentStack);
+        } catch (RuntimeException | LinkageError failure) {
+            MyMod.LOG.error("[BlockInteractActionExecutor] Failed interaction permission check for player {} at ({}, {}, {})",
+                    player.getUniqueID(), Integer.valueOf(x), Integer.valueOf(y), Integer.valueOf(z), failure);
+            return false;
+        }
     }
 
     @Override
     public boolean execute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
+        if (player == null || session == null || session.getRequest() == null || target == null
+                || player.worldObj == null || player.theItemInWorldManager == null) {
+            return false;
+        }
         try {
-            ItemStack equippedItem = player.getCurrentEquippedItem();
-            boolean activated = player.theItemInWorldManager.activateBlockOrUseItem(
+            // 每个目标执行前重新读取当前主手；玩家中途换物或上一目标耗尽时不得复用旧引用。
+            ItemStack currentStack = player.getCurrentEquippedItem();
+            return player.theItemInWorldManager.activateBlockOrUseItem(
                 player,
                 player.worldObj,
-                equippedItem,
+                currentStack,
                 target.getX(),
                 target.getY(),
                 target.getZ(),
@@ -41,13 +62,9 @@ public class BlockInteractActionExecutor implements ChainActionExecutor {
                 session.getRequest().getInteractHitX(),
                 session.getRequest().getInteractHitY(),
                 session.getRequest().getInteractHitZ());
-            if (!activated && equippedItem != null) {
-                return player.theItemInWorldManager.tryUseItem(player, player.worldObj, equippedItem);
-            }
-            return activated;
-        } catch (Exception e) {
+        } catch (RuntimeException | LinkageError failure) {
             MyMod.LOG.error("[BlockInteractActionExecutor] Failed to interact block for player {} at ({}, {}, {})",
-                player.getUniqueID(), target.getX(), target.getY(), target.getZ(), e);
+                player.getUniqueID(), target.getX(), target.getY(), target.getZ(), failure);
             return false;
         }
     }
