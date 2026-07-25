@@ -3,9 +3,10 @@ package club.heiqi.qz_miner.toolswap.protocol;
 /** 自动工具换位服务端协议的固定常量与槽位校验。 */
 public final class AutoToolSwapProtocol {
 
-    public static final int PROTOCOL_VERSION = 3;
+    public static final int PROTOCOL_VERSION = 4;
     public static final long NO_SERVER_ROUND_ID = 0L;
     public static final long FIRST_ACTION_SEQUENCE = 1L;
+    public static final long FIRST_TAKEOVER_REQUEST_ID = 1L;
     public static final int INVENTORY_FIRST_SLOT = 0;
     public static final int INVENTORY_LAST_SLOT = 35;
     public static final int INVENTORY_SLOT_COUNT = 36;

@@ -18,15 +18,21 @@
 - `tryCompletePlanningAndPublish` 先写 confirmed count、COMPLETED 与 volatile `planningComplete`，之后才调用 publication，倒置了跨线程可见性的线性化顺序；publication 抛错后还会遗留不可撤销的本地完成态。
 - capability profile 没有把方法语义与声明 owner 一并核验，把红石/邻居通知误当成线缆客户端与网络刷新必需能力。
 
-## 修复方案
+## 当时修复方案（v3）
 
 - endpoint/round/幂等与 sequence 全部通过后，只有 CLOSE/RESTORE/ABANDON 可退休 pending：WAITING 先输出一次 STOP 诊断，DECLINED/STOP/APPLIED 直接移除，再执行既有 CLOSE/ledger 恢复/放弃语义。其它非 TAKEOVER 动作仍被等待门阻断；迟到 TAKEOVER 在 sequence/身份门拒绝且零库存副作用。
 - `PlanCompleted` publication 成功返回后才固化 confirmed count 与 COMPLETED，并最后写 `planningComplete=true`。规划桥捕获 `RuntimeException`/`LinkageError`，保持 context ACTIVE 后通过既有单次 worker 取消 publication 发布 `PlanCancelled(reason=plan-completion-publication-failed)`；生产 completion Runnable 只做 bus publish，成功后再写诊断。
 - 从 GT profile 删除 `issueBlockUpdate` 的字段、解析、调用、copy、missing 与 all-present 条件；继续要求 `issueTextureUpdate`、`issueTileUpdate` 和 `causeCableUpdate`。
 
-## 预防措施
+## 当时预防措施（v3）
 
 - 异步资源等待门只能延迟继续执行，不能覆盖生命周期终裁；测试矩阵必须覆盖 WAITING/DECLINED/STOP/APPLIED × CLOSE/RESTORE/ABANDON，以及旧 sequence/endpoint/round 的零副作用拒绝。
 - 跨线程完成标志必须最后写；测试用 latch 卡住 publication，直接断言 publication 返回前 `isPlanningComplete/isCompleted=false`，并注入运行时异常与链接错误验证仅一次取消且无 COMPLETED 残留。
 - 可选模组 required profile 逐项记录 owner 与业务语义；升级基线时同时核对“成员存在于哪里”和“替换真正依赖什么”，不得为方便扩大 I6 反射面。
 - 自动化通过不能替代自动工具、规划事件顺序与两代 GT 线缆真实运行态；hotfix 实机状态继续记为 **INCOMPLETE**。
+
+## v4 当前边界
+
+- TAKEOVER/DECLINE 已从普通 `actionSequence` 分离为独立 `takeoverRequestId`。CLOSE/RESTORE/ABANDON 仍可在普通 sequence 精确通过后退休尚未 committed 的等待门，不再被 request-local deadline、发送或目标漂移放大阻断。
+- mutation 或待发送 ActionResult 已建立 exact publication pending 后，普通 CLOSE/RESTORE/ABANDON、deadline、release 与 IDLE 都不得抢占该提交点；它们必须等待同一结果可靠发布，只有断线、重生、切维度、服务停止等硬 lifecycle 清理可直接销毁记录。该规则避免“库存已经改写、却被普通收口遗忘 result/ledger”的新竞态。
+- 等待 publication 的目标保持 `peek` 且 Coordinator 返回 WAIT，不发布伪 `ExecutionAdvanced`；完整库存同步或 ActionResult sender 失败时只 exact retry，不重放 mutation。详细 recovery 合同见 `ERROR-20260725-auto-tool-request-sync-recovery.md`。

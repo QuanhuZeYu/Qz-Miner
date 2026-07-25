@@ -131,8 +131,28 @@ public class ServerAutoToolSwapRequestDispatchTest {
         Assert.assertEquals(2, fixture.service.intentCalls);
         Assert.assertEquals(2, fixture.inventoryCreates);
         Assert.assertEquals(2, fixture.actionReplies);
+        Assert.assertEquals(2, fixture.service.confirmCalls);
         Assert.assertEquals(1L, fixture.lastRawIntent.actionSequence);
         Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.lastActionResult.outcome());
+    }
+
+    @Test
+    public void actionResultSenderFailureDoesNotConfirmAndExactRetryCanConfirmLater() {
+        Fixture fixture = new Fixture();
+        fixture.failActionSend = true;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            submitIntent(fixture, AutoToolSwapAction.SWAP.wireCode(), 0, 1);
+            fixture.fifo.runNext();
+        }
+
+        Assert.assertEquals(3, fixture.service.intentCalls);
+        Assert.assertEquals(0, fixture.service.confirmCalls);
+        fixture.failActionSend = false;
+        submitIntent(fixture, AutoToolSwapAction.SWAP.wireCode(), 0, 1);
+        fixture.fifo.runNext();
+
+        Assert.assertEquals(4, fixture.service.intentCalls);
+        Assert.assertEquals(1, fixture.service.confirmCalls);
     }
 
     @Test
@@ -191,6 +211,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
         private AutoToolSwapRoundResult lastRoundResult;
         private ServerAutoToolSwapRequestDispatch.RawIntent lastRawIntent;
         private AutoToolSwapRoundResult lastActionResult;
+        private boolean failActionSend;
 
         private Fixture() {
             online.put(playerId, endpoint);
@@ -231,6 +252,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
         @Override
         public void send(UUID requestedPlayerId, Object requestedEndpoint,
                 ServerAutoToolSwapRequestDispatch.RawIntent rawIntent, AutoToolSwapRoundResult result) {
+            if (failActionSend) throw new IllegalStateException("sender failed");
             Assert.assertEquals(playerId, requestedPlayerId);
             Assert.assertSame(endpoint, requestedEndpoint);
             actionReplies++;
@@ -260,6 +282,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
     private static final class RecordingService implements ServerAutoToolSwapRequestDispatch.RoundService {
         private int beginCalls;
         private int intentCalls;
+        private int confirmCalls;
         private AutoToolSwapIntent lastIntent;
         private AutoToolSwapRoundResult beginResult = new AutoToolSwapRoundResult(0L,
                 AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.PENDING_KEY, 1L, 12L);
@@ -277,6 +300,13 @@ public class ServerAutoToolSwapRequestDispatchTest {
             lastIntent = intent;
             return new AutoToolSwapRoundResult(7L, AutoToolSwapResultCode.ACCEPTED,
                     AutoToolSwapRoundState.OPEN, 2L, serverTick);
+        }
+
+        @Override
+        public boolean confirmIntentResultPublication(UUID playerId, Object endpoint,
+                AutoToolSwapIntent intent, AutoToolSwapRoundResult result) {
+            confirmCalls++;
+            return true;
         }
     }
 }

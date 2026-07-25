@@ -13,7 +13,7 @@ public class PacketAutoToolSwapTakeoverRequestTest {
     @Test
     public void fixedPayloadRemainsSixtyBytes() {
         Assert.assertEquals(60, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
-        Assert.assertEquals(3, AutoToolSwapProtocol.PROTOCOL_VERSION);
+        Assert.assertEquals(4, AutoToolSwapProtocol.PROTOCOL_VERSION);
     }
 
     @Test

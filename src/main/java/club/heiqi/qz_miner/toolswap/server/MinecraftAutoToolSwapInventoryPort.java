@@ -82,7 +82,7 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
     }
 
     /**
-     * 直接交换两个不同的个人库存槽位，并立即将库存标记为脏。
+     * 直接交换两个不同的个人库存槽位。mutation 与可重试 publication 严格分离。
      *
      * @param anchorSlot 原工具所在槽位
      * @param candidateSlot 候选工具所在槽位
@@ -95,10 +95,9 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
             throw new IllegalArgumentException("inventory slots must differ");
         }
         swapMainInventorySlots(player.inventory.mainInventory, anchorSlot, candidateSlot);
-        player.inventory.markDirty();
     }
 
-    /** 一次性轮转三个互异槽位并只标脏一次。 */
+    /** 一次性轮转三个互异槽位；正常返回即为唯一 mutation commit。 */
     @Override
     public void rotateInventorySlotsAtomically(int anchorSlot, int oldCandidateSlot, int newCandidateSlot) {
         requireInventorySlot(anchorSlot);
@@ -109,13 +108,13 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
             throw new IllegalArgumentException("inventory slots must be distinct");
         }
         rotateMainInventorySlots(player.inventory.mainInventory, anchorSlot, oldCandidateSlot, newCandidateSlot);
-        player.inventory.markDirty();
     }
 
-    /** 将已应用的库存差异交给原版容器同步。 */
+    /** 每次都重新标脏并通过原版完整 window 0 publication 重发库存与 cursor。 */
     @Override
     public void syncInventoryDifference() {
-        player.inventoryContainer.detectAndSendChanges();
+        player.inventory.markDirty();
+        player.sendContainerToPlayer(player.inventoryContainer);
     }
 
     /**

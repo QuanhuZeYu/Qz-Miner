@@ -595,6 +595,40 @@ public class ChainExecutionEventBridgeTest {
     }
 
     @Test
+    public void publicationRetryWaitWithoutConsumptionDoesNotFeedFakeWatchdogProgress() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1104L, 15, targets(1), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<ExecutionAdvanced> advanced = new ArrayList<ExecutionAdvanced>();
+        bus.subscribe(ExecutionAdvanced.class, advanced::add);
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 4, target -> AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        Assert.fail("WAIT 不得到达 canExecute");
+                        return false;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        Assert.fail("WAIT 不得到达 execute");
+                        return false;
+                    }
+                });
+        bridge.finishOrdinaryTick(context, result);
+        bus.drain();
+
+        Assert.assertTrue(result.isWaiting());
+        Assert.assertEquals(0, result.getProcessedTargets());
+        Assert.assertEquals(0, context.getExecutionConsumedCount());
+        Assert.assertEquals(1, context.getTargets().size());
+        Assert.assertTrue("仅 publication retry WAIT 不得伪造 ExecutionAdvanced", advanced.isEmpty());
+        Assert.assertSame(context, registry.get(PLAYER, 15, 1104L));
+    }
+
+    @Test
     public void stopAfterConsumptionPublishesAdvanceBeforeExistingStopCleanup() {
         ChainEventBus bus = new ChainEventBus();
         bus.bindMainThread(Thread.currentThread());

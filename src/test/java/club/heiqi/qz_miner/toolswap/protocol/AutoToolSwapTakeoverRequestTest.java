@@ -13,6 +13,7 @@ public class AutoToolSwapTakeoverRequestTest {
                 -10, 64, 20, 42, 7, 100L, 109L);
         Assert.assertEquals(9L, request.serverRoundId());
         Assert.assertEquals(3L, request.actionSequence());
+        Assert.assertEquals(3L, request.takeoverRequestId());
         Assert.assertEquals(42, request.targetBlockId());
         Assert.assertEquals(7, request.targetBlockMetadata());
         Assert.assertTrue(request.sameGate(new AutoToolSwapTakeoverRequest(
@@ -42,8 +43,8 @@ public class AutoToolSwapTakeoverRequestTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void protocolV2FailsClosed() {
-        new AutoToolSwapTakeoverRequest(2, 9L, 3L, 4,
+    public void protocolV3FailsClosed() {
+        new AutoToolSwapTakeoverRequest(3, 9L, 3L, 4,
                 0, 64, 0, 1, 0, 1L, 2L);
     }
 

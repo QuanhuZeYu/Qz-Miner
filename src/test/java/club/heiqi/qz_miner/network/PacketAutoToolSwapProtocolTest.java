@@ -127,7 +127,7 @@ public class PacketAutoToolSwapProtocolTest {
     }
 
     @Test
-    public void abandonRoundTripsWithoutChangingFiveFrameLengthsOrRegistrations() throws Exception {
+    public void abandonRoundTripsWithoutChangingSixFrameLengthsOrRegistrations() throws Exception {
         AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
         AutoToolSwapIntent abandon = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 8L,
                 AutoToolSwapAction.ABANDON, 2, 19, empty, empty);
@@ -139,6 +139,7 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertEquals(96, PacketAutoToolSwapIntent.FIXED_PAYLOAD_BYTES);
         Assert.assertEquals(56, PacketAutoToolSwapActionResult.FIXED_PAYLOAD_BYTES);
         Assert.assertEquals(36, PacketAutoToolSwapRoundPhase.FIXED_PAYLOAD_BYTES);
+        Assert.assertEquals(60, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
 
         String network = new String(Files.readAllBytes(new File(
                 "src/main/java/club/heiqi/qz_miner/network/NetworkMain.java").toPath()), StandardCharsets.UTF_8);

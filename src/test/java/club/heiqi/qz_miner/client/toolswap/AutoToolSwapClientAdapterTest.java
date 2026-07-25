@@ -132,14 +132,18 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
-    public void waitsTwentyTicksToRetransmitSameRoundThenOrphansAtForty() {
+    public void waitsTwentyTicksToRetransmitSameRoundThenOrphansAtOneHundredTwenty() {
         adapter.onChainKeyState(true);
         long nonce = transport.rounds.get(0).longValue();
         for (int tick = 0; tick <= 20; tick++) adapter.onClientTick();
         Assert.assertEquals(2, transport.rounds.size());
         Assert.assertEquals(nonce, transport.rounds.get(1).longValue());
-        for (int tick = 21; tick <= 40; tick++) adapter.onClientTick();
+        for (int tick = 21; tick < 120; tick++) adapter.onClientTick();
+        Assert.assertFalse(adapter.reducerForTests().isOrphaned());
+        Assert.assertEquals("deadline 前应只按 20 tick cadence 重发", 6, transport.rounds.size());
+        adapter.onClientTick();
         Assert.assertTrue(adapter.reducerForTests().isOrphaned());
+        Assert.assertEquals("deadline tick 不得再发送 round", 6, transport.rounds.size());
     }
 
     @Test
@@ -806,9 +810,11 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     private void settle(AutoToolSwapIntent intent, AutoToolSwapResultCode result, AutoToolSwapRoundState state) {
+        long nextActionSequence = intent.usesTakeoverRequestId()
+                ? adapter.reducerForTests().nextActionSequence() : intent.actionSequence() + 1L;
         adapter.onActionResult(AutoToolSwapProtocol.PROTOCOL_VERSION, intent.serverRoundId(), intent.actionSequence(),
                 intent.action().wireCode(), result.wireCode(), state.wireCode(), intent.anchorSlot(),
-                intent.candidateSlot(), intent.actionSequence() + 1L, 1L, true);
+                intent.candidateSlot(), nextActionSequence, 1L, true);
     }
 
     private static ToolSwapInventorySnapshot restored() {

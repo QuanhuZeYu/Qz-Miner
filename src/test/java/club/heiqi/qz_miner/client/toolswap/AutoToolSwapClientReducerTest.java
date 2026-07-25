@@ -122,6 +122,96 @@ public class AutoToolSwapClientReducerTest {
     }
 
     @Test
+    public void noReplyRetransmitsTheSameIntentAtFixedCadenceThenUsesTheHardDeadline() {
+        AutoToolSwapClientReducer reducer = reducer(22L);
+        Effect round = only(reducer.reduce(new KeyStateEvent(true, context(0L, restored()))));
+        submit(reducer, round);
+        acceptRound(reducer, 22L, 82L, 1L);
+        AutoToolSwapIntent swap = captureAndSubmit(reducer,
+                only(reducer.reduce(new TickEvent(context(0L, restored()), true))),
+                context(0L, restored()));
+        List<Long> retryTicks = new ArrayList<Long>();
+
+        while (!reducer.isOrphaned() && reducer.clientTick() <= 121L) {
+            long beforeTick = reducer.clientTick();
+            List<Effect> effects = reducer.reduce(new TickEvent(context(beforeTick, restored()), true));
+            if (!effects.isEmpty()) {
+                Effect retry = only(effects);
+                Assert.assertEquals(Effect.Type.SEND_INTENT, retry.type());
+                Assert.assertSame("所有 cadence retry 必须复用同一不可变 intent", swap, retry.intent());
+                Assert.assertTrue(retry.retry());
+                retryTicks.add(Long.valueOf(beforeTick));
+                submit(reducer, retry);
+            }
+        }
+
+        Assert.assertEquals(Arrays.asList(Long.valueOf(21L), Long.valueOf(41L), Long.valueOf(61L),
+                Long.valueOf(81L), Long.valueOf(101L)), retryTicks);
+        Assert.assertTrue("准备期事务无回包必须在较长硬 deadline 后收口", reducer.isOrphaned());
+    }
+
+    @Test
+    public void takeoverSyncFailureRetriesExactIntentAndLatestQueuedRequestWinsLateResults() {
+        AutoToolSwapClientReducer reducer = frozenForTakeover(
+                23L, 83L, true, new ArrayList<String>());
+        submitTakeoverRequest(reducer, 83L, 17L, 4);
+        Effect takeoverEffect = only(reducer.reduce(new TickEvent(context(2L, restored()), true)));
+        AutoToolSwapIntent takeover = takeoverEffect.intent();
+        Assert.assertEquals(AutoToolSwapAction.TAKEOVER, takeover.action());
+        Assert.assertEquals(17L, takeover.takeoverRequestId());
+        submit(reducer, takeoverEffect);
+
+        for (int attempt = 0; attempt < 3; attempt++) {
+            settle(reducer, takeover, AutoToolSwapResultCode.SYNC_FAILED,
+                    AutoToolSwapRoundState.FROZEN);
+            Assert.assertTrue(reducer.isPublicationRetryPending());
+            Assert.assertEquals("committed publication retry 不得请求库存布局采样",
+                    ToolSwapCapturePlan.NONE,
+                    reducer.capturePlanForTick(light(3L + attempt, target(42, 7)), true));
+            Effect retry = only(reducer.reduce(new TickEvent(
+                    context(3L + attempt, takeoverSwappedWithNextCandidate()), true)));
+            Assert.assertEquals(Effect.Type.SEND_INTENT, retry.type());
+            Assert.assertSame(takeover, retry.intent());
+            Assert.assertTrue(retry.retry());
+            Assert.assertTrue("SYNC_FAILED 期间不得提前进入布局验证",
+                    reducer.isPublicationRetryPending());
+            submit(reducer, retry);
+        }
+
+        Assert.assertTrue(reducer.reduce(new TakeoverRequestEvent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                83L, 18L, 4, 11, 64, 20, 43, 0, 3L, 30L, true)).isEmpty());
+        Assert.assertTrue(reducer.reduce(new TakeoverRequestEvent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                83L, 19L, 4, 12, 64, 20, 44, 0, 4L, 31L, true)).isEmpty());
+        Assert.assertEquals(19L, reducer.latestTakeoverRequestId());
+
+        Assert.assertTrue("迟到 B result 不得污染 A 的 committed publication ownership",
+                reducer.reduce(new ActionResultEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 83L,
+                        18L, AutoToolSwapAction.TAKEOVER.wireCode(), AutoToolSwapResultCode.APPLIED.wireCode(),
+                        AutoToolSwapRoundState.FROZEN.wireCode(), 0, 7,
+                        reducer.nextActionSequence(), 5L, true)).isEmpty());
+        Assert.assertSame(takeover, reducer.inFlightIntent());
+        Assert.assertTrue(reducer.isPublicationRetryPending());
+
+        settle(reducer, takeover, AutoToolSwapResultCode.APPLIED, AutoToolSwapRoundState.FROZEN);
+        Assert.assertFalse(reducer.isPublicationRetryPending());
+        Effect verified = only(reducer.reduce(new TickEvent(
+                context(6L, takeoverSwappedWithNextCandidate()), true)));
+        assertPreviewInvalidation(verified, AutoToolSwapAction.TAKEOVER);
+
+        Assert.assertTrue("迟到 A duplicate 不得清除已提升的 C",
+                reducer.reduce(new ActionResultEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 83L,
+                        17L, AutoToolSwapAction.TAKEOVER.wireCode(), AutoToolSwapResultCode.APPLIED.wireCode(),
+                        AutoToolSwapRoundState.FROZEN.wireCode(), 0, 5,
+                        reducer.nextActionSequence(), 6L, true)).isEmpty());
+        Effect latest = only(reducer.reduce(new TickEvent(
+                context(7L, takeoverSwappedWithNextCandidate()), true)));
+        Assert.assertEquals(AutoToolSwapAction.TAKEOVER, latest.intent().action());
+        Assert.assertEquals("A→B→C 只允许最终 C 取得下一次发送 ownership",
+                19L, latest.intent().takeoverRequestId());
+        Assert.assertEquals(7, latest.intent().candidateSlot());
+    }
+
+    @Test
     public void naturalFinishedCloseDefersFreshRoundButReleaseGateAndResetDisqualifyIt() {
         AutoToolSwapClientReducer natural = openWithoutCandidate(31L, 91L);
         natural.reduce(new RoundPhaseEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, 91L, 1L,
@@ -833,9 +923,11 @@ public class AutoToolSwapClientReducerTest {
 
     private static void settle(AutoToolSwapClientReducer reducer, AutoToolSwapIntent intent,
             AutoToolSwapResultCode result, AutoToolSwapRoundState state) {
+        long nextActionSequence = intent.usesTakeoverRequestId()
+                ? reducer.nextActionSequence() : intent.actionSequence() + 1L;
         reducer.reduce(new ActionResultEvent(AutoToolSwapProtocol.PROTOCOL_VERSION, intent.serverRoundId(),
                 intent.actionSequence(), intent.action().wireCode(), result.wireCode(), state.wireCode(),
-                intent.anchorSlot(), intent.candidateSlot(), intent.actionSequence() + 1L, 1L, true));
+                intent.anchorSlot(), intent.candidateSlot(), nextActionSequence, 1L, true));
     }
 
     private static AutoToolSwapIntent captureAndSubmit(AutoToolSwapClientReducer reducer,
@@ -941,6 +1033,12 @@ public class AutoToolSwapClientReducerTest {
     private static ToolSwapInventorySnapshot swapped() {
         return inventory(new SlotSnapshot(0, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
                 tool(0, "pick", true), tool(5, "hand", false));
+    }
+
+    private static ToolSwapInventorySnapshot takeoverSwappedWithNextCandidate() {
+        return inventory(new SlotSnapshot(0, "pick", "used"), new SlotSnapshot(5, "hand", "old"),
+                new SlotSnapshot(7, "drill", "fresh"), tool(0, "pick", true),
+                tool(5, "hand", false), tool(7, "drill", true));
     }
 
     private static ToolSwapInventorySnapshot restoredB() {

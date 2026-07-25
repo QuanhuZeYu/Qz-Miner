@@ -26,14 +26,19 @@ public class AutoToolSwapRoundSnapshotTest {
     @Test
     public void snapshotReportsOnlyRoundAndLedgerFacts() {
         AutoToolSwapRoundSnapshot snapshot = new AutoToolSwapRoundSnapshot(9L, 12L,
-                AutoToolSwapRoundState.SWAPPED, 3L, 4L, true, true, 2, 18);
+                AutoToolSwapRoundState.SWAPPED, 3L, 17L, false, 4L, true,
+                true, true, true, 2, 18);
 
         Assert.assertEquals(9L, snapshot.clientNonce());
         Assert.assertEquals(12L, snapshot.serverRoundId());
         Assert.assertEquals(AutoToolSwapRoundState.SWAPPED, snapshot.roundState());
         Assert.assertEquals(3L, snapshot.nextActionSequence());
+        Assert.assertEquals(17L, snapshot.lastIssuedTakeoverRequestId());
+        Assert.assertFalse(snapshot.takeoverRequestIdsExhausted());
         Assert.assertEquals(4L, snapshot.phaseSequence());
         Assert.assertTrue(snapshot.keyDown());
+        Assert.assertTrue(snapshot.hasPendingResultPublication());
+        Assert.assertTrue(snapshot.hasPendingInventorySync());
         Assert.assertTrue(snapshot.hasLedger());
         Assert.assertEquals(2, snapshot.ledgerAnchorSlot());
         Assert.assertEquals(18, snapshot.ledgerCandidateSlot());
@@ -41,7 +46,8 @@ public class AutoToolSwapRoundSnapshotTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void absentLedgerCannotExposeSlots() {
-        new AutoToolSwapRoundSnapshot(1L, 0L, AutoToolSwapRoundState.PENDING_KEY, 1L, 0L, false, false,
+        new AutoToolSwapRoundSnapshot(1L, 0L, AutoToolSwapRoundState.PENDING_KEY,
+                1L, 0L, false, 0L, false, false, false, false,
                 0, AutoToolSwapRoundSnapshot.NO_LEDGER_SLOT);
     }
 }

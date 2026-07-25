@@ -55,9 +55,18 @@ public final class AutoToolSwapTakeoverCoordinator {
     public GateResult beforePoll(EntityPlayerMP player, long serverRoundId, int generation,
             ChainTarget target, long serverTick) {
         if (player == null || target == null || player.worldObj == null) return GateResult.STOP;
-        Block block = player.worldObj.getBlock(target.getX(), target.getY(), target.getZ());
-        int blockId = block == null ? 0 : Block.getIdFromBlock(block);
-        int metadata = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        Block block;
+        int blockId;
+        int metadata;
+        try {
+            block = player.worldObj.getBlock(target.getX(), target.getY(), target.getZ());
+            blockId = block == null ? 0 : Block.getIdFromBlock(block);
+            metadata = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        } catch (RuntimeException targetReadFailure) {
+            return GateResult.SKIP_TARGET;
+        } catch (LinkageError targetReadFailure) {
+            return GateResult.SKIP_TARGET;
+        }
         return beforePoll(player.getUniqueID(), player, serverRoundId, generation,
                 target.getX(), target.getY(), target.getZ(), blockId, metadata,
                 new MinecraftAutoToolSwapInventoryPort(player), serverTick,
@@ -88,28 +97,30 @@ public final class AutoToolSwapTakeoverCoordinator {
             int targetX, int targetY, int targetZ, int blockId, int metadata,
             AutoToolSwapInventoryPort inventory, long serverTick, int timeoutTicks,
             HarvestAuthority authority) {
-        if (authority == null) return GateResult.STOP;
-        if (playerId == null || endpoint == null || inventory == null || timeoutTicks <= 0) return GateResult.STOP;
+        if (authority == null || timeoutTicks <= 0) return GateResult.STOP;
+        if (playerId == null || endpoint == null || inventory == null) return GateResult.SKIP_TARGET;
         IssuedTakeover active = issued.get(playerId);
         if (serverRoundId == 0L) {
             // round 0 不得继承旧 round 的本地发送记忆；精确退休后仍只查询当前目标权威。
-            if (active != null) stopAndConsumeIssued(playerId, active);
+            if (active != null && !skipAndConsumeIssued(playerId, active, "round-zero")) {
+                return GateResult.WAIT;
+            }
             return evaluateTargetAuthority(authority);
         }
         if (active != null) {
             AutoToolSwapTakeoverRequest activeRequest = active.request;
             if (!active.matchesEndpoint(endpoint) || !active.matchesExecutionIdentity(serverRoundId, generation,
                     targetX, targetY, targetZ)) {
-                stopAndConsumeIssued(playerId, active);
-                return GateResult.STOP;
+                return skipAndConsumeIssued(playerId, active, "execution-identity-drift")
+                        ? GateResult.SKIP_TARGET : GateResult.WAIT;
             }
             AutoToolSwapRoundService.TakeoverGateState state = roundService.takeoverGateState(
                     playerId, endpoint, activeRequest, serverTick);
             if (!active.matchesTargetBlock(blockId, metadata)) {
                 if (state == AutoToolSwapRoundService.TakeoverGateState.WAITING) {
-                    // 未结算等待门没有退休 sequence，目标漂移必须停止会话，避免迟到 intent 串门。
-                    stopAndConsumeIssued(playerId, active);
-                    return GateResult.STOP;
+                    // 独立 request ID 已烧号，目标漂移可精确退休旧门且迟到 intent 不会命中新目标。
+                    return skipAndConsumeIssued(playerId, active, "target-drift")
+                            ? GateResult.SKIP_TARGET : GateResult.WAIT;
                 }
                 roundService.consumeTakeoverGate(playerId, endpoint, activeRequest);
                 issued.remove(playerId);
@@ -151,13 +162,13 @@ public final class AutoToolSwapTakeoverCoordinator {
             if (!inventory.isPlayerAlive()
                     || !inventory.hasPersonalInventoryWindow0() || !inventory.isCursorEmpty()) {
                 roundService.clearEmptyHandFallbackLease(playerId, "inventory-context");
-                return GateResult.STOP;
+                return GateResult.SKIP_TARGET;
             }
             anchorSlot = inventory.selectedHotbarSlot();
             anchor = inventory.readInventorySlot(anchorSlot);
             if (anchor == null) {
                 roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
-                return GateResult.STOP;
+                return GateResult.SKIP_TARGET;
             }
             if (inventory.isCreativeMode()) {
                 roundService.clearEmptyHandFallbackLease(playerId, "creative-mode");
@@ -165,10 +176,10 @@ public final class AutoToolSwapTakeoverCoordinator {
             }
         } catch (RuntimeException failure) {
             roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
-            return GateResult.STOP;
+            return GateResult.SKIP_TARGET;
         } catch (LinkageError failure) {
             roundService.clearEmptyHandFallbackLease(playerId, "inventory-read-failed");
-            return GateResult.STOP;
+            return GateResult.SKIP_TARGET;
         }
         if (roundService.hasEmptyHandFallbackLease(playerId)) {
             AutoToolSwapRoundService.InventoryFingerprint inventoryFingerprint;
@@ -176,10 +187,10 @@ public final class AutoToolSwapTakeoverCoordinator {
                 inventoryFingerprint = inventory.readInventoryIdentity();
             } catch (RuntimeException failure) {
                 roundService.clearEmptyHandFallbackLease(playerId, "inventory-identity-read-failed");
-                return GateResult.STOP;
+                return GateResult.SKIP_TARGET;
             } catch (LinkageError failure) {
                 roundService.clearEmptyHandFallbackLease(playerId, "inventory-identity-read-failed");
-                return GateResult.STOP;
+                return GateResult.SKIP_TARGET;
             }
             AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult leaseMatch = roundService
                     .matchEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
@@ -207,18 +218,18 @@ public final class AutoToolSwapTakeoverCoordinator {
         AutoToolSwapTakeoverRequest request = roundService.prepareTakeover(playerId, endpoint, serverRoundId,
                 generation, targetX, targetY, targetZ, blockId, metadata, anchorSlot, anchor,
                 serverTick, deadline);
-        if (request == null) return GateResult.STOP;
+        if (request == null) return GateResult.SKIP_TARGET;
         IssuedTakeover issuedTakeover = new IssuedTakeover(endpoint, request, anchorSlot);
         issued.put(playerId, issuedTakeover);
         try {
             requestSender.send(endpoint, request);
             return GateResult.WAIT;
         } catch (RuntimeException failure) {
-            stopAndConsumeIssued(playerId, issuedTakeover);
-            return GateResult.STOP;
+            return skipAndConsumeIssued(playerId, issuedTakeover, "request-send-failed")
+                    ? GateResult.SKIP_TARGET : GateResult.WAIT;
         } catch (LinkageError failure) {
-            stopAndConsumeIssued(playerId, issuedTakeover);
-            return GateResult.STOP;
+            return skipAndConsumeIssued(playerId, issuedTakeover, "request-send-failed")
+                    ? GateResult.SKIP_TARGET : GateResult.WAIT;
         }
     }
 
@@ -231,23 +242,23 @@ public final class AutoToolSwapTakeoverCoordinator {
             if (!inventory.isPlayerAlive() || inventory.isCreativeMode()
                     || !inventory.hasPersonalInventoryWindow0() || !inventory.isCursorEmpty()
                     || inventory.selectedHotbarSlot() != anchorSlot) {
-                return GateResult.STOP;
+                return GateResult.SKIP_TARGET;
             }
             AutoToolSwapStackState current = inventory.readInventorySlot(anchorSlot);
-            if (current == null || !current.isEmpty()) return GateResult.STOP;
+            if (current == null || !current.isEmpty()) return GateResult.SKIP_TARGET;
             inventoryFingerprint = inventory.readInventoryIdentity();
             if (inventoryFingerprint == null || !inventoryFingerprint.slot(anchorSlot).isEmpty()) {
-                return GateResult.STOP;
+                return GateResult.SKIP_TARGET;
             }
         } catch (RuntimeException failure) {
-            return GateResult.STOP;
+            return GateResult.SKIP_TARGET;
         } catch (LinkageError failure) {
-            return GateResult.STOP;
+            return GateResult.SKIP_TARGET;
         }
         GateResult authorityResult = evaluateTargetAuthority(authority);
         if (authorityResult != GateResult.PROCEED) return authorityResult;
         return roundService.installEmptyHandFallbackLease(playerId, endpoint, serverRoundId, generation,
-                targetCapability, anchorSlot, inventoryFingerprint) ? GateResult.PROCEED : GateResult.STOP;
+                targetCapability, anchorSlot, inventoryFingerprint) ? GateResult.PROCEED : GateResult.SKIP_TARGET;
     }
 
     /** 权威拒绝或异常不得执行当前目标，但不放大为已安全隔离事务之外的会话取消。 */
@@ -256,7 +267,7 @@ public final class AutoToolSwapTakeoverCoordinator {
         return Boolean.TRUE.equals(result) ? GateResult.PROCEED : GateResult.SKIP_TARGET;
     }
 
-    /** @return 该终态是否已经安全结算并退休动作 sequence，可局部跳过当前目标。 */
+    /** @return 该终态是否已经安全结算并确认独立 request，可局部跳过当前目标。 */
     private static boolean isSafelySettledTargetGate(AutoToolSwapRoundService.TakeoverGateState state) {
         return state == AutoToolSwapRoundService.TakeoverGateState.APPLIED
                 || state == AutoToolSwapRoundService.TakeoverGateState.DECLINED
@@ -274,11 +285,18 @@ public final class AutoToolSwapTakeoverCoordinator {
         }
     }
 
-    /** 精确停止并消费已经发出的等待门，避免发送失败或目标漂移后迟到意图写库存。 */
-    private void stopAndConsumeIssued(UUID playerId, IssuedTakeover active) {
-        roundService.stopTakeoverGate(playerId, active.endpoint, active.request);
+    /**
+     * 精确烧号并消费目标级失败门。committed publication pending 拒绝退休时必须保留本地 ownership。
+     *
+     * @return service 是否真实退休了精确等待门
+     */
+    private boolean skipAndConsumeIssued(UUID playerId, IssuedTakeover active, String cause) {
+        if (!roundService.skipTakeoverGate(playerId, active.endpoint, active.request, cause)) {
+            return false;
+        }
         roundService.consumeTakeoverGate(playerId, active.endpoint, active.request);
         issued.remove(playerId);
+        return true;
     }
 
     /** 生命周期清理本地发送记忆；round service 由既有统一入口清理。 */

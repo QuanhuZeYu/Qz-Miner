@@ -11,7 +11,7 @@ public class AutoToolSwapProtocolTest {
 
     @Test
     public void wireCodesAreUniqueAndUnknownCodesFailClosed() {
-        Assert.assertEquals(3, AutoToolSwapProtocol.PROTOCOL_VERSION);
+        Assert.assertEquals(4, AutoToolSwapProtocol.PROTOCOL_VERSION);
         Assert.assertEquals(Integer.MAX_VALUE, AutoToolSwapProtocol.MAX_BLOCK_ID);
         Assert.assertEquals(Integer.MAX_VALUE, AutoToolSwapProtocol.MAX_BLOCK_METADATA);
         assertUnique(AutoToolSwapAction.values());
@@ -90,6 +90,13 @@ public class AutoToolSwapProtocolTest {
         Assert.assertEquals(AutoToolSwapRoundState.SWAPPED, actionResult.roundResult().roundState());
         Assert.assertEquals(4L, actionResult.roundResult().nextActionSequence());
         Assert.assertEquals(120L, actionResult.roundResult().serverTick());
+
+        AutoToolSwapIntent takeover = intent(AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 17L,
+                AutoToolSwapAction.TAKEOVER, 0, 9, "anchor", "candidate");
+        Assert.assertTrue(takeover.usesTakeoverRequestId());
+        Assert.assertEquals(17L, takeover.takeoverRequestId());
+        Assert.assertFalse(baseline.usesTakeoverRequestId());
+        Assert.assertEquals(3L, baseline.ordinaryActionSequence());
     }
 
     private static AutoToolSwapIntent intent(int version, long roundId, long sequence, AutoToolSwapAction action,

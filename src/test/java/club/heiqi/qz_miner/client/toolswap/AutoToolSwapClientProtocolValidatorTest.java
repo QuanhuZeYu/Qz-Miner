@@ -50,6 +50,9 @@ public class AutoToolSwapClientProtocolValidatorTest {
         Assert.assertNull(validator.validateRoundResult(1, 7L,
                 AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(),
                 1L, 0L, true));
+        Assert.assertNull(validator.validateRoundResult(3, 7L,
+                AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(),
+                1L, 0L, true));
         Assert.assertNull(validator.validateRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, -1L,
                 Integer.MAX_VALUE, Integer.MAX_VALUE, 0L, -1L, true));
         Assert.assertNull(validator.validateActionResult(AutoToolSwapProtocol.PROTOCOL_VERSION, 7L,
@@ -61,6 +64,8 @@ public class AutoToolSwapClientProtocolValidatorTest {
         Assert.assertNull(validator.validatePhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 0L, 0L,
                 ChainPhase.values().length, -1, -1L, true));
         Assert.assertNull(validator.validateTakeoverRequest(2, 7L, 2L, 3,
+                1, 64, 2, 42, 7, 10L, 18L, true));
+        Assert.assertNull(validator.validateTakeoverRequest(3, 7L, 2L, 3,
                 1, 64, 2, 42, 7, 10L, 18L, true));
         Assert.assertNull(validator.validateTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
                 7L, 2L, 3, 1, 64, 2, 0, 0, 10L, 18L, true));

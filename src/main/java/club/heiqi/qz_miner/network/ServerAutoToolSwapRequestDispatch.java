@@ -138,7 +138,15 @@ public final class ServerAutoToolSwapRequestDispatch {
         }
         AutoToolSwapInventoryPort inventory = inventoryFactory.create(endpoint);
         AutoToolSwapRoundResult result = service.handleIntent(playerId, endpoint, intent, inventory, serverTick);
-        sender.send(playerId, endpoint, rawIntent, result);
+        try {
+            sender.send(playerId, endpoint, rawIntent, result);
+        } catch (RuntimeException publicationFailure) {
+            // sender 未正常返回时不得确认 sequence/gate；exact C2S 重试只会重做 full resend + result send。
+            return;
+        } catch (LinkageError publicationFailure) {
+            return;
+        }
+        service.confirmIntentResultPublication(playerId, endpoint, intent, result);
     }
 
     private static Object matchingEndpoint(UUID playerId, WeakReference<Object> endpointReference, PlayerLookup lookup) {
@@ -214,6 +222,12 @@ public final class ServerAutoToolSwapRequestDispatch {
                     AutoToolSwapInventoryPort inventory, long serverTick) {
                 return roundService.handleIntent(playerId, endpoint, intent, inventory, serverTick);
             }
+
+            @Override
+            public boolean confirmIntentResultPublication(UUID playerId, Object endpoint,
+                    AutoToolSwapIntent intent, AutoToolSwapRoundResult result) {
+                return roundService.confirmIntentResultPublication(playerId, endpoint, intent, result);
+            }
         };
     }
 
@@ -278,6 +292,9 @@ public final class ServerAutoToolSwapRequestDispatch {
 
         AutoToolSwapRoundResult handleIntent(UUID playerId, Object endpoint, AutoToolSwapIntent intent,
                 AutoToolSwapInventoryPort inventory, long serverTick);
+
+        boolean confirmIntentResultPublication(UUID playerId, Object endpoint,
+                AutoToolSwapIntent intent, AutoToolSwapRoundResult result);
     }
 
     /** 主线程才允许创建的库存端口边界。 */

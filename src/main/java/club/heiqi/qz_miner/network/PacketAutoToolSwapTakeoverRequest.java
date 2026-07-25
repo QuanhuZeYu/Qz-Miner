@@ -14,6 +14,7 @@ public final class PacketAutoToolSwapTakeoverRequest implements IMessage {
 
     public int protocolVersion;
     public long serverRoundId;
+    /** 固定 wire 字段名保持不变；v4 语义为独立 takeoverRequestId。 */
     public long actionSequence;
     public int generation;
     public int targetX;
