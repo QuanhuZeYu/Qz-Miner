@@ -7,14 +7,18 @@ import java.nio.file.Files;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 规划能力门与主线程执行耐久门的分工合同。 */
+/** 规划宽进 admission 与主线程执行权威的分工合同。 */
 public class ChainHarvestRulesTest {
 
     @Test
-    public void planningDefersTransientDurabilityWhileExecutionKeepsTwoPointReserve() {
-        for (int remaining = 0; remaining <= 2; remaining++) {
-            Assert.assertTrue(ChainHarvestRules.acceptsDurabilityForPhase(remaining, true));
-        }
+    public void planningAdmissionUsesOnlyWorldValidityAndStandingSafety() {
+        Assert.assertTrue(ChainHarvestRules.acceptsPlanningAdmission(true, false));
+        Assert.assertFalse(ChainHarvestRules.acceptsPlanningAdmission(false, false));
+        Assert.assertFalse(ChainHarvestRules.acceptsPlanningAdmission(true, true));
+    }
+
+    @Test
+    public void executionKeepsTwoPointDurabilityReserve() {
         Assert.assertFalse(ChainHarvestRules.acceptsDurabilityForPhase(0, false));
         Assert.assertFalse(ChainHarvestRules.acceptsDurabilityForPhase(1, false));
         Assert.assertTrue(ChainHarvestRules.acceptsDurabilityForPhase(2, false));
@@ -22,19 +26,30 @@ public class ChainHarvestRulesTest {
     }
 
     @Test
-    public void planningFactoryAndExecutionBridgeUseDifferentHarvestEntries() throws Exception {
+    public void serverAndPreviewPlannerDoNotCaptureOrBindFrozenToolCapability() throws Exception {
         String factory = source("src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java");
+        String bridge = source("src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java");
         String executor = source("src/main/java/club/heiqi/qz_miner/chain/executor/BlockHarvestActionExecutor.java");
         String rules = source("src/main/java/club/heiqi/qz_miner/chain/planner/ChainHarvestRules.java");
 
-        Assert.assertTrue(factory.contains("ChainHarvestRules.planningEvaluator(capabilitySnapshot)"));
-        Assert.assertTrue(factory.contains("bindMatcherPlanning"));
+        Assert.assertFalse(factory.contains("PlanningToolCapabilitySnapshot"));
+        Assert.assertFalse(factory.contains("planningEvaluator("));
+        Assert.assertFalse(bridge.contains("PlanningToolCapabilitySnapshot.capture("));
+        Assert.assertTrue(factory.contains("bindMatcherDiagnostics"));
+        Assert.assertFalse(factory.contains("bindMatcherPlanning"));
         Assert.assertTrue(factory.contains("evaluation.record(diagnostics, target)"));
         Assert.assertTrue(executor.contains("ChainHarvestRules.canHarvest(player, target)"));
         Assert.assertFalse(executor.contains("canPlanHarvest"));
-        Assert.assertTrue(rules.contains("evaluateHarvest(player, target, diagnosticTracking, false)"));
-        Assert.assertTrue(rules.contains("evaluateHarvest(player, target, diagnosticTracking, true)"));
-        Assert.assertTrue(rules.contains("evaluateFrozenPlanningHarvest"));
+        Assert.assertTrue(rules.contains("return evaluatePlanningAdmission(player, target)"));
+        Assert.assertTrue(rules.contains("return evaluateExecutionHarvest(player, target, diagnosticTracking)"));
+
+        int planningStart = rules.indexOf("private static HarvestEvaluation evaluatePlanningAdmission");
+        int executionStart = rules.indexOf("private static HarvestEvaluation evaluateExecutionHarvest", planningStart);
+        Assert.assertTrue(planningStart >= 0 && executionStart > planningStart);
+        String planning = rules.substring(planningStart, executionStart);
+        Assert.assertFalse(planning.contains("getCurrentEquippedItem"));
+        Assert.assertFalse(planning.contains("player.inventory"));
+        Assert.assertFalse(planning.contains("canHarvestBlock("));
     }
 
     private static String source(String path) throws Exception {

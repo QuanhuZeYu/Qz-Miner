@@ -20,12 +20,12 @@ public final class AutoToolUsabilityPolicy {
     }
 
     /**
-     * @param effective 对目标是否有实际采掘效率
+     * @param effective 对目标是否有实际采掘效率；仅保留为候选事实，不作为资格硬门
      * @param canHarvest 是否满足目标收获等级
      * @param remainingDurability 剩余耐久；不可损耗物品使用 {@link Integer#MAX_VALUE}
-     * @return 工具是否具备继续参与当前动作的完整能力
+     * @return 工具是否满足收获与耐久资格硬门
      */
     public static boolean canContinue(boolean effective, boolean canHarvest, int remainingDurability) {
-        return effective && canHarvest && hasDurabilityReserve(remainingDurability);
+        return canHarvest && hasDurabilityReserve(remainingDurability);
     }
 }

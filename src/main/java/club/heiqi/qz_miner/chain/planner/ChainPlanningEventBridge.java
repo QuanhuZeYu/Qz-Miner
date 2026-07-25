@@ -5,7 +5,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
@@ -173,12 +172,10 @@ public class ChainPlanningEventBridge {
         diagnostics.logPlanStarted(seedRegistryName == null ? "minecraft:unknown" : String.valueOf(seedRegistryName),
                 seedSnapshot.getSampleMeta(), origin, Thread.currentThread().getName(), player.inventory.currentItem,
                 MinecraftAutoToolSwapInventoryPort.describeStack(player.inventory.getCurrentItem()));
-        final PlanningToolCapabilitySnapshot capabilitySnapshot = PlanningToolCapabilitySnapshot.capture(
-                player, Config.autoToolPrioritySelectors, serverRoundId != ChainEvent.NO_SERVER_ROUND_ID);
         // 阶段8 块3：删旧 shadowSession.beginPlanning()（ChainSession 委托方法已删，新链路无需 plannerRunning 标志）。
         // 新链路 worker 活性由状态机 generation 判定，session 仅作配置载体 + traversalTargets 装配。
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(
-                player.worldObj, player, shadowSession, seedSnapshot, diagnostics, capabilitySnapshot);
+                player.worldObj, player, shadowSession, seedSnapshot, diagnostics);
         if (runtime == null) {
             diagnostics.logPlanCancelled("shadow-runtime-null");
             bus.publish(buildRuntimeNullPlanCancelled(playerUUID, serverRoundId, planningGen,

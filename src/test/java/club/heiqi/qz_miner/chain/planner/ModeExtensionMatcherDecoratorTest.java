@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -98,6 +101,15 @@ public class ModeExtensionMatcherDecoratorTest {
         ChainCandidateFilter filter = target -> false;
         Assert.assertSame(filter, ModeExtensionMatcherDecorator.decorateCandidateFilter(ChainSubMode.CHAIN_BASE,
             filter, new FrozenModePredicate(ModeExtensionSnapshot.EMPTY), null));
+    }
+
+    @Test
+    public void productionHarvestExtensionUsesPlanningAdmissionInsteadOfExecutionToolAuthority() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ModeExtensionMatcherDecorator.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertTrue(source.contains("ChainHarvestRules::canPlanHarvest"));
+        Assert.assertFalse(source.contains("ChainHarvestRules::canHarvest,"));
     }
 
     private static ChainBlockMatcher matcher(ChainSubMode mode, boolean base, boolean extension, boolean gate) {

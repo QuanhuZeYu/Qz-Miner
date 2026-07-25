@@ -59,12 +59,12 @@ public final class ToolCandidate {
         return oreNames;
     }
 
-    /** @return 当前主手是否满足统一能力与耐久储备门 */
+    /** @return 当前主手是否满足收获能力与耐久储备门；效率不作硬门 */
     public boolean isUsableInHand() {
         return AutoToolUsabilityPolicy.canContinue(effective, canHarvest, remainingDurability);
     }
 
-    /** @return 是否可从背包换入（至少剩余 2 点耐久） */
+    /** @return 是否可从背包换入（可收获且至少剩余 2 点耐久；效率不作硬门） */
     public boolean isEligibleForSwap() {
         return AutoToolUsabilityPolicy.canContinue(effective, canHarvest, remainingDurability);
     }

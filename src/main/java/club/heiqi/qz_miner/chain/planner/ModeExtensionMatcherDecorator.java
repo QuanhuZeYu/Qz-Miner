@@ -19,7 +19,7 @@ public final class ModeExtensionMatcherDecorator {
         }
         return decorateMatcher(subMode, base,
             (player, target) -> player != null && extension.matches(player.worldObj, target),
-            ChainHarvestRules::canHarvest,
+            ChainHarvestRules::canPlanHarvest,
             ModeExtensionMatcherDecorator::isValidCropTarget);
     }
 

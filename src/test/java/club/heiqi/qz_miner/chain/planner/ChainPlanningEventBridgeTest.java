@@ -133,11 +133,13 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertTrue(source.contains("tryCompletePlanningAndPublish"));
         Assert.assertTrue(source.contains("publishPlanningProgressIfActive"));
         Assert.assertTrue(source.contains("cancelPlanningAndPublishIfActive"));
-        Assert.assertTrue(source.contains("PlanningToolCapabilitySnapshot.capture("));
+        Assert.assertFalse("PlanStarted 不得再冻结工具能力用于 admission",
+                source.contains("PlanningToolCapabilitySnapshot.capture("));
         int workerStart = source.indexOf("private ParallelTaskResult runShadowSlice(");
         String worker = source.substring(workerStart);
         Assert.assertFalse(worker.contains("player.inventory"));
         Assert.assertFalse(worker.contains("getCurrentEquippedItem()"));
+        Assert.assertFalse(worker.contains("canHarvestBlock("));
     }
 
     /** RuntimeException publication 失败必须转成一次固定原因取消。 */

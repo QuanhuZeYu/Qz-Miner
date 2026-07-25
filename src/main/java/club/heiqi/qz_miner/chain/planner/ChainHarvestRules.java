@@ -12,11 +12,11 @@ import net.minecraft.item.ItemStack;
  */
 public final class ChainHarvestRules {
 
-    /** 规划 matcher 复用的不可变能力判定；瞬时耐久门留给主线程执行期。 */
+    /** 规划 matcher 复用的世界与安全 admission；不读取工具或库存能力。 */
     static final HarvestEvaluator DEFAULT_EVALUATOR = new HarvestEvaluator() {
         @Override
         public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
-            return evaluateHarvest(player, target, diagnosticTracking, false);
+            return evaluatePlanningAdmission(player, target);
         }
     };
 
@@ -24,13 +24,13 @@ public final class ChainHarvestRules {
     private static final HarvestEvaluator EXECUTION_EVALUATOR = new HarvestEvaluator() {
         @Override
         public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
-            return evaluateHarvest(player, target, diagnosticTracking, true);
+            return evaluateExecutionHarvest(player, target, diagnosticTracking);
         }
     };
 
     private ChainHarvestRules() {}
 
-    /** 为单个 planning round 创建只读冻结能力 evaluator。 */
+    /** 保留给冻结能力内部类型测试的 evaluator；生产 planner 不再绑定该路径。 */
     static HarvestEvaluator planningEvaluator(final PlanningToolCapabilitySnapshot capabilitySnapshot) {
         if (capabilitySnapshot == null) return DEFAULT_EVALUATOR;
         return new HarvestEvaluator() {
@@ -91,7 +91,7 @@ public final class ChainHarvestRules {
     }
 
     /**
-     * 仅用于规划线程判断目标与当前工具的采掘能力，不应用瞬时耐久储备门。
+     * 仅用于规划线程判断目标的世界与脚底安全 admission，不读取当前工具或库存。
      *
      * @param player 玩家
      * @param target 目标方块
@@ -115,10 +115,34 @@ public final class ChainHarvestRules {
         return evaluation.isAccepted();
     }
 
-    /** 按原短路顺序读取一次业务状态，并返回供 matcher 统一记录的纯值结果。 */
-    private static HarvestEvaluation evaluateHarvest(EntityPlayer player, ChainTarget target,
-            boolean diagnosticTracking, boolean enforceDurabilityReserve) {
-        if (player == null || target == null) {
+    /** 规划 worker 只读取世界/几何安全事实，工具能力全部推迟到主线程逐目标执行。 */
+    private static HarvestEvaluation evaluatePlanningAdmission(EntityPlayer player, ChainTarget target) {
+        if (player == null || target == null || player.worldObj == null) {
+            return new HarvestEvaluation(false, null, -1, "planning-tool-not-read", "planning-deferred",
+                    "planning-deferred", "invalid-input");
+        }
+
+        Block block = player.worldObj.getBlock(target.getX(), target.getY(), target.getZ());
+        boolean validWorldTarget = block != null && block != Blocks.air && block != Blocks.bedrock
+                && !block.getMaterial().isLiquid();
+        if (!validWorldTarget) {
+            return new HarvestEvaluation(false, block, -1, "planning-tool-not-read", "planning-deferred",
+                    "planning-deferred", "world-view");
+        }
+        if (!acceptsPlanningAdmission(true, isStandingOnTarget(player, target))) {
+            return new HarvestEvaluation(false, block, -1, "planning-tool-not-read", "planning-deferred",
+                    "planning-deferred", "standing-on-target");
+        }
+
+        int meta = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
+        return new HarvestEvaluation(true, block, meta, "planning-tool-not-read", "planning-deferred",
+                "planning-deferred", "accepted");
+    }
+
+    /** 按主线程执行短路顺序读取一次实时业务状态。 */
+    private static HarvestEvaluation evaluateExecutionHarvest(EntityPlayer player, ChainTarget target,
+            boolean diagnosticTracking) {
+        if (player == null || target == null || player.worldObj == null) {
             return new HarvestEvaluation(false, null, -1, "not-read", "not-run", "not-run", "invalid-input");
         }
 
@@ -133,11 +157,11 @@ public final class ChainHarvestRules {
         }
 
         ItemStack equippedItem = player.capabilities.isCreativeMode ? null : player.getCurrentEquippedItem();
-        boolean enoughDurability = player.capabilities.isCreativeMode || acceptsDurabilityForPhase(
-                remainingDurability(equippedItem), !enforceDurabilityReserve);
+        boolean enoughDurability = player.capabilities.isCreativeMode
+                || AutoToolUsabilityPolicy.hasDurabilityReserve(remainingDurability(equippedItem));
         String toolSummary = diagnosticTracking
                 ? MinecraftAutoToolSwapInventoryPort.describeStack(equippedItem) : "not-recorded";
-        if (enforceDurabilityReserve && !enoughDurability) {
+        if (!enoughDurability) {
             return new HarvestEvaluation(false, block, -1, toolSummary, "false", "not-run",
                     "durability-insufficient");
         }
@@ -149,12 +173,11 @@ public final class ChainHarvestRules {
 
         int meta = player.worldObj.getBlockMetadata(target.getX(), target.getY(), target.getZ());
         boolean canHarvestBlock = block.canHarvestBlock(player, meta);
-        String durabilityResult = enforceDurabilityReserve ? "true" : "planning-deferred";
-        return new HarvestEvaluation(canHarvestBlock, block, meta, toolSummary, durabilityResult,
+        return new HarvestEvaluation(canHarvestBlock, block, meta, toolSummary, "true",
                 String.valueOf(canHarvestBlock), canHarvestBlock ? "accepted" : "can-harvest-block-rejected");
     }
 
-    /** worker 只读取目标世界视图，并以 PlanStarted 冻结能力集合完成纯读 admission。 */
+    /** 保留的内部冻结能力类型测试路径；生产 planner 不再调用。 */
     private static HarvestEvaluation evaluateFrozenPlanningHarvest(EntityPlayer player, ChainTarget target,
             boolean diagnosticTracking, PlanningToolCapabilitySnapshot capabilitySnapshot) {
         if (player == null || target == null || player.worldObj == null) {
@@ -192,6 +215,11 @@ public final class ChainHarvestRules {
     /** 纯值测试接缝：规划期不以瞬时耐久拒绝，执行期使用统一储备门。 */
     static boolean acceptsDurabilityForPhase(int remainingDurability, boolean planningPhase) {
         return planningPhase || AutoToolUsabilityPolicy.hasDurabilityReserve(remainingDurability);
+    }
+
+    /** 纯值接缝：合法世界目标只会被脚底安全门拒绝，不接收任何工具事实。 */
+    static boolean acceptsPlanningAdmission(boolean validWorldTarget, boolean standingOnTarget) {
+        return validWorldTarget && !standingOnTarget;
     }
 
     /** 纯值原因编码接缝，供测试证明各拒绝层可区分。 */

@@ -18,7 +18,7 @@
 - `AutoToolSwapClientReducer`：客户端 cycle、nonce/round/action/phase 归因、库存双门、关闭原因与重传的唯一可变业务权威，以 Event 输入并输出不可变 Effect。
 - `AutoToolSwapClientAdapter`：承接 gate 后的 S2C，只采样 Minecraft 事实、执行 reducer effect 和网络 I/O；后续 C2S 在 `ClientTick` 发送。
 - `AutoToolSwapClientProtocolValidator`：无字段，只负责 raw、wire enum、范围与单包结构校验，不判断历史关联。
-- `ToolHarvestCompatAdapter` 与 `CompatAdapters`：仅为无显式 harvestTool 的目标提供四态可选工具终裁；当前唯一实现按已加载运行时父类名识别 TiC 工具，不形成 TConstruct 类型链接。
+- `ToolHarvestEligibility`：显式 harvestTool 交 Forge 等级语义终裁；无显式 harvestTool 且材质需要工具时直接调用稳定 `Item.canHarvestBlock`，不维护模组类白名单。
 
 ## 原因
 
@@ -30,7 +30,7 @@
 
 - `AutoToolSwapRoundService` 按玩家 UUID、在线 endpoint、`serverRoundId` 和严格递增 `actionSequence` 维护单个 round；重复请求只在身份与内容精确匹配时幂等返回。
 - `FROZEN` 是工具已固定但 round 仍可继续接收专用活跃 phase 的稳定活跃态；只有 `CLOSING` 取得单调关闭语义并禁止新 `SWAP/FREEZE`。`PLANNING/RUNNING/FINISHING` 只要求“确保已冻结”：服务端已 FROZEN、同一 FREEZE in-flight 或已成功结算时，客户端只维持本地 FROZEN 投影，不发送第二个 intent。
-- 候选由客户端按 `client.autoToolPrioritySelectors` 排序；`ToolHarvestEligibility` 统一真实工具的目标效率、Forge 收获与“剩余耐久至少 2 点”资格，不可损耗工具使用 `Integer.MAX_VALUE`。服务端仍不相信客户端候选结论，只校验个人库存 window 0、空 cursor、非创造模式、槽位范围、当前热栏、剩余耐久、内容 fingerprint 与可逆 ledger。
+- 候选由客户端按 `client.autoToolPrioritySelectors` 排序；`ToolHarvestEligibility` 以目标收获结论与“剩余耐久至少 2 点”作为资格硬门，不可损耗工具使用 `Integer.MAX_VALUE`。目标实际效率仍被采样为候选事实，但不再单独否决低效率、可收获的未知工具。服务端仍不相信客户端候选结论，只校验个人库存 window 0、空 cursor、非创造模式、槽位范围、当前热栏、剩余耐久、内容 fingerprint 与可逆 ledger。
 - `MinecraftAutoToolSwapInventoryPort` 直接交换 `InventoryPlayer.mainInventory[0..35]`，调用 `markDirty()`，再由 `inventoryContainer.detectAndSendChanges()` 发布原版库存差异。
 - 库存比较分两层：每个 SWAP/RESTORE intent 携带捕获当刻的双槽完整 fingerprint，服务端与当前双槽 exact 比较以阻断陈旧请求；ledger 跨 round 只租赁稳定 role（registry id + stable subtype），允许 count、damage、energy 与 NBT 合法变化。空槽只兼容空槽，活动工具允许同 role 或破损后的空槽。
 - RESTORE 交换的是校验通过后的两个当前真实栈，不使用 ledger 旧内容回写；因此不会回滚动态变化，也不会复制或吞掉栈。sameRole 只证明角色所有权，不承诺对象 instance identity。原 anchor 非空时 candidate 仍须保持同 role；原 anchor 为空时允许 candidate 被任意当前真实栈占用，RESTORE 将占位栈直接交换到主手并把借用工具送回原槽。该窄例外不放宽 intent 双槽 exact 新鲜度、活动工具 role/empty 或库存安全上下文。
@@ -43,7 +43,7 @@
 - 客户端不调用 `windowClick`，不监听 C0E/S32/S2F/S30 作为自动工具事务确认；动作成功后只观察服务端同步回来的受保护槽位是否达到 ledger 目标布局。
 - 首块成功前的普通匹配使用客户端 light 快照中的 `ABSENT` 或 `blockId + metadata` 目标身份；坐标、TileEntity/NBT 不参与。同身份维持 10 tick 扫描水位，block/meta 变化立即触发 latest-target-wins，连续两个 END tick ABSENT 才确认丢失。已有 ledger 时先完成旧 RESTORE，再为最终有效目标 FULL；已发送 SWAP/RESTORE 不取消，也不在旧 ledger 上发送第二个普通 SWAP。
 - `serverRoundId` 在服务端激活 PENDING round 时分配，随后作为不可变身份随 `ChainEvent` 传播。工具阶段由 `PacketAutoToolSwapRoundPhase` 单独关联，客户端只接受当前 round 且严格递增的 `phaseSequence`；通用 `PacketChainPhaseSnapshot` 不承担工具关联。
-- 采掘资格先检查输入；目标声明 harvestTool 时只采用 Forge 等级语义，禁止兼容 fallback 绕过。仅 null harvestTool 且材质仍要求工具时进入可选 adapter registry；首个非 `NOT_APPLICABLE` 结果终裁，只有 `ALLOW` 放行，`DENY/UNRESOLVED`、异常与 null 结果全部 fail-closed。TiC 适配器不加载可选类、不解析成员，只按已加载 Item 父类完整名称识别后调用稳定 `Item.canHarvestBlock`。
+- 采掘资格先检查输入；目标声明 harvestTool 时只采用 Forge 等级语义，禁止 fallback 绕过。仅 null harvestTool 且材质仍要求工具时，直接调用 Minecraft owner 上的稳定 `Item.canHarvestBlock(Block, ItemStack)`；不探测 TiC 或其它模组类型，不解析成员、不扫描类名，调用异常 fail-closed。
 
 ## 生命周期边界
 
@@ -53,14 +53,14 @@
 - 连接断开、世界替换、协议超时、包失配、ABANDON 拒绝或同步异常时不伪造成功也不盲目发送恢复。客户端进入 ORPHANED 或统一复位 reducer，服务端生命周期清理销毁 round 账本，保留最后一次由服务端原版同步发布的库存状态。
 - 四个自动工具 S2C 先按连接 identity 捕获 token，再经客户端主线程的当前连接与当前世界 gate 发布到 adapter。接替请求 publication 不扫描世界/库存、不发送 C2S；TAKEOVER/DECLINE 延迟到下一次 `ClientTick`。
 
-## 规划与执行耐久边界
+## 规划宽进与执行实时权威边界
 
-- PlanStarted 在服务端主线程捕获不可变 `PlanningToolCapabilitySnapshot`：当前可用手持优先，按 selector/槽位排序的背包真实工具其次，空手虚拟候选最后。真实工具与客户端候选共用 `ToolHarvestEligibility`，空手只按 Forge 通用无工具能力判定；四类正式采掘 matcher 与对象组采掘分支共用同一 round evaluator。worker 只读冻结能力与世界目标，不读实时库存。
-- 冻结集合只是 admission，可因规划期间库存变化而过宽；主线程 `ChainHarvestRules.canHarvest` 始终保留当前玩家、事件语义和耐久的最终权威。`serverRoundId=0` 不进入工具 round 或候选扫描，安全上下文中直接按当前真实主手裁决，普通连锁不因自动工具关闭失效。
+- PlanStarted 不再捕获工具能力用于规划 admission。server 与 preview planner 对 `CHAIN`、`AREA_HARVESTABLE_ALL`、`AREA_TUNNEL`、`AREA_SAME_BLOCK`、区段清理及其结构化子模式，只按预算化世界/几何/结构身份宽进：空气、液体、基岩与脚底安全门保留，同块、矿石、原木和 TileEntity 纯值身份仍各自生效；worker 不读实时库存、不调用 `Block.canHarvestBlock(player, meta)` 或未知 Item 回调。
+- `PlanningToolCapabilitySnapshot` 保留为未删除内部类型及历史测试接缝，但生产 `ChainPlanningEventBridge` 与 `ChainPlanningRuntimeFactory` 不再捕获、传递或绑定它。主线程 `ChainHarvestRules.canHarvest` 始终按当前玩家、工具、世界、脚底与耐久逐目标终裁；规划确认数表达拓扑候选，不保证全部可破坏。
 - 主线程普通 CHAIN/AREA 在执行器检查前以 `peek → takeover gate → poll` 排序消费。非空主手只有实时权威与耐久储备都成立才直通，否则可请求真实候选；空主手先 WAIT 请求候选，只有合法 DECLINED 后可空手兜底。WAIT 不 poll；SKIP_TARGET poll 后不调用执行器；STOP 保持规划协作取消。仅已结算目标拒绝、round 0/租约/APPLIED 的实时权威失败及安全目标失效进入 SKIP_TARGET，未结算事务与会话身份故障不降级。GT 线缆 SPECIAL 与 INTERACT 不接入。
 - 空手兜底的稳定候选资格可在上述严格身份内按 round 租赁，使同 key 批次首次最多一次 WAIT；租约命中仍位于 `peek()` 与 `poll()` 之间并逐目标实时复验权威，因此脚底、世界状态和事件语义变化继续 fail-closed。
-- 普通 `CHAIN/AREA` 执行的 `maxBreakPerTick` 是 poll/processed 预算，不是成功数预算；成功、执行器拒绝/失败与目标跳过共同计数。任一消费均发布 `ExecutionAdvanced`（可为零成功），只有成功执行设置 50ms 节流；规划完成后全跳过也沿正常 `ExecutionFinished → LifecycleCleanup` 收口，掉落窗口不因单目标跳过关闭。`INTERACT` 与非 GT `SPECIAL` 不进入该分支。
-- `CHAIN_LOGGING` 额外区分“连通资格”与“入队资格”：原木 candidate filter 已接受后，即使冻结采掘 matcher 软拒绝，该节点也只是不入执行队列、不增加 confirmed，仍可预算化扩展相邻原木；candidate=false 的非原木/非对象组节点继续阻断。后续节点仍各自经过 matcher 与主线程实时权威，被拒节点自身绝不破坏。
+- 非 GT 普通 `CHAIN/AREA/INTERACT/SPECIAL` 的 `maxBreakPerTick` 都是 poll/processed 预算，不是成功数预算；成功、执行器拒绝/失败与目标跳过共同计数。任一消费均发布 `ExecutionAdvanced`（可为零成功），只有成功执行设置 50ms 节流；同 tick 已消费后出现既有 STOP 时先发布推进再按旧 STOP 收口。规划完成后全跳过也沿正常 `ExecutionFinished → LifecycleCleanup` 收口，掉落窗口不因单目标跳过关闭。GT 线缆的等待、预校验、单 tick 原子执行和旧取消例外不变。
+- `CHAIN_LOGGING` 额外区分“连通资格”与“入队资格”：原木 candidate filter 已接受后，即使世界/安全 matcher 软拒绝，该节点也只是不入执行队列、不增加 confirmed，仍可预算化扩展相邻原木；candidate=false 的非原木/非对象组节点继续阻断。后续节点仍各自经过 matcher 与主线程实时权威，被拒节点自身绝不破坏。
 
 ## 客户端预览刷新边界
 
@@ -92,6 +92,7 @@
 
 ## 演进
 
+- 2026-07-25：恢复 planner 宽进语义：生产 server/preview planner 删除冻结工具 admission，只保留世界/几何/结构身份；主线程继续逐目标实时终裁。未知 null-harvestTool 工具改走通用稳定 Item API，效率退出候选硬门；INTERACT/非 GT SPECIAL 与 CHAIN/AREA 统一按 poll 预算并发布零成功推进，`tryHarvestBlock=false` 不再计成功。toolswap v3 wire、配置 schema、五态转移表、既有 STOP 来源与 GT 线缆原子例外不变；client/dedicated 与真实爆破体验仍为 INCOMPLETE。
 - 2026-07-24：将普通 CHAIN/AREA 的接替校验拆为目标级 `SKIP_TARGET` 与会话级 STOP。仅实时目标权威、失效 block/meta 及已推进 sequence 的 candidate fingerprint/低耐久/精确无候选结算局部跳过；未结算事务、身份、库存、ledger、sync/orphan 故障不放宽。执行预算改按 poll 计数，零成功消费继续发布推进并自然完成；`CHAIN_LOGGING` 的 matcher 软拒绝节点保留 candidate 连通资格但不入队。wire v3、配置 schema、五态转移表、INTERACT 与 GT SPECIAL 不变，client/dedicated 运行态仍为 INCOMPLETE。
 - 2026-07-21：为 TiC `HarvestTool` 族增加无直接依赖的 null-harvestTool 旧式采掘适配；客户端候选与冻结规划仍共用资格入口，显式等级、效率、耐久和执行期服务端权威不变。自动化不替代 Smeltery 真实掉落验证，5.0.23 继续阻断。
 - 2026-07-18：新增服务端 round-scoped 单项空手回退租约，以完整 36 槽纯值 identity 消除稳定同 key 批次的逐目标 TAKEOVER/DECLINE；真实候选仍优先、每目标权威不缓存，wire、客户端候选、执行节流、状态机与 GT 线缆路径不变。自动化不替代真实吞吐与 watchdog 复验，运行态仍为 INCOMPLETE。

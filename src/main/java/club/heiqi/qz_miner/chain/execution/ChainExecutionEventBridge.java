@@ -263,7 +263,7 @@ public class ChainExecutionEventBridge {
      * session 仅作配置载体（mode/subMode/interactFace/hit），不破坏世界。</p>
      *
      * @param context         执行上下文
-     * @param maxBreakPerTick CHAIN/AREA 的最大 poll 数；其他模式保留既有最大成功数语义
+     * @param maxBreakPerTick 非 GT 普通模式的最大 poll 数；GT 原子分支不受此预算约束
      */
     private void consumeContext(ChainExecutionContext context, int maxBreakPerTick) {
         UUID playerUUID = context.getPlayerUUID();
@@ -370,7 +370,7 @@ public class ChainExecutionEventBridge {
             return;
         }
         if (!usesTakeoverGate(session)) {
-            // INTERACT 与非 GT SPECIAL 不属于本次目标级门修复，保持原成功数预算与推进语义。
+            // INTERACT 与非 GT SPECIAL 不接入接替门，但与普通采掘共用 poll 预算和零成功推进。
             consumeNonTakeoverTargets(player, session, actionExecutor, context, maxBreakPerTick);
             return;
         }
@@ -398,41 +398,38 @@ public class ChainExecutionEventBridge {
                         return ordinaryExecutor.execute(ordinaryPlayer, ordinarySession, target);
                     }
                 });
-        if (tickResult.isStopped()) {
-            stopForTakeover(context);
-            return;
-        }
-        finishOrdinaryTick(context, tickResult);
+        finishOrdinaryTickAndStopIfNeeded(context, tickResult);
     }
 
-    /** 保留 INTERACT 与非 GT SPECIAL 的既有消费、节流和推进行为。 */
+    /** INTERACT 与非 GT SPECIAL 不走接替门，但复用按 poll 计数的有界消费。 */
     private void consumeNonTakeoverTargets(EntityPlayerMP player, ChainSession session,
             ChainActionExecutor actionExecutor, ChainExecutionContext context, int maxBreakPerTick) {
-        int executed = 0;
-        while (executed < maxBreakPerTick) {
-            ChainTarget target = context.getTargets().poll();
-            if (target == null) break;
-            context.recordExecutionConsumed();
-            if (!actionExecutor.canExecute(player, session, target)) continue;
-            if (!actionExecutor.execute(player, session, target)) continue;
-            executed++;
-            if (context.recordExecutionSucceeded()) logFirstSuccessfulExecution(context, target);
-        }
+        OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, maxBreakPerTick,
+                target -> AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                new OrdinaryTargetExecutor() {
+                    @Override
+                    public boolean canExecute(ChainTarget target) {
+                        return actionExecutor.canExecute(player, session, target);
+                    }
 
-        if (executed > 0) {
-            context.setNextExecutorAllowedMillis(System.currentTimeMillis() + 50L);
-            bus.publish(new ExecutionAdvanced(context.getPlayerUUID(), context.getServerRoundId(),
-                    context.getGeneration(), ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
-                    executed, context.getTargets().size()));
-        }
-        if (context.isCompleted()) {
-            publishExecutionFinishedWithCleanup(context, "executor-consumed-all-targets");
-            registry.remove(context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId());
+                    @Override
+                    public boolean execute(ChainTarget target) {
+                        return actionExecutor.execute(player, session, target);
+                    }
+                });
+        finishOrdinaryTickAndStopIfNeeded(context, tickResult);
+    }
+
+    /** 先发布本 tick 已发生的真实推进，再沿既有 STOP 合同收口。 */
+    void finishOrdinaryTickAndStopIfNeeded(ChainExecutionContext context, OrdinaryTickResult tickResult) {
+        finishOrdinaryTick(context, tickResult);
+        if (tickResult.isStopped()) {
+            stopForTakeover(context);
         }
     }
 
     /**
-     * 完成普通 CHAIN/AREA 单 tick 的推进尾处理。WAIT 若发生在已有消费之后也必须走到这里。
+     * 完成非 GT 普通模式单 tick 的推进尾处理。WAIT/STOP 若发生在已有消费之后也必须先走到这里。
      */
     void finishOrdinaryTick(ChainExecutionContext context, OrdinaryTickResult tickResult) {
         if (context == null || tickResult == null) {
@@ -621,7 +618,7 @@ public class ChainExecutionEventBridge {
                 Boolean.valueOf(removed), event.getReason());
     }
 
-    /** 仅普通 CHAIN/AREA 采掘使用接替门；GT SPECIAL 与交互分支保持原子/既有语义。 */
+    /** 仅普通 CHAIN/AREA 采掘使用接替门；GT SPECIAL 与交互分支不接入该门。 */
     private static boolean usesTakeoverGate(ChainSession session) {
         if (session == null || session.getRequest() == null) return false;
         return usesTakeoverGate(session.getRequest().getMode());
@@ -643,7 +640,7 @@ public class ChainExecutionEventBridge {
         boolean execute(ChainTarget target);
     }
 
-    /** 单 tick 普通执行纯值结果，用于统一推进、节流和完成尾处理。 */
+    /** 单 tick 非 GT 普通执行纯值结果，用于统一推进、节流和完成尾处理。 */
     static final class OrdinaryTickResult {
         private final int processedTargets;
         private final int executedTargets;
@@ -668,7 +665,7 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 按实际 poll 数而非成功数消费普通目标；SKIP_TARGET 只消费队首且绝不到达执行器。
+     * 按实际 poll 数而非成功数消费非 GT 普通目标；SKIP_TARGET 只消费队首且绝不到达执行器。
      */
     static OrdinaryTickResult consumeOrdinaryTargets(ChainExecutionContext context, int maxBreakPerTick,
             OrdinaryTargetGate gate, OrdinaryTargetExecutor executor) {
