@@ -114,18 +114,44 @@ Issue #244 已以[唯一回复](https://github.com/QuanhuZeYu/Qz-Miner/issues/24
 
 `5.0.19`、`5.0.20`、`5.0.21`、`5.0.22`、`5.0.23` 与 `5.0.24` 的 tag/Release 均为不可移动发布事实；本次发布后的文档提交不属于 `5.0.24` 发布制品 SHA，不得移动 tag 或改写历史 Release。
 
-## 5.1 mixed runtime 持续边界
+## 5.1.0 标准发布与持续运行态边界
 
 用户决定 5.1 stable、prerelease、branch/dirty dev 在合法 5.1 core 内忽略 patch/qualifier 互通，
 并允许 remote map 缺 `qz_miner` 时 CLIENT/SERVER checker 双向放行。该决定同时冻结 5.1 family 的
 16 个 packet discriminator/Side、现有 framing/protocol/ordinal/code/mask 与 24-path schema；不兼容
 变化必须升级新 minor，不能隐藏在 patch 或 dev qualifier 中。
 
-首个 5.1 候选的真实 stable/pre/dev mixed client/dedicated、missing-mod 两侧、Forge status query、
-branch CI、tag、artifact 与 clean consumer 证据均尚未形成。用户接受这些运行态不阻断候选提交，但
-它们永久显式保持 **INCOMPLETE**：每个后续 5.1 patch 都必须独立记录，不能继承本候选的风险接受，
-也不能由 parser/JVM、本地 Gradle、CI 或发布成功改写为实机通过。
+`5.1.0` 标准发布现已闭环。发布候选 `add/version-compatibility-5.1@1cd341f956abfdbce71dedced20962651c66c016`
+的 push CI [`30190860784`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30190860784) 与最终
+`5.0重构@be740e196e5cd2c1705e2d27e6689c2a86ee8631` 的 exact-SHA CI
+[`30191344675`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30191344675) 均为
+`completed/success`，独立 merge 复审无 P0/P1/P2；两个 CI 的 GTNH `2.8.4`、`2.9.0-beta-2`、
+generated/JAR 5.1 dev version 断言与聚合 `build` 均 success。
 
+Annotated tag `5.1.0` object 为 `df396a994e4dbda754ac38149ddeb435721d900b`，message 为
+`[Release]: Qz-Miner 5.1.0`，peeled commit 固定为 `be740e196e5cd2c1705e2d27e6689c2a86ee8631`。
+Tag workflow [`30191754375`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30191754375) 为
+`completed/success`，exact-SHA gate、setup、默认 GTNH baseline 断言、assemble 与 GitHub Release
+均 success；Maven skipped，Modrinth/CurseForge steps 虽为 success，但 project ID 为空且无远端上传证据。
+
+公开 GitHub Release 为 <https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.1.0>，非
+draft/prerelease，标题为 `5.1.0`，正文与 tagged `.changelogs/5.1.0.md` 字符一致。三项公开资产为：
+
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.1.0.jar` | 872436 | `576235783db4f406379286047feab1d623809dc5a9b0be32d7649af68c69df0b` |
+| `qz_miner-5.1.0-dev.jar` | 866317 | `591a819444987044f8d63e05ab4515580175b3103bec9bf13c99e36950e0a99a` |
+| `qz_miner-5.1.0-sources.jar` | 493640 | `0295bf48c66337a192b4ac83e6ae07277e7814154d0de063e2c26bba40604652` |
+
+主/dev JAR 的 `Tags.class` 均含 exact `5.1.0`。渠道终态仅 GitHub Release 有实际发布证据；Maven
+为 skipped，Modrinth/CurseForge 仅有 workflow step success，不能据此宣称外部平台已发布。
+
+用户接受 Miner 自身 clean consumer、Forge status query，以及真实 stable/prerelease/branch/dirty dev
+mixed、5.0/畸形拒绝与 missing-mod client/dedicated 两侧运行态不阻断 `5.1.0` 发布；这些边界仍为
+**INCOMPLETE**，不能由 parser/JVM、CI、Release 或发布资产改写为通过，每个后续 5.1 patch 也须独立记录。
 missing checker true 只放宽 Forge mod-list 检查，不证明无 Mod 对端存在 Qz-Miner channel 或能够安全
-接收业务包；除非出现实际日志、复现或用户反馈，本轮不为理论 corner case 预建替身、capability
-negotiation 或生产级恢复系统。完整合同见 `network-version-compatibility.md`。
+接收业务包；除非出现实际日志、复现或用户反馈，不为理论 corner case 预建替身、capability negotiation
+或生产级恢复系统。完整合同见 `network-version-compatibility.md`。
+
+`5.1.0` tag/Release 是不可移动发布事实；本次发布后的文档提交不属于该制品 SHA，不得移动 tag 或
+改写 tagged changelog 与历史 Release。
