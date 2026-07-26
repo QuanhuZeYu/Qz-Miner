@@ -10,6 +10,10 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
+import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
 
 /** 生命周期即使没有 ChainPlayerState 也必须销毁工具换位账本。 */
@@ -28,12 +32,30 @@ public class ChainStateServiceToolSwapLifecycleTest {
         ChainStateService stateService = new ChainStateService();
 
         MyMod.autoToolSwapRoundService.beginRound(playerId, endpoint, 1L, 0L);
+        long roundId = MyMod.autoToolSwapRoundService.activatePendingRound(playerId, endpoint, 1L)
+                .serverRoundId();
+        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
+        AutoToolSwapIntent close = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
+                roundId, 1L, AutoToolSwapAction.CLOSE, 0, 0, empty, empty);
+        MyMod.autoToolSwapRoundService.handleIntent(playerId, endpoint, close, null, 2L);
+        Assert.assertTrue("硬生命周期前先建立 committed result publication",
+                MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint)
+                        .hasPendingResultPublication());
         Assert.assertNull(stateService.getPlayerState(playerId));
         stateService.cleanupPlayerState(playerId, "logout-without-state", true);
         Assert.assertNull(MyMod.autoToolSwapRoundService.snapshot(playerId));
         Assert.assertNull(stateService.getPlayerState(playerId));
 
         MyMod.autoToolSwapRoundService.beginRound(playerId, endpoint, 2L, 1L);
+        Assert.assertNotNull(MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint));
+        Assert.assertFalse("新 lifecycle 不得继承旧 publication pending",
+                MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint)
+                        .hasPendingResultPublication());
+        Assert.assertEquals("新 lifecycle 必须从 fresh ordinary sequence 开始", 1L,
+                MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint).nextActionSequence());
+        Assert.assertEquals("新 lifecycle 不得继承旧 takeover request 水位", 0L,
+                MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint)
+                        .lastIssuedTakeoverRequestId());
         stateService.removePlayerState(playerId, "remove-without-state");
         Assert.assertNull(MyMod.autoToolSwapRoundService.snapshot(playerId));
         Assert.assertNull(stateService.getPlayerState(playerId));

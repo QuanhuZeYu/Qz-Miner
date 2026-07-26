@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.chain.execution;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -11,12 +14,14 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
+import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
@@ -416,7 +421,7 @@ public class ChainExecutionEventBridgeTest {
     }
 
     @Test
-    public void takeoverGateBehaviorSeamConsumesOnlyProceed() {
+    public void takeoverGateBehaviorSeamConsumesProceedAndTargetSkipOnly() {
         assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult.WAIT);
         assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult.STOP);
 
@@ -433,6 +438,282 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertEquals(1, queue.size());
         Assert.assertSame(second, queue.peek());
         Assert.assertEquals(1, context.getExecutionConsumedCount());
+
+        Assert.assertSame("SKIP_TARGET 必须只消费此刻的精确队首", second,
+                ChainExecutionEventBridge.pollTargetAfterTakeoverGate(context,
+                        AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET));
+        Assert.assertTrue(queue.isEmpty());
+        Assert.assertEquals(2, context.getExecutionConsumedCount());
+        Assert.assertEquals(1, context.getExecutionSkippedCount());
+    }
+
+    @Test
+    public void targetLocalGateCoversAreaTunnelWithoutChangingInteractOrSpecial() {
+        Assert.assertTrue(ChainExecutionEventBridge.usesTakeoverGate(ChainMode.CHAIN));
+        Assert.assertTrue("AREA_TUNNEL 归属 AREA，必须进入目标级门",
+                ChainExecutionEventBridge.usesTakeoverGate(ChainMode.AREA));
+        Assert.assertFalse(ChainExecutionEventBridge.usesTakeoverGate(ChainMode.INTERACT));
+        Assert.assertFalse(ChainExecutionEventBridge.usesTakeoverGate(ChainMode.SPECIAL));
+    }
+
+    @Test
+    public void blockHarvestExecutorReturnsVanillaHarvestResultInsteadOfAssumingSuccess() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/executor/BlockHarvestActionExecutor.java").toPath()),
+                StandardCharsets.UTF_8);
+
+        Assert.assertTrue(source.contains(
+                "return player.theItemInWorldManager.tryHarvestBlock(target.getX(), target.getY(), target.getZ())"));
+        Assert.assertFalse(source.contains("tryHarvestBlock(target.getX(), target.getY(), target.getZ());\n"
+                + "            return true;"));
+    }
+
+    @Test
+    public void ordinaryTickBudgetCountsRejectedPollsInsteadOfSuccessfulExecutions() {
+        ConcurrentLinkedQueue<ChainTarget> queue = targets(5);
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
+        AtomicInteger canExecuteCalls = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 2, target -> AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        canExecuteCalls.incrementAndGet();
+                        return false;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        executeCalls.incrementAndGet();
+                        return true;
+                    }
+                });
+
+        Assert.assertEquals("canExecute=false 也必须占用一次本 tick poll 预算", 2,
+                result.getProcessedTargets());
+        Assert.assertEquals(0, result.getExecutedTargets());
+        Assert.assertEquals(2, canExecuteCalls.get());
+        Assert.assertEquals(0, executeCalls.get());
+        Assert.assertEquals("拒绝队列不得在单 tick 无界 drain", 3, queue.size());
+        Assert.assertEquals(2, context.getExecutionConsumedCount());
+    }
+
+    @Test
+    public void interactAllFailuresRespectPollBudgetAndPublishZeroSuccessAdvance() {
+        Assert.assertFalse(ChainExecutionEventBridge.usesTakeoverGate(ChainMode.INTERACT));
+        Assert.assertFalse(ChainExecutionEventBridge.usesTakeoverGate(ChainMode.SPECIAL));
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1201L, 13, targets(5), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<ExecutionAdvanced> advanced = new ArrayList<ExecutionAdvanced>();
+        bus.subscribe(ExecutionAdvanced.class, advanced::add);
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 2, target -> AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) { return false; }
+                    @Override public boolean execute(ChainTarget target) {
+                        Assert.fail("canExecute=false 不得到达 execute");
+                        return true;
+                    }
+                });
+        bridge.finishOrdinaryTickAndStopIfNeeded(context, result);
+        bus.drain();
+
+        Assert.assertEquals(2, result.getProcessedTargets());
+        Assert.assertEquals(0, result.getExecutedTargets());
+        Assert.assertEquals("全失败也不得在单 tick drain 超过 poll 预算", 3, context.getTargets().size());
+        Assert.assertEquals(2, context.getExecutionConsumedCount());
+        Assert.assertEquals(1, advanced.size());
+        Assert.assertEquals(0, advanced.get(0).getExecutedThisTick());
+        Assert.assertEquals(3, advanced.get(0).getRemainingTargets());
+    }
+
+    @Test
+    public void mixedSuccessExecuteFailureAndSkipShareOnePollBudget() {
+        ConcurrentLinkedQueue<ChainTarget> queue = targets(5);
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
+        AtomicInteger gateCalls = new AtomicInteger();
+        AtomicInteger canExecuteCalls = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 4, target -> gateCalls.incrementAndGet() == 3
+                        ? AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET
+                        : AutoToolSwapTakeoverCoordinator.GateResult.PROCEED,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        return canExecuteCalls.incrementAndGet() > 1;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        return executeCalls.incrementAndGet() > 1;
+                    }
+                });
+
+        Assert.assertEquals(4, result.getProcessedTargets());
+        Assert.assertEquals(1, result.getExecutedTargets());
+        Assert.assertEquals(4, gateCalls.get());
+        Assert.assertEquals("SKIP_TARGET 绝不得到达 canExecute", 3, canExecuteCalls.get());
+        Assert.assertEquals("canExecute=false 与 SKIP_TARGET 都不得到达 execute", 2, executeCalls.get());
+        Assert.assertEquals(1, context.getExecutionSkippedCount());
+        Assert.assertEquals(1, context.getExecutionSucceededCount());
+        Assert.assertEquals(1, queue.size());
+    }
+
+    @Test
+    public void waitAfterTargetSkipStillPublishesZeroSuccessAdvance() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1101L, 10, targets(2), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<ExecutionAdvanced> advanced = new ArrayList<ExecutionAdvanced>();
+        List<ExecutionFinished> finished = new ArrayList<ExecutionFinished>();
+        bus.subscribe(ExecutionAdvanced.class, advanced::add);
+        bus.subscribe(ExecutionFinished.class, finished::add);
+        AtomicInteger gateCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 4, target -> gateCalls.incrementAndGet() == 1
+                        ? AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET
+                        : AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                neverExecutingTarget());
+        bridge.finishOrdinaryTick(context, result);
+        bus.drain();
+
+        Assert.assertTrue(result.isWaiting());
+        Assert.assertEquals(1, result.getProcessedTargets());
+        Assert.assertEquals(1, advanced.size());
+        Assert.assertEquals(0, advanced.get(0).getExecutedThisTick());
+        Assert.assertEquals(1, advanced.get(0).getRemainingTargets());
+        Assert.assertTrue(finished.isEmpty());
+        Assert.assertSame(context, registry.get(PLAYER, 10, 1101L));
+        Assert.assertEquals("零成功不得设置 50ms 节流", 0L, context.getNextExecutorAllowedMillis());
+    }
+
+    @Test
+    public void publicationRetryWaitWithoutConsumptionDoesNotFeedFakeWatchdogProgress() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1104L, 15, targets(1), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<ExecutionAdvanced> advanced = new ArrayList<ExecutionAdvanced>();
+        bus.subscribe(ExecutionAdvanced.class, advanced::add);
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 4, target -> AutoToolSwapTakeoverCoordinator.GateResult.WAIT,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        Assert.fail("WAIT 不得到达 canExecute");
+                        return false;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        Assert.fail("WAIT 不得到达 execute");
+                        return false;
+                    }
+                });
+        bridge.finishOrdinaryTick(context, result);
+        bus.drain();
+
+        Assert.assertTrue(result.isWaiting());
+        Assert.assertEquals(0, result.getProcessedTargets());
+        Assert.assertEquals(0, context.getExecutionConsumedCount());
+        Assert.assertEquals(1, context.getTargets().size());
+        Assert.assertTrue("仅 publication retry WAIT 不得伪造 ExecutionAdvanced", advanced.isEmpty());
+        Assert.assertSame(context, registry.get(PLAYER, 15, 1104L));
+    }
+
+    @Test
+    public void stopAfterConsumptionPublishesAdvanceBeforeExistingStopCleanup() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1202L, 14, targets(2), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<String> order = new ArrayList<String>();
+        bus.subscribe(ExecutionAdvanced.class, event -> order.add("advanced"));
+        bus.subscribe(ExecutionFinished.class, event -> order.add("finished"));
+        bus.subscribe(LifecycleCleanup.class, event -> order.add("cleanup"));
+        AtomicInteger gateCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 4, target -> gateCalls.incrementAndGet() == 1
+                        ? AutoToolSwapTakeoverCoordinator.GateResult.PROCEED
+                        : AutoToolSwapTakeoverCoordinator.GateResult.STOP,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) { return false; }
+                    @Override public boolean execute(ChainTarget target) { return false; }
+                });
+        bridge.finishOrdinaryTickAndStopIfNeeded(context, result);
+        bus.drain();
+
+        Assert.assertTrue(result.isStopped());
+        Assert.assertEquals(1, result.getProcessedTargets());
+        Assert.assertEquals(java.util.Arrays.asList("advanced", "cleanup"), order);
+        Assert.assertNull(registry.get(PLAYER, 14, 1202L));
+    }
+
+    @Test
+    public void transientEmptyQueueBeforePlanningCompletionAdvancesWithoutFinishing() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1102L, 11, targets(1), null);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<ExecutionAdvanced> advanced = new ArrayList<ExecutionAdvanced>();
+        List<ExecutionFinished> finished = new ArrayList<ExecutionFinished>();
+        bus.subscribe(ExecutionAdvanced.class, advanced::add);
+        bus.subscribe(ExecutionFinished.class, finished::add);
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 1, target -> AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                neverExecutingTarget());
+        bridge.finishOrdinaryTick(context, result);
+        bus.drain();
+
+        Assert.assertTrue(context.getTargets().isEmpty());
+        Assert.assertFalse(context.isPlanningComplete());
+        Assert.assertEquals(1, advanced.size());
+        Assert.assertTrue("规划未完成时瞬时空队列不得发布 ExecutionFinished", finished.isEmpty());
+        Assert.assertSame(context, registry.get(PLAYER, 11, 1102L));
+    }
+
+    @Test
+    public void allSkippedCompletedPlanAdvancesThenFinishesAndCleansLifecycle() {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1103L, 12, targets(2), null);
+        context.markPlanningComplete(2);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        List<String> order = new ArrayList<String>();
+        List<ExecutionAdvanced> advanced = new ArrayList<ExecutionAdvanced>();
+        bus.subscribe(ExecutionAdvanced.class, event -> { advanced.add(event); order.add("advanced"); });
+        bus.subscribe(ExecutionFinished.class, event -> order.add("finished"));
+        bus.subscribe(LifecycleCleanup.class, event -> order.add("cleanup"));
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, 2, target -> AutoToolSwapTakeoverCoordinator.GateResult.SKIP_TARGET,
+                neverExecutingTarget());
+        bridge.finishOrdinaryTick(context, result);
+        bus.drain();
+
+        Assert.assertEquals(java.util.Arrays.asList("advanced", "finished", "cleanup"), order);
+        Assert.assertEquals(0, advanced.get(0).getExecutedThisTick());
+        Assert.assertEquals(0, advanced.get(0).getRemainingTargets());
+        Assert.assertEquals(2, context.getPlanningConfirmedCount());
+        Assert.assertEquals(2, context.getExecutionConsumedCount());
+        Assert.assertEquals(2, context.getExecutionSkippedCount());
+        Assert.assertEquals(0, context.getExecutionSucceededCount());
+        Assert.assertNull(registry.get(PLAYER, 12, 1103L));
     }
 
     @Test
@@ -487,6 +768,21 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertNull(registry.get(PLAYER, 9, 1002L));
     }
 
+    @Test
+    public void gtCableAtomicBranchKeepsPlannerWaitPrecheckAndSingleTickLoop() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        int gtBranch = source.indexOf("if (waitForPlanner)");
+        int ordinaryBranch = source.indexOf("// ===== 非 GT", gtBranch);
+        Assert.assertTrue(gtBranch >= 0 && ordinaryBranch > gtBranch);
+        String gt = source.substring(gtBranch, ordinaryBranch);
+        Assert.assertTrue(gt.contains("if (!context.isPlanningComplete())"));
+        Assert.assertTrue(gt.contains("precheckCableReplacement(player, session, context)"));
+        Assert.assertTrue(gt.contains("while (true)"));
+        Assert.assertTrue(gt.contains("cable-atomic-complete:"));
+    }
+
     private static void assertGateDoesNotConsume(AutoToolSwapTakeoverCoordinator.GateResult gate) {
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         ChainTarget first = new ChainTarget(1, 2, 3);
@@ -499,5 +795,24 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertEquals(2, queue.size());
         Assert.assertSame(first, queue.peek());
         Assert.assertEquals(0, context.getExecutionConsumedCount());
+    }
+
+    private static ConcurrentLinkedQueue<ChainTarget> targets(int count) {
+        ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
+        for (int index = 0; index < count; index++) queue.add(new ChainTarget(index, 64, 0));
+        return queue;
+    }
+
+    private static ChainExecutionEventBridge.OrdinaryTargetExecutor neverExecutingTarget() {
+        return new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+            @Override public boolean canExecute(ChainTarget target) {
+                Assert.fail("SKIP_TARGET 不得调用 canExecute");
+                return false;
+            }
+            @Override public boolean execute(ChainTarget target) {
+                Assert.fail("SKIP_TARGET 不得调用 execute");
+                return false;
+            }
+        };
     }
 }

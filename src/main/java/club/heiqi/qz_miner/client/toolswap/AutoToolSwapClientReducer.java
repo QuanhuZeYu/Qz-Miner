@@ -30,6 +30,7 @@ public final class AutoToolSwapClientReducer {
 
     public static final int MATCH_INTERVAL_TICKS = 10;
     public static final int TRANSACTION_TIMEOUT_TICKS = 40;
+    public static final int TRANSMISSION_DEADLINE_TICKS = 120;
     public static final int RETRANSMIT_TICKS = 20;
     public static final int MAX_CONSECUTIVE_RESTORE_REJECTIONS = 3;
     public static final int MAX_DIAGNOSTIC_MESSAGES = 64;
@@ -356,6 +357,7 @@ public final class AutoToolSwapClientReducer {
     private DiagnosticReason restoreReason;
     private DiagnosticReason closeDiagnosticReason;
     private AutoToolSwapTakeoverRequest pendingTakeoverRequest;
+    private AutoToolSwapTakeoverRequest queuedTakeoverRequest;
     private TakeoverExpectation takeoverExpectation;
     private ToolSwapTargetIdentity latestTarget = ToolSwapTargetIdentity.ABSENT;
     private ToolSwapTargetIdentity matchedTarget;
@@ -428,9 +430,14 @@ public final class AutoToolSwapClientReducer {
     public int protectedCandidateSlot() { return swapExpectation == null ? -1 : swapExpectation.candidateSlot; }
     public boolean isRoundPending() { return round != null && !round.accepted; }
     public boolean isActionPending() { return round != null && round.inFlight != null; }
+    /** @return APPLIED 后是否正在等待原版库存目标布局首次可见。 */
     public boolean isInventorySyncPending() {
         return swapExpectation != null && swapExpectation.verifyingAction != null
                 || takeoverExpectation != null && takeoverExpectation.verifying;
+    }
+    /** @return mutation 已提交后是否仍在重试 exact intent 以恢复库存/result publication。 */
+    public boolean isPublicationRetryPending() {
+        return transmission != null && transmission.publicationCommitted;
     }
     public boolean isOrphaned() { return state == State.ORPHANED; }
     public long pendingNonce() { return round == null ? 0L : round.clientNonce; }
@@ -439,6 +446,7 @@ public final class AutoToolSwapClientReducer {
         return round == null ? AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE : round.nextActionSequence;
     }
     public long lastPhaseSequence() { return round == null ? 0L : round.lastPhaseSequence; }
+    public long latestTakeoverRequestId() { return round == null ? 0L : round.latestTakeoverRequestId; }
     public AutoToolSwapRoundState serverRoundState() { return round == null ? null : round.serverRoundState; }
     public AutoToolSwapIntent inFlightIntent() { return round == null ? null : round.inFlight; }
     public int pendingTargetBlockId() {
@@ -467,7 +475,9 @@ public final class AutoToolSwapClientReducer {
     /** tick 所需库存采样范围，包含 deferred rearm 的完整快照门。 */
     public ToolSwapCapturePlan capturePlanForTick(ToolSwapLightContext context, boolean physicallyDown) {
         if (context == null) return ToolSwapCapturePlan.NONE;
-        if (pendingTakeoverRequest != null && round != null && round.inFlight == null
+        if (isPublicationRetryPending()) return ToolSwapCapturePlan.NONE;
+        if (!closeRequested && cycleTakeoverEnabled && pendingTakeoverRequest != null
+                && round != null && round.inFlight == null
                 && transmission == null && takeoverExpectation == null) {
             return ToolSwapCapturePlan.FULL_TARGET;
         }
@@ -518,13 +528,15 @@ public final class AutoToolSwapClientReducer {
         if (event.context != null) {
             remember(event.context);
             if (tracksPreparingTarget()) observePreparingTarget(event.context);
-            if (takeoverExpectation != null && takeoverExpectation.verifying) {
+            if (isPublicationRetryPending()) {
+                // SYNC_FAILED 只保留 exact immutable intent；不得观察布局或启动 40-tick verification。
+            } else if (takeoverExpectation != null && takeoverExpectation.verifying) {
                 Effect invalidation = observeTakeoverInventory(event.context.inventory, event.context.tick);
                 if (invalidation != null) effects.add(invalidation);
             } else if (isInventorySyncPending()) {
                 Effect invalidation = observeInventory(event.context.inventory, event.context.tick);
                 if (invalidation != null) effects.add(invalidation);
-            } else if (pendingTakeoverRequest != null) {
+            } else if (!closeRequested && cycleTakeoverEnabled && pendingTakeoverRequest != null) {
                 effects.addAll(prepareTakeoverDecision(event.context));
             } else if (state != State.IDLE && state != State.WAIT_RELEASE && state != State.ORPHANED) {
                 advanceCycle(event.context);
@@ -631,6 +643,7 @@ public final class AutoToolSwapClientReducer {
             return noEffects();
         }
         AutoToolSwapRoundResult result = validated.result();
+        boolean takeoverResult = isTakeoverAction(validated.action());
         if (validated.action() == AutoToolSwapAction.RESTORE || validated.action() == AutoToolSwapAction.CLOSE
                 || validated.action() == AutoToolSwapAction.ABANDON) {
             diagnose(validated.action() == AutoToolSwapAction.RESTORE
@@ -645,6 +658,10 @@ public final class AutoToolSwapClientReducer {
                     validated.action() + "/" + result.outcome() + "/" + result.roundState());
         }
         if (round.inFlight == null) {
+            if (takeoverResult && event.actionSequence < round.latestTakeoverRequestId) {
+                // 迟到旧 result/SYNC_FAILED 不能清新请求、改普通水位或触发 ORPHAN。
+                return noEffects();
+            }
             if (!isDuplicateSettlement(event, validated.action(), result)) {
                 diagnose(DiagnosticClass.ACTION_RESULT_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
                         "action-result-without-flight", event.serverRoundId, event.actionSequence,
@@ -656,23 +673,45 @@ public final class AutoToolSwapClientReducer {
         if (event.serverRoundId != round.serverRoundId || intent.serverRoundId() != event.serverRoundId
                 || intent.actionSequence() != event.actionSequence || intent.action() != validated.action()
                 || intent.anchorSlot() != event.anchorSlot || intent.candidateSlot() != event.candidateSlot
-                || event.actionSequence == Long.MAX_VALUE
-                || event.nextActionSequence != event.actionSequence + 1L) {
+                || takeoverResult != intent.usesTakeoverRequestId()) {
             diagnose(DiagnosticClass.ACTION_RESULT_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
                     "action-result-identity-mismatch", event.serverRoundId, event.actionSequence,
                     validated.action().name());
             return noEffects();
         }
-        round.inFlight = null;
-        transmission = null;
-        round.nextActionSequence = event.nextActionSequence;
-        round.serverRoundState = result.roundState();
-        round.lastSettlementIntent = intent;
-        round.lastSettlementResult = result;
-        if (result.outcome() == AutoToolSwapResultCode.SYNC_FAILED
-                || result.roundState() == AutoToolSwapRoundState.ORPHANED) {
+        boolean syncFailed = result.outcome() == AutoToolSwapResultCode.SYNC_FAILED;
+        long expectedNext = takeoverResult || syncFailed
+                ? round.nextActionSequence
+                : event.actionSequence == Long.MAX_VALUE ? Long.MIN_VALUE : event.actionSequence + 1L;
+        if (event.nextActionSequence != expectedNext) {
+            diagnose(DiagnosticClass.ACTION_RESULT_IGNORED, DiagnosticReason.PROTOCOL_ORPHAN, lastContext,
+                    "action-result-sequence-mismatch", event.serverRoundId, event.actionSequence,
+                    validated.action().name());
+            return noEffects();
+        }
+        if (result.roundState() == AutoToolSwapRoundState.ORPHANED) {
             orphan();
             return noEffects();
+        }
+        if (syncFailed) {
+            round.serverRoundState = result.roundState();
+            if (transmission != null && transmission.effect.intent == intent) {
+                transmission = transmission.requestPublicationRetry();
+            } else {
+                transmission = PendingTransmission.forPublicationRetry(intentEffect(intent, false), clientTick);
+            }
+            return noEffects();
+        }
+        round.inFlight = null;
+        transmission = null;
+        if (!takeoverResult) round.nextActionSequence = event.nextActionSequence;
+        round.serverRoundState = result.roundState();
+        if (takeoverResult) {
+            round.lastTakeoverSettlementIntent = intent;
+            round.lastTakeoverSettlementResult = result;
+        } else {
+            round.lastSettlementIntent = intent;
+            round.lastSettlementResult = result;
         }
         if (result.roundState() == AutoToolSwapRoundState.CLOSING) round.closing = true;
         settleProductAction(intent.action(), result.outcome(), result.roundState());
@@ -714,7 +753,7 @@ public final class AutoToolSwapClientReducer {
         return noEffects();
     }
 
-    /** 严格关联当前 v3/FROZEN/phase generation，只登记事实等待下一 ClientTick。 */
+    /** 严格关联当前 v4/FROZEN/phase generation，并按独立 request ID 单调登记事实。 */
     private List<Effect> onTakeoverRequest(TakeoverRequestEvent event) {
         AutoToolSwapTakeoverRequest request = VALIDATOR.validateTakeoverRequest(event.protocolVersion,
                 event.serverRoundId, event.actionSequence, event.generation, event.targetX, event.targetY,
@@ -722,23 +761,60 @@ public final class AutoToolSwapClientReducer {
                 event.deadlineTick, event.rawValid);
         if (request == null || round == null || !round.accepted || state != State.FROZEN
                 || round.serverRoundId != request.serverRoundId()
-                || round.nextActionSequence != request.actionSequence()
                 || round.chainGeneration != request.generation()
-                || round.lastPhase == null || round.lastPhase == ChainPhase.IDLE
-                || round.inFlight != null || transmission != null || takeoverExpectation != null) {
+                || round.lastPhase == null || round.lastPhase == ChainPhase.IDLE) {
             diagnose(DiagnosticClass.TAKEOVER_REQUEST_IGNORED, DiagnosticReason.TAKEOVER_REQUEST_IGNORED,
                     lastContext, "takeover-request", event.serverRoundId, event.actionSequence,
                     Integer.toString(event.generation));
             return noEffects();
         }
-        if (pendingTakeoverRequest != null) {
+        long requestId = request.takeoverRequestId();
+        if (requestId < round.latestTakeoverRequestId) {
             diagnose(DiagnosticClass.TAKEOVER_REQUEST_IGNORED, DiagnosticReason.TAKEOVER_REQUEST_IGNORED,
-                    lastContext, "takeover-request-duplicate", event.serverRoundId, event.actionSequence,
+                    lastContext, "takeover-request-stale", event.serverRoundId, event.actionSequence,
                     Integer.toString(event.generation));
-            return pendingTakeoverRequest.sameGate(request) ? noEffects() : noEffects();
+            return noEffects();
         }
+        if (requestId == round.latestTakeoverRequestId) {
+            boolean exact = pendingTakeoverRequest != null && pendingTakeoverRequest.sameGate(request)
+                    || queuedTakeoverRequest != null && queuedTakeoverRequest.sameGate(request)
+                    || round.lastTakeoverSettlementIntent != null
+                            && round.lastTakeoverSettlementIntent.takeoverRequestId() == requestId;
+            if (!exact) {
+                diagnose(DiagnosticClass.TAKEOVER_REQUEST_IGNORED, DiagnosticReason.TAKEOVER_REQUEST_IGNORED,
+                        lastContext, "takeover-request-same-id-mismatch", event.serverRoundId,
+                        event.actionSequence, Integer.toString(event.generation));
+            }
+            return noEffects();
+        }
+        round.latestTakeoverRequestId = requestId;
+        if (takeoverExpectation != null && takeoverExpectation.verifying
+                || isCommittedTakeoverPublicationRetry()) {
+            // 旧 mutation 已提交或仍等待原版布局可见；A→B→C 只保留最新 C，不能丢失旧 ownership。
+            queuedTakeoverRequest = request;
+            return noEffects();
+        }
+        supersedeUncommittedTakeover();
         pendingTakeoverRequest = request;
         return noEffects();
+    }
+
+    /** 只清旧 takeover 归属；普通 SWAP/RESTORE/FREEZE/CLOSE in-flight 必须原样保留。 */
+    private void supersedeUncommittedTakeover() {
+        if (round != null && round.inFlight != null && round.inFlight.usesTakeoverRequestId()) {
+            round.inFlight = null;
+        }
+        if (transmission != null && transmission.effect.intent != null
+                && transmission.effect.intent.usesTakeoverRequestId()) {
+            transmission = null;
+        }
+        if (pendingAction == AutoToolSwapAction.TAKEOVER
+                || pendingAction == AutoToolSwapAction.DECLINE_TAKEOVER) {
+            pendingAction = null;
+        }
+        pendingTakeoverRequest = null;
+        queuedTakeoverRequest = null;
+        takeoverExpectation = null;
     }
 
     private List<Effect> onEffectResult(EffectResultEvent event) {
@@ -753,11 +829,11 @@ public final class AutoToolSwapClientReducer {
         }
         if (event.effect.retry) {
             if (transmission != null && transmission.matches(event.effect)) {
-                transmission = transmission.markRetransmitted();
+                transmission = transmission.markRetrySubmitted(event.effect.createdTick);
             }
             return noEffects();
         }
-        transmission = new PendingTransmission(event.effect, event.effect.createdTick, false);
+        transmission = PendingTransmission.started(event.effect, event.effect.createdTick);
         if (event.effect.type == Effect.Type.SEND_INTENT && round != null) {
             round.inFlight = event.effect.intent;
         }
@@ -809,6 +885,9 @@ public final class AutoToolSwapClientReducer {
         restoreReason = null;
         closeDiagnosticReason = null;
         consecutiveRestoreRejections = 0;
+        pendingTakeoverRequest = null;
+        queuedTakeoverRequest = null;
+        takeoverExpectation = null;
         latestTarget = context.targetIdentity;
         matchedTarget = null;
         consecutiveAbsentTargetTicks = 0;
@@ -981,7 +1060,7 @@ public final class AutoToolSwapClientReducer {
             SlotSnapshot next = context.inventory.slot(candidate.slot());
             SlotSnapshot old = oldCandidate < 0 ? null : context.inventory.slot(oldCandidate);
             if (next == null || next.isEmpty() || oldCandidate >= 0 && old == null) continue;
-            takeoverExpectation = new TakeoverExpectation(anchorSlot, oldCandidate, candidate.slot(),
+            takeoverExpectation = new TakeoverExpectation(request, anchorSlot, oldCandidate, candidate.slot(),
                     anchor, old, next, context.tick);
             AutoToolSwapIntent intent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
                     round.serverRoundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER,
@@ -1127,17 +1206,13 @@ public final class AutoToolSwapClientReducer {
                 pendingAction = null;
             } else {
                 takeoverExpectation = null;
-                pendingTakeoverRequest = null;
-                pendingAction = null;
-                state = State.FROZEN;
+                finishTakeoverOwnership();
             }
             return;
         }
         if (action == AutoToolSwapAction.DECLINE_TAKEOVER) {
-            pendingTakeoverRequest = null;
             takeoverExpectation = null;
-            pendingAction = null;
-            state = State.FROZEN;
+            finishTakeoverOwnership();
             return;
         }
         if (action == AutoToolSwapAction.SWAP) {
@@ -1256,12 +1331,10 @@ public final class AutoToolSwapClientReducer {
                     ? expected.anchorBefore : swapExpectation.anchorRole;
             swapExpectation = new SwapExpectation(generation, expected.anchorSlot,
                     expected.newCandidateSlot, originalAnchor, expected.newCandidateBefore,
-                    ToolSwapTargetIdentity.present(pendingTakeoverRequest.targetBlockId(),
-                            pendingTakeoverRequest.targetBlockMetadata()));
+                    ToolSwapTargetIdentity.present(expected.request.targetBlockId(),
+                            expected.request.targetBlockMetadata()));
             takeoverExpectation = null;
-            pendingTakeoverRequest = null;
-            pendingAction = null;
-            state = State.FROZEN;
+            finishTakeoverOwnership();
             return invalidation;
         } else if (!source || elapsed >= TRANSACTION_TIMEOUT_TICKS) {
             orphan();
@@ -1269,11 +1342,20 @@ public final class AutoToolSwapClientReducer {
         return null;
     }
 
+    /** 完成当前 request 后提升排队的新 request；其候选采样仍留到下一 ClientTick。 */
+    private void finishTakeoverOwnership() {
+        pendingTakeoverRequest = queuedTakeoverRequest;
+        queuedTakeoverRequest = null;
+        pendingAction = null;
+        state = State.FROZEN;
+    }
+
     /** 库存布局首次可见时冻结一次预览失效身份；APPLIED 回包本身不产生该 effect。 */
     private Effect previewInvalidateEffect(AutoToolSwapAction verifiedAction) {
-        if (round == null || round.lastSettlementIntent == null
-                || round.lastSettlementIntent.action() != verifiedAction) return null;
-        AutoToolSwapIntent settled = round.lastSettlementIntent;
+        if (round == null) return null;
+        AutoToolSwapIntent settled = isTakeoverAction(verifiedAction)
+                ? round.lastTakeoverSettlementIntent : round.lastSettlementIntent;
+        if (settled == null || settled.action() != verifiedAction) return null;
         return new Effect(Effect.Type.PREVIEW_INVALIDATE, ToolSwapCapturePlan.NONE, 0, 0,
                 0L, null, false, false, clientTick, 0, 0,
                 generation, settled.serverRoundId(), settled.actionSequence(), verifiedAction);
@@ -1281,12 +1363,20 @@ public final class AutoToolSwapClientReducer {
 
     private List<Effect> retryOrOrphan() {
         if (transmission == null) return noEffects();
-        long elapsed = clientTick - transmission.sentTick;
-        if (elapsed >= TRANSACTION_TIMEOUT_TICKS) {
+        if (transmission.immediateRetryPending) {
+            Effect original = transmission.effect;
+            return oneEffect(new Effect(original.type, original.capturePlan, original.anchorSlot,
+                    original.candidateSlot, original.clientNonce, original.intent, true,
+                    original.freshKeyAfterSubmit, clientTick,
+                    original.targetBlockId, original.targetBlockMetadata));
+        }
+        long elapsed = clientTick - transmission.firstSentTick;
+        if (hasTransmissionDeadline(transmission.effect)
+                && elapsed >= TRANSMISSION_DEADLINE_TICKS) {
             orphan();
             return noEffects();
         }
-        if (!transmission.retransmitted && elapsed >= RETRANSMIT_TICKS) {
+        if (clientTick - transmission.lastSentTick >= RETRANSMIT_TICKS) {
             Effect original = transmission.effect;
             Effect retry = new Effect(original.type, original.capturePlan, original.anchorSlot,
                     original.candidateSlot, original.clientNonce, original.intent, true,
@@ -1295,6 +1385,22 @@ public final class AutoToolSwapClientReducer {
             return oneEffect(retry);
         }
         return noEffects();
+    }
+
+    /** 活跃 FREEZE/TAKEOVER 由服务端 watchdog/lifecycle 收口；准备与关闭事务保留较长硬 deadline。 */
+    private static boolean hasTransmissionDeadline(Effect effect) {
+        if (effect == null || effect.type == Effect.Type.BEGIN_ROUND) return true;
+        AutoToolSwapIntent intent = effect.intent;
+        if (intent == null) return false;
+        AutoToolSwapAction action = intent.action();
+        return action == AutoToolSwapAction.SWAP || action == AutoToolSwapAction.RESTORE
+                || action == AutoToolSwapAction.CLOSE || action == AutoToolSwapAction.ABANDON;
+    }
+
+    /** @return 当前 committed publication ownership 是否属于尚未最终结算的 takeover intent。 */
+    private boolean isCommittedTakeoverPublicationRetry() {
+        return isPublicationRetryPending() && transmission.effect.intent != null
+                && transmission.effect.intent.usesTakeoverRequestId();
     }
 
     private void requestFreeze(long eventGeneration) {
@@ -1507,16 +1613,24 @@ public final class AutoToolSwapClientReducer {
 
     private boolean isDuplicateSettlement(ActionResultEvent event, AutoToolSwapAction action,
             AutoToolSwapRoundResult result) {
-        if (round.lastSettlementIntent == null || round.lastSettlementResult == null) return false;
-        AutoToolSwapIntent intent = round.lastSettlementIntent;
+        AutoToolSwapIntent intent = isTakeoverAction(action)
+                ? round.lastTakeoverSettlementIntent : round.lastSettlementIntent;
+        AutoToolSwapRoundResult settledResult = isTakeoverAction(action)
+                ? round.lastTakeoverSettlementResult : round.lastSettlementResult;
+        if (intent == null || settledResult == null) return false;
         return intent.serverRoundId() == event.serverRoundId && intent.actionSequence() == event.actionSequence
                 && intent.action() == action && intent.anchorSlot() == event.anchorSlot
-                && intent.candidateSlot() == event.candidateSlot && round.lastSettlementResult.equals(result);
+                && intent.candidateSlot() == event.candidateSlot && settledResult.equals(result);
+    }
+
+    private static boolean isTakeoverAction(AutoToolSwapAction action) {
+        return action == AutoToolSwapAction.TAKEOVER || action == AutoToolSwapAction.DECLINE_TAKEOVER;
     }
 
     private void onRoundRejected() {
         pendingAction = null;
         pendingTakeoverRequest = null;
+        queuedTakeoverRequest = null;
         takeoverExpectation = null;
         swapExpectation = null;
         deferredRoundPending = false;
@@ -1545,6 +1659,7 @@ public final class AutoToolSwapClientReducer {
         pendingAction = null;
         swapExpectation = null;
         pendingTakeoverRequest = null;
+        queuedTakeoverRequest = null;
         takeoverExpectation = null;
         lastContext = null;
         consecutiveRestoreRejections = 0;
@@ -1570,6 +1685,9 @@ public final class AutoToolSwapClientReducer {
         restoreReason = null;
         closeDiagnosticReason = null;
         clearPreparingTargetTracking();
+        pendingTakeoverRequest = null;
+        queuedTakeoverRequest = null;
+        takeoverExpectation = null;
     }
 
     /** 清除只属于首块前 PREPARING 的目标重匹配资格。 */
@@ -1815,6 +1933,7 @@ public final class AutoToolSwapClientReducer {
         private final long clientNonce;
         private long serverRoundId;
         private long nextActionSequence = AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE;
+        private long latestTakeoverRequestId;
         private long lastPhaseSequence;
         private ChainPhase lastPhase;
         private boolean accepted;
@@ -1824,6 +1943,8 @@ public final class AutoToolSwapClientReducer {
         private AutoToolSwapIntent inFlight;
         private AutoToolSwapIntent lastSettlementIntent;
         private AutoToolSwapRoundResult lastSettlementResult;
+        private AutoToolSwapIntent lastTakeoverSettlementIntent;
+        private AutoToolSwapRoundResult lastTakeoverSettlementResult;
         private int chainGeneration = -1;
 
         private RoundContext(long clientNonce) {
@@ -1886,6 +2007,7 @@ public final class AutoToolSwapClientReducer {
 
     /** 一次接替在客户端可见性门中的双槽/三槽布局期望。 */
     private static final class TakeoverExpectation {
+        private final AutoToolSwapTakeoverRequest request;
         private final int anchorSlot;
         private final int oldCandidateSlot;
         private final int newCandidateSlot;
@@ -1895,9 +2017,11 @@ public final class AutoToolSwapClientReducer {
         private boolean verifying;
         private long verifyStartedTick;
 
-        private TakeoverExpectation(int anchorSlot, int oldCandidateSlot, int newCandidateSlot,
+        private TakeoverExpectation(AutoToolSwapTakeoverRequest request, int anchorSlot,
+                int oldCandidateSlot, int newCandidateSlot,
                 SlotSnapshot anchorBefore, SlotSnapshot oldCandidateBefore,
                 SlotSnapshot newCandidateBefore, long createdTick) {
+            this.request = request;
             this.anchorSlot = anchorSlot;
             this.oldCandidateSlot = oldCandidateSlot;
             this.newCandidateSlot = newCandidateSlot;
@@ -1924,16 +2048,21 @@ public final class AutoToolSwapClientReducer {
         }
     }
 
-    /** 唯一等待回包或允许一次重传的发送状态。 */
+    /** 唯一等待回包的发送状态；固定 cadence 可重复重发同一不可变 payload。 */
     private static final class PendingTransmission {
         private final Effect effect;
-        private final long sentTick;
-        private final boolean retransmitted;
+        private final long firstSentTick;
+        private final long lastSentTick;
+        private final boolean publicationCommitted;
+        private final boolean immediateRetryPending;
 
-        private PendingTransmission(Effect effect, long sentTick, boolean retransmitted) {
+        private PendingTransmission(Effect effect, long firstSentTick, long lastSentTick,
+                boolean publicationCommitted, boolean immediateRetryPending) {
             this.effect = effect;
-            this.sentTick = sentTick;
-            this.retransmitted = retransmitted;
+            this.firstSentTick = firstSentTick;
+            this.lastSentTick = lastSentTick;
+            this.publicationCommitted = publicationCommitted;
+            this.immediateRetryPending = immediateRetryPending;
         }
 
         private boolean matches(Effect candidate) {
@@ -1941,8 +2070,21 @@ public final class AutoToolSwapClientReducer {
                     && effect.intent == candidate.intent;
         }
 
-        private PendingTransmission markRetransmitted() {
-            return new PendingTransmission(effect, sentTick, true);
+        private PendingTransmission markRetrySubmitted(long submittedTick) {
+            return new PendingTransmission(effect, firstSentTick, submittedTick,
+                    publicationCommitted, false);
+        }
+
+        private PendingTransmission requestPublicationRetry() {
+            return new PendingTransmission(effect, firstSentTick, lastSentTick, true, true);
+        }
+
+        private static PendingTransmission started(Effect effect, long sentTick) {
+            return new PendingTransmission(effect, sentTick, sentTick, false, false);
+        }
+
+        private static PendingTransmission forPublicationRetry(Effect effect, long sentTick) {
+            return new PendingTransmission(effect, sentTick, sentTick, true, true);
         }
     }
 

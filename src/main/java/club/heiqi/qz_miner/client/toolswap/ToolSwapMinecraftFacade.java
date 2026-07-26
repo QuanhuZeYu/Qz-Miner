@@ -168,7 +168,7 @@ public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFa
         return ToolHarvestEligibility.snapshotCandidate(slot, stack, target, metadata);
     }
 
-    /** 目标实际效率必须高于徒手基线。 */
+    /** 可选采样目标实际效率；异常或低效率只记录为 false。 */
     static boolean isEffective(ItemStack stack, Block target, int metadata) {
         return ToolHarvestEligibility.isEffective(stack, target, metadata);
     }

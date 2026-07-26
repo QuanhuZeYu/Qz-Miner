@@ -19,22 +19,24 @@ public class ToolSwapTargetIdentityTest {
         Assert.assertEquals("ABSENT", ToolSwapTargetIdentity.ABSENT.toString());
         Assert.assertEquals(4096, ToolSwapTargetIdentity.present(4096, 0).blockId());
         Assert.assertEquals(32767, ToolSwapTargetIdentity.present(32767, 15).blockId());
-        Assert.assertEquals(0xFFFFFF,
-                ToolSwapTargetIdentity.present(0xFFFFFF, 0).blockId());
+        Assert.assertEquals(16777216,
+                ToolSwapTargetIdentity.present(16777216, 0).blockId());
+        Assert.assertEquals(Integer.MAX_VALUE,
+                ToolSwapTargetIdentity.present(Integer.MAX_VALUE, Integer.MAX_VALUE).blockId());
         assertValidMetadata(0);
         assertValidMetadata(15);
         assertValidMetadata(16);
         assertValidMetadata(24902);
         assertValidMetadata(65535);
+        assertValidMetadata(16777216);
+        assertValidMetadata(Integer.MAX_VALUE);
     }
 
     @Test
     public void invalidPresentIdentityAndNullContextsFailClosed() {
         assertInvalid(0, 0);
         assertInvalid(-1, 0);
-        assertInvalid(0x1000000, 0);
         assertInvalid(1, -1);
-        assertInvalid(1, 65536);
         try {
             new ToolSwapLightContext(0L, true, false, false, true, 0, null);
             Assert.fail("null target must fail");
@@ -51,7 +53,8 @@ public class ToolSwapTargetIdentityTest {
             Assert.assertTrue(expected.getMessage().contains("block id/metadata"));
             Assert.assertTrue(expected.getMessage().contains("blockId=" + blockId));
             Assert.assertTrue(expected.getMessage().contains("metadata=" + metadata));
-            Assert.assertTrue(expected.getMessage().contains("max=16777215"));
+            Assert.assertTrue(expected.getMessage().contains("blockIdMax=" + Integer.MAX_VALUE));
+            Assert.assertTrue(expected.getMessage().contains("metadataMax=" + Integer.MAX_VALUE));
         }
     }
 

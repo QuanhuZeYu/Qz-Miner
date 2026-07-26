@@ -43,7 +43,7 @@ public interface AutoToolSwapInventoryPort {
 
     /**
      * 原子交换两个个人 inventory 槽位。此调用正常返回即表示交换已经应用，
-     * 后续差异同步失败不得通过再次调用本方法来重试交换。
+     * 后续完整库存 publication 失败不得通过再次调用本方法来重试交换。
      *
      * @param anchorSlot 原工具所在的 0..35 槽位
      * @param candidateSlot 候选工具所在的 0..35 槽位
@@ -59,7 +59,9 @@ public interface AutoToolSwapInventoryPort {
     }
 
     /**
-     * 将已应用库存变更同步给客户端。此方法失败只表示同步失败，不改变前一交换已应用的事实。
+     * 将已应用库存变更以可重复的完整个人库存 publication 同步给客户端。
+     * 实现每次调用都必须重新标脏并发送完整 window 0 内容；失败只表示 publication 失败，
+     * 不改变前一 mutation 已提交的事实。
      */
     void syncInventoryDifference();
 }

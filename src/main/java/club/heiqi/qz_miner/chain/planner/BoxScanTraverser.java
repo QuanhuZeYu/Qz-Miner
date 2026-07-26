@@ -13,6 +13,7 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
     private int enqueueZ;
     private boolean shellEnqueueInProgress;
     private ChainTarget currentTarget;
+    private CurrentTargetPhase currentTargetPhase = CurrentTargetPhase.CHECK_MATCHER;
 
     /**
      * 初始化盒扫状态，但不一次性装填整盒候选点。
@@ -22,7 +23,7 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
     @Override
     public void seed(ChainSearchContext context) {
         resetEnqueueState();
-        currentTarget = null;
+        clearCurrentTarget();
         context.getVisited().add(context.getOrigin());
         context.setScanDepth(0);
     }
@@ -38,7 +39,7 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
                 return TraversalStepResult.TERMINATED;
             }
             if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                currentTarget = null;
+                clearCurrentTarget();
                 return TraversalStepResult.COMPLETED;
             }
             if (control.shouldYield()) {
@@ -46,10 +47,6 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
             }
 
             if (currentTarget == null && context.getCurrentFrontier().isEmpty()) {
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
-                }
-
                 TraversalStepResult enqueueResult = enqueueNextShell(context, control);
                 if (enqueueResult != TraversalStepResult.CONTINUE) {
                     return enqueueResult;
@@ -63,20 +60,35 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
             }
 
             if (currentTarget == null) {
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
+                ChainTarget queuedTarget = context.getCurrentFrontier().peek();
+                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                        context.tryCommitPlanningCandidate(control, queuedTarget);
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
+                }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
                 }
                 currentTarget = context.getCurrentFrontier().poll();
                 if (currentTarget == null) {
                     continue;
                 }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                currentTargetPhase = CurrentTargetPhase.CHECK_MATCHER;
             }
 
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!matcher.matches(currentTarget)) {
-                currentTarget = null;
+            if (currentTargetPhase == CurrentTargetPhase.CHECK_MATCHER) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (!matcher.matches(currentTarget)) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                currentTargetPhase = CurrentTargetPhase.SUBMIT_TARGET;
                 continue;
             }
 
@@ -88,7 +100,7 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
             }
             consumer.accept(currentTarget);
             context.incrementConfirmedCount();
-            currentTarget = null;
+            clearCurrentTarget();
         }
     }
 
@@ -109,6 +121,9 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
             if (nextDepth > context.getMaxRadius()) {
                 return TraversalStepResult.COMPLETED;
             }
+            if (!control.tryConsumeWork(1)) {
+                return yieldOrTerminate(control);
+            }
             beginShellEnqueue(context, nextDepth);
         }
 
@@ -125,20 +140,38 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
             for (int y = yStart; y <= maxY; y++) {
                 int zStart = x == enqueueX && y == yStart ? enqueueZ : minZ;
                 for (int z = zStart; z <= maxZ; z++) {
-                    if (!control.tryConsumeWork(1)) {
-                        saveCursor(x, y, z);
-                        return yieldOrTerminate(control);
-                    }
-
                     if (!isOnShell(origin, enqueueDepth, x, y, z)) {
+                        if (!control.tryConsumeWork(1)) {
+                            saveCursor(x, y, z);
+                            return yieldOrTerminate(control);
+                        }
                         continue;
                     }
 
                     ChainTarget candidate = new ChainTarget(x, y, z);
-                    if (!context.getVisited().add(candidate)) {
+                    if (context.getVisited().contains(candidate)) {
+                        if (!control.tryConsumeWork(1)) {
+                            saveCursor(x, y, z);
+                            return yieldOrTerminate(control);
+                        }
                         continue;
                     }
 
+                    PlanningCandidateWorkBudget.CommitResult candidateResult =
+                            context.tryCommitPlanningCandidate(control, candidate);
+                    if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                        saveCursor(x, y, z);
+                        return TraversalStepResult.YIELDED;
+                    }
+                    if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                        saveCursor(x, y, z);
+                        return TraversalStepResult.TERMINATED;
+                    }
+
+                    if (!context.getVisited().add(candidate)
+                            || candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                        continue;
+                    }
                     if (!context.canTraverse(candidate)) {
                         continue;
                     }
@@ -182,6 +215,16 @@ public class BoxScanTraverser implements BudgetedChainTraverser {
 
     private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
         return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
+    }
+
+    private void clearCurrentTarget() {
+        currentTarget = null;
+        currentTargetPhase = CurrentTargetPhase.CHECK_MATCHER;
+    }
+
+    private enum CurrentTargetPhase {
+        CHECK_MATCHER,
+        SUBMIT_TARGET
     }
 
     /**

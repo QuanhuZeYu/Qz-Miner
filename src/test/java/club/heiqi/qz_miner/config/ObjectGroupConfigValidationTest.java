@@ -38,7 +38,7 @@ public class ObjectGroupConfigValidationTest {
     public void invalidSelectorBlocksDraftSaveAndPreservesAuthority() {
         ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
         DraftBuffer draft = manager.openDraft();
-        draft.setDraft("client.objectGroups", groups(group("logs", "minecraft:log@16")));
+        draft.setDraft("client.objectGroups", groups(group("logs", "minecraft:log@2147483648")));
         SaveOutcome outcome = manager.save(draft);
         Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
         Assert.assertEquals(3, ((List<?>) manager.authority().get("client.objectGroups")).size());
@@ -68,6 +68,21 @@ public class ObjectGroupConfigValidationTest {
         Assert.assertTrue(outcome.isSuccess());
         ConfigBootstrap.captureCommittedSnapshot(manager);
         Assert.assertEquals("logs", ConfigBootstrap.currentValidatedSnapshot().objectGroups.groups().get(0).id());
+    }
+
+    @Test
+    public void fullIntMetadataCommitsWithoutChangingTheStructuredSchema() {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        DraftBuffer draft = manager.openDraft();
+        draft.setDraft("client.objectGroups", groups(group("extended",
+                "minecraft:log@[16,24902,65535,16777216,2147483647]")));
+
+        SaveOutcome outcome = manager.save(draft);
+
+        Assert.assertTrue(outcome.isSuccess());
+        ConfigBootstrap.captureCommittedSnapshot(manager);
+        Assert.assertTrue(ConfigBootstrap.currentValidatedSnapshot().objectGroups.groups().get(0)
+                .matches("minecraft:log", Integer.MAX_VALUE));
     }
 
     @Test

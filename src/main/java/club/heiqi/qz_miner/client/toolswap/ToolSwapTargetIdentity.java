@@ -26,7 +26,7 @@ public final class ToolSwapTargetIdentity {
         if (blockId <= 0 || blockId > AutoToolSwapProtocol.MAX_BLOCK_ID
                 || metadata < 0 || metadata > AutoToolSwapProtocol.MAX_BLOCK_METADATA) {
             throw new IllegalArgumentException("block id/metadata out of range: blockId=" + blockId
-                    + " metadata=" + metadata + " max=" + AutoToolSwapProtocol.MAX_BLOCK_ID
+                    + " metadata=" + metadata + " blockIdMax=" + AutoToolSwapProtocol.MAX_BLOCK_ID
                     + " metadataMax=" + AutoToolSwapProtocol.MAX_BLOCK_METADATA);
         }
         return new ToolSwapTargetIdentity(true, blockId, metadata);

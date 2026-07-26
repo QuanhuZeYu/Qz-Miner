@@ -63,8 +63,8 @@ public class AutoToolSwapKeyStateBridgeTest {
         long swappedRoundId = activate(swapped);
         AutoToolSwapStackState anchor = stack("mod:pickaxe", "anchor");
         AutoToolSwapStackState candidate = stack("mod:drill", "candidate");
-        Assert.assertEquals(AutoToolSwapRoundState.SWAPPED, swapped.service.handleIntent(swapped.playerId,
-                swapped.endpoint, swapIntent(swappedRoundId, anchor, candidate),
+        Assert.assertEquals(AutoToolSwapRoundState.SWAPPED, publish(swapped,
+                swapIntent(swappedRoundId, anchor, candidate),
                 new SwapInventory(anchor, candidate), 3L).roundState());
         Assert.assertEquals(swappedRoundId, AutoToolSwapKeyStateBridge.onKeyState(swapped.playerId, swapped.endpoint,
                 true, swapped.service, 4L, swapped));
@@ -104,8 +104,8 @@ public class AutoToolSwapKeyStateBridgeTest {
     public void terminalAndEndpointMismatchKeyPressDoNotReply() {
         Fixture terminal = new Fixture();
         long terminalRoundId = activate(terminal);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, terminal.service.handleIntent(terminal.playerId,
-                terminal.endpoint, closeIntent(terminalRoundId), null, 3L).roundState());
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED,
+                publish(terminal, closeIntent(terminalRoundId), null, 3L).roundState());
         Assert.assertEquals(0L, AutoToolSwapKeyStateBridge.onKeyState(terminal.playerId, terminal.endpoint, true,
                 terminal.service, 4L, terminal));
         Assert.assertEquals(1, terminal.sendCount);
@@ -121,8 +121,8 @@ public class AutoToolSwapKeyStateBridgeTest {
     public void finishedRoundCannotReviveButFreshNonceThenKeyPressOpensDifferentRound() {
         Fixture fixture = new Fixture();
         long firstRoundId = activate(fixture);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, fixture.service.handleIntent(fixture.playerId,
-                fixture.endpoint, closeIntent(firstRoundId), null, 3L).roundState());
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED,
+                publish(fixture, closeIntent(firstRoundId), null, 3L).roundState());
 
         Assert.assertEquals(0L, AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true,
                 fixture.service, 4L, fixture));
@@ -142,6 +142,18 @@ public class AutoToolSwapKeyStateBridgeTest {
         fixture.service.beginRound(fixture.playerId, fixture.endpoint, 41L, 1L);
         return AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true, fixture.service, 2L,
                 fixture);
+    }
+
+    /** 模拟 ActionResult sender 正常返回，并在 publication 线性化点确认结果。 */
+    private static AutoToolSwapRoundResult publish(Fixture fixture, AutoToolSwapIntent intent,
+            AutoToolSwapInventoryPort inventory, long serverTick) {
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(
+                fixture.playerId, fixture.endpoint, intent, inventory, serverTick);
+        Assert.assertTrue(fixture.service.snapshot(fixture.playerId, fixture.endpoint)
+                .hasPendingResultPublication());
+        Assert.assertTrue(fixture.service.confirmIntentResultPublication(
+                fixture.playerId, fixture.endpoint, intent, result));
+        return result;
     }
 
     private static AutoToolSwapIntent swapIntent(long roundId, AutoToolSwapStackState anchor,

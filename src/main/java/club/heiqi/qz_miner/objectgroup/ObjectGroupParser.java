@@ -76,24 +76,17 @@ public final class ObjectGroupParser {
             if (totalMembers > ObjectGroupRuleSet.MAX_TOTAL_MEMBERS) {
                 return ParseResult.invalid("client.objectGroups total members exceeds 2048");
             }
-            LinkedHashMap<String, Integer> selectorMasks = new LinkedHashMap<String, Integer>();
+            List<ObjectGroupSelector> selectors = new ArrayList<ObjectGroupSelector>();
             for (int j = 0; j < memberValues.size(); j++) {
                 Object value = memberValues.get(j);
                 if (!(value instanceof String)) {
                     return ParseResult.invalid(path + ".members[" + j + "] must be a string");
                 }
                 try {
-                    ObjectGroupSelector selector = parseSelector((String) value);
-                    Integer previous = selectorMasks.get(selector.registry());
-                    selectorMasks.put(selector.registry(), Integer.valueOf(
-                            (previous == null ? 0 : previous.intValue()) | selector.metadataMask()));
+                    selectors.add(parseSelector((String) value));
                 } catch (IllegalArgumentException e) {
                     return ParseResult.invalid(path + ".members[" + j + "]: " + e.getMessage());
                 }
-            }
-            List<ObjectGroupSelector> selectors = new ArrayList<ObjectGroupSelector>();
-            for (Map.Entry<String, Integer> selector : selectorMasks.entrySet()) {
-                selectors.add(ObjectGroupSelector.fromMask(selector.getKey(), selector.getValue().intValue()));
             }
             try {
                 groups.add(new ObjectGroup(id, modes, modeMask, selectors));
@@ -138,11 +131,17 @@ public final class ObjectGroupParser {
 
     private static Map<String, String> findOverlapErrors(List<ObjectGroup> groups) {
         Map<String, String> errors = new LinkedHashMap<String, String>();
+        List<Map<String, ObjectGroupMetadataDomain>> domains =
+                new ArrayList<Map<String, ObjectGroupMetadataDomain>>(groups.size());
+        for (ObjectGroup group : groups) {
+            domains.add(metadataDomains(group));
+        }
         for (int left = 0; left < groups.size(); left++) {
             for (int right = left + 1; right < groups.size(); right++) {
                 ObjectGroup a = groups.get(left);
                 ObjectGroup b = groups.get(right);
-                if ((a.modeMask() & b.modeMask()) == 0L || !selectorsOverlap(a, b)) {
+                if ((a.modeMask() & b.modeMask()) == 0L
+                        || !selectorsOverlap(domains.get(left), domains.get(right))) {
                     continue;
                 }
                 String message = "object groups share a mode and overlapping selector: " + a.id() + " / " + b.id();
@@ -153,20 +152,31 @@ public final class ObjectGroupParser {
         return errors;
     }
 
-    private static boolean selectorsOverlap(ObjectGroup left, ObjectGroup right) {
-        for (ObjectGroupSelector a : left.members()) {
-            for (ObjectGroupSelector b : right.members()) {
-                if (a.registry().equals(b.registry()) && (a.metadataMask() & b.metadataMask()) != 0) {
-                    return true;
-                }
+    private static boolean selectorsOverlap(Map<String, ObjectGroupMetadataDomain> leftDomains,
+            Map<String, ObjectGroupMetadataDomain> rightDomains) {
+        for (Map.Entry<String, ObjectGroupMetadataDomain> entry : leftDomains.entrySet()) {
+            ObjectGroupMetadataDomain other = rightDomains.get(entry.getKey());
+            if (other != null && entry.getValue().intersects(other)) {
+                return true;
             }
         }
         return false;
     }
 
+    private static Map<String, ObjectGroupMetadataDomain> metadataDomains(ObjectGroup group) {
+        Map<String, ObjectGroupMetadataDomain> domains =
+                new LinkedHashMap<String, ObjectGroupMetadataDomain>();
+        for (ObjectGroupSelector selector : group.members()) {
+            ObjectGroupMetadataDomain domain = ObjectGroupMetadataDomain.from(selector);
+            ObjectGroupMetadataDomain previous = domains.get(selector.registry());
+            domains.put(selector.registry(), previous == null ? domain : previous.union(domain));
+        }
+        return domains;
+    }
+
     /** 解析 registry@0、registry@*、registry@[0,4,8,12]。 */
     public static ObjectGroupSelector parseSelector(String value) {
-        if (value == null || value.isEmpty() || value.length() > ObjectGroupSelector.MAX_REGISTRY_LENGTH + 20) {
+        if (value == null || value.isEmpty() || value.length() > ObjectGroupSelector.MAX_CANONICAL_LENGTH) {
             throw new IllegalArgumentException("selector is empty or too long");
         }
         int at = value.lastIndexOf('@');
@@ -198,18 +208,15 @@ public final class ObjectGroupParser {
             throw new IllegalArgumentException("metadata is empty");
         }
         for (int i = 0; i < value.length(); i++) {
-            if (!Character.isDigit(value.charAt(i))) {
-                throw new IllegalArgumentException("metadata must be an integer in [0,15]");
+            char digit = value.charAt(i);
+            if (digit < '0' || digit > '9') {
+                throw new IllegalArgumentException("metadata must be a non-negative decimal int");
             }
         }
         try {
-            int parsed = Integer.parseInt(value);
-            if (parsed < 0 || parsed > 15) {
-                throw new IllegalArgumentException("metadata must be in [0,15]");
-            }
-            return parsed;
+            return Integer.parseInt(value);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("metadata is too large", e);
+            throw new IllegalArgumentException("metadata exceeds Integer.MAX_VALUE", e);
         }
     }
 

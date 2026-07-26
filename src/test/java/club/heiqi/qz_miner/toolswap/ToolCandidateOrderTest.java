@@ -11,7 +11,7 @@ import org.junit.Test;
 public class ToolCandidateOrderTest {
 
     @Test
-    public void emptySelectorsUseStableInventoryOrderAndFilterIneligible() {
+    public void emptySelectorsUseStableInventoryOrderAndFilterOnlyHardIneligible() {
         List<ToolCandidate> sorted = ToolCandidateOrder.sort(Arrays.asList(
                 candidate(20, "mod:axe", 0, true, true, 8),
                 candidate(2, "mod:pick", 0, true, true, 8),
@@ -19,7 +19,8 @@ public class ToolCandidateOrderTest {
                 candidate(0, "mod:wrong", 0, false, true, 8)),
                 Collections.<ToolSelector>emptyList());
 
-        Assert.assertEquals(Arrays.asList(Integer.valueOf(2), Integer.valueOf(20)), slots(sorted));
+        Assert.assertEquals("低效率但可收获的候选仍按槽位进入稳定 fallback",
+                Arrays.asList(Integer.valueOf(0), Integer.valueOf(2), Integer.valueOf(20)), slots(sorted));
     }
 
     @Test
@@ -52,6 +53,14 @@ public class ToolCandidateOrderTest {
         Assert.assertTrue(unbreakable.isUsableInHand());
         Assert.assertTrue(unbreakable.isEligibleForSwap());
         Assert.assertEquals(2, AutoToolUsabilityPolicy.MIN_REMAINING_DURABILITY);
+    }
+
+    @Test
+    public void lowEfficiencyHarvestableCandidateRemainsUsableAndSwappable() {
+        ToolCandidate slow = candidate(4, "mod:slow", 0, false, true, 8);
+
+        Assert.assertTrue(slow.isUsableInHand());
+        Assert.assertTrue(slow.isEligibleForSwap());
     }
 
     private static ToolCandidate candidate(int slot, String id, int subtype,

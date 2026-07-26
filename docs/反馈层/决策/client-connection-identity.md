@@ -27,7 +27,7 @@
    - `PacketAutoToolSwapRoundResult`：传 `ctx.netHandler`；主线程 world-active gate 后仅结算当前 nonce/round 建立结果。
   - `PacketAutoToolSwapActionResult`：传 `ctx.netHandler`；主线程 world-active gate 后仅结算当前 round 的精确 in-flight action。
   - `PacketAutoToolSwapRoundPhase`：传 `ctx.netHandler`；主线程 world-active gate 后只接受当前 round 且严格递增的 `phaseSequence`，不借用通用 phase 投影关联工具事务。
-  - `PacketAutoToolSwapTakeoverRequest`：传 `ctx.netHandler`；主线程 world-active gate 后只登记当前 v3 round/generation/sequence/目标事实，库存 FULL 采样与 C2S 延迟到下一 ClientTick。
+   - `PacketAutoToolSwapTakeoverRequest`：传 `ctx.netHandler`；主线程 world-active gate 后只登记当前 v4 round/generation/request ID/目标事实，库存 FULL 采样与 C2S 延迟到下一 ClientTick。新 request 只替换未提交的旧 takeover ownership；旧 mutation 已 committed 或仍在布局验证时仅排队最新请求，迟到旧 result 不得清普通 in-flight 或污染新请求。
 - `CommonProxy` dedicated no-op；方法描述符仅 common 类型（`INetHandler`，非 `NetHandlerPlayClient`）。Packet/Handler 字节码不得引用 `net.minecraft.client.*`、client dispatcher 或 LWJGL（由 `CommonNetworkClassBoundaryTest` 字节码/签名断言）。
 - `ChainEventBus.clearPending()`：清 pending 不破坏订阅；客户端 lifecycle cleanup 调用，防旧 phase 随后 drain 回写。
 
@@ -47,6 +47,7 @@
 
 ## 演进
 
+- 2026-07-25：toolswap v4 沿用同一 connection/world gate 和四个 S2C；独立 request ID、SYNC_FAILED exact retry 与 A→B→C 乱序隔离只在 reducer 内推进。lifecycle reset 同时清 in-flight、queued request 与 publication retry，禁止旧事务跨连接或世界恢复。
 - 2026-07-10：S2C 初版 token 守卫（无连接 identity）。
 - 2026-07-10：advance/publication 统一 monitor；`advanceKeepActive` 防 disconnect 后复活 active。
 - 2026-07-10：绑定真实 `INetHandler`/`World` identity + connection/world generation；三 S2C 传 `ctx.netHandler`；init/cleanup 携 token gate；`clearPending` 防旧 phase 回写。

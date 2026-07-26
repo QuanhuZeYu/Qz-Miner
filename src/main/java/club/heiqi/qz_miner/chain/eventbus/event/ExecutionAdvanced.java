@@ -5,11 +5,11 @@ import java.util.UUID;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 
 /**
- * 连锁执行推进事件（每 tick 0~N 个目标）。
+ * 连锁执行推进事件。只要本 tick 消费过目标就发布；目标均跳过或执行失败时执行数可为 0。
  */
 public final class ExecutionAdvanced extends ChainEvent {
 
-    /** 本 tick 已执行的目标数。 */
+    /** 本 tick 成功执行的目标数；消费但零成功时为 0。 */
     private final int executedThisTick;
     /** 剩余待执行目标数。 */
     private final int remainingTargets;

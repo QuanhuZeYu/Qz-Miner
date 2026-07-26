@@ -1,6 +1,5 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -20,7 +19,6 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
     private final ChainSession session;
     private TraversalPhase budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
     private ChainTarget currentTarget;
-    private ChainTarget pendingNeighbor;
     private List<ForgeDirection> neighborDirections = Collections.emptyList();
     private int neighborIndex;
 
@@ -30,30 +28,19 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
 
     @Override
     public void seed(ChainSearchContext context) {
+        resetBudgetState();
         ChainTarget origin = context.getOrigin();
         if (origin == null) {
             return;
         }
 
-        rememberConnectedSides(context, origin);
         context.getVisited().add(origin);
         // GT 线缆左键触发（LeftClickObserved）取消了原版破坏，origin 仍在世界，
         // 必须参与统一替换。这与 FloodFill 系（CHAIN/AREA 走破坏后事件、origin 已被
         // 原版破坏而排除）语义相反——见 docs/反馈层/决策/chain-origin-inclusion-semantics.md。
-        // origin 入 frontier 后由 step() 统一走 canTraverse/matcher/consumer，
-        // 邻居去重由 visited 保证（step 处理 origin 展开邻居时不会重复入队）。
-        if (context.canTraverse(origin)) {
-            context.getCurrentFrontier().add(origin);
-        }
-        for (ChainTarget neighbor : resolveConnectedNeighbors(context, origin)) {
-            if (!context.getVisited().add(neighbor)) {
-                continue;
-            }
-            if (!context.canTraverse(neighbor)) {
-                continue;
-            }
-            context.getCurrentFrontier().add(neighbor);
-        }
+        // seed 只保存可恢复游标；origin 的世界读取与 candidate 判定下沉到首次 step。
+        currentTarget = origin;
+        budgetPhase = TraversalPhase.SEED_ORIGIN;
     }
 
     @Override
@@ -74,6 +61,26 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
                 return TraversalStepResult.YIELDED;
             }
 
+            if (budgetPhase == TraversalPhase.SEED_ORIGIN) {
+                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                        context.tryCommitPlanningCandidate(control, currentTarget);
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
+                }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
+                }
+
+                ChainTarget origin = currentTarget;
+                currentTarget = null;
+                budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.NORMAL_COMMITTED
+                        && context.canTraverse(origin)) {
+                    context.getCurrentFrontier().add(origin);
+                }
+                continue;
+            }
+
             if (budgetPhase == TraversalPhase.ROTATE_FRONTIER) {
                 TraversalStepResult rotateResult = rotateFrontier(context, control);
                 if (rotateResult != TraversalStepResult.CONTINUE) {
@@ -90,6 +97,59 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
                 continue;
             }
 
+            if (budgetPhase == TraversalPhase.CHECK_CURRENT_MATCHER) {
+                if (currentTarget == null) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (!matcher.matches(currentTarget)) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                budgetPhase = TraversalPhase.CAPTURE_CURRENT_CONNECTIONS;
+                continue;
+            }
+
+            if (budgetPhase == TraversalPhase.CAPTURE_CURRENT_CONNECTIONS) {
+                if (currentTarget == null) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                rememberConnectedSides(context, currentTarget);
+                budgetPhase = TraversalPhase.SUBMIT_CURRENT_TARGET;
+                continue;
+            }
+
+            if (budgetPhase == TraversalPhase.SUBMIT_CURRENT_TARGET) {
+                if (currentTarget == null) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
+                if (control.isCancelRequested()) {
+                    return TraversalStepResult.TERMINATED;
+                }
+                consumer.accept(currentTarget);
+                context.incrementConfirmedCount();
+                if (context.getConfirmedCount() >= context.getMaxTargets()) {
+                    clearCurrentTarget();
+                    return TraversalStepResult.COMPLETED;
+                }
+
+                budgetPhase = TraversalPhase.GENERATE_NEIGHBORS;
+                neighborDirections = null;
+                neighborIndex = 0;
+                continue;
+            }
+
             if (currentTarget == null) {
                 if (context.getCurrentFrontier().isEmpty()) {
                     if (!control.tryConsumeWork(1)) {
@@ -103,53 +163,30 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
                     return TraversalStepResult.COMPLETED;
                 }
 
-                if (!control.tryConsumeWork(1)) {
-                    return yieldOrTerminate(control);
+                ChainTarget queuedTarget = context.getCurrentFrontier().peek();
+                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                        context.tryCommitPlanningCandidate(control, queuedTarget);
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
                 }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
+                }
+
                 currentTarget = context.getCurrentFrontier().poll();
                 if (currentTarget == null) {
                     continue;
                 }
+                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                    clearCurrentTarget();
+                    continue;
+                }
+                if (!context.canTraverse(currentTarget)) {
+                    clearCurrentTarget();
+                    continue;
+                }
             }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!context.canTraverse(currentTarget)) {
-                clearCurrentTarget();
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (!matcher.matches(currentTarget)) {
-                clearCurrentTarget();
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            rememberConnectedSides(context, currentTarget);
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            if (control.isCancelRequested()) {
-                return TraversalStepResult.TERMINATED;
-            }
-            consumer.accept(currentTarget);
-            context.incrementConfirmedCount();
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                clearCurrentTarget();
-                return TraversalStepResult.COMPLETED;
-            }
-
-            budgetPhase = TraversalPhase.GENERATE_NEIGHBORS;
-            neighborDirections = null;
-            neighborIndex = 0;
-            pendingNeighbor = null;
+            budgetPhase = TraversalPhase.CHECK_CURRENT_MATCHER;
         }
     }
 
@@ -181,7 +218,7 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
             neighborIndex = 0;
         }
 
-        while (neighborIndex < neighborDirections.size() || pendingNeighbor != null) {
+        while (neighborIndex < neighborDirections.size()) {
             if (control.isCancelRequested()) {
                 return TraversalStepResult.TERMINATED;
             }
@@ -189,27 +226,11 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
                 return TraversalStepResult.YIELDED;
             }
 
-            if (pendingNeighbor != null) {
+            ForgeDirection side = neighborDirections.get(neighborIndex);
+            if (side == null || side == ForgeDirection.UNKNOWN) {
                 if (!control.tryConsumeWork(1)) {
                     return yieldOrTerminate(control);
                 }
-                ChainTarget pending = pendingNeighbor;
-                pendingNeighbor = null;
-                neighborIndex++;
-                if (!context.getVisited().add(pending)) {
-                    continue;
-                }
-                if (context.canTraverse(pending)) {
-                    context.getNextFrontier().add(pending);
-                }
-                continue;
-            }
-
-            if (!control.tryConsumeWork(1)) {
-                return yieldOrTerminate(control);
-            }
-            ForgeDirection side = neighborDirections.get(neighborIndex);
-            if (side == null || side == ForgeDirection.UNKNOWN) {
                 neighborIndex++;
                 continue;
             }
@@ -221,11 +242,30 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
             if (context.getVisited().contains(next)
                 || getDistance(next, context.getOrigin()) > context.getMaxRadius()
                 || context.getConfirmedCount() >= context.getMaxTargets()) {
+                if (!control.tryConsumeWork(1)) {
+                    return yieldOrTerminate(control);
+                }
                 neighborIndex++;
                 continue;
             }
 
-            pendingNeighbor = next;
+            PlanningCandidateWorkBudget.CommitResult candidateResult =
+                    context.tryCommitPlanningCandidate(control, next);
+            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                return TraversalStepResult.YIELDED;
+            }
+            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                return TraversalStepResult.TERMINATED;
+            }
+
+            neighborIndex++;
+            if (!context.getVisited().add(next)
+                    || candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                continue;
+            }
+            if (context.canTraverse(next)) {
+                context.getNextFrontier().add(next);
+            }
         }
 
         clearCurrentTarget();
@@ -244,17 +284,6 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
         }
     }
 
-    private List<ChainTarget> resolveConnectedNeighbors(ChainSearchContext context, ChainTarget source) {
-        List<ChainTarget> neighbors = new ArrayList<ChainTarget>();
-        for (ForgeDirection side : resolveConnectedDirections(context, source)) {
-            neighbors.add(new ChainTarget(
-                source.getX() + side.offsetX,
-                source.getY() + side.offsetY,
-                source.getZ() + side.offsetZ));
-        }
-        return neighbors;
-    }
-
     private List<ForgeDirection> resolveConnectedDirections(ChainSearchContext context, ChainTarget source) {
         TileEntity tileEntity = context.getWorld().getTileEntity(source.getX(), source.getY(), source.getZ());
         if (!CompatAdapters.cable().isCable(tileEntity)) {
@@ -270,7 +299,6 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
     private void clearCurrentTarget() {
         budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
         currentTarget = null;
-        pendingNeighbor = null;
         neighborDirections = Collections.emptyList();
         neighborIndex = 0;
     }
@@ -281,7 +309,11 @@ public class GregTechCableTraverser implements BudgetedChainTraverser {
     }
 
     private enum TraversalPhase {
+        SEED_ORIGIN,
         PROCESS_CURRENT_FRONTIER,
+        CHECK_CURRENT_MATCHER,
+        CAPTURE_CURRENT_CONNECTIONS,
+        SUBMIT_CURRENT_TARGET,
         GENERATE_NEIGHBORS,
         ROTATE_FRONTIER
     }

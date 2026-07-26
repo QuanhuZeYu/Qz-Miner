@@ -103,6 +103,8 @@ public final class ChainExecutionContext {
     private int executionConsumedCount;
     /** 主线程实际成功执行的额外目标数。 */
     private int executionSucceededCount;
+    /** 主线程因目标局部安全拒绝而跳过的目标数；达到 int 上界后饱和。 */
+    private int executionSkippedCount;
     /** registerPre 返回的协作取消句柄；安装与取消由本对象线性化。 */
     private ParallelTickSubscription planningSubscription;
     private PlanningTerminal planningTerminal = PlanningTerminal.ACTIVE;
@@ -332,6 +334,11 @@ public final class ChainExecutionContext {
         return executionSucceededCount == 1;
     }
 
+    /** 记录一个目标局部跳过；计数在 {@link Integer#MAX_VALUE} 饱和，避免长会话回绕。 */
+    public void recordExecutionSkipped() {
+        if (executionSkippedCount < Integer.MAX_VALUE) executionSkippedCount++;
+    }
+
     /** @return 主线程已消费目标数 */
     public int getExecutionConsumedCount() {
         return executionConsumedCount;
@@ -340,6 +347,11 @@ public final class ChainExecutionContext {
     /** @return 主线程成功执行目标数 */
     public int getExecutionSucceededCount() {
         return executionSucceededCount;
+    }
+
+    /** @return 主线程因目标局部拒绝跳过的目标数 */
+    public int getExecutionSkippedCount() {
+        return executionSkippedCount;
     }
 
     /**

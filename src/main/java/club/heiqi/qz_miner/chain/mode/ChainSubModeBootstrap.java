@@ -4,20 +4,27 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.executor.GregTechCableReplaceActionExecutor;
+import club.heiqi.qz_miner.chain.executor.LiquidSourceInteractActionExecutor;
+import club.heiqi.qz_miner.chain.executor.TargetRevalidatingBlockInteractActionExecutor;
 import club.heiqi.qz_miner.chain.planner.ChainBlockIdentity;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcherResolver;
 import club.heiqi.qz_miner.chain.planner.ChainCandidateFilterResolver;
 import club.heiqi.qz_miner.chain.planner.ChainCropRules;
+import club.heiqi.qz_miner.chain.planner.ChainLiquidRules;
 import club.heiqi.qz_miner.chain.planner.ChainLogRules;
 import club.heiqi.qz_miner.chain.planner.ChainOreRules;
+import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import club.heiqi.qz_miner.chain.planner.CropBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.GregTechCableMatcher;
 import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
+import club.heiqi.qz_miner.chain.planner.ImmatureCropBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.LiquidSourceBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
+import club.heiqi.qz_miner.chain.planner.SameBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.SectionClearTraverser;
 import club.heiqi.qz_miner.chain.planner.TunnelBoxScanTraverser;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
@@ -47,7 +54,7 @@ public final class ChainSubModeBootstrap {
         ChainSubModeRegistry.clearDefinitions();
         registerDefaultSubModes();
         registerAreaTunnelSubMode();
-        registerInteractCropSubMode();
+        registerInteractSubModes();
         if (CompatAdapters.isSubModeAvailable(ChainSubMode.SPECIAL_GT_CABLE_REPLACE)) {
             registerSpecialGtCableReplaceSubMode();
         }
@@ -74,7 +81,6 @@ public final class ChainSubModeBootstrap {
         registerSubMode(ChainSubMode.AREA_SAME_BLOCK, ChainSubModeTrigger.BREAK_BLOCK, null, null, createSameBlockCandidateFilter(), null, null, null, null);
         registerSubMode(ChainSubMode.AREA_HARVESTABLE_ALL, ChainSubModeTrigger.BREAK_BLOCK, null, null, null, null, null, null, null);
         registerSubMode(ChainSubMode.AREA_ORE, ChainSubModeTrigger.BREAK_BLOCK, null, context -> new OreBlockHarvestableMatcher(), createOreCandidateFilter(), null, null, null, null);
-        registerSubMode(ChainSubMode.INTERACT_BASE, ChainSubModeTrigger.RIGHT_CLICK_BLOCK, null, null, createSameBlockCandidateFilter(), null, null, null, null);
     }
 
     private static void registerAreaTunnelSubMode() {
@@ -111,25 +117,49 @@ public final class ChainSubModeBootstrap {
             null);
     }
 
-    private static void registerInteractCropSubMode() {
+    /** 注册四种预算化范围交互子模式。 */
+    private static void registerInteractSubModes() {
+        registerSubMode(
+            ChainSubMode.INTERACT_BASE,
+            ChainSubModeTrigger.RIGHT_CLICK,
+            ChainModeResolvers.AREA_TRAVERSER,
+            createInteractSameBlockMatcherResolver(),
+            createSameBlockCandidateFilter(),
+            null,
+            null,
+            null,
+            new TargetRevalidatingBlockInteractActionExecutor(ChainSubMode.INTERACT_BASE));
+        registerSubMode(
+            ChainSubMode.INTERACT_LIQUID_SOURCE,
+            ChainSubModeTrigger.RIGHT_CLICK,
+            ChainModeResolvers.AREA_TRAVERSER,
+            createLiquidSourceMatcherResolver(),
+            createLiquidSourceCandidateFilter(),
+            null,
+            null,
+            null,
+            new LiquidSourceInteractActionExecutor());
         registerSubMode(
             ChainSubMode.INTERACT_CROP,
-            ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
-            null,
+            ChainSubModeTrigger.RIGHT_CLICK,
+            ChainModeResolvers.AREA_TRAVERSER,
             context -> new CropBlockMatcher(),
-            context -> target -> {
-                if (context == null || target == null) {
-                    return false;
-                }
-
-                Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
-                TileEntity tileEntity = context.getWorld().getTileEntity(target.getX(), target.getY(), target.getZ());
-                return ChainCropRules.isCropBlock(block, tileEntity);
-            },
+            createCropCandidateFilter(),
             null,
             null,
             null,
-            null);
+            new TargetRevalidatingBlockInteractActionExecutor(ChainSubMode.INTERACT_CROP));
+        registerSubMode(
+            ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP,
+            ChainSubModeTrigger.RIGHT_CLICK,
+            ChainModeResolvers.AREA_TRAVERSER,
+            context -> new ImmatureCropBlockMatcher(),
+            createImmatureCropCandidateFilter(),
+            null,
+            null,
+            null,
+            new TargetRevalidatingBlockInteractActionExecutor(
+                ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP));
     }
 
     private static void registerSpecialGtCableReplaceSubMode() {
@@ -185,6 +215,98 @@ public final class ChainSubModeBootstrap {
             Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
             int meta = context.getWorld().getBlockMetadata(target.getX(), target.getY(), target.getZ());
             return ChainLogRules.isLogBlock(context.getWorld(), target.getX(), target.getY(), target.getZ(), block, meta);
+        };
+    }
+
+    private static ChainBlockMatcherResolver createInteractSameBlockMatcherResolver() {
+        return context -> {
+            ChainSearchContext searchContext = context == null ? null : context.getSearchContext();
+            return new SameBlockMatcher(
+                searchContext == null ? null : searchContext.getSampleBlock(),
+                searchContext == null ? 0 : searchContext.getSampleMeta(),
+                searchContext == null ? null : searchContext.getSampleTileIdentity());
+        };
+    }
+
+    private static ChainBlockMatcherResolver createLiquidSourceMatcherResolver() {
+        return context -> {
+            ChainSearchContext searchContext = context == null ? null : context.getSearchContext();
+            return new LiquidSourceBlockMatcher(
+                searchContext == null ? null : searchContext.getSampleBlock(),
+                searchContext == null ? 0 : searchContext.getSampleMeta());
+        };
+    }
+
+    private static ChainCandidateFilterResolver createLiquidSourceCandidateFilter() {
+        return context -> {
+            if (context == null) {
+                return target -> false;
+            }
+            final Block seedBlock = context.getSampleBlock();
+            final int seedMetadata = context.getSampleMeta();
+            final String seedFluidIdentity = ChainLiquidRules.fluidIdentity(seedBlock);
+            final boolean seedSource = ChainLiquidRules.isSeedSource(seedBlock, seedMetadata);
+            return target -> {
+                if (!seedSource || seedFluidIdentity == null || target == null || context.getWorld() == null) {
+                    return false;
+                }
+                try {
+                    Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
+                    int metadata = context.getWorld().getBlockMetadata(
+                        target.getX(), target.getY(), target.getZ());
+                    return ChainLiquidRules.matchesSource(
+                        seedFluidIdentity,
+                        context.getWorld(),
+                        target.getX(),
+                        target.getY(),
+                        target.getZ(),
+                        block,
+                        metadata);
+                } catch (RuntimeException | LinkageError failure) {
+                    return false;
+                }
+            };
+        };
+    }
+
+    private static ChainCandidateFilterResolver createCropCandidateFilter() {
+        return context -> target -> {
+            if (context == null || target == null || context.getWorld() == null) {
+                return false;
+            }
+            try {
+                Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
+                TileEntity tileEntity = context.getWorld().getTileEntity(
+                    target.getX(), target.getY(), target.getZ());
+                return ChainCropRules.isCropBlock(block, tileEntity);
+            } catch (RuntimeException | LinkageError failure) {
+                return false;
+            }
+        };
+    }
+
+    private static ChainCandidateFilterResolver createImmatureCropCandidateFilter() {
+        return context -> target -> {
+            if (context == null || target == null || context.getWorld() == null) {
+                return false;
+            }
+            try {
+                Block block = context.getWorld().getBlock(target.getX(), target.getY(), target.getZ());
+                int metadata = context.getWorld().getBlockMetadata(
+                    target.getX(), target.getY(), target.getZ());
+                TileEntity tileEntity = context.getWorld().getTileEntity(
+                    target.getX(), target.getY(), target.getZ());
+                return ChainCropRules.isReliablyImmature(
+                    context.getWorld(),
+                    target.getX(),
+                    target.getY(),
+                    target.getZ(),
+                    block,
+                    metadata,
+                    tileEntity);
+            } catch (RuntimeException | LinkageError failure) {
+                return false;
+            }
         };
     }
 

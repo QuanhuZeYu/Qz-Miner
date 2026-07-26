@@ -77,12 +77,16 @@ public final class ChainModeBootstrap {
         return new ChainModeDefinition(
             ChainMode.INTERACT,
             new BlockInteractActionExecutor(),
-            ChainModeResolvers.DEFAULT_FLOOD_FILL_TRAVERSER,
+            ChainModeResolvers.AREA_TRAVERSER,
             ChainModeResolvers.INTERACT_MATCHER,
-            false,
-            null,
+            true,
+            ChainModeResolvers.DEFAULT_CUBE_AREA_PRESENTATION,
             ChainSubMode.INTERACT_BASE,
-            Arrays.asList(ChainSubMode.INTERACT_BASE, ChainSubMode.INTERACT_CROP));
+            Arrays.asList(
+                ChainSubMode.INTERACT_BASE,
+                ChainSubMode.INTERACT_LIQUID_SOURCE,
+                ChainSubMode.INTERACT_CROP,
+                ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP));
     }
 
     /**

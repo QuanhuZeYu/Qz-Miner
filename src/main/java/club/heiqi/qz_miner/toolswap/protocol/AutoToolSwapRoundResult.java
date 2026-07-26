@@ -38,6 +38,10 @@ public final class AutoToolSwapRoundResult implements Serializable {
         return roundState;
     }
 
+    /**
+     * @return 普通动作命名空间的下一 actionSequence；接替结果也只回显该普通水位，
+     *         不由 takeoverRequestId 推导
+     */
     public long nextActionSequence() {
         return nextActionSequence;
     }

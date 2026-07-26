@@ -6,9 +6,11 @@ import java.util.Set;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
-import net.minecraft.block.Block;
-import net.minecraft.tileentity.TileEntity;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
+import club.heiqi.qz_miner.parallel.ParallelTickControl;
+import net.minecraft.block.Block;
+import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
 /**
@@ -36,6 +38,8 @@ public class ChainSearchContext {
     private final Queue<ChainTarget> currentFrontier;
     private final Queue<ChainTarget> nextFrontier;
     private final Set<ChainTarget> visited;
+    private final PlanningCandidateWorkBudget planningCandidateWorkBudget;
+    private final PlanningCandidateWorkBudget.CandidateBlockReader planningCandidateBlockReader;
     private ChainCandidateFilter candidateFilter;
     private int confirmedCount;
     private int scanDepth;
@@ -71,6 +75,17 @@ public class ChainSearchContext {
         TileIdentityToken sampleTileIdentity, TileEntity sampleTileEntity,
         ChainSubMode subMode, int maxRadius, int maxTargets, Queue<ChainTarget> currentFrontier,
         Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ModeExtensionSnapshot modeExtension) {
+        this(world, origin, sampleBlock, sampleMeta, sampleTileIdentity, sampleTileEntity, subMode,
+                maxRadius, maxTargets, currentFrontier, nextFrontier, visited, modeExtension, null);
+    }
+
+    /** 供同包纯逻辑测试注入候选方块读取器，不改变生产 World 权威。 */
+    ChainSearchContext(
+        World world, ChainTarget origin, Block sampleBlock, int sampleMeta,
+        TileIdentityToken sampleTileIdentity, TileEntity sampleTileEntity,
+        ChainSubMode subMode, int maxRadius, int maxTargets, Queue<ChainTarget> currentFrontier,
+        Queue<ChainTarget> nextFrontier, Set<ChainTarget> visited, ModeExtensionSnapshot modeExtension,
+        PlanningCandidateWorkBudget.CandidateBlockReader planningCandidateBlockReader) {
         this.world = world;
         this.origin = origin;
         this.sampleBlock = sampleBlock;
@@ -85,6 +100,11 @@ public class ChainSearchContext {
         this.currentFrontier = currentFrontier;
         this.nextFrontier = nextFrontier;
         this.visited = visited;
+        this.planningCandidateWorkBudget = new PlanningCandidateWorkBudget();
+        this.planningCandidateBlockReader = planningCandidateBlockReader == null
+                ? target -> world != null && target != null
+                        && world.getBlock(target.getX(), target.getY(), target.getZ()) == Blocks.air
+                : planningCandidateBlockReader;
     }
 
     public World getWorld() {
@@ -182,5 +202,23 @@ public class ChainSearchContext {
      */
     public boolean canTraverse(ChainTarget target) {
         return candidateFilter != null && candidateFilter.canTraverse(target);
+    }
+
+    /**
+     * 经上下文唯一计费器尝试提交一个 planning 候选事务。
+     *
+     * @param control 当前并行 Tick 控制对象
+     * @param target 当前候选坐标
+     * @return 候选事务结果
+     */
+    PlanningCandidateWorkBudget.CommitResult tryCommitPlanningCandidate(
+        ParallelTickControl control,
+        ChainTarget target) {
+        return planningCandidateWorkBudget.tryCommit(control, target, planningCandidateBlockReader);
+    }
+
+    /** @return 当前 planning context 的空气计费余数 */
+    int getPlanningAirRemainder() {
+        return planningCandidateWorkBudget.getAirRemainder();
     }
 }

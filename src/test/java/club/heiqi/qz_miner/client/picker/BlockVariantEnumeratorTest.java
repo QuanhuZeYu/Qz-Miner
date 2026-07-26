@@ -20,17 +20,21 @@ import net.minecraft.item.ItemStack;
 public class BlockVariantEnumeratorTest {
     @Test
     public void sparseExposedMetadataIsDeduplicatedFilteredAndSorted() {
-        ExposingBlock block = new ExposingBlock(8, 0, 4, 8, 32767, -1, 16, 4);
+        ExposingBlock block = new ExposingBlock(8, 0, 4, 8, 32767, -1, 16, 4,
+                24902, 65535, 16777216, Integer.MAX_VALUE);
         Item item = new ItemBlock(block);
 
         BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("test:sparse", block, item);
 
-        Assert.assertEquals(Arrays.asList(0, 4, 8), metadata(candidate));
+        Assert.assertEquals(Arrays.asList(0, 4, 8, 16, 24902, 32767, 65535,
+                16777216, Integer.MAX_VALUE), metadata(candidate));
         Assert.assertSame(block.exposed.get(0), candidate.variants().get(2).stack());
         Assert.assertSame(block.exposed.get(1), candidate.variants().get(0).stack());
         Assert.assertSame(block.exposed.get(2), candidate.variants().get(1).stack());
+        Assert.assertSame(block.exposed.get(6), candidate.variants().get(3).stack());
+        Assert.assertSame(block.exposed.get(11), candidate.variants().get(8).stack());
         Assert.assertSame(block.exposed.get(1), candidate.representative());
-        Assert.assertEquals(8, block.exposed.size());
+        Assert.assertEquals(12, block.exposed.size());
     }
 
     @Test

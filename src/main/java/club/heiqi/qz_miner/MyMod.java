@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner;
 
+import java.util.Map;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,6 +41,8 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.network.NetworkCheckHandler;
+import cpw.mods.fml.relauncher.Side;
 
 @Mod(
     modid = MyMod.MODID,
@@ -105,6 +109,18 @@ public class MyMod {
 
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;
+
+    /**
+     * 检查远端 Qz-Miner 是否属于可互通的 5.1 版本族。
+     *
+     * @param remoteVersions 远端模组版本表
+     * @param side 发起检查的一侧
+     * @return Forge 是否允许继续建立连接
+     */
+    @NetworkCheckHandler
+    public boolean checkNetworkVersions(Map<String, String> remoteVersions, Side side) {
+        return QzMinerNetworkVersionPolicy.accepts(Tags.VERSION, remoteVersions, MODID, side);
+    }
 
     @Mod.EventHandler
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the

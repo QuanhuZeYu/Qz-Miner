@@ -14,7 +14,7 @@ import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 
-/** PlanStarted 主线程冻结的采掘能力集合；worker 不再读取实时玩家库存。 */
+/** CHAIN 在 PlanStarted 主线程冻结的采掘能力集合；worker 不再读取实时玩家库存。 */
 public final class PlanningToolCapabilitySnapshot {
 
     /** 命中候选的稳定优先级分类。 */
@@ -38,7 +38,7 @@ public final class PlanningToolCapabilitySnapshot {
         this.inventoryTools = Collections.unmodifiableList(frozen);
     }
 
-    /** 在主线程捕获玩家当前手持、selector 排序后的背包真实工具和空手虚拟候选。 */
+    /** 在主线程捕获玩家当前手持、selector 排序后的全部背包栈和空手虚拟候选。 */
     public static PlanningToolCapabilitySnapshot capture(EntityPlayer player,
             List<ToolSelector> selectors, boolean includeInventoryTools) {
         if (player == null || player.inventory == null || player.inventory.mainInventory == null) {
@@ -84,7 +84,7 @@ public final class PlanningToolCapabilitySnapshot {
         return new PlanningToolCapabilitySnapshot(creative, currentHand, orderedInventoryTools);
     }
 
-    /** 按当前手持、真实背包候选、空手的顺序选择首个冻结能力。 */
+    /** 按当前手持、背包全部可用工具、空手的顺序选择首个冻结能力。 */
     public MatchKind select(Block target, int metadata) {
         if (target == null) return MatchKind.NONE;
         if (creative) return MatchKind.CURRENT_HAND;

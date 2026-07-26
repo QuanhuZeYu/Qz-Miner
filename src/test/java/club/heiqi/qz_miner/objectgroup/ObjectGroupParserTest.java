@@ -19,6 +19,11 @@ public class ObjectGroupParserTest {
         Assert.assertEquals("minecraft:log@*", ObjectGroupParser.parseSelector("minecraft:log@*").canonical());
         Assert.assertEquals("minecraft:log@[0,4,8,12]",
                 ObjectGroupParser.parseSelector("minecraft:log@[12,0,8,4]").canonical());
+        Assert.assertEquals("minecraft:log@[16,24902,65535,16777216,2147483647]",
+                ObjectGroupParser.parseSelector(
+                        "minecraft:log@[2147483647,16,16777216,65535,24902]").canonical());
+        Assert.assertTrue(ObjectGroupParser.parseSelector("minecraft:log@2147483647")
+                .matches("minecraft:log", Integer.MAX_VALUE));
     }
 
     @Test
@@ -39,15 +44,19 @@ public class ObjectGroupParserTest {
     }
 
     @Test
-    public void sameGroupSelectorsNormalizeByRegistryMask() {
+    public void sameGroupSelectorsKeepInputOrderAndCanonicalMemberBoundaries() {
         ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(Arrays.asList(
                 groupMap("logs", modes(ObjectGroupMode.CHAIN_BASE),
                         "minecraft:log@0", "minecraft:log@[4,8]", "minecraft:stone@0")));
 
         Assert.assertTrue(parsed.isValid());
-        Assert.assertEquals(2, parsed.rules().groups().get(0).members().size());
-        Assert.assertEquals("minecraft:log@[0,4,8]",
+        Assert.assertEquals(3, parsed.rules().groups().get(0).members().size());
+        Assert.assertEquals("minecraft:log@0",
                 parsed.rules().groups().get(0).members().get(0).canonical());
+        Assert.assertEquals("minecraft:log@[4,8]",
+                parsed.rules().groups().get(0).members().get(1).canonical());
+        Assert.assertEquals("minecraft:stone@0",
+                parsed.rules().groups().get(0).members().get(2).canonical());
         Assert.assertEquals(1L, parsed.rules().groups().get(0).modeMask());
     }
 
@@ -62,6 +71,14 @@ public class ObjectGroupParserTest {
         Assert.assertTrue(ObjectGroupParser.parse(Arrays.asList(
                 groupMap("a", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@0"),
                 groupMap("b", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@4"))).isValid());
+        Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(ObjectGroupMode.CHAIN_BASE),
+                        "minecraft:log@16", "minecraft:log@2147483647"),
+                groupMap("b", modes(ObjectGroupMode.CHAIN_BASE),
+                        "minecraft:log@[24902,2147483647]"))).isValid());
+        Assert.assertTrue(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@16777216"),
+                groupMap("b", modes(ObjectGroupMode.CHAIN_BASE), "minecraft:log@65535"))).isValid());
         Assert.assertTrue(ObjectGroupParser.parse(Arrays.asList(
                 groupMap("a", modes(), "minecraft:log@*"),
                 groupMap("b", modes(), "minecraft:log@0"))).isValid());
@@ -89,9 +106,34 @@ public class ObjectGroupParserTest {
     public void invalidIdsEmptyGroupsAndSelectorsAreRejected() {
         Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(groupMap("", "minecraft:log@0"))).isValid());
         Assert.assertFalse(ObjectGroupParser.parse(Collections.singletonList(groupMap("a"))).isValid());
-        Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(groupMap("a", "minecraft:log@16"))).isValid());
+        Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(groupMap("a", "minecraft:log@-1"))).isValid());
+        Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(
+                groupMap("a", "minecraft:log@2147483648"))).isValid());
         Assert.assertFalse(ObjectGroupParser.parse(Arrays.asList(
                 groupMap("a", "minecraft:log@0"), groupMap("a", "minecraft:stone@0"))).isValid());
+    }
+
+    @Test
+    public void metadataUsesOnlyAsciiDecimalAndSelectorLengthRemainsBounded() {
+        assertInvalidSelector("minecraft:log@-1");
+        assertInvalidSelector("minecraft:log@+1");
+        assertInvalidSelector("minecraft:log@2147483648");
+        assertInvalidSelector("minecraft:log@١");
+
+        StringBuilder within = new StringBuilder("minecraft:log@[");
+        int value = 0;
+        while (within.length() + (value > 0 ? 1 : 0)
+                + Integer.toString(value).length() + 1 <= ObjectGroupSelector.MAX_CANONICAL_LENGTH) {
+            if (value > 0) within.append(',');
+            within.append(value++);
+        }
+        within.append(']');
+        Assert.assertTrue(within.length() <= ObjectGroupSelector.MAX_CANONICAL_LENGTH);
+        Assert.assertEquals(within.toString(), ObjectGroupParser.parseSelector(within.toString()).canonical());
+
+        StringBuilder oversized = new StringBuilder(within);
+        while (oversized.length() <= ObjectGroupSelector.MAX_CANONICAL_LENGTH) oversized.append('0');
+        assertInvalidSelector(oversized.toString());
     }
 
     @Test

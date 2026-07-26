@@ -24,6 +24,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
+import net.minecraft.init.Blocks;
 
 /**
  * {@link ChainStateMachine} 转移表与代际陈旧判定单测。
@@ -820,11 +821,67 @@ public class ChainStateMachineTest {
     public void legacySeedEventConstructorsDefaultToUnresolved() {
         BlockBreakObserved observed = new BlockBreakObserved(
                 PLAYER_A, 0, TICK, NANOS, 1, 2, 3, 0, 1, null, 0);
+        RightClickObserved rightClick = new RightClickObserved(
+                PLAYER_A, 0, TICK, NANOS, 1, 2, 3, 0, 1, 0.25F, 0.5F, 0.75F);
         PlanStarted started = new PlanStarted(
                 PLAYER_A, 1, TICK, NANOS, 1, 2, 3, 0, 1, 0F, 0F, 0F, null, 0);
 
         Assert.assertSame(TileIdentityToken.unresolved(), observed.getSeedTileIdentity());
+        Assert.assertSame(TileIdentityToken.unresolved(), rightClick.getSeedTileIdentity());
         Assert.assertSame(TileIdentityToken.unresolved(), started.getSeedTileIdentity());
+    }
+
+    /** 右键事件必须保留完整非负 int metadata 与不可变种子引用，不得截断或重捕获。 */
+    @Test
+    public void rightClickObservedFreezesFullSeedFacts() {
+        TileIdentityToken token = TileIdentityToken.present("fixture", "fixture.Tile", "seed-key");
+        RightClickObserved observed = new RightClickObserved(
+                PLAYER_A, 88L, 0, TICK, NANOS, 11, 22, 33, 5, 2,
+                0.25F, 0.5F, 0.75F, Blocks.stone, Integer.MAX_VALUE, token);
+
+        Assert.assertSame(Blocks.stone, observed.getSeedBlock());
+        Assert.assertEquals("metadata 不得套 16-bit 或 vanilla 上限", Integer.MAX_VALUE, observed.getSeedMeta());
+        Assert.assertSame(token, observed.getSeedTileIdentity());
+
+        RightClickObserved malformed = new RightClickObserved(
+                PLAYER_A, 0, TICK, NANOS, 1, 2, 3, 0, 1,
+                0F, 0F, 0F, Blocks.stone, -1, null);
+        Assert.assertEquals("事件边界不得传播负 metadata", 0, malformed.getSeedMeta());
+        Assert.assertSame("null token 必须 fail-closed", TileIdentityToken.unresolved(),
+                malformed.getSeedTileIdentity());
+    }
+
+    /** 右键 seed 三字段必须是构造后不可改的 final 字段。 */
+    @Test
+    public void rightClickSeedFieldsAreImmutable() throws Exception {
+        Assert.assertTrue(java.lang.reflect.Modifier.isFinal(
+                RightClickObserved.class.getDeclaredField("seedBlock").getModifiers()));
+        Assert.assertTrue(java.lang.reflect.Modifier.isFinal(
+                RightClickObserved.class.getDeclaredField("seedMeta").getModifiers()));
+        Assert.assertTrue(java.lang.reflect.Modifier.isFinal(
+                RightClickObserved.class.getDeclaredField("seedTileIdentity").getModifiers()));
+    }
+
+    /** 原右键窗口冻结的 block/meta/token 必须经状态机原样传播到 PlanStarted。 */
+    @Test
+    public void rightClickSeedFactsPropagateUnchangedToPlanStarted() {
+        Harness h = newHarness();
+        List<PlanStarted> captured = new ArrayList<PlanStarted>();
+        h.bus.subscribe(PlanStarted.class, captured::add);
+        TileIdentityToken token = TileIdentityToken.present("fixture", "fixture.Tile", "right-click-seed");
+        RightClickObserved rightClick = new RightClickObserved(
+                PLAYER_A, 89L, 0, TICK, NANOS, 11, 22, 33, 5, 2,
+                0.25F, 0.5F, 0.75F, Blocks.lit_redstone_ore, Integer.MAX_VALUE, token);
+
+        drive(h, key(true));
+        drive(h, rightClick);
+
+        Assert.assertEquals(1, captured.size());
+        PlanStarted started = captured.get(0);
+        Assert.assertEquals(89L, started.getServerRoundId());
+        Assert.assertSame(Blocks.lit_redstone_ore, started.getSeedBlock());
+        Assert.assertEquals(Integer.MAX_VALUE, started.getSeedMeta());
+        Assert.assertSame("状态机不得重新读取或重建 token", token, started.getSeedTileIdentity());
     }
 
     /**

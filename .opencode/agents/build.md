@@ -49,7 +49,9 @@ fixer 只改写集、执行任务单验证、提交并填写“结果”。随�
 
 ## 纠偏与 task_id
 
-- 任何 Task 调用返回后，旧 `task_id` 不得复用，也不得传给任何 agent
+- 任何 Task 返回首个非空回执后，旧 `task_id` 不得复用，也不得传给任何 agent
+- 唯一例外是结果缺失、空串或纯空白：同一主会话可向同一 agent 复用原 ID，只要求继续并返回缺失回执；任务单、目标和范围不得改变
+- 写盘 agent 空返回时先核对 Git 与任务单；若写盘/提交已发生，续接只补结果且禁止重复实施。取得非空结果、明确失败/取消、合同变化、直接冲突的外部漂移或跨会话后，原 ID 立即失效且不得写入 handoff
 - 纠偏、重试或继续工作时，主 agent 将已验证事实写回任务单，删除已完成范围，把动作与写集覆盖为更窄的剩余范围，再创建全新 task
 - reviewer 的 P0/P1 必须有具体失败行为和证据；P2 不阻断当前验收
 - 发现产品取舍、公共 API/兼容性变化、宪章偏离、不可逆操作、发布、merge、push、密钥或授权问题时，用中文 question 集中请用户拍板
@@ -67,6 +69,6 @@ fixer 只改写集、执行任务单验证、提交并填写“结果”。随�
 
 ## 跨会话
 
-长任务的会话工作记忆写入 `.opencode/session-handoff.md`，规则见 `docs/控制律层/编排模式/SESSION-HANDOFF.md`。handoff 只保留活动任务单路径、已验证事实、剩余动作和未决用户决定；新会话先核对事实再续接，不复用旧 `task_id`。
+长任务的会话工作记忆写入 `.opencode/session-handoff.md`，规则见 `docs/控制律层/编排模式/SESSION-HANDOFF.md`。handoff 只保留活动任务单路径、已验证事实、剩余动作和未决用户决定；空回执续接只限当前主会话，任何 `task_id` 都不写入 handoff，新会话核对事实后创建全新 task。
 
 任务完成时清理无持续价值的会话记录；涉及 docs 改动后或合并前运行 `pwsh -NoProfile -File scripts/check-doc-discipline.ps1`。

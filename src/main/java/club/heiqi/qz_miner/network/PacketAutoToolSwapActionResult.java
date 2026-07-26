@@ -15,12 +15,14 @@ public final class PacketAutoToolSwapActionResult implements IMessage {
 
     public int protocolVersion;
     public long serverRoundId;
+    /** 回显 intent 的关联 long：普通动作为 actionSequence，接替动作为 takeoverRequestId。 */
     public long actionSequence;
     public int actionCode;
     public int resultCode;
     public int roundState;
     public int anchorSlot;
     public int candidateSlot;
+    /** 始终为普通动作命名空间的当前水位。 */
     public long nextActionSequence;
     public long serverTick;
     private boolean rawValid;

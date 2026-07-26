@@ -12,7 +12,6 @@ import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import tconstruct.library.tools.HarvestTool;
 
 /** 冻结规划能力的候选顺序、空手语义与库存隔离合同。 */
 public class PlanningToolCapabilitySnapshotTest {
@@ -56,11 +55,21 @@ public class PlanningToolCapabilitySnapshotTest {
                 snapshot.select(new TestBlock(Material.wood), 0));
     }
 
-    /** 冻结规划与客户端候选共用 TiC null-harvestTool 资格入口。 */
+    /** 冻结 CHAIN 规划与客户端候选共用未知 Item 的 null-harvestTool 资格入口。 */
     @Test
-    public void tconstructNullHarvestToolCapabilityIsFrozenThroughSharedEligibility() {
+    public void unknownNullHarvestToolCapabilityIsFrozenThroughSharedEligibility() {
         PlanningToolCapabilitySnapshot snapshot = PlanningToolCapabilitySnapshot.fromOrderedStacks(
-                null, Collections.<ItemStack>singletonList(new ItemStack(new LegacyHarvestTool())), false);
+                null, Collections.<ItemStack>singletonList(new ItemStack(new GenericHarvestTool(false))), false);
+
+        Assert.assertEquals(PlanningToolCapabilitySnapshot.MatchKind.INVENTORY_TOOL,
+                snapshot.select(new NullHarvestToolBlock(), 2));
+    }
+
+    /** 效率采样异常不属于冻结能力硬门，不能否决 canHarvest=true 的工具。 */
+    @Test
+    public void digSpeedFailureDoesNotRemoveFrozenHarvestCapability() {
+        PlanningToolCapabilitySnapshot snapshot = PlanningToolCapabilitySnapshot.fromOrderedStacks(
+                null, Collections.<ItemStack>singletonList(new ItemStack(new GenericHarvestTool(true))), false);
 
         Assert.assertEquals(PlanningToolCapabilitySnapshot.MatchKind.INVENTORY_TOOL,
                 snapshot.select(new NullHarvestToolBlock(), 2));
@@ -94,9 +103,17 @@ public class PlanningToolCapabilitySnapshotTest {
         @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) { return 4.0F; }
     }
 
-    /** TiC 合成旧式工具。 */
-    private static final class LegacyHarvestTool extends HarvestTool {
-        @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) { return 4.0F; }
+    /** 未知工具仅通过 Minecraft Item 稳定虚调用声明收获能力。 */
+    private static final class GenericHarvestTool extends Item {
+        private final boolean throwOnSpeed;
+        private GenericHarvestTool(boolean throwOnSpeed) {
+            this.throwOnSpeed = throwOnSpeed;
+            setMaxDamage(100);
+        }
+        @Override public float getDigSpeed(ItemStack stack, Block block, int metadata) {
+            if (throwOnSpeed) throw new IllegalStateException("optional speed fact unavailable");
+            return 1.0F;
+        }
         @Override public boolean canHarvestBlock(Block block, ItemStack stack) { return true; }
     }
 

@@ -14,6 +14,7 @@ public final class PacketAutoToolSwapIntent implements IMessage {
 
     public int protocolVersion;
     public long serverRoundId;
+    /** 普通动作为 actionSequence；TAKEOVER/DECLINE_TAKEOVER 为 takeoverRequestId，布局不变。 */
     public long actionSequence;
     public int actionCode;
     public int anchorSlot;

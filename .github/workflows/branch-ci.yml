@@ -102,6 +102,8 @@ jobs:
     needs: prepare-baselines
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      VERSION: 5.1.0-ci+${{ github.sha }}
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -160,6 +162,72 @@ jobs:
 
       - name: Build the mod
         run: ./gradlew --info --stacktrace "-Pelytra.manifest.version=${{ matrix.manifest }}" build
+
+      - name: Verify injected version in generated source and main JAR
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import os
+          import re
+          import struct
+          import zipfile
+          from pathlib import Path
+
+          expected = f"5.1.0-ci+{os.environ['GITHUB_SHA']}"
+          declaration = re.compile(
+              r'^\s*public\s+static\s+final\s+String\s+VERSION\s*=\s*"([^"]+)"\s*;\s*$',
+              re.MULTILINE,
+          )
+
+          generated = []
+          for path in sorted(Path("build").rglob("Tags.java")):
+              values = declaration.findall(path.read_text(encoding="utf-8"))
+              generated.extend((path, value) for value in values)
+          if not generated:
+              raise SystemExit("generated Tags.VERSION declaration not found")
+          wrong = [(str(path), value) for path, value in generated if value != expected]
+          if wrong:
+              raise SystemExit(f"generated Tags.VERSION mismatch: {wrong!r}; expected {expected!r}")
+
+          jars = sorted(Path("build/libs").glob("*.jar"))
+          main_jars = [
+              path for path in jars
+              if not path.name.endswith(("-dev.jar", "-sources.jar", "-javadoc.jar"))
+          ]
+          if len(main_jars) != 1:
+              raise SystemExit(f"expected one main JAR, found {[str(path) for path in main_jars]!r}")
+
+          with zipfile.ZipFile(main_jars[0]) as archive:
+              class_bytes = archive.read("club/heiqi/qz_miner/Tags.class")
+          if class_bytes[:4] != b"\xca\xfe\xba\xbe":
+              raise SystemExit("generated Tags.class has an invalid classfile header")
+
+          constants = []
+          offset = 8
+          constant_count = struct.unpack_from(">H", class_bytes, offset)[0]
+          offset += 2
+          index = 1
+          fixed_width = {3: 4, 4: 4, 7: 2, 8: 2, 9: 4, 10: 4, 11: 4,
+                         12: 4, 15: 3, 16: 2, 17: 4, 18: 4, 19: 2, 20: 2}
+          while index < constant_count:
+              tag = class_bytes[offset]
+              offset += 1
+              if tag == 1:
+                  length = struct.unpack_from(">H", class_bytes, offset)[0]
+                  offset += 2
+                  constants.append(class_bytes[offset:offset + length].decode("utf-8"))
+                  offset += length
+              elif tag in (5, 6):
+                  offset += 8
+                  index += 1
+              elif tag in fixed_width:
+                  offset += fixed_width[tag]
+              else:
+                  raise SystemExit(f"unsupported constant-pool tag {tag}")
+              index += 1
+          if expected not in constants:
+              raise SystemExit(f"main JAR Tags.class does not contain exact version {expected!r}")
+          PY
 
   build:
     name: build

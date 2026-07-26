@@ -108,7 +108,7 @@ public enum TraversalStepResult {
 
 ## 预算规则
 
-统一原则：只要推进了可能消耗时间的动作，就必须消耗预算。
+统一原则：只要推进了可能消耗时间的动作，就必须纳入预算合同。唯一候选折扣是本次读取精确为 `Blocks.air` 的 planning 事务：同一 `ChainSearchContext` 每提交 1024 个空气才消耗 1 个正工作单位，尾余数不补收；其它动作仍按正常成本收费。
 
 必须计入预算的动作包括：
 
@@ -122,6 +122,8 @@ public enum TraversalStepResult {
 
 预算耗尽时返回 `YIELDED`，不能继续循环“顺手做完”。终止请求优先级高于预算让出：如果 `control.isCancelRequested()` 为 true，任务应尽快在安全点返回 `TERMINATED`。
 
+空气候选事务必须先检查 cancel/`shouldYield()`，再读取世界；第 1024 个空气只有 `tryConsumeWork(1)` 成功后才能提交并清零余数。失败时不得先推进 cursor、visited、frontier 或 queue。新邻居生成/队首 candidate 判定合并到共享事务，matcher、consumer、duplicate、frontier 搬运、shell/slice 切换与 GT 方向解析不得借折扣免费化。
+
 ## 分阶段实施计划
 
 ### 阶段 1：并行框架协议
@@ -132,7 +134,7 @@ public enum TraversalStepResult {
 
 - 新增 `ParallelTaskResult`。
 - 新增 `ParallelTickControl` 或把控制方法扩展到 `ParallelTickContext`。
-- 新增 `ParallelWorkBudget`，每片工作预算由配置控制：服务端默认 `parallelTickServerWorkBudgetUnits = 64`，客户端默认 `parallelTickClientWorkBudgetUnits = 640`。
+- 新增 `ParallelWorkBudget`，每片工作预算由配置控制：服务端默认 `parallelTickServerWorkBudgetUnits = 640`，客户端默认 `parallelTickClientWorkBudgetUnits = 640`。
 - 将 `RegisteredTask` 增加 `cancelRequested`、`state`、`cancelReason`。
 - `unregister()` 改为设置取消请求并唤醒窗口，避免把 `Future.cancel(true)` 作为常规取消路径。
 - `runSlicesInCurrentTick(...)` 根据 `ParallelTaskResult` 处理继续、让出、完成、终止。
@@ -276,4 +278,4 @@ public enum TraversalStepResult {
 
 ## 接手建议
 
-阶段 1、阶段 2、阶段 3、阶段 4、阶段 5 和阶段 6 已完成。下一个 Agent 推荐优先执行实机回归：大范围 `CHAIN`、大范围 `AREA` 空区、GT 线缆替换、客户端预览快速切换、预览中断线/退出世界。若后续新增 traverser，必须直接实现 `BudgetedChainTraverser` 并把所有推进动作纳入 `ParallelTickControl` 工作预算。
+阶段 1、阶段 2、阶段 3、阶段 4、阶段 5 和阶段 6 已完成；六个 traverser 也已统一接入固定 1024:1 空气候选事务。下一个 Agent 推荐优先执行实机回归：大范围 `CHAIN`、大范围 `AREA` 空区、GT 线缆替换、客户端预览快速切换、预览中断线/退出世界。若后续新增 traverser，必须直接实现 `BudgetedChainTraverser`，经 `ChainSearchContext` 的共享候选计费入口处理空气，并把其它推进动作纳入 `ParallelTickControl` 工作预算。

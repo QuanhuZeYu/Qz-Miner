@@ -27,7 +27,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 - `CHAIN`：以当前目标为起点做邻近连锁，适合常规挖掘、矿石和伐木
 - `AREA`：按范围盒扫收集目标，适合平面清理、矿区切面和隧道开掘
-- `INTERACT`：对一批同类目标连续执行右键交互，适合作物和可右键方块
+- `INTERACT`（范围交互）：以宽泛右键为统一入口，在完整立方范围内盒扫目标，并按子模式连续执行正常右键语义
 - `SPECIAL`：放特定模组兼容逻辑，目前包含 LootGames 扫雷预览与 GT 线缆替换
 
 ### 当前可用子模式
@@ -40,8 +40,10 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `AREA_ORE`：范围内按宽泛矿石匹配
 - `AREA_TUNNEL`：按配置选择视线主轴或命中面朝方块内部，生成 `3 x 3 x radius` 的指向性隧道区域
 - `AREA_SECTION_CLEAR`：按被挖方块所在的 `16 x 16 x 16` 区段生成固定清理区域
-- `INTERACT_BASE`：默认同类右键交互
-- `INTERACT_CROP`：作物交互模式，支持原版小麦与 IC2 作物
+- `INTERACT_BASE`：同类方块；严格匹配触发方块的 block、完整 metadata 与方块实体身份，并保留旧对象组扩展
+- `INTERACT_LIQUID_SOURCE`：液体源；只处理与触发 source 同种且当前仍可排出的静态液体源
+- `INTERACT_CROP`：全部作物；处理已可靠识别的成熟和未成熟作物，并保留旧对象组扩展
+- `INTERACT_FERTILIZE_IMMATURE_CROP`：未成熟作物施肥；只处理当前可靠确认仍未成熟的作物
 - `SPECIAL_LOOTGAMES_MINESWEEPER`：对准 LootGames 扫雷棋盘时，通过服务端读取雷位并在客户端标记
 - `SPECIAL_GT_CABLE_REPLACE`：对准 GT 线缆时，连续替换同类连通线缆
 
@@ -52,8 +54,19 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 想砍树时，用 `CHAIN_LOGGING`
 - 想开矿道时，用 `AREA_TUNNEL`
 - 想按 `16 x 16 x 16` 的固定区段整体清理时，用 `AREA_SECTION_CLEAR`
-- 想批量右键收作物时，用 `INTERACT_CROP`
+- 想批量右键收作物时，用 `INTERACT_CROP`；想只给未成熟作物使用当前手持肥料时，用 `INTERACT_FERTILIZE_IMMATURE_CROP`
+- 想让当前手持物逐个尝试右键同种静态液体源时，用 `INTERACT_LIQUID_SOURCE`；是否处理流体由物品自身决定
 - 如果客户端卡顿明显，可关闭 `clientEnablePreviewRender`，或调低 `clientPreviewMaxRadius` 与 `clientPreviewMaxTargets`
+
+### 范围交互执行边界
+
+- 四个范围交互子模式的服务端规划与客户端预览都使用预算化 `BoxScanTraverser`，扫描以触发点为中心、边长 `2 x radius + 1` 的完整立方范围；目标无需相邻，不匹配坐标只会被跳过，不会阻断后续空间扫描
+- 四个子模式都观察方块右键与空气右键。普通方块右键保留 Forge event 目标；空气右键从动作生效前的当前射线解析目标。液体模式对两种动作都使用包含液体的射线，客户端预览也使用同一射线数学，因此标准空桶对准原版 source 的空气右键可以成为入口
+- 规划结果不是执行授权。服务端主线程在每个目标执行前都会重验当前世界身份，并继续检查方块存在、世界保护与玩家编辑权限
+- 每个目标都重新读取当前手持物品。普通方块和作物使用带目标坐标的 Forge 方块右键；液体源经精确目标射线进入正常 Forge 空气右键与 Item 路径，不按桶、工业单元或未知物品类型预判能力，也不直接排液、改方块、搜索背包或构造容器
+- 单目标无动作、被拒绝、返回 false 或抛出异常只结算该目标，后续计划目标继续尝试；本次不为同一动作可能出现的 BLOCK/AIR 双事件建立复杂去重事务
+- 对象组仍只扩展 `INTERACT_BASE` 与 `INTERACT_CROP`，不会扩展液体源或未成熟作物施肥模式
+- 本地自动化不能替代真实模组运行态：vanilla bucket / GT 或 IC2 单元 / 第三方 Item / GT CropCard / EFR / 保护插件、client 与 dedicated server 的连续四模式验证仍为 **INCOMPLETE**
 
 ### 并行执行说明
 
@@ -63,7 +76,19 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ## 版本说明
 
-从 `4.0` 到当前 `5.0`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
+### 5.1 网络兼容
+
+- `5.1.x` 客户端与服务端只要版本字符串完整合法，就忽略 patch、prerelease 与 build qualifier
+  互通；stable、prerelease、branch/dirty dev 均适用。
+- `5.0.x`、`5.10.x` 与畸形版本不会被当成 5.1；5.1 family 内的 16 个 packet ID/Side、wire
+  framing、协议、ordinal/code/mask 与 24-path 配置 schema 已冻结。不兼容变更必须升级新 minor。
+- 远端模组表缺少 `qz_miner` 时 Forge checker 在 CLIENT/SERVER 两侧都会放行，但这只表示不由
+  mod-list 检查拒绝；它不会为无 Qz-Miner 对端创建网络 channel，也不是无 Mod 运行安全保证。
+- 当前真实 5.1 mixed/missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或
+  branch CI 不能替代实机证据。完整合同见
+  `docs/反馈层/决策/network-version-compatibility.md`。
+
+从 `4.0` 到当前 `5.1`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
 
 - 完成 `AREA` 模式、`INTERACT` 模式和作物交互模式迁移
 - 为 `CHAIN` 与 `AREA` 接入宽泛矿石匹配子模式
@@ -88,7 +113,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `AREA` 模式完整闭环：盒扫搜索、执行、HUD、预览已接通
 - `AREA_TUNNEL`：支持按玩家偏好选择视线主轴或命中面方向，生成 `3 x 3 x radius` 的指向性隧道区域
 - `AREA_SECTION_CLEAR`：支持按被挖方块所在 `16 x 16 x 16` 区段生成固定清理区域
-- `INTERACT` 模式完整闭环：右键触发、默认同类交互、作物交互已接通
+- `INTERACT` 模式完整闭环：四种范围交互统一盒扫，同类方块、液体源、全部作物与未成熟作物施肥均已接通执行期重验
 - 统一子模式框架：主模式下可挂载多个子模式，并同步到客户端与服务端
 - `CHAIN_ORE` 与 `AREA_ORE`：宽泛矿石匹配，面向 GT / BW / GT++ / 原版矿石体系
 - `CHAIN_LOGGING`：伐木子模式，只匹配原木，使用壳层扩张搜索而不是默认 6 邻洪泛

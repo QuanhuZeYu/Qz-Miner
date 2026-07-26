@@ -7,6 +7,8 @@ import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import club.heiqi.qz_miner.chain.planner.CropBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.FloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.HarvestableBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.ImmatureCropBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.LiquidSourceBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.LoggingFloodFillTraverser;
 import club.heiqi.qz_miner.chain.planner.LogBlockHarvestableMatcher;
 import club.heiqi.qz_miner.chain.planner.OreBlockHarvestableMatcher;
@@ -77,15 +79,27 @@ public final class ChainModeResolvers {
     public static final ChainBlockMatcherResolver HARVESTABLE_MATCHER = context -> new HarvestableBlockMatcher();
 
     public static final ChainBlockMatcherResolver INTERACT_MATCHER = context -> {
-        if (context != null
-            && context.getSearchContext() != null
-            && context.getSearchContext().getSubMode() == ChainSubMode.INTERACT_CROP) {
+        if (context == null || context.getSearchContext() == null) {
+            return (player, target) -> false;
+        }
+        if (context.getSearchContext().getSubMode() == ChainSubMode.INTERACT_LIQUID_SOURCE) {
+            return new LiquidSourceBlockMatcher(
+                context.getSearchContext().getSampleBlock(),
+                context.getSearchContext().getSampleMeta());
+        }
+        if (context.getSearchContext().getSubMode() == ChainSubMode.INTERACT_CROP) {
             return new CropBlockMatcher();
         }
-        return new SameBlockMatcher(
-            context.getSearchContext().getSampleBlock(),
-            context.getSearchContext().getSampleMeta(),
-            context.getSearchContext().getSampleTileIdentity());
+        if (context.getSearchContext().getSubMode() == ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP) {
+            return new ImmatureCropBlockMatcher();
+        }
+        if (context.getSearchContext().getSubMode() == ChainSubMode.INTERACT_BASE) {
+            return new SameBlockMatcher(
+                context.getSearchContext().getSampleBlock(),
+                context.getSearchContext().getSampleMeta(),
+                context.getSearchContext().getSampleTileIdentity());
+        }
+        return (player, target) -> false;
     };
 
     private ChainModeResolvers() {}

@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.chain.planner;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -87,10 +90,17 @@ public class ModeExtensionMatcherDecoratorTest {
     public void unsupportedModeFailsClosedWithOriginalInstances() {
         ChainBlockMatcher matcher = (player, target) -> false;
         ChainCandidateFilter filter = target -> false;
-        Assert.assertSame(matcher, ModeExtensionMatcherDecorator.decorateMatcher(ChainSubMode.AREA_TUNNEL, matcher,
-            (player, target) -> true, (player, target) -> true, (player, target) -> true));
-        Assert.assertSame(filter, ModeExtensionMatcherDecorator.decorateCandidateFilter(
-            ChainSubMode.AREA_TUNNEL, filter, target -> true));
+        for (ChainSubMode unsupported : Arrays.asList(
+                ChainSubMode.AREA_TUNNEL,
+                ChainSubMode.INTERACT_LIQUID_SOURCE,
+                ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP)) {
+            Assert.assertSame(unsupported.name(), matcher,
+                ModeExtensionMatcherDecorator.decorateMatcher(unsupported, matcher,
+                    (player, target) -> true, (player, target) -> true, (player, target) -> true));
+            Assert.assertSame(unsupported.name(), filter,
+                ModeExtensionMatcherDecorator.decorateCandidateFilter(
+                    unsupported, filter, target -> true));
+        }
     }
 
     @Test
@@ -98,6 +108,22 @@ public class ModeExtensionMatcherDecoratorTest {
         ChainCandidateFilter filter = target -> false;
         Assert.assertSame(filter, ModeExtensionMatcherDecorator.decorateCandidateFilter(ChainSubMode.CHAIN_BASE,
             filter, new FrozenModePredicate(ModeExtensionSnapshot.EMPTY), null));
+    }
+
+    @Test
+    public void productionHarvestExtensionUsesTopLevelModeSelectedPlanningGate() throws Exception {
+        String decorator = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ModeExtensionMatcherDecorator.java").toPath()),
+                StandardCharsets.UTF_8);
+        String factory = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertTrue("直接装饰器的兼容入口保持 AREA 宽进 admission",
+                decorator.contains("ChainHarvestRules::canPlanHarvest"));
+        Assert.assertFalse(decorator.contains("ChainHarvestRules::canHarvest,"));
+        Assert.assertTrue(factory.contains("selectPlanningEvaluator(mode, capabilitySnapshot)"));
+        Assert.assertTrue(factory.contains("boundMatcher, diagnostics, planningEvaluator"));
+        Assert.assertTrue(factory.contains("evaluator.evaluate(currentPlayer, target"));
     }
 
     private static ChainBlockMatcher matcher(ChainSubMode mode, boolean base, boolean extension, boolean gate) {

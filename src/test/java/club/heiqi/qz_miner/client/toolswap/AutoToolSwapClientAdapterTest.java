@@ -132,14 +132,18 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
-    public void waitsTwentyTicksToRetransmitSameRoundThenOrphansAtForty() {
+    public void waitsTwentyTicksToRetransmitSameRoundThenOrphansAtOneHundredTwenty() {
         adapter.onChainKeyState(true);
         long nonce = transport.rounds.get(0).longValue();
         for (int tick = 0; tick <= 20; tick++) adapter.onClientTick();
         Assert.assertEquals(2, transport.rounds.size());
         Assert.assertEquals(nonce, transport.rounds.get(1).longValue());
-        for (int tick = 21; tick <= 40; tick++) adapter.onClientTick();
+        for (int tick = 21; tick < 120; tick++) adapter.onClientTick();
+        Assert.assertFalse(adapter.reducerForTests().isOrphaned());
+        Assert.assertEquals("deadline 前应只按 20 tick cadence 重发", 6, transport.rounds.size());
+        adapter.onClientTick();
         Assert.assertTrue(adapter.reducerForTests().isOrphaned());
+        Assert.assertEquals("deadline tick 不得再发送 round", 6, transport.rounds.size());
     }
 
     @Test
@@ -639,6 +643,60 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     @Test
+    public void configCloseWhileFreezeInFlightSerializesDeclineBeforeClose() {
+        game.physicalKeyDown = true;
+        adapter.onChainKeyState(true);
+        acceptRound();
+        adapter.onRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 1L,
+                ChainPhase.RUNNING.ordinal(), 4, 1L, true);
+        adapter.onClientTick();
+        AutoToolSwapIntent freeze = transport.intents.get(0);
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, freeze.action());
+        Assert.assertSame(freeze, adapter.reducerForTests().inFlightIntent());
+
+        adapter.onTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 9L, 3L, 4,
+                10, 64, 20, 42, 7, 2L, 9L, true);
+        adapter.onConfigChanged(false, true, Collections.emptyList());
+        Assert.assertEquals("普通 FREEZE 未结算时不得新增 intent", 1, transport.intents.size());
+        Assert.assertSame(freeze, adapter.reducerForTests().inFlightIntent());
+
+        settle(freeze, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        int fullCapturesBeforeClose = game.fullCaptureCount;
+        adapter.onClientTick();
+        Assert.assertEquals("关闭后的首 tick 不得采样 FULL_TARGET",
+                fullCapturesBeforeClose, game.fullCaptureCount);
+        Assert.assertEquals(ToolSwapCapturePlan.NONE,
+                game.capturePlans.get(game.capturePlans.size() - 1));
+        Assert.assertEquals("首个可发行 tick 只能新增一个 DECLINE", 2, transport.intents.size());
+        AutoToolSwapIntent decline = transport.intents.get(1);
+        Assert.assertEquals(AutoToolSwapAction.DECLINE_TAKEOVER, decline.action());
+        Assert.assertSame(decline, adapter.reducerForTests().inFlightIntent());
+
+        adapter.onClientTick();
+        Assert.assertEquals("DECLINE 未结算时不得新增 TAKEOVER 或 CLOSE", 2,
+                transport.intents.size());
+        Assert.assertSame(decline, adapter.reducerForTests().inFlightIntent());
+        settle(decline, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FROZEN);
+        Assert.assertNull(adapter.reducerForTests().inFlightIntent());
+        Assert.assertEquals("结算 callback 不得同步发送 CLOSE", 2, transport.intents.size());
+
+        adapter.onClientTick();
+        Assert.assertEquals("DECLINE 结算后的下一 tick 只新增 CLOSE", 3,
+                transport.intents.size());
+        AutoToolSwapIntent close = transport.intents.get(2);
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, close.action());
+        Assert.assertSame(close, adapter.reducerForTests().inFlightIntent());
+        for (AutoToolSwapIntent intent : transport.intents) {
+            Assert.assertNotEquals("transport 不得观察到关闭路径 TAKEOVER",
+                    AutoToolSwapAction.TAKEOVER, intent.action());
+        }
+
+        settle(close, AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.FINISHED);
+        Assert.assertFalse(adapter.reducerForTests().isOrphaned());
+        Assert.assertNull(adapter.reducerForTests().inFlightIntent());
+    }
+
+    @Test
     public void preparingTargetChangeRestoresBeforeLatestTargetSwap() {
         completeSwap();
         game.targetIdentity = ToolSwapTargetIdentity.present(2, 0);
@@ -806,9 +864,11 @@ public class AutoToolSwapClientAdapterTest {
     }
 
     private void settle(AutoToolSwapIntent intent, AutoToolSwapResultCode result, AutoToolSwapRoundState state) {
+        long nextActionSequence = intent.usesTakeoverRequestId()
+                ? adapter.reducerForTests().nextActionSequence() : intent.actionSequence() + 1L;
         adapter.onActionResult(AutoToolSwapProtocol.PROTOCOL_VERSION, intent.serverRoundId(), intent.actionSequence(),
                 intent.action().wireCode(), result.wireCode(), state.wireCode(), intent.anchorSlot(),
-                intent.candidateSlot(), intent.actionSequence() + 1L, 1L, true);
+                intent.candidateSlot(), nextActionSequence, 1L, true);
     }
 
     private static ToolSwapInventorySnapshot restored() {

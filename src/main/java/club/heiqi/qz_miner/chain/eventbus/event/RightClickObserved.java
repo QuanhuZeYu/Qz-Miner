@@ -3,6 +3,8 @@ package club.heiqi.qz_miner.chain.eventbus.event;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
+import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
+import net.minecraft.block.Block;
 
 /**
  * 玩家右键方块被观测到事件。
@@ -31,6 +33,12 @@ public final class RightClickObserved extends ChainEvent {
     private final float hitY;
     /** 命中方块内 Z 偏移（0-1）。 */
     private final float hitZ;
+    /** 原右键事件窗口冻结的种子方块；旧构造器无该事实时为 null。 */
+    private final Block seedBlock;
+    /** 原右键事件窗口冻结的完整非负 int metadata。 */
+    private final int seedMeta;
+    /** 原右键事件窗口冻结的不可变 TileEntity 身份。 */
+    private final TileIdentityToken seedTileIdentity;
 
     /**
      * @param playerUUID     触发玩家 UUID
@@ -50,13 +58,34 @@ public final class RightClickObserved extends ChainEvent {
                                int x, int y, int z, int dimensionId, int sideHit,
                                float hitX, float hitY, float hitZ) {
         this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
-                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ);
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ,
+                null, 0, TileIdentityToken.unresolved());
+    }
+
+    /** 构造带原事件窗口纯值种子事实的右键观测事件。 */
+    public RightClickObserved(UUID playerUUID, int generation, long serverTick, long timestampNanos,
+                               int x, int y, int z, int dimensionId, int sideHit,
+                               float hitX, float hitY, float hitZ,
+                               Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity) {
+        this(playerUUID, ChainEvent.NO_SERVER_ROUND_ID, generation, serverTick, timestampNanos,
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ,
+                seedBlock, seedMeta, seedTileIdentity);
     }
 
     /** 构造带服务端轮次关联的右键观测事件。 */
     public RightClickObserved(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
                                int x, int y, int z, int dimensionId, int sideHit,
                                float hitX, float hitY, float hitZ) {
+        this(playerUUID, serverRoundId, generation, serverTick, timestampNanos,
+                x, y, z, dimensionId, sideHit, hitX, hitY, hitZ,
+                null, 0, TileIdentityToken.unresolved());
+    }
+
+    /** 构造带服务端轮次和原事件窗口纯值种子事实的右键观测事件。 */
+    public RightClickObserved(UUID playerUUID, long serverRoundId, int generation, long serverTick, long timestampNanos,
+                               int x, int y, int z, int dimensionId, int sideHit,
+                               float hitX, float hitY, float hitZ,
+                               Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity) {
         super(playerUUID, serverRoundId, generation, serverTick, timestampNanos);
         this.x = x;
         this.y = y;
@@ -66,6 +95,10 @@ public final class RightClickObserved extends ChainEvent {
         this.hitX = hitX;
         this.hitY = hitY;
         this.hitZ = hitZ;
+        this.seedBlock = seedBlock;
+        this.seedMeta = Math.max(0, seedMeta);
+        this.seedTileIdentity = seedTileIdentity == null
+                ? TileIdentityToken.unresolved() : seedTileIdentity;
     }
 
     /** @return 坐标 X */
@@ -84,4 +117,10 @@ public final class RightClickObserved extends ChainEvent {
     public float getHitY() { return hitY; }
     /** @return 命中方块内 Z 偏移 */
     public float getHitZ() { return hitZ; }
+    /** @return 原右键事件窗口冻结的种子方块；旧构造器返回 null */
+    public Block getSeedBlock() { return seedBlock; }
+    /** @return 原右键事件窗口冻结的完整非负 int metadata */
+    public int getSeedMeta() { return seedMeta; }
+    /** @return 原右键事件窗口冻结的不可变身份；旧构造器固定为 UNRESOLVED */
+    public TileIdentityToken getSeedTileIdentity() { return seedTileIdentity; }
 }

@@ -56,7 +56,11 @@ public class AutoToolSwapRoundPhaseProjectionBridgeTest {
         Assert.assertTrue(fixture.sender.packets.isEmpty());
 
         fixture.lookup.endpoint = fixture.endpoint;
-        fixture.service.handleIntent(PLAYER, fixture.endpoint, closeIntent(fixture.roundId, 1L), null, 2L);
+        AutoToolSwapIntent close = closeIntent(fixture.roundId, 1L);
+        club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult closeResult = fixture.service
+                .handleIntent(PLAYER, fixture.endpoint, close, null, 2L);
+        Assert.assertTrue(fixture.service.confirmIntentResultPublication(
+                PLAYER, fixture.endpoint, close, closeResult));
         publish(fixture, fixture.roundId, 2, ChainPhase.RUNNING, ChainPhase.FINISHING, 3L);
         Assert.assertTrue(fixture.sender.packets.isEmpty());
 

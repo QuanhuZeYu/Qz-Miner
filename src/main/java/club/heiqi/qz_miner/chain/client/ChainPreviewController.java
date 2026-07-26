@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
+import club.heiqi.qz_miner.chain.interaction.InteractionRayTrace;
 import club.heiqi.qz_miner.chain.planner.AxisAlignedTunnelDirection;
 import club.heiqi.qz_miner.chain.planner.BlockSeedSnapshot;
 import club.heiqi.qz_miner.chain.planner.ChainBlockMatcher;
@@ -144,17 +145,18 @@ public class ChainPreviewController {
             return;
         }
 
-        ChainTarget target = getCurrentLookTarget(minecraft.objectMouseOver);
+        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        MovingObjectPosition lookHit = resolveLookHit(minecraft, player, selectedSubMode);
+        ChainTarget target = getCurrentLookTarget(lookHit);
         if (target == null) {
             stopPreview();
             return;
         }
 
-        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
         TunnelDirectionSource acceptedSource = MyMod.chainStateService.getClientState()
                 .getAcceptedTunnelDirectionSource();
         int concreteFace = resolveConcreteFace(
-                selectedSubMode, acceptedSource, player, minecraft.objectMouseOver, target);
+                selectedSubMode, acceptedSource, player, lookHit, target);
         if (shouldRestartPreview(previewSeedWorld, world, currentTarget, target,
                 previewConcreteFace, concreteFace)) {
             startPreview(world, target, concreteFace);
@@ -465,6 +467,23 @@ public class ChainPreviewController {
         }
 
         return new ChainTarget(movingObjectPosition.blockX, movingObjectPosition.blockY, movingObjectPosition.blockZ);
+    }
+
+    /** 液体源预览使用包含液体的共享射线；其它模式保留原版 objectMouseOver。 */
+    private MovingObjectPosition resolveLookHit(
+            Minecraft minecraft, EntityPlayer player, ChainSubMode selectedSubMode) {
+        if (selectedSubMode != ChainSubMode.INTERACT_LIQUID_SOURCE) {
+            return minecraft.objectMouseOver;
+        }
+        if (minecraft.playerController == null) {
+            return null;
+        }
+        try {
+            return InteractionRayTrace.trace(
+                    player, minecraft.playerController.getBlockReachDistance(), true);
+        } catch (RuntimeException | LinkageError failure) {
+            return null;
+        }
     }
 
     /** 只对 AREA_TUNNEL 解析 accepted source；HIT_FACE 缺失或非法时回退当前 look。 */

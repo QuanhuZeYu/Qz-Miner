@@ -26,7 +26,10 @@ public final class AutoToolSwapTakeoverRequest {
                 || targetBlockId > AutoToolSwapProtocol.MAX_BLOCK_ID || targetBlockMetadata < 0
                 || targetBlockMetadata > AutoToolSwapProtocol.MAX_BLOCK_METADATA || serverTick < 0L
                 || deadlineTick <= serverTick) {
-            throw new IllegalArgumentException("invalid auto tool takeover request");
+            throw new IllegalArgumentException("invalid auto tool takeover request: targetBlockId="
+                    + targetBlockId + " blockIdMax=" + AutoToolSwapProtocol.MAX_BLOCK_ID
+                    + " targetBlockMetadata=" + targetBlockMetadata
+                    + " metadataMax=" + AutoToolSwapProtocol.MAX_BLOCK_METADATA);
         }
         this.protocolVersion = protocolVersion;
         this.serverRoundId = serverRoundId;
@@ -43,7 +46,10 @@ public final class AutoToolSwapTakeoverRequest {
 
     public int protocolVersion() { return protocolVersion; }
     public long serverRoundId() { return serverRoundId; }
+    /** @return 为兼容固定 wire 字段名保留的关联值；v4 语义为 takeoverRequestId。 */
     public long actionSequence() { return actionSequence; }
+    /** @return 与普通 actionSequence 完全分离的接替请求号。 */
+    public long takeoverRequestId() { return actionSequence; }
     public int generation() { return generation; }
     public int targetX() { return targetX; }
     public int targetY() { return targetY; }

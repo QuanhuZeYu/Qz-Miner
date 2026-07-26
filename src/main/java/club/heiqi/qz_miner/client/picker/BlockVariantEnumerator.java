@@ -54,7 +54,7 @@ public final class BlockVariantEnumerator {
         return enumerateBlock(registry, block, item);
     }
 
-    /** 仅把方块物品实际暴露的 0..15 metadata 转为选择器变体。 */
+    /** 仅把方块物品实际暴露的非负 int metadata 转为选择器变体。 */
     static BlockCandidate enumerateBlock(String registry, Block block, Item item) {
         List<ItemStack> supplied = new ArrayList<ItemStack>();
         try {
@@ -66,7 +66,7 @@ public final class BlockVariantEnumerator {
         }
         Map<Integer, ItemStack> firstByMeta = new LinkedHashMap<Integer, ItemStack>();
         for (ItemStack stack : supplied) {
-            if (stack != null && stack.getItemDamage() >= 0 && stack.getItemDamage() <= 15
+            if (stack != null && stack.getItemDamage() >= 0
                     && !firstByMeta.containsKey(Integer.valueOf(stack.getItemDamage()))) {
                 firstByMeta.put(Integer.valueOf(stack.getItemDamage()), stack);
             }

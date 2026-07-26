@@ -20,6 +20,9 @@ public class ObjectGroupPickerCodecTest {
                 codec.decodeMember("minecraft:log@04").variantKeys());
         Assert.assertEquals(Arrays.asList("minecraft:log@4", "minecraft:log@8"),
                 codec.decodeMember("minecraft:log@[8,4]").variantKeys());
+        Assert.assertEquals(Arrays.asList("minecraft:log@16", "minecraft:log@16777216",
+                        "minecraft:log@2147483647"),
+                codec.decodeMember("minecraft:log@[2147483647,16,16777216]").variantKeys());
         Assert.assertNull(codec.decodeMember("not a selector"));
         Assert.assertNull(codec.decodeMember(Integer.valueOf(4)));
     }
@@ -31,6 +34,8 @@ public class ObjectGroupPickerCodecTest {
         Assert.assertEquals(registry + "@*", codec.encodeMember(null, all(registry)));
         Assert.assertEquals(registry + "@4", codec.encodeMember("other:block@0", single(registry, 4)));
         Assert.assertEquals(registry + "@[4,8]", codec.encodeMember(null, multiple(registry, 8, 4)));
+        Assert.assertEquals(registry + "@[16,16777216,2147483647]", codec.encodeMember(null,
+                multiple(registry, Integer.MAX_VALUE, 16, 16777216)));
     }
 
     @Test
