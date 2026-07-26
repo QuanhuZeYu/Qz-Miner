@@ -1,7 +1,11 @@
 package club.heiqi.qz_miner.config;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -14,39 +18,55 @@ import club.heiqi.config.schema.ValueKind;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
-/**
- * Schema 字段完备性与 Defaults 对齐。
- */
+/** 5.1.0 Schema 字面量快照与多使用方 Defaults 对齐。 */
 public class QzMinerConfigSchemaTest {
 
+    /** 以独立字面量冻结 5.1.0 全部 path/type/default，不复用生产 Defaults oracle。 */
     @Test
-    public void schemaLocksEveryPathTypeAndDefaultInStableOrder() {
+    public void schemaLocks510LiteralPathTypeAndDefaultSnapshotInStableOrder() {
         ConfigSchema schema = QzMinerConfigSchema.create();
+        List<Map<String, Object>> objectGroups = new ArrayList<Map<String, Object>>();
+        Map<String, Object> logs = new LinkedHashMap<String, Object>();
+        logs.put("id", "vanilla_logs");
+        logs.put("modes", Collections.<String>emptyList());
+        logs.put("members", Arrays.asList("minecraft:log@*", "minecraft:log2@*"));
+        objectGroups.add(logs);
+        Map<String, Object> hay = new LinkedHashMap<String, Object>();
+        hay.put("id", "vanilla_hay");
+        hay.put("modes", Collections.<String>emptyList());
+        hay.put("members", Arrays.asList("minecraft:hay_block@[0,4,8]"));
+        objectGroups.add(hay);
+        Map<String, Object> redstone = new LinkedHashMap<String, Object>();
+        redstone.put("id", "vanilla_redstone");
+        redstone.put("modes", Collections.<String>emptyList());
+        redstone.put("members", Arrays.asList("minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"));
+        objectGroups.add(redstone);
+
         Object[][] expected = {
-                {"general.greeting", FieldType.STRING, QzMinerConfigDefaults.GREETING},
-                {"general.chainRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_RADIUS)},
-                {"general.chainMaxBlocks", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_MAX_BLOCKS)},
-                {"general.chainLoggingShellLayers", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS)},
-                {"general.maxBreakPerTick", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.MAX_BREAK_PER_TICK)},
-                {"general.cableReplaceMaxPerTick", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK)},
-                {"general.chainWatchdogTimeoutTicks", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS)},
-                {"general.parallelTickMinDurationMs", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS)},
-                {"general.parallelTickServerWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS)},
-                {"general.enableUnlimitedOreFortune", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE)},
-                {"general.enableFortuneForPlacedOre", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE)},
-                {"client.clientEnablePreviewRender", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER)},
-                {"client.tunnelDirectionSource", FieldType.CHOICE, QzMinerConfigDefaults.CLIENT_TUNNEL_DIRECTION_SOURCE},
-                {"client.autoToolSwapEnabled", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED)},
-                {"client.autoToolTakeoverEnabled", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED)},
-                {"client.autoToolPrioritySelectors", FieldType.SIMPLE_LIST, java.util.Collections.<String>emptyList()},
-                {"client.parallelTickClientWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS)},
-                {"client.clientPreviewMaxRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS)},
-                {"client.clientPreviewMaxTargets", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS)},
-                {"client.clientPreviewAlphaFadeStartRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS)},
-                {"client.clientPreviewAlphaFadeEndRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS)},
-                {"client.clientPreviewAlphaStartValue", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE)},
-                {"client.clientPreviewAlphaEndValue", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE)},
-                {"client.objectGroups", FieldType.STRUCTURED_LIST, QzMinerConfigDefaults.objectGroups()}
+                {"general.greeting", FieldType.STRING, "Hello World"},
+                {"general.chainRadius", FieldType.NUMBER, Double.valueOf(8.0D)},
+                {"general.chainMaxBlocks", FieldType.NUMBER, Double.valueOf(1024.0D)},
+                {"general.chainLoggingShellLayers", FieldType.NUMBER, Double.valueOf(1.0D)},
+                {"general.maxBreakPerTick", FieldType.NUMBER, Double.valueOf(64.0D)},
+                {"general.cableReplaceMaxPerTick", FieldType.NUMBER, Double.valueOf(1024.0D)},
+                {"general.chainWatchdogTimeoutTicks", FieldType.NUMBER, Double.valueOf(50.0D)},
+                {"general.parallelTickMinDurationMs", FieldType.NUMBER, Double.valueOf(15.0D)},
+                {"general.parallelTickServerWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(640.0D)},
+                {"general.enableUnlimitedOreFortune", FieldType.BOOLEAN, Boolean.FALSE},
+                {"general.enableFortuneForPlacedOre", FieldType.BOOLEAN, Boolean.FALSE},
+                {"client.clientEnablePreviewRender", FieldType.BOOLEAN, Boolean.TRUE},
+                {"client.tunnelDirectionSource", FieldType.CHOICE, "look_direction"},
+                {"client.autoToolSwapEnabled", FieldType.BOOLEAN, Boolean.TRUE},
+                {"client.autoToolTakeoverEnabled", FieldType.BOOLEAN, Boolean.TRUE},
+                {"client.autoToolPrioritySelectors", FieldType.SIMPLE_LIST, Collections.<String>emptyList()},
+                {"client.parallelTickClientWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(640.0D)},
+                {"client.clientPreviewMaxRadius", FieldType.NUMBER, Double.valueOf(16.0D)},
+                {"client.clientPreviewMaxTargets", FieldType.NUMBER, Double.valueOf(1024.0D)},
+                {"client.clientPreviewAlphaFadeStartRadius", FieldType.NUMBER, Double.valueOf(2.0D)},
+                {"client.clientPreviewAlphaFadeEndRadius", FieldType.NUMBER, Double.valueOf(6.0D)},
+                {"client.clientPreviewAlphaStartValue", FieldType.NUMBER, Double.valueOf(0.78D)},
+                {"client.clientPreviewAlphaEndValue", FieldType.NUMBER, Double.valueOf(0.15D)},
+                {"client.objectGroups", FieldType.STRUCTURED_LIST, objectGroups}
         };
         List<FieldSpec> fields = new ArrayList<FieldSpec>(schema.allFields());
 
@@ -61,6 +81,7 @@ public class QzMinerConfigSchemaTest {
         }
     }
 
+    /** 校验多个生产使用方继续对齐共享 Defaults；本方法不承担 5.1.0 字面量快照职责。 */
     @Test
     public void defaultsAlignWithQzMinerConfigDefaults() {
         ConfigSchema schema = QzMinerConfigSchema.create();
