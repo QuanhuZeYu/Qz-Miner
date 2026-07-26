@@ -27,7 +27,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 - `CHAIN`：以当前目标为起点做邻近连锁，适合常规挖掘、矿石和伐木
 - `AREA`：按范围盒扫收集目标，适合平面清理、矿区切面和隧道开掘
-- `INTERACT`（范围交互）：在完整立方范围内盒扫目标，并按子模式连续执行正常右键或液体容器交互
+- `INTERACT`（范围交互）：以宽泛右键为统一入口，在完整立方范围内盒扫目标，并按子模式连续执行正常右键语义
 - `SPECIAL`：放特定模组兼容逻辑，目前包含 LootGames 扫雷预览与 GT 线缆替换
 
 ### 当前可用子模式
@@ -55,16 +55,18 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 想开矿道时，用 `AREA_TUNNEL`
 - 想按 `16 x 16 x 16` 的固定区段整体清理时，用 `AREA_SECTION_CLEAR`
 - 想批量右键收作物时，用 `INTERACT_CROP`；想只给未成熟作物使用当前手持肥料时，用 `INTERACT_FERTILIZE_IMMATURE_CROP`
-- 想让当前手持容器逐个吸取同种静态液体源时，用 `INTERACT_LIQUID_SOURCE`
+- 想让当前手持物逐个尝试右键同种静态液体源时，用 `INTERACT_LIQUID_SOURCE`；是否处理流体由物品自身决定
 - 如果客户端卡顿明显，可关闭 `clientEnablePreviewRender`，或调低 `clientPreviewMaxRadius` 与 `clientPreviewMaxTargets`
 
 ### 范围交互执行边界
 
 - 四个范围交互子模式的服务端规划与客户端预览都使用预算化 `BoxScanTraverser`，扫描以触发点为中心、边长 `2 x radius + 1` 的完整立方范围；目标无需相邻，不匹配坐标只会被跳过，不会阻断后续空间扫描
+- 四个子模式都观察方块右键与空气右键。普通方块右键保留 Forge event 目标；空气右键从动作生效前的当前射线解析目标。液体模式对两种动作都使用包含液体的射线，客户端预览也使用同一射线数学，因此标准空桶对准原版 source 的空气右键可以成为入口
 - 规划结果不是执行授权。服务端主线程在每个目标执行前都会重验当前世界身份，并继续检查方块存在、世界保护与玩家编辑权限
-- 每个目标都重新读取当前手持物品。普通方块和作物使用带目标坐标的 Forge 方块右键；液体源使用精确目标射线与正常容器 Item 路径，不直接排液、改方块或构造装满容器
+- 每个目标都重新读取当前手持物品。普通方块和作物使用带目标坐标的 Forge 方块右键；液体源经精确目标射线进入正常 Forge 空气右键与 Item 路径，不按桶、工业单元或未知物品类型预判能力，也不直接排液、改方块、搜索背包或构造容器
+- 单目标无动作、被拒绝、返回 false 或抛出异常只结算该目标，后续计划目标继续尝试；本次不为同一动作可能出现的 BLOCK/AIR 双事件建立复杂去重事务
 - 对象组仍只扩展 `INTERACT_BASE` 与 `INTERACT_CROP`，不会扩展液体源或未成熟作物施肥模式
-- 本地自动化不能替代真实模组运行态：bucket / GT container / GT CropCard / EFR / 保护插件、client 与 dedicated server 的连续四模式验证仍为 **INCOMPLETE**
+- 本地自动化不能替代真实模组运行态：vanilla bucket / GT 或 IC2 单元 / 第三方 Item / GT CropCard / EFR / 保护插件、client 与 dedicated server 的连续四模式验证仍为 **INCOMPLETE**
 
 ### 并行执行说明
 

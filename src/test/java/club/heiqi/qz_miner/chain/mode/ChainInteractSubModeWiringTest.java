@@ -67,7 +67,7 @@ public class ChainInteractSubModeWiringTest {
             ChainCandidateFilter candidate = ChainSubModeRegistry.createCandidateFilter(
                     searchContext, fallback);
 
-            Assert.assertEquals(subMode.name(), ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
+            Assert.assertEquals(subMode.name(), ChainSubModeTrigger.RIGHT_CLICK,
                     ChainSubModeRegistry.getTrigger(subMode));
             Assert.assertTrue(subMode.name(), ChainModeRegistry.getDefinition(ChainMode.INTERACT)
                     .createTraverser(resolverContext) instanceof BoxScanTraverser);

@@ -121,7 +121,7 @@ public final class ChainSubModeBootstrap {
     private static void registerInteractSubModes() {
         registerSubMode(
             ChainSubMode.INTERACT_BASE,
-            ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
+            ChainSubModeTrigger.RIGHT_CLICK,
             ChainModeResolvers.AREA_TRAVERSER,
             createInteractSameBlockMatcherResolver(),
             createSameBlockCandidateFilter(),
@@ -131,7 +131,7 @@ public final class ChainSubModeBootstrap {
             new TargetRevalidatingBlockInteractActionExecutor(ChainSubMode.INTERACT_BASE));
         registerSubMode(
             ChainSubMode.INTERACT_LIQUID_SOURCE,
-            ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
+            ChainSubModeTrigger.RIGHT_CLICK,
             ChainModeResolvers.AREA_TRAVERSER,
             createLiquidSourceMatcherResolver(),
             createLiquidSourceCandidateFilter(),
@@ -141,7 +141,7 @@ public final class ChainSubModeBootstrap {
             new LiquidSourceInteractActionExecutor());
         registerSubMode(
             ChainSubMode.INTERACT_CROP,
-            ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
+            ChainSubModeTrigger.RIGHT_CLICK,
             ChainModeResolvers.AREA_TRAVERSER,
             context -> new CropBlockMatcher(),
             createCropCandidateFilter(),
@@ -151,7 +151,7 @@ public final class ChainSubModeBootstrap {
             new TargetRevalidatingBlockInteractActionExecutor(ChainSubMode.INTERACT_CROP));
         registerSubMode(
             ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP,
-            ChainSubModeTrigger.RIGHT_CLICK_BLOCK,
+            ChainSubModeTrigger.RIGHT_CLICK,
             ChainModeResolvers.AREA_TRAVERSER,
             context -> new ImmatureCropBlockMatcher(),
             createImmatureCropCandidateFilter(),

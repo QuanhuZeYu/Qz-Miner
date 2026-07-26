@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.executor;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.interaction.InteractionRayTrace;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.planner.ChainLiquidRules;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
@@ -9,14 +10,12 @@ import cpw.mods.fml.common.eventhandler.Event;
 import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.MathHelper;
 import net.minecraft.util.MovingObjectPosition;
-import net.minecraft.util.Vec3;
 import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
 /**
- * 仅让当前手持可接收容器作用于精确计划液体 source 的服务端交互执行器。
+ * 让当前手持物按正常右键语义作用于精确计划液体 source 的服务端交互执行器。
  */
 public final class LiquidSourceInteractActionExecutor implements ChainActionExecutor {
 
@@ -29,7 +28,7 @@ public final class LiquidSourceInteractActionExecutor implements ChainActionExec
     }
 
     /**
-     * 依次复用通用交互权限门、重验同种 live source，并确认当前容器可接收 seed 流体。
+     * 依次复用通用交互权限门、重验同种 live source，并确认当前手持栈可用。
      */
     @Override
     public boolean canExecute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
@@ -55,10 +54,10 @@ public final class LiquidSourceInteractActionExecutor implements ChainActionExec
                 return false;
             }
             ItemStack currentStack = player.getCurrentEquippedItem();
-            return LiquidContainerUsePolicy.canAccept(seedFluidName, currentStack);
+            return hasUsableCurrentStack(currentStack);
         } catch (RuntimeException | LinkageError failure) {
             MyMod.LOG.error(
-                "[LiquidSourceInteractActionExecutor] Failed source/container check for player {} at ({}, {}, {})",
+                "[LiquidSourceInteractActionExecutor] Failed source/item check for player {} at ({}, {}, {})",
                 player.getUniqueID(), target.getX(), target.getY(), target.getZ(), failure);
             return false;
         }
@@ -81,10 +80,9 @@ public final class LiquidSourceInteractActionExecutor implements ChainActionExec
                 return false;
             }
 
-            String seedFluidName = resolveSeedFluidName(session);
-            // 每个目标再次读取真实当前槽；canExecute 与 item 调用之间不租赁旧容器引用。
+            // 每个目标再次读取真实当前槽；canExecute 与 Item 调用之间不租赁旧物品引用。
             ItemStack currentStack = player.getCurrentEquippedItem();
-            if (!LiquidContainerUsePolicy.canAccept(seedFluidName, currentStack)) {
+            if (!hasUsableCurrentStack(currentStack)) {
                 return false;
             }
 
@@ -93,7 +91,8 @@ public final class LiquidSourceInteractActionExecutor implements ChainActionExec
             poseTransaction = ServerPlayerPoseTransaction.capture(player);
             poseTransaction.apply(targetPose);
 
-            MovingObjectPosition hit = rayTraceLiquidTarget(player);
+            MovingObjectPosition hit = InteractionRayTrace.trace(
+                    player, player.theItemInWorldManager.getBlockReachDistance(), true);
             if (!isExactTargetHit(hit, target)) {
                 return false;
             }
@@ -143,29 +142,8 @@ public final class LiquidSourceInteractActionExecutor implements ChainActionExec
         return ChainLiquidRules.fluidIdentity(seedBlock);
     }
 
-    /** 完整复刻 Item 液体射线的起点、朝向、reach 与 world 参数。 */
-    private static MovingObjectPosition rayTraceLiquidTarget(EntityPlayerMP player) {
-        float partialTicks = 1.0F;
-        float pitch = player.prevRotationPitch
-                + (player.rotationPitch - player.prevRotationPitch) * partialTicks;
-        float yaw = player.prevRotationYaw
-                + (player.rotationYaw - player.prevRotationYaw) * partialTicks;
-        double eyeX = player.prevPosX + (player.posX - player.prevPosX) * partialTicks;
-        double eyeY = player.prevPosY + (player.posY - player.prevPosY) * partialTicks
-                + (player.worldObj.isRemote
-                    ? player.getEyeHeight() - player.getDefaultEyeHeight()
-                    : player.getEyeHeight());
-        double eyeZ = player.prevPosZ + (player.posZ - player.prevPosZ) * partialTicks;
-        Vec3 eye = Vec3.createVectorHelper(eyeX, eyeY, eyeZ);
-        float yawCos = MathHelper.cos(-yaw * 0.017453292F - (float) Math.PI);
-        float yawSin = MathHelper.sin(-yaw * 0.017453292F - (float) Math.PI);
-        float pitchCos = -MathHelper.cos(-pitch * 0.017453292F);
-        float pitchSin = MathHelper.sin(-pitch * 0.017453292F);
-        float lookX = yawSin * pitchCos;
-        float lookZ = yawCos * pitchCos;
-        double reach = player.theItemInWorldManager.getBlockReachDistance();
-        Vec3 end = eye.addVector(lookX * reach, pitchSin * reach, lookZ * reach);
-        return player.worldObj.func_147447_a(eye, end, true, false, false);
+    private static boolean hasUsableCurrentStack(ItemStack currentStack) {
+        return currentStack != null && currentStack.stackSize > 0;
     }
 
     private static boolean isExactTargetHit(MovingObjectPosition hit, ChainTarget target) {

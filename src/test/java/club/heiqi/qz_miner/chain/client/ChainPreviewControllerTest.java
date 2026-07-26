@@ -51,6 +51,27 @@ public class ChainPreviewControllerTest {
                 worldA, worldB, origin, new ChainTarget(1, 2, 3), 2, 2));
     }
 
+    @Test
+    public void liquidPreviewUsesSharedInclusiveRayAndOtherModesKeepObjectMouseOver() throws Exception {
+        String source = source();
+        int selectedSubMode = source.indexOf(
+                "ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();");
+        int lookHit = source.indexOf("resolveLookHit(minecraft, player, selectedSubMode)", selectedSubMode);
+        int target = source.indexOf("getCurrentLookTarget(lookHit)", lookHit);
+        int helper = source.indexOf("private MovingObjectPosition resolveLookHit(", target);
+        int nextHelper = source.indexOf("private static int resolveConcreteFace(", helper);
+        String helperBody = source.substring(helper, nextHelper);
+
+        Assert.assertTrue(selectedSubMode >= 0 && lookHit > selectedSubMode && target > lookHit);
+        Assert.assertTrue(helperBody.contains(
+                "selectedSubMode != ChainSubMode.INTERACT_LIQUID_SOURCE"));
+        Assert.assertTrue(helperBody.contains("return minecraft.objectMouseOver;"));
+        Assert.assertTrue(helperBody.contains(
+                "player, minecraft.playerController.getBlockReachDistance(), true"));
+        Assert.assertTrue(helperBody.contains("InteractionRayTrace.trace("));
+        Assert.assertFalse(helperBody.contains("false);"));
+    }
+
     private static String source() throws Exception {
         return new String(Files.readAllBytes(new File(
                 "src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java").toPath()),

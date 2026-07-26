@@ -7,5 +7,6 @@ public enum ChainSubModeTrigger {
     BREAK_BLOCK,
     LEFT_CLICK_BLOCK,
     RIGHT_CLICK_BLOCK,
-    NONE
+    NONE,
+    RIGHT_CLICK
 }
