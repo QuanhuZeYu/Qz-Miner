@@ -4,7 +4,7 @@
 
 - 自动工具换位的唯一库存写权属于服务端主线程。客户端只读取库存事实、按本地优先级选择候选并提交 intent，不直接修改库存，也不通过原版容器点击完成事务。
 - Qz-Miner 协议负责 round 建立、动作意图、动作结算和专用阶段关联；真实库存视图仍由服务端应用 mutation 后通过原版完整 window 0 publication 下发。
-- 自动工具协议 v4 作为客户端与服务端共同升级的原子边界，不允许 v3/v4 混合协商；两端必须使用同一 Qz-Miner 版本，旧端在 RoundStart/整包校验处 fail-closed。v4 保留六包、动作码、字段顺序与固定帧，只将 TAKEOVER/DECLINE 的既有 long 关联字段解释为独立 `takeoverRequestId`。
+- 自动工具协议 v4 作为客户端与服务端共同升级的原子边界，不允许 v3/v4 混合协商；两端必须属于同一合法 Qz-Miner 5.1 family，旧端在 Forge 握手或 RoundStart/整包校验处 fail-closed。5.1 内 v4 的六包、动作码、字段顺序与固定帧全部冻结，只将 TAKEOVER/DECLINE 的既有 long 关联字段解释为独立 `takeoverRequestId`。
 
 ## 实现锚
 
@@ -79,14 +79,18 @@
 
 ## 兼容边界
 
-- 新协议包构成一次客户端/服务端原子版本升级；不承诺旧客户端连接新服务端或新客户端连接旧服务端时继续工作。
-- 外部接入方不应依赖包 ID、字段布局、round 状态、普通 sequence 或 request ID 细节作为稳定扩展 API。稳定事实只有服务端库存写权、mutation 单次提交与原版完整库存 publication。
+- 5.1 family 内的客户端/服务端允许 patch、stable/prerelease/dev 混连，但共同受 v4 wire 冻结约束；
+  `5.0.x` 或其他 minor 不兼容，也不提供 v3/v4 capability negotiation。
+- packet ID、字段布局、round 状态、普通 sequence 与 request ID 不是第三方扩展 API；它们作为 5.1
+  内部网络兼容基线不得在该 family 内变化。需要不兼容演进时必须升级新 minor。长期稳定事实仍是
+  服务端库存写权、mutation 单次提交与原版完整库存 publication。
 
 ## 未完成实机验收
 
 协议 v4 的本地自动化与构建证据以活动任务结果为准；无论静态/JVM 门禁结论如何，用户实机 client/dedicated 仍未完成。仍需覆盖：
 
-- 同版本客户端与 dedicated server 建连，以及版本不匹配的拒绝/失配收口。
+- 同一 5.1 family 的 stable/pre/dev mixed client 与 dedicated server 建连，以及 5.0/畸形版本拒绝、
+  missing-mod checker 放行后的实际 channel/业务收口。
 - 首轮立即匹配、每 10 tick 重匹配、当前主手有效时短路、首块成功后冻结。
 - 松键与自然 IDLE（含持续按键跨多个 round）、GUI/re-anchor、快速开始后立即收口、工具破损后的 RESTORE。
 - 断线、重生、切维度、创造模式与服务端生命周期清理。

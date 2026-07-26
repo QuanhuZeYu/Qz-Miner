@@ -38,6 +38,19 @@
   - **执行边界**：规划接受不等于执行授权。服务端主线程在每目标调用前重验 live 身份，并继续守 `blockExists`、世界保护、编辑权限与 Forge event；当前手持在每个目标动态读取，单目标无动作、拒绝、返回 false、耗尽或异常不停止后续队列。同一动作若同时出现 BLOCK/AIR 观测，由既有连锁状态门收口迟到观测，不额外建立复杂事务。真实 vanilla bucket / GT 或 IC2 单元 / 第三方 Item / GT CropCard / EFR / 保护插件、client/dedicated 与连续四模式运行态仍为 **INCOMPLETE**。
 - 对象组是现有模式的筛选扩展，不是独立滚轮模式。可扩展模式仍恰好为连锁基础/矿石/伐木、区域同类/矿石、交互基础/全部作物；液体源与未成熟作物施肥不取得对象组 bit。原模式匹配始终保留，对象组无命中时行为不变。保存、RELOAD 或连接建立后，客户端发送同一 `CommittedSnapshot` 中的 revision 与完整配置；HUD 的 `Confirmed` 只表示服务端已接受该请求。服务端按玩家隔离规则，并在任务启动时冻结扩展，运行中的 reload 不改变任务；客户端预览只使用服务端已确认规则，pending 时回退原模式。
 - 游戏内无界面打开时，按住连锁键滚轮切换子模式；同时按住游戏设置中的潜行键则切换主模式。该组合键会独占滚轮，不改变快捷栏选中槽；未按连锁键或打开界面时保留原版滚轮行为。
+
+## 5.1 联机版本边界
+
+- 连接双方都安装 Qz-Miner 时，完整合法的 `5.1.x[-prerelease][+build]` 版本忽略 patch 与
+  qualifier 互通；stable、prerelease、branch/dirty dev 都属于同一 family。
+- `5.0.x`、`5.10.x`、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
+- 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端
+  都必须是合法 5.1 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务
+  主动发送仍可能失败。
+- 5.1 family 已冻结 16 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与
+  24-path schema；后续不兼容变化必须升新 minor。真实 mixed/missing client/dedicated 仍为
+  **INCOMPLETE**，不因自动化通过而升级证据等级。
+
 ## 维护规则
 
 - 内容必须与实现一致，不写未经验证的能力。

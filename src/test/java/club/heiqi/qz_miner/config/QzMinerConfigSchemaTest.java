@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.config;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -17,17 +20,45 @@ import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 public class QzMinerConfigSchemaTest {
 
     @Test
-    public void schemaContainsAllLegacyFieldsIncludingGreeting() {
+    public void schemaLocksEveryPathTypeAndDefaultInStableOrder() {
         ConfigSchema schema = QzMinerConfigSchema.create();
+        Object[][] expected = {
+                {"general.greeting", FieldType.STRING, QzMinerConfigDefaults.GREETING},
+                {"general.chainRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_RADIUS)},
+                {"general.chainMaxBlocks", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_MAX_BLOCKS)},
+                {"general.chainLoggingShellLayers", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS)},
+                {"general.maxBreakPerTick", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.MAX_BREAK_PER_TICK)},
+                {"general.cableReplaceMaxPerTick", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK)},
+                {"general.chainWatchdogTimeoutTicks", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS)},
+                {"general.parallelTickMinDurationMs", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS)},
+                {"general.parallelTickServerWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS)},
+                {"general.enableUnlimitedOreFortune", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE)},
+                {"general.enableFortuneForPlacedOre", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE)},
+                {"client.clientEnablePreviewRender", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER)},
+                {"client.tunnelDirectionSource", FieldType.CHOICE, QzMinerConfigDefaults.CLIENT_TUNNEL_DIRECTION_SOURCE},
+                {"client.autoToolSwapEnabled", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED)},
+                {"client.autoToolTakeoverEnabled", FieldType.BOOLEAN, Boolean.valueOf(QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED)},
+                {"client.autoToolPrioritySelectors", FieldType.SIMPLE_LIST, java.util.Collections.<String>emptyList()},
+                {"client.parallelTickClientWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS)},
+                {"client.clientPreviewMaxRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS)},
+                {"client.clientPreviewMaxTargets", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS)},
+                {"client.clientPreviewAlphaFadeStartRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS)},
+                {"client.clientPreviewAlphaFadeEndRadius", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS)},
+                {"client.clientPreviewAlphaStartValue", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE)},
+                {"client.clientPreviewAlphaEndValue", FieldType.NUMBER, Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE)},
+                {"client.objectGroups", FieldType.STRUCTURED_LIST, QzMinerConfigDefaults.objectGroups()}
+        };
+        List<FieldSpec> fields = new ArrayList<FieldSpec>(schema.allFields());
+
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(24, schema.allFields().size());
-        Assert.assertTrue(schema.containsPath("general.greeting"));
-        Assert.assertTrue(schema.containsPath("client.clientPreviewAlphaEndValue"));
-        Assert.assertTrue(schema.containsPath("client.objectGroups"));
-        Assert.assertTrue(schema.containsPath("client.autoToolSwapEnabled"));
-        Assert.assertTrue(schema.containsPath("client.autoToolPrioritySelectors"));
-        Assert.assertTrue(schema.containsPath("client.autoToolTakeoverEnabled"));
-        Assert.assertTrue(schema.containsPath("client.tunnelDirectionSource"));
+        Assert.assertEquals(expected.length, fields.size());
+        for (int index = 0; index < expected.length; index++) {
+            FieldSpec field = fields.get(index);
+            Assert.assertEquals("path " + index, expected[index][0], field.path());
+            Assert.assertEquals(field.path(), expected[index][1], field.type());
+            Assert.assertEquals(field.path(), expected[index][2], field.defaultValue());
+            Assert.assertSame(field.path(), field, schema.field(field.path()));
+        }
     }
 
     @Test

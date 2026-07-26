@@ -76,7 +76,19 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ## 版本说明
 
-从 `4.0` 到当前 `5.0`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
+### 5.1 网络兼容
+
+- `5.1.x` 客户端与服务端只要版本字符串完整合法，就忽略 patch、prerelease 与 build qualifier
+  互通；stable、prerelease、branch/dirty dev 均适用。
+- `5.0.x`、`5.10.x` 与畸形版本不会被当成 5.1；5.1 family 内的 16 个 packet ID/Side、wire
+  framing、协议、ordinal/code/mask 与 24-path 配置 schema 已冻结。不兼容变更必须升级新 minor。
+- 远端模组表缺少 `qz_miner` 时 Forge checker 在 CLIENT/SERVER 两侧都会放行，但这只表示不由
+  mod-list 检查拒绝；它不会为无 Qz-Miner 对端创建网络 channel，也不是无 Mod 运行安全保证。
+- 当前真实 5.1 mixed/missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或
+  branch CI 不能替代实机证据。完整合同见
+  `docs/反馈层/决策/network-version-compatibility.md`。
+
+从 `4.0` 到当前 `5.1`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
 
 - 完成 `AREA` 模式、`INTERACT` 模式和作物交互模式迁移
 - 为 `CHAIN` 与 `AREA` 接入宽泛矿石匹配子模式
