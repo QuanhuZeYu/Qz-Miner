@@ -155,3 +155,50 @@ missing checker true 只放宽 Forge mod-list 检查，不证明无 Mod 对端�
 
 `5.1.0` tag/Release 是不可移动发布事实；本次发布后的文档提交不属于该制品 SHA，不得移动 tag 或
 改写 tagged changelog 与历史 Release。
+
+## 5.1.1 标准发布与持续运行态边界
+
+`5.1.1` 的业务范围为服务端本地批量自动工具与 preview origin lease。提交
+`27465374eb573ba0031fd6a34f407dca1953d49c` 将 ordinary 接替的 physical ledger 收归服务端主线程，
+按冻结 policy 与实时目标/库存完成二槽交换、三槽轮转、segment/final restore 及每玩家/tick publication
+gate；提交 `096ff9201b8c03f3d7c304aaa88c639750387716` 在本地成功破坏 frozen origin 后建立
+generation-aware lease，并在终态、松键、禁用与 lifecycle 收口时释放。发布准备提交为
+`31f82b952cc0e54f952d8da2732f78fa440bfd32`；完整候选独立复审为 `APPROVED`，无 P0/P1/P2。
+
+发布候选 push CI [`30247607564`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30247607564)
+绑定 `31f82b952cc0e54f952d8da2732f78fa440bfd32`，为 `completed/success`；matrix prepare
+`89918071094`、GTNH `2.9.0-beta-2` `89918101076`、GTNH `2.8.4` `89918101120` 与聚合 build
+`89919087270` 均 success。最终 no-ff merge commit 为
+`ed5ccc79b201bc77415f64eacd9989dac905e414`，双父为 `15fc3b8`/`31f82b9`，merge tree 与 candidate
+tree 相同。Merge exact-SHA CI [`30248326133`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30248326133)
+为 `completed/success`；matrix prepare `89920345838`、GTNH `2.8.4` `89920374718`、GTNH
+`2.9.0-beta-2` `89920374766` 与聚合 build `89921449619` 均 success。两次 CI 的 workspace、
+GregTech baseline、tests、checks、build 与 generated/main JAR `5.1.1-ci` 版本断言均 success。
+
+Annotated tag `5.1.1` object 为 `e534e84fbee9d4fa070913afb09c7f566ad2d8ba`，message 为
+`[Release]: Qz-Miner 5.1.1`，peeled commit 固定为
+`ed5ccc79b201bc77415f64eacd9989dac905e414`；tag 未签名是身份事实，不表述为签名通过。Tag workflow
+[`30248827749`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30248827749) 绑定 headBranch
+`5.1.1`/headSha `ed5ccc79`，为 `completed/success`；job `89921913237` 的 exact-SHA gate、checkout、
+默认 baseline、setup、baseline verify、build 与 Release 均 success。
+
+公开 GitHub Release database ID 为 `360285158`，URL 为
+<https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.1.1>，于 `2026-07-27T08:14:00Z` 发布；
+title/tag 均为 `5.1.1`，非 draft/prerelease，正文经独立脚本与 tagged `.changelogs/5.1.1.md`
+字节级精确比较一致。三项公开资产经公开 URL 实际下载计算，且与 API size/digest 一致：
+
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.1.1.jar` | 909793 | `c27ccc4946663bd7c12b97a84706c9ea7c8fa93a0c4620bd34470f424cd1b891` |
+| `qz_miner-5.1.1-dev.jar` | 903419 | `b763acd3edb5476998b34fd47ddb2ee447462e0952c29a8ca7fab1f8ac62a288` |
+| `qz_miner-5.1.1-sources.jar` | 502499 | `fc6cc4262d1d8de2ac6f1e251db2fcb21443d6df7603158a6155314a7f2e81b4` |
+
+本次没有额外下载解析主/dev JAR 内部 `Tags.class`，因此不把内部版本标记写成新增实证。渠道终态仅
+GitHub Release 具备独立外部发布证据；Maven step 为 skipped，Modrinth/CurseForge workflow step 虽为
+success，但 workflow 未变且没有独立远端制品证据，不能宣称两个平台发布成功。
+
+Miner clean consumer、Forge status query、mixed packaged JAR、真实 client/dedicated、连续二槽/三槽
+接替、完整 lifecycle/publication failure 与 preview A→B 游戏内回归继续为非阻断 **INCOMPLETE**；
+CI、Release 与 assets 均不能替代这些证据。Qz-UILib 依赖坐标继续为 `4.6.1:dev`，既存 JitPack 发布门
+证据继续成立，本次未改变依赖坐标。`5.1.1` tag/Release 是不可移动发布事实；本次写回提交位于 tag
+之后，不属于 `5.1.1` 发布制品 SHA，不得移动 tag、改写 tagged changelog 或历史 Release。
