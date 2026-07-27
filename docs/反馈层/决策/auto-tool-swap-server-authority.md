@@ -70,9 +70,9 @@
 
 ## 客户端预览刷新边界
 
-- 新 client/new server 没有逐 mutation ActionResult 或 verified-layout effect；预览是 observer，可在一个 local batch 内滞后，随后由 phase、下一次采样或最终 vanilla inventory publication 收敛。本轮不为预览增加执行 gate 或专用同步。
+- 新 client/new server 没有逐 mutation ActionResult 或 verified-layout effect；预览是 observer，可在一个 local batch 内滞后。ARMED 未触发时可继续采样准星；本地成功破坏当前 frozen origin 后由 controller 本地租约先锁定，直到服务端 phase/generation 证明终态，不能在 active round 用下一次准星采样替换 origin。本轮不为预览增加执行 gate 或专用同步。
 - 真实旧 server 的 SWAP/TAKEOVER/RESTORE fallback 继续只在目标库存布局经原版同步首次可见时输出既有 preview invalidation；APPLIED 回包本身不替代布局证据。
-- `ChainPreviewController` 的 frozen seed、world identity、generation 隔离及生命周期清理保持不变；预览滞后不能反向阻塞服务端 ordinary poll budget。
+- `ChainPreviewController` 的 frozen seed、world identity、generation 隔离及生命周期清理保持不变；真实旧服 verified-layout 刷新复用 frozen seed 且不解除本地 origin 租约。预览滞后不能反向阻塞服务端 ordinary poll budget。
 
 ## 不变量影响
 
@@ -100,6 +100,7 @@
 
 ## 演进
 
+- 2026-07-27：校正 preview observer 边界：本地成功破坏当前 frozen origin 是 phase 异步投影窗口的租约线性化点；客户端不伪造 phase/generation、不增加网络或执行 gate，verified-layout 仍只派生刷新同一 seed。
 - 2026-07-27：普通 `CHAIN/AREA` 从逐目标 `TakeoverRequest/WAIT` 迁移为服务端本地批量接替。新增唯一 local physical ledger owner、服务端实时候选、二槽/三槽/segment/final restore、mutation image 分类、每玩家/tick publication gate 与 restore-before-cleanup；RoundService 降为零库存 projection，客户端改为 direct `FREEZE` 并保留旧服 fallback。v4 wire、5.1 family、配置 schema、五态转移表与 GT/INTERACT 分支不变，运行态继续 INCOMPLETE。
 - 2026-07-25：协议原子升级为 v4，保留六包、动作码、字段顺序和固定 framing；TAKEOVER/DECLINE 使用独立烧号 request ID。当时的逐目标请求、empty-hand lease 与 committed publication WAIT 只作为旧服兼容历史，不再是新 ordinary production 热路。
 - 2026-07-16 至 2026-07-24：形成 v3 接替、首块前重匹配、server mutation-once、完整 int target identity、CHAIN 冻结能力与 AREA 宽进等前置合同；其中 wire、规划边界和通用 Item API 继续有效，逐目标 client authority 已由本决策替代。

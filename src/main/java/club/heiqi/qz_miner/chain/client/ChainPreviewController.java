@@ -50,6 +50,7 @@ import net.minecraft.world.World;
 public class ChainPreviewController {
 
     private final ChainPreviewState previewState = new ChainPreviewState();
+    private final PreviewOriginLease previewOriginLease = new PreviewOriginLease();
     private volatile ChainTarget currentTarget;
     private ParallelTickSubscription previewTaskSubscription;
     private int specialPreviewRequestId;
@@ -74,6 +75,28 @@ public class ChainPreviewController {
      */
     public void stopPreviewForLifecycle() {
         stopPreview();
+    }
+
+    /**
+     * 本地成功破坏当前预览 origin 后立即建立租约，覆盖服务端 phase 投影尚未可见的窗口。
+     *
+     * <p>入口只核对既有 frozen seed、world 与坐标身份，不回读已变为空气的 origin。</p>
+     */
+    public void onLocalBlockDestroyed(int x, int y, int z) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        World world = minecraft.theWorld;
+        if (world == null || currentTarget == null || !previewState.isActive()
+                || previewSeedSnapshot == null || previewSeedWorld == null
+                || world != previewSeedWorld
+                || !currentTarget.equals(previewSeedSnapshot.getOrigin())
+                || currentTarget.getX() != x || currentTarget.getY() != y || currentTarget.getZ() != z) {
+            return;
+        }
+        ClientPhaseProjection projection = ClientProxy.clientPhaseProjection;
+        if (projection == null) {
+            return;
+        }
+        previewOriginLease.acquire(projection.getCurrentPhase(), projection.getCurrentGeneration());
     }
 
     /**
@@ -387,12 +410,11 @@ public class ChainPreviewController {
     /**
      * 判断当前是否应锁定已启动的预览计算。
      *
-     * <p>阶段8 块3 G2 夺权：锁定权威切换到 {@link ClientPhaseProjection}（不再读旧
-     * {@code serverExecutionStatus}）。只要服务端投影阶段处于 PLANNING/RUNNING/FINISHING，
-     * 就继续保留当前预览，避免客户端转动视角导致正在进行的连锁预览被切走。</p>
+     * <p>阶段8 块3 G2 夺权：服务端阶段权威来自 {@link ClientPhaseProjection}。本地成功破坏
+     * origin 后只额外租赁当前 frozen seed，覆盖 phase 尚未投影的窗口；租约不切服务端状态。</p>
      *
-     * <p>F1 锁定边界：ARMED 不锁——玩家已武装但尚未点火，仍可自由选目标；
-     * IDLE 不锁——无活跃连锁。</p>
+     * <p>F1 锁定边界：未发生本地成功破坏时 ARMED 不锁，玩家仍可自由选目标；
+     * 无本地租约时 IDLE 不锁。</p>
      *
      * @return 是否锁定当前预览
      */
@@ -408,11 +430,13 @@ public class ChainPreviewController {
         // G2 夺权：读客户端阶段投影（单玩家容器，ClientProxy 初始化；单人服务端侧可能为 null）
         ClientPhaseProjection projection = ClientProxy.clientPhaseProjection;
         if (projection == null) {
-            return false;
+            return previewOriginLease.isActive();
         }
         ChainPhase phase = projection.getCurrentPhase();
-        // F1：PLANNING/RUNNING/FINISHING 锁定；ARMED/IDLE 不锁
-        return phase == ChainPhase.PLANNING
+        int generation = projection.getCurrentGeneration();
+        boolean localOriginLocked = previewOriginLease.shouldLock(phase, generation);
+        // F1：未触发的 ARMED/IDLE 不锁；本地租约与 active phase 任一成立即锁定。
+        return localOriginLocked || phase == ChainPhase.PLANNING
             || phase == ChainPhase.RUNNING
             || phase == ChainPhase.FINISHING;
     }
@@ -439,6 +463,7 @@ public class ChainPreviewController {
         if (clearSeedLease) {
             previewSeedSnapshot = null;
             previewSeedWorld = null;
+            previewOriginLease.reset();
             clearInvalidationIdentity();
         }
         if (MyMod.chainStateService != null) {

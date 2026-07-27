@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.mixins.client;
 
+import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
 import net.minecraft.client.multiplayer.PlayerControllerMP;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,6 +17,9 @@ public abstract class MixinPlayerControllerMPToolSwap {
     private void qzMiner$afterPlayerDestroyBlock(
             int x, int y, int z, int side, CallbackInfoReturnable<Boolean> callback) {
         if (callback.getReturnValueZ()) {
+            if (ClientProxy.chainPreviewController != null) {
+                ClientProxy.chainPreviewController.onLocalBlockDestroyed(x, y, z);
+            }
             AutoToolSwapHooks.onLocalBlockDestroyed();
         }
     }
