@@ -1,6 +1,6 @@
 # Windows Gradle 执行协议
 
-`qz-gradle-opencode/v1` 是 OpenCode agent 在 Windows 上运行有限 Gradle 的唯一入口，实现为 `scripts/run-gradle-opencode.ps1`。仓根与 wrapper 从脚本位置推导；运行产物只写 `%TEMP%/opencode/qz-gradle-v1-<RunId>.*`，两仓共享 `qz-gradle-opencode-v1.active.lock`。
+`qz-gradle-opencode/v1` 是 OpenCode agent 在 Windows 上运行有限 Gradle 的唯一协议。agent 入口为 `scripts/run-gradle-opencode.py`，协议状态机实现仍为已审计的 `scripts/run-gradle-opencode.ps1`。仓根与 wrapper 从脚本位置推导；运行产物只写 `%TEMP%/opencode/qz-gradle-v1-<RunId>.*`，共享 `qz-gradle-opencode-v1.active.lock`。
 
 `Start` 不接受调用方 RunId，生成独立的 GUID RunId 与 invocationId。它先在固定 mutation guard 下创建含完整 owner token 的共享锁，再原子发布不含完整参数的 `PREPARED` metadata，最后启动 launcher；启动后的 `RUNNING` 更新使用原子 Replace。launcher 分离 stdout/stderr，并以 invocationId 绑定 pending/exit sentinel。
 
@@ -15,29 +15,24 @@ launcher 先完整写入 `.writing`，再依次原子移动为 pending 与 canon
 - Start 成功 `0`；Poll 运行中 `3`；参数拒绝 `64`；协议内部错误 `74`；锁冲突 `75`；环境异常或孤儿 `78`；Wait 窗口到期或执行超时 `124`。
 - 终态成功为 `0`，Gradle 失败传播其退出码。单行 JSON 同时给出 `status`、`protocolExitCode`，Gradle 终态另给 `gradleExitCode`，用于消歧恰好撞上协议保留码的 Gradle 退出码。
 
-## 安全与角色
+## 安全与任务授权
 
 - `gradleArgs` 使用大小写敏感的严格 allowlist：任务仅 `compileJava`、`test`、`check`、`build`、`publishToMavenLocal`（qualified task path 取末段后仍须命中）；无值选项仅 `--offline`、`--no-configuration-cache`；`--tests` 必须位于已选择 `test` 任务之后并紧跟安全 Java 类/方法通配值；项目属性仅 `-Pgtnh.settings.blowdryerTag=<安全值或精确空值>`。其余选项、任务和 response file 一律在产物创建前拒绝。metadata 的 taskSummary 只记录规范任务名、参数数量和布尔选项，不记录 test filter。脚本统一 plain console。
 - 只读验证 `GRADLE_USER_HOME` 非空、绝对 ASCII 且目录存在，不回显、不修改环境。
-- 不接受 executable、workdir、log、environment、kill 参数。fixer 可 Start/Poll/Wait；reviewer 仅按合同复验；explorer 仅诊断已有 RunId；其他角色禁止直接 wrapper 或自造进程。
+- 不接受 executable、workdir、log、environment、kill 参数。默认 build 仅在 `ACTIVE` 持久任务的验证清单明确授权时可使用 `Start/Poll/Wait/SelfTest`；禁止直接 wrapper 或自造进程。
 - `runClient*`/`runServer*` 交用户；`verify-gtnh-baselines.ps1` 暂不授权。
 
 ## 命令
 
-```powershell
-& .\scripts\run-gradle-opencode.ps1 -Action Start -GradleArgs @('compileJava')
-& .\scripts\run-gradle-opencode.ps1 -Action Poll -RunId '<RunId>'
-& .\scripts\run-gradle-opencode.ps1 -Action Wait -RunId '<RunId>' -WaitSeconds 30
-& .\scripts\run-gradle-opencode.ps1 -SelfTest
+```text
+python scripts/run-gradle-opencode.py start compileJava
+python scripts/run-gradle-opencode.py poll <RunId>
+python scripts/run-gradle-opencode.py wait <RunId> --seconds 30
+python scripts/run-gradle-opencode.py self-test
 ```
 
-Gradle 参数为数组；多项参数必须在当前 PowerShell 进程中用调用运算符 `&` 传入。不得用外层 `pwsh -File ... -GradleArgs @(...)`，否则该数组不能可靠地按预期绑定。
+Python 入口把动作、Gradle 参数数组、RunId 与等待秒数序列化为 Base64 JSON；固定桥接代码在同一 PowerShell 7 进程内还原强类型参数并调用协议实现。Python 使用 `subprocess` 参数列表、`shell=False`、固定 cwd 和有界超时，不拼接用户参数到 PowerShell 命令，不使用外层 `pwsh -File ... -GradleArgs` 数组绑定。
 
 SelfTest 不调用真实 Gradle，也不在仓库写产物。它仅在当前 PowerShell 进程内临时替换测试所需脚本变量，并在 `finally` 恢复；生产入口没有环境 fixture、runtime/wrapper override 或跳过环境检查的隐藏入口。跨进程 guard 测试使用 SelfTest 临时生成的最小 helper，不进入生产 CLI。
 
-两仓脚本完成同步后，以字节级 SHA-256 一致作为验收：
-
-```powershell
-(Get-FileHash -Algorithm SHA256 'D:/Code/MC/Qz-Miner/scripts/run-gradle-opencode.ps1').Hash
-(Get-FileHash -Algorithm SHA256 'D:/Code/MC/Qz-UILib/scripts/run-gradle-opencode.ps1').Hash
-```
+Qz-UILib 已退役 agent 本机 Gradle 能力，不再持有该协议脚本；本协议只属于 Qz-Miner。Python 适配器不得复制锁、metadata、launcher、退出码或 allowlist 逻辑，所有协议语义继续由单一 PowerShell 实现负责。
