@@ -35,18 +35,19 @@ function Test-EnvironmentOwnershipText {
 function Test-AgentGradleAuthorizationText {
   param([string]$Text, [string]$Source)
   $hits = @()
+  $restrictedRole = '(?i)(?:\bagent\b|\bbuild\b(?=.{0,40}(?:可|获授权|直接|运行|执行|允许)))'
   $rolePolicy = $Source -in @('AGENTS.md', 'docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md',
     'docs/控制律层/编排模式/TASK-BRIEF.md')
   foreach ($line in ($Text -split "`r?`n")) {
     if ($rolePolicy -and $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b') {
       $hits += "[agent直接Gradle wrapper] $Source"
     }
-    if ($line -match '(?i)\bagent\b' -and
+    if ($line -match $restrictedRole -and
         $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b' -and
         $line -notmatch '(?:不得|禁止|禁|不允许|不可)') {
       $hits += "[agent直接Gradle wrapper] $Source"
     }
-    if ($line -match '(?i)\bagent\b' -and
+    if ($line -match $restrictedRole -and
         $line -match '(?i)verify-gtnh-baselines(?:\.ps1)?' -and
         $line -notmatch '(?:不授权|未授权|不得|禁止|禁|不允许)') {
       $hits += "[agent获授权执行双基线] $Source"
@@ -88,10 +89,17 @@ if ($SelfTest) {
   $authorizationInvalid = @(
     'agent 直接运行 ./gradlew.bat compileJava。',
     'agent 可直接运行 ./gradlew.bat check。',
-    'agent 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。'
+    'agent 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。',
+    'build 直接运行 ./gradlew.bat compileJava。',
+    'build 可直接运行 ./gradlew.bat check。',
+    'build 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。'
   )
   foreach ($fixture in $authorizationInvalid) {
     if ((Test-AgentGradleAuthorizationText $fixture 'AGENTS.md').Count -eq 0) { throw "矛盾授权 fixture 未阻断: $fixture" }
+  }
+  $authorizationValid = @('- 打包：`.\gradlew.bat build`')
+  foreach ($fixture in $authorizationValid) {
+    if ((Test-AgentGradleAuthorizationText $fixture 'docs/控制律层/稳定命令.md').Count) { throw "合法授权 fixture 被误报: $fixture" }
   }
   Write-Host "环境所有权门禁已知模式自测通过" -ForegroundColor Green
   exit 0
