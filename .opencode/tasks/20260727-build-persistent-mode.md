@@ -24,9 +24,13 @@
 - Gradle 权限绑定 `ACTIVE` 任务中的明确验证清单，唯一入口仍为 `qz-gradle-opencode/v1` Python 适配器。
 
 ## 写集
-- `scripts/check-agent-environment-ownership.ps1`。
-- `.opencode/tasks/INDEX.md`。
-- `.opencode/tasks/20260727-build-persistent-mode.md`。
+- `.gitignore`、`.opencode/.gitignore`、`.opencode/opencode.json`。
+- `.opencode/agents/*.md`（删除）、旧临时任务入口（删除）、`.opencode/tasks/INDEX.md` 与本任务文件。
+- `AGENTS.md`、`NORTH_STAR.md`。
+- `docs/控制律层/编排模式/` 下旧编排文档（删除）、`PERSISTENT-WORKFLOW.md`、`TASK-BRIEF.md`。
+- `docs/控制律层/Windows-Gradle执行协议.md`、`稳定命令.md`、`项目约定.md`。
+- `docs/传感层/门禁脚本说明.md`、`docs/设定值层/硬约束总目录.md`、`docs/反馈层/交接.md`、`docs/反馈层/错误预防.md`。
+- `scripts/run-agent-command.py`、`scripts/run-gradle-opencode.py`、`scripts/check-agent-environment-ownership.ps1`、`scripts/check-doc-discipline.ps1`、旧 control-loop 诊断（删除）。
 
 ## 验收
 - A1：默认 agent 为内置 `build`，无自定义 agent 定义。
@@ -44,8 +48,6 @@
 - 已核对分支、HEAD 与已有工作区；现有修改均为用户确认应保留的同轮迁移。
 - 已建立持久任务、迁移默认 build 治理并删除旧自定义 agent、临时状态与控制诊断。
 - 已回读配置、AGENTS、持久工作流、任务规范、Gradle 协议、门禁说明、索引与本任务；专用 Grep 对现行治理文件未发现旧角色或旧路径依赖。
-- 独立复审提交 `d72a688ab7b1fac57d2e37b8fcadb5f8d472017a` 发现 P1：环境门禁的受扫描授权文本只匹配单词 `agent`，漏掉迁移后的实际角色名 `build`；现有 self-test 也没有 `build` 负例。
-- 已将受限 Gradle 授权主体扩为 `agent` 与角色语义位置的 `build`，并补齐 wrapper、双基线的 `build` 负例及 Gradle `build` 任务合法文本防误报 fixture。
 
 ## 验证
 - `python scripts/run-agent-command.py -- git --version`
@@ -60,8 +62,10 @@
 - 无。
 
 ## 结果
-- 基线迁移提交：`d72a688ab7b1fac57d2e37b8fcadb5f8d472017a`。
-- 纠偏文件：`scripts/check-agent-environment-ownership.ps1`；门禁现在阻断 `build` 直接调用 wrapper 或获授权运行 `verify-gtnh-baselines.ps1`，且不把 `gradlew.bat build` 的任务名误判为角色。
-- 验证：`git --version` 通过；Gradle adapter `self-test` 返回 `SELF_TEST_SUCCEEDED/ALL_FIXTURES_PASSED`；环境所有权 self-test、文档纪律门禁与 `git diff --check` 通过。
-- 证据边界：未运行真实 Gradle、client/server、双基线、CI 或运行态；I1-I10 与业务、依赖、发布契约未改。
-- 提交信息：`[Fix]: 补强 build Gradle 授权门禁`。
+- 配置：`.opencode/opencode.json` 已设置 `default_agent: build`；8 个自定义 agent 定义及旧编排、handoff、control-envelope、control-loop 文件已删除。
+- 持久化：新增 `PERSISTENT-WORKFLOW.md`、重写 `TASK-BRIEF.md`，新增可提交的任务索引与本结果文件；临时迁移任务入口已删除。
+- 安全：Python runner 与 Gradle adapter 已纳入；有限 Gradle 仍只允许 `ACTIVE` 任务经 `qz-gradle-opencode/v1`，环境所有权、禁止并行、运行态和双基线边界未扩大。
+- 验证：`git --version` 通过；Gradle adapter `self-test` 返回 `SELF_TEST_SUCCEEDED/ALL_FIXTURES_PASSED`，未调用真实 Gradle；环境所有权 self-test、文档纪律门禁和 `git diff --check` 通过；最终 status 仅含本迁移写集。
+- 证据边界：未执行真实 Gradle、client/server、双基线、CI 或运行态，不将静态/自测写成这些证据。
+- 残余风险：内置 build 配置需重启 OpenCode 后生效；无独立 reviewer 的上下文隔离，关键发布可另开会话或外部 review。
+- 提交信息：`[Chore]: 迁移默认 build 与持久任务工作流`（本任务文件所在提交）。
