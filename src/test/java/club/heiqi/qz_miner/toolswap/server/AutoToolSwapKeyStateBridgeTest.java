@@ -58,12 +58,12 @@ public class AutoToolSwapKeyStateBridgeTest {
     }
 
     @Test
-    public void swappedAndFrozenRepeatedKeyPressKeepCurrentRoundWithoutAdditionalReply() {
+    public void rejectedLegacySwapFreezesAndRepeatedKeyPressKeepsCurrentRound() {
         Fixture swapped = new Fixture();
         long swappedRoundId = activate(swapped);
         AutoToolSwapStackState anchor = stack("mod:pickaxe", "anchor");
         AutoToolSwapStackState candidate = stack("mod:drill", "candidate");
-        Assert.assertEquals(AutoToolSwapRoundState.SWAPPED, publish(swapped,
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, publish(swapped,
                 swapIntent(swappedRoundId, anchor, candidate),
                 new SwapInventory(anchor, candidate), 3L).roundState());
         Assert.assertEquals(swappedRoundId, AutoToolSwapKeyStateBridge.onKeyState(swapped.playerId, swapped.endpoint,

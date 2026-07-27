@@ -1,7 +1,8 @@
 package club.heiqi.qz_miner.toolswap.server;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.UUID;
 
 import org.junit.Assert;
@@ -17,1942 +18,210 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapStackState;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapTakeoverRequest;
 
-/** 服务端工具换位 round 的纯 JVM 事务合同。 */
+/** v4 wire projection facade：冻结 public surface，但绝不拥有 physical ledger。 */
 public class AutoToolSwapRoundServiceTest {
 
-    private static final AutoToolSwapStackState ORIGINAL = stack("mod:pickaxe", "original", 90);
-    private static final AutoToolSwapStackState CANDIDATE = stack("mod:drill", "candidate", 40);
-
     @Test
-    public void pendingActivationIsEndpointBoundIdempotentAndRoundIdsDoNotReuse() {
+    public void pendingActivationIsEndpointBoundIdempotentAndRoundIdsNeverReuse() {
         AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L);
         UUID player = UUID.randomUUID();
         Object endpoint = new Object();
 
         AutoToolSwapRoundResult pending = service.beginRound(player, endpoint, 11L, 1L);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, pending.outcome());
-        Assert.assertEquals(0L, pending.serverRoundId());
         Assert.assertEquals(AutoToolSwapRoundState.PENDING_KEY, pending.roundState());
-        Assert.assertEquals(pending, service.beginRound(player, endpoint, 11L, 1L));
+        Assert.assertEquals(pending, service.beginRound(player, endpoint, 11L, 2L));
         Assert.assertEquals(AutoToolSwapResultCode.REJECTED,
-                service.beginRound(player, endpoint, 12L, 2L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED,
-                service.activatePendingRound(player, new Object(), 3L).outcome());
+                service.beginRound(player, new Object(), 11L, 2L).outcome());
+        AutoToolSwapRoundResult first = service.activatePendingRound(player, endpoint, 3L);
+        Assert.assertEquals(1L, first.serverRoundId());
+        Assert.assertEquals(first, service.activatePendingRound(player, endpoint, 99L));
 
-        AutoToolSwapRoundResult active = service.activatePendingRound(player, endpoint, 4L);
-        Assert.assertEquals(1L, active.serverRoundId());
-        Assert.assertEquals(active, service.activatePendingRound(player, endpoint, 99L));
-        Assert.assertEquals(1L, service.currentRoundId(player, endpoint));
-
-        AutoToolSwapIntent closeIntent = intent(active.serverRoundId(), 1L,
-                AutoToolSwapAction.CLOSE, 0, 9, ORIGINAL, CANDIDATE);
-        AutoToolSwapRoundResult close = publish(service, player, endpoint, closeIntent, null, 5L);
+        AutoToolSwapRoundResult close = publish(service, player, endpoint,
+                control(first.serverRoundId(), 1L, AutoToolSwapAction.CLOSE), 4L);
         Assert.assertEquals(AutoToolSwapRoundState.FINISHED, close.roundState());
-        Assert.assertEquals(0L, service.currentRoundId(player));
-        Assert.assertEquals(0L, service.currentRoundId(player, endpoint));
-        service.beginRound(player, endpoint, 22L, 6L);
-        AutoToolSwapRoundResult second = service.activatePendingRound(player, endpoint, 7L);
-        Assert.assertEquals(2L, second.serverRoundId());
+        service.beginRound(player, endpoint, 12L, 5L);
+        Assert.assertEquals(2L, service.activatePendingRound(player, endpoint, 6L).serverRoundId());
     }
 
     @Test
-    public void publicServicesShareProcessRoundIdsAcrossInstanceRecreation() {
-        AutoToolSwapRoundService firstService = new AutoToolSwapRoundService();
-        long firstRoundId = activateRound(firstService);
-        AutoToolSwapRoundService secondService = new AutoToolSwapRoundService();
-        long secondRoundId = activateRound(secondService);
-        firstService = null;
-        secondService = null;
-        long recreatedRoundId = activateRound(new AutoToolSwapRoundService());
+    public void directFreezeAdvancesOnlyProjectionAndNeverReadsInventory() {
+        Fixture fixture = new Fixture();
+        ExplodingInventory inventory = new ExplodingInventory();
+        AutoToolSwapIntent freeze = control(fixture.roundId, 1L, AutoToolSwapAction.FREEZE);
 
-        Assert.assertTrue(firstRoundId > 0L);
-        Assert.assertTrue(secondRoundId > 0L);
-        Assert.assertTrue(recreatedRoundId > 0L);
-        Assert.assertNotEquals(firstRoundId, secondRoundId);
-        Assert.assertNotEquals(firstRoundId, recreatedRoundId);
-        Assert.assertNotEquals(secondRoundId, recreatedRoundId);
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                freeze, inventory, 7L);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, result.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, result.roundState());
+        Assert.assertEquals(2L, result.nextActionSequence());
+        Assert.assertTrue(fixture.service.confirmIntentResultPublication(
+                fixture.player, fixture.endpoint, freeze, result));
+        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasLedger());
+        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasPendingInventorySync());
+        Assert.assertEquals(0, inventory.accesses);
     }
 
     @Test
-    public void counterAndActionSequenceOverflowFailClosed() {
-        UUID player = UUID.randomUUID();
-        Object endpoint = new Object();
-        AutoToolSwapRoundService roundOverflow = new AutoToolSwapRoundService(Long.MAX_VALUE);
-        roundOverflow.beginRound(player, endpoint, 1L, 0L);
-        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED,
-                roundOverflow.activatePendingRound(player, endpoint, 1L).roundState());
-        Assert.assertEquals(0L, roundOverflow.currentRoundId(player));
+    public void firstLegacySwapIsRejectedFrozenAndExactRetryIsInventoryFree() {
+        Fixture fixture = new Fixture();
+        ExplodingInventory inventory = new ExplodingInventory();
+        AutoToolSwapIntent swap = mutation(fixture.roundId, 1L, AutoToolSwapAction.SWAP);
 
-        AutoToolSwapRoundService sequenceOverflow = new AutoToolSwapRoundService(0L, Long.MAX_VALUE);
-        sequenceOverflow.beginRound(player, endpoint, 2L, 2L);
-        long roundId = sequenceOverflow.activatePendingRound(player, endpoint, 3L).serverRoundId();
-        FakeInventory inventory = inventory();
-        AutoToolSwapIntent swap = intent(roundId, Long.MAX_VALUE, AutoToolSwapAction.SWAP, 0, 9,
-                ORIGINAL, CANDIDATE);
-        AutoToolSwapRoundResult result = sequenceOverflow.handleIntent(player, endpoint, swap, inventory, 4L);
-        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, result.roundState());
-        Assert.assertEquals(0, inventory.swapCount);
-        AutoToolSwapRoundResult replay = sequenceOverflow.handleIntent(player, endpoint, swap, inventory, 5L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, replay.outcome());
-        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, replay.roundState());
-        Assert.assertEquals(5L, replay.serverTick());
-    }
-
-    @Test
-    public void actionSequenceCachesOnlyLastIdenticalRequestAndRejectsGaps() {
-        Fixture fixture = fixture();
-        AutoToolSwapIntent rejectedSwap = intent(fixture.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
-                ORIGINAL, stack("mod:drill", "stale", 40));
-        AutoToolSwapRoundResult rejected = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                rejectedSwap, fixture.inventory, 10L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
-        Assert.assertEquals(2L, rejected.nextActionSequence());
-        Assert.assertTrue(fixture.service.confirmIntentResultPublication(fixture.player, fixture.endpoint,
-                rejectedSwap, rejected));
-        Assert.assertEquals(rejected, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                rejectedSwap, fixture.inventory, 99L));
-
-        AutoToolSwapIntent changedPayload = intent(fixture.roundId, 1L, AutoToolSwapAction.FREEZE, 0, 9,
-                ORIGINAL, CANDIDATE);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, changedPayload, fixture.inventory, 11L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, intent(fixture.roundId, 3L, AutoToolSwapAction.FREEZE, 0, 9,
-                        ORIGINAL, CANDIDATE), fixture.inventory, 12L).outcome());
-
-        AutoToolSwapRoundResult freeze = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent(fixture.roundId, 2L, AutoToolSwapAction.FREEZE, 0, 9, ORIGINAL, CANDIDATE),
-                fixture.inventory, 13L);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, freeze.outcome());
-        Assert.assertEquals(3L, freeze.nextActionSequence());
-        Assert.assertTrue(fixture.service.confirmIntentResultPublication(fixture.player, fixture.endpoint,
-                intent(fixture.roundId, 2L, AutoToolSwapAction.FREEZE, 0, 9, ORIGINAL, CANDIDATE), freeze));
-        Assert.assertEquals(0, fixture.inventory.swapCount);
-    }
-
-    @Test
-    public void swapAppliesOnceThenSyncsAndReplayDoesNotWriteAgain() {
-        Fixture fixture = fixture();
-        AutoToolSwapIntent swap = swapIntent(fixture, 1L);
-
-        AutoToolSwapRoundResult applied = publish(fixture, swap, 10L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, applied.outcome());
-        Assert.assertEquals(AutoToolSwapRoundState.SWAPPED, applied.roundState());
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(1, fixture.inventory.syncCount);
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
-        Assert.assertEquals(applied, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                swap, fixture.inventory, 11L));
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(1, fixture.inventory.syncCount);
-    }
-
-    @Test
-    public void repeatedResultSenderFailuresResendFullInventoryWithoutReplayingMutation() {
-        Fixture fixture = fixture();
-        AutoToolSwapIntent swap = swapIntent(fixture, 1L);
-        AutoToolSwapRoundResult first = null;
-
-        for (int attempt = 0; attempt < 3; attempt++) {
-            AutoToolSwapRoundResult retry = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                    swap, fixture.inventory, 10L + attempt);
-            if (first == null) first = retry;
-            Assert.assertEquals("result sender 未确认时 exact 结果必须保持不可变", first, retry);
-            Assert.assertEquals(1, fixture.inventory.swapCount);
-            Assert.assertEquals("每次 exact retry 都必须重发完整库存", attempt + 1,
-                    fixture.inventory.syncCount);
-            Assert.assertEquals(1L, fixture.service.snapshot(fixture.player).nextActionSequence());
-            Assert.assertTrue(fixture.service.snapshot(fixture.player).hasPendingResultPublication());
-        }
-
-        Assert.assertTrue(fixture.service.confirmIntentResultPublication(fixture.player,
-                fixture.endpoint, swap, first));
-        Assert.assertEquals(2L, fixture.service.snapshot(fixture.player).nextActionSequence());
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasPendingResultPublication());
+        AutoToolSwapRoundResult first = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                swap, inventory, 8L);
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, first.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, first.roundState());
         Assert.assertEquals(first, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                swap, fixture.inventory, 99L));
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals("已确认 exact cache 不得再次同步", 3, fixture.inventory.syncCount);
+                swap, inventory, 9L));
+        Assert.assertTrue(fixture.service.confirmIntentResultPublication(
+                fixture.player, fixture.endpoint, swap, first));
+        Assert.assertEquals(first, fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                swap, inventory, 10L));
+        Assert.assertEquals(0, inventory.accesses);
     }
 
     @Test
-    public void everySwapSafetyGateAndPrewriteFailureProducesNoWrite() {
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.alive = false;
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.creative = true;
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.window0 = false;
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.cursorEmpty = false;
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.selectedSlot = 1;
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.slots[9] = AutoToolSwapStackState.empty();
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.slots[9] = stack("mod:drill", "candidate", 1);
-            }
-        });
-        assertSwapRejected(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.failRead = true;
-            }
-        });
-
-        Fixture fixture = fixture();
-        AutoToolSwapIntent sameSlot = intent(fixture.roundId, 1L, AutoToolSwapAction.SWAP, 0, 0,
-                ORIGINAL, ORIGINAL);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, sameSlot, fixture.inventory, 10L).outcome());
-        Assert.assertEquals(0, fixture.inventory.swapCount);
+    public void allLegacyMutationIntentsAreZeroReadRejected() {
+        assertOrdinaryMutationRejected(AutoToolSwapAction.SWAP);
+        assertOrdinaryMutationRejected(AutoToolSwapAction.RESTORE);
+        assertTakeoverMutationRejected(AutoToolSwapAction.TAKEOVER);
+        assertTakeoverMutationRejected(AutoToolSwapAction.DECLINE_TAKEOVER);
     }
 
     @Test
-    public void serverSwapUsesTheSharedTwoPointDurabilityReserve() {
-        assertSwapDurabilityOutcome(0, AutoToolSwapResultCode.REJECTED);
-        assertSwapDurabilityOutcome(1, AutoToolSwapResultCode.REJECTED);
-        assertSwapDurabilityOutcome(2, AutoToolSwapResultCode.APPLIED);
-        assertSwapDurabilityOutcome(Integer.MAX_VALUE, AutoToolSwapResultCode.APPLIED);
+    public void closeAndAbandonOnlyCloseProjection() {
+        for (AutoToolSwapAction action : new AutoToolSwapAction[] {
+                AutoToolSwapAction.CLOSE, AutoToolSwapAction.ABANDON }) {
+            Fixture fixture = new Fixture();
+            ExplodingInventory inventory = new ExplodingInventory();
+            AutoToolSwapIntent intent = control(fixture.roundId, 1L, action);
+            AutoToolSwapRoundResult result = fixture.service.handleIntent(
+                    fixture.player, fixture.endpoint, intent, inventory, 4L);
+            Assert.assertEquals(action.name(), AutoToolSwapResultCode.ACCEPTED, result.outcome());
+            Assert.assertEquals(action.name(), AutoToolSwapRoundState.FINISHED, result.roundState());
+            Assert.assertEquals(action.name(), 0, inventory.accesses);
+        }
     }
 
     @Test
-    public void endpointProtocolRoundAndCandidateChangesRejectBeforeInventoryWrite() {
-        Fixture fixture = fixture();
-        AutoToolSwapIntent swap = swapIntent(fixture, 1L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                new Object(), swap, fixture.inventory, 1L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, new AutoToolSwapIntent(99, fixture.roundId, 1L, AutoToolSwapAction.SWAP,
-                        0, 9, ORIGINAL.contentFingerprint(), CANDIDATE.contentFingerprint()),
-                fixture.inventory, 2L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, intent(fixture.roundId + 1L, 1L, AutoToolSwapAction.SWAP, 0, 9,
-                        ORIGINAL, CANDIDATE), fixture.inventory, 3L).outcome());
-        Assert.assertEquals(1L, fixture.service.snapshot(fixture.player).nextActionSequence());
-        Assert.assertEquals(0, fixture.inventory.readCount);
-
-        fixture.inventory.slots[9] = stack("mod:drill", "changed", 39);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, swap, fixture.inventory, 4L).outcome());
-        Assert.assertEquals(0, fixture.inventory.swapCount);
-        Assert.assertEquals(0, fixture.inventory.syncCount);
+    public void endpointRoundSequenceAndPhaseMismatchesFailClosed() {
+        Fixture fixture = new Fixture();
+        ExplodingInventory inventory = new ExplodingInventory();
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(
+                fixture.player, new Object(), control(fixture.roundId, 1L, AutoToolSwapAction.FREEZE),
+                inventory, 1L).outcome());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(
+                fixture.player, fixture.endpoint,
+                control(fixture.roundId + 1L, 1L, AutoToolSwapAction.FREEZE), inventory, 1L).outcome());
+        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(
+                fixture.player, fixture.endpoint,
+                control(fixture.roundId, 2L, AutoToolSwapAction.FREEZE), inventory, 1L).outcome());
+        Assert.assertEquals(0L, fixture.service.observeChainPhase(
+                fixture.player, new Object(), fixture.roundId, true, false));
+        Assert.assertEquals(1L, fixture.service.observeChainPhase(
+                fixture.player, fixture.endpoint, fixture.roundId, true, false));
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN,
+                fixture.service.snapshot(fixture.player).roundState());
+        Assert.assertEquals(0, inventory.accesses);
     }
 
     @Test
-    public void mutationFailuresAreFatalWhileSyncFailuresRetryWithoutReplayingMutation() {
-        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.RUNTIME, false);
-        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.LINKAGE, false);
-        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.RUNTIME, true);
-        assertWriteFailureOrphans(AutoToolSwapAction.SWAP, FailureMode.LINKAGE, true);
-        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.RUNTIME, false);
-        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.LINKAGE, false);
-        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.RUNTIME, true);
-        assertWriteFailureOrphans(AutoToolSwapAction.RESTORE, FailureMode.LINKAGE, true);
+    public void sourceContainsNoPhysicalMutationOrLedgerOwner() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/toolswap/server/AutoToolSwapRoundService.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertFalse(source.contains("swapInventorySlotsAtomically("));
+        Assert.assertFalse(source.contains("rotateInventorySlotsAtomically("));
+        Assert.assertFalse(source.contains("class SwapLedger"));
+        Assert.assertFalse(source.contains("readInventorySlot("));
+        Assert.assertTrue(source.contains("inventory=unread"));
     }
 
     @Test
-    public void restoreUsesCurrentRealStacksAllowsDynamicOrEmptyActiveToolAndPreservesManualSelection() {
-        assertRestoreApplied(stack("mod:drill", "used", 20));
-        assertRestoreApplied(AutoToolSwapStackState.empty());
-
-        Fixture manuallySelected = swappedFixture();
-        manuallySelected.inventory.selectedSlot = 1;
-        AutoToolSwapRoundResult restored = publish(manuallySelected,
-                currentRestoreIntent(manuallySelected, 2L), 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
-        Assert.assertEquals(1, manuallySelected.inventory.selectedSlot);
-    }
-
-    @Test
-    public void restoreKeepsSafetyContextGatesWithoutWriting() {
-        assertRestoreRejectedByContext(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.alive = false;
-            }
-        });
-        assertRestoreRejectedByContext(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.creative = true;
-            }
-        });
-        assertRestoreRejectedByContext(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.window0 = false;
-            }
-        });
-        assertRestoreRejectedByContext(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.cursorEmpty = false;
-            }
-        });
-        assertRestoreRejectedByContext(new InventoryMutation() {
-            @Override
-            public void apply(FakeInventory inventory) {
-                inventory.failRead = true;
-            }
-        });
-    }
-
-    @Test
-    public void restoreAllowsOriginalAnchorDynamicsButRejectsRoleAndIntentRacesWithoutWriting() {
-        Fixture originalChanged = swappedFixture();
-        originalChanged.inventory.slots[9] = stack("mod:pickaxe", "changed", 89);
-        AutoToolSwapRoundResult changed = publish(originalChanged,
-                currentRestoreIntent(originalChanged, 2L), 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, changed.outcome());
-        Assert.assertTrue(originalChanged.inventory.slots[0].sameRole(ORIGINAL));
-
-        Fixture roleChanged = swappedFixture();
-        roleChanged.inventory.slots[0] = stack("mod:hammer", "used", 20);
-        assertRestoreRejected(roleChanged, currentRestoreIntent(roleChanged, 2L));
-
-        Fixture subtypeChanged = swappedFixture();
-        subtypeChanged.inventory.slots[9] = stack("mod:pickaxe@1", "changed", 89);
-        assertRestoreRejected(subtypeChanged, currentRestoreIntent(subtypeChanged, 2L));
-
-        Fixture intentStale = swappedFixture();
-        AutoToolSwapIntent stale = intent(intentStale.roundId, 2L, AutoToolSwapAction.RESTORE, 0, 9,
-                CANDIDATE, ORIGINAL);
-        intentStale.inventory.slots[0] = stack("mod:drill", "used", 20);
-        assertRestoreRejected(intentStale, stale);
-    }
-
-    @Test
-    public void emptyOriginalAnchorRestoresByExchangingAnyCurrentCandidateOccupant() {
-        Fixture emptyAnchor = fixture();
-        emptyAnchor.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapIntent swap = intent(emptyAnchor.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
-                AutoToolSwapStackState.empty(), CANDIDATE);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, publish(emptyAnchor, swap, 1L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, publish(emptyAnchor,
-                currentRestoreIntent(emptyAnchor, 2L), 2L).outcome());
-
-        Fixture occupiedEmptyLease = fixture();
-        AutoToolSwapStackState originalEmpty = AutoToolSwapStackState.empty();
-        occupiedEmptyLease.inventory.slots[0] = originalEmpty;
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, publish(occupiedEmptyLease,
-                intent(occupiedEmptyLease.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
-                        originalEmpty, CANDIDATE), 1L).outcome());
-        AutoToolSwapStackState borrowedTool = occupiedEmptyLease.inventory.slots[0];
-        AutoToolSwapStackState occupyingDrop = stack("mod:foreign", "occupied", 10);
-        occupiedEmptyLease.inventory.slots[9] = occupyingDrop;
-
-        AutoToolSwapRoundResult restored = publish(occupiedEmptyLease,
-                currentRestoreIntent(occupiedEmptyLease, 2L), 2L);
-
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
-        Assert.assertSame("当前占位物必须原样交换到主手", occupyingDrop, occupiedEmptyLease.inventory.slots[0]);
-        Assert.assertSame("借用工具必须原样回到候选槽", borrowedTool, occupiedEmptyLease.inventory.slots[9]);
-        Assert.assertEquals(2, occupiedEmptyLease.inventory.swapCount);
-        Assert.assertEquals(2, occupiedEmptyLease.inventory.syncCount);
-        Assert.assertFalse(occupiedEmptyLease.service.snapshot(occupiedEmptyLease.player).hasLedger());
-    }
-
-    @Test
-    public void abandonUsesCanonicalControlClearsLedgerWithoutInventoryAndReplaysIdempotently() {
-        Fixture fixture = swappedFixture();
-        fixture.inventory.readCount = 0;
-        fixture.inventory.swapCount = 0;
-        fixture.inventory.syncCount = 0;
-        AutoToolSwapIntent abandon = abandonIntent(fixture, 2L);
-
-        AutoToolSwapRoundResult finished = publish(fixture, abandon, 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, finished.outcome());
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, finished.roundState());
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasLedger());
-        assertNoInventoryAccess(fixture.inventory);
-        Assert.assertEquals(finished, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                abandon, fixture.inventory, 3L));
-        assertNoInventoryAccess(fixture.inventory);
-
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED,
-                fixture.service.beginRound(fixture.player, fixture.endpoint, 99L, 4L).outcome());
-        long nextRound = fixture.service.activatePendingRound(fixture.player, fixture.endpoint, 5L).serverRoundId();
-        Assert.assertTrue(nextRound > fixture.roundId);
-    }
-
-    @Test
-    public void abandonMismatchesAndNoncanonicalControlsCannotClearCurrentLedger() {
-        Fixture fixture = swappedFixture();
-        fixture.inventory.readCount = 0;
-        fixture.inventory.swapCount = 0;
-        fixture.inventory.syncCount = 0;
-
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                new Object(), abandonIntent(fixture, 2L), fixture.inventory, 2L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                        fixture.roundId + 1L, 2L, AutoToolSwapAction.ABANDON, 0, 9,
-                        AutoToolSwapContentFingerprint.canonicalEmpty(),
-                        AutoToolSwapContentFingerprint.canonicalEmpty()), fixture.inventory, 2L).outcome());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, abandonIntent(fixture, 3L), fixture.inventory, 2L).outcome());
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
-        assertNoInventoryAccess(fixture.inventory);
-
-        Fixture wrongSlots = swappedFixture();
-        wrongSlots.inventory.readCount = 0;
-        wrongSlots.inventory.swapCount = 0;
-        wrongSlots.inventory.syncCount = 0;
-        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        AutoToolSwapIntent wrongSlotIntent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                wrongSlots.roundId, 2L, AutoToolSwapAction.ABANDON, 0, 8, empty, empty);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, wrongSlots.service.handleIntent(wrongSlots.player,
-                wrongSlots.endpoint, wrongSlotIntent, wrongSlots.inventory, 2L).outcome());
-        Assert.assertTrue(wrongSlots.service.snapshot(wrongSlots.player).hasLedger());
-        assertNoInventoryAccess(wrongSlots.inventory);
-
-        AutoToolSwapIntent noncanonical = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                fixture.roundId, 2L, AutoToolSwapAction.ABANDON, 0, 9,
-                ORIGINAL.contentFingerprint(), AutoToolSwapContentFingerprint.canonicalEmpty());
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED,
-                publish(fixture, noncanonical, 3L).outcome());
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
-        assertNoInventoryAccess(fixture.inventory);
-
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED,
-                publish(fixture, abandonIntent(fixture, 3L), 4L).roundState());
-        assertNoInventoryAccess(fixture.inventory);
-    }
-
-    @Test
-    public void abandonIsAcceptedFromFrozenAndClosingLedgerStates() {
-        Fixture frozen = swappedFixture();
-        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, publish(frozen,
-                intent(frozen.roundId, 2L, AutoToolSwapAction.FREEZE, 0, 9,
-                        frozen.inventory.slots[0], frozen.inventory.slots[9]), 2L).roundState());
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED,
-                publish(frozen, abandonIntent(frozen, 3L), 3L).roundState());
-
-        Fixture closing = swappedFixture();
-        closing.service.onKeyReleased(closing.player, closing.endpoint);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED,
-                publish(closing, abandonIntent(closing, 2L), 2L).roundState());
-    }
-
-    @Test
-    public void freezeCloseAndKeyReleasePreserveLedgerUntilExplicitRestore() {
-        Fixture fixture = swappedFixture();
-        AutoToolSwapRoundResult frozen = publish(fixture,
-                intent(fixture.roundId, 2L, AutoToolSwapAction.FREEZE, 0, 9,
-                        fixture.inventory.slots[0], fixture.inventory.slots[9]), 2L);
-        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, frozen.roundState());
-        AutoToolSwapRoundResult blockedSwap = publish(fixture,
-                intent(fixture.roundId, 3L, AutoToolSwapAction.SWAP, 0, 9,
-                        fixture.inventory.slots[0], fixture.inventory.slots[9]), 3L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, blockedSwap.outcome());
-
-        long released = fixture.service.onKeyReleased(fixture.player, fixture.endpoint);
-        Assert.assertEquals(fixture.roundId, released);
-        Assert.assertEquals(AutoToolSwapRoundState.CLOSING, fixture.service.snapshot(fixture.player).roundState());
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
-        AutoToolSwapRoundResult close = publish(fixture,
-                intent(fixture.roundId, 4L, AutoToolSwapAction.CLOSE, 0, 9,
-                        fixture.inventory.slots[0], fixture.inventory.slots[9]), 4L);
-        Assert.assertEquals(AutoToolSwapResultCode.RESTORE_REQUIRED, close.outcome());
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-
-        AutoToolSwapRoundResult restored = publish(fixture, currentRestoreIntent(fixture, 5L), 5L);
-        Assert.assertEquals(AutoToolSwapRoundState.CLOSING, restored.roundState());
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasLedger());
-        AutoToolSwapRoundResult finished = publish(fixture,
-                intent(fixture.roundId, 6L, AutoToolSwapAction.CLOSE, 0, 9,
-                        fixture.inventory.slots[0], fixture.inventory.slots[9]), 6L);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, finished.roundState());
-    }
-
-    @Test
-    public void cleanupClearAndPhaseSequenceNeverTouchInventoryAndIsolateOldRounds() {
-        Fixture first = fixture();
-        Assert.assertEquals(1L, first.service.nextPhaseSequence(first.player, first.endpoint, first.roundId));
-        Assert.assertEquals(0L, first.service.nextPhaseSequence(first.player, new Object(), first.roundId));
-        Assert.assertEquals(0L, first.service.nextPhaseSequence(first.player, first.endpoint, first.roundId + 1L));
-        first.service.cleanup(first.player);
-        Assert.assertNull(first.service.snapshot(first.player));
-        Assert.assertEquals(0, first.inventory.readCount);
-        Assert.assertEquals(0, first.inventory.swapCount);
-
-        first.service.beginRound(first.player, first.endpoint, 99L, 4L);
-        long secondRound = first.service.activatePendingRound(first.player, first.endpoint, 5L).serverRoundId();
-        Assert.assertEquals(0L, first.service.nextPhaseSequence(first.player, first.endpoint, first.roundId));
-        Assert.assertEquals(1L, first.service.nextPhaseSequence(first.player, first.endpoint, secondRound));
-        first.service.clearAll();
-        Assert.assertNull(first.service.snapshot(first.player));
-        Assert.assertEquals(0, first.inventory.syncCount);
-    }
-
-    @Test
-    public void lifecycleCleanupDestroysCommittedPublicationSoItCannotCrossIntoFreshRound() {
-        Fixture fixture = fixture();
-        AutoToolSwapIntent oldSwap = swapIntent(fixture, 1L);
-        AutoToolSwapRoundResult pending = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                oldSwap, fixture.inventory, 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, pending.outcome());
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasPendingResultPublication());
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-
-        fixture.service.cleanup(fixture.player);
-        Assert.assertNull(fixture.service.snapshot(fixture.player));
-        fixture.service.beginRound(fixture.player, fixture.endpoint, 99L, 3L);
-        long freshRound = fixture.service.activatePendingRound(
-                fixture.player, fixture.endpoint, 4L).serverRoundId();
-        Assert.assertTrue(freshRound > fixture.roundId);
-        resetInventoryCounters(fixture.inventory);
-
-        AutoToolSwapRoundResult late = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                oldSwap, fixture.inventory, 5L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, late.outcome());
-        Assert.assertEquals(freshRound, late.serverRoundId());
-        Assert.assertEquals(1L, late.nextActionSequence());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasPendingResultPublication());
-    }
-
-    @Test
-    public void observedChainPhasesFreezeSwapCloseRoundAndKeepClientFreezeIdempotent() {
-        Fixture fixture = fixture();
-        Assert.assertEquals(1L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
-                false, false));
-        Assert.assertEquals(AutoToolSwapRoundState.OPEN, fixture.service.snapshot(fixture.player).roundState());
-
-        Assert.assertEquals(2L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
-                true, false));
-        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, fixture.service.snapshot(fixture.player).roundState());
-        Fixture running = fixture();
-        Assert.assertEquals(1L, running.service.observeChainPhase(running.player, running.endpoint, running.roundId,
-                true, false));
-        Assert.assertEquals(AutoToolSwapRoundState.FROZEN, running.service.snapshot(running.player).roundState());
-        AutoToolSwapRoundResult freeze = publish(fixture,
-                intent(fixture.roundId, 1L, AutoToolSwapAction.FREEZE, 0, 9, ORIGINAL, CANDIDATE), 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, freeze.outcome());
-        Assert.assertEquals(2L, fixture.service.snapshot(fixture.player).phaseSequence());
-
-        Assert.assertEquals(3L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
-                false, true));
-        Assert.assertEquals(AutoToolSwapRoundState.CLOSING, fixture.service.snapshot(fixture.player).roundState());
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).keyDown());
-        Assert.assertEquals(4L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId,
-                false, true));
-        Assert.assertEquals(AutoToolSwapRoundState.CLOSING, fixture.service.snapshot(fixture.player).roundState());
-    }
-
-    @Test
-    public void observedChainPhaseRejectsMismatchesAndOrphansOnPhaseSequenceOverflow() {
-        Fixture fixture = fixture();
-        Assert.assertEquals(0L, fixture.service.observeChainPhase(fixture.player, new Object(), fixture.roundId,
-                true, false));
-        Assert.assertEquals(0L, fixture.service.observeChainPhase(fixture.player, fixture.endpoint,
-                fixture.roundId + 1L, true, false));
-
-        AutoToolSwapRoundService overflow = new AutoToolSwapRoundService(0L,
-                AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, Long.MAX_VALUE);
-        overflow.beginRound(fixture.player, fixture.endpoint, 99L, 0L);
-        long overflowRoundId = overflow.activatePendingRound(fixture.player, fixture.endpoint, 1L).serverRoundId();
-        Assert.assertEquals(0L, overflow.observeChainPhase(fixture.player, fixture.endpoint, overflowRoundId,
-                true, false));
-        Assert.assertEquals(AutoToolSwapRoundState.ORPHANED, overflow.snapshot(fixture.player).roundState());
-        Assert.assertEquals(0L, overflow.currentRoundId(fixture.player, fixture.endpoint));
-    }
-
-    @Test
-    public void actionDiagnosticIsOncePerActionBoundedAndDoesNotExposeFullNbt() {
-        final List<String> logs = new ArrayList<String>();
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L,
-                new AutoToolSwapRoundService.DiagnosticSink() {
-                    @Override
-                    public void log(String message) {
-                        logs.add(message);
-                    }
-                });
-        UUID player = UUID.randomUUID();
-        Object endpoint = new Object();
-        FakeInventory inventory = inventory();
-        service.beginRound(player, endpoint, 1L, 0L);
-        long roundId = service.activatePendingRound(player, endpoint, 1L).serverRoundId();
-
-        AutoToolSwapRoundResult result = service.handleIntent(player, endpoint,
-                intent(roundId, 1L, AutoToolSwapAction.SWAP, 0, 9, ORIGINAL, CANDIDATE), inventory, 2L);
-
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, result.outcome());
-        Assert.assertEquals("单个动作只能输出一条前后快照", 1, logs.size());
-        String log = logs.get(0);
-        Assert.assertTrue(log.contains("[AutoToolSwapDiag]"));
-        Assert.assertTrue(log.contains("round=" + roundId));
-        Assert.assertTrue(log.contains("actionSeq=1"));
-        Assert.assertTrue(log.contains("reason=none"));
-        Assert.assertTrue(log.contains("contentHash=short"));
-        Assert.assertFalse(log.contains("secret-nbt"));
-    }
-
-    @Test
-    public void failingDiagnosticSinkCannotChangeSwapOutcome() {
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L,
-                new AutoToolSwapRoundService.DiagnosticSink() {
-                    @Override
-                    public void log(String message) {
-                        throw new IllegalStateException("diagnostic failure");
-                    }
-                });
-        UUID player = UUID.randomUUID();
-        Object endpoint = new Object();
-        FakeInventory inventory = inventory();
-        service.beginRound(player, endpoint, 1L, 0L);
-        long roundId = service.activatePendingRound(player, endpoint, 1L).serverRoundId();
-
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, service.handleIntent(player, endpoint,
-                intent(roundId, 1L, AutoToolSwapAction.SWAP, 0, 9, ORIGINAL, CANDIDATE), inventory, 2L).outcome());
-        Assert.assertEquals(1, inventory.swapCount);
-    }
-
-    @Test
-    public void takeoverWithoutLedgerSwapsOnceAndDeclineNeverReadsInventory() {
-        Fixture fixture = fixture();
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        AutoToolSwapStackState low = stack("mod:pickaxe", "low", 1);
-        AutoToolSwapStackState next = stack("mod:drill2", "fresh", 80);
-        fixture.inventory.slots[0] = low;
-        fixture.inventory.slots[7] = next;
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        Assert.assertNotNull(request);
-
-        AutoToolSwapRoundResult applied = publish(fixture,
-                intent(fixture.roundId, request.takeoverRequestId(), AutoToolSwapAction.TAKEOVER, 0, 7,
-                        fixture.inventory.slots[0], fixture.inventory.slots[7]), 11L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, applied.outcome());
-        Assert.assertSame("候选引用进入主手", next, fixture.inventory.slots[0]);
-        Assert.assertSame("低耐久主手进入候选槽", low, fixture.inventory.slots[7]);
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.APPLIED,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
-
-        Fixture declined = fixture();
-        declined.service.observeChainPhase(declined.player, declined.endpoint, declined.roundId, true, false);
-        declined.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapTakeoverRequest declineRequest = declined.service.prepareTakeover(declined.player,
-                declined.endpoint, declined.roundId, 2, 1, 64, 2, 1, 0, 0,
-                declined.inventory.slots[0], 20L, 28L);
-        declined.inventory.readCount = 0;
-        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        AutoToolSwapIntent decline = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                declined.roundId, declineRequest.actionSequence(), AutoToolSwapAction.DECLINE_TAKEOVER,
-                0, 0, empty, empty);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED,
-                publish(declined, decline, 21L).outcome());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.DECLINED,
-                declined.service.takeoverGateState(declined.player, declined.endpoint, declineRequest, 22L));
-        Assert.assertEquals(0, declined.inventory.readCount);
-        Assert.assertEquals(0, declined.inventory.swapCount);
-        Assert.assertEquals(0, declined.inventory.syncCount);
-    }
-
-    @Test
-    public void inventoryFingerprintUsesAllThirtySixExactSlotContentsAndDefensiveArrayCopy() {
+    public void legacyPureValueFingerprintSurfaceRemainsExact() {
         AutoToolSwapStackState[] slots = new AutoToolSwapStackState[AutoToolSwapProtocol.INVENTORY_SLOT_COUNT];
-        for (int slot = 0; slot < slots.length; slot++) slots[slot] = AutoToolSwapStackState.empty();
-        slots[35] = stack("mod:last", "count-damage-nbt-a", 20);
+        java.util.Arrays.fill(slots, AutoToolSwapStackState.empty());
+        slots[35] = state("mod:last", "a");
         AutoToolSwapRoundService.InventoryFingerprint first =
                 AutoToolSwapRoundService.InventoryFingerprint.fromSlots(slots);
-        slots[35] = stack("mod:last", "count-damage-nbt-b", 19);
+        slots[35] = state("mod:last", "b");
         AutoToolSwapRoundService.InventoryFingerprint second =
                 AutoToolSwapRoundService.InventoryFingerprint.fromSlots(slots);
-
-        Assert.assertFalse("第 35 槽完整内容变化必须改变库存身份", first.sameInventory(second));
-        Assert.assertEquals("构造后修改输入数组不得改写旧身份", 20,
-                first.slot(35).remainingDurability());
+        Assert.assertFalse(first.sameInventory(second));
+        Assert.assertEquals("a", first.slot(35).roleKey().startsWith("mod:last") ? "a" : "bad");
     }
 
-    @Test
-    public void targetCapabilityAndTakeoverKeepTheFullNonNegativeIntDomain() {
-        AutoToolSwapRoundService.TargetCapabilityKey maximum =
-                AutoToolSwapRoundService.TargetCapabilityKey.of(Integer.MAX_VALUE, Integer.MAX_VALUE);
-        Assert.assertTrue(maximum.sameCapability(
-                AutoToolSwapRoundService.TargetCapabilityKey.of(Integer.MAX_VALUE, Integer.MAX_VALUE)));
-        Assert.assertFalse(maximum.sameCapability(
-                AutoToolSwapRoundService.TargetCapabilityKey.of(16777216, Integer.MAX_VALUE)));
-        Assert.assertFalse(maximum.sameCapability(
-                AutoToolSwapRoundService.TargetCapabilityKey.of(Integer.MAX_VALUE, 16777216)));
-        assertInvalidTargetCapability(0, 0);
-        assertInvalidTargetCapability(-1, 0);
-        assertInvalidTargetCapability(1, -1);
+    private static void assertOrdinaryMutationRejected(AutoToolSwapAction action) {
+        Fixture fixture = new Fixture();
+        ExplodingInventory inventory = new ExplodingInventory();
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
+                mutation(fixture.roundId, 1L, action), inventory, 2L);
+        Assert.assertEquals(action.name(), AutoToolSwapResultCode.REJECTED, result.outcome());
+        Assert.assertEquals(action.name(), 0, inventory.accesses);
+    }
 
-        Fixture fixture = fixture();
+    private static void assertTakeoverMutationRejected(AutoToolSwapAction action) {
+        Fixture fixture = new Fixture();
         fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(
-                fixture.player, fixture.endpoint, fixture.roundId, 7,
-                1, 64, 2, Integer.MAX_VALUE, Integer.MAX_VALUE,
-                0, fixture.inventory.slots[0], 10L, 18L);
+        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
+                fixture.roundId, 1, 1, 64, 1, 1, 0, 0, state("mod:anchor", "a"), 2L, 8L);
         Assert.assertNotNull(request);
-        Assert.assertEquals(Integer.MAX_VALUE, request.targetBlockId());
-        Assert.assertEquals(Integer.MAX_VALUE, request.targetBlockMetadata());
-    }
-
-    @Test
-    public void takeoverRequestIdsBurnIndependentlyAndNeverReuseRetiredTargets() {
-        Fixture fixture = takeoverFixture();
-        AutoToolSwapTakeoverRequest first = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapTakeoverRequest reentered = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 11L, 19L);
-        Assert.assertSame("同一 pending 重入必须复用同一对象与 request ID", first, reentered);
-        Assert.assertEquals(1L, first.takeoverRequestId());
-        Assert.assertEquals(1L, fixture.service.snapshot(fixture.player).lastIssuedTakeoverRequestId());
-
-        AutoToolSwapIntent firstIntent = declineIntent(fixture, first);
-        AutoToolSwapRoundResult firstResult = publish(fixture, firstIntent, 11L);
-        resetInventoryCounters(fixture.inventory);
-        Assert.assertEquals("尚无更大 request ID 时最近 exact 必须幂等回放",
-                firstResult, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                        firstIntent, fixture.inventory, 12L));
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, first);
-        AutoToolSwapTakeoverRequest second = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 2, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 13L, 20L);
-        Assert.assertEquals(2L, second.takeoverRequestId());
-        Assert.assertEquals("退休 ID 永不复用", 2L,
-                fixture.service.snapshot(fixture.player).lastIssuedTakeoverRequestId());
-
-        resetInventoryCounters(fixture.inventory);
-        AutoToolSwapRoundResult oldExact = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                firstIntent, fixture.inventory, 14L);
-        Assert.assertEquals("发行 r+1 后旧 r exact 也不得回放成功",
-                AutoToolSwapResultCode.REJECTED, oldExact.outcome());
-        Assert.assertEquals("接替拒绝只回显当前普通 sequence", 1L,
-                oldExact.nextActionSequence());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        AutoToolSwapIntent lateChangedPayload = intent(fixture.roundId, first.takeoverRequestId(),
-                AutoToolSwapAction.TAKEOVER, 0, 8, fixture.inventory.slots[0],
-                stack("mod:other", "stale", 20));
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, lateChangedPayload, fixture.inventory, 15L).outcome());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.WAITING,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, second, 15L));
-    }
-
-    @Test
-    public void takeoverRequestIdLongMaxIsIssuedOnceThenPermanentlyExhausted() {
-        Fixture fixture = fixture(new AutoToolSwapRoundService(0L,
-                AutoToolSwapProtocol.FIRST_ACTION_SEQUENCE, 0L, Long.MAX_VALUE));
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        AutoToolSwapTakeoverRequest maximum = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        Assert.assertEquals(Long.MAX_VALUE, maximum.takeoverRequestId());
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).takeoverRequestIdsExhausted());
-        Assert.assertTrue(fixture.service.skipTakeoverGate(fixture.player, fixture.endpoint,
-                maximum, "max-retired"));
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, maximum);
-        Assert.assertNull(fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 2, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 11L, 19L));
-        Assert.assertEquals(Long.MAX_VALUE,
-                fixture.service.snapshot(fixture.player).lastIssuedTakeoverRequestId());
-    }
-
-    @Test
-    public void takeoverResultEchoesRequestIdButAlwaysReturnsOrdinarySequenceWatermark() {
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L, 3L, 0L, 17L);
-        Fixture fixture = fixture(service);
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        Assert.assertEquals(17L, request.takeoverRequestId());
-
-        AutoToolSwapRoundResult declined = publish(fixture, declineIntent(fixture, request), 11L);
-        Assert.assertEquals(3L, declined.nextActionSequence());
-        Assert.assertEquals(3L, fixture.service.snapshot(fixture.player).nextActionSequence());
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
-
-        AutoToolSwapIntent close = intent(fixture.roundId, 3L, AutoToolSwapAction.CLOSE,
-                0, 0, AutoToolSwapStackState.empty(), AutoToolSwapStackState.empty());
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, publish(fixture, close, 12L).roundState());
-    }
-
-    @Test
-    public void ordinaryAndTakeoverExactCachesRemainIndependentWhenInterleaved() {
-        Fixture fixture = fixture();
-        AutoToolSwapIntent freeze = intent(fixture.roundId, 1L, AutoToolSwapAction.FREEZE,
-                0, 0, AutoToolSwapStackState.empty(), AutoToolSwapStackState.empty());
-        AutoToolSwapRoundResult frozen = publish(fixture, freeze, 2L);
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 3L, 10L);
-        AutoToolSwapIntent decline = declineIntent(fixture, request);
-        AutoToolSwapRoundResult declined = publish(fixture, decline, 4L);
-        resetInventoryCounters(fixture.inventory);
-
-        Assert.assertEquals(frozen, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                freeze, fixture.inventory, 5L));
-        Assert.assertEquals(declined, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                decline, fixture.inventory, 6L));
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        Assert.assertEquals(2L, fixture.service.snapshot(fixture.player).nextActionSequence());
-    }
-
-    @Test
-    public void repeatedTakeoverSyncFailuresResendWithoutReplayingTwoOrThreeSlotMutation() {
-        assertTakeoverSyncRecovery(false);
-        assertTakeoverSyncRecovery(true);
-    }
-
-    @Test
-    public void emptyHandLeaseIsSingleRoundScopedAndCannotCoexistWithLedgerOrPending() {
-        Fixture fixture = fixture();
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
-        AutoToolSwapRoundService.TargetCapabilityKey target =
-                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 24902);
-
-        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                fixture.roundId, 7, target, 0, fingerprint));
-        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
-                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 7, AutoToolSwapRoundService.TargetCapabilityKey.of(1, 24902),
-                        0, fingerprint).outcome());
-        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.INVALIDATED,
-                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 7, AutoToolSwapRoundService.TargetCapabilityKey.of(1, 65535),
-                        0, fingerprint).outcome());
-        Assert.assertFalse(fixture.service.hasEmptyHandFallbackLease(fixture.player));
-
-        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                fixture.roundId, 7, target, 0, fingerprint));
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 7, 1, 64, 2, 1, 24902, 0,
-                fixture.inventory.slots[0], 10L, 18L);
-        Assert.assertNotNull(request);
-        Assert.assertFalse("pending 建立前必须退休旧租约",
-                fixture.service.hasEmptyHandFallbackLease(fixture.player));
-        Assert.assertFalse("pending 与租约不得共存", fixture.service.installEmptyHandFallbackLease(
-                fixture.player, fixture.endpoint, fixture.roundId, 7, target, 0, fingerprint));
-
-        Fixture ledger = swappedFixture();
-        ledger.service.observeChainPhase(ledger.player, ledger.endpoint, ledger.roundId, true, false);
-        Assert.assertFalse("ledger 与租约不得共存", ledger.service.installEmptyHandFallbackLease(
-                ledger.player, ledger.endpoint, ledger.roundId, 7, target, 0,
-                inventoryFingerprint(ledger.inventory)));
-    }
-
-    @Test
-    public void leaseHitsAreCountedWithoutPerTargetLogsAndLifecycleCloseLogsOneSummary() {
-        final List<String> logs = new ArrayList<String>();
-        Fixture fixture = fixture(recordingService(logs));
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
-        AutoToolSwapRoundService.TargetCapabilityKey target =
-                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 0);
-        logs.clear();
-
-        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                fixture.roundId, 3, target, 0, fingerprint));
-        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
-                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 3, target, 0, fingerprint).outcome());
-        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
-                fixture.service.matchEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 3, target, 0, fingerprint).outcome());
-        Assert.assertEquals("命中不得逐目标刷日志", 1, logs.size());
-
-        fixture.service.cleanup(fixture.player);
-        Assert.assertNull(fixture.service.snapshot(fixture.player));
-        Assert.assertEquals(2, logs.size());
-        Assert.assertTrue(logs.get(1).contains("event=round-close"));
-        Assert.assertTrue(logs.get(1).contains("creates=1"));
-        Assert.assertTrue(logs.get(1).contains("hits=2"));
-        Assert.assertTrue(logs.get(1).contains("invalidated=0"));
-    }
-
-    @Test
-    public void leaseCompareAndClearRequiresTheExactMatchedIdentity() {
-        Fixture fixture = fixture();
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapRoundService.InventoryFingerprint fingerprint = inventoryFingerprint(fixture.inventory);
-        AutoToolSwapRoundService.TargetCapabilityKey target =
-                AutoToolSwapRoundService.TargetCapabilityKey.of(1, 0);
-        Assert.assertTrue(fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                fixture.roundId, 3, target, 0, fingerprint));
-        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult firstMatch = fixture.service
-                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 3,
-                        target, 0, fingerprint);
-        Assert.assertEquals(AutoToolSwapRoundService.EmptyHandFallbackLeaseMatch.MATCH,
-                firstMatch.outcome());
-        Assert.assertNotNull(firstMatch.token());
-
-        Assert.assertTrue("同 round 同 generation 的替换租约也必须获得新 lease identity",
-                fixture.service.installEmptyHandFallbackLease(fixture.player, fixture.endpoint,
-                        fixture.roundId, 3, target, 0, fingerprint));
-        Assert.assertFalse("旧 token 不得清除替换后的租约", fixture.service
-                .compareAndClearEmptyHandFallbackLease(fixture.player, firstMatch.token(), "stale-lease"));
-        Assert.assertTrue(fixture.service.hasEmptyHandFallbackLease(fixture.player));
-
-        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult secondMatch = fixture.service
-                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 3,
-                        target, 0, fingerprint);
-        Assert.assertTrue("generation 变化后的租约必须拒绝旧 token", fixture.service
-                .installEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 4,
-                        target, 0, fingerprint));
-        Assert.assertFalse(fixture.service.compareAndClearEmptyHandFallbackLease(
-                fixture.player, secondMatch.token(), "stale-generation"));
-        Assert.assertTrue(fixture.service.hasEmptyHandFallbackLease(fixture.player));
-
-        AutoToolSwapRoundService.EmptyHandFallbackLeaseMatchResult generationMatch = fixture.service
-                .matchEmptyHandFallbackLease(fixture.player, fixture.endpoint, fixture.roundId, 4,
-                        target, 0, fingerprint);
-        Assert.assertTrue(fixture.service.compareAndClearEmptyHandFallbackLease(
-                fixture.player, generationMatch.token(), "exact-match"));
-        Assert.assertFalse(fixture.service.hasEmptyHandFallbackLease(fixture.player));
-        Assert.assertFalse("已消费 token 必须幂等 no-op", fixture.service
-                .compareAndClearEmptyHandFallbackLease(fixture.player, generationMatch.token(), "replay"));
-    }
-
-    @Test
-    public void staleClientAnchorEchoDoesNotRejectExactServerAnchorAndCandidate() {
-        Fixture fixture = takeoverFixture();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 24902, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapStackState staleClientEcho = stack("mod:pickaxe", "client-old-durability", 2);
-        AutoToolSwapIntent intent = intent(fixture.roundId, request.actionSequence(),
-                AutoToolSwapAction.TAKEOVER, 0, 7, staleClientEcho, fixture.inventory.slots[7]);
-
-        AutoToolSwapRoundResult applied = publish(fixture, intent, 11L);
-
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, applied.outcome());
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(1, fixture.inventory.syncCount);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.APPLIED,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
-    }
-
-    @Test
-    public void takeoverDiagnosticsGiveOneBoundedReasonForEverySettlementGate() {
-        assertTakeoverReason(TakeoverReasonCase.INVENTORY_CONTEXT, "inventory-context",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.SELECTED_SLOT, "selected-slot",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.PENDING_ANCHOR_CHANGED, "pending-anchor-changed",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.CANDIDATE_FINGERPRINT, "candidate-fingerprint",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.CANDIDATE_LOW_RESERVE, "candidate-low-reserve",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.LEDGER_OLD_ROLE, "ledger-old-role",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.LEDGER_OLD_ROLE_WITH_STALE_CANDIDATE, "ledger-old-role",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.LEDGER_ACTIVE_ROLE, "ledger-active-role",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.SLOT_CONFLICT, "slot-conflict",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.INVENTORY_READ_FAILED, "inventory-read-failed",
-                AutoToolSwapResultCode.REJECTED);
-        assertTakeoverReason(TakeoverReasonCase.APPLIED, "applied", AutoToolSwapResultCode.APPLIED);
-        assertTakeoverReason(TakeoverReasonCase.SYNC_FAILED, "sync-failed",
-                AutoToolSwapResultCode.SYNC_FAILED);
-    }
-
-    @Test
-    public void takeoverWithLedgerUsesOneThreeSlotRotationAndFinalRestoreIsReversible() {
-        Fixture fixture = swappedFixture();
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        AutoToolSwapStackState lowActive = stack("mod:drill", "used-low", 1);
-        AutoToolSwapStackState next = stack("mod:hammer", "fresh", 70);
-        fixture.inventory.slots[0] = lowActive;
-        fixture.inventory.slots[7] = next;
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 5, 4, 70, 6, 2, 0, 0, lowActive, 30L, 38L);
-
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, publish(fixture,
-                intent(fixture.roundId, request.takeoverRequestId(), AutoToolSwapAction.TAKEOVER,
-                        0, 7, lowActive, next), 31L).outcome());
-        Assert.assertEquals(1, fixture.inventory.rotateCount);
-        Assert.assertSame(next, fixture.inventory.slots[0]);
-        Assert.assertSame(lowActive, fixture.inventory.slots[9]);
-        Assert.assertSame(ORIGINAL, fixture.inventory.slots[7]);
-        Assert.assertEquals(7, fixture.service.snapshot(fixture.player).ledgerCandidateSlot());
-
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
-        AutoToolSwapStackState lowSecond = stack("mod:hammer", "used-low", 1);
-        AutoToolSwapStackState third = stack("mod:excavator", "fresh", 90);
-        fixture.inventory.slots[0] = lowSecond;
-        fixture.inventory.slots[8] = third;
-        AutoToolSwapTakeoverRequest secondRequest = fixture.service.prepareTakeover(fixture.player,
-                fixture.endpoint, fixture.roundId, 5, 5, 70, 6, 2, 0, 0,
-                lowSecond, 32L, 39L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, publish(fixture,
-                intent(fixture.roundId, secondRequest.takeoverRequestId(),
-                        AutoToolSwapAction.TAKEOVER, 0, 8, lowSecond, third), 33L).outcome());
-        Assert.assertEquals(2, fixture.inventory.rotateCount);
-        Assert.assertSame(third, fixture.inventory.slots[0]);
-        Assert.assertSame(lowSecond, fixture.inventory.slots[7]);
-        Assert.assertSame(ORIGINAL, fixture.inventory.slots[8]);
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, secondRequest);
-
-        AutoToolSwapRoundResult restored = publish(fixture,
-                currentRestoreIntentForSlots(fixture, 2L, 0, 8), 34L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
-        Assert.assertSame(ORIGINAL, fixture.inventory.slots[0]);
-        Assert.assertSame(third, fixture.inventory.slots[8]);
-        Assert.assertSame(lowSecond, fixture.inventory.slots[7]);
-        Assert.assertSame("已耗损旧工具不被回滚", lowActive, fixture.inventory.slots[9]);
-    }
-
-    @Test
-    public void staleLowDurabilityTakeoverIsZeroWriteAndSkipsOnlyTheTarget() {
-        Fixture fixture = swappedFixture();
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        AutoToolSwapStackState low = stack("mod:drill", "low", 1);
-        fixture.inventory.slots[0] = low;
-        fixture.inventory.slots[7] = stack("mod:hammer", "fresh", 1);
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 3, 1, 64, 1, 1, 0, 0, low, 1L, 8L);
-        AutoToolSwapRoundResult rejected = publish(fixture,
-                intent(fixture.roundId, request.takeoverRequestId(), AutoToolSwapAction.TAKEOVER, 0, 7,
-                        low, fixture.inventory.slots[7]), 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
-        Assert.assertEquals(0, fixture.inventory.rotateCount);
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 3L));
-    }
-
-    @Test
-    public void staleCandidateFingerprintSettlesSequenceAsTargetSkipWithoutInventoryWrite() {
-        Fixture fixture = takeoverFixture();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapIntent stale = takeoverIntent(fixture, request);
-        fixture.inventory.slots[7] = stack("mod:drill2", "changed-after-intent", 79);
-        resetInventoryCounters(fixture.inventory);
-
-        AutoToolSwapRoundResult result = publish(fixture, stale, 11L);
-
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, result.outcome());
-        Assert.assertEquals("接替拒绝不得推进普通 sequence", 1L, result.nextActionSequence());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
-        Assert.assertEquals(0, fixture.inventory.swapCount);
-        Assert.assertEquals(0, fixture.inventory.rotateCount);
-        Assert.assertEquals(0, fixture.inventory.syncCount);
-    }
-
-    @Test
-    public void exactStopDoesNotAffectMismatchedEndpointOrGateAndRejectsLateIntent() {
-        final List<String> logs = new ArrayList<String>();
-        Fixture fixture = takeoverFixture(recordingService(logs));
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapTakeoverRequest otherGate = new AutoToolSwapTakeoverRequest(
-                AutoToolSwapProtocol.PROTOCOL_VERSION, fixture.roundId, request.actionSequence(),
-                5, 1, 64, 2, 1, 0, 10L, 18L);
-        logs.clear();
-
-        Assert.assertFalse(fixture.service.stopTakeoverGate(fixture.player, new Object(), request));
-        Assert.assertFalse(fixture.service.stopTakeoverGate(fixture.player, fixture.endpoint, otherGate));
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.WAITING,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
-        Assert.assertTrue(fixture.service.stopTakeoverGate(fixture.player, fixture.endpoint, request));
-        assertSingleTakeoverGateStopDiagnostic(logs, "external-stop", fixture.roundId,
-                request.actionSequence());
-        Assert.assertTrue(fixture.service.stopTakeoverGate(fixture.player, fixture.endpoint, request));
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
-
-        resetInventoryCounters(fixture.inventory);
-        AutoToolSwapIntent intent = takeoverIntent(fixture, request);
-        AutoToolSwapRoundResult rejected = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, 11L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
-        assertSingleTakeoverGateStopDiagnostic(logs, "external-stop", fixture.roundId,
-                request.actionSequence());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        long nextSequence = rejected.nextActionSequence();
-
-        AutoToolSwapRoundResult replay = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, 12L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, replay.outcome());
-        Assert.assertEquals(rejected.roundState(), replay.roundState());
-        Assert.assertEquals(nextSequence, replay.nextActionSequence());
-        Assert.assertEquals(12L, replay.serverTick());
-        Assert.assertEquals("STOP 后重放不得二次推进 sequence", nextSequence,
-                fixture.service.snapshot(fixture.player).nextActionSequence());
-        Assert.assertEquals("STOP 后重放不得重复诊断", 1, logs.size());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    @Test
-    public void deadlinePollLogsOnceWithoutIntentAndConsumeCannotDuplicateIt() {
-        final List<String> logs = new ArrayList<String>();
-        Fixture fixture = takeoverFixture(recordingService(logs));
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        logs.clear();
-        resetInventoryCounters(fixture.inventory);
-
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 18L));
-        assertSingleTakeoverGateStopDiagnostic(logs, "deadline", fixture.roundId, request.actionSequence());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 19L));
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
-        fixture.service.consumeTakeoverGate(fixture.player, fixture.endpoint, request);
-        Assert.assertFalse(fixture.service.stopTakeoverGate(fixture.player, fixture.endpoint, request));
-        assertSingleTakeoverGateStopDiagnostic(logs, "deadline", fixture.roundId, request.actionSequence());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    @Test
-    public void keyReleaseAndPhaseCloseLogTheirFirstGateStopCause() {
-        final List<String> keyLogs = new ArrayList<String>();
-        Fixture keyRelease = takeoverFixture(recordingService(keyLogs));
-        AutoToolSwapTakeoverRequest keyRequest = keyRelease.service.prepareTakeover(keyRelease.player,
-                keyRelease.endpoint, keyRelease.roundId, 4, 1, 64, 2, 1, 0, 0,
-                keyRelease.inventory.slots[0], 10L, 18L);
-        keyLogs.clear();
-        resetInventoryCounters(keyRelease.inventory);
-
-        keyRelease.service.onKeyReleased(keyRelease.player, keyRelease.endpoint);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                keyRelease.service.takeoverGateState(keyRelease.player, keyRelease.endpoint, keyRequest, 11L));
-        assertSingleTakeoverGateStopDiagnostic(keyLogs, "key-release", keyRelease.roundId,
-                keyRequest.actionSequence());
-        assertZeroTakeoverInventoryAccess(keyRelease.inventory);
-
-        final List<String> phaseLogs = new ArrayList<String>();
-        Fixture phaseClose = takeoverFixture(recordingService(phaseLogs));
-        AutoToolSwapTakeoverRequest phaseRequest = phaseClose.service.prepareTakeover(phaseClose.player,
-                phaseClose.endpoint, phaseClose.roundId, 4, 1, 64, 2, 1, 0, 0,
-                phaseClose.inventory.slots[0], 10L, 18L);
-        phaseLogs.clear();
-        resetInventoryCounters(phaseClose.inventory);
-
-        phaseClose.service.observeChainPhase(phaseClose.player, phaseClose.endpoint, phaseClose.roundId,
-                false, true);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                phaseClose.service.takeoverGateState(phaseClose.player, phaseClose.endpoint, phaseRequest, 11L));
-        assertSingleTakeoverGateStopDiagnostic(phaseLogs, "phase-close", phaseClose.roundId,
-                phaseRequest.actionSequence());
-        assertZeroTakeoverInventoryAccess(phaseClose.inventory);
-    }
-
-    /** 收口动作仅在 sequence 合法后退休 WAITING pending，并保持既有动作语义。 */
-    @Test
-    public void closeRestoreAndAbandonRetirePendingGateOnlyAfterSequenceValidation() {
-        final List<String> closeLogs = new ArrayList<String>();
-        Fixture close = takeoverFixture(recordingService(closeLogs));
-        AutoToolSwapTakeoverRequest closeRequest = close.service.prepareTakeover(close.player, close.endpoint,
-                close.roundId, 4, 1, 64, 2, 1, 0, 0, close.inventory.slots[0], 10L, 18L);
-        closeLogs.clear();
-        AutoToolSwapRoundResult staleClose = close.service.handleIntent(close.player, close.endpoint,
-                intent(close.roundId, closeRequest.actionSequence() + 1L, AutoToolSwapAction.CLOSE, 0, 7,
-                        close.inventory.slots[0], close.inventory.slots[7]), close.inventory, 11L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, staleClose.outcome());
-        Assert.assertEquals("sequence 拒绝不得退休 WAITING 等待门",
-                AutoToolSwapRoundService.TakeoverGateState.WAITING,
-                close.service.takeoverGateState(close.player, close.endpoint, closeRequest, 11L));
-        AutoToolSwapRoundResult closed = publish(close,
-                intent(close.roundId, close.service.snapshot(close.player).nextActionSequence(),
-                        AutoToolSwapAction.CLOSE, 0, 7,
-                        close.inventory.slots[0], close.inventory.slots[7]), 12L);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, closed.roundState());
-        Assert.assertEquals(0L, close.service.currentRoundId(close.player));
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                close.service.takeoverGateState(close.player, close.endpoint, closeRequest, 11L));
-        assertSingleTakeoverGateStopDiagnostic(closeLogs, "phase-close", close.roundId,
-                closeRequest.actionSequence());
-
-        Fixture restore = swappedFixture();
-        restore.service.observeChainPhase(restore.player, restore.endpoint, restore.roundId, true, false);
-        AutoToolSwapTakeoverRequest restoreRequest = restore.service.prepareTakeover(restore.player,
-                restore.endpoint, restore.roundId, 4, 1, 64, 2, 1, 0, 0, restore.inventory.slots[0], 10L, 18L);
-        AutoToolSwapRoundResult restored = publish(restore,
-                currentRestoreIntent(restore, restore.service.snapshot(restore.player).nextActionSequence()), 11L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
-        Assert.assertFalse(restore.service.snapshot(restore.player).hasLedger());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                restore.service.takeoverGateState(restore.player, restore.endpoint, restoreRequest, 11L));
-
-        Fixture abandon = swappedFixture();
-        abandon.service.observeChainPhase(abandon.player, abandon.endpoint, abandon.roundId, true, false);
-        AutoToolSwapTakeoverRequest abandonRequest = abandon.service.prepareTakeover(abandon.player,
-                abandon.endpoint, abandon.roundId, 4, 1, 64, 2, 1, 0, 0, abandon.inventory.slots[0], 10L, 18L);
-        resetInventoryCounters(abandon.inventory);
-        AutoToolSwapRoundResult abandoned = publish(abandon,
-                abandonIntent(abandon, abandon.service.snapshot(abandon.player).nextActionSequence()), 11L);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, abandoned.roundState());
-        assertZeroTakeoverInventoryAccess(abandon.inventory);
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                abandon.service.takeoverGateState(abandon.player, abandon.endpoint, abandonRequest, 11L));
-    }
-
-    /** CLOSE 已推进 sequence 后，迟到 TAKEOVER 必须在库存边界前拒绝。 */
-    @Test
-    public void lateTakeoverAfterCloseFailsSequenceBeforeInventoryAccess() {
-        Fixture fixture = takeoverFixture();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapRoundResult close = publish(fixture,
-                intent(fixture.roundId, fixture.service.snapshot(fixture.player).nextActionSequence(),
-                        AutoToolSwapAction.CLOSE, 0, 7,
-                        fixture.inventory.slots[0], fixture.inventory.slots[7]), 11L);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, close.roundState());
-        resetInventoryCounters(fixture.inventory);
-
-        AutoToolSwapRoundResult late = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                takeoverIntent(fixture, request), fixture.inventory, 12L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, late.outcome());
-        Assert.assertEquals("迟到 TAKEOVER 必须停在 sequence 门前", close.nextActionSequence(),
-                late.nextActionSequence());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    /** 真实 DECLINE、松键、CLOSE 顺序必须完成旧 round 并允许建立新 round。 */
-    @Test
-    public void declineKeyReleaseCloseFinishesRoundAndAllowsFreshRound() {
-        Fixture fixture = fixture();
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-
-        AutoToolSwapRoundResult declined = publish(fixture, declineIntent(fixture, request), 11L);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, declined.outcome());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.DECLINED,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
-
-        fixture.service.onKeyReleased(fixture.player, fixture.endpoint);
-        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        Assert.assertEquals("TAKEOVER/DECLINE 不得推进普通 sequence", 1L,
-                declined.nextActionSequence());
-        Assert.assertEquals("key release 必须把 DECLINED 等待门收口为 STOP",
-                AutoToolSwapRoundService.TakeoverGateState.STOP,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 12L));
-
-        AutoToolSwapIntent closeIntent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                fixture.roundId, declined.nextActionSequence(), AutoToolSwapAction.CLOSE, 0, 0, empty, empty);
-        AutoToolSwapRoundResult closed = publish(fixture, closeIntent, 13L);
-        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, closed.roundState());
-        Assert.assertEquals(0L, fixture.service.currentRoundId(fixture.player));
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.STOP,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 13L));
-
-        fixture.service.beginRound(fixture.player, fixture.endpoint, 99L, 14L);
-        AutoToolSwapRoundResult fresh = fixture.service.activatePendingRound(fixture.player, fixture.endpoint, 15L);
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fresh.outcome());
-        Assert.assertTrue("收口后新 round 必须拥有新身份", fresh.serverRoundId() > fixture.roundId);
-    }
-
-    @Test
-    public void takeoverDeadlineMinusOneAppliesAndExactReplayRemainsIdempotent() {
-        Fixture fixture = takeoverFixture();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapIntent intent = takeoverIntent(fixture, request);
-
-        AutoToolSwapRoundResult applied = publish(fixture, intent, 17L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, applied.outcome());
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(1, fixture.inventory.syncCount);
-        int diagnostics = fixture.inventory.diagnosticCount;
-        int reads = fixture.inventory.readCount;
-
-        Assert.assertEquals(applied, fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, 18L));
-        Assert.assertEquals("按时结算的完全重复包在 deadline 后仍只返回缓存结果",
-                diagnostics, fixture.inventory.diagnosticCount);
-        Assert.assertEquals(reads, fixture.inventory.readCount);
-        Assert.assertEquals(1, fixture.inventory.swapCount);
-        Assert.assertEquals(1, fixture.inventory.syncCount);
-    }
-
-    @Test
-    public void declineDeadlineMinusOneIsAcceptedWithoutInventoryAccess() {
-        Fixture fixture = takeoverFixture();
-        fixture.inventory.slots[0] = AutoToolSwapStackState.empty();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        resetInventoryCounters(fixture.inventory);
-
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED,
-                publish(fixture, declineIntent(fixture, request), 17L).outcome());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    @Test
-    public void exactNonEmptyDeclineSettlesAsNoCandidateTargetSkipWithoutInventoryAccess() {
-        final List<String> logs = new ArrayList<String>();
-        Fixture fixture = takeoverFixture(recordingService(logs));
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        logs.clear();
-        resetInventoryCounters(fixture.inventory);
-
-        AutoToolSwapRoundResult result = publish(fixture, declineIntent(fixture, request), 17L);
-
-        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, result.outcome());
-        Assert.assertEquals("DECLINE 结果 next 始终回显普通水位", 1L, result.nextActionSequence());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 17L));
-        Assert.assertEquals(1, logs.size());
-        Assert.assertTrue(logs.get(0).contains("action=DECLINE_TAKEOVER"));
-        Assert.assertTrue(logs.get(0).contains("reason=no-candidate"));
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    @Test
-    public void malformedNonEmptyDeclineSkipsOnlyTheTargetWithoutInventoryAccess() {
-        Fixture fixture = takeoverFixture();
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        AutoToolSwapIntent malformed = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                fixture.roundId, request.actionSequence(), AutoToolSwapAction.DECLINE_TAKEOVER,
-                0, 0, fixture.inventory.slots[0].contentFingerprint(), empty);
-        resetInventoryCounters(fixture.inventory);
-
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED,
-                publish(fixture, malformed, 17L).outcome());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 17L));
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    @Test
-    public void deadlineAndLaterTakeoverOrDeclineRejectBeforeEveryInventoryAccess() {
-        assertLateTakeoverActionRejected(AutoToolSwapAction.TAKEOVER, 18L);
-        assertLateTakeoverActionRejected(AutoToolSwapAction.TAKEOVER, 19L);
-        assertLateTakeoverActionRejected(AutoToolSwapAction.DECLINE_TAKEOVER, 18L);
-        assertLateTakeoverActionRejected(AutoToolSwapAction.DECLINE_TAKEOVER, 19L);
-    }
-
-    @Test
-    public void mismatchedSequenceAtDeadlineStillStopsPendingWithoutInventoryAccess() {
-        final List<String> logs = new ArrayList<String>();
-        Fixture fixture = takeoverFixture(recordingService(logs));
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapIntent wrongSequence = intent(fixture.roundId, request.actionSequence() + 1L,
-                AutoToolSwapAction.TAKEOVER, 0, 7, fixture.inventory.slots[0], fixture.inventory.slots[7]);
-        logs.clear();
-        resetInventoryCounters(fixture.inventory);
-
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, fixture.service.handleIntent(fixture.player,
-                fixture.endpoint, wrongSequence, fixture.inventory, 18L).outcome());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 18L));
-        Assert.assertEquals(request.actionSequence(),
-                fixture.service.snapshot(fixture.player).nextActionSequence());
-        assertSingleTakeoverGateStopDiagnostic(logs, "deadline", fixture.roundId, request.actionSequence());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    private static void assertLateTakeoverActionRejected(AutoToolSwapAction action, long serverTick) {
-        final List<String> logs = new ArrayList<String>();
-        Fixture fixture = takeoverFixture(recordingService(logs));
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapIntent intent = action == AutoToolSwapAction.TAKEOVER
-                ? takeoverIntent(fixture, request) : declineIntent(fixture, request);
-        logs.clear();
-        resetInventoryCounters(fixture.inventory);
-
-        AutoToolSwapRoundResult rejected = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, serverTick);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, rejected.outcome());
-        assertSingleTakeoverGateStopDiagnostic(logs, "deadline", fixture.roundId,
-                request.actionSequence());
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, serverTick));
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-        long nextSequence = rejected.nextActionSequence();
-
-        AutoToolSwapRoundResult replay = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, serverTick + 1L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, replay.outcome());
-        Assert.assertEquals(nextSequence, replay.nextActionSequence());
-        Assert.assertEquals(nextSequence, fixture.service.snapshot(fixture.player).nextActionSequence());
-        Assert.assertEquals("重复迟到 intent 不得重复诊断", 1, logs.size());
-        assertZeroTakeoverInventoryAccess(fixture.inventory);
-    }
-
-    private static void assertTakeoverSyncRecovery(boolean withLedger) {
-        Fixture fixture = withLedger ? swappedFixture() : takeoverFixture();
-        if (withLedger) {
-            fixture.service.observeChainPhase(fixture.player, fixture.endpoint,
-                    fixture.roundId, true, false);
-        }
-        AutoToolSwapStackState low = stack(withLedger ? "mod:drill" : "mod:pickaxe", "low", 1);
-        AutoToolSwapStackState next = stack("mod:next", "fresh", 80);
-        fixture.inventory.slots[0] = low;
-        fixture.inventory.slots[7] = next;
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 0, 0, low, 10L, 30L);
-        AutoToolSwapIntent takeover = intent(fixture.roundId, request.takeoverRequestId(),
-                AutoToolSwapAction.TAKEOVER, 0, 7, low, next);
-        resetInventoryCounters(fixture.inventory);
-        fixture.inventory.syncFailure = FailureMode.RUNTIME;
-
-        for (int attempt = 0; attempt < 3; attempt++) {
-            AutoToolSwapRoundResult failed = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                    takeover, fixture.inventory, 11L + attempt);
-            Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, failed.outcome());
-            Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.WAITING,
-                    fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 20L + attempt));
-            Assert.assertEquals(withLedger ? 0 : 1, fixture.inventory.swapCount);
-            Assert.assertEquals(withLedger ? 1 : 0, fixture.inventory.rotateCount);
-        }
-
-        fixture.inventory.syncFailure = FailureMode.NONE;
-        AutoToolSwapRoundResult recovered = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                takeover, fixture.inventory, 14L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, recovered.outcome());
-        Assert.assertEquals(withLedger ? 0 : 1, fixture.inventory.swapCount);
-        Assert.assertEquals(withLedger ? 1 : 0, fixture.inventory.rotateCount);
-        Assert.assertEquals(4, fixture.inventory.syncCount);
-        Assert.assertTrue(fixture.service.confirmIntentResultPublication(fixture.player,
-                fixture.endpoint, takeover, recovered));
-        Assert.assertEquals(AutoToolSwapRoundService.TakeoverGateState.APPLIED,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 15L));
-    }
-
-    private static void assertInvalidTargetCapability(int blockId, int metadata) {
-        try {
-            AutoToolSwapRoundService.TargetCapabilityKey.of(blockId, metadata);
-            Assert.fail("invalid target capability must fail");
-        } catch (IllegalArgumentException expected) {
-            // 合同断言
-        }
-    }
-
-    private static void assertSingleTakeoverGateStopDiagnostic(List<String> logs, String cause,
-            long roundId, long actionSequence) {
-        int matches = 0;
-        String matchedLog = null;
-        for (String log : logs) {
-            if (log.contains("[AutoToolSwapDiag] takeover-gate")) {
-                matches++;
-                matchedLog = log;
-            }
-        }
-        Assert.assertEquals("同一等待门只能输出一条终态诊断", 1, matches);
-        Assert.assertTrue(matchedLog.contains("round=" + roundId));
-        Assert.assertTrue(matchedLog.contains("actionSeq=" + actionSequence));
-        Assert.assertTrue(matchedLog.contains("state=STOP") || matchedLog.contains("state=SKIP_TARGET"));
-        Assert.assertTrue(matchedLog.contains("cause=" + cause));
-        Assert.assertFalse(matchedLog.contains("secret-nbt"));
-    }
-
-    private static void assertTakeoverReason(TakeoverReasonCase reasonCase, String expectedReason,
-            AutoToolSwapResultCode expectedResult) {
-        final List<String> logs = new ArrayList<String>();
-        AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L,
-                new AutoToolSwapRoundService.DiagnosticSink() {
-                    @Override
-                    public void log(String message) {
-                        logs.add(message);
-                    }
-                });
-        Fixture fixture = fixture(service);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED,
-                publish(fixture, swapIntent(fixture, 1L), 1L).outcome());
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        fixture.inventory.slots[0] = stack("mod:drill", "active-low", 1);
-        fixture.inventory.slots[7] = stack("mod:hammer", "fresh", 80);
-        if (reasonCase == TakeoverReasonCase.CANDIDATE_LOW_RESERVE) {
-            fixture.inventory.slots[7] = stack("mod:hammer", "low", 1);
-        } else if (reasonCase == TakeoverReasonCase.LEDGER_ACTIVE_ROLE) {
-            fixture.inventory.slots[0] = stack("mod:wrong-active", "low", 1);
-        }
-        AutoToolSwapTakeoverRequest request = fixture.service.prepareTakeover(fixture.player, fixture.endpoint,
-                fixture.roundId, 4, 1, 64, 2, 1, 24902, 0, fixture.inventory.slots[0], 10L, 18L);
-        AutoToolSwapIntent intent = intent(fixture.roundId, request.actionSequence(),
-                AutoToolSwapAction.TAKEOVER, 0, 7, fixture.inventory.slots[0], fixture.inventory.slots[7]);
-        if (reasonCase == TakeoverReasonCase.INVENTORY_CONTEXT) {
-            fixture.inventory.alive = false;
-        } else if (reasonCase == TakeoverReasonCase.SELECTED_SLOT) {
-            fixture.inventory.selectedSlot = 1;
-        } else if (reasonCase == TakeoverReasonCase.PENDING_ANCHOR_CHANGED) {
-            fixture.inventory.slots[0] = stack("mod:drill", "active-changed", 1);
-        } else if (reasonCase == TakeoverReasonCase.CANDIDATE_FINGERPRINT) {
-            fixture.inventory.slots[7] = stack("mod:hammer", "candidate-changed", 79);
-        } else if (reasonCase == TakeoverReasonCase.LEDGER_OLD_ROLE) {
-            fixture.inventory.slots[9] = stack("mod:wrong-old", "changed", 90);
-        } else if (reasonCase == TakeoverReasonCase.LEDGER_OLD_ROLE_WITH_STALE_CANDIDATE) {
-            fixture.inventory.slots[7] = stack("mod:hammer", "candidate-changed", 79);
-            fixture.inventory.slots[9] = stack("mod:wrong-old", "changed", 90);
-        } else if (reasonCase == TakeoverReasonCase.SLOT_CONFLICT) {
-            intent = intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER,
-                    0, 9, fixture.inventory.slots[0], fixture.inventory.slots[9]);
-        } else if (reasonCase == TakeoverReasonCase.INVENTORY_READ_FAILED) {
-            fixture.inventory.failRead = true;
-        } else if (reasonCase == TakeoverReasonCase.SYNC_FAILED) {
-            fixture.inventory.syncFailure = FailureMode.RUNTIME;
-        }
-        logs.clear();
-        resetInventoryCounters(fixture.inventory);
-
-        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, 11L);
-        if (result.outcome() != AutoToolSwapResultCode.SYNC_FAILED) {
-            Assert.assertTrue(fixture.service.confirmIntentResultPublication(fixture.player,
-                    fixture.endpoint, intent, result));
-        }
-
-        Assert.assertEquals(expectedResult, result.outcome());
-        Assert.assertEquals("每个 TAKEOVER 结算只能输出一条 action", 1, logs.size());
-        Assert.assertTrue(logs.get(0).contains("action=TAKEOVER"));
-        Assert.assertTrue(logs.get(0).contains("reason=" + expectedReason));
-        Assert.assertFalse(logs.get(0).contains("secret-nbt"));
-        AutoToolSwapRoundService.TakeoverGateState expectedGate =
-                reasonCase == TakeoverReasonCase.APPLIED
-                        ? AutoToolSwapRoundService.TakeoverGateState.APPLIED
-                        : reasonCase == TakeoverReasonCase.SYNC_FAILED
-                                ? AutoToolSwapRoundService.TakeoverGateState.WAITING
-                                : AutoToolSwapRoundService.TakeoverGateState.SKIP_TARGET;
-        Assert.assertEquals("目标软拒绝不得掩盖会话级结算故障", expectedGate,
-                fixture.service.takeoverGateState(fixture.player, fixture.endpoint, request, 11L));
-        if (expectedResult == AutoToolSwapResultCode.REJECTED) {
-            Assert.assertEquals(0, fixture.inventory.swapCount);
-            Assert.assertEquals(0, fixture.inventory.rotateCount);
-            Assert.assertEquals(0, fixture.inventory.syncCount);
-        } else {
-            Assert.assertEquals(1, fixture.inventory.rotateCount);
-            Assert.assertEquals(1, fixture.inventory.syncCount);
-        }
-    }
-
-    private static Fixture takeoverFixture() {
-        return takeoverFixture(new AutoToolSwapRoundService(0L));
-    }
-
-    private static Fixture takeoverFixture(AutoToolSwapRoundService service) {
-        Fixture fixture = fixture(service);
-        fixture.service.observeChainPhase(fixture.player, fixture.endpoint, fixture.roundId, true, false);
-        fixture.inventory.slots[0] = stack("mod:pickaxe", "low", 1);
-        fixture.inventory.slots[7] = stack("mod:drill2", "fresh", 80);
-        return fixture;
-    }
-
-    private static AutoToolSwapRoundService recordingService(final List<String> logs) {
-        return new AutoToolSwapRoundService(0L, new AutoToolSwapRoundService.DiagnosticSink() {
-            @Override
-            public void log(String message) {
-                logs.add(message);
-            }
-        });
-    }
-
-    private static AutoToolSwapIntent takeoverIntent(Fixture fixture, AutoToolSwapTakeoverRequest request) {
-        return intent(fixture.roundId, request.actionSequence(), AutoToolSwapAction.TAKEOVER, 0, 7,
-                fixture.inventory.slots[0], fixture.inventory.slots[7]);
-    }
-
-    private static AutoToolSwapIntent declineIntent(Fixture fixture, AutoToolSwapTakeoverRequest request) {
-        AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, fixture.roundId,
-                request.actionSequence(), AutoToolSwapAction.DECLINE_TAKEOVER, 0, 0, empty, empty);
-    }
-
-    private static void resetInventoryCounters(FakeInventory inventory) {
-        inventory.contextReadCount = 0;
-        inventory.readCount = 0;
-        inventory.swapCount = 0;
-        inventory.rotateCount = 0;
-        inventory.syncCount = 0;
-        inventory.diagnosticCount = 0;
-    }
-
-    private static void assertZeroTakeoverInventoryAccess(FakeInventory inventory) {
-        Assert.assertEquals("不得读取库存上下文", 0, inventory.contextReadCount);
-        Assert.assertEquals("不得读取槽位", 0, inventory.readCount);
-        Assert.assertEquals("不得执行双槽写入", 0, inventory.swapCount);
-        Assert.assertEquals("不得执行三槽写入", 0, inventory.rotateCount);
-        Assert.assertEquals("不得同步库存", 0, inventory.syncCount);
-        Assert.assertEquals("不得捕获库存诊断", 0, inventory.diagnosticCount);
-    }
-
-    private static void assertSwapRejected(InventoryMutation mutation) {
-        Fixture fixture = fixture();
-        mutation.apply(fixture.inventory);
-        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                swapIntent(fixture, 1L), fixture.inventory, 1L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, result.outcome());
-        Assert.assertEquals(0, fixture.inventory.swapCount);
-        Assert.assertEquals(0, fixture.inventory.syncCount);
-    }
-
-    private static void assertSwapDurabilityOutcome(int remainingDurability,
-            AutoToolSwapResultCode expectedOutcome) {
-        Fixture fixture = fixture();
-        fixture.inventory.slots[9] = stack("mod:drill", "durability-" + remainingDurability,
-                remainingDurability);
-        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent(fixture.roundId, 1L, AutoToolSwapAction.SWAP, 0, 9,
-                        fixture.inventory.slots[0], fixture.inventory.slots[9]), fixture.inventory, 1L);
-        Assert.assertEquals(expectedOutcome, result.outcome());
-        Assert.assertEquals(expectedOutcome == AutoToolSwapResultCode.APPLIED ? 1 : 0,
-                fixture.inventory.swapCount);
-    }
-
-    private static void assertRestoreApplied(AutoToolSwapStackState activeTool) {
-        Fixture fixture = swappedFixture();
-        fixture.inventory.slots[0] = activeTool;
-        AutoToolSwapRoundResult restored = publish(fixture, currentRestoreIntent(fixture, 2L), 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, restored.outcome());
-        Assert.assertEquals(AutoToolSwapRoundState.OPEN, restored.roundState());
-        Assert.assertEquals(2, fixture.inventory.swapCount);
-        Assert.assertEquals(2, fixture.inventory.syncCount);
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasLedger());
-        Assert.assertTrue(ORIGINAL.sameContent(fixture.inventory.slots[0]));
-    }
-
-    private static void assertRestoreRejectedByContext(InventoryMutation mutation) {
-        Fixture fixture = swappedFixture();
-        mutation.apply(fixture.inventory);
-        assertRestoreRejected(fixture, currentRestoreIntent(fixture, 2L));
-    }
-
-    private static void assertWriteFailureOrphans(AutoToolSwapAction action, FailureMode failureMode,
-            boolean failSync) {
-        Fixture fixture = action == AutoToolSwapAction.SWAP ? fixture() : swappedFixture();
-        AutoToolSwapIntent intent = action == AutoToolSwapAction.SWAP ? swapIntent(fixture, 1L)
-                : currentRestoreIntent(fixture, 2L);
-        int swapsBefore = fixture.inventory.swapCount;
-        int syncsBefore = fixture.inventory.syncCount;
-        if (failSync) {
-            fixture.inventory.syncFailure = failureMode;
-        } else {
-            fixture.inventory.swapFailure = failureMode;
-        }
-
-        if (!failSync) {
-            try {
-                fixture.service.handleIntent(fixture.player, fixture.endpoint, intent, fixture.inventory, 2L);
-                Assert.fail("mutation 提交状态不可判定必须传播致命故障");
-            } catch (RuntimeException expected) {
-                Assert.assertEquals(FailureMode.RUNTIME, failureMode);
-            } catch (LinkageError expected) {
-                Assert.assertEquals(FailureMode.LINKAGE, failureMode);
-            }
-            Assert.assertEquals(AutoToolSwapRoundState.ORPHANED,
-                    fixture.service.snapshot(fixture.player).roundState());
-            Assert.assertEquals(swapsBefore + 1, fixture.inventory.swapCount);
-            Assert.assertEquals(syncsBefore, fixture.inventory.syncCount);
-            return;
-        }
-
-        for (int attempt = 0; attempt < 3; attempt++) {
-            AutoToolSwapRoundResult failed = fixture.service.handleIntent(fixture.player, fixture.endpoint, intent,
-                    fixture.inventory, 2L + attempt);
-            Assert.assertEquals(AutoToolSwapResultCode.SYNC_FAILED, failed.outcome());
-            Assert.assertNotEquals(AutoToolSwapRoundState.ORPHANED, failed.roundState());
-            Assert.assertTrue(fixture.service.snapshot(fixture.player).hasPendingInventorySync());
-            Assert.assertEquals("连续同步失败不得重放 mutation", swapsBefore + 1,
-                    fixture.inventory.swapCount);
-            Assert.assertEquals(syncsBefore + attempt + 1, fixture.inventory.syncCount);
-        }
-
-        fixture.inventory.syncFailure = FailureMode.NONE;
-        AutoToolSwapRoundResult recovered = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                intent, fixture.inventory, 5L);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED, recovered.outcome());
-        Assert.assertEquals(swapsBefore + 1, fixture.inventory.swapCount);
-        Assert.assertEquals(syncsBefore + 4, fixture.inventory.syncCount);
-        Assert.assertTrue(fixture.service.confirmIntentResultPublication(fixture.player, fixture.endpoint,
-                intent, recovered));
-        Assert.assertFalse(fixture.service.snapshot(fixture.player).hasPendingResultPublication());
-    }
-
-    private static void assertRestoreRejected(Fixture fixture, AutoToolSwapIntent restore) {
-        int swapsBefore = fixture.inventory.swapCount;
-        int syncsBefore = fixture.inventory.syncCount;
-        AutoToolSwapRoundResult result = fixture.service.handleIntent(fixture.player, fixture.endpoint,
-                restore, fixture.inventory, 2L);
-        Assert.assertEquals(AutoToolSwapResultCode.REJECTED, result.outcome());
-        Assert.assertEquals(swapsBefore, fixture.inventory.swapCount);
-        Assert.assertEquals(syncsBefore, fixture.inventory.syncCount);
-        Assert.assertTrue(fixture.service.snapshot(fixture.player).hasLedger());
-    }
-
-    private static Fixture fixture() {
-        return fixture(new AutoToolSwapRoundService(0L));
-    }
-
-    private static Fixture fixture(AutoToolSwapRoundService service) {
-        UUID player = UUID.randomUUID();
-        Object endpoint = new Object();
-        service.beginRound(player, endpoint, 17L, 0L);
-        long roundId = service.activatePendingRound(player, endpoint, 1L).serverRoundId();
-        return new Fixture(service, player, endpoint, roundId, inventory());
-    }
-
-    private static Fixture swappedFixture() {
-        Fixture fixture = fixture();
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED,
-                publish(fixture, swapIntent(fixture, 1L), 1L).outcome());
-        return fixture;
-    }
-
-    private static AutoToolSwapRoundResult publish(Fixture fixture, AutoToolSwapIntent intent,
-            long serverTick) {
-        return publish(fixture.service, fixture.player, fixture.endpoint, intent, fixture.inventory, serverTick);
+        ExplodingInventory inventory = new ExplodingInventory();
+        AutoToolSwapIntent intent = mutation(fixture.roundId, request.takeoverRequestId(), action);
+        AutoToolSwapRoundResult result = fixture.service.handleIntent(
+                fixture.player, fixture.endpoint, intent, inventory, 3L);
+        Assert.assertEquals(action.name(), AutoToolSwapResultCode.REJECTED, result.outcome());
+        Assert.assertEquals(action.name(), AutoToolSwapRoundState.FROZEN, result.roundState());
+        Assert.assertEquals(action.name(), 0, inventory.accesses);
     }
 
     private static AutoToolSwapRoundResult publish(AutoToolSwapRoundService service, UUID player,
-            Object endpoint, AutoToolSwapIntent intent, AutoToolSwapInventoryPort inventory, long serverTick) {
-        AutoToolSwapRoundResult result = service.handleIntent(player, endpoint, intent, inventory, serverTick);
-        AutoToolSwapRoundSnapshot snapshot = service.snapshot(player, endpoint);
-        if (result.outcome() != AutoToolSwapResultCode.SYNC_FAILED && snapshot != null
-                && snapshot.hasPendingResultPublication()) {
-            Assert.assertTrue(service.confirmIntentResultPublication(player, endpoint, intent, result));
-        }
+            Object endpoint, AutoToolSwapIntent intent, long tick) {
+        AutoToolSwapRoundResult result = service.handleIntent(player, endpoint, intent, null, tick);
+        Assert.assertTrue(service.confirmIntentResultPublication(player, endpoint, intent, result));
         return result;
     }
 
-    private static FakeInventory inventory() {
-        FakeInventory inventory = new FakeInventory();
-        inventory.slots[0] = ORIGINAL;
-        inventory.slots[9] = CANDIDATE;
-        return inventory;
-    }
-
-    private static AutoToolSwapRoundService.InventoryFingerprint inventoryFingerprint(FakeInventory inventory) {
-        AutoToolSwapStackState[] slots = new AutoToolSwapStackState[AutoToolSwapProtocol.INVENTORY_SLOT_COUNT];
-        for (int slot = 0; slot < slots.length; slot++) {
-            slots[slot] = inventory.slots[slot] == null
-                    ? AutoToolSwapStackState.empty() : inventory.slots[slot];
-        }
-        return AutoToolSwapRoundService.InventoryFingerprint.fromSlots(slots);
-    }
-
-    private static AutoToolSwapIntent swapIntent(Fixture fixture, long sequence) {
-        return intent(fixture.roundId, sequence, AutoToolSwapAction.SWAP, 0, 9, ORIGINAL, CANDIDATE);
-    }
-
-    private static AutoToolSwapIntent currentRestoreIntent(Fixture fixture, long sequence) {
-        return intent(fixture.roundId, sequence, AutoToolSwapAction.RESTORE, 0, 9,
-                fixture.inventory.slots[0], fixture.inventory.slots[9]);
-    }
-
-    private static AutoToolSwapIntent currentRestoreIntentForSlots(Fixture fixture, long sequence,
-            int anchor, int candidate) {
-        return intent(fixture.roundId, sequence, AutoToolSwapAction.RESTORE, anchor, candidate,
-                fixture.inventory.slots[anchor], fixture.inventory.slots[candidate]);
-    }
-
-    private static AutoToolSwapIntent abandonIntent(Fixture fixture, long sequence) {
+    private static AutoToolSwapIntent control(long roundId, long sequence, AutoToolSwapAction action) {
         AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, fixture.roundId, sequence,
-                AutoToolSwapAction.ABANDON, 0, 9, empty, empty);
+        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId, sequence,
+                action, 0, 0, empty, empty);
     }
 
-    private static void assertNoInventoryAccess(FakeInventory inventory) {
-        Assert.assertEquals(0, inventory.readCount);
-        Assert.assertEquals(0, inventory.swapCount);
-        Assert.assertEquals(0, inventory.syncCount);
+    private static AutoToolSwapIntent mutation(long roundId, long sequence, AutoToolSwapAction action) {
+        AutoToolSwapStackState anchor = state("mod:anchor", "a");
+        AutoToolSwapStackState candidate = state("mod:candidate", "b");
+        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId, sequence,
+                action, 0, 9, anchor.contentFingerprint(), candidate.contentFingerprint());
     }
 
-    private static AutoToolSwapIntent intent(long roundId, long sequence, AutoToolSwapAction action,
-            int anchorSlot, int candidateSlot, AutoToolSwapStackState anchor, AutoToolSwapStackState candidate) {
-        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId, sequence, action,
-                anchorSlot, candidateSlot, anchor.contentFingerprint(), candidate.contentFingerprint());
-    }
-
-    private static AutoToolSwapStackState stack(String role, String dynamic, int durability) {
-        return AutoToolSwapStackState.occupied(role, AutoToolSwapContentFingerprint.fromContent(role, dynamic),
-                durability);
-    }
-
-    private static long activateRound(AutoToolSwapRoundService service) {
-        UUID player = UUID.randomUUID();
-        Object endpoint = new Object();
-        service.beginRound(player, endpoint, 1L, 0L);
-        return service.activatePendingRound(player, endpoint, 1L).serverRoundId();
-    }
-
-    private interface InventoryMutation {
-
-        void apply(FakeInventory inventory);
-    }
-
-    private enum FailureMode {
-        NONE,
-        RUNTIME,
-        LINKAGE
-    }
-
-    private enum TakeoverReasonCase {
-        INVENTORY_CONTEXT,
-        SELECTED_SLOT,
-        PENDING_ANCHOR_CHANGED,
-        CANDIDATE_FINGERPRINT,
-        CANDIDATE_LOW_RESERVE,
-        LEDGER_OLD_ROLE,
-        LEDGER_OLD_ROLE_WITH_STALE_CANDIDATE,
-        LEDGER_ACTIVE_ROLE,
-        SLOT_CONFLICT,
-        INVENTORY_READ_FAILED,
-        APPLIED,
-        SYNC_FAILED
+    private static AutoToolSwapStackState state(String role, String dynamic) {
+        return AutoToolSwapStackState.occupied(role,
+                AutoToolSwapContentFingerprint.fromContent(role, dynamic), 20);
     }
 
     private static final class Fixture {
-
-        private final AutoToolSwapRoundService service;
-        private final UUID player;
-        private final Object endpoint;
+        private final AutoToolSwapRoundService service = new AutoToolSwapRoundService(0L);
+        private final UUID player = UUID.randomUUID();
+        private final Object endpoint = new Object();
         private final long roundId;
-        private final FakeInventory inventory;
 
-        private Fixture(AutoToolSwapRoundService service, UUID player, Object endpoint, long roundId,
-                FakeInventory inventory) {
-            this.service = service;
-            this.player = player;
-            this.endpoint = endpoint;
-            this.roundId = roundId;
-            this.inventory = inventory;
+        private Fixture() {
+            service.beginRound(player, endpoint, 1L, 0L);
+            roundId = service.activatePendingRound(player, endpoint, 1L).serverRoundId();
         }
     }
 
-    private static final class FakeInventory implements AutoToolSwapInventoryPort,
-            AutoToolSwapRoundService.DiagnosticInventory {
-
-        private final AutoToolSwapStackState[] slots = new AutoToolSwapStackState[36];
-        private boolean alive = true;
-        private boolean creative;
-        private boolean window0 = true;
-        private boolean cursorEmpty = true;
-        private int selectedSlot;
-        private boolean failRead;
-        private FailureMode swapFailure = FailureMode.NONE;
-        private FailureMode syncFailure = FailureMode.NONE;
-        private int readCount;
-        private int swapCount;
-        private int syncCount;
-        private int rotateCount;
-        private int contextReadCount;
-        private int diagnosticCount;
-
-        @Override
-        public boolean isPlayerAlive() {
-            contextReadCount++;
-            return alive;
-        }
-
-        @Override
-        public boolean isCreativeMode() {
-            contextReadCount++;
-            return creative;
-        }
-
-        @Override
-        public boolean hasPersonalInventoryWindow0() {
-            contextReadCount++;
-            return window0;
-        }
-
-        @Override
-        public boolean isCursorEmpty() {
-            contextReadCount++;
-            return cursorEmpty;
-        }
-
-        @Override
-        public int selectedHotbarSlot() {
-            contextReadCount++;
-            return selectedSlot;
-        }
-
-        @Override
-        public AutoToolSwapStackState readInventorySlot(int inventorySlot) {
-            readCount++;
-            if (failRead) {
-                throw new IllegalStateException("read failure");
-            }
-            AutoToolSwapStackState state = slots[inventorySlot];
-            return state == null ? AutoToolSwapStackState.empty() : state;
-        }
-
-        @Override
-        public AutoToolSwapRoundService.InventoryFingerprint readInventoryIdentity() {
-            return inventoryFingerprint(this);
-        }
-
-        @Override
-        public void swapInventorySlotsAtomically(int anchorSlot, int candidateSlot) {
-            swapCount++;
-            throwForFailure(swapFailure, "swap outcome unknown");
-            AutoToolSwapStackState value = slots[anchorSlot];
-            slots[anchorSlot] = slots[candidateSlot];
-            slots[candidateSlot] = value;
-        }
-
-        @Override
-        public void rotateInventorySlotsAtomically(int anchorSlot, int oldCandidateSlot, int newCandidateSlot) {
-            rotateCount++;
-            AutoToolSwapStackState anchor = slots[anchorSlot];
-            AutoToolSwapStackState oldCandidate = slots[oldCandidateSlot];
-            slots[anchorSlot] = slots[newCandidateSlot];
-            slots[oldCandidateSlot] = anchor;
-            slots[newCandidateSlot] = oldCandidate;
-        }
-
-        @Override
-        public void syncInventoryDifference() {
-            syncCount++;
-            throwForFailure(syncFailure, "sync failure");
-        }
-
-        @Override
-        public AutoToolSwapRoundService.InventoryDiagnosticSnapshot captureDiagnosticSnapshot(
-                int anchorSlot, int candidateSlot) {
-            diagnosticCount++;
-            return new AutoToolSwapRoundService.InventoryDiagnosticSnapshot(selectedSlot,
-                    "registry=mod:anchor,contentHash=short",
-                    "registry=mod:candidate,contentHash=short",
-                    "registry=mod:current,contentHash=short");
-        }
-
-        private static void throwForFailure(FailureMode failureMode, String message) {
-            if (failureMode == FailureMode.RUNTIME) {
-                throw new IllegalStateException(message);
-            }
-            if (failureMode == FailureMode.LINKAGE) {
-                throw new LinkageError(message);
-            }
-        }
+    private static final class ExplodingInventory implements AutoToolSwapInventoryPort {
+        private int accesses;
+        private AssertionError accessed() { accesses++; return new AssertionError("inventory must stay unread"); }
+        @Override public boolean isPlayerAlive() { throw accessed(); }
+        @Override public boolean isCreativeMode() { throw accessed(); }
+        @Override public boolean hasPersonalInventoryWindow0() { throw accessed(); }
+        @Override public boolean isCursorEmpty() { throw accessed(); }
+        @Override public int selectedHotbarSlot() { throw accessed(); }
+        @Override public AutoToolSwapStackState readInventorySlot(int slot) { throw accessed(); }
+        @Override public void swapInventorySlotsAtomically(int first, int second) { throw accessed(); }
+        @Override public void syncInventoryDifference() { throw accessed(); }
     }
 }

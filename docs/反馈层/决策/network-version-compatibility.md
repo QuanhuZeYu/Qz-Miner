@@ -61,6 +61,13 @@ major.minor.patch[-prerelease][+build]
 `QzMinerConfigSchemaTest` 是可执行锚。5.1 family 内不得重排、复用、删除或改变上述 wire/schema
 语义；任何不兼容变化必须升级到新的 minor family，而不是借 dev/prerelease qualifier 绕过。
 
+## 自动工具 mixed-patch 语义
+
+- 服务端本地批量接替只改变 5.1 patch 内部职责，不改变 v4 wire。新 client/new server 在 round 激活后 direct `FREEZE`，普通 `CHAIN/AREA` 的候选、mutation、restore 与批量 publication 全在服务端主线程完成，不发送逐目标 `PacketAutoToolSwapTakeoverRequest`。
+- 旧 client/new server 的首个旧 `SWAP` 在库存 factory/read/mutation 前以 `REJECTED + FROZEN` 收口；旧 `SWAP/RESTORE/TAKEOVER/DECLINE_TAKEOVER` 都没有 physical 副作用，`FREEZE/CLOSE/ABANDON` 只推进 wire projection。
+- 新 client/旧 server 继续解码真实旧 `AutoToolSwapTakeoverRequest` 并在下一 ClientTick 响应；没有初始预挖 SWAP、仍受逐目标 RTT 影响是已接受的功能降级。`client.autoToolTakeoverEnabled` 只控制该 fallback。
+- old/old 保持各自既有 v4 行为。以上四象限都以双方先通过合法 5.1 family 握手为前提；没有 v3/v4 capability negotiation，也不能从静态解码测试推导真实 mixed runtime 已通过。
+
 ## 版本注入与发布前边界
 
 - 首个 5.1 tag 前，branch CI 的每个 baseline job 由 runner 声明 `VERSION=5.1.0-ci+${{ github.sha }}`，
