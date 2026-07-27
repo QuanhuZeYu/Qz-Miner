@@ -22,7 +22,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 自动工具换位 C2S 请求的 FIFO 主线程收口。
  *
  * <p>Netty 线程只捕获 UUID、弱 endpoint identity 和原始 wire 值。主线程重新从
- * {@code PlayerManager} 获取同一实例后，才执行协议解码、库存端口创建和事务核心调用。</p>
+ * {@code PlayerManager} 获取同一实例后，才执行协议解码和 projection 核心调用。v4 intent 在
+ * 新服务端均不拥有库存写权，因此 inventory factory 保留为 source-compatible surface，但不会创建。</p>
  */
 public final class ServerAutoToolSwapRequestDispatch {
 
@@ -136,8 +137,9 @@ public final class ServerAutoToolSwapRequestDispatch {
             sender.send(playerId, endpoint, rawIntent, rejectedOrphaned(rawIntent.serverRoundId, serverTick));
             return;
         }
-        AutoToolSwapInventoryPort inventory = inventoryFactory.create(endpoint);
-        AutoToolSwapRoundResult result = service.handleIntent(playerId, endpoint, intent, inventory, serverTick);
+        // identity/raw/action 已全部通过后仍不创建 inventory port：FREEZE/CLOSE/ABANDON 只推进
+        // projection；旧 SWAP/RESTORE/TAKEOVER/DECLINE 必须在 factory/create/read 前零写拒绝。
+        AutoToolSwapRoundResult result = service.handleIntent(playerId, endpoint, intent, null, serverTick);
         try {
             sender.send(playerId, endpoint, rawIntent, result);
         } catch (RuntimeException publicationFailure) {

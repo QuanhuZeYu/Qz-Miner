@@ -7,11 +7,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.executor.ChainDropReleaseHelper;
 import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.event.EventListener;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.CloseCause;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
@@ -47,6 +49,7 @@ public final class ChainStateService {
     }
 
     public void removePlayerState(UUID playerUUID, String reason) {
+        finalizeAutoToolSwapLocal(playerUUID, null);
         cleanupAutoToolSwapRound(playerUUID);
         GregTechCableSessionState.clear(playerUUID);
         ChainPlayerState state = playerStates.remove(playerUUID);
@@ -62,6 +65,8 @@ public final class ChainStateService {
     }
 
     public void cleanupPlayerState(UUID playerUUID, EntityPlayer player, String reason, boolean removeState) {
+        // local owner 必须先 restore/classify + publication gate，projection 与连锁运行态才可清除。
+        finalizeAutoToolSwapLocal(playerUUID, player);
         cleanupAutoToolSwapRound(playerUUID);
         ChainPlayerState state = getPlayerState(playerUUID);
         if (state == null) {
@@ -233,10 +238,21 @@ public final class ChainStateService {
         ChainDropReleaseHelper.discard(state.getPlayerUUID().toString(), state.getDropBuffer(), reason + "-missing-release-context");
     }
 
-    /** 丢弃服务端工具换位账本，不创建 endpoint 或访问库存。 */
+    /** 丢弃无库存写权的 v4 round projection。 */
     private void cleanupAutoToolSwapRound(UUID playerUUID) {
         if (playerUUID != null && MyMod.autoToolSwapRoundService != null) {
             MyMod.autoToolSwapRoundService.cleanup(playerUUID);
         }
+    }
+
+    /** 状态服务清理前的幂等 local restore 兜底。 */
+    private void finalizeAutoToolSwapLocal(UUID playerUUID, Object endpoint) {
+        if (playerUUID == null || MyMod.autoToolSwapServerBatchService == null) return;
+        Object resolved = endpoint;
+        if (resolved == null && MyMod.playerManager != null) {
+            resolved = MyMod.playerManager.getPlayer(playerUUID);
+        }
+        MyMod.autoToolSwapServerBatchService.finalizePlayer(playerUUID, resolved, null,
+                CloseCause.LIFECYCLE_CLEANUP, Math.max(0L, ChainTickSource.currentServerTick()));
     }
 }

@@ -6,6 +6,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import club.heiqi.qz_miner.core.PlayerManager;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
@@ -33,6 +34,7 @@ import club.heiqi.qz_miner.parallel.ParallelTickExecutor;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundPhaseProjectionBridge;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
@@ -60,7 +62,9 @@ public class MyMod {
     public static PlayerManager playerManager;
     /** 服务端自动工具换位唯一 round 账本。 */
     public static AutoToolSwapRoundService autoToolSwapRoundService;
-    /** 非 GT 执行队列的 poll 前接替门。 */
+    /** ordinary CHAIN/AREA 唯一 local session/physical ledger owner。 */
+    public static AutoToolSwapServerBatchService autoToolSwapServerBatchService;
+    /** 旧 public/source surface；新 ordinary runtime wiring 不调用。 */
     public static AutoToolSwapTakeoverCoordinator autoToolSwapTakeoverCoordinator;
     public static ChainStateService chainStateService;
     public static ChainPlanner chainPlanner;
@@ -138,6 +142,8 @@ public class MyMod {
         ChainSubModeBootstrap.bootstrap();
         playerManager = new PlayerManager();
         autoToolSwapRoundService = new AutoToolSwapRoundService();
+        autoToolSwapServerBatchService = new AutoToolSwapServerBatchService();
+        autoToolSwapServerBatchService.publishPolicy(ConfigBootstrap.currentCommittedSnapshot());
         autoToolSwapTakeoverCoordinator = new AutoToolSwapTakeoverCoordinator(autoToolSwapRoundService);
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
@@ -151,6 +157,8 @@ public class MyMod {
         // P2-D（阶段6）：服务端 bus 锚服务端主线程，bindMainThread 挪到 serverStarting（在服务器线程执行）。
         // 客户端 bus 锚客户端主线程（ClientProxy.init 锚定），消除单人模式软校验 warn。
         chainEventBus = new ChainEventBus();
+        // restore barrier 必须早于状态机、执行桥等会清理 state/registry 的订阅者。
+        autoToolSwapServerBatchService.subscribeLifecycle(chainEventBus);
         chainStateMachine = new ChainStateMachine(chainEventBus);
         // 阶段5：执行上下文注册表（E1-c），先于规划桥实例化（规划桥构造器注入 registry）
         chainExecutionContextRegistry = new ChainExecutionContextRegistry();
@@ -161,8 +169,8 @@ public class MyMod {
         // 接线顺序：状态机 → registry → 规划桥 → 执行桥（构造，订阅 PlanCompleted）→ Drainer.bootstrap() → 执行桥.bootstrap()。
         // Drainer 先注册 FML bus，确保 ServerTickEvent 分发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
         // → executionBridge.onServerTick（消费 context），同 tick 完成登记+消费，无延迟（阶段8 接管真实破坏时手感不受影响）。
-        chainExecutionEventBridge = new ChainExecutionEventBridge(chainEventBus, chainExecutionContextRegistry,
-                autoToolSwapTakeoverCoordinator);
+        chainExecutionEventBridge = ChainExecutionEventBridge.withLocalToolSwap(
+                chainEventBus, chainExecutionContextRegistry, autoToolSwapServerBatchService);
         // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
         // 守 I1：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
@@ -181,6 +189,7 @@ public class MyMod {
         chainLifecycleBridge = new ChainLifecycleBridge(chainEventBus);
         new ChainEventBusDrainer(chainEventBus).bootstrap();
         chainExecutionEventBridge.bootstrap();
+        autoToolSwapServerBatchService.bootstrap();
         chainWatchdog.bootstrap();
         chainLifecycleBridge.bootstrap();
         ensureParallelTickExecutor();
@@ -206,14 +215,23 @@ public class MyMod {
             chainEventBus.bindMainThread(Thread.currentThread());
         }
         ServerMainThreadDispatcher.onServerStarting();
-        // 主菜单保存后集成服启动：在 dispatcher 就绪后从 Authority 再发布 general
-        club.heiqi.qz_miner.config.ConfigBootstrap.reapplyGeneralOnServerStarting();
+        // 主菜单保存后集成服启动：在 dispatcher 就绪后从 Authority 再发布 general 与下一 session policy。
+        ConfigBootstrap.reapplyGeneralOnServerStarting();
+        if (autoToolSwapServerBatchService != null) {
+            autoToolSwapServerBatchService.publishPolicy(ConfigBootstrap.currentCommittedSnapshot());
+        }
         proxy.serverStarting(event);
     }
 
     @Mod.EventHandler
     public void serverStopping(FMLServerStoppingEvent event) {
-        // 先完成玩家生命周期清理，再关闭 dispatcher，避免 stop 后 FIFO 拒绝清理任务
+        // local physical restore 必须早于玩家映射、projection、state 与 dispatcher 清理。
+        if (autoToolSwapServerBatchService != null) {
+            autoToolSwapServerBatchService.finalizeAll(
+                    AutoToolSwapServerBatchService.CloseCause.SERVER_STOP,
+                    Math.max(0L, club.heiqi.qz_miner.chain.eventbus.ChainTickSource.currentServerTick()));
+        }
+        // 再完成玩家生命周期清理，最后关闭 dispatcher，避免 stop 后 FIFO 拒绝清理任务
         PlayerManager.clearAllPlayersOnServerStopping();
         if (autoToolSwapRoundService != null) {
             autoToolSwapRoundService.clearAll();

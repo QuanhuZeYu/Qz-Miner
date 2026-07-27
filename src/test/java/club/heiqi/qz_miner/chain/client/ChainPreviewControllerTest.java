@@ -22,6 +22,45 @@ public class ChainPreviewControllerTest {
         Assert.assertTrue(source.contains("final TileEntity sampleTileEntity = seedSnapshot.getSampleTileEntity()"));
         Assert.assertFalse(source.substring(source.indexOf("public void onToolLayoutVerified"),
                 source.indexOf("@SubscribeEvent")).contains("shouldLockCurrentPreview"));
+        Assert.assertTrue(source.contains("resetPreview(replaceSeedLease)"));
+    }
+
+    @Test
+    public void localDestroyLeaseIsEstablishedBeforeLookSamplingWithExactIdentityGates() throws Exception {
+        String source = source();
+        int tick = source.indexOf("public void onClientTick");
+        int lock = source.indexOf("shouldLockCurrentPreview()", tick);
+        int sample = source.indexOf("resolveLookHit(minecraft, player, selectedSubMode)", tick);
+        String destroy = source.substring(source.indexOf("public void onLocalBlockDestroyed"), tick);
+
+        Assert.assertTrue(lock > tick && sample > lock);
+        Assert.assertTrue(destroy.contains("previewState.isActive()"));
+        Assert.assertTrue(destroy.contains("previewSeedSnapshot == null"));
+        Assert.assertTrue(destroy.contains("world != previewSeedWorld"));
+        Assert.assertTrue(destroy.contains("currentTarget.equals(previewSeedSnapshot.getOrigin())"));
+        Assert.assertTrue(destroy.contains("currentTarget.getX() != x"));
+        Assert.assertTrue(destroy.contains("previewOriginLease.acquire("));
+        Assert.assertFalse(destroy.contains("getBlock("));
+        Assert.assertFalse(destroy.contains("getBlockMetadata("));
+    }
+
+    @Test
+    public void localLeaseAndPhaseLockAreMergedAndOnlyFullResetClearsLease() throws Exception {
+        String source = source();
+        int lockStart = source.indexOf("private boolean shouldLockCurrentPreview()");
+        int stopStart = source.indexOf("private void stopPreview()", lockStart);
+        String lock = source.substring(lockStart, stopStart);
+        int resetStart = source.indexOf("private void resetPreview(boolean clearSeedLease)");
+        int refreshAction = source.indexOf("private static boolean isPreviewRefreshAction", resetStart);
+        String reset = source.substring(resetStart, refreshAction);
+
+        Assert.assertTrue(lock.contains("previewOriginLease.shouldLock(phase, generation)"));
+        Assert.assertTrue(lock.contains("localOriginLocked || phase == ChainPhase.PLANNING"));
+        Assert.assertTrue(reset.contains("if (clearSeedLease)"));
+        Assert.assertTrue(reset.substring(reset.indexOf("if (clearSeedLease)")).contains(
+                "previewOriginLease.reset()"));
+        Assert.assertFalse(reset.substring(0, reset.indexOf("if (clearSeedLease)")).contains(
+                "previewOriginLease.reset()"));
     }
 
     @Test
@@ -33,6 +72,7 @@ public class ChainPreviewControllerTest {
         Assert.assertTrue(source.contains("world != previewSeedWorld"));
         Assert.assertTrue(source.contains("previewSeedSnapshot = null"));
         Assert.assertTrue(source.contains("previewSeedWorld = null"));
+        Assert.assertTrue(source.contains("previewOriginLease.reset()"));
         Assert.assertTrue(source.contains("clearInvalidationIdentity()"));
         Assert.assertTrue(source.contains("previewState.getGeneration() != generation"));
         Assert.assertTrue(source.contains("concreteFace == previewConcreteFace"));

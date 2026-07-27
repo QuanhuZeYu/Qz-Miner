@@ -11,6 +11,8 @@ import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent.Reason;
 import club.heiqi.qz_miner.event.QzEvents;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
+import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.CloseCause;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
@@ -83,6 +85,7 @@ public final class PlayerManager {
         MyMod.LOG.info("[PlayerManager] Exiting to main menu, clearing {} player(s)", instance.players.size());
         for (Map.Entry<UUID, EntityPlayer> entry : instance.players.entrySet()) {
             EntityPlayer player = entry.getValue();
+            finalizeAutoToolSwap(entry.getKey(), player, null, CloseCause.SERVER_STOP);
             QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
         }
         instance.players.clear();
@@ -155,6 +158,7 @@ public final class PlayerManager {
     private void onPlayerDisconnectOnServerThread(PlayerDisconnectEvent event) {
         EntityPlayer player = event.player;
         UUID uuid = player.getUniqueID();
+        finalizeAutoToolSwap(uuid, player, null, CloseCause.LOGOUT);
         players.remove(uuid);
         MyMod.LOG.info("[PlayerManager] Player disconnected: {} (UUID: {}), reason: {}, online players: {}",
                 player.getCommandSenderName(), uuid, event.reason.getUnformattedText(), players.size());
@@ -167,7 +171,10 @@ public final class PlayerManager {
     @SubscribeEvent
     public void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
         EntityPlayer player = event.player;
-        players.put(player.getUniqueID(), player);
+        UUID uuid = player.getUniqueID();
+        EntityPlayer previous = players.get(uuid);
+        finalizeAutoToolSwap(uuid, previous, player, CloseCause.RESPAWN);
+        players.put(uuid, player);
         MyMod.LOG.debug("[PlayerManager] Player respawned: {} (UUID: {}), online players: {}",
                 player.getCommandSenderName(), player.getUniqueID(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.RESPAWN));
@@ -179,7 +186,10 @@ public final class PlayerManager {
     @SubscribeEvent
     public void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         EntityPlayer player = event.player;
-        players.put(player.getUniqueID(), player);
+        UUID uuid = player.getUniqueID();
+        EntityPlayer previous = players.get(uuid);
+        finalizeAutoToolSwap(uuid, previous, player, CloseCause.DIMENSION_CHANGE);
+        players.put(uuid, player);
         MyMod.LOG.debug("[PlayerManager] Player changed dimension: {} (UUID: {}), online players: {}",
                 player.getCommandSenderName(), player.getUniqueID(), players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.DIMENSION_CHANGE));
@@ -197,9 +207,20 @@ public final class PlayerManager {
     public void onPlayerClone(Clone event) {
         EntityPlayer newPlayer = event.entityPlayer;
         UUID uuid = newPlayer.getUniqueID();
+        EntityPlayer oldPlayer = event.original == null ? players.get(uuid) : event.original;
+        // clone 必须同时提供 old/new endpoint；local owner 会选择匹配已知布局的一侧。
+        finalizeAutoToolSwap(uuid, oldPlayer, newPlayer, CloseCause.CLONE);
         players.put(uuid, newPlayer);
         MyMod.LOG.debug("[PlayerManager] Player cloned: {} (UUID: {}), wasDeath: {}, online players: {}",
                 newPlayer.getCommandSenderName(), uuid, event.wasDeath, players.size());
         QzEvents.post(new PlayerStateEvent(newPlayer, Reason.CLONE));
+    }
+
+    /** endpoint replace/remove 前的统一 local physical restore 屏障。 */
+    private static void finalizeAutoToolSwap(UUID playerId, Object preferredEndpoint,
+            Object alternateEndpoint, CloseCause cause) {
+        if (MyMod.autoToolSwapServerBatchService == null) return;
+        MyMod.autoToolSwapServerBatchService.finalizePlayer(playerId, preferredEndpoint,
+                alternateEndpoint, cause, Math.max(0L, ChainTickSource.currentServerTick()));
     }
 }

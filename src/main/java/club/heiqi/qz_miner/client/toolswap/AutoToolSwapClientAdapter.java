@@ -25,7 +25,9 @@ import cpw.mods.fml.relauncher.SideOnly;
  * 自动工具客户端的薄 runtime adapter。
  *
  * <p>本类只采样 Minecraft 事实、执行 reducer effect 与进行网络 I/O；所有可跨调用保留的业务事实均由
- * {@link AutoToolSwapClientReducer} 独占。S2C publication 只推进 reducer，绝不在 callback 内发送 C2S。</p>
+ * {@link AutoToolSwapClientReducer} 独占。新服务端 round 只采样 light context 并在后续 tick 发送
+ * {@code FREEZE}，不为 ordinary 热路遍历客户端库存；完整候选采样只保留给旧服务端
+ * {@code TakeoverRequest} fallback。S2C publication 只推进 reducer，绝不在 callback 内发送 C2S。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class AutoToolSwapClientAdapter {
@@ -45,6 +47,7 @@ public final class AutoToolSwapClientAdapter {
     /** Minecraft 事实读取边界。 */
     public interface GameFacade {
         ToolSwapLightContext captureLightContext(long tick, boolean chainActive);
+        /** {@code NONE} 必须零库存遍历；{@code FULL_TARGET} 仅供旧服务端接替请求。 */
         ToolSwapContext captureContext(ToolSwapLightContext light, ToolSwapCapturePlan plan,
                 int anchorSlot, int candidateSlot, int targetBlockId, int targetBlockMetadata);
         boolean isChainKeyPhysicallyDown();
@@ -117,7 +120,7 @@ public final class AutoToolSwapClientAdapter {
         this.diagnosticSink = diagnosticSink;
     }
 
-    /** 真实按键边沿入口；上升沿的 RoundStart effect 仍先于外层 KeyState。 */
+    /** 真实按键边沿入口；上升沿只提交 RoundStart，direct FREEZE 留到后续 ClientTick。 */
     public void onChainKeyState(boolean down) {
         if (down == reducer.isKeyDown()) return;
         ToolSwapLightContext light = game.captureLightContext(reducer.clientTick(), down);

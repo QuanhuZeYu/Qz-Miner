@@ -14,12 +14,15 @@ public class PacketKeyStateToolSwapStructureTest {
     public void roundResolutionPrecedesStateWriteAndEventPublishInsideDispatcher() throws Exception {
         String source = source();
         int dispatcher = source.indexOf("ServerMainThreadDispatcher.run(() -> {");
+        int localFinalizer = source.indexOf("autoToolSwapServerBatchService.finalizePlayer");
         int resolve = source.indexOf("AutoToolSwapKeyStateBridge.onKeyState(player, pressed)");
         int stateWrite = source.indexOf("setPlayerChainKeyPressed");
         int keyEvent = source.indexOf("new ChainKeyPressed(");
         int cleanupEvent = source.indexOf("new LifecycleCleanup(");
 
         Assert.assertTrue(dispatcher >= 0);
+        Assert.assertTrue("松键 local restore 必须早于 projection 收口", dispatcher < localFinalizer);
+        Assert.assertTrue(localFinalizer < resolve);
         Assert.assertTrue(dispatcher < resolve);
         Assert.assertTrue(resolve < stateWrite);
         Assert.assertTrue(stateWrite < keyEvent);

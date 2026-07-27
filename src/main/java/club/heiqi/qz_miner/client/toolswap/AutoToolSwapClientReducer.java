@@ -468,8 +468,8 @@ public final class AutoToolSwapClientReducer {
             long worldGeneration) {
         if (context == null || down == keyDown) return ToolSwapCapturePlan.NONE;
         if (!down) return needsProtectedCapture() ? ToolSwapCapturePlan.PROTECTED : ToolSwapCapturePlan.NONE;
-        boolean preFrozen = preEdgeDestroyTick == clientTick && preEdgeWorldGeneration == worldGeneration;
-        return context.guiOpen || preFrozen ? ToolSwapCapturePlan.NONE : ToolSwapCapturePlan.FULL;
+        // 新服务端执行热路不消费客户端候选或初始布局；上升沿只需 light context 建 round。
+        return ToolSwapCapturePlan.NONE;
     }
 
     /** tick 所需库存采样范围，包含 deferred rearm 的完整快照门。 */
@@ -485,7 +485,7 @@ public final class AutoToolSwapClientReducer {
             return ToolSwapCapturePlan.FULL;
         }
         if (deferredRoundPending && keyDown && physicallyDown && state == State.IDLE) {
-            return ToolSwapCapturePlan.FULL;
+            return ToolSwapCapturePlan.NONE;
         }
         if (state == State.IDLE || state == State.WAIT_RELEASE || state == State.ORPHANED) {
             return ToolSwapCapturePlan.NONE;
@@ -546,7 +546,7 @@ public final class AutoToolSwapClientReducer {
         if (deferredRoundPending) {
             deferredRoundPending = false;
             if (event.physicallyDown && keyDown && configuredEnabled && state == State.IDLE
-                    && event.context != null && event.context.inventory.isFullCandidateScan()) {
+                    && event.context != null) {
                 effects.addAll(startCycle(event.context, false, true));
             }
         }
@@ -875,7 +875,8 @@ public final class AutoToolSwapClientReducer {
         cycleSelectors = configuredSelectors;
         anchorSlot = context.selectedHotbarSlot;
         nextMatchTick = context.tick;
-        freezeRequested = preFrozen;
+        // 方案 A：新 round 不创建客户端 physical lease；激活后首个 ordinary intent 恒为 FREEZE。
+        freezeRequested = true;
         closeRequested = false;
         closeCause = CloseCause.NONE;
         rematchAfterRestore = false;
@@ -907,8 +908,8 @@ public final class AutoToolSwapClientReducer {
             return noEffects();
         }
         round = new RoundContext(nonce);
-        state = preFrozen ? State.FROZEN : State.PREPARING;
-        if (preFrozen) clearPreparingTargetTracking();
+        state = State.FROZEN;
+        clearPreparingTargetTracking();
         return oneEffect(roundEffect(nonce, false, freshKeyAfterSubmit));
     }
 

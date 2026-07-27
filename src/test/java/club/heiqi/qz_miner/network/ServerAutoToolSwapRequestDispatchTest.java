@@ -119,7 +119,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
     }
 
     @Test
-    public void legalAndDuplicateIntentsRemainFifoAndEachReceiveResult() {
+    public void legalAndDuplicateIntentsRemainFifoInventoryFreeAndEachReceiveResult() {
         Fixture fixture = new Fixture();
         submitIntent(fixture, 1, 0, 1);
         submitIntent(fixture, 1, 0, 1);
@@ -129,11 +129,25 @@ public class ServerAutoToolSwapRequestDispatchTest {
         fixture.fifo.runNext();
 
         Assert.assertEquals(2, fixture.service.intentCalls);
-        Assert.assertEquals(2, fixture.inventoryCreates);
+        Assert.assertEquals("wire projection 不得创建 inventory port", 0, fixture.inventoryCreates);
         Assert.assertEquals(2, fixture.actionReplies);
         Assert.assertEquals(2, fixture.service.confirmCalls);
         Assert.assertEquals(1L, fixture.lastRawIntent.actionSequence);
         Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, fixture.lastActionResult.outcome());
+    }
+
+    @Test
+    public void allLegacyMutationActionsAreRejectedBeforeInventoryFactoryBoundary() {
+        for (AutoToolSwapAction action : new AutoToolSwapAction[] {
+                AutoToolSwapAction.SWAP, AutoToolSwapAction.RESTORE,
+                AutoToolSwapAction.TAKEOVER, AutoToolSwapAction.DECLINE_TAKEOVER }) {
+            Fixture fixture = new Fixture();
+            submitIntent(fixture, action.wireCode(), 0, 9);
+            fixture.fifo.runNext();
+            Assert.assertEquals(action.name(), 0, fixture.inventoryCreates);
+            Assert.assertEquals(action.name(), 1, fixture.service.intentCalls);
+            Assert.assertNull(action.name(), fixture.service.lastInventory);
+        }
     }
 
     @Test
@@ -284,6 +298,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
         private int intentCalls;
         private int confirmCalls;
         private AutoToolSwapIntent lastIntent;
+        private AutoToolSwapInventoryPort lastInventory;
         private AutoToolSwapRoundResult beginResult = new AutoToolSwapRoundResult(0L,
                 AutoToolSwapResultCode.ACCEPTED, AutoToolSwapRoundState.PENDING_KEY, 1L, 12L);
 
@@ -298,6 +313,7 @@ public class ServerAutoToolSwapRequestDispatchTest {
                 AutoToolSwapInventoryPort inventory, long serverTick) {
             intentCalls++;
             lastIntent = intent;
+            lastInventory = inventory;
             return new AutoToolSwapRoundResult(7L, AutoToolSwapResultCode.ACCEPTED,
                     AutoToolSwapRoundState.OPEN, 2L, serverTick);
         }

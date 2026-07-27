@@ -15,6 +15,11 @@ public class AutoToolSwapMixinStructureTest {
         String controller = source("src/main/java/club/heiqi/qz_miner/mixins/client/MixinPlayerControllerMPToolSwap.java");
         Assert.assertTrue(controller.contains("onPlayerDestroyBlock(IIII)Z"));
         Assert.assertTrue(controller.contains("getReturnValueZ()"));
+        int trueBranch = controller.indexOf("if (callback.getReturnValueZ())");
+        int preview = controller.indexOf("chainPreviewController.onLocalBlockDestroyed(x, y, z)", trueBranch);
+        int toolSwap = controller.indexOf("AutoToolSwapHooks.onLocalBlockDestroyed()", trueBranch);
+        Assert.assertTrue(preview > trueBranch && toolSwap > preview);
+        Assert.assertFalse(controller.substring(0, trueBranch).contains("onLocalBlockDestroyed"));
         Assert.assertFalse(new File("src/main/java/club/heiqi/qz_miner/mixins/client/MixinNetHandlerPlayClientToolSwap.java").exists());
     }
 

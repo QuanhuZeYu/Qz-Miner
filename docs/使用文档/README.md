@@ -16,14 +16,15 @@
   - 服务端只使用已经整包接受并回执的偏好；客户端预览也只使用服务端 ACK 后的 accepted 值，保存后等待 ACK 期间不会乐观切换方向。
   - `hit_face` 的左键命中只与随后同维度、同坐标的破坏事件匹配一次；缺失、非法或失配时回退该次破坏时冻结的视线方向。松键、切换模式/子模式及玩家生命周期清理都会使未消费命中失效。
   - 新旧端混连时固定降级为 `look_direction`：旧 C2S 8 字节与旧 S2C 12 字节仍可读取；新 C2S 为 16 字节、新 S2C 为 20 字节，并保留旧字段前缀。运行态的新新、旧新、新旧、旧旧四象限仍待实机验证。
-- `client.autoToolSwapEnabled`：是否启用自动工具换位，默认 `true`。仅在按住连锁键且当前子模式由破坏方块触发时参与；创造模式不参与。当前主手能够收获且满足耐久条件时不会换位，候选工具至少保留 2 点耐久；实际挖掘效率仍会采样，但低效率或效率采样异常只记为 effective=false，不排除可收获工具，也不会使整个库存快照失效。
-- `client.autoToolTakeoverEnabled`：是否在普通 CHAIN/AREA 连锁执行中自动接替耗尽工具，默认 `true`。关闭后服务端提出的新接替请求会安全拒绝并只跳过当前目标，不影响已有 SWAP/RESTORE 收口或后续目标。
-- `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。
-  - **运行节奏**：按键上升沿建立本轮，首次可立即匹配，稳定目标之后最多每 10 tick 重匹配一次。首块成功前，准星切到不同方块或 metadata 会先恢复旧借用工具，再只为最终目标重新选择；同方块、同 metadata 的坐标变化不重选。存在目标的 numeric block ID 支持 `1..Integer.MAX_VALUE`，metadata 支持 `0..Integer.MAX_VALUE`；block ID 0 保留为空气/缺席。准星短暂越过空气 1 tick 不触发库存事务，连续 2 个客户端 END tick 无有效方块才确认丢失并恢复。普通 `CHAIN` 在规划启动时冻结当时的主手、背包全部工具和空手能力：同块、矿石、伐木或对象组中的匹配方块若没有任何冻结能力可收获，就在该点断链，不入队也不搜索其后邻居。`AREA` 爆破、隧道、同块区域、矿石区域和区段清理不使用该工具门删目标，仍按各自空间/结构范围逐个交服务端主线程尝试；confirmed/预览表示“待尝试目标”，不是保证全部可破坏。执行中工具损坏不会结束或重写已规划队列；当前目标无候选、请求发送失败、短等待超时、目标变化或写前库存校验失败只跳过该目标，下一目标会重新读取库存并使用新请求号，后来补入库存仍可影响尚未消费目标。未声明 harvestTool 的未知工具使用通用 `Item.canHarvestBlock` 判定，不依赖 TiC/模组白名单。GT 线缆 SPECIAL 不走此门。
-  - **通信恢复**：客户端对静默请求按固定 20 tick 节奏重发同一不可变请求；准备、恢复和关闭类事务保留 120 tick 硬 deadline。服务端库存写入只执行一次，随后即使完整库存同步或动作回执发送连续失败，也只重发完整个人库存和同一回执，不重复交换。接替结果尚未可靠发布时当前目标保持等待，不会提前消费；迟到旧请求或旧结果不会接管新目标。
-  - **收口边界**：打开 GUI 或切换热栏槽位时会先恢复已换入工具，并保留当前轮次；松开连锁键、关闭配置或连锁自然回到空闲时会恢复后结束。断线、重生、切维度、服务停止或真实 watchdog 属硬生命周期收口，不跨生命周期重试或盲目恢复，以服务端最后同步的库存状态为准。
-  - **预览刷新**：SWAP、连锁中接替和最终恢复必须先收到动作成功结算，再等完整原版库存中的目标布局首次可见，之后才使用首次瞄准时冻结的方块 seed 重新计算预览；同步失败回执本身不启动布局观察。重复同步、断线或已停止预览不会复活旧结果。
-  - **验收状态**：CHAIN 冻结能力断链、AREA 宽进、主线程逐目标权威、poll 预算、通用 Item API 与效率异常降级已有自动化证据；协议 v4 的连续同步/回执失败、exact retry、乱序与 lifecycle 矩阵以当前任务验证结果为准。同版本 client/dedicated、真实连锁/爆破/隧道体验、HUD/预览、连续多次接替、空手与模组方块及完整生命周期运行态仍待用户实机验证。
+- `client.autoToolSwapEnabled`：是否启用自动工具换位，默认 `true`。路径名为兼容既有 schema 保持不变，但新普通 `CHAIN/AREA` 热路读取的是**服务器自己的**已提交 YAML 值；远程客户端不会把本地 enable 上传给服务器。活动连锁 session 冻结创建时策略，服务器 reload 只影响下一 session。创造模式不换位。
+- `client.autoToolTakeoverEnabled`：默认 `true`，只控制新客户端连接旧 5.1 server 时是否响应旧式 `AutoToolSwapTakeoverRequest` fallback；新 server 的本地批量选择不读取该开关，也不发送接替请求。
+- `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。新 server 使用自己的列表；客户端本地列表只供旧 server fallback，双方不会互相覆盖。
+  - **运行节奏**：普通 `CHAIN/AREA` 每个服务端 tick 建立本地 batch，并在每个目标前实时重读 block/meta、当前手和个人库存 `0..35`。当前手能收获且至少保留 2 点耐久时零换位；否则服务器可在同一 tick 完成首次二槽交换及后续三槽轮转，并继续消费到既有 `maxBreakPerTick` poll budget，不等待客户端网络往返。无候选、目标/候选漂移、低耐久或 mutation 后实时采掘拒绝只跳当前目标；后来补入库存仍可影响尚未消费目标。未声明 harvestTool 的未知工具使用通用 `Item.canHarvestBlock`，不依赖 TiC/模组白名单。GT 线缆 SPECIAL 与 INTERACT 不接入。
+  - **规划边界**：普通 `CHAIN` 在规划启动时冻结当时的主手、背包全部工具和空手能力；无冻结能力可收获的节点断链。`AREA` 爆破、隧道、同块区域、矿石区域和区段清理仍按空间/结构宽进并逐个交服务端主线程尝试；confirmed/预览表示“待尝试目标”，不是全部可破坏承诺。执行中工具损坏不改写已规划拓扑。
+  - **库存与同步**：客户端按键激活 round 后直接发送零库存 mutation 的 `FREEZE`，不再做初始预挖 SWAP。一个服务端 batch 内可多次换位，但每玩家每 server tick 最多发布一次完整 window 0；普通批次在 tick END 可见，terminal 批次先恢复最终布局再发布。同步失败只在下一 tick 重发完整库存，不回滚或重放换位，因此客户端库存显示与预览允许在批内短暂滞后。
+  - **收口边界**：自然完成、松键、取消、STOP、watchdog、登出、重生、切维度、clone 与服务停止都先由服务端恢复借用工具或明确分类冲突，再清执行状态。打开非个人库存 GUI、切换热栏锚点或受保护槽出现未知第三布局会 fail closed；系统不会为第三方库存改写搬运、合并或覆盖物品，也不会伪报恢复成功。完整库存连续发送失败只保留无写权的可见性重试，不无限阻塞连锁 cleanup。
+  - **混合 patch**：旧 client 连接新 server 时，首个旧 `SWAP` 会以 `REJECTED + FROZEN` 零库存收口，后续由服务器本地选择；新 client 连接旧 server 时仍响应真实旧 `AutoToolSwapTakeoverRequest`，但没有初始预挖 SWAP 且仍有逐目标 RTT。四象限都必须属于合法 5.1 family 并遵守同一 v4 wire；这是功能降级，不是 v3/v4 协商。
+  - **预览与验收状态**：新热路的预览是 observer，不阻塞服务端执行，可能到后续 phase/采样或最终 vanilla inventory publication 才收敛；旧 server fallback 仍沿既有布局可见后刷新。服务端本地 ledger、poll budget、publication gate 与 lifecycle 已有自动化证据，但真实 client/dedicated、大批次连续接替、四象限 mixed patch、HUD/预览和第三方库存冲突仍为 **INCOMPLETE**。
 - `client.objectGroups`：每个客户端玩家自己的对象组列表。每行必须有唯一非空 `id` 和至少一个成员；成员可选择全部、单个或多个 metadata，也可直接使用完整 registry 语法，例如 `minecraft:log@0`、`minecraft:log@*`、`minecraft:log@[0,16,24902,65535,16777216,2147483647]`。单值与集合只接受十进制 `0..Integer.MAX_VALUE`；负数和超出 int 的文本拒绝。
   - **管理入口**：`members` 使用 Qz-UILib 4.6.0 的成员管理选择器。配置行常驻“已配置/无效/重复”摘要与管理入口，原始列表默认折叠在“高级编辑原始规则”中。
   - **portal 布局**：管理 portal 的宽、高受当前视口约束；搜索固定在顶部，当前规则与搜索结果按 3:5 目标动态分区。overlay 打开时焦点约束在 portal 内，关闭后恢复原界面焦点。

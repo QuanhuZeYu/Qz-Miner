@@ -7,6 +7,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapKeyStateBridge;
+import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.CloseCause;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
@@ -67,6 +68,14 @@ public class PacketKeyState implements IMessage {
                     return;
                 }
 
+                long serverTick = Math.max(0L, ChainTickSource.currentServerTick());
+                // 松键是 local physical owner 的可靠屏障：必须早于 round projection、连锁状态和
+                // LifecycleCleanup 消费者，确保 restore -> publication attempt -> cleanup。
+                if (keyId == ChainConstants.KEY_CHAIN && !pressed
+                        && MyMod.autoToolSwapServerBatchService != null) {
+                    MyMod.autoToolSwapServerBatchService.finalizePlayer(player.getUniqueID(), player, null,
+                            CloseCause.KEY_RELEASE, serverTick);
+                }
                 long serverRoundId = 0L;
                 if (keyId == ChainConstants.KEY_CHAIN) {
                     serverRoundId = AutoToolSwapKeyStateBridge.onKeyState(player, pressed);
@@ -80,7 +89,7 @@ public class PacketKeyState implements IMessage {
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainEventBus != null) {
                     MyMod.chainEventBus.publish(new ChainKeyPressed(
                             player.getUniqueID(), serverRoundId, 0,
-                            ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                            serverTick, ChainTickSource.nowNanos(),
                             pressed));
                     // E2 松键即停修复：松键（pressed=false）额外 publish LifecycleCleanup(reason="user-abort",
                     // forced=true, removeSlot=false)。复用 forced=true 豁免 genCheck，无论当前处于
@@ -91,7 +100,7 @@ public class PacketKeyState implements IMessage {
                     if (!pressed) {
                         MyMod.chainEventBus.publish(new LifecycleCleanup(
                                 player.getUniqueID(), serverRoundId, 0,
-                                ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                                serverTick, ChainTickSource.nowNanos(),
                                 "user-abort", true, false));
                     }
                 }
