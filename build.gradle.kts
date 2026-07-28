@@ -4,6 +4,10 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
+val buildVersion = providers.environmentVariable("VERSION").orElse("5.2.0-dev").get()
+version = buildVersion
+extra["modVersion"] = buildVersion
+
 val expectedGregTechVersion = providers.gradleProperty("qz.gtnh.expectedGregTechVersion").orElse("")
 val resolvedGregTechVersions = configurations.named("compileClasspath").map { compileClasspath ->
     compileClasspath.incoming.resolutionResult.allComponents

@@ -72,6 +72,10 @@ major.minor.patch[-prerelease][+build]
 ## 版本注入与证据边界
 
 - 5.2 branch CI 由 runner 声明 `VERSION=5.2.0-ci+${{ github.sha }}`，并检查 generated `Tags.VERSION` 与主 JAR `Tags.class` 的 exact 值；两个 matrix leg 对同一 SHA 使用同一版本。
-- tag workflow 继续使用 tag 名注入 `VERSION`。本地未显式注入时的 Git-derived 版本不是 5.2 artifact 证据，不通过设置环境变量、Maven Local、`flatDir` 或 URL 旁路伪造。
+- tag workflow 继续使用 tag 名注入 `VERSION`。本地未显式注入时固定使用合法的 `5.2.0-dev`，只作
+  5.2 family 联调包而不是具体 patch artifact 证据；不通过设置环境变量、Maven Local、`flatDir`
+  或 URL 旁路伪造发布制品可消费性。
+- GTNHGradle 的 Git version module 已关闭；`build.gradle.kts` 是唯一版本入口，将 runner-owned `VERSION`
+  或本地默认值同时写入 `project.version` 与 `modVersion`，避免 JAR 名、资源和 generated `Tags.VERSION` 分裂。
 - parser/handler/ID/wire/schema 测试、本地 Gradle、branch CI、tag、artifact、clean consumer、Forge status query 与真实 client/dedicated 运行态分别记录，不能互相替代。
 - 真实 5.2 mixed-patch、missing-mod、鼠标取消、AABB/GL、框选执行与配置命令运行态当前均为 **INCOMPLETE**。自动化通过不能升级这些证据等级。
