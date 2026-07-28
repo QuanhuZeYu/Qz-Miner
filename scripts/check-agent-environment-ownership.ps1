@@ -36,8 +36,7 @@ function Test-AgentGradleAuthorizationText {
   param([string]$Text, [string]$Source)
   $hits = @()
   $restrictedRole = '(?i)(?:\bagent\b|\bbuild\b(?=.{0,40}(?:可|获授权|直接|运行|执行|允许)))'
-  $rolePolicy = $Source -in @('AGENTS.md', 'docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md',
-    'docs/控制律层/编排模式/TASK-BRIEF.md')
+  $rolePolicy = $Source -eq 'AGENTS.md'
   foreach ($line in ($Text -split "`r?`n")) {
     if ($rolePolicy -and $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b') {
       $hits += "[agent直接Gradle wrapper] $Source"
@@ -106,7 +105,6 @@ if ($SelfTest) {
 }
 
 $files = @("AGENTS.md", "CLAUDE.md", "README.md", "README.zh-CN.md",
-  "docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md", "docs/控制律层/编排模式/TASK-BRIEF.md",
   "docs/控制律层/稳定命令.md", "docs/控制律层/Windows-Gradle执行协议.md")
 $files += @(Get-ChildItem (Join-Path $root "scripts") -Filter *.ps1 -File | Where-Object Name -ne "check-agent-environment-ownership.ps1" | ForEach-Object FullName)
 $files += @(Get-ChildItem (Join-Path $root "scripts") -Filter *.py -File | ForEach-Object FullName)
@@ -115,21 +113,18 @@ foreach ($file in $files) {
   $path = if ([IO.Path]::IsPathRooted($file)) { $file } else { Join-Path $root $file }
   if (Test-Path $path) { $violations += Test-EnvironmentOwnershipText (Get-Content $path -Raw) ($path.Substring($root.Length + 1) -replace '\\','/') }
 }
-foreach ($required in @("AGENTS.md", "docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md", "docs/控制律层/稳定命令.md")) {
+foreach ($required in @("AGENTS.md", "docs/控制律层/稳定命令.md")) {
   $text = Get-Content (Join-Path $root $required) -Raw
   if ($text -notmatch '环境所有权' -or $text -notmatch '只读') { $violations += "[缺少正向锚] $required" }
 }
-$authorizationFiles = @('AGENTS.md', 'docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md',
-  'docs/控制律层/编排模式/TASK-BRIEF.md', 'docs/控制律层/稳定命令.md', 'docs/控制律层/发布流程.md')
+$authorizationFiles = @('AGENTS.md', 'docs/控制律层/稳定命令.md', 'docs/控制律层/发布流程.md')
 foreach ($file in $authorizationFiles) {
   $text = Get-Content (Join-Path $root $file) -Raw
   $violations += Test-AgentGradleAuthorizationText $text $file
 }
 $protocolAssertions = @(
-  @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.py','ACTIVE','禁.*wrapper','自造进程','subprocess','shell=False') },
-  @{ Path="docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md"; Patterns=@('默认 `build`','ACTIVE','qz-gradle-opencode/v1','禁止直接 PowerShell','wrapper','环境所有权') },
-  @{ Path="docs/控制律层/编排模式/TASK-BRIEF.md"; Patterns=@('ACTIVE','INCOMPLETE','run-gradle-opencode\.py','唯一下一步') },
-  @{ Path="docs/控制律层/稳定命令.md"; Patterns=@('ACTIVE','start/poll/wait/self-test','run-gradle-opencode\.py') },
+  @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.py','start/poll/wait/self-test','不得直接调用 PowerShell','Gradle wrapper','自造后台进程') },
+  @{ Path="docs/控制律层/稳定命令.md"; Patterns=@('start/poll/wait/self-test','run-gradle-opencode\.py') },
   @{ Path="scripts/run-agent-command.py"; Patterns=@('subprocess\.run','shell=False','timeout=TIMEOUT_SECONDS') },
   @{ Path="scripts/run-gradle-opencode.py"; Patterns=@('subprocess\.Popen','shell=False','qz-gradle-opencode/v1') }
 )

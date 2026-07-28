@@ -15,11 +15,11 @@ launcher 先完整写入 `.writing`，再依次原子移动为 pending 与 canon
 - Start 成功 `0`；Poll 运行中 `3`；参数拒绝 `64`；协议内部错误 `74`；锁冲突 `75`；环境异常或孤儿 `78`；Wait 窗口到期或执行超时 `124`。
 - 终态成功为 `0`，Gradle 失败传播其退出码。单行 JSON 同时给出 `status`、`protocolExitCode`，Gradle 终态另给 `gradleExitCode`，用于消歧恰好撞上协议保留码的 Gradle 退出码。
 
-## 安全与任务授权
+## 安全边界
 
 - `gradleArgs` 使用大小写敏感的严格 allowlist：任务仅 `compileJava`、`test`、`check`、`build`、`publishToMavenLocal`（qualified task path 取末段后仍须命中）；无值选项仅 `--offline`、`--no-configuration-cache`；`--tests` 必须位于已选择 `test` 任务之后并紧跟安全 Java 类/方法通配值；项目属性仅 `-Pgtnh.settings.blowdryerTag=<安全值或精确空值>`。其余选项、任务和 response file 一律在产物创建前拒绝。metadata 的 taskSummary 只记录规范任务名、参数数量和布尔选项，不记录 test filter。脚本统一 plain console。
 - 只读验证 `GRADLE_USER_HOME` 非空、绝对 ASCII 且目录存在，不回显、不修改环境。
-- 不接受 executable、workdir、log、environment、kill 参数。默认 build 仅在 `ACTIVE` 持久任务的验证清单明确授权时可使用 `Start/Poll/Wait/SelfTest`；禁止直接 wrapper 或自造进程。
+- 不接受 executable、workdir、log、environment、kill 参数。默认 `build` 按改动风险使用 `Start/Poll/Wait/SelfTest`；禁止直接 wrapper 或自造进程。
 - `runClient*`/`runServer*` 交用户；`verify-gtnh-baselines.ps1` 暂不授权。
 
 ## 命令

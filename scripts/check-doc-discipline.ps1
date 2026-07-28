@@ -47,25 +47,7 @@ if (Test-Path $errorPrevention) {
   }
 }
 
-# ----- 断言4 持久任务可提交且不依赖旧临时载体 -----
-$taskDir = Join-Path $root ".opencode/tasks"
-if (-not (Test-Path (Join-Path $taskDir "INDEX.md"))) {
-  $violations += "[持久任务] .opencode/tasks/INDEX.md 缺失"
-} else {
-  Get-ChildItem $taskDir -Filter *.md -File | ForEach-Object {
-    $relTask = ".opencode/tasks/$($_.Name)"
-    & git -C $root check-ignore -q -- $relTask
-    if ($LASTEXITCODE -eq 0) {
-      $script:violations += "[持久任务忽略] $($_.Name): 任务文件必须可提交"
-    }
-    $text = Get-Content $_.FullName -Raw
-    if ($text -match '\.opencode/(?:task\.md|session-handoff\.md)') {
-      $script:violations += "[旧任务依赖] $($_.Name): 持久任务不得依赖旧 task/handoff"
-    }
-  }
-}
-
-# ----- 断言5 docs 禁会话流水账文件名 -----
+# ----- 断言4 docs 禁会话流水账文件名 -----
 # 不应有"第N次会话""YYYYMMDD进展"这类时态编号文件（决策目录交断言1，ERROR-*.md 由 AGENTS.md 4.3 允许，REVIEW-*.md 由 4.5 允许）
 Get-ChildItem (Join-Path $root "docs") -Filter *.md -Recurse | ForEach-Object {
   $rel = $_.FullName.Substring($root.Length + 1) -replace "\\","/"
