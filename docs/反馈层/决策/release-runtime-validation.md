@@ -202,3 +202,43 @@ Miner clean consumer、Forge status query、mixed packaged JAR、真实 client/d
 CI、Release 与 assets 均不能替代这些证据。Qz-UILib 依赖坐标继续为 `4.6.1:dev`，既存 JitPack 发布门
 证据继续成立，本次未改变依赖坐标。`5.1.1` tag/Release 是不可移动发布事实；本次写回提交位于 tag
 之后，不属于 `5.1.1` 发布制品 SHA，不得移动 tag、改写 tagged changelog 或历史 Release。
+
+## 5.2.0 标准发布与跨世界生命周期回归
+
+`5.2.0` 的核心范围为严格框选爆破、固定 17 个 discriminator 的 5.2 网络合同、服务端本地自动工具精简，
+以及跨世界 endpoint/generation 生命周期收口。生命周期修复提交
+`7727546dd1a95fa4bb9c64212e09c78cf8548cb6` 统一登录、respawn、跨维度与断线清理，并以合法
+`PacketChainConfigSync` 作为客户端 server-ready 证据；依赖发布身份文档修正提交为
+`258fcec5afd128b22adbdbef76bfcb91a4ac7618`。完整候选复审无 P0/P1/P2，本地 `compileJava`、定向测试、
+`test check build` 与 `git diff --check` 均通过。
+
+最终提交 `258fcec5afd128b22adbdbef76bfcb91a4ac7618` 的 exact-SHA branch CI
+[`30357369645`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30357369645) 为
+`completed/success`；GTNH `2.8.4`、`2.9.0-beta-2`、tests、checks、build、generated/main JAR
+版本断言与聚合门均 success。Annotated tag `5.2.0` object 为
+`0582cfebadc258dad4dd1378f377b596b0d66afb`，peeled commit 固定为该 exact SHA。Tag workflow
+[`30357875456`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30357875456) 为
+`completed/success`；exact-SHA gate、默认 baseline、构建与 GitHub Release 均 success。
+
+公开 GitHub Release database ID 为 `361063757`，URL 为
+<https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.2.0>，于 `2026-07-28T12:15:25Z` 发布；
+title/tag 均为 `5.2.0`，非 draft/prerelease，正文与 tagged `.changelogs/5.2.0.md` 一致。三项公开资产的
+API 字节数与 SHA-256 如下：
+
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.2.0.jar` | 873479 | `44ac998b76926e63674228dba4da941a0afaf4589498ca6f82e9b3444977ab61` |
+| `qz_miner-5.2.0-dev.jar` | 866761 | `46213aa11af4e22d475638e7085e9edc50c84890ace340bc5b9fd280e08a51b9` |
+| `qz_miner-5.2.0-sources.jar` | 485800 | `bf414672882a17b651e65a9534c2d4c1796ab9349132196801f28768815db935` |
+
+渠道终态仅 GitHub Release 具备独立外部发布证据；Modrinth/CurseForge workflow steps 虽为 success，
+但没有独立远端制品证据，不能宣称两个平台发布成功。Qz-UILib 开发/测试依赖已更新为 `4.6.3:dev`；
+其 annotated tag object `3b0ad894fb3168e82a6c9075a85eedb86614ee0e`、peeled commit
+`16d8c45beaa3c224cc509818fe569607ee94ff65`、workflow `30157047707` 与 canonical dev SHA-256
+`01a64ba1f1e7d5102d63413ba5e5cf68ac84586b1bcd3efe0456d641957a9f6c` 已确认。
+
+用户已对跨世界场景完成实机复测，反馈无异常；该证据覆盖本次生命周期问题的目标路径，但不自动扩展为
+全部 client/dedicated、鼠标动作取消、AABB/GL、框选执行、游戏内配置命令、第三方库存布局或连续
+publication failure 的完整运行态通过，未覆盖范围继续记为 **INCOMPLETE**。`5.2.0` tag/Release 是
+不可移动发布事实；本次发布后的文档提交不属于该制品 SHA，不得移动 tag、改写 tagged changelog 或
+历史 Release。
