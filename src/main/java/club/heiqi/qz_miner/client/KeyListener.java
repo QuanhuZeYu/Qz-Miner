@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.network.PacketChainSubModeSwitch;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
 import club.heiqi.qz_miner.network.PacketKeyState;
+import club.heiqi.qz_miner.network.PacketCuboidSelectionRequest;
 import club.heiqi.qz_miner.network.PacketChainModeSwitch;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
 import cpw.mods.fml.client.FMLClientHandler;
@@ -24,6 +25,7 @@ import net.minecraftforge.client.event.MouseEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraft.client.settings.KeyBinding;
 import org.lwjgl.input.Keyboard;
+import net.minecraft.util.MovingObjectPosition;
 
 /**
  * 客户端按键监听器。
@@ -127,6 +129,26 @@ public class KeyListener {
         MyMod.chainStateService.setClientSelectedSubMode(nextSubMode);
         MyMod.networkMain.network.sendToServer(new PacketChainSubModeSwitch(nextSubMode));
         MyMod.LOG.debug("[KeyListener] Switched sub mode to {} under mode {}", nextSubMode, selectedMode);
+    }
+
+    /** 未按连锁键时，左/右键分别选 point1/point2 并取消原鼠标动作。 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onCuboidSelectionClick(MouseEvent event) {
+        if (event == null || !event.buttonstate || (event.button != 0 && event.button != 1)
+                || chainSwitch.getIsKeyPressed() || MyMod.chainStateService == null || MyMod.networkMain == null) {
+            return;
+        }
+        net.minecraft.client.Minecraft client = FMLClientHandler.instance().getClient();
+        if (client == null || client.currentScreen != null || client.theWorld == null || client.thePlayer == null
+                || MyMod.chainStateService.getClientState().getSelectedMode() != ChainMode.AREA
+                || MyMod.chainStateService.getClientState().getSelectedSubMode() != ChainSubMode.AREA_CUBOID_CLEAR) {
+            return;
+        }
+        MovingObjectPosition hit = client.objectMouseOver;
+        if (hit == null || hit.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK) return;
+        event.setCanceled(true);
+        MyMod.networkMain.network.sendToServer(new PacketCuboidSelectionRequest(
+                event.button == 0 ? 1 : 2, hit.blockX, hit.blockY, hit.blockZ));
     }
 
     @SubscribeEvent

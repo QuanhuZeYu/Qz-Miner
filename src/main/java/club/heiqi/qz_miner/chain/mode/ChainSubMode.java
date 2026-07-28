@@ -59,7 +59,11 @@ public enum ChainSubMode {
     /**
      * INTERACT 可靠未成熟作物施肥子模式。
      */
-    INTERACT_FERTILIZE_IMMATURE_CROP(ChainMode.INTERACT, false, false, false);
+    INTERACT_FERTILIZE_IMMATURE_CROP(ChainMode.INTERACT, false, false, false),
+    /**
+     * AREA 双点立方体清空子模式。
+     */
+    AREA_CUBOID_CLEAR(ChainMode.AREA, false, false, false);
 
     private final ChainMode parentMode;
     private final boolean sameBlockMatchRequired;
@@ -136,6 +140,8 @@ public enum ChainSubMode {
                 return "hud.qz_miner.sub_mode.area.tunnel";
             case AREA_SECTION_CLEAR:
                 return "hud.qz_miner.sub_mode.area.section_clear";
+            case AREA_CUBOID_CLEAR:
+                return "hud.qz_miner.sub_mode.area.cuboid_clear";
             case INTERACT_BASE:
                 return "hud.qz_miner.sub_mode.interact.base";
             case INTERACT_CROP:

@@ -21,22 +21,17 @@ public class AutoToolSwapClientProtocolValidatorTest {
         Assert.assertNotNull(validator.validateRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, 7L,
                 AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.OPEN.wireCode(),
                 1L, 0L, true));
-        Assert.assertEquals(AutoToolSwapAction.SWAP, validator.validateActionResult(
-                AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 1L, AutoToolSwapAction.SWAP.wireCode(),
-                AutoToolSwapResultCode.APPLIED.wireCode(), AutoToolSwapRoundState.SWAPPED.wireCode(),
+        Assert.assertEquals(AutoToolSwapAction.FREEZE, validator.validateActionResult(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 1L, AutoToolSwapAction.FREEZE.wireCode(),
+                AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.FROZEN.wireCode(),
                 0, 5, 2L, 1L, true).action());
-        Assert.assertEquals(AutoToolSwapAction.ABANDON, validator.validateActionResult(
-                AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 2L, AutoToolSwapAction.ABANDON.wireCode(),
+        Assert.assertEquals(AutoToolSwapAction.CLOSE, validator.validateActionResult(
+                AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 2L, AutoToolSwapAction.CLOSE.wireCode(),
                 AutoToolSwapResultCode.ACCEPTED.wireCode(), AutoToolSwapRoundState.FINISHED.wireCode(),
                 0, 5, 3L, 1L, true).action());
         Assert.assertEquals(ChainPhase.RUNNING, validator.validatePhase(
                 AutoToolSwapProtocol.PROTOCOL_VERSION, 7L, 1L, ChainPhase.RUNNING.ordinal(),
                 3, 2L, true).phase());
-        Assert.assertNotNull(validator.validateTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                7L, 2L, 3, 1, 64, 2, 42, 7, 10L, 18L, true));
-        Assert.assertNotNull(validator.validateTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                7L, 2L, 3, 1, 64, 2, Integer.MAX_VALUE, Integer.MAX_VALUE,
-                10L, 18L, true));
     }
 
     @Test
@@ -56,21 +51,13 @@ public class AutoToolSwapClientProtocolValidatorTest {
         Assert.assertNull(validator.validateRoundResult(AutoToolSwapProtocol.PROTOCOL_VERSION, -1L,
                 Integer.MAX_VALUE, Integer.MAX_VALUE, 0L, -1L, true));
         Assert.assertNull(validator.validateActionResult(AutoToolSwapProtocol.PROTOCOL_VERSION, 7L,
-                0L, Integer.MAX_VALUE, AutoToolSwapResultCode.APPLIED.wireCode(),
-                AutoToolSwapRoundState.SWAPPED.wireCode(), -1, 36, 2L, 1L, true));
+                0L, Integer.MAX_VALUE, AutoToolSwapResultCode.ACCEPTED.wireCode(),
+                AutoToolSwapRoundState.FROZEN.wireCode(), -1, 36, 2L, 1L, true));
         Assert.assertNull(validator.validateActionResult(AutoToolSwapProtocol.PROTOCOL_VERSION, 7L,
-                1L, AutoToolSwapAction.SWAP.wireCode(), AutoToolSwapResultCode.APPLIED.wireCode(),
+                1L, AutoToolSwapAction.FREEZE.wireCode(), AutoToolSwapResultCode.ACCEPTED.wireCode(),
                 AutoToolSwapRoundState.PENDING_KEY.wireCode(), 0, 5, 2L, 1L, true));
         Assert.assertNull(validator.validatePhase(AutoToolSwapProtocol.PROTOCOL_VERSION, 0L, 0L,
                 ChainPhase.values().length, -1, -1L, true));
-        Assert.assertNull(validator.validateTakeoverRequest(2, 7L, 2L, 3,
-                1, 64, 2, 42, 7, 10L, 18L, true));
-        Assert.assertNull(validator.validateTakeoverRequest(3, 7L, 2L, 3,
-                1, 64, 2, 42, 7, 10L, 18L, true));
-        Assert.assertNull(validator.validateTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                7L, 2L, 3, 1, 64, 2, 0, 0, 10L, 18L, true));
-        Assert.assertNull(validator.validateTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION,
-                7L, 2L, 3, 1, 64, 2, 1, -1, 10L, 18L, true));
     }
 
     @Test

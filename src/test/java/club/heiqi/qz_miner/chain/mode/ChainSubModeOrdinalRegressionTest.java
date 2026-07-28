@@ -3,12 +3,12 @@ package club.heiqi.qz_miner.chain.mode;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 既有 wire ordinal 0-11 与尾部追加范围交互子模式回归。 */
+/** 既有 wire ordinal 0-13 与尾部追加框选子模式回归。 */
 public class ChainSubModeOrdinalRegressionTest {
     @Test
     public void everyLegacyOrdinalRemainsExplicitlyAssigned() {
         ChainSubMode[] values = ChainSubMode.values();
-        Assert.assertEquals(14, values.length);
+        Assert.assertEquals(15, values.length);
         assertOrdinal(ChainSubMode.CHAIN_BASE, 0, values);
         assertOrdinal(ChainSubMode.CHAIN_ORE, 1, values);
         assertOrdinal(ChainSubMode.CHAIN_LOGGING, 2, values);
@@ -28,6 +28,11 @@ public class ChainSubModeOrdinalRegressionTest {
         ChainSubMode[] values = ChainSubMode.values();
         assertOrdinal(ChainSubMode.INTERACT_LIQUID_SOURCE, 12, values);
         assertOrdinal(ChainSubMode.INTERACT_FERTILIZE_IMMATURE_CROP, 13, values);
+    }
+
+    @Test
+    public void cuboidClearIsAppendedAtFourteen() {
+        assertOrdinal(ChainSubMode.AREA_CUBOID_CLEAR, 14, ChainSubMode.values());
     }
 
     private static void assertOrdinal(ChainSubMode mode, int ordinal, ChainSubMode[] values) {

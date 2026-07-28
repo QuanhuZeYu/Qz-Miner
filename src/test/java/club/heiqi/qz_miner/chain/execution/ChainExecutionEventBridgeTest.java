@@ -696,7 +696,7 @@ public class ChainExecutionEventBridgeTest {
         bus.subscribe(ExecutionFinished.class, finished::add);
         bus.subscribe(LifecycleCleanup.class, cleanups::add);
 
-        bridge.stopForTakeover(context);
+        bridge.stopOrdinaryPlanning(context);
         bus.drain();
 
         Assert.assertEquals(1, unregisters.get());
@@ -724,7 +724,7 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertTrue(context.tryCompletePlanningAndPublish(0, () -> bus.publish(
                 new PlanCompleted(PLAYER, 1002L, 9, TICK, NANOS, 0))));
 
-        bridge.stopForTakeover(context);
+        bridge.stopOrdinaryPlanning(context);
         Assert.assertTrue("PlanCompleted 未观察前不得抢先收口", order.isEmpty());
         bus.drain();
 

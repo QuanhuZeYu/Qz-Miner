@@ -3,10 +3,12 @@ package club.heiqi.qz_miner.chain.state;
 import java.util.UUID;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
+import club.heiqi.qz_miner.chain.selection.CuboidSelection;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 
 /**
@@ -30,6 +32,7 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile ObjectGroupRuleSet objectGroupRules = ObjectGroupRuleSet.EMPTY;
     private volatile long objectGroupRevision;
     private volatile ChainSession session;
+    private volatile CuboidSelection cuboidSelection = CuboidSelection.empty();
 
     /**
      * world-tick 掉落释放连续失败计数（守信条四四级降级链终点）。
@@ -196,6 +199,41 @@ public class ChainPlayerState extends AbstractChainModeState {
 
     public void setRequestedChainMaxBlocks(int requestedChainMaxBlocks) {
         this.requestedChainMaxBlocks = requestedChainMaxBlocks;
+    }
+
+    /** @return 当前服务端上限约束下可兑现的 accepted maxBlocks */
+    public int resolveAcceptedChainMaxBlocks() {
+        return requestedChainMaxBlocks > 0
+                ? Math.min(Config.chainMaxBlocks, requestedChainMaxBlocks)
+                : Config.chainMaxBlocks;
+    }
+
+    /** 在服务端主线程原子覆盖一个选择点。 */
+    public synchronized CuboidSelection.Update selectCuboidPoint(
+            int pointIndex, int dimensionId, int x, int y, int z) {
+        CuboidSelection.Update update = cuboidSelection.select(
+                pointIndex, dimensionId, x, y, z, resolveAcceptedChainMaxBlocks());
+        if (update.isAccepted()) cuboidSelection = update.getSelection();
+        return update;
+    }
+
+    /** @return 当前服务端确认的不可变选择快照 */
+    public CuboidSelection getCuboidSelection() {
+        return cuboidSelection;
+    }
+
+    /** 生命周期边界清除跨轮次选择。 */
+    public synchronized CuboidSelection clearCuboidSelection() {
+        cuboidSelection = cuboidSelection.clearForAuthority();
+        return cuboidSelection;
+    }
+
+    /** 配置下调后整体失效超限选区，并保留客户端可排序 revision。 */
+    public synchronized CuboidSelection invalidateOversizedCuboidSelection() {
+        club.heiqi.qz_miner.chain.selection.CuboidBounds bounds = cuboidSelection.bounds();
+        if (bounds == null || bounds.fitsWithin(resolveAcceptedChainMaxBlocks())) return null;
+        cuboidSelection = cuboidSelection.clearForAuthority();
+        return cuboidSelection;
     }
 
     /** @return 服务端主线程最近一次整包接受的隧道方向来源 */

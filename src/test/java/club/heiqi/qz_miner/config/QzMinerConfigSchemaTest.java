@@ -18,12 +18,12 @@ import club.heiqi.config.schema.ValueKind;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
-/** 5.1.0 Schema 字面量快照与多使用方 Defaults 对齐。 */
+/** 5.2 Schema 字面量快照与多使用方 Defaults 对齐。 */
 public class QzMinerConfigSchemaTest {
 
-    /** 以独立字面量冻结 5.1.0 全部 path/type/default，不复用生产 Defaults oracle。 */
+    /** 以独立字面量冻结 5.2 全部 path/type/default，不复用生产 Defaults oracle。 */
     @Test
-    public void schemaLocks510LiteralPathTypeAndDefaultSnapshotInStableOrder() {
+    public void schemaLocks52LiteralPathTypeAndDefaultSnapshotInStableOrder() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         List<Map<String, Object>> objectGroups = new ArrayList<Map<String, Object>>();
         Map<String, Object> logs = new LinkedHashMap<String, Object>();
@@ -57,7 +57,6 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientEnablePreviewRender", FieldType.BOOLEAN, Boolean.TRUE},
                 {"client.tunnelDirectionSource", FieldType.CHOICE, "look_direction"},
                 {"client.autoToolSwapEnabled", FieldType.BOOLEAN, Boolean.TRUE},
-                {"client.autoToolTakeoverEnabled", FieldType.BOOLEAN, Boolean.TRUE},
                 {"client.autoToolPrioritySelectors", FieldType.SIMPLE_LIST, Collections.<String>emptyList()},
                 {"client.parallelTickClientWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(640.0D)},
                 {"client.clientPreviewMaxRadius", FieldType.NUMBER, Double.valueOf(16.0D)},
@@ -81,7 +80,7 @@ public class QzMinerConfigSchemaTest {
         }
     }
 
-    /** 校验多个生产使用方继续对齐共享 Defaults；本方法不承担 5.1.0 字面量快照职责。 */
+    /** 校验多个生产使用方继续对齐共享 Defaults；本方法不承担 5.2 字面量快照职责。 */
     @Test
     public void defaultsAlignWithQzMinerConfigDefaults() {
         ConfigSchema schema = QzMinerConfigSchema.create();
@@ -104,7 +103,7 @@ public class QzMinerConfigSchemaTest {
 
         FieldSpec toolSwap = schema.field("client.autoToolSwapEnabled");
         Assert.assertEquals(Boolean.TRUE, toolSwap.defaultValue());
-        Assert.assertEquals(Boolean.TRUE, schema.field("client.autoToolTakeoverEnabled").defaultValue());
+        Assert.assertNull(schema.field("client.autoToolTakeoverEnabled"));
         FieldSpec selectors = schema.field("client.autoToolPrioritySelectors");
         Assert.assertEquals(FieldType.SIMPLE_LIST, selectors.type());
         Assert.assertEquals(java.util.Collections.emptyList(), selectors.defaultValue());

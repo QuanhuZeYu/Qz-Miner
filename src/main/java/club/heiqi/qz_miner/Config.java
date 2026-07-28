@@ -45,7 +45,6 @@ public class Config {
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
     public static TunnelDirectionSource tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
     public static boolean autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
-    public static boolean autoToolTakeoverEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED;
     public static List<ToolSelector> autoToolPrioritySelectors = Collections.emptyList();
     public static int parallelTickClientWorkBudgetUnits =
             QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;

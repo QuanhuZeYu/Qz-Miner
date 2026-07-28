@@ -228,7 +228,6 @@ public class ConfigSemanticValidatorTest {
             values.add(Boolean.valueOf(Config.clientEnablePreviewRender));
             values.add(Config.tunnelDirectionSource);
             values.add(Boolean.valueOf(Config.autoToolSwapEnabled));
-            values.add(Boolean.valueOf(Config.autoToolTakeoverEnabled));
             values.add(Config.autoToolPrioritySelectors);
             values.add(Integer.valueOf(Config.parallelTickClientWorkBudgetUnits));
             values.add(Integer.valueOf(Config.clientPreviewMaxRadius));
@@ -266,7 +265,6 @@ public class ConfigSemanticValidatorTest {
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
         Config.tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
-        Config.autoToolTakeoverEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
         Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;

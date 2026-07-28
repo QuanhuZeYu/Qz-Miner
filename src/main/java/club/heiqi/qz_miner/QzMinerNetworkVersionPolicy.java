@@ -4,11 +4,11 @@ import java.util.Map;
 
 import cpw.mods.fml.relauncher.Side;
 
-/** Qz-Miner 连接握手使用的严格 5.1 版本族策略。 */
+/** Qz-Miner 连接握手使用的严格 5.2 版本族策略。 */
 final class QzMinerNetworkVersionPolicy {
 
     private static final int COMPATIBLE_MAJOR = 5;
-    private static final int COMPATIBLE_MINOR = 1;
+    private static final int COMPATIBLE_MINOR = 2;
 
     private QzMinerNetworkVersionPolicy() {
     }
@@ -16,7 +16,7 @@ final class QzMinerNetworkVersionPolicy {
     /**
      * 判断 Forge 版本表是否可接受。
      *
-     * <p>远端未声明本模组时只放行 mod-list 检查；一旦声明，双方版本都必须是完整、合法的 5.1
+     * <p>远端未声明本模组时只放行 mod-list 检查；一旦声明，双方版本都必须是完整、合法的 5.2
      * family。该放行不保证后续自定义网络通道可在无模组对端上安全运行。</p>
      *
      * @param localVersion 本地构建版本
@@ -36,10 +36,10 @@ final class QzMinerNetworkVersionPolicy {
     }
 
     /**
-     * 解析完整 ASCII SemVer 形态并判断 core 是否属于 5.1。
+     * 解析完整 ASCII SemVer 形态并判断 core 是否属于 5.2。
      *
      * @param version 待检查版本
-     * @return 版本语法合法且 major/minor 为 5.1
+     * @return 版本语法合法且 major/minor 为 5.2
      */
     static boolean isCompatibleFamily(String version) {
         if (version == null || version.length() == 0) {

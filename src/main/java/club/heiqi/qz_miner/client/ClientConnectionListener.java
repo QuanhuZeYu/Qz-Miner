@@ -400,6 +400,11 @@ public class ClientConnectionListener {
                 MyMod.chainStateService.getClientState().resetAcceptedTunnelDirectionSource();
             }
         }});
+        runCleanupStep("cuboid-selection", new Runnable() { @Override public void run() {
+            if (ClientProxy.clientCuboidSelectionState != null) {
+                ClientProxy.clientCuboidSelectionState.clear();
+            }
+        }});
         runCleanupStep("auto-tool-swap", new Runnable() { @Override public void run() {
             if (cleanupActions != null) cleanupActions.resetToolSwap();
             else if (ClientProxy.autoToolSwapAdapter != null) ClientProxy.autoToolSwapAdapter.resetForLifecycle();

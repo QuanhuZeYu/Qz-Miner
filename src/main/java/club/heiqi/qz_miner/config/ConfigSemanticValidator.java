@@ -83,7 +83,6 @@ public final class ConfigSemanticValidator {
         putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
         putTunnelDirectionSource(typed, errors, draft);
         putBoolean(typed, errors, draft, "client.autoToolSwapEnabled");
-        putBoolean(typed, errors, draft, "client.autoToolTakeoverEnabled");
         putToolSelectors(typed, errors, draft);
         putIntNumber(typed, errors, draft, "client.parallelTickClientWorkBudgetUnits", 1, Integer.MAX_VALUE);
         putIntNumber(typed, errors, draft, "client.clientPreviewMaxRadius", 1, Integer.MAX_VALUE);
@@ -309,7 +308,6 @@ public final class ConfigSemanticValidator {
         public final boolean clientEnablePreviewRender;
         public final TunnelDirectionSource tunnelDirectionSource;
         public final boolean autoToolSwapEnabled;
-        public final boolean autoToolTakeoverEnabled;
         public final java.util.List<ToolSelector> autoToolPrioritySelectors;
         public final int parallelTickClientWorkBudgetUnits;
         public final int clientPreviewMaxRadius;
@@ -335,7 +333,6 @@ public final class ConfigSemanticValidator {
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
             tunnelDirectionSource = (TunnelDirectionSource) typed.get("client.tunnelDirectionSource");
             autoToolSwapEnabled = ((Boolean) typed.get("client.autoToolSwapEnabled")).booleanValue();
-            autoToolTakeoverEnabled = ((Boolean) typed.get("client.autoToolTakeoverEnabled")).booleanValue();
             autoToolPrioritySelectors = immutableSelectors(typed.get("client.autoToolPrioritySelectors"));
             parallelTickClientWorkBudgetUnits = exactInt(typed, "client.parallelTickClientWorkBudgetUnits");
             clientPreviewMaxRadius = exactInt(typed, "client.clientPreviewMaxRadius");

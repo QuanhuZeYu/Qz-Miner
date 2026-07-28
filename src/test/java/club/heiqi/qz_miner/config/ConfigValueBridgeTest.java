@@ -56,7 +56,6 @@ public class ConfigValueBridgeTest {
         draft.setDraft("client.clientEnablePreviewRender", Boolean.FALSE);
         draft.setDraft("client.tunnelDirectionSource", "hit_face");
         draft.setDraft("client.autoToolSwapEnabled", Boolean.FALSE);
-        draft.setDraft("client.autoToolTakeoverEnabled", Boolean.FALSE);
         draft.setDraft("client.autoToolPrioritySelectors",
                 java.util.Arrays.asList(" ore:toolPickaxe ", "mod:drill@4"));
         draft.setDraft("client.parallelTickClientWorkBudgetUnits", Double.valueOf(200.0));
@@ -87,7 +86,6 @@ public class ConfigValueBridgeTest {
         Assert.assertFalse(Config.clientEnablePreviewRender);
         Assert.assertEquals(TunnelDirectionSource.HIT_FACE, Config.tunnelDirectionSource);
         Assert.assertFalse(Config.autoToolSwapEnabled);
-        Assert.assertFalse(Config.autoToolTakeoverEnabled);
         Assert.assertEquals("ore:toolPickaxe", Config.autoToolPrioritySelectors.get(0).canonicalText());
         Assert.assertEquals("mod:drill@4", Config.autoToolPrioritySelectors.get(1).canonicalText());
         try {
@@ -155,7 +153,6 @@ public class ConfigValueBridgeTest {
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
         Config.tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
-        Config.autoToolTakeoverEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_TAKEOVER_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
         Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;

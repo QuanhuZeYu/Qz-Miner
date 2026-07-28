@@ -60,7 +60,6 @@ public final class AutoToolSwapKeyStateBridge {
             return activatePendingRound(playerId, endpoint, service, serverTick, sender, snapshot.clientNonce());
         }
         if ((snapshot.roundState() == AutoToolSwapRoundState.OPEN
-                || snapshot.roundState() == AutoToolSwapRoundState.SWAPPED
                 || snapshot.roundState() == AutoToolSwapRoundState.FROZEN)
                 && snapshot.keyDown()
                 && snapshot.serverRoundId() != AutoToolSwapProtocol.NO_SERVER_ROUND_ID) {

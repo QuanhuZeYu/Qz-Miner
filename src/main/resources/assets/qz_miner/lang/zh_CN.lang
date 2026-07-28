@@ -32,6 +32,7 @@ hud.qz_miner.sub_mode.area.all=无差别爆破模式
 hud.qz_miner.sub_mode.area.ore=爆破矿石模式
 hud.qz_miner.sub_mode.area.tunnel=爆破隧道模式
 hud.qz_miner.sub_mode.area.section_clear=区段清理模式
+hud.qz_miner.sub_mode.area.cuboid_clear=框选清空模式
 hud.qz_miner.sub_mode.interact.base=同类方块
 hud.qz_miner.sub_mode.interact.crop=全部作物
 hud.qz_miner.sub_mode.special.lootgames_minesweeper=特殊扫雷预览模式

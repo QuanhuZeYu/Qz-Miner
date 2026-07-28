@@ -22,7 +22,6 @@ public final class QzMinerConfigDefaults {
     public static final boolean CLIENT_ENABLE_PREVIEW_RENDER = true;
     public static final String CLIENT_TUNNEL_DIRECTION_SOURCE = "look_direction";
     public static final boolean CLIENT_AUTO_TOOL_SWAP_ENABLED = true;
-    public static final boolean CLIENT_AUTO_TOOL_TAKEOVER_ENABLED = true;
     public static final int PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS = 640;
     public static final int CLIENT_PREVIEW_MAX_RADIUS = 16;
     public static final int CLIENT_PREVIEW_MAX_TARGETS = 1024;
@@ -58,7 +57,6 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientEnablePreviewRender", Boolean.valueOf(CLIENT_ENABLE_PREVIEW_RENDER));
         target.put("client.tunnelDirectionSource", CLIENT_TUNNEL_DIRECTION_SOURCE);
         target.put("client.autoToolSwapEnabled", Boolean.valueOf(CLIENT_AUTO_TOOL_SWAP_ENABLED));
-        target.put("client.autoToolTakeoverEnabled", Boolean.valueOf(CLIENT_AUTO_TOOL_TAKEOVER_ENABLED));
         target.put("client.autoToolPrioritySelectors", java.util.Collections.<String>emptyList());
         target.put("client.parallelTickClientWorkBudgetUnits",
                 Double.valueOf(PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS));

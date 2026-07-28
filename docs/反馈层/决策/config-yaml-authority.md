@@ -4,7 +4,7 @@
 
 - 配置权威文件：`config/qz_miner.yaml`（UILib `ConfigManager` + YAML Persistence）。
 - 旧 Forge `config/qz_miner.cfg` 仅作一次性导入源；导入成功后退役为时间戳 `.imported.bak`；导入失败时重建/持久化 schema 默认 YAML。成功迁移与失败恢复都必须先严格退役 cfg、再发布 manager/current/Config static；`yamlFile` 也只随成功 manager commit 发布。提交前失败保持全部 bootstrap/static 状态不变，后续启动以已存在 YAML 为权威并忽略仍在的 cfg。
-- Qz-UILib 的权威远端来源为 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`；活动配置已使用 `com.github.QuanhuZeYu:Qz-UILib:4.6.1:dev` 并移除 Maven Local/旧 group fallback，主动发布 GTNH Maven 不是 Miner 前置。`@Mod` 最低依赖仍为 `required-after:qz_uilib@[4.6.0,)`；发布包继续使用 non-publishable 开发依赖且不内嵌 UILib。4.6.1 的 JitPack 组合发布通道与 clean consumer 已通过，候选发布仍须同 SHA branch CI，tag 后另行核验 Release/assets。
+- Qz-UILib 的权威远端来源为 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`；活动配置已使用 `com.github.QuanhuZeYu:Qz-UILib:4.6.3:dev` 并移除 Maven Local/旧 group fallback，主动发布 GTNH Maven 不是 Miner 前置。`@Mod` 最低依赖仍为 `required-after:qz_uilib@[4.6.0,)`；发布包继续使用 non-publishable 开发依赖且不内嵌 UILib。候选发布仍须完成 JitPack channel-aware 门禁与同 SHA branch CI，tag 后另行核验 Release/assets。
 - 客户端配置页：`ConfigSchema` → 长寿命 `ConfigManager` → `ConfigUI.buildScreen` → `McScreenBridge`。
 - **单 YAML Authority**；只要 YAML 路径已是文件即取得最高优先级，零长度 YAML 作为结构化空 MAP，表示所有字段缺失并使用 schema 默认，不读取或退役 cfg。原始文件先经 `RawYamlPreflight` 按 Schema NodeType 检查，再进入 Authority 宽松转换；显式 null、错误 section/字段类型拒绝，未知字段不拒绝。
 - UILib 4.6.0 bootstrap 注入无副作用 DraftValidator 与每 screen editor Registry；finite、整数、范围、alpha、`client.tunnelDirectionSource` choice 与 `client.objectGroups` selector/mode/容量/交集语义非法在写盘前返回 INVALID，保留草稿，Authority/YAML/current/runtime/event/network 均不变；成功 `reloadDraftFromDisk()` 发布 `RELOAD`，与 `BATCH_SAVE` 共用捕获和分侧 mailbox 回灌；`DraftBuffer.resetFieldToDefault` 按真实 schema 恢复结构化默认值。
@@ -60,7 +60,7 @@
 - 2026-07-12：开发与最低运行依赖曾升级至 Qz-UILib `4.5.3-beta-8`，Maven Local `dev` 制品 SHA-256 为 `10B84984997FC691557BFDAF4E519B525A98E7AEA95DB0D719A06C8CA13122EE`；该版本仅为历史演进，不再是当前依赖。
 - 2026-07-12：当前开发与最低运行依赖升级至 Qz-UILib `4.5.3-beta-10`，Picker 收敛为 ALL/SELECTED 且保留既有 canonical；不改变配置权威与对象组协议。
 - 2026-07-12：当前开发与最低运行依赖升级至 Qz-UILib `4.5.3-beta-11`，修复长对象组 identity 遮挡 header 操作按钮；不改变配置权威与对象组协议。
-- 当前开发依赖为 Qz-UILib `4.6.1:dev`，最低运行依赖仍为 `4.6.0`；真实 schema 回归确认字段 reset 可恢复三个 vanilla 对象组默认值。
+- 当前开发依赖为 Qz-UILib `4.6.3:dev`，最低运行依赖仍为 `4.6.0`；真实 schema 回归确认字段 reset 可恢复三个 vanilla 对象组默认值。
 - 2026-07-15：已删除旧自动工具预选配置对象；旧 YAML 键按既有未知字段宽松读取合同忽略，不增加专用迁移。
 - 2026-07-13：对象组成员接入 UILib 4.6.0 `LIST_MEMBERS`；当前 UI 改为按稳定 ID 单项替换或新增追加，不再采用 aggregate codec 的同 registry 自动归一语义。
 - 2026-07-14：成员管理选择器补齐常驻摘要/管理入口、受约束 portal、顶部搜索、3:5 动态分区、稳定 ID 编辑、二次确认删除、重复诊断、malformed 常规界面隐藏与 overlay 焦点约束；raw 仅作为默认折叠的高级无损入口。

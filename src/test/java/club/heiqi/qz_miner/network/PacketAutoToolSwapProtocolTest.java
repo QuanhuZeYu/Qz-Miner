@@ -14,12 +14,11 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapTakeoverRequest;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-    /** 自动工具换位六类固定 wire 帧的 framing 与原始字段回归。 */
+/** 自动工具换位五类固定 wire 帧的 framing 与原始字段回归。 */
 public class PacketAutoToolSwapProtocolTest {
 
     @Test
@@ -27,9 +26,9 @@ public class PacketAutoToolSwapProtocolTest {
         AutoToolSwapContentFingerprint anchor = AutoToolSwapContentFingerprint.fromWire(1L, 2L, 3L, 4L);
         AutoToolSwapContentFingerprint candidate = AutoToolSwapContentFingerprint.fromWire(5L, 6L, 7L, 8L);
         AutoToolSwapIntent intent = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 3L,
-                AutoToolSwapAction.SWAP, 2, 19, anchor, candidate);
-        AutoToolSwapRoundResult result = new AutoToolSwapRoundResult(17L, AutoToolSwapResultCode.APPLIED,
-                AutoToolSwapRoundState.SWAPPED, 4L, 99L);
+                AutoToolSwapAction.FREEZE, 2, 19, anchor, candidate);
+        AutoToolSwapRoundResult result = new AutoToolSwapRoundResult(17L, AutoToolSwapResultCode.ACCEPTED,
+                AutoToolSwapRoundState.FROZEN, 4L, 99L);
 
         PacketAutoToolSwapRoundStart start = decodeStart(new PacketAutoToolSwapRoundStart(11L));
         Assert.assertTrue(start.isRawValid());
@@ -40,8 +39,8 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertTrue(round.isRawValid());
         Assert.assertEquals(11L, round.clientNonce);
         Assert.assertEquals(17L, round.serverRoundId);
-        Assert.assertEquals(AutoToolSwapResultCode.APPLIED.wireCode(), round.resultCode);
-        Assert.assertEquals(AutoToolSwapRoundState.SWAPPED.wireCode(), round.roundState);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED.wireCode(), round.resultCode);
+        Assert.assertEquals(AutoToolSwapRoundState.FROZEN.wireCode(), round.roundState);
 
         PacketAutoToolSwapIntent decodedIntent = decodeIntent(new PacketAutoToolSwapIntent(intent));
         Assert.assertTrue(decodedIntent.isRawValid());
@@ -67,13 +66,6 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertEquals(5L, phase.phaseSequence);
         Assert.assertEquals(3, phase.phaseOrdinal);
         Assert.assertEquals(7, phase.generation);
-
-        PacketAutoToolSwapTakeoverRequest takeover = decodeTakeover(new PacketAutoToolSwapTakeoverRequest(
-                new AutoToolSwapTakeoverRequest(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 6L,
-                        7, 1, 64, 2, 42, 3, 99L, 108L)));
-        Assert.assertTrue(takeover.isRawValid());
-        Assert.assertEquals(42, takeover.targetBlockId);
-        Assert.assertEquals(108L, takeover.deadlineTick);
     }
 
     @Test
@@ -90,8 +82,6 @@ public class PacketAutoToolSwapProtocolTest {
         assertInvalidActionResult(new PacketAutoToolSwapActionResult(intent, result));
         assertInvalidRoundPhase(new PacketAutoToolSwapRoundPhase(AutoToolSwapProtocol.PROTOCOL_VERSION,
                 2L, 1L, 0, 0, 3L));
-        assertInvalidTakeover(new PacketAutoToolSwapTakeoverRequest(new AutoToolSwapTakeoverRequest(
-                AutoToolSwapProtocol.PROTOCOL_VERSION, 2L, 1L, 0, 0, 64, 0, 1, 0, 3L, 8L)));
     }
 
     @Test
@@ -127,37 +117,18 @@ public class PacketAutoToolSwapProtocolTest {
     }
 
     @Test
-    public void abandonRoundTripsWithoutChangingSixFrameLengthsOrRegistrations() throws Exception {
+    public void closeRoundTripsWithoutChangingFiveFrameLengths() throws Exception {
         AutoToolSwapContentFingerprint empty = AutoToolSwapContentFingerprint.canonicalEmpty();
-        AutoToolSwapIntent abandon = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 8L,
-                AutoToolSwapAction.ABANDON, 2, 19, empty, empty);
-        PacketAutoToolSwapIntent decoded = decodeIntent(new PacketAutoToolSwapIntent(abandon));
+        AutoToolSwapIntent close = new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, 17L, 8L,
+                AutoToolSwapAction.CLOSE, 2, 19, empty, empty);
+        PacketAutoToolSwapIntent decoded = decodeIntent(new PacketAutoToolSwapIntent(close));
 
-        Assert.assertEquals(AutoToolSwapAction.ABANDON.wireCode(), decoded.actionCode);
+        Assert.assertEquals(AutoToolSwapAction.CLOSE.wireCode(), decoded.actionCode);
         Assert.assertEquals(12, PacketAutoToolSwapRoundStart.FIXED_PAYLOAD_BYTES);
         Assert.assertEquals(44, PacketAutoToolSwapRoundResult.FIXED_PAYLOAD_BYTES);
         Assert.assertEquals(96, PacketAutoToolSwapIntent.FIXED_PAYLOAD_BYTES);
         Assert.assertEquals(56, PacketAutoToolSwapActionResult.FIXED_PAYLOAD_BYTES);
         Assert.assertEquals(36, PacketAutoToolSwapRoundPhase.FIXED_PAYLOAD_BYTES);
-        Assert.assertEquals(60, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
-
-        String network = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/network/NetworkMain.java").toPath()), StandardCharsets.UTF_8);
-        Assert.assertEquals(6, count(network, "PacketAutoToolSwap", ".Handler.class"));
-        Assert.assertEquals(2, count(network, "PacketAutoToolSwap", "Side.SERVER"));
-        Assert.assertEquals(4, count(network, "PacketAutoToolSwap", "Side.CLIENT"));
-    }
-
-    private static int count(String source, String packetPrefix, String terminal) {
-        int count = 0;
-        int cursor = 0;
-        while ((cursor = source.indexOf(packetPrefix, cursor)) >= 0) {
-            int end = source.indexOf(terminal, cursor);
-            int nextPacket = source.indexOf(packetPrefix, cursor + packetPrefix.length());
-            if (end >= 0 && (nextPacket < 0 || end < nextPacket)) count++;
-            cursor += packetPrefix.length();
-        }
-        return count;
     }
 
     private static PacketAutoToolSwapRoundStart decodeStart(PacketAutoToolSwapRoundStart source) {
@@ -191,13 +162,6 @@ public class PacketAutoToolSwapProtocolTest {
     private static PacketAutoToolSwapRoundPhase decodeRoundPhase(PacketAutoToolSwapRoundPhase source) {
         ByteBuf buffer = encode(source, PacketAutoToolSwapRoundPhase.FIXED_PAYLOAD_BYTES);
         PacketAutoToolSwapRoundPhase decoded = new PacketAutoToolSwapRoundPhase();
-        decoded.fromBytes(buffer);
-        return decoded;
-    }
-
-    private static PacketAutoToolSwapTakeoverRequest decodeTakeover(PacketAutoToolSwapTakeoverRequest source) {
-        ByteBuf buffer = encode(source, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
-        PacketAutoToolSwapTakeoverRequest decoded = new PacketAutoToolSwapTakeoverRequest();
         decoded.fromBytes(buffer);
         return decoded;
     }
@@ -274,16 +238,4 @@ public class PacketAutoToolSwapProtocolTest {
         Assert.assertFalse(extra.isRawValid());
     }
 
-    private static void assertInvalidTakeover(PacketAutoToolSwapTakeoverRequest source) {
-        ByteBuf bytes = encode(source, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
-        bytes.writerIndex(bytes.writerIndex() - 1);
-        PacketAutoToolSwapTakeoverRequest truncated = new PacketAutoToolSwapTakeoverRequest();
-        truncated.fromBytes(bytes);
-        Assert.assertFalse(truncated.isRawValid());
-        ByteBuf trailing = encode(source, PacketAutoToolSwapTakeoverRequest.FIXED_PAYLOAD_BYTES);
-        trailing.writeByte(0);
-        PacketAutoToolSwapTakeoverRequest extra = new PacketAutoToolSwapTakeoverRequest();
-        extra.fromBytes(trailing);
-        Assert.assertFalse(extra.isRawValid());
-    }
 }

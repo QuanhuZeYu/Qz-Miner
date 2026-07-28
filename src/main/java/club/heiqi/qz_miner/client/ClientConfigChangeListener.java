@@ -90,10 +90,13 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
                 new ConfigSnapshotDispatch.CommittedPublication() {
                     @Override
                     public void publish(CommittedSnapshot committed) {
-                        ConfigValueBridge.applyGeneralFromSnapshot(committed.snapshot);
-                        if (MyMod.autoToolSwapServerBatchService != null) {
-                            // 仅集成服 dispatcher 发布服务器 Authority；远程客户端不进入此 mailbox。
-                            MyMod.autoToolSwapServerBatchService.publishPolicy(committed);
+                        if (MyMod.serverConfigHotApplyService != null) {
+                            MyMod.serverConfigHotApplyService.apply(committed);
+                        } else {
+                            ConfigValueBridge.applyGeneralFromSnapshot(committed.snapshot);
+                            if (MyMod.autoToolSwapServerBatchService != null) {
+                                MyMod.autoToolSwapServerBatchService.publishPolicy(committed);
+                            }
                         }
                         MyMod.LOG.debug("Applied general config on server main thread after config change notification");
                     }
@@ -224,9 +227,7 @@ public class ClientConfigChangeListener implements ConfigChangeListener {
         ConfigValueBridge.applyClientFromSnapshot(committed.snapshot);
         if (ClientProxy.autoToolSwapAdapter != null) {
             ClientProxy.autoToolSwapAdapter.onConfigChanged(
-                    committed.snapshot.autoToolSwapEnabled,
-                    committed.snapshot.autoToolTakeoverEnabled,
-                    committed.snapshot.autoToolPrioritySelectors);
+                    committed.snapshot.autoToolSwapEnabled);
         }
         syncClientRequestedChainConfig(committed.snapshot.chainRadius, committed.snapshot.chainMaxBlocks,
                 committed.snapshot.tunnelDirectionSource);

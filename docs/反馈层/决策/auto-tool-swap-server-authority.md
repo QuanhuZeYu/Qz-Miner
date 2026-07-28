@@ -4,8 +4,8 @@
 
 - 普通 `CHAIN/AREA` 的执行期工具选择、库存 mutation 与恢复全部属于服务端主线程；`AutoToolSwapServerBatchService` 是仓内唯一 physical ledger owner。客户端不写库存，也不决定新服务端热路的逐目标候选。
 - 每个目标都从服务端实时读取 block/meta、当前手和个人库存 `0..35`，按服务器已提交配置选择工具，并在同一 tick 继续消费既有 poll budget。正常结果只有 `PROCEED/SKIP_TARGET/STOP`，不发送 `AutoToolSwapTakeoverRequest`，也不等待客户端 tick、ACK 或网络 `WAIT`。
-- `AutoToolSwapRoundService` 只保留 v4 wire projection/control：round、普通 sequence、takeover request watermark、exact result cache、phase 与 closure。它不创建库存端口、不执行 mutation，也不持有 physical ledger。
-- 协议 v4 的六包、字段、动作/状态/结果 code、固定 framing、discriminator 与 5.1 family mixed-patch 解码保持冻结；本次服务端本地化不新增 packet 或 capability negotiation。
+- `AutoToolSwapRoundService` 只保留 v4 wire projection/control：round、普通 sequence、exact result cache、phase 与 closure。它不创建库存端口、不执行 mutation，也不持有 physical ledger。
+- 5.2 协议保留 v4 五包及动作/状态/结果 code；takeover packet、独立 request ID、客户端 fallback 与 capability negotiation 已删除。
 
 ## 实现锚
 
@@ -13,9 +13,8 @@
 - `MinecraftAutoToolSwapCandidateSource`：在服务端主线程逐目标重读 live 世界、选中槽、当前手及 `0..35` 库存，复用 `ToolHarvestEligibility`、`ToolCandidateOrder` 与 `ChainHarvestRules`。
 - `ChainExecutionEventBridge`：普通 `CHAIN/AREA` 使用 `begin → prepare/poll/execute → end`；`INTERACT` 与 GT 线缆 `SPECIAL` 保持既有分支。terminal 路径在 `ExecutionFinished/LifecycleCleanup` 前先通过 local finalizer。
 - `MinecraftAutoToolSwapInventoryPort`：只交换/轮转 `InventoryPlayer.mainInventory` 中的真实引用；publication 每次重新 `markDirty()` 并用 `sendContainerToPlayer(player.inventoryContainer)` 发布完整 window 0。
-- `ServerAutoToolSwapRequestDispatch`：仍在服务端主线程结算 v4 intent，但不创建库存端口。旧 mutation intent 在 factory/read/mutation 前拒绝，sender 失败只 exact 重发同一 projection 结果。
-- `AutoToolSwapClientReducer` / `AutoToolSwapClientAdapter`：新 round 激活后直接发送零库存 mutation 的 `FREEZE`；完整候选扫描只保留给真实旧服务端 `AutoToolSwapTakeoverRequest` fallback。
-- `AutoToolSwapTakeoverCoordinator`：类型与 source surface 保留给兼容，但新 ordinary production wiring 不调用 `beforePoll`，也不发送接替目标包。
+- `ServerAutoToolSwapRequestDispatch`：仍在服务端主线程结算 v4 control intent，但不创建库存端口；sender 失败只 exact 重发同一 projection 结果。
+- `AutoToolSwapClientReducer` / `AutoToolSwapClientAdapter`：round 激活后直接发送零库存 mutation 的 `FREEZE`，不扫描库存、不解析目标，也不响应旧服接替请求。
 
 ## 原因
 
@@ -44,21 +43,14 @@
 - natural finish、key release、PlanCancelled、ordinary STOP、WatchdogTimeout、logout、respawn、dimension change、clone 与 server stop 都先进入幂等 local finalizer，再清 projection、execution registry、状态或 endpoint 映射。
 - 非 forced 的取消、watchdog 与 lifecycle 事件必须匹配当前 local owner 的 round/generation；迟到旧事件不得恢复或清除新 owner。forced lifecycle 按玩家 UUID 收口当前 owner。
 - clone 同时尝试 old/new endpoint，并只在一侧匹配已知 borrowed/restored layout 时恢复；endpoint 不可用、mutation 未应用或未知第三布局都返回显式分类，不伪报成功。
-- `PacketKeyState(false)` 是松键 physical restore 的可靠入口，先于 `AutoToolSwapRoundService.onKeyReleased` 和 `LifecycleCleanup`。客户端 `CLOSE` 只关闭 wire projection，不能取得或清除 local ledger。
+- `PacketKeyState(false)` 是松键 physical restore 的可靠入口，先于 `AutoToolSwapRoundService.onKeyReleased` 和 `LifecycleCleanup`；local finalizer 后服务端直接把 wire projection 终结为 `FINISHED`，迟到 `CLOSE` 幂等接受。客户端 `CLOSE` 不能取得或清除 local ledger。
 - finalizer 完成安全恢复或分类冲突后会移除 mutation owner；publication 失败只保留 visibility tombstone。重复 finalizer 不执行第二次 mutation。
 
-## mixed-patch 与客户端观察边界
+## 客户端观察边界
 
-| Client / Server | 行为 |
-|---|---|
-| 新 client / 新 server | RoundStart 激活后直接发送 `FREEZE`；ordinary 候选与 mutation 全在服务端本地完成。客户端只观察 phase 与原版库存 publication。 |
-| 旧 client / 新 server | 首个旧 `SWAP` 在库存 factory 前以 `REJECTED + FROZEN` 收口；`SWAP/RESTORE/TAKEOVER/DECLINE_TAKEOVER` 均零库存拒绝，`FREEZE/CLOSE/ABANDON` 只改 projection。 |
-| 新 client / 旧 server | 新 client 仍解码真实旧 `AutoToolSwapTakeoverRequest`，并在下一 ClientTick 按本地 selector 响应；`autoToolTakeoverEnabled` 只控制此 legacy fallback。没有初始预挖 SWAP、仍有逐目标 RTT 是已接受的功能降级。 |
-| 旧 client / 旧 server | 保持该 patch 自身既有 v4 行为，不由新服务端本地 owner 提供保证。 |
-
-- 四种组合都必须先满足合法 5.1 family 与 v4 wire；本轮没有 v3/v4 negotiation。
-- 新热路允许客户端库存显示与预览在批内滞后，不新增中途 mutation 专用同步。客户端不以 `windowClick` 或容器包监听取得写权；真实旧服 fallback 所需 FULL/FULL_TARGET 扫描与布局观察仍保留。
-- `serverRoundId`、phase 与 packet surface 继续用于 wire 归因，不授予 physical ownership。`AutoToolSwapRoundService` 的旧 lease/takeover public surface 和 coordinator 类型保持 source compatibility，但属于 dormant compatibility surface。
+- 5.2 client 在 RoundStart 激活后直接发送 `FREEZE`；ordinary 候选与 mutation 全在服务端本地完成，客户端只观察 phase 与原版库存 publication。
+- 客户端库存显示与预览可以在批内滞后，不新增中途 mutation 专用同步。客户端不以 `windowClick`、库存扫描或容器包监听取得写权。
+- `serverRoundId`、phase 与 packet surface 只用于 wire 归因，不授予 physical ownership。5.1 及更旧端由严格 minor-family 握手拒绝，不提供 mixed-minor fallback。
 
 ## 规划宽进与执行实时权威边界
 
@@ -71,8 +63,7 @@
 ## 客户端预览刷新边界
 
 - 新 client/new server 没有逐 mutation ActionResult 或 verified-layout effect；预览是 observer，可在一个 local batch 内滞后。ARMED 未触发时可继续采样准星；本地成功破坏当前 frozen origin 后由 controller 本地租约先锁定，直到服务端 phase/generation 证明终态，不能在 active round 用下一次准星采样替换 origin。本轮不为预览增加执行 gate 或专用同步。
-- 真实旧 server 的 SWAP/TAKEOVER/RESTORE fallback 继续只在目标库存布局经原版同步首次可见时输出既有 preview invalidation；APPLIED 回包本身不替代布局证据。
-- `ChainPreviewController` 的 frozen seed、world identity、generation 隔离及生命周期清理保持不变；真实旧服 verified-layout 刷新复用 frozen seed 且不解除本地 origin 租约。预览滞后不能反向阻塞服务端 ordinary poll budget。
+- `ChainPreviewController` 的 frozen seed、world identity、generation 隔离及生命周期清理保持不变。预览滞后不能反向阻塞服务端 ordinary poll budget。
 
 ## 不变量影响
 
@@ -82,8 +73,8 @@
 
 ## 兼容边界
 
-- 5.1 family 内的客户端/服务端允许 patch、stable/prerelease/dev 混连，但共同受 v4 wire 冻结约束；`5.0.x` 或其他 minor 不兼容，也不提供 v3/v4 capability negotiation。
-- packet ID、字段布局、round 状态、普通 sequence 与 request ID 不是第三方扩展 API；它们作为 5.1 内部网络兼容基线不得在该 family 内变化。需要不兼容演进时必须升级新 minor。
+- 5.2 family 内的客户端/服务端允许 patch、stable/prerelease/dev 混连，但共同受五包 v4 wire 冻结约束；`5.1.x` 或其他 minor 不兼容，也不提供 capability negotiation。
+- packet ID、字段布局、round 状态与普通 sequence 不是第三方扩展 API；它们作为 5.2 内部网络兼容基线不得在该 family 内变化。需要不兼容演进时必须升级新 minor。
 - 长期稳定事实是服务端库存写权、local mutation 单次提交/异常不重放、restore-before-cleanup 与原版完整库存 publication。
 
 ## 未完成实机验收
@@ -91,15 +82,16 @@
 服务端本地批量路径的 JVM/Gradle 证据以活动任务结果为准；无论静态门禁结论如何，用户实机 client/dedicated 仍未完成。仍需覆盖：
 
 - 新 client/new server 连续 `CHAIN/AREA` 大批次、同 tick 多次二槽/三槽接替、segment/final restore、真实 poll budget 与批内 observer 滞后。
-- old/new、new/old、old/old mixed-patch 四象限，以及 5.1 stable/pre/dev、5.0/畸形拒绝和 missing-mod 实际 channel 行为。
+- 5.2 stable/pre/dev mixed-patch、5.1/畸形拒绝和 missing-mod 实际 channel 行为。
 - 松键、自然完成、STOP、watchdog、logout、respawn、切维度、clone、server stop 的真实 restore-before-cleanup 与每玩家/tick publication 0/1。
 - 第三方同时改写受保护槽、endpoint 不可用或完整 window 0 连续发送失败时的 conflict/tombstone 诊断与玩家可见结果。
-- HUD/预览在 local batch 中允许滞后后的最终收敛，以及真实旧服 `AutoToolSwapTakeoverRequest` fallback。
+- HUD/预览在 local batch 中允许滞后后的最终收敛。
 
 在上述矩阵完成前，不把自动工具运行态标记为实机已通过。
 
 ## 演进
 
+- 2026-07-28：升级严格 5.2 minor family，删除 takeover packet/coordinator、客户端库存扫描/target rematch、旧服 fallback 与对应配置字段；服务端本地 physical ledger 和五包 round/phase control 继续保留。
 - 2026-07-27：校正 preview observer 边界：本地成功破坏当前 frozen origin 是 phase 异步投影窗口的租约线性化点；客户端不伪造 phase/generation、不增加网络或执行 gate，verified-layout 仍只派生刷新同一 seed。
 - 2026-07-27：普通 `CHAIN/AREA` 从逐目标 `TakeoverRequest/WAIT` 迁移为服务端本地批量接替。新增唯一 local physical ledger owner、服务端实时候选、二槽/三槽/segment/final restore、mutation image 分类、每玩家/tick publication gate 与 restore-before-cleanup；RoundService 降为零库存 projection，客户端改为 direct `FREEZE` 并保留旧服 fallback。v4 wire、5.1 family、配置 schema、五态转移表与 GT/INTERACT 分支不变，运行态继续 INCOMPLETE。
 - 2026-07-25：协议原子升级为 v4，保留六包、动作码、字段顺序和固定 framing；TAKEOVER/DECLINE 使用独立烧号 request ID。当时的逐目标请求、empty-hand lease 与 committed publication WAIT 只作为旧服兼容历史，不再是新 ordinary production 热路。

@@ -32,11 +32,11 @@
 - JitPack 构建失败时先按失败阶段区分源码、构建脚本、wrapper 权限和 runner 外部网络；不能因某个仓库域解析失败就武断归因为“缺仓库”。
 - 同一 tag 可因 JitPack runner 对不同外部域的瞬时可达性而推进到不同深度；只有稳定复现到同一确定性构建错误，才归因于源码或构建配置。
 
-## 当前 `4.6.1` 状态
+## 当前 `4.6.3` 状态
 
 - annotated tag peeled commit 为 `c2d3ea91173fbedaeb912f3f07e8dcfce55bfc43`；Release 与 workflow `29554928156` 成功，JitPack Build API 为 `ok`，isTag/public/commit 身份正确，build log 可访问。
 - canonical POM、main、`dev`、`sources` 及其 `.sha1` 均返回 `200`；`.module` 返回预期 `404`。clean consumer 已用显式 `:dev` 坐标通过，`dev` SHA-256 为 `76319a864734d5770d1bf8579b7ab03f16be52453c92b662b9aae9010b898493`。
-- Miner 活动配置为 `com.github.QuanhuZeYu:Qz-UILib:4.6.1:dev`，保持 `transitive=false` 并移除 Maven Local/`flatDir` 旧 group fallback；本仓候选已完成协议 compileJava/test/check/build，仍须同 SHA branch CI。
+- Miner 活动配置为 `com.github.QuanhuZeYu:Qz-UILib:4.6.3:dev`，保持 `transitive=false` 并移除 Maven Local/`flatDir` 旧 group fallback。GitHub 正式 Release、JitPack `ok` tag/commit 身份与 canonical POM 已确认；本仓实际 `:dev` 解析和构建证据以当前任务结果为准，完整 POM/main/`dev`/`sources` 校验和、clean consumer 与同 SHA branch CI 仍分别记录。
 - tag 推送后还须独立核验 GitHub tag 指向、Release 正文与 jar assets；这些结果不反向替代 JitPack URL 矩阵。
 
 ## 变更纪律
