@@ -12,18 +12,18 @@ import org.junit.Test;
 
 import cpw.mods.fml.relauncher.Side;
 
-/** 5.1 family 握手语法、矩阵与 Forge 接线回归。 */
+/** 5.2 family 握手语法、矩阵与 Forge 接线回归。 */
 public class QzMinerNetworkVersionPolicyTest {
 
     private static final String[] LEGAL_VERSIONS = {
-            "5.1.0",
-            "5.1.2147483647",
-            "5.1.1-alpha",
-            "5.1.2-alpha.1",
-            "5.1.3-RC-1+build.0007",
-            "5.1.0-ci+abcdef0123456789",
-            "5.1.9-add-version-compatibility.17+abcdef12",
-            "5.1.12-branch-name+abcdef12-dirty"
+            "5.2.0",
+            "5.2.2147483647",
+            "5.2.1-alpha",
+            "5.2.2-alpha.1",
+            "5.2.3-RC-1+build.0007",
+            "5.2.0-ci+abcdef0123456789",
+            "5.2.9-add-cuboid-selection.17+abcdef12",
+            "5.2.12-branch-name+abcdef12-dirty"
     };
 
     @Test
@@ -31,9 +31,9 @@ public class QzMinerNetworkVersionPolicyTest {
         for (String version : LEGAL_VERSIONS) {
             Assert.assertTrue(version, QzMinerNetworkVersionPolicy.isCompatibleFamily(version));
         }
-        Assert.assertTrue(QzMinerNetworkVersionPolicy.isCompatibleFamily("5.1.0-0"));
-        Assert.assertTrue(QzMinerNetworkVersionPolicy.isCompatibleFamily("5.1.0+0001"));
-        Assert.assertTrue(QzMinerNetworkVersionPolicy.isCompatibleFamily("5.1.0-a-b.C-D+0.00-x"));
+        Assert.assertTrue(QzMinerNetworkVersionPolicy.isCompatibleFamily("5.2.0-0"));
+        Assert.assertTrue(QzMinerNetworkVersionPolicy.isCompatibleFamily("5.2.0+0001"));
+        Assert.assertTrue(QzMinerNetworkVersionPolicy.isCompatibleFamily("5.2.0-a-b.C-D+0.00-x"));
     }
 
     @Test
@@ -54,35 +54,36 @@ public class QzMinerNetworkVersionPolicyTest {
         String[] rejected = {
                 "",
                 "5.0.24",
+                "5.1.1",
                 "5.10.0",
-                "4.1.0",
-                "5.1",
-                "5.1.0.1",
-                "05.1.0",
-                "5.01.0",
-                "5.1.00",
-                "2147483648.1.0",
+                "4.2.0",
+                "5.2",
+                "5.2.0.1",
+                "05.2.0",
+                "5.02.0",
+                "5.2.00",
+                "2147483648.2.0",
                 "5.2147483648.0",
-                "5.1.2147483648",
-                "5.1.-1",
-                "5.1.0-",
-                "5.1.0+",
-                "5.1.0-alpha.",
-                "5.1.0-alpha..1",
-                "5.1.0-01",
-                "5.1.0-alpha.01",
-                "5.1.0+build.",
-                "5.1.0+build..1",
-                "5.1.0-alpha_beta",
-                "5.1.0+build_beta",
-                "5.1.0-alpha+build+extra",
-                "5.1.0-α",
-                "5.1.0+构建",
-                "x5.1.0",
-                "5.1.0x",
-                " 5.1.0",
-                "5.1.0 ",
-                "5.1.0\n"
+                "5.2.2147483648",
+                "5.2.-1",
+                "5.2.0-",
+                "5.2.0+",
+                "5.2.0-alpha.",
+                "5.2.0-alpha..1",
+                "5.2.0-01",
+                "5.2.0-alpha.01",
+                "5.2.0+build.",
+                "5.2.0+build..1",
+                "5.2.0-alpha_beta",
+                "5.2.0+build_beta",
+                "5.2.0-alpha+build+extra",
+                "5.2.0-α",
+                "5.2.0+构建",
+                "x5.2.0",
+                "5.2.0x",
+                " 5.2.0",
+                "5.2.0 ",
+                "5.2.0\n"
         };
         Assert.assertFalse(QzMinerNetworkVersionPolicy.isCompatibleFamily(null));
         for (String version : rejected) {
@@ -100,22 +101,22 @@ public class QzMinerNetworkVersionPolicyTest {
         }
 
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                "5.1.0", null, MyMod.MODID, Side.CLIENT));
+                "5.2.0", null, MyMod.MODID, Side.CLIENT));
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                "5.1.0", Collections.<String, String>emptyMap(), null, Side.CLIENT));
+                "5.2.0", Collections.<String, String>emptyMap(), null, Side.CLIENT));
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                "5.1.0", Collections.<String, String>emptyMap(), MyMod.MODID, null));
+                "5.2.0", Collections.<String, String>emptyMap(), MyMod.MODID, null));
 
         Map<String, String> nullVersion = singletonVersion(null);
-        Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts("5.1.0", nullVersion, MyMod.MODID, Side.SERVER));
+        Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts("5.2.0", nullVersion, MyMod.MODID, Side.SERVER));
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                "5.1.0", singletonVersion(""), MyMod.MODID, Side.CLIENT));
+                "5.2.0", singletonVersion(""), MyMod.MODID, Side.CLIENT));
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                null, singletonVersion("5.1.0"), MyMod.MODID, Side.CLIENT));
+                null, singletonVersion("5.2.0"), MyMod.MODID, Side.CLIENT));
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                "5.0.24", singletonVersion("5.1.0"), MyMod.MODID, Side.CLIENT));
+                "5.1.1", singletonVersion("5.2.0"), MyMod.MODID, Side.CLIENT));
         Assert.assertFalse(QzMinerNetworkVersionPolicy.accepts(
-                "5.1.0", singletonVersion("5.0.24"), MyMod.MODID, Side.SERVER));
+                "5.2.0", singletonVersion("5.1.1"), MyMod.MODID, Side.SERVER));
     }
 
     @Test

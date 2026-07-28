@@ -6,7 +6,6 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapTakeoverRequest;
 
 /**
  * 自动工具客户端协议的无状态信任边界。
@@ -64,21 +63,6 @@ public final class AutoToolSwapClientProtocolValidator {
             return null;
         }
         return new ValidatedPhase(serverRoundId, phaseSequence, phases[phaseOrdinal], generation, serverTick);
-    }
-
-    /** 校验并构造同 round 接替目标请求。 */
-    public AutoToolSwapTakeoverRequest validateTakeoverRequest(int protocolVersion, long serverRoundId,
-            long actionSequence, int generation, int targetX, int targetY, int targetZ,
-            int targetBlockId, int targetBlockMetadata, long serverTick, long deadlineTick,
-            boolean rawValid) {
-        if (!rawValid) return null;
-        try {
-            return new AutoToolSwapTakeoverRequest(protocolVersion, serverRoundId, actionSequence,
-                    generation, targetX, targetY, targetZ, targetBlockId, targetBlockMetadata,
-                    serverTick, deadlineTick);
-        } catch (IllegalArgumentException invalid) {
-            return null;
-        }
     }
 
     /** 已通过单包结构校验的 round 结果。 */

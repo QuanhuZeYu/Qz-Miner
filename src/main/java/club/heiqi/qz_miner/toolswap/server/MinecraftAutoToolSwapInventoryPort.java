@@ -8,8 +8,7 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
 /** 服务端主线程上的真实玩家个人库存适配。 */
-public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInventoryPort,
-        AutoToolSwapRoundService.DiagnosticInventory {
+public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInventoryPort {
 
     private final EntityPlayerMP player;
 
@@ -68,20 +67,6 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
     }
 
     /**
-     * 逐槽捕获 0..35 的完整 exact content；返回值不保留任何 ItemStack 引用。
-     * 任一槽捕获异常会直接向上抛出，由协调门 fail-closed。
-     */
-    @Override
-    public AutoToolSwapRoundService.InventoryFingerprint readInventoryIdentity() {
-        AutoToolSwapStackState[] states = new AutoToolSwapStackState[AutoToolSwapProtocol.INVENTORY_SLOT_COUNT];
-        for (int slot = AutoToolSwapProtocol.INVENTORY_FIRST_SLOT;
-                slot <= AutoToolSwapProtocol.INVENTORY_LAST_SLOT; slot++) {
-            states[slot] = AutoToolSwapStackStateFactory.capture(player.inventory.mainInventory[slot]);
-        }
-        return AutoToolSwapRoundService.InventoryFingerprint.fromSlots(states);
-    }
-
-    /**
      * 直接交换两个不同的个人库存槽位。mutation 与可重试 publication 严格分离。
      *
      * @param anchorSlot 原工具所在槽位
@@ -115,25 +100,6 @@ public final class MinecraftAutoToolSwapInventoryPort implements AutoToolSwapInv
     public void syncInventoryDifference() {
         player.inventory.markDirty();
         player.sendContainerToPlayer(player.inventoryContainer);
-    }
-
-    /**
-     * 捕获诊断专用的纯值库存快照；只输出短内容摘要，不保留或打印完整 NBT。
-     *
-     * @param anchorSlot 锚点槽位
-     * @param candidateSlot 候选槽位
-     * @return 当前选中槽与三个相关物品栈的不可变文本快照
-     */
-    @Override
-    public AutoToolSwapRoundService.InventoryDiagnosticSnapshot captureDiagnosticSnapshot(
-            int anchorSlot, int candidateSlot) {
-        requireInventorySlot(anchorSlot);
-        requireInventorySlot(candidateSlot);
-        int selectedSlot = player.inventory.currentItem;
-        return new AutoToolSwapRoundService.InventoryDiagnosticSnapshot(selectedSlot,
-                describeStack(player.inventory.mainInventory[anchorSlot]),
-                describeStack(player.inventory.mainInventory[candidateSlot]),
-                describeStack(player.inventory.mainInventory[selectedSlot]));
     }
 
     /**

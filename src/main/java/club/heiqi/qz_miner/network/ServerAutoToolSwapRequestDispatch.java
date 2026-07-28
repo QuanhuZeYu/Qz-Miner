@@ -15,15 +15,14 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapInventoryPort;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
-import club.heiqi.qz_miner.toolswap.server.MinecraftAutoToolSwapInventoryPort;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
  * 自动工具换位 C2S 请求的 FIFO 主线程收口。
  *
  * <p>Netty 线程只捕获 UUID、弱 endpoint identity 和原始 wire 值。主线程重新从
- * {@code PlayerManager} 获取同一实例后，才执行协议解码和 projection 核心调用。v4 intent 在
- * 新服务端均不拥有库存写权，因此 inventory factory 保留为 source-compatible surface，但不会创建。</p>
+ * {@code PlayerManager} 获取同一实例后，才执行协议解码和 projection 核心调用。严格 5.2 intent
+ * 只有 FREEZE/CLOSE，不创建或读取库存端口。</p>
  */
 public final class ServerAutoToolSwapRequestDispatch {
 
@@ -54,7 +53,7 @@ public final class ServerAutoToolSwapRequestDispatch {
                 actionCode, anchorSlot, candidateSlot, anchorFingerprintFirst, anchorFingerprintSecond,
                 anchorFingerprintThird, anchorFingerprintFourth, candidateFingerprintFirst,
                 candidateFingerprintSecond, candidateFingerprintThird, candidateFingerprintFourth, rawValid,
-                productionFifo(), productionPlayerLookup(), productionRoundService(), productionInventoryFactory(),
+                productionFifo(), productionPlayerLookup(), productionRoundService(),
                 productionTickSource(), productionActionResultSender());
     }
 
@@ -84,9 +83,9 @@ public final class ServerAutoToolSwapRequestDispatch {
             final long candidateFingerprintFirst, final long candidateFingerprintSecond,
             final long candidateFingerprintThird, final long candidateFingerprintFourth, final boolean rawValid,
             FifoDispatcher dispatcher, final PlayerLookup lookup, final RoundService service,
-            final InventoryFactory inventoryFactory, final TickSource tickSource, final ActionResultSender sender) {
+            final TickSource tickSource, final ActionResultSender sender) {
         if (playerId == null || endpoint == null || dispatcher == null || lookup == null || service == null
-                || inventoryFactory == null || tickSource == null || sender == null) {
+                || tickSource == null || sender == null) {
             return false;
         }
         final RawIntent rawIntent = new RawIntent(protocolVersion, serverRoundId, actionSequence, actionCode,
@@ -97,7 +96,7 @@ public final class ServerAutoToolSwapRequestDispatch {
         return dispatcher.tryRun(new Runnable() {
             @Override
             public void run() {
-                consumeIntent(playerId, weakEndpoint, rawIntent, lookup, service, inventoryFactory, tickSource,
+                consumeIntent(playerId, weakEndpoint, rawIntent, lookup, service, tickSource,
                         sender);
             }
         });
@@ -125,7 +124,7 @@ public final class ServerAutoToolSwapRequestDispatch {
     }
 
     private static void consumeIntent(UUID playerId, WeakReference<Object> endpointReference, RawIntent rawIntent,
-            PlayerLookup lookup, RoundService service, InventoryFactory inventoryFactory, TickSource tickSource,
+            PlayerLookup lookup, RoundService service, TickSource tickSource,
             ActionResultSender sender) {
         Object endpoint = matchingEndpoint(playerId, endpointReference, lookup);
         if (endpoint == null) {
@@ -137,8 +136,7 @@ public final class ServerAutoToolSwapRequestDispatch {
             sender.send(playerId, endpoint, rawIntent, rejectedOrphaned(rawIntent.serverRoundId, serverTick));
             return;
         }
-        // identity/raw/action 已全部通过后仍不创建 inventory port：FREEZE/CLOSE/ABANDON 只推进
-        // projection；旧 SWAP/RESTORE/TAKEOVER/DECLINE 必须在 factory/create/read 前零写拒绝。
+        // identity/raw/action 已全部通过后仍不创建 inventory port：FREEZE/CLOSE 只推进 projection。
         AutoToolSwapRoundResult result = service.handleIntent(playerId, endpoint, intent, null, serverTick);
         try {
             sender.send(playerId, endpoint, rawIntent, result);
@@ -233,16 +231,6 @@ public final class ServerAutoToolSwapRequestDispatch {
         };
     }
 
-    private static InventoryFactory productionInventoryFactory() {
-        return new InventoryFactory() {
-            @Override
-            public AutoToolSwapInventoryPort create(Object endpoint) {
-                return endpoint instanceof EntityPlayerMP ? new MinecraftAutoToolSwapInventoryPort((EntityPlayerMP) endpoint)
-                        : null;
-            }
-        };
-    }
-
     private static TickSource productionTickSource() {
         return new TickSource() {
             @Override
@@ -297,11 +285,6 @@ public final class ServerAutoToolSwapRequestDispatch {
 
         boolean confirmIntentResultPublication(UUID playerId, Object endpoint,
                 AutoToolSwapIntent intent, AutoToolSwapRoundResult result);
-    }
-
-    /** 主线程才允许创建的库存端口边界。 */
-    public interface InventoryFactory {
-        AutoToolSwapInventoryPort create(Object endpoint);
     }
 
     /** 服务端权威 tick 边界。 */

@@ -26,7 +26,8 @@ public final class NetworkMain {
     private static final int DISCRIMINATOR_AUTO_TOOL_ROUND_RESULT = 12;
     private static final int DISCRIMINATOR_AUTO_TOOL_ACTION_RESULT = 13;
     private static final int DISCRIMINATOR_AUTO_TOOL_ROUND_PHASE = 14;
-    private static final int DISCRIMINATOR_AUTO_TOOL_TAKEOVER_REQUEST = 15;
+    private static final int DISCRIMINATOR_CUBOID_SELECTION_REQUEST = 15;
+    private static final int DISCRIMINATOR_CUBOID_SELECTION_SYNC = 16;
 
     /**
      * SimpleNetworkWrapper 实例，用于发送和接收网络包。
@@ -115,9 +116,14 @@ public final class NetworkMain {
                 DISCRIMINATOR_AUTO_TOOL_ROUND_PHASE,
                 Side.CLIENT);
         network.registerMessage(
-                PacketAutoToolSwapTakeoverRequest.Handler.class,
-                PacketAutoToolSwapTakeoverRequest.class,
-                DISCRIMINATOR_AUTO_TOOL_TAKEOVER_REQUEST,
+                PacketCuboidSelectionRequest.Handler.class,
+                PacketCuboidSelectionRequest.class,
+                DISCRIMINATOR_CUBOID_SELECTION_REQUEST,
+                Side.SERVER);
+        network.registerMessage(
+                PacketCuboidSelectionSync.Handler.class,
+                PacketCuboidSelectionSync.class,
+                DISCRIMINATOR_CUBOID_SELECTION_SYNC,
                 Side.CLIENT);
     }
 }

@@ -40,6 +40,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `AREA_ORE`：范围内按宽泛矿石匹配
 - `AREA_TUNNEL`：按配置选择视线主轴或命中面朝方块内部，生成 `3 x 3 x radius` 的指向性隧道区域
 - `AREA_SECTION_CLEAR`：按被挖方块所在的 `16 x 16 x 16` 区段生成固定清理区域
+- `AREA_CUBOID_CLEAR`：用左右键选择两个端点，并清理服务端确认的 inclusive 立方体
 - `INTERACT_BASE`：同类方块；严格匹配触发方块的 block、完整 metadata 与方块实体身份，并保留旧对象组扩展
 - `INTERACT_LIQUID_SOURCE`：液体源；只处理与触发 source 同种且当前仍可排出的静态液体源
 - `INTERACT_CROP`：全部作物；处理已可靠识别的成熟和未成熟作物，并保留旧对象组扩展
@@ -54,6 +55,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 想砍树时，用 `CHAIN_LOGGING`
 - 想开矿道时，用 `AREA_TUNNEL`
 - 想按 `16 x 16 x 16` 的固定区段整体清理时，用 `AREA_SECTION_CLEAR`
+- 想精确清理任意长方体时，用 `AREA_CUBOID_CLEAR`；松开连锁键后左键选择 point1、右键选择 point2，按住连锁键再左键任意可破坏方块即可触发
 - 想批量右键收作物时，用 `INTERACT_CROP`；想只给未成熟作物使用当前手持肥料时，用 `INTERACT_FERTILIZE_IMMATURE_CROP`
 - 想让当前手持物逐个尝试右键同种静态液体源时，用 `INTERACT_LIQUID_SOURCE`；是否处理流体由物品自身决定
 - 如果客户端卡顿明显，可关闭 `clientEnablePreviewRender`，或调低 `clientPreviewMaxRadius` 与 `clientPreviewMaxTargets`
@@ -76,19 +78,19 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ## 版本说明
 
-### 5.1 网络兼容
+### 5.2 网络兼容
 
-- `5.1.x` 客户端与服务端只要版本字符串完整合法，就忽略 patch、prerelease 与 build qualifier
+- `5.2.x` 客户端与服务端只要版本字符串完整合法，就忽略 patch、prerelease 与 build qualifier
   互通；stable、prerelease、branch/dirty dev 均适用。
-- `5.0.x`、`5.10.x` 与畸形版本不会被当成 5.1；5.1 family 内的 16 个 packet ID/Side、wire
-  framing、协议、ordinal/code/mask 与 24-path 配置 schema 已冻结。不兼容变更必须升级新 minor。
+- `5.0.x`、`5.1.x`、`5.10.x` 与畸形版本不会被当成 5.2；5.2 family 内的 17 个 packet ID/Side、wire
+  framing、协议、ordinal/code/mask 与 23-path 配置 schema 已冻结。不兼容变更必须升级新 minor。
 - 远端模组表缺少 `qz_miner` 时 Forge checker 在 CLIENT/SERVER 两侧都会放行，但这只表示不由
   mod-list 检查拒绝；它不会为无 Qz-Miner 对端创建网络 channel，也不是无 Mod 运行安全保证。
-- 当前真实 5.1 mixed/missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或
+- 当前真实 5.2 mixed-patch/missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或
   branch CI 不能替代实机证据。完整合同见
   `docs/反馈层/决策/network-version-compatibility.md`。
 
-从 `4.0` 到当前 `5.1`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
+从 `4.0` 到当前 `5.2`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
 
 - 完成 `AREA` 模式、`INTERACT` 模式和作物交互模式迁移
 - 为 `CHAIN` 与 `AREA` 接入宽泛矿石匹配子模式
@@ -113,6 +115,8 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `AREA` 模式完整闭环：盒扫搜索、执行、HUD、预览已接通
 - `AREA_TUNNEL`：支持按玩家偏好选择视线主轴或命中面方向，生成 `3 x 3 x radius` 的指向性隧道区域
 - `AREA_SECTION_CLEAR`：支持按被挖方块所在 `16 x 16 x 16` 区段生成固定清理区域
+- `AREA_CUBOID_CLEAR`：支持服务端权威双点选区、固定成本 AABB 预览与冻结选区执行
+- 服务端配置命令：权限等级 4 的 `/qzminer config list|get|set|reload` 可受限读写 `general.*` scalar 白名单并热发布
 - `INTERACT` 模式完整闭环：四种范围交互统一盒扫，同类方块、液体源、全部作物与未成熟作物施肥均已接通执行期重验
 - 统一子模式框架：主模式下可挂载多个子模式，并同步到客户端与服务端
 - `CHAIN_ORE` 与 `AREA_ORE`：宽泛矿石匹配，面向 GT / BW / GT++ / 原版矿石体系

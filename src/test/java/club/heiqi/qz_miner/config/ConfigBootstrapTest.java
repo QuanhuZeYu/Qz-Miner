@@ -60,7 +60,6 @@ public class ConfigBootstrapTest {
         Assert.assertEquals(QzMinerConfigDefaults.GREETING, Config.greeting);
         Assert.assertTrue(Config.clientEnablePreviewRender);
         Assert.assertTrue(Config.autoToolSwapEnabled);
-        Assert.assertTrue(Config.autoToolTakeoverEnabled);
         Assert.assertTrue(Config.autoToolPrioritySelectors.isEmpty());
         Assert.assertSame(manager, ConfigBootstrap.manager());
         Assert.assertNotNull(ConfigBootstrap.currentValidatedSnapshot());
@@ -85,7 +84,6 @@ public class ConfigBootstrapTest {
                 + "client:\n"
                 + "  clientEnablePreviewRender: false\n"
                 + "  autoToolSwapEnabled: false\n"
-                + "  autoToolTakeoverEnabled: false\n"
                 + "  autoToolPrioritySelectors: [ore:toolPickaxe, 'mod:drill@4']\n"
                 + "  parallelTickClientWorkBudgetUnits: 200\n"
                 + "  clientPreviewMaxRadius: 8\n"
@@ -104,7 +102,6 @@ public class ConfigBootstrapTest {
         Assert.assertEquals(512, Config.chainMaxBlocks);
         Assert.assertFalse(Config.clientEnablePreviewRender);
         Assert.assertFalse(Config.autoToolSwapEnabled);
-        Assert.assertFalse(Config.autoToolTakeoverEnabled);
         Assert.assertEquals("ore:toolPickaxe", Config.autoToolPrioritySelectors.get(0).canonicalText());
         Assert.assertEquals("mod:drill@4", Config.autoToolPrioritySelectors.get(1).canonicalText());
         Assert.assertEquals(8, Config.clientPreviewMaxRadius);
@@ -463,7 +460,7 @@ public class ConfigBootstrapTest {
         } catch (IllegalStateException expected) {
             Assert.assertTrue(expected.getMessage().contains("not initialized"));
         }
-        Assert.assertArrayEquals("all 21 Config runtime fields must remain untouched", before,
+        Assert.assertArrayEquals("all Config runtime fields must remain untouched", before,
                 captureRuntimeConfigValues());
     }
 
@@ -481,7 +478,6 @@ public class ConfigBootstrapTest {
         Config.enableFortuneForPlacedOre = true;
         Config.clientEnablePreviewRender = false;
         Config.autoToolSwapEnabled = false;
-        Config.autoToolTakeoverEnabled = false;
         Config.autoToolPrioritySelectors = java.util.Collections.singletonList(
                 club.heiqi.qz_miner.toolswap.ToolSelectorParser.parse("sentinel:item@*"));
         Config.parallelTickClientWorkBudgetUnits = 909;
@@ -508,7 +504,6 @@ public class ConfigBootstrapTest {
                 Boolean.valueOf(Config.enableFortuneForPlacedOre),
                 Boolean.valueOf(Config.clientEnablePreviewRender),
                 Boolean.valueOf(Config.autoToolSwapEnabled),
-                Boolean.valueOf(Config.autoToolTakeoverEnabled),
                 Config.autoToolPrioritySelectors,
                 Integer.valueOf(Config.parallelTickClientWorkBudgetUnits),
                 Integer.valueOf(Config.clientPreviewMaxRadius),

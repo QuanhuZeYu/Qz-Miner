@@ -19,6 +19,8 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
+import club.heiqi.qz_miner.chain.selection.CuboidBounds;
+import club.heiqi.qz_miner.chain.selection.CuboidSelection;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
@@ -122,6 +124,22 @@ public class ChainPlanningEventBridge {
         }
         final ChainMode mode = playerState.getSelectedMode();
         final ChainSubMode subMode = playerState.getSelectedSubMode();
+        final CuboidBounds cuboidBounds;
+        if (subMode == ChainSubMode.AREA_CUBOID_CLEAR) {
+            CuboidSelection selection = playerState.getCuboidSelection();
+            CuboidBounds selectedBounds = selection == null ? null : selection.bounds();
+            if (selectedBounds == null
+                    || selectedBounds.getDimensionId() != player.dimension
+                    || !selectedBounds.fitsWithin(playerState.resolveAcceptedChainMaxBlocks())) {
+                bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
+                        ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                        "cuboid-selection-unavailable"));
+                return;
+            }
+            cuboidBounds = selectedBounds;
+        } else {
+            cuboidBounds = null;
+        }
         ChainModeDefinition definition = ChainModeRegistry.getDefinition(mode);
         if (definition == null) {
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
@@ -167,7 +185,7 @@ public class ChainPlanningEventBridge {
                 event.getSideHit(), event.getHitX(), event.getHitY(), event.getHitZ(),
                 requestedRadius, requestedMaxBlocks, modeExtension,
                 seedSnapshot.getSampleBlock(), seedSnapshot.getSampleMeta(),
-                seedSnapshot.getSampleTileIdentity());
+                seedSnapshot.getSampleTileIdentity(), cuboidBounds);
         final ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics =
                 ChainPlanningRuntimeFactory.PlanningDiagnostics.production(playerUUID, serverRoundId, planningGen,
                         String.valueOf(mode), String.valueOf(subMode));

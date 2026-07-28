@@ -58,14 +58,11 @@ public class AutoToolSwapKeyStateBridgeTest {
     }
 
     @Test
-    public void rejectedLegacySwapFreezesAndRepeatedKeyPressKeepsCurrentRound() {
+    public void directFreezeAndRepeatedKeyPressKeepCurrentRound() {
         Fixture swapped = new Fixture();
         long swappedRoundId = activate(swapped);
-        AutoToolSwapStackState anchor = stack("mod:pickaxe", "anchor");
-        AutoToolSwapStackState candidate = stack("mod:drill", "candidate");
         Assert.assertEquals(AutoToolSwapRoundState.FROZEN, publish(swapped,
-                swapIntent(swappedRoundId, anchor, candidate),
-                new SwapInventory(anchor, candidate), 3L).roundState());
+                freezeIntent(swappedRoundId), null, 3L).roundState());
         Assert.assertEquals(swappedRoundId, AutoToolSwapKeyStateBridge.onKeyState(swapped.playerId, swapped.endpoint,
                 true, swapped.service, 4L, swapped));
         Assert.assertEquals(1, swapped.sendCount);
@@ -82,7 +79,7 @@ public class AutoToolSwapKeyStateBridgeTest {
     }
 
     @Test
-    public void keyReleaseThenClosingKeyPressReturnsZeroWithoutReply() {
+    public void keyReleaseFinishesProjectionAndFreshRoundCanStart() {
         Fixture fixture = new Fixture();
         fixture.service.beginRound(fixture.playerId, fixture.endpoint, 41L, 1L);
         long roundId = AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true,
@@ -93,11 +90,27 @@ public class AutoToolSwapKeyStateBridgeTest {
 
         Assert.assertEquals(roundId, releasedRound);
         Assert.assertEquals(1, fixture.sendCount);
-        Assert.assertEquals(AutoToolSwapRoundState.CLOSING,
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED,
                 fixture.service.snapshot(fixture.playerId, fixture.endpoint).roundState());
         Assert.assertEquals(0L, AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true,
                 fixture.service, 4L, fixture));
         Assert.assertEquals(1, fixture.sendCount);
+
+        fixture.service.beginRound(fixture.playerId, fixture.endpoint, 42L, 5L);
+        Assert.assertTrue(AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, true,
+                fixture.service, 6L, fixture) > roundId);
+        Assert.assertEquals(2, fixture.sendCount);
+    }
+
+    @Test
+    public void closeRemainsAcceptedAfterKeyReleaseFinishedProjection() {
+        Fixture fixture = new Fixture();
+        long roundId = activate(fixture);
+        AutoToolSwapKeyStateBridge.onKeyState(fixture.playerId, fixture.endpoint, false,
+                fixture.service, 3L, fixture);
+        AutoToolSwapRoundResult close = publish(fixture, closeIntent(roundId), null, 4L);
+        Assert.assertEquals(AutoToolSwapResultCode.ACCEPTED, close.outcome());
+        Assert.assertEquals(AutoToolSwapRoundState.FINISHED, close.roundState());
     }
 
     @Test
@@ -156,10 +169,10 @@ public class AutoToolSwapKeyStateBridgeTest {
         return result;
     }
 
-    private static AutoToolSwapIntent swapIntent(long roundId, AutoToolSwapStackState anchor,
-            AutoToolSwapStackState candidate) {
-        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId, 1L, AutoToolSwapAction.SWAP,
-                0, 9, anchor.contentFingerprint(), candidate.contentFingerprint());
+    private static AutoToolSwapIntent freezeIntent(long roundId) {
+        AutoToolSwapStackState stack = stack("mod:pickaxe", "freeze");
+        return new AutoToolSwapIntent(AutoToolSwapProtocol.PROTOCOL_VERSION, roundId, 1L,
+                AutoToolSwapAction.FREEZE, 0, 0, stack.contentFingerprint(), stack.contentFingerprint());
     }
 
     private static AutoToolSwapIntent closeIntent(long roundId) {
@@ -191,55 +204,4 @@ public class AutoToolSwapKeyStateBridgeTest {
         }
     }
 
-    /** 仅用于驱动 bridge 回归中的 SWAPPED 状态。 */
-    private static final class SwapInventory implements AutoToolSwapInventoryPort {
-        private final AutoToolSwapStackState[] slots = new AutoToolSwapStackState[36];
-
-        private SwapInventory(AutoToolSwapStackState anchor, AutoToolSwapStackState candidate) {
-            slots[0] = anchor;
-            slots[9] = candidate;
-        }
-
-        @Override
-        public boolean isPlayerAlive() {
-            return true;
-        }
-
-        @Override
-        public boolean isCreativeMode() {
-            return false;
-        }
-
-        @Override
-        public boolean hasPersonalInventoryWindow0() {
-            return true;
-        }
-
-        @Override
-        public boolean isCursorEmpty() {
-            return true;
-        }
-
-        @Override
-        public int selectedHotbarSlot() {
-            return 0;
-        }
-
-        @Override
-        public AutoToolSwapStackState readInventorySlot(int inventorySlot) {
-            AutoToolSwapStackState state = slots[inventorySlot];
-            return state == null ? AutoToolSwapStackState.empty() : state;
-        }
-
-        @Override
-        public void swapInventorySlotsAtomically(int anchorSlot, int candidateSlot) {
-            AutoToolSwapStackState state = slots[anchorSlot];
-            slots[anchorSlot] = slots[candidateSlot];
-            slots[candidateSlot] = state;
-        }
-
-        @Override
-        public void syncInventoryDifference() {
-        }
-    }
 }

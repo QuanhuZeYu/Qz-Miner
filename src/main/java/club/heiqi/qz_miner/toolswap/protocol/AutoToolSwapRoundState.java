@@ -7,7 +7,6 @@ import java.util.Map;
 public enum AutoToolSwapRoundState {
     PENDING_KEY(1),
     OPEN(2),
-    SWAPPED(3),
     FROZEN(4),
     CLOSING(5),
     FINISHED(6),

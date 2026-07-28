@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
+import club.heiqi.qz_miner.chain.client.ClientCuboidSelectionState;
+import club.heiqi.qz_miner.chain.client.CuboidSelectionRenderer;
 import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjectionSubscriber;
@@ -90,6 +92,9 @@ public class ClientProxy extends CommonProxy {
     public static ChainPreviewRenderer chainPreviewRenderer;
     /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
     public static ClientPhaseProjection clientPhaseProjection;
+    /** 服务端 ACK 唯一写入的双点选区投影。 */
+    public static ClientCuboidSelectionState clientCuboidSelectionState;
+    public static CuboidSelectionRenderer cuboidSelectionRenderer;
     /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
     /** Qz-Miner 紧凑 HUD 的 UILib 注册句柄。 */
@@ -108,29 +113,20 @@ public class ClientProxy extends CommonProxy {
         // 阶段6 A2：客户端投影容器 + 订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged，
         // ClientTickEvent.START drain 更新容器，守 I4 主线程收口）
         clientPhaseProjection = new ClientPhaseProjection();
+        clientCuboidSelectionState = new ClientCuboidSelectionState();
         clientPhaseProjectionSubscriber = new ClientPhaseProjectionSubscriber(
                 MyMod.clientChainEventBus, clientPhaseProjection);
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
         autoToolSwapAdapter = new AutoToolSwapClientAdapter(
                 Config.autoToolSwapEnabled,
-                Config.autoToolTakeoverEnabled,
-                Config.autoToolPrioritySelectors,
                 new ToolSwapMinecraftFacade(),
-                new QzAutoToolSwapClientTransport(),
-                new AutoToolSwapClientAdapter.PreviewInvalidationListener() {
-                    @Override
-                    public void onPreviewInvalidated(long cycleGeneration, long serverRoundId,
-                            long actionSequence, AutoToolSwapAction action) {
-                        if (chainPreviewController != null) {
-                            chainPreviewController.onToolLayoutVerified(cycleGeneration, serverRoundId,
-                                    actionSequence, action);
-                        }
-                    }
-                });
+                new QzAutoToolSwapClientTransport());
         AutoToolSwapHooks.install(autoToolSwapAdapter);
         chainPreviewRenderer = new ChainPreviewRenderer();
         chainPreviewRenderer.register();
+        cuboidSelectionRenderer = new CuboidSelectionRenderer();
+        cuboidSelectionRenderer.register();
         new ClientConnectionListener().register();
         new ClientConfigChangeListener().register();
         chainStatusHudRegistration = CompactHud.register(
@@ -291,30 +287,30 @@ public class ClientProxy extends CommonProxy {
                 });
     }
 
-    /** 接替请求只经 world identity gate 发布事实，不在 S2C callback 内扫描库存或发 C2S。 */
+    /** 框选 ACK 经 connection identity 和客户端主线程 gate 后发布。 */
     @Override
-    public void handleClientAutoToolSwapTakeoverRequest(
-            final int protocolVersion, final long serverRoundId, final long actionSequence,
-            final int generation, final int targetX, final int targetY, final int targetZ,
-            final int targetBlockId, final int targetBlockMetadata, final long serverTick,
-            final long deadlineTick, final boolean rawValid, INetHandler netHandler) {
+    public void handleClientCuboidSelectionSync(
+            final int protocolVersion, final long revision, final int acceptedFlag, final int reasonCode,
+            final int pointMask, final int point1Dimension, final int point1X, final int point1Y, final int point1Z,
+            final int point2Dimension, final int point2X, final int point2Y, final int point2Z,
+            final boolean rawValid, INetHandler netHandler) {
         final ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(netHandler);
-        ClientAutoToolSwapPacketDispatch.dispatch(token, AUTO_TOOL_SWAP_LIFECYCLE_GATE,
-                new ClientAutoToolSwapPacketDispatch.Dispatcher() {
-                    @Override
-                    public boolean dispatch(Runnable task) {
-                        return ClientMainThreadDispatcher.tryRun(task);
-                    }
-                }, new Runnable() {
-                    @Override
-                    public void run() {
-                        if (autoToolSwapAdapter != null) {
-                            autoToolSwapAdapter.onTakeoverRequest(protocolVersion, serverRoundId, actionSequence,
-                                    generation, targetX, targetY, targetZ, targetBlockId, targetBlockMetadata,
-                                    serverTick, deadlineTick, rawValid);
-                        }
-                    }
-                });
+        if (token == null) return;
+        ClientMainThreadDispatcher.tryRun(new Runnable() {
+            @Override
+            public void run() {
+                if (!ClientConnectionLifecycle.isWorldCurrentAndActive(token)
+                        || clientCuboidSelectionState == null) return;
+                boolean published = clientCuboidSelectionState.publish(
+                        protocolVersion, revision, acceptedFlag, pointMask,
+                        point1Dimension, point1X, point1Y, point1Z,
+                        point2Dimension, point2X, point2Y, point2Z, rawValid);
+                if (published && acceptedFlag == 0) {
+                    MyMod.LOG.info("[CuboidSelection] Server rejected selection reasonCode={}",
+                            Integer.valueOf(reasonCode));
+                }
+            }
+        });
     }
 
     /**

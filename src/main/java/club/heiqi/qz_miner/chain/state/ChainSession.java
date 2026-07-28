@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.selection.CuboidBounds;
 import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
@@ -80,6 +81,16 @@ public class ChainSession {
         this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY,
                 interactHitZ, requestedChainRadius, requestedChainMaxBlocks, modeExtension,
                 seedBlock, seedMeta, seedTileIdentity));
+    }
+
+    /** 创建同时携带触发 seed 与冻结选区的单次会话。 */
+    public ChainSession(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin,
+            int interactFace, float interactHitX, float interactHitY, float interactHitZ,
+            int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension,
+            Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity, CuboidBounds cuboidBounds) {
+        this(new ChainRequest(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY,
+                interactHitZ, requestedChainRadius, requestedChainMaxBlocks, modeExtension,
+                seedBlock, seedMeta, seedTileIdentity, cuboidBounds));
     }
 
     public ChainSession(ChainRequest request) {

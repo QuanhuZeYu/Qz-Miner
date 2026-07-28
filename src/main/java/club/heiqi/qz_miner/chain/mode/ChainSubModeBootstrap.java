@@ -17,6 +17,7 @@ import club.heiqi.qz_miner.chain.planner.ChainSearchContext;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.planner.ChainTraverserResolver;
 import club.heiqi.qz_miner.chain.planner.CropBlockMatcher;
+import club.heiqi.qz_miner.chain.planner.CuboidScanTraverser;
 import club.heiqi.qz_miner.chain.planner.GregTechCableMatcher;
 import club.heiqi.qz_miner.chain.planner.GregTechCableTraverser;
 import club.heiqi.qz_miner.chain.planner.ImmatureCropBlockMatcher;
@@ -62,6 +63,7 @@ public final class ChainSubModeBootstrap {
             registerSpecialLootGamesMinesweeperSubMode();
         }
         registerAreaSectionClearSubMode();
+        registerAreaCuboidClearSubMode();
         ChainSubModeRegistry.validateDefinitions();
     }
 
@@ -112,6 +114,24 @@ public final class ChainSubModeBootstrap {
             null,
             null,
             (radius, subMode) -> new int[] {16, 16, 16},
+            null,
+            null,
+            null);
+    }
+
+    /** 注册只扫描单次请求中冻结选区的 AREA 子模式。 */
+    private static void registerAreaCuboidClearSubMode() {
+        registerSubMode(
+            ChainSubMode.AREA_CUBOID_CLEAR,
+            ChainSubModeTrigger.BREAK_BLOCK,
+            context -> context == null || context.getSession() == null
+                    || context.getSession().getRequest() == null
+                    || context.getSession().getRequest().getCuboidBounds() == null
+                            ? null
+                            : new CuboidScanTraverser(context.getSession().getRequest().getCuboidBounds()),
+            null,
+            null,
+            null,
             null,
             null,
             null);

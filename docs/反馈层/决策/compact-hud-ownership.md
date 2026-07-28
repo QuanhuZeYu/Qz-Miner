@@ -13,7 +13,7 @@
 
 ## 依赖与发布
 
-该能力最低要求 Qz-UILib `4.6.0`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；Miner 已使用标准 `4.6.1:dev` 坐标并移除 Maven Local/旧 group fallback。4.6.1 的 JitPack channel-aware 制品与 clean consumer 门禁已通过；发布还要求同 SHA branch CI 通过，并在 tag 后独立核验 Release/assets。
+该能力最低要求 Qz-UILib `4.6.0`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；Miner 已使用标准 `4.6.3:dev` 坐标并移除 Maven Local/旧 group fallback。发布仍要求完成 channel-aware 制品与 clean consumer 门禁、同 SHA branch CI，并在 tag 后独立核验 Release/assets。
 
 ## 不变量核对
 

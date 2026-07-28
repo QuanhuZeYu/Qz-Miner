@@ -42,4 +42,4 @@
 - `jitpack-release-dependencies.md` — Qz-UILib 以 GitHub tag 经 JitPack 标准坐标消费；GTNH Maven 非发布前置，放行以 API/POM/module/`dev` 制品实证为准
 - `issue-diagnostics.md` — Issue 采用描述优先、维护者日志路由、按需单点追问与隐私最小化的支持政策
 - `release-runtime-validation.md` — 发布运行态验证原则，以及 `5.0.19` 人工运行态 INCOMPLETE 的一次性风险接受
-- `network-version-compatibility.md` — 5.1 minor-family Forge 握手、missing-mod 边界，以及 16 个 packet/wire/24-path schema 冻结基线
+- `network-version-compatibility.md` — 严格 5.2 minor-family Forge 握手、missing-mod 边界，以及 17 个 packet/wire/23-path schema 冻结基线

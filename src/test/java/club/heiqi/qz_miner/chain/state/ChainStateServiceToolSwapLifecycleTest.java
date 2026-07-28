@@ -53,9 +53,6 @@ public class ChainStateServiceToolSwapLifecycleTest {
                         .hasPendingResultPublication());
         Assert.assertEquals("新 lifecycle 必须从 fresh ordinary sequence 开始", 1L,
                 MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint).nextActionSequence());
-        Assert.assertEquals("新 lifecycle 不得继承旧 takeover request 水位", 0L,
-                MyMod.autoToolSwapRoundService.snapshot(playerId, endpoint)
-                        .lastIssuedTakeoverRequestId());
         stateService.removePlayerState(playerId, "remove-without-state");
         Assert.assertNull(MyMod.autoToolSwapRoundService.snapshot(playerId));
         Assert.assertNull(stateService.getPlayerState(playerId));

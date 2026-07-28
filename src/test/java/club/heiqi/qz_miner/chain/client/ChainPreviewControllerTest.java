@@ -13,19 +13,6 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 public class ChainPreviewControllerTest {
 
     @Test
-    public void verifiedLayoutRefreshReusesCapturedSeedAndBypassesPhaseLock() throws Exception {
-        String source = source();
-        Assert.assertEquals(1, count(source, "new BlockSeedSnapshot("));
-        Assert.assertTrue(source.contains("startPreview(world, origin, previewSeedSnapshot, previewConcreteFace, false)"));
-        Assert.assertTrue(source.contains("final Block sampleBlock = seedSnapshot.getSampleBlock()"));
-        Assert.assertTrue(source.contains("final int sampleMeta = seedSnapshot.getSampleMeta()"));
-        Assert.assertTrue(source.contains("final TileEntity sampleTileEntity = seedSnapshot.getSampleTileEntity()"));
-        Assert.assertFalse(source.substring(source.indexOf("public void onToolLayoutVerified"),
-                source.indexOf("@SubscribeEvent")).contains("shouldLockCurrentPreview"));
-        Assert.assertTrue(source.contains("resetPreview(replaceSeedLease)"));
-    }
-
-    @Test
     public void localDestroyLeaseIsEstablishedBeforeLookSamplingWithExactIdentityGates() throws Exception {
         String source = source();
         int tick = source.indexOf("public void onClientTick");
@@ -51,8 +38,8 @@ public class ChainPreviewControllerTest {
         int stopStart = source.indexOf("private void stopPreview()", lockStart);
         String lock = source.substring(lockStart, stopStart);
         int resetStart = source.indexOf("private void resetPreview(boolean clearSeedLease)");
-        int refreshAction = source.indexOf("private static boolean isPreviewRefreshAction", resetStart);
-        String reset = source.substring(resetStart, refreshAction);
+        int nextMethod = source.indexOf("private ChainTarget getCurrentLookTarget", resetStart);
+        String reset = source.substring(resetStart, nextMethod);
 
         Assert.assertTrue(lock.contains("previewOriginLease.shouldLock(phase, generation)"));
         Assert.assertTrue(lock.contains("localOriginLocked || phase == ChainPhase.PLANNING"));
@@ -64,16 +51,14 @@ public class ChainPreviewControllerTest {
     }
 
     @Test
-    public void onlyThreeInventoryActionsRefreshAndLeaseIdentityIsClearedOnStop() throws Exception {
+    public void inventoryFallbackRefreshIsRemovedAndLeaseIsClearedOnStop() throws Exception {
         String source = source();
-        Assert.assertTrue(source.contains("action == AutoToolSwapAction.SWAP"));
-        Assert.assertTrue(source.contains("action == AutoToolSwapAction.TAKEOVER"));
-        Assert.assertTrue(source.contains("action == AutoToolSwapAction.RESTORE"));
+        Assert.assertFalse(source.contains("AutoToolSwapAction"));
+        Assert.assertFalse(source.contains("onToolLayoutVerified"));
         Assert.assertTrue(source.contains("world != previewSeedWorld"));
         Assert.assertTrue(source.contains("previewSeedSnapshot = null"));
         Assert.assertTrue(source.contains("previewSeedWorld = null"));
         Assert.assertTrue(source.contains("previewOriginLease.reset()"));
-        Assert.assertTrue(source.contains("clearInvalidationIdentity()"));
         Assert.assertTrue(source.contains("previewState.getGeneration() != generation"));
         Assert.assertTrue(source.contains("concreteFace == previewConcreteFace"));
     }

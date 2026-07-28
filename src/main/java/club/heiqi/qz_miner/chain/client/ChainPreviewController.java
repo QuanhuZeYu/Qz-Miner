@@ -25,7 +25,6 @@ import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
-import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -57,10 +56,6 @@ public class ChainPreviewController {
     private BlockSeedSnapshot previewSeedSnapshot;
     private World previewSeedWorld;
     private int previewConcreteFace;
-    private long lastInvalidationCycleGeneration = Long.MIN_VALUE;
-    private long lastInvalidationServerRoundId = Long.MIN_VALUE;
-    private long lastInvalidationActionSequence = Long.MIN_VALUE;
-    private AutoToolSwapAction lastInvalidationAction;
 
     public void register() {
         FMLCommonHandler.instance().bus().register(this);
@@ -99,41 +94,6 @@ public class ChainPreviewController {
         previewOriginLease.acquire(projection.getCurrentPhase(), projection.getCurrentGeneration());
     }
 
-    /**
-     * 已验证工具布局首次可见后的精确预览失效入口。
-     *
-     * <p>调用发生在 ClientTick END 主线程。只有当前仍活跃的预览会被重启；直接复用同 origin，
-     * 因此不受 PLANNING/RUNNING/FINISHING phase lock 阻挡。旧 worker 由 subscription 取消和
-     * preview generation 双重隔离。</p>
-     */
-    public void onToolLayoutVerified(long cycleGeneration, long serverRoundId,
-            long actionSequence, AutoToolSwapAction action) {
-        if (!isPreviewRefreshAction(action) || currentTarget == null || !previewState.isActive()
-                || previewSeedSnapshot == null || previewSeedWorld == null
-                || MyMod.chainStateService == null
-                || !MyMod.chainStateService.getClientState().isChainKeyPressed()
-                || !Config.clientEnablePreviewRender) {
-            return;
-        }
-        if (cycleGeneration == lastInvalidationCycleGeneration
-                && serverRoundId == lastInvalidationServerRoundId
-                && actionSequence == lastInvalidationActionSequence
-                && action == lastInvalidationAction) {
-            return;
-        }
-        Minecraft minecraft = Minecraft.getMinecraft();
-        World world = minecraft.theWorld;
-        if (world == null || minecraft.thePlayer == null || world != previewSeedWorld
-                || !currentTarget.equals(previewSeedSnapshot.getOrigin())) return;
-
-        ChainTarget origin = currentTarget;
-        lastInvalidationCycleGeneration = cycleGeneration;
-        lastInvalidationServerRoundId = serverRoundId;
-        lastInvalidationActionSequence = actionSequence;
-        lastInvalidationAction = action;
-        startPreview(world, origin, previewSeedSnapshot, previewConcreteFace, false);
-    }
-
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
@@ -158,6 +118,12 @@ public class ChainPreviewController {
             return;
         }
 
+        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        if (selectedSubMode == ChainSubMode.AREA_CUBOID_CLEAR) {
+            stopPreview();
+            return;
+        }
+
         if (shouldLockCurrentPreview()) {
             if (currentTarget == null) {
                 ChainTarget lockedTarget = previewState.getOrigin();
@@ -168,7 +134,6 @@ public class ChainPreviewController {
             return;
         }
 
-        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
         MovingObjectPosition lookHit = resolveLookHit(minecraft, player, selectedSubMode);
         ChainTarget target = getCurrentLookTarget(lookHit);
         if (target == null) {
@@ -210,7 +175,6 @@ public class ChainPreviewController {
         if (replaceSeedLease) {
             previewSeedSnapshot = seedSnapshot;
             previewSeedWorld = world;
-            clearInvalidationIdentity();
         }
         previewState.begin(target);
         MyMod.chainStateService.getClientState().setPreviewActive(true);
@@ -464,26 +428,10 @@ public class ChainPreviewController {
             previewSeedSnapshot = null;
             previewSeedWorld = null;
             previewOriginLease.reset();
-            clearInvalidationIdentity();
         }
         if (MyMod.chainStateService != null) {
             MyMod.chainStateService.getClientState().setPreviewActive(false);
         }
-    }
-
-    /** 只有三种真实库存布局变化会刷新预览。 */
-    private static boolean isPreviewRefreshAction(AutoToolSwapAction action) {
-        return action == AutoToolSwapAction.SWAP
-                || action == AutoToolSwapAction.TAKEOVER
-                || action == AutoToolSwapAction.RESTORE;
-    }
-
-    /** 去重身份只在一个 seed 租约内有效。 */
-    private void clearInvalidationIdentity() {
-        lastInvalidationCycleGeneration = Long.MIN_VALUE;
-        lastInvalidationServerRoundId = Long.MIN_VALUE;
-        lastInvalidationActionSequence = Long.MIN_VALUE;
-        lastInvalidationAction = null;
     }
 
     private ChainTarget getCurrentLookTarget(MovingObjectPosition movingObjectPosition) {

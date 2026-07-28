@@ -17,14 +17,16 @@
   - `hit_face` 的左键命中只与随后同维度、同坐标的破坏事件匹配一次；缺失、非法或失配时回退该次破坏时冻结的视线方向。松键、切换模式/子模式及玩家生命周期清理都会使未消费命中失效。
   - 新旧端混连时固定降级为 `look_direction`：旧 C2S 8 字节与旧 S2C 12 字节仍可读取；新 C2S 为 16 字节、新 S2C 为 20 字节，并保留旧字段前缀。运行态的新新、旧新、新旧、旧旧四象限仍待实机验证。
 - `client.autoToolSwapEnabled`：是否启用自动工具换位，默认 `true`。路径名为兼容既有 schema 保持不变，但新普通 `CHAIN/AREA` 热路读取的是**服务器自己的**已提交 YAML 值；远程客户端不会把本地 enable 上传给服务器。活动连锁 session 冻结创建时策略，服务器 reload 只影响下一 session。创造模式不换位。
-- `client.autoToolTakeoverEnabled`：默认 `true`，只控制新客户端连接旧 5.1 server 时是否响应旧式 `AutoToolSwapTakeoverRequest` fallback；新 server 的本地批量选择不读取该开关，也不发送接替请求。
-- `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。新 server 使用自己的列表；客户端本地列表只供旧 server fallback，双方不会互相覆盖。
+- `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。服务端只读取自己的已提交列表，远程客户端值不会覆盖服务器 Authority。
   - **运行节奏**：普通 `CHAIN/AREA` 每个服务端 tick 建立本地 batch，并在每个目标前实时重读 block/meta、当前手和个人库存 `0..35`。当前手能收获且至少保留 2 点耐久时零换位；否则服务器可在同一 tick 完成首次二槽交换及后续三槽轮转，并继续消费到既有 `maxBreakPerTick` poll budget，不等待客户端网络往返。无候选、目标/候选漂移、低耐久或 mutation 后实时采掘拒绝只跳当前目标；后来补入库存仍可影响尚未消费目标。未声明 harvestTool 的未知工具使用通用 `Item.canHarvestBlock`，不依赖 TiC/模组白名单。GT 线缆 SPECIAL 与 INTERACT 不接入。
   - **规划边界**：普通 `CHAIN` 在规划启动时冻结当时的主手、背包全部工具和空手能力；无冻结能力可收获的节点断链。`AREA` 爆破、隧道、同块区域、矿石区域和区段清理仍按空间/结构宽进并逐个交服务端主线程尝试；confirmed/预览表示“待尝试目标”，不是全部可破坏承诺。执行中工具损坏不改写已规划拓扑。
   - **库存与同步**：客户端按键激活 round 后直接发送零库存 mutation 的 `FREEZE`，不再做初始预挖 SWAP。一个服务端 batch 内可多次换位，但每玩家每 server tick 最多发布一次完整 window 0；普通批次在 tick END 可见，terminal 批次先恢复最终布局再发布。同步失败只在下一 tick 重发完整库存，不回滚或重放换位，因此客户端库存显示与预览允许在批内短暂滞后。
   - **收口边界**：自然完成、松键、取消、STOP、watchdog、登出、重生、切维度、clone 与服务停止都先由服务端恢复借用工具或明确分类冲突，再清执行状态。打开非个人库存 GUI、切换热栏锚点或受保护槽出现未知第三布局会 fail closed；系统不会为第三方库存改写搬运、合并或覆盖物品，也不会伪报恢复成功。完整库存连续发送失败只保留无写权的可见性重试，不无限阻塞连锁 cleanup。
-  - **混合 patch**：旧 client 连接新 server 时，首个旧 `SWAP` 会以 `REJECTED + FROZEN` 零库存收口，后续由服务器本地选择；新 client 连接旧 server 时仍响应真实旧 `AutoToolSwapTakeoverRequest`，但没有初始预挖 SWAP 且仍有逐目标 RTT。四象限都必须属于合法 5.1 family 并遵守同一 v4 wire；这是功能降级，不是 v3/v4 协商。
-  - **预览与验收状态**：新热路的预览是 observer，不阻塞服务端执行，可能到后续 phase/采样或最终 vanilla inventory publication 才收敛；旧 server fallback 仍沿既有布局可见后刷新。服务端本地 ledger、poll budget、publication gate 与 lifecycle 已有自动化证据，但真实 client/dedicated、大批次连续接替、四象限 mixed patch、HUD/预览和第三方库存冲突仍为 **INCOMPLETE**。
+  - **预览与验收状态**：预览是 observer，不阻塞服务端执行，可能到后续 phase/采样或最终 vanilla inventory publication 才收敛。服务端本地 ledger、poll budget、publication gate 与 lifecycle 已有自动化证据，但真实 client/dedicated、大批次连续接替、HUD/预览和第三方库存冲突仍为 **INCOMPLETE**。
+- `AREA_CUBOID_CLEAR`：切换到该子模式并松开连锁键后，左键命中方块选择 point1，右键命中方块选择 point2；两个动作都会取消原版破坏/交互。按住连锁键时左键恢复正常触发语义，触发方块可以位于选区外。
+  - 服务端在主线程重验 endpoint、当前模式、按键状态和精确射线命中，只接受体积不超过当前 accepted `chainMaxBlocks` 的同维度 inclusive 选区。客户端只保存并渲染服务端 ACK，不乐观显示本地点击。
+  - 两点齐全后常驻渲染 `[min,max+1]` AABB 的 6 面与 12 边；执行轮次冻结当时 bounds，执行中重选只影响下一轮。选区扫描不预展开坐标列表，并与其它规划共用预算、yield 与 cancel 边界。
+- 服务端管理员可使用 `/qzminer config list [prefix]`、`get <path>`、`set <path> <value...>` 和 `reload`。命令要求 permission level `4`，只允许显式 `general.*` scalar 白名单；`set/reload` 成功提交后按 epoch 幂等热发布，并在 `chainMaxBlocks` 下调时重裁在线玩家 accepted 值与超限选区。
 - `client.objectGroups`：每个客户端玩家自己的对象组列表。每行必须有唯一非空 `id` 和至少一个成员；成员可选择全部、单个或多个 metadata，也可直接使用完整 registry 语法，例如 `minecraft:log@0`、`minecraft:log@*`、`minecraft:log@[0,16,24902,65535,16777216,2147483647]`。单值与集合只接受十进制 `0..Integer.MAX_VALUE`；负数和超出 int 的文本拒绝。
   - **管理入口**：`members` 使用 Qz-UILib 4.6.0 的成员管理选择器。配置行常驻“已配置/无效/重复”摘要与管理入口，原始列表默认折叠在“高级编辑原始规则”中。
   - **portal 布局**：管理 portal 的宽、高受当前视口约束；搜索固定在顶部，当前规则与搜索结果按 3:5 目标动态分区。overlay 打开时焦点约束在 portal 内，关闭后恢复原界面焦点。
@@ -40,16 +42,16 @@
 - 对象组是现有模式的筛选扩展，不是独立滚轮模式。可扩展模式仍恰好为连锁基础/矿石/伐木、区域同类/矿石、交互基础/全部作物；液体源与未成熟作物施肥不取得对象组 bit。原模式匹配始终保留，对象组无命中时行为不变。保存、RELOAD 或连接建立后，客户端发送同一 `CommittedSnapshot` 中的 revision 与完整配置；HUD 的 `Confirmed` 只表示服务端已接受该请求。服务端按玩家隔离规则，并在任务启动时冻结扩展，运行中的 reload 不改变任务；客户端预览只使用服务端已确认规则，pending 时回退原模式。
 - 游戏内无界面打开时，按住连锁键滚轮切换子模式；同时按住游戏设置中的潜行键则切换主模式。该组合键会独占滚轮，不改变快捷栏选中槽；未按连锁键或打开界面时保留原版滚轮行为。
 
-## 5.1 联机版本边界
+## 5.2 联机版本边界
 
-- 连接双方都安装 Qz-Miner 时，完整合法的 `5.1.x[-prerelease][+build]` 版本忽略 patch 与
+- 连接双方都安装 Qz-Miner 时，完整合法的 `5.2.x[-prerelease][+build]` 版本忽略 patch 与
   qualifier 互通；stable、prerelease、branch/dirty dev 都属于同一 family。
-- `5.0.x`、`5.10.x`、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
+- `5.0.x`、`5.1.x`、`5.10.x`、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
 - 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端
-  都必须是合法 5.1 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务
+  都必须是合法 5.2 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务
   主动发送仍可能失败。
-- 5.1 family 已冻结 16 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与
-  24-path schema；后续不兼容变化必须升新 minor。真实 mixed/missing client/dedicated 仍为
+- 5.2 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与
+  23-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为
   **INCOMPLETE**，不因自动化通过而升级证据等级。
 
 ## 维护规则

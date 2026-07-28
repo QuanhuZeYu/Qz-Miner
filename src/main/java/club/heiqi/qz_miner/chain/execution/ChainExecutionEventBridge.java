@@ -23,7 +23,6 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
-import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.BatchOutcome;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.BatchToken;
@@ -106,8 +105,6 @@ public class ChainExecutionEventBridge {
     private final ChainEventBus bus;
     /** 注入的执行上下文注册表（worker put，本桥 get）。 */
     private final ChainExecutionContextRegistry registry;
-    /** 仅为旧 source surface 保留的 dormant coordinator；生产 ordinary 热路不调用。 */
-    private final AutoToolSwapTakeoverCoordinator takeoverCoordinator;
     /** 普通 CHAIN/AREA 的服务端本地候选与唯一 physical ledger owner。 */
     private final AutoToolSwapServerBatchService localToolSwap;
 
@@ -127,27 +124,19 @@ public class ChainExecutionEventBridge {
      * @param registry 执行上下文注册表
      */
     public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry) {
-        this(bus, registry, null, null);
-    }
-
-    /** 兼容旧构造；coordinator 只保留 lifecycle memory cleanup，不进入 ordinary 热路。 */
-    public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry,
-            AutoToolSwapTakeoverCoordinator takeoverCoordinator) {
-        this(bus, registry, takeoverCoordinator, null);
+        this(bus, registry, null);
     }
 
     /** 创建服务端本地批量工具接替执行桥，避免与旧三参构造的 null 调用产生重载歧义。 */
     public static ChainExecutionEventBridge withLocalToolSwap(ChainEventBus bus,
             ChainExecutionContextRegistry registry, AutoToolSwapServerBatchService localToolSwap) {
-        return new ChainExecutionEventBridge(bus, registry, null, localToolSwap);
+        return new ChainExecutionEventBridge(bus, registry, localToolSwap);
     }
 
     private ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry,
-            AutoToolSwapTakeoverCoordinator takeoverCoordinator,
             AutoToolSwapServerBatchService localToolSwap) {
         this.bus = bus;
         this.registry = registry;
-        this.takeoverCoordinator = takeoverCoordinator;
         this.localToolSwap = localToolSwap;
         bus.subscribe(PlanStarted.class, this::onPlanStarted);
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
@@ -445,7 +434,7 @@ public class ChainExecutionEventBridge {
     void finishOrdinaryTickAndStopIfNeeded(ChainExecutionContext context, OrdinaryTickResult tickResult) {
         finishOrdinaryTick(context, tickResult);
         if (tickResult.isStopped()) {
-            stopForTakeover(context);
+            stopOrdinaryPlanning(context);
         }
     }
 
@@ -464,7 +453,7 @@ public class ChainExecutionEventBridge {
             }
         }
         if (tickResult.isStopped()) {
-            stopForTakeover(context);
+            stopOrdinaryPlanning(context);
         } else if (context.isCompleted()) {
             publishExecutionFinishedWithCleanup(context, "executor-consumed-all-targets");
             registry.remove(context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId());
@@ -548,7 +537,7 @@ public class ChainExecutionEventBridge {
      * ordinary local STOP 与 worker 完成线性化：取消胜出只发精确 Cleanup，完成胜出则等待
      * PlanCompleted 被主线程观察后再走合法 ExecutionFinished 收口。方法名保留旧 source surface。
      */
-    void stopForTakeover(ChainExecutionContext context) {
+    void stopOrdinaryPlanning(ChainExecutionContext context) {
         ChainExecutionContext.PlanningStopResult result = context.requestPlanningStop();
         if (result == ChainExecutionContext.PlanningStopResult.COMPLETION_PENDING_OBSERVATION
                 || result == ChainExecutionContext.PlanningStopResult.CANCELLATION_ALREADY_WON) {
@@ -640,7 +629,6 @@ public class ChainExecutionEventBridge {
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
         UUID playerUUID = event.getPlayerUUID();
-        if (takeoverCoordinator != null) takeoverCoordinator.cleanup(playerUUID);
         if (event.isForced()) {
             // I7 全量收口不依赖事件占位身份；即使 registry 已空，也必须幂等关闭执行窗口。
             ChainExecutionContext active = null;

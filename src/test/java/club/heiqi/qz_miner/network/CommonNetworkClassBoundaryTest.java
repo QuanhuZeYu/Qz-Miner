@@ -14,7 +14,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import net.minecraft.network.INetHandler;
 
 /**
- * common 网络边界：CommonProxy / NetworkMain / 四个自动工具 S2C packet 签名不得引用 client / LWJGL。
+ * common 网络边界：CommonProxy / NetworkMain / S2C packet 签名不得引用 client / LWJGL。
  *
  * <p>JVM 反射只能证明<strong>已解析</strong>类型；对未加载 client 类的保证改用 class 文件
  * ISO-8859-1 常量池字节串断言（不触发 Class.forName 解析 client 类，也不实例化
@@ -42,8 +42,8 @@ public class CommonNetworkClassBoundaryTest {
         proxy.handleClientAutoToolSwapRoundResult(1, 2L, 3L, 4, 5, 6L, 7L, true, null);
         proxy.handleClientAutoToolSwapActionResult(1, 2L, 3L, 4, 5, 6, 7, 8, 9L, 10L, true, null);
         proxy.handleClientAutoToolSwapRoundPhase(1, 2L, 3L, 4, 5, 6L, true, null);
-        proxy.handleClientAutoToolSwapTakeoverRequest(1, 2L, 3L, 4,
-                5, 6, 7, 8, 9, 10L, 11L, true, null);
+        proxy.handleClientCuboidSelectionSync(1, 2L, 1, 0, 3,
+                0, 1, 2, 3, 0, 4, 5, 6, true, null);
         proxy.handleClientLootGamesMinesweeperPreview(
                 1, new ChainTarget(0, 0, 0), new ArrayList<ChainTarget>(), null);
 
@@ -53,7 +53,7 @@ public class CommonNetworkClassBoundaryTest {
         Method autoToolRound = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundResult");
         Method autoToolAction = findMethod(CommonProxy.class, "handleClientAutoToolSwapActionResult");
         Method autoToolPhase = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundPhase");
-        Method autoToolTakeover = findMethod(CommonProxy.class, "handleClientAutoToolSwapTakeoverRequest");
+        Method cuboidSelection = findMethod(CommonProxy.class, "handleClientCuboidSelectionSync");
         Method preview = findMethod(CommonProxy.class, "handleClientLootGamesMinesweeperPreview");
         assertLastParamIsINetHandler(config);
         assertLastParamIsINetHandler(phase);
@@ -61,7 +61,7 @@ public class CommonNetworkClassBoundaryTest {
         assertLastParamIsINetHandler(autoToolRound);
         assertLastParamIsINetHandler(autoToolAction);
         assertLastParamIsINetHandler(autoToolPhase);
-        assertLastParamIsINetHandler(autoToolTakeover);
+        assertLastParamIsINetHandler(cuboidSelection);
         assertLastParamIsINetHandler(preview);
     }
 
@@ -85,8 +85,8 @@ public class CommonNetworkClassBoundaryTest {
         assertClassBytecodeClean(PacketAutoToolSwapActionResult.Handler.class);
         assertClassBytecodeClean(PacketAutoToolSwapRoundPhase.class);
         assertClassBytecodeClean(PacketAutoToolSwapRoundPhase.Handler.class);
-        assertClassBytecodeClean(PacketAutoToolSwapTakeoverRequest.class);
-        assertClassBytecodeClean(PacketAutoToolSwapTakeoverRequest.Handler.class);
+        assertClassBytecodeClean(PacketCuboidSelectionSync.class);
+        assertClassBytecodeClean(PacketCuboidSelectionSync.Handler.class);
     }
 
     @Test
@@ -106,7 +106,7 @@ public class CommonNetworkClassBoundaryTest {
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
         params = findMethod(CommonProxy.class, "handleClientAutoToolSwapRoundPhase").getParameterTypes();
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
-        params = findMethod(CommonProxy.class, "handleClientAutoToolSwapTakeoverRequest").getParameterTypes();
+        params = findMethod(CommonProxy.class, "handleClientCuboidSelectionSync").getParameterTypes();
         Assert.assertEquals(INetHandler.class, params[params.length - 1]);
 
         // Handler 类本身可加载且 onMessage 存在（不 new NetworkMain / 不跑 FML channel）
@@ -117,7 +117,7 @@ public class CommonNetworkClassBoundaryTest {
         Assert.assertNotNull(PacketAutoToolSwapRoundResult.Handler.class.getName());
         Assert.assertNotNull(PacketAutoToolSwapActionResult.Handler.class.getName());
         Assert.assertNotNull(PacketAutoToolSwapRoundPhase.Handler.class.getName());
-        Assert.assertNotNull(PacketAutoToolSwapTakeoverRequest.Handler.class.getName());
+        Assert.assertNotNull(PacketCuboidSelectionSync.Handler.class.getName());
     }
 
     private static Method findMethod(Class<?> type, String name) {

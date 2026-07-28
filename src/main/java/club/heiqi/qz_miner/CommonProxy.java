@@ -2,7 +2,14 @@ package club.heiqi.qz_miner;
 
 import java.util.List;
 
+import club.heiqi.qz_miner.chain.selection.CuboidSelection;
+import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.command.QzMinerCommand;
+import club.heiqi.qz_miner.config.CommittedSnapshot;
+import club.heiqi.qz_miner.config.ServerConfigHotApplyService;
+import club.heiqi.qz_miner.config.ServerConfigMutationService;
+import club.heiqi.qz_miner.network.PacketCuboidSelectionSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -149,13 +156,53 @@ public class CommonProxy {
             long serverTick, boolean rawValid, INetHandler netHandler) {
     }
 
-    /** 处理自动工具接替目标请求（dedicated no-op，签名仅 common 类型）。 */
-    public void handleClientAutoToolSwapTakeoverRequest(
-            int protocolVersion, long serverRoundId, long actionSequence, int generation,
-            int targetX, int targetY, int targetZ, int targetBlockId, int targetBlockMetadata,
-            long serverTick, long deadlineTick, boolean rawValid, INetHandler netHandler) {
+    /** 处理服务端确认的完整框选投影（dedicated no-op）。 */
+    public void handleClientCuboidSelectionSync(
+            int protocolVersion, long revision, int acceptedFlag, int reasonCode, int pointMask,
+            int point1Dimension, int point1X, int point1Y, int point1Z,
+            int point2Dimension, int point2X, int point2Y, int point2Z,
+            boolean rawValid, INetHandler netHandler) {
     }
 
-    // register server commands in this event handler (Remove if not needed)
-    public void serverStarting(FMLServerStartingEvent event) {}
+    /** 注册 operator-only 配置命令及本服务端 session 唯一 hot-apply 服务。 */
+    public void serverStarting(FMLServerStartingEvent event) {
+        MyMod.serverConfigHotApplyService = new ServerConfigHotApplyService(
+                new ServerConfigHotApplyService.Callbacks() {
+                    @Override
+                    public void publishPolicy(CommittedSnapshot committed) {
+                        if (MyMod.autoToolSwapServerBatchService != null) {
+                            MyMod.autoToolSwapServerBatchService.publishPolicy(committed);
+                        }
+                    }
+
+                    @Override
+                    public void revalidateOnlineAccepted(CommittedSnapshot committed) {
+                        revalidateOnlineAcceptedConfig();
+                    }
+                });
+        event.registerServerCommand(new QzMinerCommand(
+                ServerConfigMutationService.fromBootstrap(), MyMod.serverConfigHotApplyService));
+    }
+
+    private static void revalidateOnlineAcceptedConfig() {
+        if (MyMod.chainStateService == null) return;
+        for (ChainPlayerState state : MyMod.chainStateService.getPlayerStates()) {
+            int radius = state.getRequestedChainRadius() > 0
+                    ? Math.min(Config.chainRadius, state.getRequestedChainRadius()) : Config.chainRadius;
+            int maxBlocks = state.resolveAcceptedChainMaxBlocks();
+            state.setAcceptedChainConfig(radius, maxBlocks, state.getAcceptedTunnelDirectionSource());
+            if (MyMod.chainConfigProjectionBridge != null) {
+                MyMod.chainConfigProjectionBridge.sendAcceptedConfig(state.getPlayerUUID(), 0);
+            }
+            CuboidSelection invalidated = state.invalidateOversizedCuboidSelection();
+            net.minecraft.entity.player.EntityPlayer player = MyMod.playerManager == null
+                    ? null : MyMod.playerManager.getPlayer(state.getPlayerUUID());
+            if (invalidated != null && player instanceof net.minecraft.entity.player.EntityPlayerMP
+                    && MyMod.networkMain != null) {
+                MyMod.networkMain.network.sendTo(
+                        new PacketCuboidSelectionSync(invalidated, false, "selection-too-large"),
+                        (net.minecraft.entity.player.EntityPlayerMP) player);
+            }
+        }
+    }
 }

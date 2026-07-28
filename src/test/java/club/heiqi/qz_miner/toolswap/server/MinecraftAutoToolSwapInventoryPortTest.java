@@ -58,7 +58,7 @@ public class MinecraftAutoToolSwapInventoryPortTest {
 
     /** 三槽接替必须以 A<-D,C<-A,D<-C 一次性保留全部引用。 */
     @Test
-    public void takeoverRotationPreservesReferenceMultiset() {
+    public void batchRotationPreservesReferenceMultiset() {
         ItemStack active = new ItemStack(new Item());
         ItemStack original = new ItemStack(new Item());
         ItemStack next = new ItemStack(new Item());

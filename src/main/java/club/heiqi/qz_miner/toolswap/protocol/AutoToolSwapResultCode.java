@@ -6,10 +6,7 @@ import java.util.Map;
 /** 服务端对单个自动工具换位动作给出的结果码。 */
 public enum AutoToolSwapResultCode {
     ACCEPTED(1),
-    APPLIED(2),
-    REJECTED(3),
-    RESTORE_REQUIRED(4),
-    SYNC_FAILED(5);
+    REJECTED(3);
 
     private static final Map<Integer, AutoToolSwapResultCode> BY_WIRE_CODE = indexByWireCode();
 

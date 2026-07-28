@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.selection.CuboidBounds;
 import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import net.minecraft.block.Block;
@@ -29,6 +30,7 @@ public final class ChainRequest {
     private final Block seedBlock;
     private final int seedMeta;
     private final TileIdentityToken seedTileIdentity;
+    private final CuboidBounds cuboidBounds;
 
     public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin) {
         this(playerUUID, mode, subMode, origin, 1, 0.0F, 0.0F, 0.0F, -1, -1, null);
@@ -67,6 +69,16 @@ public final class ChainRequest {
             int interactFace, float interactHitX, float interactHitY, float interactHitZ,
             int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension,
             Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity) {
+        this(playerUUID, mode, subMode, origin, interactFace, interactHitX, interactHitY, interactHitZ,
+                requestedChainRadius, requestedChainMaxBlocks, modeExtension,
+                seedBlock, seedMeta, seedTileIdentity, null);
+    }
+
+    /** 创建可选携带冻结立方体边界的单次请求。 */
+    public ChainRequest(UUID playerUUID, ChainMode mode, ChainSubMode subMode, ChainTarget origin,
+            int interactFace, float interactHitX, float interactHitY, float interactHitZ,
+            int requestedChainRadius, int requestedChainMaxBlocks, ModeExtensionSnapshot modeExtension,
+            Block seedBlock, int seedMeta, TileIdentityToken seedTileIdentity, CuboidBounds cuboidBounds) {
         if (seedMeta < 0) {
             throw new IllegalArgumentException("seedMeta must be non-negative");
         }
@@ -86,6 +98,7 @@ public final class ChainRequest {
         this.seedTileIdentity = seedTileIdentity == null
                 ? TileIdentityToken.unresolved()
                 : seedTileIdentity;
+        this.cuboidBounds = cuboidBounds;
     }
 
     public UUID getPlayerUUID() {
@@ -146,5 +159,10 @@ public final class ChainRequest {
     /** @return 非 null 的 seed TileEntity 纯值身份 */
     public TileIdentityToken getSeedTileIdentity() {
         return seedTileIdentity;
+    }
+
+    /** @return PlanStarted 主线程冻结的选区；非框选模式为 null */
+    public CuboidBounds getCuboidBounds() {
+        return cuboidBounds;
     }
 }

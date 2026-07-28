@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 5.1 首个版本冻结的 16 项 discriminator、packet class 与接收 Side 全表。 */
+/** 5.2 严格版本冻结的 17 项 discriminator、packet class 与接收 Side 全表。 */
 public class NetworkDiscriminatorRegressionTest {
 
     private static final String[][] EXPECTED = {
@@ -33,7 +33,8 @@ public class NetworkDiscriminatorRegressionTest {
             {"DISCRIMINATOR_AUTO_TOOL_ROUND_RESULT", "12", "PacketAutoToolSwapRoundResult.Handler", "PacketAutoToolSwapRoundResult", "CLIENT"},
             {"DISCRIMINATOR_AUTO_TOOL_ACTION_RESULT", "13", "PacketAutoToolSwapActionResult.Handler", "PacketAutoToolSwapActionResult", "CLIENT"},
             {"DISCRIMINATOR_AUTO_TOOL_ROUND_PHASE", "14", "PacketAutoToolSwapRoundPhase.Handler", "PacketAutoToolSwapRoundPhase", "CLIENT"},
-            {"DISCRIMINATOR_AUTO_TOOL_TAKEOVER_REQUEST", "15", "PacketAutoToolSwapTakeoverRequest.Handler", "PacketAutoToolSwapTakeoverRequest", "CLIENT"}
+            {"DISCRIMINATOR_CUBOID_SELECTION_REQUEST", "15", "PacketCuboidSelectionRequest.Handler", "PacketCuboidSelectionRequest", "SERVER"},
+            {"DISCRIMINATOR_CUBOID_SELECTION_SYNC", "16", "PacketCuboidSelectionSync.Handler", "PacketCuboidSelectionSync", "CLIENT"}
     };
 
     @Test
@@ -42,8 +43,8 @@ public class NetworkDiscriminatorRegressionTest {
         Map<String, Integer> constants = parseConstants(source);
         Map<String, String[]> registrations = parseRegistrations(source);
 
-        Assert.assertEquals(16, constants.size());
-        Assert.assertEquals(16, registrations.size());
+        Assert.assertEquals(17, constants.size());
+        Assert.assertEquals(17, registrations.size());
         Set<Integer> ids = new HashSet<Integer>();
         for (String[] row : EXPECTED) {
             String constant = row[0];

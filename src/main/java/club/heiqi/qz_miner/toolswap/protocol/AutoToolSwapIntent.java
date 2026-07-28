@@ -45,33 +45,9 @@ public final class AutoToolSwapIntent implements Serializable {
         return serverRoundId;
     }
 
-    /**
-     * 返回 wire 中保留的 long 关联字段。
-     * 普通动作把它解释为 actionSequence，TAKEOVER/DECLINE_TAKEOVER 把它解释为 takeoverRequestId。
-     */
+    /** @return 当前 round 内的动作序号。 */
     public long actionSequence() {
         return actionSequence;
-    }
-
-    /** @return 普通动作使用的 actionSequence；接替动作调用会 fail-closed。 */
-    public long ordinaryActionSequence() {
-        if (usesTakeoverRequestId()) {
-            throw new IllegalStateException("takeover intent does not carry an ordinary action sequence");
-        }
-        return actionSequence;
-    }
-
-    /** @return TAKEOVER/DECLINE_TAKEOVER 使用的独立 takeoverRequestId；普通动作调用会 fail-closed。 */
-    public long takeoverRequestId() {
-        if (!usesTakeoverRequestId()) {
-            throw new IllegalStateException("ordinary intent does not carry a takeover request id");
-        }
-        return actionSequence;
-    }
-
-    /** @return 当前动作是否把保留 long wire 字段解释为 takeoverRequestId。 */
-    public boolean usesTakeoverRequestId() {
-        return action == AutoToolSwapAction.TAKEOVER || action == AutoToolSwapAction.DECLINE_TAKEOVER;
     }
 
     public AutoToolSwapAction action() {

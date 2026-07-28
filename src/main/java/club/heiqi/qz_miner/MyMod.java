@@ -7,6 +7,7 @@ import org.apache.logging.log4j.Logger;
 
 import club.heiqi.qz_miner.core.PlayerManager;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ServerConfigHotApplyService;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.chain.executor.ChainDropCollector;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
@@ -35,7 +36,6 @@ import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundPhaseProjectionBridge;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService;
-import club.heiqi.qz_miner.toolswap.server.AutoToolSwapTakeoverCoordinator;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -64,14 +64,14 @@ public class MyMod {
     public static AutoToolSwapRoundService autoToolSwapRoundService;
     /** ordinary CHAIN/AREA 唯一 local session/physical ledger owner。 */
     public static AutoToolSwapServerBatchService autoToolSwapServerBatchService;
-    /** 旧 public/source surface；新 ordinary runtime wiring 不调用。 */
-    public static AutoToolSwapTakeoverCoordinator autoToolSwapTakeoverCoordinator;
     public static ChainStateService chainStateService;
     public static ChainPlanner chainPlanner;
     public static ChainInteractPlanner chainInteractPlanner;
     public static GregTechCableReplacePlanner gregTechCableReplacePlanner;
     public static ChainDropCollector chainDropCollector;
     public static NetworkMain networkMain;
+    /** 当前服务端 session 的配置热发布入口，命令与集成服 listener 共用。 */
+    public static ServerConfigHotApplyService serverConfigHotApplyService;
     public static ParallelTickExecutor parallelTickExecutor;
     /** 阶段 2：连锁跨线程事件总线，publish 来自任意线程，drain 仅主线程。 */
     public static ChainEventBus chainEventBus;
@@ -115,7 +115,7 @@ public class MyMod {
     public static CommonProxy proxy;
 
     /**
-     * 检查远端 Qz-Miner 是否属于可互通的 5.1 版本族。
+     * 检查远端 Qz-Miner 是否属于可互通的 5.2 版本族。
      *
      * @param remoteVersions 远端模组版本表
      * @param side 发起检查的一侧
@@ -144,7 +144,6 @@ public class MyMod {
         autoToolSwapRoundService = new AutoToolSwapRoundService();
         autoToolSwapServerBatchService = new AutoToolSwapServerBatchService();
         autoToolSwapServerBatchService.publishPolicy(ConfigBootstrap.currentCommittedSnapshot());
-        autoToolSwapTakeoverCoordinator = new AutoToolSwapTakeoverCoordinator(autoToolSwapRoundService);
         chainStateService = new ChainStateService();
         chainPlanner = new ChainPlanner();
         chainInteractPlanner = new ChainInteractPlanner();
@@ -236,10 +235,8 @@ public class MyMod {
         if (autoToolSwapRoundService != null) {
             autoToolSwapRoundService.clearAll();
         }
-        if (autoToolSwapTakeoverCoordinator != null) {
-            autoToolSwapTakeoverCoordinator.clearAll();
-        }
         ServerMainThreadDispatcher.onServerStopping();
+        serverConfigHotApplyService = null;
         if (parallelTickExecutor != null) {
             parallelTickExecutor.shutdown();
             parallelTickExecutor = null;

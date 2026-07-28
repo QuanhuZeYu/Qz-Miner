@@ -179,6 +179,25 @@ public final class ConfigBootstrap {
         return committed;
     }
 
+    /**
+     * 成功提交后复用同步 listener 已捕获的 current；没有 listener 捕获时才补一次捕获。
+     *
+     * @param sourceManager 完成 save/reload 的 manager
+     * @param before 提交前的 current identity
+     * @return 对应成功提交的令牌
+     */
+    public static synchronized CommittedSnapshot currentOrCaptureAfterCommit(
+            ConfigManager sourceManager, CommittedSnapshot before) {
+        if (sourceManager == null || sourceManager != manager) {
+            throw new ConfigAuthorityInvariantError("Config change manager identity mismatch");
+        }
+        CommittedSnapshot current = currentCommittedSnapshot;
+        if (current != null && current != before) {
+            return current;
+        }
+        return captureCommittedSnapshot(sourceManager);
+    }
+
     /** 服务端启动只发布当前派生快照中的 general 字段。 */
     public static void reapplyGeneralOnServerStarting() {
         if (manager == null) {
