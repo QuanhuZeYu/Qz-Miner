@@ -30,7 +30,7 @@
 
 ## 命令与环境所有权
 
-- 文件读取、搜索和编辑优先使用专用工具。终端命令经 `python scripts/run-agent-command.py -- <executable> <args...>` 或其已登记 `repo-script` 入口执行；禁止命令字符串拼接和 `shell=True`。
+- 文件读取、搜索和编辑优先使用专用工具。终端命令经 `python scripts/run-agent-command.py -- <executable> <args...>` 执行；禁止命令字符串拼接和 `shell=True`。
 - 本机环境归用户、CI 环境归 runner；只按需只读核验非敏感变量，不赋值、不持久修复、不全量枚举，也不用 Gradle/JDK home 参数绕过异常。
 - OpenCode 如需执行有限 Gradle，只能经 `scripts/run-gradle-opencode.py` 的 `start/poll/wait/self-test` 进入 `qz-gradle-opencode/v1`；不得直接调用 PowerShell、Gradle wrapper、自造后台进程、kill 或 `--stop`。
 - `runClient*`、`runServer*` 和 `verify-gtnh-baselines.ps1` 仍交用户或 CI。稳定入口与证据边界见 `docs/控制律层/稳定命令.md`。

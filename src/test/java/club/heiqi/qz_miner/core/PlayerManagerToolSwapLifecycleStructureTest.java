@@ -11,28 +11,37 @@ import org.junit.Test;
 public class PlayerManagerToolSwapLifecycleStructureTest {
 
     @Test
-    public void logoutRespawnDimensionAndCloneFinalizeBeforeEndpointMutation() throws Exception {
+    public void vanillaPreHooksFinalizeBeforeEndpointMutation() throws Exception {
         String source = source();
-        assertBefore(source, "private void onPlayerDisconnectOnServerThread",
-                "finalizeAutoToolSwap(uuid, player, null, CloseCause.LOGOUT)", "players.remove(uuid)");
-        assertBefore(source, "public void onPlayerRespawn",
-                "finalizeAutoToolSwap(uuid, previous, player, CloseCause.RESPAWN)", "players.put(uuid, player)");
-        assertBefore(source, "public void onPlayerChangedDimension",
-                "finalizeAutoToolSwap(uuid, previous, player, CloseCause.DIMENSION_CHANGE)",
-                "players.put(uuid, player)");
-        assertBefore(source, "public void onPlayerClone",
-                "finalizeAutoToolSwap(uuid, oldPlayer, newPlayer, CloseCause.CLONE)",
-                "players.put(uuid, newPlayer)");
+        Assert.assertTrue(source.contains("beforeVanillaRespawn(EntityPlayerMP player)"));
+        Assert.assertTrue(source.contains("finalizeTrackedEndpoint(player, null, CloseCause.RESPAWN)"));
+        Assert.assertTrue(source.contains("beforeVanillaDimensionChange(EntityPlayerMP player)"));
+        Assert.assertTrue(source.contains("finalizeTrackedEndpoint(player, null, CloseCause.DIMENSION_CHANGE)"));
+        Assert.assertTrue(source.contains("instance.players.replace(uuid, previous, player)"));
     }
 
     @Test
-    public void cloneSuppliesBothOldAndNewEndpointsAndServerStopFinalizesEachPlayer() throws Exception {
+    public void staleDisconnectCannotRemoveCurrentEndpointAndServerStopFinalizesEachPlayer() throws Exception {
         String source = source();
-        Assert.assertTrue(source.contains("event.original == null ? players.get(uuid) : event.original"));
+        assertBefore(source, "public static void onVanillaDisconnect",
+                "CloseCause.LOGOUT", "instance.players.remove(uuid, player)");
+        assertBefore(source, "public static void onVanillaLoginCommitted",
+                "new PlayerStateEvent(previous, Reason.LOGOUT)", "instance.players.put(uuid, player)");
         int loop = source.indexOf("for (Map.Entry<UUID, EntityPlayer> entry");
         int finalize = source.indexOf("CloseCause.SERVER_STOP", loop);
         int clear = source.indexOf("instance.players.clear()", loop);
         Assert.assertTrue(loop >= 0 && finalize > loop && clear > finalize);
+    }
+
+    @Test
+    public void playerLifecycleDoesNotRegisterForgeOrFmlEvents() throws Exception {
+        String source = source();
+        Assert.assertFalse(source.contains("@SubscribeEvent"));
+        Assert.assertFalse(source.contains("MinecraftForge.EVENT_BUS"));
+        Assert.assertFalse(source.contains("FMLCommonHandler.instance().bus()"));
+        Assert.assertFalse(source.contains("PlayerLoggedInEvent"));
+        Assert.assertFalse(source.contains("PlayerRespawnEvent"));
+        Assert.assertFalse(source.contains("PlayerChangedDimensionEvent"));
     }
 
     private static void assertBefore(String source, String method, String barrier, String mutation) {

@@ -43,6 +43,7 @@ public class ClientConnectionListenerTest {
     private ClientConnectionListener listener;
     private final List<String> actions = new ArrayList<String>();
     private final AtomicInteger inits = new AtomicInteger(0);
+    private final AtomicInteger replays = new AtomicInteger(0);
     private final AtomicInteger resourceMarker = new AtomicInteger(0);
     private final AtomicInteger projection = new AtomicInteger(-1);
 
@@ -57,6 +58,7 @@ public class ClientConnectionListenerTest {
         listener = new ClientConnectionListener(dispatcher);
         actions.clear();
         inits.set(0);
+        replays.set(0);
         resourceMarker.set(0);
         projection.set(-1);
         installHooks();
@@ -83,6 +85,52 @@ public class ClientConnectionListenerTest {
                 projection.set(0);
             }
         };
+        listener.replayHookForTests = new Runnable() {
+            @Override
+            public void run() {
+                actions.add("replay");
+                replays.incrementAndGet();
+            }
+        };
+    }
+
+    @Test
+    public void initThenReadyReplaysExactlyOnce() {
+        listener.handleConnected(handlerA);
+        dispatcher.runAll();
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(handlerA);
+
+        listener.handleServerReady(token);
+        listener.handleServerReady(token);
+        dispatcher.runAll();
+
+        Assert.assertEquals(1, inits.get());
+        Assert.assertEquals(1, replays.get());
+    }
+
+    @Test
+    public void readyBeforeQueuedInitStillReplaysExactlyOnce() {
+        listener.handleConnected(handlerA);
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(handlerA);
+        listener.handleServerReady(token);
+
+        dispatcher.runAll();
+
+        Assert.assertEquals(1, inits.get());
+        Assert.assertEquals(1, replays.get());
+    }
+
+    @Test
+    public void disconnectBeforeReadyTaskPreventsReplay() {
+        listener.handleConnected(handlerA);
+        dispatcher.runAll();
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(handlerA);
+        listener.handleServerReady(token);
+        listener.handleDisconnected(handlerA);
+
+        dispatcher.runAll();
+
+        Assert.assertEquals(0, replays.get());
     }
 
     @Test
@@ -97,6 +145,23 @@ public class ClientConnectionListenerTest {
         Assert.assertTrue("connection init must resend the selected mode", mode >= 0);
         Assert.assertTrue("connection init must resend the selected sub-mode", subMode > mode);
         Assert.assertTrue("mode mirror must be restored before config requests", config > subMode);
+    }
+
+    @Test
+    public void readyReplayPreservesAcceptedObjectGroupProjection() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java").toPath()),
+                StandardCharsets.UTF_8);
+        int replay = source.indexOf("private void replayIfReady");
+        int register = source.indexOf("registerObjectGroupRequest", replay);
+        int send = source.indexOf("sendCurrentConnectionMirror(token, committed)", replay);
+        int initialize = source.indexOf("void initializeConnectionState");
+        int begin = source.indexOf("beginObjectGroupSync", initialize);
+
+        Assert.assertTrue(register > replay && send > register);
+        Assert.assertTrue("new connections must reset object-group result ordering once", begin > initialize);
+        Assert.assertFalse("ready replay must not clear an accepted result",
+                source.substring(replay, initialize).contains("beginObjectGroupSync"));
     }
 
     /**

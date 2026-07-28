@@ -61,12 +61,16 @@ public class PacketChainModeSwitch implements IMessage {
                     ? modes[modeOrdinal]
                     : ChainMode.CHAIN;
 
+                ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(playerId);
+                ChainMode previousMode = state.getSelectedMode();
                 MyMod.chainStateService.setPlayerSelectedMode(playerId, mode);
+                if (state.getSelectedMode() == previousMode) {
+                    return;
+                }
                 // 守 I4：publish 在 ServerMainThreadDispatcher.run lambda 内（line 41），已收口主线程
                 // 阶段3影子并行：保留旧 setPlayerSelectedMode，新链路仅推进状态机观测
                 // 输入事件 generation 传 0 豁免代际判定
                 if (MyMod.chainEventBus != null) {
-                    ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(playerId);
                     ChainMode newMode = state.getSelectedMode();
                     ChainSubMode newSubMode = state.getSelectedSubMode();
                     // state 解析出的子模式理论上非 null（registry 已 resolve），但防御性兜底避免下游 NPE

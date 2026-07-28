@@ -223,6 +223,9 @@ public final class ClientConnectionLifecycle {
     private static final AtomicReference<Token> CURRENT = new AtomicReference<Token>(INITIAL);
     private static final AtomicLong NEXT_CONNECTION_GENERATION = new AtomicLong(1L);
     private static final AtomicLong NEXT_WORLD_GENERATION = new AtomicLong(1L);
+    private static long initCompleteGeneration = -1L;
+    private static long serverReadyGeneration = -1L;
+    private static long replayClaimedGeneration = -1L;
 
     /**
      * 所有 lifecycle 转移与 gate 内执行的统一线性化边界。
@@ -508,6 +511,45 @@ public final class ClientConnectionLifecycle {
         return publishIfConnectionCurrentAndActive(captured, publication);
     }
 
+    /** 标记当前连接的本地初始化已完成。 */
+    public static boolean markConnectionInitComplete(Token captured) {
+        synchronized (LIFECYCLE_MONITOR) {
+            if (!isConnectionCurrentAndActiveLocked(captured)) {
+                return false;
+            }
+            initCompleteGeneration = captured.connectionGeneration;
+            return true;
+        }
+    }
+
+    /** 标记当前连接已收到服务端 endpoint-ready 的合法 S2C 证据。 */
+    public static boolean markServerReady(Token captured) {
+        synchronized (LIFECYCLE_MONITOR) {
+            if (!isConnectionCurrentAndActiveLocked(captured)) {
+                return false;
+            }
+            serverReadyGeneration = captured.connectionGeneration;
+            return true;
+        }
+    }
+
+    /** init 与 ready 均完成时为当前 connection generation 恰好认领一次镜像重放。 */
+    public static boolean claimReadyReplay(Token captured) {
+        synchronized (LIFECYCLE_MONITOR) {
+            if (!isConnectionCurrentAndActiveLocked(captured)) {
+                return false;
+            }
+            long generation = captured.connectionGeneration;
+            if (initCompleteGeneration != generation
+                    || serverReadyGeneration != generation
+                    || replayClaimedGeneration == generation) {
+                return false;
+            }
+            replayClaimedGeneration = generation;
+            return true;
+        }
+    }
+
     /**
      * 世界级 gate：连接与 world 仍 current+active 时在 monitor 内执行短回调。
      *
@@ -619,6 +661,9 @@ public final class ClientConnectionLifecycle {
             CURRENT.set(INITIAL);
             NEXT_CONNECTION_GENERATION.set(1L);
             NEXT_WORLD_GENERATION.set(1L);
+            initCompleteGeneration = -1L;
+            serverReadyGeneration = -1L;
+            replayClaimedGeneration = -1L;
         }
     }
 

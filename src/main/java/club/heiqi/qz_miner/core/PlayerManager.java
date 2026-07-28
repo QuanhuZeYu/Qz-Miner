@@ -6,26 +6,20 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import club.heiqi.qz_miner.MyMod;
-import club.heiqi.qz_miner.event.PlayerDisconnectEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.PlayerStateEvent.Reason;
 import club.heiqi.qz_miner.event.QzEvents;
-import club.heiqi.qz_miner.thread.ServerMainThreadDispatcher;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.CloseCause;
-import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.PlayerEvent;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.entity.player.PlayerEvent.Clone;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.util.IChatComponent;
 
 /**
  * 玩家管理器。
  *
- * 监听所有可能的玩家事件，维护最新的玩家状态映射表。
+ * 由 vanilla 玩家生命周期 Mixin 维护最新的玩家 endpoint 映射表。
  * 通过 {@link PlayerStateEvent} 向模组内部和外部模组广播玩家状态变更。
- * 玩家断开连接使用 Mixin 注入的 {@link PlayerDisconnectEvent}，比 Forge 原生事件更准确。
  */
 public final class PlayerManager {
 
@@ -40,29 +34,10 @@ public final class PlayerManager {
     private final Map<UUID, EntityPlayer> players = new ConcurrentHashMap<>();
 
     /**
-     * 创建并注册玩家管理器。
-     *
-     * 自动向 Forge 和 FML 事件总线注册自身。
+     * 创建玩家管理器，供 vanilla 生命周期 Mixin 调用。
      */
     public PlayerManager() {
         instance = this;
-        MinecraftForge.EVENT_BUS.register(this);
-        FMLCommonHandler.instance().bus().register(this);
-        QzEvents.register(PlayerDisconnectEvent.class, this::onPlayerDisconnect);
-    }
-
-    /**
-     * 清空所有玩家（由客户端 Mixin 调用，用于单人模式退出）。
-     *
-     * <p>经 {@link ServerMainThreadDispatcher} 收口；dispatcher 已关闭时任务会被拒绝。
-     * 服务端停止路径请改用 {@link #clearAllPlayersOnServerStopping()}。</p>
-     */
-    public static void clearAllPlayers() {
-        if (instance == null || instance.players.isEmpty()) {
-            return;
-        }
-
-        ServerMainThreadDispatcher.run(PlayerManager::clearAllPlayersOnServerThread);
     }
 
     /**
@@ -129,91 +104,93 @@ public final class PlayerManager {
         return players.size();
     }
 
-    // ========== FML 事件监听 ==========
-
-    /**
-     * 玩家加入游戏。
-     */
-    @SubscribeEvent
-    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        EntityPlayer player = event.player;
-        players.put(player.getUniqueID(), player);
+    /** vanilla 登录流程完全提交后登记 endpoint。重复提交不重复发布 LOGIN。 */
+    public static void onVanillaLoginCommitted(EntityPlayerMP player) {
+        if (instance == null || player == null) {
+            return;
+        }
+        UUID uuid = player.getUniqueID();
+        EntityPlayer previous = instance.players.get(uuid);
+        if (previous == player) {
+            return;
+        }
+        if (previous != null) {
+            finalizeAutoToolSwap(uuid, previous, player, CloseCause.LOGOUT);
+            QzEvents.post(new PlayerStateEvent(previous, Reason.LOGOUT));
+        }
+        instance.players.put(uuid, player);
         MyMod.LOG.info("[PlayerManager] Player logged in: {} (UUID: {}), online players: {}",
-                player.getCommandSenderName(), player.getUniqueID(), players.size());
+                player.getCommandSenderName(), uuid, instance.players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.LOGIN));
     }
 
-    /**
-     * 玩家断开连接（通过 Mixin 注入，比 Forge 原生事件更准确）。
-     */
-    public void onPlayerDisconnect(PlayerDisconnectEvent event) {
-        ServerMainThreadDispatcher.run(() -> onPlayerDisconnectOnServerThread(event));
+    /** respawn 移除旧 endpoint 前完成 local physical restore。 */
+    public static void beforeVanillaRespawn(EntityPlayerMP player) {
+        finalizeTrackedEndpoint(player, null, CloseCause.RESPAWN);
     }
 
-    /**
-     * 在服务端主线程处理玩家断线清理。
-     *
-     * @param event 玩家断线事件
-     */
-    private void onPlayerDisconnectOnServerThread(PlayerDisconnectEvent event) {
-        EntityPlayer player = event.player;
+    /** vanilla respawn 返回新实例后原子替换 endpoint。 */
+    public static void onVanillaRespawnCommitted(EntityPlayerMP previous, EntityPlayerMP player) {
+        if (instance == null || previous == null || player == null) {
+            return;
+        }
         UUID uuid = player.getUniqueID();
-        finalizeAutoToolSwap(uuid, player, null, CloseCause.LOGOUT);
-        players.remove(uuid);
-        MyMod.LOG.info("[PlayerManager] Player disconnected: {} (UUID: {}), reason: {}, online players: {}",
-                player.getCommandSenderName(), uuid, event.reason.getUnformattedText(), players.size());
-        QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
-    }
-
-    /**
-     * 玩家重生。
-     */
-    @SubscribeEvent
-    public void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
-        EntityPlayer player = event.player;
-        UUID uuid = player.getUniqueID();
-        EntityPlayer previous = players.get(uuid);
-        finalizeAutoToolSwap(uuid, previous, player, CloseCause.RESPAWN);
-        players.put(uuid, player);
+        boolean replaced = instance.players.replace(uuid, previous, player);
+        if (!replaced) {
+            replaced = instance.players.putIfAbsent(uuid, player) == null;
+        }
+        if (!replaced) {
+            return;
+        }
         MyMod.LOG.debug("[PlayerManager] Player respawned: {} (UUID: {}), online players: {}",
-                player.getCommandSenderName(), player.getUniqueID(), players.size());
+                player.getCommandSenderName(), uuid, instance.players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.RESPAWN));
     }
 
-    /**
-     * 玩家切换维度。
-     */
-    @SubscribeEvent
-    public void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        EntityPlayer player = event.player;
-        UUID uuid = player.getUniqueID();
-        EntityPlayer previous = players.get(uuid);
-        finalizeAutoToolSwap(uuid, previous, player, CloseCause.DIMENSION_CHANGE);
-        players.put(uuid, player);
+    /** 跨维度修改 world/dimension 前完成 local physical restore。 */
+    public static void beforeVanillaDimensionChange(EntityPlayerMP player) {
+        finalizeTrackedEndpoint(player, null, CloseCause.DIMENSION_CHANGE);
+    }
+
+    /** vanilla 跨维度流程完全提交后发布一次生命周期变更。 */
+    public static void onVanillaDimensionChangeCommitted(EntityPlayerMP player) {
+        if (!isCurrentEndpoint(player)) {
+            return;
+        }
         MyMod.LOG.debug("[PlayerManager] Player changed dimension: {} (UUID: {}), online players: {}",
-                player.getCommandSenderName(), player.getUniqueID(), players.size());
+                player.getCommandSenderName(), player.getUniqueID(), instance.players.size());
         QzEvents.post(new PlayerStateEvent(player, Reason.DIMENSION_CHANGE));
     }
 
-    // ========== Forge 事件监听 ==========
+    /** vanilla 断开开始时按 endpoint identity 摘除；旧连接不得误删新连接。 */
+    public static void onVanillaDisconnect(EntityPlayerMP player, IChatComponent reason) {
+        if (instance == null || player == null) {
+            return;
+        }
+        UUID uuid = player.getUniqueID();
+        if (instance.players.get(uuid) != player) {
+            return;
+        }
+        finalizeAutoToolSwap(uuid, player, null, CloseCause.LOGOUT);
+        if (!instance.players.remove(uuid, player)) {
+            return;
+        }
+        String reasonText = reason == null ? "unknown" : reason.getUnformattedText();
+        MyMod.LOG.info("[PlayerManager] Player disconnected: {} (UUID: {}), reason: {}, online players: {}",
+                player.getCommandSenderName(), uuid, reasonText, instance.players.size());
+        QzEvents.post(new PlayerStateEvent(player, Reason.LOGOUT));
+    }
 
-    /**
-     * 玩家克隆（死亡重生或维度切换时的数据复制）。
-     *
-     * 此时新玩家实例已经创建但还未完全替换旧实例，
-     * 需要更新映射表中的引用。
-     */
-    @SubscribeEvent
-    public void onPlayerClone(Clone event) {
-        EntityPlayer newPlayer = event.entityPlayer;
-        UUID uuid = newPlayer.getUniqueID();
-        EntityPlayer oldPlayer = event.original == null ? players.get(uuid) : event.original;
-        // clone 必须同时提供 old/new endpoint；local owner 会选择匹配已知布局的一侧。
-        finalizeAutoToolSwap(uuid, oldPlayer, newPlayer, CloseCause.CLONE);
-        players.put(uuid, newPlayer);
-        MyMod.LOG.debug("[PlayerManager] Player cloned: {} (UUID: {}), wasDeath: {}, online players: {}",
-                newPlayer.getCommandSenderName(), uuid, event.wasDeath, players.size());
-        QzEvents.post(new PlayerStateEvent(newPlayer, Reason.CLONE));
+    private static boolean isCurrentEndpoint(EntityPlayer player) {
+        return instance != null && player != null
+                && instance.players.get(player.getUniqueID()) == player;
+    }
+
+    private static void finalizeTrackedEndpoint(EntityPlayer player, Object alternateEndpoint, CloseCause cause) {
+        if (!isCurrentEndpoint(player)) {
+            return;
+        }
+        finalizeAutoToolSwap(player.getUniqueID(), player, alternateEndpoint, cause);
     }
 
     /** endpoint replace/remove 前的统一 local physical restore 屏障。 */

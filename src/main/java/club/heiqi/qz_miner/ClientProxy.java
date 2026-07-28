@@ -43,6 +43,7 @@ public class ClientProxy extends CommonProxy {
     private static final long CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS = TimeUnit.SECONDS.toNanos(10L);
     private static final RateLimitedRejectDiagnostics CONFIG_SYNC_REJECT_DIAG =
             new RateLimitedRejectDiagnostics(CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS);
+    private ClientConnectionListener connectionListener;
 
     private static final ClientChainConfigSyncDispatch.LifecycleGate LIFECYCLE_GATE =
             new ClientChainConfigSyncDispatch.LifecycleGate() {
@@ -127,7 +128,8 @@ public class ClientProxy extends CommonProxy {
         chainPreviewRenderer.register();
         cuboidSelectionRenderer = new CuboidSelectionRenderer();
         cuboidSelectionRenderer.register();
-        new ClientConnectionListener().register();
+        connectionListener = new ClientConnectionListener();
+        connectionListener.register();
         new ClientConfigChangeListener().register();
         chainStatusHudRegistration = CompactHud.register(
                 "qz_miner:chain-status",
@@ -206,6 +208,9 @@ public class ClientProxy extends CommonProxy {
                         MyMod.chainStateService.getClientState().setServerChainMaxBlocks(maxBlocks);
                         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedCount);
                         MyMod.chainStateService.getClientState().setAcceptedTunnelDirectionSource(source);
+                        if (connectionListener != null) {
+                            connectionListener.handleServerReady(capturedToken);
+                        }
                     }
                 });
         if (!accepted) {

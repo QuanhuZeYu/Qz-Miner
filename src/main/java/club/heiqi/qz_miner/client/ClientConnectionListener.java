@@ -92,6 +92,9 @@ public class ClientConnectionListener {
      */
     volatile Runnable initHookForTests;
 
+    /** 测试钩子：非 null 时替代 ready 后的真实四包重放。 */
+    volatile Runnable replayHookForTests;
+
     /**
      * 生产默认构造：调度经 {@link ClientMainThreadDispatcher}。
      */
@@ -187,6 +190,19 @@ public class ClientConnectionListener {
             @Override
             public void run() {
                 runConnectionTakeoverAndInit(token);
+            }
+        });
+    }
+
+    /** 合法配置 S2C 证明服务端 endpoint 已登记；排队后按 connection generation 单次重放。 */
+    public void handleServerReady(final ClientConnectionLifecycle.Token token) {
+        if (!ClientConnectionLifecycle.markServerReady(token)) {
+            return;
+        }
+        dispatcher.run(new Runnable() {
+            @Override
+            public void run() {
+                runReadyReplay(token);
             }
         });
     }
@@ -323,8 +339,36 @@ public class ClientConnectionListener {
                 clearObjectGroupSyncPendingIsolated();
                 cleanupLifecycleResources("connection-takeover");
                 initializeConnectionState(token);
+                ClientConnectionLifecycle.markConnectionInitComplete(token);
+                replayIfReady(token);
             }
         });
+    }
+
+    /** ready 回调排队后再次复核连接，防止旧连接在断开或接管后发送。 */
+    boolean runReadyReplay(final ClientConnectionLifecycle.Token token) {
+        return ClientConnectionLifecycle.runIfConnectionCurrentAndActive(token, new Runnable() {
+            @Override
+            public void run() {
+                replayIfReady(token);
+            }
+        });
+    }
+
+    private void replayIfReady(ClientConnectionLifecycle.Token token) {
+        if (!ClientConnectionLifecycle.claimReadyReplay(token)) {
+            return;
+        }
+        if (replayHookForTests != null) {
+            replayHookForTests.run();
+            return;
+        }
+        CommittedSnapshot committed = ConfigBootstrap.currentCommittedSnapshot();
+        if (MyMod.chainStateService != null) {
+            MyMod.chainStateService.getClientState().registerObjectGroupRequest(
+                    token.connectionGeneration(), committed);
+        }
+        sendCurrentConnectionMirror(token, committed);
     }
 
     /**
@@ -371,10 +415,16 @@ public class ClientConnectionListener {
         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(0);
         MyMod.chainStateService.getClientState().resetAcceptedTunnelDirectionSource();
 
-        if (MyMod.networkMain == null) {
+        sendCurrentConnectionMirror(connectionToken, committed);
+    }
+
+    /** 用同一个 committed snapshot 按固定顺序发送完整连接镜像。 */
+    private void sendCurrentConnectionMirror(ClientConnectionLifecycle.Token connectionToken,
+            CommittedSnapshot committed) {
+        if (MyMod.chainStateService == null || MyMod.networkMain == null || committed == null) {
             return;
         }
-        // 服务端 logout 会删除玩家状态；新连接必须先按顺序重建当前模式镜像。
+        final ValidatedSnapshot snapshot = committed.snapshot;
         MyMod.networkMain.network.sendToServer(new PacketChainModeSwitch(
                 MyMod.chainStateService.getClientState().getSelectedMode()));
         MyMod.networkMain.network.sendToServer(new PacketChainSubModeSwitch(

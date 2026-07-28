@@ -63,6 +63,38 @@ public class ClientConnectionLifecycleTest {
     }
 
     @Test
+    public void initThenReadyClaimsReplayOnce() {
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA).token();
+        Assert.assertTrue(ClientConnectionLifecycle.markConnectionInitComplete(token));
+        Assert.assertFalse(ClientConnectionLifecycle.claimReadyReplay(token));
+        Assert.assertTrue(ClientConnectionLifecycle.markServerReady(token));
+        Assert.assertTrue(ClientConnectionLifecycle.claimReadyReplay(token));
+        Assert.assertFalse(ClientConnectionLifecycle.claimReadyReplay(token));
+    }
+
+    @Test
+    public void readyThenInitClaimsReplayOnce() {
+        ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.connect(handlerA).token();
+        Assert.assertTrue(ClientConnectionLifecycle.markServerReady(token));
+        Assert.assertFalse(ClientConnectionLifecycle.claimReadyReplay(token));
+        Assert.assertTrue(ClientConnectionLifecycle.markConnectionInitComplete(token));
+        Assert.assertTrue(ClientConnectionLifecycle.claimReadyReplay(token));
+        Assert.assertFalse(ClientConnectionLifecycle.claimReadyReplay(token));
+    }
+
+    @Test
+    public void oldConnectionReadinessCannotClaimAfterReconnect() {
+        ClientConnectionLifecycle.Token tokenA = ClientConnectionLifecycle.connect(handlerA).token();
+        Assert.assertTrue(ClientConnectionLifecycle.markConnectionInitComplete(tokenA));
+        ClientConnectionLifecycle.Token tokenB = ClientConnectionLifecycle.connect(handlerB).token();
+        Assert.assertFalse(ClientConnectionLifecycle.markServerReady(tokenA));
+        Assert.assertFalse(ClientConnectionLifecycle.claimReadyReplay(tokenA));
+        Assert.assertTrue(ClientConnectionLifecycle.markServerReady(tokenB));
+        Assert.assertTrue(ClientConnectionLifecycle.markConnectionInitComplete(tokenB));
+        Assert.assertTrue(ClientConnectionLifecycle.claimReadyReplay(tokenB));
+    }
+
+    @Test
     public void differentHandlerConnectCreatesNewActiveToken() {
         ClientConnectionLifecycle.TransitionResult ra = ClientConnectionLifecycle.connect(handlerA);
         ClientConnectionLifecycle.TransitionResult rb = ClientConnectionLifecycle.connect(handlerB);

@@ -42,7 +42,7 @@
 
 - natural finish、key release、PlanCancelled、ordinary STOP、WatchdogTimeout、logout、respawn、dimension change、clone 与 server stop 都先进入幂等 local finalizer，再清 projection、execution registry、状态或 endpoint 映射。
 - 非 forced 的取消、watchdog 与 lifecycle 事件必须匹配当前 local owner 的 round/generation；迟到旧事件不得恢复或清除新 owner。forced lifecycle 按玩家 UUID 收口当前 owner。
-- clone 同时尝试 old/new endpoint，并只在一侧匹配已知 borrowed/restored layout 时恢复；endpoint 不可用、mutation 未应用或未知第三布局都返回显式分类，不伪报成功。
+- respawn 在 vanilla 替换实例前使用旧 endpoint 恢复；endpoint 不可用、mutation 未应用或未知第三布局都返回显式分类，不伪报成功。
 - `PacketKeyState(false)` 是松键 physical restore 的可靠入口，先于 `AutoToolSwapRoundService.onKeyReleased` 和 `LifecycleCleanup`；local finalizer 后服务端直接把 wire projection 终结为 `FINISHED`，迟到 `CLOSE` 幂等接受。客户端 `CLOSE` 不能取得或清除 local ledger。
 - finalizer 完成安全恢复或分类冲突后会移除 mutation owner；publication 失败只保留 visibility tombstone。重复 finalizer 不执行第二次 mutation。
 
