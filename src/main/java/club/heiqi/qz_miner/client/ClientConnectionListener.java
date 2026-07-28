@@ -6,6 +6,8 @@ import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.network.PacketChainConfigRequest;
+import club.heiqi.qz_miner.network.PacketChainModeSwitch;
+import club.heiqi.qz_miner.network.PacketChainSubModeSwitch;
 import club.heiqi.qz_miner.network.PacketObjectGroupConfigRequest;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import cpw.mods.fml.client.FMLClientHandler;
@@ -372,6 +374,11 @@ public class ClientConnectionListener {
         if (MyMod.networkMain == null) {
             return;
         }
+        // 服务端 logout 会删除玩家状态；新连接必须先按顺序重建当前模式镜像。
+        MyMod.networkMain.network.sendToServer(new PacketChainModeSwitch(
+                MyMod.chainStateService.getClientState().getSelectedMode()));
+        MyMod.networkMain.network.sendToServer(new PacketChainSubModeSwitch(
+                MyMod.chainStateService.getClientState().getSelectedSubMode()));
         MyMod.networkMain.network.sendToServer(new PacketChainConfigRequest(
                 snapshot.chainRadius, snapshot.chainMaxBlocks, snapshot.tunnelDirectionSource));
         MyMod.networkMain.network.sendToServer(new PacketObjectGroupConfigRequest(

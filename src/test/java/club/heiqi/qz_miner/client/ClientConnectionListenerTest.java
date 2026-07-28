@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.client;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -80,6 +83,20 @@ public class ClientConnectionListenerTest {
                 projection.set(0);
             }
         };
+    }
+
+    @Test
+    public void productionInitResendsModeBeforeSubModeAndConfig() throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java").toPath()),
+                StandardCharsets.UTF_8);
+        int mode = source.indexOf("sendToServer(new PacketChainModeSwitch(");
+        int subMode = source.indexOf("sendToServer(new PacketChainSubModeSwitch(");
+        int config = source.indexOf("sendToServer(new PacketChainConfigRequest(");
+
+        Assert.assertTrue("connection init must resend the selected mode", mode >= 0);
+        Assert.assertTrue("connection init must resend the selected sub-mode", subMode > mode);
+        Assert.assertTrue("mode mirror must be restored before config requests", config > subMode);
     }
 
     /**

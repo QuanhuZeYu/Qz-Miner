@@ -43,4 +43,23 @@ public class PacketChainSubModeSwitchProtocolTest {
         Assert.assertFalse(source.contains("writeByte(subModeOrdinal)"));
         Assert.assertFalse(source.contains("writeShort(subModeOrdinal)"));
     }
+
+    @Test
+    public void modeHandlersRejectStaleConnectionBeforeMutatingPlayerState() throws Exception {
+        assertEndpointGatePrecedesMutation("PacketChainModeSwitch.java", "setPlayerSelectedMode(playerId, mode)");
+        assertEndpointGatePrecedesMutation(
+                "PacketChainSubModeSwitch.java", "setPlayerSelectedSubMode(playerId, subMode)");
+    }
+
+    private static void assertEndpointGatePrecedesMutation(String fileName, String mutation) throws Exception {
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/network/" + fileName).toPath()), StandardCharsets.UTF_8);
+        int endpointCapture = source.indexOf("new WeakReference<EntityPlayerMP>(player)");
+        int identityGate = source.indexOf("current != captured");
+        int mutationIndex = source.indexOf(mutation);
+
+        Assert.assertTrue(fileName + " must capture the connection endpoint", endpointCapture >= 0);
+        Assert.assertTrue(fileName + " must reject stale endpoints", identityGate > endpointCapture);
+        Assert.assertTrue(fileName + " must gate before state mutation", mutationIndex > identityGate);
+    }
 }

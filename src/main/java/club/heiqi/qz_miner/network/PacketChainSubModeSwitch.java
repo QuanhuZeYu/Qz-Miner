@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.network;
 
+import java.lang.ref.WeakReference;
+import java.util.UUID;
+
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ModeSwitched;
@@ -11,6 +14,7 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 import io.netty.buffer.ByteBuf;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
@@ -49,9 +53,14 @@ public class PacketChainSubModeSwitch implements IMessage {
         @Override
         public IMessage onMessage(PacketChainSubModeSwitch message, MessageContext ctx) {
             final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+            if (player == null) return null;
+            final UUID playerId = player.getUniqueID();
+            final WeakReference<EntityPlayerMP> endpoint = new WeakReference<EntityPlayerMP>(player);
             final int subModeOrdinal = message.subModeOrdinal;
             ServerMainThreadDispatcher.run(() -> {
-                if (MyMod.chainStateService == null || player == null) {
+                EntityPlayerMP captured = endpoint.get();
+                EntityPlayer current = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerId);
+                if (MyMod.chainStateService == null || captured == null || current != captured) {
                     return;
                 }
 
@@ -60,12 +69,12 @@ public class PacketChainSubModeSwitch implements IMessage {
                     ? subModes[subModeOrdinal]
                     : null;
 
-                MyMod.chainStateService.setPlayerSelectedSubMode(player.getUniqueID(), subMode);
+                MyMod.chainStateService.setPlayerSelectedSubMode(playerId, subMode);
                 // 守 I4：publish 在 ServerMainThreadDispatcher.run lambda 内（line 49），已收口主线程
                 // 阶段3影子并行：保留旧 setPlayerSelectedSubMode，新链路仅推进状态机观测
                 // 输入事件 generation 传 0 豁免代际判定
                 if (MyMod.chainEventBus != null) {
-                    ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(player.getUniqueID());
+                    ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(playerId);
                     ChainMode newMode = state.getSelectedMode();
                     ChainSubMode newSubMode = state.getSelectedSubMode();
                     // 子模式刚被 set，但若当前主模式不含子变体，newSubMode 可能为 null；防御性兜底
@@ -73,9 +82,9 @@ public class PacketChainSubModeSwitch implements IMessage {
                         newSubMode = ChainSubMode.CHAIN_BASE;
                     }
                     long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
-                            : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
+                            : MyMod.autoToolSwapRoundService.currentRoundId(playerId, captured);
                     MyMod.chainEventBus.publish(new ModeSwitched(
-                            player.getUniqueID(), serverRoundId, 0,
+                            playerId, serverRoundId, 0,
                             ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                             newMode, newSubMode));
                 }

@@ -32,6 +32,7 @@ public class AutoToolSwapRoundPropagationStructureTest {
     private static void assertRoundCapturedBeforeEvent(String path, String eventConstructor) throws Exception {
         String source = new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8);
         int capture = source.indexOf("currentRoundId(player.getUniqueID(), player)");
+        if (capture < 0) capture = source.indexOf("currentRoundId(playerId, captured)");
         int event = source.indexOf(eventConstructor);
         Assert.assertTrue(path, capture >= 0);
         Assert.assertTrue(path, capture < event);
