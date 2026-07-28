@@ -47,13 +47,20 @@ if (Test-Path $errorPrevention) {
   }
 }
 
-# ----- 断言4 session-handoff.md 不进 git -----
-# 会话工作记忆是临时载体（gitignore），不应被 git 跟踪
-$tracked = git -C $root ls-files 2>$null
-if ($LASTEXITCODE -eq 0 -and $tracked) {
-  $tracked | ForEach-Object {
-    if ($_ -match "session-handoff\.md$" -and $_ -match "\.opencode/") {
-      $script:violations += "[handoff入git] ${_}: 会话工作记忆不应进 git，检查 .gitignore"
+# ----- 断言4 持久任务可提交且不依赖旧临时载体 -----
+$taskDir = Join-Path $root ".opencode/tasks"
+if (-not (Test-Path (Join-Path $taskDir "INDEX.md"))) {
+  $violations += "[持久任务] .opencode/tasks/INDEX.md 缺失"
+} else {
+  Get-ChildItem $taskDir -Filter *.md -File | ForEach-Object {
+    $relTask = ".opencode/tasks/$($_.Name)"
+    & git -C $root check-ignore -q -- $relTask
+    if ($LASTEXITCODE -eq 0) {
+      $script:violations += "[持久任务忽略] $($_.Name): 任务文件必须可提交"
+    }
+    $text = Get-Content $_.FullName -Raw
+    if ($text -match '\.opencode/(?:task\.md|session-handoff\.md)') {
+      $script:violations += "[旧任务依赖] $($_.Name): 持久任务不得依赖旧 task/handoff"
     }
   }
 }

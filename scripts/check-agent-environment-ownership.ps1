@@ -35,18 +35,19 @@ function Test-EnvironmentOwnershipText {
 function Test-AgentGradleAuthorizationText {
   param([string]$Text, [string]$Source)
   $hits = @()
-  $rolePolicy = $Source -in @('AGENTS.md', '.opencode/agents/build.md', '.opencode/agents/fixer.md',
-    '.opencode/agents/reviewer.md', 'docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md')
+  $restrictedRole = '(?i)(?:\bagent\b|\bbuild\b(?=.{0,40}(?:可|获授权|直接|运行|执行|允许)))'
+  $rolePolicy = $Source -in @('AGENTS.md', 'docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md',
+    'docs/控制律层/编排模式/TASK-BRIEF.md')
   foreach ($line in ($Text -split "`r?`n")) {
     if ($rolePolicy -and $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b') {
       $hits += "[agent直接Gradle wrapper] $Source"
     }
-    if ($line -match '(?i)\b(?:agent|fixer|reviewer|explorer|build)\b' -and
+    if ($line -match $restrictedRole -and
         $line -match '(?i)(?:\.\\|\./)?gradlew(?:\.bat)?\b' -and
         $line -notmatch '(?:不得|禁止|禁|不允许|不可)') {
       $hits += "[agent直接Gradle wrapper] $Source"
     }
-    if ($line -match '(?i)\b(?:agent|fixer|reviewer|explorer|build)\b' -and
+    if ($line -match $restrictedRole -and
         $line -match '(?i)verify-gtnh-baselines(?:\.ps1)?' -and
         $line -notmatch '(?:不授权|未授权|不得|禁止|禁|不允许)') {
       $hits += "[agent获授权执行双基线] $Source"
@@ -86,44 +87,51 @@ if ($SelfTest) {
   )
   foreach ($fixture in $invalid) { if ((Test-EnvironmentOwnershipText $fixture "fixture").Count -eq 0) { throw "违规 fixture 未阻断: $fixture" } }
   $authorizationInvalid = @(
-    'fixer 直接运行 ./gradlew.bat compileJava。',
+    'agent 直接运行 ./gradlew.bat compileJava。',
     'agent 可直接运行 ./gradlew.bat check。',
-    'agent 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。'
+    'agent 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。',
+    'build 直接运行 ./gradlew.bat compileJava。',
+    'build 可直接运行 ./gradlew.bat check。',
+    'build 可运行 scripts/verify-gtnh-baselines.ps1 完成验收。'
   )
   foreach ($fixture in $authorizationInvalid) {
     if ((Test-AgentGradleAuthorizationText $fixture 'AGENTS.md').Count -eq 0) { throw "矛盾授权 fixture 未阻断: $fixture" }
+  }
+  $authorizationValid = @('- 打包：`.\gradlew.bat build`')
+  foreach ($fixture in $authorizationValid) {
+    if ((Test-AgentGradleAuthorizationText $fixture 'docs/控制律层/稳定命令.md').Count) { throw "合法授权 fixture 被误报: $fixture" }
   }
   Write-Host "环境所有权门禁已知模式自测通过" -ForegroundColor Green
   exit 0
 }
 
-$files = @("AGENTS.md", "CLAUDE.md", "README.md", "README.zh-CN.md")
-$files += @(Get-ChildItem (Join-Path $root ".opencode/agents") -Filter *.md -File -ErrorAction SilentlyContinue | ForEach-Object FullName)
-$files += @(Get-ChildItem (Join-Path $root "docs/控制律层") -Filter *.md -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object FullName)
+$files = @("AGENTS.md", "CLAUDE.md", "README.md", "README.zh-CN.md",
+  "docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md", "docs/控制律层/编排模式/TASK-BRIEF.md",
+  "docs/控制律层/稳定命令.md", "docs/控制律层/Windows-Gradle执行协议.md")
 $files += @(Get-ChildItem (Join-Path $root "scripts") -Filter *.ps1 -File | Where-Object Name -ne "check-agent-environment-ownership.ps1" | ForEach-Object FullName)
+$files += @(Get-ChildItem (Join-Path $root "scripts") -Filter *.py -File | ForEach-Object FullName)
 $violations = @()
 foreach ($file in $files) {
   $path = if ([IO.Path]::IsPathRooted($file)) { $file } else { Join-Path $root $file }
   if (Test-Path $path) { $violations += Test-EnvironmentOwnershipText (Get-Content $path -Raw) ($path.Substring($root.Length + 1) -replace '\\','/') }
 }
-foreach ($required in @("AGENTS.md", ".opencode/agents/build.md", ".opencode/agents/fixer.md", ".opencode/agents/reviewer.md")) {
+foreach ($required in @("AGENTS.md", "docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md", "docs/控制律层/稳定命令.md")) {
   $text = Get-Content (Join-Path $root $required) -Raw
   if ($text -notmatch '环境所有权' -or $text -notmatch '只读') { $violations += "[缺少正向锚] $required" }
 }
-$authorizationFiles = @('AGENTS.md', '.opencode/agents/build.md', '.opencode/agents/fixer.md', '.opencode/agents/reviewer.md',
-  'docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md', 'docs/控制律层/发布流程.md')
+$authorizationFiles = @('AGENTS.md', 'docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md',
+  'docs/控制律层/编排模式/TASK-BRIEF.md', 'docs/控制律层/稳定命令.md', 'docs/控制律层/发布流程.md')
 foreach ($file in $authorizationFiles) {
   $text = Get-Content (Join-Path $root $file) -Raw
   $violations += Test-AgentGradleAuthorizationText $text $file
 }
 $protocolAssertions = @(
-  @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.ps1','禁(?:止)?直接 wrapper','自造 `?Start-Process','qz-control-envelope/v1','pwsh.*最低 7') },
-  @{ Path=".opencode/agents/build.md"; Patterns=@('qz-gradle-opencode/v1','不直接调用 wrapper','Start-Process','控制器','pwsh.*最低 7') },
-  @{ Path=".opencode/agents/fixer.md"; Patterns=@('qz-gradle-opencode/v1','禁直接 wrapper','Start-Process','PostWrite','最多 5 次') },
-  @{ Path=".opencode/agents/reviewer.md"; Patterns=@('仅当.*合同.*复验','qz-gradle-opencode/v1','P2.*非阻断','P2.*不触发 fixer','CONTRACT_UPGRADE_REQUIRED') },
-  @{ Path="docs/控制律层/稳定命令.md"; Patterns=@('Start/Poll/Wait') },
-  @{ Path="docs/控制律层/编排模式/SUBAGENT-ORCHESTRATION.md"; Patterns=@('RunId','INCOMPLETE','抗积分饱和','误差','pwsh.*最低 7') },
-  @{ Path="docs/控制律层/编排模式/CONTROL-ENVELOPE.md"; Patterns=@('qz-control-envelope/v1','allowedWrites','P2.*非阻断','P2.*不触发 fixer','第 5 次') }
+  @{ Path="AGENTS.md"; Patterns=@('scripts/run-gradle-opencode\.py','ACTIVE','禁.*wrapper','自造进程','subprocess','shell=False') },
+  @{ Path="docs/控制律层/编排模式/PERSISTENT-WORKFLOW.md"; Patterns=@('默认 `build`','ACTIVE','qz-gradle-opencode/v1','禁止直接 PowerShell','wrapper','环境所有权') },
+  @{ Path="docs/控制律层/编排模式/TASK-BRIEF.md"; Patterns=@('ACTIVE','INCOMPLETE','run-gradle-opencode\.py','唯一下一步') },
+  @{ Path="docs/控制律层/稳定命令.md"; Patterns=@('ACTIVE','start/poll/wait/self-test','run-gradle-opencode\.py') },
+  @{ Path="scripts/run-agent-command.py"; Patterns=@('subprocess\.run','shell=False','timeout=TIMEOUT_SECONDS') },
+  @{ Path="scripts/run-gradle-opencode.py"; Patterns=@('subprocess\.Popen','shell=False','qz-gradle-opencode/v1') }
 )
 foreach ($assertion in $protocolAssertions) {
   $text = Get-Content (Join-Path $root $assertion.Path) -Raw
@@ -131,3 +139,4 @@ foreach ($assertion in $protocolAssertions) {
 }
 if ($violations.Count) { Write-Host "环境所有权门禁失败：" -ForegroundColor Red; $violations | Sort-Object -Unique | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }; exit 1 }
 Write-Host "环境所有权门禁已知模式检查通过" -ForegroundColor Green
+exit 0

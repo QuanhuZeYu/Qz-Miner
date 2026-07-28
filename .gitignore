@@ -39,5 +39,5 @@ layout.json
 /dev_docs
 .opencode/commit-msg-temp.txt
 .opencode/commit-doc-sync.txt
-.opencode/control-envelope.json
-.opencode/task.md
+__pycache__/
+scripts/__pycache__/
