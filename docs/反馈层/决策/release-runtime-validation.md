@@ -242,3 +242,45 @@ API 字节数与 SHA-256 如下：
 publication failure 的完整运行态通过，未覆盖范围继续记为 **INCOMPLETE**。`5.2.0` tag/Release 是
 不可移动发布事实；本次发布后的文档提交不属于该制品 SHA，不得移动 tag、改写 tagged changelog 或
 历史 Release。
+
+## 5.2.1 dedicated server 启动 hotfix
+
+`5.2.0` 发布后的生产 dedicated server 日志在 Mixin 应用阶段稳定失败：
+`MixinServerConfigurationManager.beforeRespawn` 无法在 `ServerConfigurationManager` 中找到 MCP selector
+`respawnPlayer(EntityPlayerMP,int,boolean)`，随后以 critical injection failure 终止启动。根因为 vanilla
+生命周期 Mixin 在类级设置 `remap=false`，发布 JAR 未把标准 MCP 方法名映射到生产 SRG 名。`5.2.0`
+tag/Release 保持不可移动，但不能作为 dedicated server 可用版本；修复只能由新 patch 发布。
+
+Hotfix 提交 `86a4f609a3dd14dbce7eccbd07cbf12a18f98e77` 恢复标准 vanilla `respawnPlayer` 与
+`onDisconnect` 的 refmap，并为 Forge 三参数登录与 Teleporter 跨维度 overload 显式列出 MCP/SRG
+selector。生成 refmap 已确认包含 `respawnPlayer -> func_72368_a` 与 `onDisconnect -> func_147231_a`；
+本地定向测试、`compileJava`、`test check build` 与 `git diff --check` 通过，独立复核无 P0/P1/P2。
+该 patch 不修改 5.2 已冻结的 packet discriminator/Side、wire、protocol、ordinal、code、mask 或配置 schema。
+
+最终提交的 exact-SHA branch CI
+[`30413515183`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30413515183) 为
+`completed/success`；GTNH `2.8.4`、`2.9.0-beta-2` 的 workspace、GregTech baseline、tests、checks、
+build、generated/main JAR `5.2.1-ci+SHA` 断言及聚合门均 success。Dev workspace 对备用 SRG selector
+给出“target method not found” annotation 是双名 selector 的预期静态提示；同一 injector 的 MCP selector
+已匹配并满足 `require=1`。
+
+Annotated tag `5.2.1` object 为 `67811b2d8389f49b034cf2cb49cd987cf6617c42`，peeled commit 固定为
+`86a4f609a3dd14dbce7eccbd07cbf12a18f98e77`，message 为 `[Release]: Qz-Miner 5.2.1`。Tag workflow
+[`30413907750`](https://github.com/QuanhuZeYu/Qz-Miner/actions/runs/30413907750) 与 job `90456064082`
+均为 `completed/success`；exact-SHA gate、默认 baseline、构建与 GitHub Release 均 success，Maven skipped。
+Modrinth/CurseForge steps 虽 success，但没有独立远端制品证据，不能宣称两个平台发布成功。
+
+公开 GitHub Release database ID 为 `361460643`，URL 为
+<https://github.com/QuanhuZeYu/Qz-Miner/releases/tag/5.2.1>，于 `2026-07-29T01:27:27Z` 发布；
+title/tag 均为 `5.2.1`，非 draft/prerelease，正文与 tagged `.changelogs/5.2.1.md` 一致。三项公开资产
+经公开 URL 下载计算 SHA-256，且与 API size/digest 一致：
+
+| 资产 | 字节数 | SHA-256 |
+|---|---:|---|
+| `qz_miner-5.2.1.jar` | 873766 | `79c2f0d4d1c3ac0c6abbf794c6c6f7645394734def80d22832b3644c303dee1d` |
+| `qz_miner-5.2.1-dev.jar` | 867045 | `120a34e3c6b929e6dfb572f60316f1d055ae27dd7e9a759e188627e1efa8907b` |
+| `qz_miner-5.2.1-sources.jar` | 485830 | `1abe28511ac96725e0fcb6e0365023efa83358555e7c7abef70430586ce10f72` |
+
+修复后 dedicated server 启动、登录、重生、切维度和断线 smoke test 在发布时仍为 **INCOMPLETE**；CI、
+refmap、Release 与资产证据不能替代该运行态。`5.2.1` tag/Release 是不可移动发布事实；本次发布后的
+文档提交不属于该制品 SHA，不得移动 tag、改写 tagged changelog 或历史 Release。
