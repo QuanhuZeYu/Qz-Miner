@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      VERSION: 5.2.0-ci+${{ github.sha }}
+      VERSION: 5.2.1-ci+${{ github.sha }}
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -173,7 +173,7 @@ jobs:
           import zipfile
           from pathlib import Path
 
-          expected = f"5.2.0-ci+{os.environ['GITHUB_SHA']}"
+          expected = f"5.2.1-ci+{os.environ['GITHUB_SHA']}"
           declaration = re.compile(
               r'^\s*public\s+static\s+final\s+String\s+VERSION\s*=\s*"([^"]+)"\s*;\s*$',
               re.MULTILINE,

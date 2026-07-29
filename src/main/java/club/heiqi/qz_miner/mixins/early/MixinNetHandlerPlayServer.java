@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * 注入到 NetHandlerPlayServer.onDisconnect 中，
  * 在原版注销逻辑之前按 endpoint identity 销毁玩家实例。
  */
-@Mixin(value = NetHandlerPlayServer.class, remap = false)
+@Mixin(NetHandlerPlayServer.class)
 public class MixinNetHandlerPlayServer {
 
     @Inject(

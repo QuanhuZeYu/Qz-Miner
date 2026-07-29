@@ -16,7 +16,9 @@ public class ServerConfigurationManagerLifecycleMixinStructureTest {
                 "src/main/java/club/heiqi/qz_miner/mixins/early/MixinServerConfigurationManager.java").toPath()),
                 StandardCharsets.UTF_8);
 
+        Assert.assertTrue(source.contains("@Mixin(ServerConfigurationManager.class)"));
         Assert.assertTrue(source.contains("initializeConnectionToPlayer(Lnet/minecraft/network/NetworkManager;"));
+        Assert.assertTrue(source.contains("func_72355_a(Lnet/minecraft/network/NetworkManager;"));
         Assert.assertTrue(source.contains("PlayerManager.onVanillaLoginCommitted(player)"));
         Assert.assertTrue(source.contains(
                 "respawnPlayer(Lnet/minecraft/entity/player/EntityPlayerMP;IZ)Lnet/minecraft/entity/player/EntityPlayerMP;"));
@@ -24,6 +26,8 @@ public class ServerConfigurationManagerLifecycleMixinStructureTest {
         Assert.assertTrue(source.contains("PlayerManager.onVanillaRespawnCommitted(player, cir.getReturnValue())"));
         Assert.assertTrue(source.contains(
                 "transferPlayerToDimension(Lnet/minecraft/entity/player/EntityPlayerMP;ILnet/minecraft/world/Teleporter;)V"));
+        Assert.assertTrue(source.contains(
+                "func_72356_a(Lnet/minecraft/entity/player/EntityPlayerMP;ILnet/minecraft/world/Teleporter;)V"));
         Assert.assertTrue(source.contains("PlayerManager.beforeVanillaDimensionChange(player)"));
         Assert.assertTrue(source.contains("PlayerManager.onVanillaDimensionChangeCommitted(player)"));
         Assert.assertFalse("two-argument delegate must not be injected",
@@ -36,6 +40,14 @@ public class ServerConfigurationManagerLifecycleMixinStructureTest {
         String config = read("src/main/resources/mixins.qz_miner.early.json");
         Assert.assertTrue(loader.contains("\"MixinServerConfigurationManager\""));
         Assert.assertTrue(config.contains("\"MixinServerConfigurationManager\""));
+    }
+
+    @Test
+    public void disconnectMixinAlsoRemapsVanillaMethodNames() throws Exception {
+        String source = read(
+                "src/main/java/club/heiqi/qz_miner/mixins/early/MixinNetHandlerPlayServer.java");
+        Assert.assertTrue(source.contains("@Mixin(NetHandlerPlayServer.class)"));
+        Assert.assertFalse(source.contains("remap = false"));
     }
 
     private static String read(String path) throws Exception {
