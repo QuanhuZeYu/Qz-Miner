@@ -24,7 +24,7 @@
 - 默认由 OpenCode 内置 `build` 完成分析、实施、验证和自审；可按需委派一般智能体，不维护固定的仓库级角色编排。
 - 委派时只需在相关任务笔记写明子 agent 身份和目标。子 agent 默认只读调查；确需写盘时必须分配互不重叠的文件范围，同一文件同时只有一个写入者，主 `build` 汇总前复核实时 Git 和冲突。
 - 简单工作直接完成。复杂、跨轮或需等待决定的工作可在 `.opencode/tasks/` 写简短任务笔记；不要求固定模板、状态机、写集或阶段写回。
-- 验证力度按风险决定。优先运行最接近改动的静态检查或测试；未执行的编译、CI、制品或运行态不得写成通过。
+- 验证力度按风险决定。代码改动完成后默认通过 OpenCode 有界 Gradle 协议执行完整 `build`，成功后才作为可交付增量自动提交；失败时继续定位、修复并重跑。纯文档或不影响构建输入的协作规则改动可跳过 build；未执行的 CI、制品或运行态不得写成通过。
 - 交付前检查相关 diff、status 与近期提交风格，只暂存任务文件并自动创建本地 commit，无需另行确认或专门通知。无冲突、保留双方完整历史与内容且不删除来源分支的本地纯增量 merge 可自动执行；push、tag 与 release 仍须用户明确要求。
 - 修改历史、删除分支、丢弃提交或改动、以及会让现有内容从最终工作目录消失的 Git 操作必须先说明影响并取得用户确认；纯增量 merge 出现冲突或无法证明完整保留时也必须停止询问。
 - 公共 API、依赖/版本、发布策略、生产操作、密钥与认证由用户决定。
@@ -33,7 +33,7 @@
 
 - 文件读取、搜索和编辑优先使用专用工具。终端命令经 `python scripts/run-agent-command.py -- <executable> <args...>` 执行；禁止命令字符串拼接和 `shell=True`。
 - 本机环境归用户、CI 环境归 runner；只按需只读核验非敏感变量，不赋值、不持久修复、不全量枚举，也不用 Gradle/JDK home 参数绕过异常。
-- OpenCode 如需执行有限 Gradle，只能经 `scripts/run-gradle-opencode.py` 的 `start/poll/wait/self-test` 进入 `qz-gradle-opencode/v1`；不得直接调用 PowerShell、Gradle wrapper、自造后台进程、kill 或 `--stop`。
+- OpenCode 执行 Gradle 只能经 `scripts/run-gradle-opencode.py` 的 `start/poll/wait/self-test` 进入 `qz-gradle-opencode/v1`；代码改动默认 `start build` 并等待终态，不得直接调用 PowerShell、Gradle wrapper、自造后台进程、kill 或 `--stop`。
 - `runClient*`、`runServer*` 和 `verify-gtnh-baselines.ps1` 仍交用户或 CI。稳定入口与证据边界见 `docs/控制律层/稳定命令.md`。
 
 ## 文档
