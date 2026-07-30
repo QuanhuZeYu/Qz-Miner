@@ -8,7 +8,7 @@ import org.junit.Test;
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.uilib.ui.image.HostImageSource;
 
-/** Picker 图标采用 screen 生命周期静态快照的测试。 */
+/** Picker 图标采用 screen 生命周期静态 ItemStack snapshot 的测试。 */
 public class BlockPickerVisualAdapterTest {
     @Test
     public void candidateAndVariantUseSnapshotPolicy() {
@@ -24,9 +24,7 @@ public class BlockPickerVisualAdapterTest {
         HostImageSource variantImage = (HostImageSource) adapter.variantImage(variant);
         representative.setItemDamage(9);
         variantStack.setItemDamage(10);
-        Assert.assertEquals(HostImageSource.ItemPolicy.SNAPSHOT, candidateImage.getItemPolicy());
-        Assert.assertEquals(1, candidateImage.getItemStack().getItemDamage());
-        Assert.assertEquals(HostImageSource.ItemPolicy.SNAPSHOT, variantImage.getItemPolicy());
-        Assert.assertEquals(3, variantImage.getItemStack().getItemDamage());
+        Assert.assertEquals(1, candidateImage.getItemIconStack().getItemDamage());
+        Assert.assertEquals(3, variantImage.getItemIconStack().getItemDamage());
     }
 }

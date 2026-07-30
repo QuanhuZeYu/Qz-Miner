@@ -6,7 +6,7 @@
 - 主动发布到 GTNH Maven / GTNH releases **不是** Qz-Miner 发布前置，也不要求维护者提供 Maven 凭据。GTNH Maven 可作为额外镜像，但其发布成功、失败或 404 均不决定 Miner 是否放行。
 - Miner 的依赖放行采用 channel-aware 规则。当前 Qz-UILib JitPack 组合发布通道要求目标 tag 的 Build API 身份正确，同版本 POM、main jar、实际 `dev` classifier jar、`sources` jar 及校验和均可访问，并有 clean 显式 `:dev` consumer 证据；只看到 GitHub tag、Release、workflow 成功或 Release assets 不足以放行。
 - 活动消费者配置不得包含 Maven Local、`flatDir` 旧 group 或 URL 旁路来掩盖 JitPack 失败。发布验证必须证明 clean runner 能以标准坐标从 canonical JitPack 取得制品。
-- Miner 继续保持运行时 `required-after:qz_uilib@[4.6.0,)` 下限与开发期 `dev` classifier 要求；发布包不内嵌 UILib。
+- Miner 运行时固定要求 `required-after:qz_uilib@[5.0.0,6.0.0)`，开发期继续使用 `dev` classifier；发布包不内嵌 UILib。
 - 所有 branch push/PR 由只读 clean runner 对同一 SHA 串行执行 `setupCIWorkspace`、`test`、`check`、`build`；该 tag 前证据与 tag 后 Release/assets 核验相互独立。
 
 ## JitPack 组合发布通道证据矩阵
@@ -32,11 +32,11 @@
 - JitPack 构建失败时先按失败阶段区分源码、构建脚本、wrapper 权限和 runner 外部网络；不能因某个仓库域解析失败就武断归因为“缺仓库”。
 - 同一 tag 可因 JitPack runner 对不同外部域的瞬时可达性而推进到不同深度；只有稳定复现到同一确定性构建错误，才归因于源码或构建配置。
 
-## 当前 `4.6.3` 状态
+## 已验证 `4.6.3` 与目标 `5.0.0` 状态
 
 - annotated tag object 为 `3b0ad894fb3168e82a6c9075a85eedb86614ee0e`，peeled commit 为 `16d8c45beaa3c224cc509818fe569607ee94ff65`；Release 与 workflow `30157047707` 成功，JitPack Build API 为 `ok`，isTag/public/commit 身份正确。
 - canonical POM、main、`dev`、`sources` 及其 `.sha1` 均返回 `200`；`.module` 返回预期 `404`。clean consumer 已用显式 `:dev` 坐标通过，`dev` SHA-256 为 `01a64ba1f1e7d5102d63413ba5e5cf68ac84586b1bcd3efe0456d641957a9f6c`。
-- Miner 活动配置为 `com.github.QuanhuZeYu:Qz-UILib:4.6.3:dev`，保持 `transitive=false` 并移除 Maven Local/`flatDir` 旧 group fallback。GitHub 正式 Release、JitPack `ok` tag/commit 身份与 canonical POM 已确认；本仓实际 `:dev` 解析和构建证据以当前任务结果为准，完整 POM/main/`dev`/`sources` 校验和、clean consumer 与同 SHA branch CI 仍分别记录。
+- 上述 `4.6.3` 结果是不可移动的历史证据。Miner 活动配置现为 `com.github.QuanhuZeYu:Qz-UILib:5.0.0:dev`，保持 `transitive=false` 并移除 Maven Local/`flatDir` 旧 group fallback；目标 `5.0.0` tag/JitPack 制品尚不存在，Build API、POM/main/`dev`/`sources`、校验和、clean consumer 与同 SHA branch CI 均待补齐。
 - tag 推送后还须独立核验 GitHub tag 指向、Release 正文与 jar assets；这些结果不反向替代 JitPack URL 矩阵。
 
 ## 变更纪律

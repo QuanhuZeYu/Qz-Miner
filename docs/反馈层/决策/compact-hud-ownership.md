@@ -13,7 +13,7 @@
 
 ## 依赖与发布
 
-该能力最低要求 Qz-UILib `4.6.0`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；Miner 已使用标准 `4.6.3:dev` 坐标并移除 Maven Local/旧 group fallback。发布仍要求完成 channel-aware 制品与 clean consumer 门禁、同 SHA branch CI，并在 tag 后独立核验 Release/assets。
+该能力最初由 Qz-UILib `4.6.0` 提供；因 Miner 同时消费 Breaking item icon seam，当前整包运行范围已收紧为 `[5.0.0,6.0.0)`。权威远端来源是 JitPack 标准坐标 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`，GTNH Maven 非前置；Miner 目标坐标为 `5.0.0:dev` 并保持无 Maven Local/旧 group fallback。发布仍要求完成 channel-aware 制品与 clean consumer 门禁、同 SHA branch CI，并在 tag 后独立核验 Release/assets。
 
 ## 不变量核对
 
