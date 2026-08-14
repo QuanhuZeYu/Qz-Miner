@@ -24,7 +24,9 @@ public class BlockPickerVisualAdapterTest {
         HostImageSource variantImage = (HostImageSource) adapter.variantImage(variant);
         representative.setItemDamage(9);
         variantStack.setItemDamage(10);
+        Assert.assertEquals(HostImageSource.Kind.ITEM_ICON, candidateImage.getKind());
         Assert.assertEquals(1, candidateImage.getItemIconStack().getItemDamage());
+        Assert.assertEquals(HostImageSource.Kind.ITEM_ICON, variantImage.getKind());
         Assert.assertEquals(3, variantImage.getItemIconStack().getItemDamage());
     }
 }

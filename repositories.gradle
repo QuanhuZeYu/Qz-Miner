@@ -6,8 +6,4 @@ repositories {
         name = 'GTNHReleases'
         url = 'https://nexus.gtnewhorizons.com/repository/releases/'
     }
-    maven {
-        name = 'JitPack'
-        url = 'https://jitpack.io'
-    }
 }

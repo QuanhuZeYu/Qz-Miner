@@ -14,6 +14,10 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ## 快速上手
 
+### 安装依赖
+
+- Qz-Miner 5.3 要求 Qz-UILib `>=4.7.0,<5.0.0`；开发与测试使用 `libs/qz_uilib-4.7.0-dev.jar` 本地 devjar，不再经 JitPack 解析；发布包不内嵌 UILib
+
 ### 基本操作
 
 - 默认按键为 ``~`` 所在键位，可在 Minecraft 按键设置中修改
