@@ -42,9 +42,10 @@ dependencies {
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
     // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
-    // 4.7.0 起改用 libs 目录本地 devjar（上游 tag 4.7.0 构建），不再经 JitPack 解析
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.7.0-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.7.0-dev.jar"))
+    // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
+    // 当前为 UILib 5687aef5 物品图标双语义修复版（4.7.0-git.4+5687aef523-dev）
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.7.0-git.4+5687aef523-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.7.0-git.4+5687aef523-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
