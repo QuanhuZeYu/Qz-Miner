@@ -43,9 +43,9 @@ dependencies {
     // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
     // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
-    // 当前为 UILib be0835a0 方块图标发黑修复版（4.7.0-git.5+be0835a0a7-dev）
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.7.0-git.5+be0835a0a7-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.7.0-git.5+be0835a0a7-dev.jar"))
+    // 当前为 UILib c30aeb3c 方块图标光照配套修复版（4.7.0-git.7+c30aeb3cc5-dev）
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.7.0-git.7+c30aeb3cc5-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.7.0-git.7+c30aeb3cc5-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
