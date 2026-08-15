@@ -19,10 +19,14 @@ import club.heiqi.qz_miner.MyMod;
 public final class BlockVariantEnumerator {
     private static final int MAX_FAILURE_LOGS = 8;
 
+    /** 创造栏标签捕获失败日志计数；enumerate() 开头重置，维持限流降级风格。 */
+    private static volatile int tabFailureLogs;
+
     private BlockVariantEnumerator() { }
 
     /** 遍历当前客户端的 Block registry；不访问 world、worker 或 NEI。 */
     public static List<BlockCandidate> enumerate() {
+        tabFailureLogs = 0;
         List<BlockCandidate> result = new ArrayList<BlockCandidate>();
         int failures = 0;
         for (Object value : Block.blockRegistry) {
@@ -44,6 +48,10 @@ public final class BlockVariantEnumerator {
         }
         if (failures > MAX_FAILURE_LOGS) {
             MyMod.LOG.warn("Block picker suppressed {} additional enumeration failures", failures - MAX_FAILURE_LOGS);
+        }
+        if (tabFailureLogs > MAX_FAILURE_LOGS) {
+            MyMod.LOG.warn("Block picker suppressed {} additional creative tab capture failures",
+                    tabFailureLogs - MAX_FAILURE_LOGS);
         }
         return Collections.unmodifiableList(result);
     }
@@ -78,8 +86,28 @@ public final class BlockVariantEnumerator {
         }
         Collections.sort(variants, Comparator.comparingInt(BlockVariant::metadata));
         ItemStack representative = variants.isEmpty() ? null : variants.get(0).stack();
-        return new BlockCandidate(registry, representative == null ? registry : safeName(representative),
-                variants, representative);
+        return new BlockCandidate(registry, BlockCandidate.modIdOf(registry), creativeTabLabelOf(item),
+                representative == null ? registry : safeName(representative), variants, representative);
+    }
+
+    /**
+     * 捕获方块物品创造栏的本地化标签。tabAllSearch（搜索页）或 null 视为无有效创造栏，
+     * 任何 tab 相关 API 异常/链接错误降级为 null 并限流告警。
+     */
+    static String creativeTabLabelOf(Item item) {
+        try {
+            CreativeTabs tab = item.getCreativeTab();
+            if (tab == null || tab == CreativeTabs.tabAllSearch) return null;
+            String label = tab.getTranslatedTabLabel();
+            if (label == null || label.trim().isEmpty()) return null;
+            return label;
+        } catch (RuntimeException e) {
+            if (tabFailureLogs++ < MAX_FAILURE_LOGS) MyMod.LOG.warn("Block picker creative tab degraded", e);
+            return null;
+        } catch (LinkageError e) {
+            if (tabFailureLogs++ < MAX_FAILURE_LOGS) MyMod.LOG.warn("Block picker creative tab linkage degraded", e);
+            return null;
+        }
     }
 
     private static String safeName(ItemStack stack) {

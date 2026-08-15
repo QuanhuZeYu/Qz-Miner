@@ -75,6 +75,50 @@ public class BlockVariantEnumeratorTest {
         Assert.assertTrue(metadata(candidate).contains(Integer.valueOf(0)));
     }
 
+    @Test
+    public void creativeTabCaptureUsesTranslatedLabelAndTreatsSearchOrMissingAsOther() {
+        CreativeTabs fakeTab = new CreativeTabs("test_tab") {
+            @Override
+            public String getTranslatedTabLabel() { return "测试标签"; }
+            @Override
+            public Item getTabIconItem() { return null; }
+        };
+        ExposingBlock block = new ExposingBlock(0);
+        block.setCreativeTab(fakeTab);
+        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("test:tabbed", block, new ItemBlock(block));
+        Assert.assertEquals("测试标签", candidate.creativeTab());
+        Assert.assertEquals("test", candidate.modId());
+
+        block.setCreativeTab(CreativeTabs.tabAllSearch);
+        Assert.assertNull(BlockVariantEnumerator.enumerateBlock("test:tabbed", block, new ItemBlock(block)).creativeTab());
+
+        block.setCreativeTab(null);
+        Assert.assertNull(BlockVariantEnumerator.enumerateBlock("test:tabbed", block, new ItemBlock(block)).creativeTab());
+    }
+
+    @Test
+    public void failingTabLabelDegradesToNullWithoutLosingCandidate() {
+        CreativeTabs failingTab = new CreativeTabs("failing_tab") {
+            @Override
+            public String getTranslatedTabLabel() { throw new IllegalStateException("expected"); }
+            @Override
+            public Item getTabIconItem() { return null; }
+        };
+        ExposingBlock block = new ExposingBlock(0);
+        block.setCreativeTab(failingTab);
+        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("test:failing_tab", block, new ItemBlock(block));
+        Assert.assertNull(candidate.creativeTab());
+        Assert.assertEquals("test", candidate.modId());
+        Assert.assertEquals("test:failing_tab", candidate.registry());
+    }
+
+    @Test
+    public void blockWithoutItemBlockKeepsNullCreativeTab() {
+        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("minecraft:air", Blocks.air);
+        Assert.assertNull(candidate.creativeTab());
+        Assert.assertEquals("minecraft", candidate.modId());
+    }
+
     private static List<Integer> metadata(BlockCandidate candidate) {
         List<Integer> result = new ArrayList<Integer>();
         for (BlockVariant variant : candidate.variants()) result.add(Integer.valueOf(variant.metadata()));

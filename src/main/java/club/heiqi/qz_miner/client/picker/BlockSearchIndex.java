@@ -40,12 +40,14 @@ public final class BlockSearchIndex {
     private static final class Entry {
         private final BlockCandidate candidate;
         private final String registry;
+        private final String modId;
         private final String localized;
         private final String variants;
 
         private Entry(BlockCandidate candidate) {
             this.candidate = candidate;
             registry = normalize(candidate.registry());
+            modId = normalize(candidate.modId());
             localized = normalize(candidate.localizedName());
             StringBuilder names = new StringBuilder();
             for (BlockVariant variant : candidate.variants()) names.append('\n').append(normalize(variant.name()));
@@ -54,10 +56,13 @@ public final class BlockSearchIndex {
 
         private int rank(String query) {
             if (registry.equals(query)) return 0;
-            if (registry.startsWith(query)) return 1;
-            if (localized.startsWith(query)) return 2;
-            if (localized.contains(query) || variants.contains(query)) return 3;
-            if (registry.contains(query)) return 4;
+            if (modId.equals(query)) return 1;
+            if (registry.startsWith(query)) return 2;
+            if (localized.startsWith(query)) return 3;
+            if (modId.startsWith(query)) return 4;
+            if (localized.contains(query) || variants.contains(query)) return 5;
+            if (modId.contains(query)) return 6;
+            if (registry.contains(query)) return 7;
             return -1;
         }
     }

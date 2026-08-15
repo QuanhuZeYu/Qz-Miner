@@ -30,6 +30,42 @@ public class BlockSearchIndexTest {
         Assert.assertTrue(result.truncated());
     }
 
+    @Test
+    public void modIdEqualsRanksBetweenRegistryAndLocalized() {
+        BlockSearchIndex index = new BlockSearchIndex(Arrays.asList(
+                candidate("mod:stone", "Stone"), candidate("modding:stone", "Stone"),
+                candidate("another:block", "mod"), candidate("galactic:mod_core", "Xx")));
+        List<BlockCandidate> result = index.search("mod", 64).candidates();
+        Assert.assertEquals(Arrays.asList("mod:stone", "modding:stone", "another:block", "galactic:mod_core"),
+                registries(result));
+    }
+
+    @Test
+    public void modIdStartsWithFindsWholeNamespace() {
+        BlockSearchIndex index = new BlockSearchIndex(Arrays.asList(
+                candidate("GalaxySpace:venus_block", "Venus"), candidate("minecraft:stone", "Stone")));
+        List<BlockCandidate> result = index.search("galax", 64).candidates();
+        Assert.assertEquals(Arrays.asList("GalaxySpace:venus_block"), registries(result));
+    }
+
+    @Test
+    public void namespaceContainsRanksAbovePathContains() {
+        BlockSearchIndex index = new BlockSearchIndex(Arrays.asList(
+                candidate("minecraft:space_block", "Brick"), candidate("galaxy_space:venus_block", "Venus")));
+        List<BlockCandidate> result = index.search("space", 64).candidates();
+        Assert.assertEquals(Arrays.asList("galaxy_space:venus_block", "minecraft:space_block"), registries(result));
+    }
+
+    @Test
+    public void existingRankingOrderIsUnchangedByModIdDimension() {
+        BlockSearchIndex index = new BlockSearchIndex(Arrays.asList(
+                candidate("mod:stone_bricks", "Bricks"), candidate("minecraft:stone", "Stone"),
+                candidate("mod:other", "Stone Plate"), candidate("mod:stone", "Other")));
+        List<BlockCandidate> result = index.search("stone", 64).candidates();
+        Assert.assertEquals(Arrays.asList("minecraft:stone", "mod:other", "mod:stone", "mod:stone_bricks"),
+                registries(result));
+    }
+
     private static BlockCandidate candidate(String registry, String name) {
         return new BlockCandidate(registry, name, Collections.<BlockVariant>emptyList(), null);
     }

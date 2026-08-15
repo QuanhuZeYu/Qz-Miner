@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.client.picker;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -12,7 +13,9 @@ import org.junit.Test;
 import net.minecraft.init.Blocks;
 
 import club.heiqi.config.ui.editor.ListMemberCodec;
+import club.heiqi.config.ui.editor.SearchPickerCategories;
 import club.heiqi.config.ui.editor.SearchPickerData;
+import club.heiqi.config.ui.editor.SearchPickerPanelPresentation;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.uilib.ui.scene.image.SceneImageSource;
 
@@ -180,5 +183,96 @@ public class BlockPickerProviderTest {
                 Collections.emptyList(), new SearchPickerData.Selection(byRegistry.key(),
                         SearchPickerData.SelectionMode.SELECTED,
                         Collections.singletonList(byRegistry.variants().get(0).key()))));
+    }
+
+    @Test
+    public void categoriesExposeTwoDimensionsWithStableKeysAndCounts() {
+        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
+        source.add(new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
+                Collections.<BlockVariant>emptyList(), null));
+        source.add(new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
+                Collections.<BlockVariant>emptyList(), null));
+        source.add(new BlockCandidate("gt:copper", "gt", "测试栏", "Copper",
+                Collections.<BlockVariant>emptyList(), null));
+        source.add(new BlockCandidate("galacticraft:venus", "galacticraft", null, "Venus",
+                Collections.<BlockVariant>emptyList(), null));
+        BlockPickerProvider provider = new BlockPickerProvider(source);
+        source.clear();
+
+        Assert.assertEquals(2, provider.categoryDimensionCount());
+        List<SearchPickerCategories.Category> dim0 = provider.categories(0);
+        List<SearchPickerCategories.Category> dim1 = provider.categories(1);
+
+        SearchPickerCategories.Category other = SearchPickerCategories.find(dim0,
+                BlockPickerProvider.OTHER_TAB_KEY);
+        Assert.assertNotNull(other);
+        Assert.assertEquals(BlockPickerProvider.OTHER_TAB_LABEL, other.label());
+        Assert.assertEquals(2, other.count());
+        Assert.assertFalse(SearchPickerCategories.contains(dim0, "测试栏"));
+
+        Assert.assertEquals(Arrays.asList("galacticraft", "gt", "minecraft"), categoryKeys(dim1));
+        Assert.assertEquals(2, SearchPickerCategories.find(dim1, "minecraft").count());
+        Assert.assertEquals(1, SearchPickerCategories.find(dim1, "gt").count());
+        Assert.assertEquals(1, SearchPickerCategories.find(dim1, "galacticraft").count());
+
+        try {
+            provider.categories(0).add(new SearchPickerCategories.Category("x", "y", 1));
+            Assert.fail("categories(0) must be immutable");
+        } catch (UnsupportedOperationException expected) {
+        }
+    }
+
+    @Test
+    public void categoryOfResolvesBothDimensionsAndUnknownKeys() {
+        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
+        source.add(new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
+                Collections.<BlockVariant>emptyList(), null));
+        source.add(new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
+                Collections.<BlockVariant>emptyList(), null));
+        BlockPickerProvider provider = new BlockPickerProvider(source);
+
+        Assert.assertEquals(BlockPickerProvider.OTHER_TAB_KEY, provider.categoryOf("minecraft:stone"));
+        Assert.assertEquals(BlockPickerProvider.OTHER_TAB_KEY, provider.categoryOf(0, "minecraft:stone"));
+        Assert.assertEquals("测试栏", provider.categoryOf(0, "minecraft:dirt"));
+        Assert.assertEquals("minecraft", provider.categoryOf(1, "minecraft:stone"));
+        Assert.assertEquals("minecraft", provider.categoryOf(1, "minecraft:dirt"));
+        Assert.assertNull(provider.categoryOf(1, "missing:block"));
+        Assert.assertNull(provider.categoryOf(0, "missing:block"));
+        Assert.assertNull(provider.categoryOf(1, null));
+        Assert.assertEquals(Collections.emptyList(), provider.categories(2));
+        Assert.assertNull(provider.categoryOf(2, "minecraft:stone"));
+        try {
+            provider.categories(-1);
+            Assert.fail("categories(-1) must throw");
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            provider.categoryOf(-1, "minecraft:stone");
+            Assert.fail("categoryOf(-1, ...) must throw");
+        } catch (IllegalArgumentException expected) {
+        }
+    }
+
+    @Test
+    public void panelPresentationUsesCompleteChineseCopy() {
+        SearchPickerPanelPresentation text = new BlockPickerProvider(Collections.<BlockCandidate>emptyList())
+                .panelPresentation();
+        Assert.assertEquals("选择方块", text.panelTitle());
+        Assert.assertEquals(Arrays.asList("创造栏", "按 Mod"), text.categoryDimensions());
+        Assert.assertEquals("浏览分类", text.categoryDimensionTitle());
+        Assert.assertEquals("全部", text.allCategoryLabel());
+        Assert.assertEquals("ID: ", text.tooltipPrefix());
+        Assert.assertEquals("无可用分类", text.emptyCategory());
+        Assert.assertEquals("选择方块状态", text.variantPanelTitle());
+        Assert.assertEquals("筛选状态", text.variantSearchPlaceholder());
+        Assert.assertEquals("返回", text.back());
+        Assert.assertEquals("关闭", text.close());
+        Assert.assertEquals("添加方块", text.addMember());
+    }
+
+    private static List<String> categoryKeys(List<SearchPickerCategories.Category> categories) {
+        List<String> keys = new ArrayList<String>();
+        for (SearchPickerCategories.Category category : categories) keys.add(category.key());
+        return keys;
     }
 }
