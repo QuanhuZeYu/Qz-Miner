@@ -121,6 +121,21 @@ public class BlockPickerProviderTest {
     }
 
     @Test
+    public void unenumeratedMemberFallsBackToLocalizedRegistrySnapshot() {
+        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
+                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
+        SearchPickerData.Selection selection = new ObjectGroupPickerCodec().decodeMember("minecraft:stone@7");
+        SearchPickerData.CurrentMember unEnumeratedHit =
+                new SearchPickerData.CurrentMember(4L, selection, null, false);
+        Assert.assertEquals("Stone", provider.presentation().currentMemberPrimary(unEnumeratedHit));
+
+        SearchPickerData.Selection missingSelection = new ObjectGroupPickerCodec().decodeMember("missing:block@[8,4]");
+        SearchPickerData.CurrentMember unEnumeratedMiss =
+                new SearchPickerData.CurrentMember(5L, missingSelection, null, false);
+        Assert.assertEquals("missing:block", provider.presentation().currentMemberPrimary(unEnumeratedMiss));
+    }
+
+    @Test
     public void memberFormatterUsesLocalizedCanonicalUnknownCanonicalAndGenericMalformedCopy() {
         BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
                 new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));

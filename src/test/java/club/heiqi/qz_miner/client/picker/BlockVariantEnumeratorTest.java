@@ -15,6 +15,7 @@ import net.minecraft.init.Blocks;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.StatCollector;
 
 /** 方块变体枚举只信任物品子类型实际暴露的 ItemStack。 */
 public class BlockVariantEnumeratorTest {
@@ -119,10 +120,90 @@ public class BlockVariantEnumeratorTest {
         Assert.assertEquals("minecraft", candidate.modId());
     }
 
+    @Test
+    public void safeNamePrefersTranslatedDisplayName() {
+        BlockCandidate candidate = enumerateWithNameItem(
+                new NameItem("tile.test_stone", "测试石", null));
+
+        Assert.assertEquals("测试石", candidate.variants().get(0).name());
+        Assert.assertEquals("测试石", candidate.localizedName());
+    }
+
+    @Test
+    public void safeNameRetriesTranslationWhenDisplayNameIsUntranslated() {
+        String expected = StatCollector.translateToLocal("tile.test_stone.name");
+        BlockCandidate candidate = enumerateWithNameItem(
+                new NameItem("tile.test_stone", "tile.test_stone.name", null));
+
+        Assert.assertEquals(expected, candidate.variants().get(0).name());
+        Assert.assertFalse(candidate.localizedName().isEmpty());
+    }
+
+    @Test
+    public void safeNameRetriesTranslationWhenDisplayNameIsEmpty() {
+        String expected = StatCollector.translateToLocal("tile.test_stone.name");
+        BlockCandidate candidate = enumerateWithNameItem(
+                new NameItem("tile.test_stone", "", null));
+
+        Assert.assertEquals(expected, candidate.variants().get(0).name());
+        Assert.assertFalse(candidate.localizedName().isEmpty());
+    }
+
+    @Test
+    public void safeNameDegradesToUnlocalizedNameWhenDisplayThrows() {
+        BlockCandidate candidate = enumerateWithNameItem(
+                new NameItem("tile.test_stone", "测试石", new IllegalStateException("expected")));
+
+        Assert.assertEquals("tile.test_stone", candidate.variants().get(0).name());
+        Assert.assertEquals("tile.test_stone", candidate.localizedName());
+    }
+
+    private static BlockCandidate enumerateWithNameItem(NameItem item) {
+        return BlockVariantEnumerator.enumerateBlock("test:name_block", new NameExposingBlock(), item);
+    }
+
     private static List<Integer> metadata(BlockCandidate candidate) {
         List<Integer> result = new ArrayList<Integer>();
         for (BlockVariant variant : candidate.variants()) result.add(Integer.valueOf(variant.metadata()));
         return result;
+    }
+
+    /** 可控 unlocalized / displayName / 异常的 Item 桩。 */
+    private static final class NameItem extends Item {
+        private final String unlocalizedName;
+        private final String displayName;
+        private final RuntimeException displayFailure;
+
+        private NameItem(String unlocalizedName, String displayName, RuntimeException displayFailure) {
+            this.unlocalizedName = unlocalizedName;
+            this.displayName = displayName;
+            this.displayFailure = displayFailure;
+        }
+
+        @Override
+        public String getUnlocalizedName() { return unlocalizedName; }
+
+        @Override
+        public String getUnlocalizedName(ItemStack stack) { return unlocalizedName; }
+
+        @Override
+        public String getItemStackDisplayName(ItemStack stack) {
+            if (displayFailure != null) throw displayFailure;
+            return displayName;
+        }
+    }
+
+    /** 用传入 item 暴露单 stack 的测试方块，绕过真实 getSubBlocks。 */
+    private static final class NameExposingBlock extends Block {
+        private NameExposingBlock() {
+            super(Material.rock);
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public void getSubBlocks(Item item, CreativeTabs tab, List list) {
+            list.add(new ItemStack(item, 1, 0));
+        }
     }
 
     /** 测试方块按给定顺序暴露物品子类型，并保留原始 stack 供身份断言。 */

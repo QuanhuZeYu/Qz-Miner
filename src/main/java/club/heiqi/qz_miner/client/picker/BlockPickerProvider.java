@@ -79,7 +79,7 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .invalidIssue("无效")
                 .warningSeverity("警告")
                 .duplicateIssue("重复")
-                .currentMemberPrimaryFormatter(BlockPickerProvider::formatCurrentMemberPrimary)
+                .currentMemberPrimaryFormatter(this::formatCurrentMemberPrimary)
                 .currentMemberSecondaryFormatter(member -> formatCurrentMemberSecondary(member, pickerCodec))
                 .resultSummaryFormatter(count -> count + " 个结果")
                 .truncated("结果已截断，请继续缩小搜索范围")
@@ -214,9 +214,11 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
     }
 
     /** 将成员选择格式化为本地化主名称，错误成员不暴露 raw。 */
-    private static String formatCurrentMemberPrimary(SearchPickerData.CurrentMember member) {
+    private String formatCurrentMemberPrimary(SearchPickerData.CurrentMember member) {
         if (member.selection() == null) return "无法读取当前方块规则";
-        return member.enumerated() ? member.candidate().label() : member.selection().candidateKey();
+        if (member.enumerated()) return member.candidate().label();
+        BlockCandidate candidate = byRegistry.get(member.selection().candidateKey());
+        return candidate == null ? member.selection().candidateKey() : candidate.localizedName();
     }
 
     /** 将合法成员选择格式化为完整 canonical 补充信息。 */

@@ -12,6 +12,7 @@ import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.StatCollector;
 
 import club.heiqi.qz_miner.MyMod;
 
@@ -111,8 +112,47 @@ public final class BlockVariantEnumerator {
     }
 
     private static String safeName(ItemStack stack) {
-        String name = stack.getDisplayName();
-        return name == null || name.isEmpty() ? stack.getUnlocalizedName() : name;
+        String unlocalized = safeUnlocalizedName(stack);
+        try {
+            String display = stack.getDisplayName();
+            if (!isUntranslated(display, stack, unlocalized)) return display;
+            String retried = StatCollector.translateToLocal(unlocalized + ".name");
+            if (retried != null && !retried.trim().isEmpty()) return retried;
+        } catch (RuntimeException e) {
+            // 名称捕获异常静默降级，避免热路径枚举被单方块拖垮
+        } catch (LinkageError e) {
+            // 同上
+        }
+        if (!unlocalized.isEmpty()) return unlocalized;
+        String lastResort = safeUnlocalizedName(stack);
+        return lastResort.isEmpty() ? unlocalized : lastResort;
+    }
+
+    /** 读取未翻译名；任何异常降级为空串。 */
+    private static String safeUnlocalizedName(ItemStack stack) {
+        try {
+            String name = stack.getUnlocalizedName();
+            return name == null ? "" : name;
+        } catch (RuntimeException e) {
+            return "";
+        } catch (LinkageError e) {
+            return "";
+        }
+    }
+
+    /** displayName 是否仍是未翻译形态：空值、unlocalized 原形、.name 后缀或 Item 端未翻译输出。 */
+    private static boolean isUntranslated(String display, ItemStack stack, String unlocalized) {
+        if (display == null || display.trim().isEmpty()) return true;
+        if (display.equals(unlocalized)) return true;
+        if (display.equals(unlocalized + ".name")) return true;
+        try {
+            if (display.equals(stack.getItem().getUnlocalizedNameInefficiently(stack))) return true;
+        } catch (RuntimeException e) {
+            // Item 端未翻译输出不可用时仅依赖前三条判断
+        } catch (LinkageError e) {
+            // 同上
+        }
+        return false;
     }
 
     /** 无物品身份的方块仍以逻辑 meta 0 参与指定状态选择。 */
