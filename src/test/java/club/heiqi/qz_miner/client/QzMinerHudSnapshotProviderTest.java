@@ -67,7 +67,8 @@ public class QzMinerHudSnapshotProviderTest {
         fixture.state.setSelectedSubMode(ChainSubMode.AREA_TUNNEL);
         fixture.state.setPreviewActive(true);
         fixture.preview.begin(new ChainTarget(0, 0, 0));
-        fixture.preview.addPreviewTarget(new ChainTarget(1, 0, 0));
+        fixture.preview.addPreviewTarget(
+                fixture.preview.getGeneration(), new ChainTarget(1, 0, 0));
 
         List<String> ids = ids(fixture.provider.snapshot());
         Assert.assertEquals("preview-matched", ids.get(ids.size() - 2));
@@ -129,7 +130,8 @@ public class QzMinerHudSnapshotProviderTest {
         fixture.state.setSelectedSubMode(ChainSubMode.AREA_TUNNEL);
         fixture.state.setPreviewActive(true);
         fixture.preview.begin(new ChainTarget(0, 0, 0));
-        fixture.preview.addPreviewTarget(new ChainTarget(1, 0, 0));
+        fixture.preview.addPreviewTarget(
+                fixture.preview.getGeneration(), new ChainTarget(1, 0, 0));
 
         HudSnapshot calculating = fixture.provider.snapshot();
         assertSpan(calculating, "preview-matched", "preview-matched.value", "1", HudTone.INFO);
@@ -137,7 +139,7 @@ public class QzMinerHudSnapshotProviderTest {
                 "hud.qz_miner.preview.calculating", HudTone.WARNING);
         assertSpan(calculating, "server-area", "server-area.volume", "72", HudTone.INFO);
 
-        fixture.preview.setCompleted(true);
+        fixture.preview.setCompleted(fixture.preview.getGeneration(), true);
         assertSpan(fixture.provider.snapshot(), "preview-matched", "preview-matched.state",
                 "hud.qz_miner.preview.completed", HudTone.SUCCESS);
     }

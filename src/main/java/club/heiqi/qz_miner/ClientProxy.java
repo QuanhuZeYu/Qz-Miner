@@ -124,7 +124,7 @@ public class ClientProxy extends CommonProxy {
                 new ToolSwapMinecraftFacade(),
                 new QzAutoToolSwapClientTransport());
         AutoToolSwapHooks.install(autoToolSwapAdapter);
-        chainPreviewRenderer = new ChainPreviewRenderer();
+        chainPreviewRenderer = new ChainPreviewRenderer(chainPreviewController.getPreviewState());
         chainPreviewRenderer.register();
         cuboidSelectionRenderer = new CuboidSelectionRenderer();
         cuboidSelectionRenderer.register();

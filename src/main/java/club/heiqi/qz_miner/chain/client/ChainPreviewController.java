@@ -55,7 +55,9 @@ public class ChainPreviewController {
     private int specialPreviewRequestId;
     private BlockSeedSnapshot previewSeedSnapshot;
     private World previewSeedWorld;
-    private int previewConcreteFace;
+    private volatile int previewConcreteFace;
+    private volatile ChainMode previewMode;
+    private volatile ChainSubMode previewSubMode;
 
     public void register() {
         FMLCommonHandler.instance().bus().register(this);
@@ -118,12 +120,6 @@ public class ChainPreviewController {
             return;
         }
 
-        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
-        if (selectedSubMode == ChainSubMode.AREA_CUBOID_CLEAR) {
-            stopPreview();
-            return;
-        }
-
         if (shouldLockCurrentPreview()) {
             if (currentTarget == null) {
                 ChainTarget lockedTarget = previewState.getOrigin();
@@ -131,6 +127,13 @@ public class ChainPreviewController {
                     currentTarget = lockedTarget;
                 }
             }
+            return;
+        }
+
+        ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
+        ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
+        if (selectedSubMode == ChainSubMode.AREA_CUBOID_CLEAR) {
+            stopPreview();
             return;
         }
 
@@ -146,22 +149,29 @@ public class ChainPreviewController {
         int concreteFace = resolveConcreteFace(
                 selectedSubMode, acceptedSource, player, lookHit, target);
         if (shouldRestartPreview(previewSeedWorld, world, currentTarget, target,
-                previewConcreteFace, concreteFace)) {
-            startPreview(world, target, concreteFace);
+                previewConcreteFace, concreteFace,
+                previewMode, selectedMode, previewSubMode, selectedSubMode)) {
+            startPreview(world, target, concreteFace, selectedMode, selectedSubMode);
         }
     }
 
-    private void startPreview(World world, ChainTarget target, int concreteFace) {
+    private void startPreview(
+            World world,
+            ChainTarget target,
+            int concreteFace,
+            ChainMode selectedMode,
+            ChainSubMode selectedSubMode) {
         Block sampleBlock = world.getBlock(target.getX(), target.getY(), target.getZ());
         int sampleMeta = world.getBlockMetadata(target.getX(), target.getY(), target.getZ());
         TileEntity sampleTileEntity = world.getTileEntity(target.getX(), target.getY(), target.getZ());
         startPreview(world, target, new BlockSeedSnapshot(target, sampleBlock, sampleMeta, sampleTileEntity),
-                concreteFace, true);
+                concreteFace, selectedMode, selectedSubMode, true);
     }
 
     /** 以已捕获 seed 启动或刷新预览；刷新不得重读已破坏 origin。 */
     private void startPreview(World world, ChainTarget target, BlockSeedSnapshot seedSnapshot,
-            int concreteFace, boolean replaceSeedLease) {
+            int concreteFace, ChainMode selectedMode, ChainSubMode selectedSubMode,
+            boolean replaceSeedLease) {
         resetPreview(replaceSeedLease);
 
         Minecraft minecraft = Minecraft.getMinecraft();
@@ -172,27 +182,32 @@ public class ChainPreviewController {
 
         currentTarget = target;
         previewConcreteFace = AxisAlignedTunnelDirection.normalizeFace(concreteFace);
+        previewMode = selectedMode;
+        previewSubMode = selectedSubMode;
         if (replaceSeedLease) {
             previewSeedSnapshot = seedSnapshot;
             previewSeedWorld = world;
         }
-        previewState.begin(target);
+        final int generation = previewState.begin(target);
         MyMod.chainStateService.getClientState().setPreviewActive(true);
 
-        final int generation = previewState.getGeneration();
         final Block sampleBlock = seedSnapshot.getSampleBlock();
         final int sampleMeta = seedSnapshot.getSampleMeta();
         final TileEntity sampleTileEntity = seedSnapshot.getSampleTileEntity();
         final int previewRadius = getEffectivePreviewRadius();
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
-        final ChainMode selectedMode = MyMod.chainStateService.getClientState().getSelectedMode();
-        final ChainSubMode selectedSubMode = MyMod.chainStateService.getClientState().getSelectedSubMode();
         if (!ChainSubModeRegistry.canStartPreview(selectedSubMode, world, target, sampleTileEntity)) {
-            previewState.setCompleted(true);
+            previewState.setCompleted(generation, true);
             return;
         }
         if (ChainSubModeRegistry.usesRemotePreview(selectedSubMode)) {
-            startRemotePreview(selectedMode, selectedSubMode, target, previewRadius, previewMaxTargets);
+            startRemotePreview(
+                selectedMode,
+                selectedSubMode,
+                target,
+                previewRadius,
+                previewMaxTargets,
+                generation);
             return;
         }
         ModeExtensionSnapshot modeExtension = ModeExtensionSnapshot.EMPTY;
@@ -216,7 +231,7 @@ public class ChainPreviewController {
             previewRadius,
             previewMaxTargets);
         if (runtime == null) {
-            previewState.setCompleted(true);
+            previewState.setCompleted(generation, true);
             return;
         }
         final ChainSearchContext searchContext = runtime.getSearchContext();
@@ -224,69 +239,90 @@ public class ChainPreviewController {
         final ChainBlockMatcher blockMatcher = runtime.getMatcher();
         final int frozenConcreteFace = previewConcreteFace;
 
-        if (blockMatcher.matches(player, target)) {
-            previewState.addPreviewTarget(target);
+        if (shouldProjectOriginBeforeTraversal(selectedSubMode) && blockMatcher.matches(player, target)) {
+            if (!previewState.addPreviewTarget(generation, target)) {
+                return;
+            }
             searchContext.incrementConfirmedCount();
             if (searchContext.getConfirmedCount() >= searchContext.getMaxTargets()) {
-                previewState.setCompleted(true);
+                previewState.setCompleted(generation, true);
                 return;
             }
         }
         traverser.seed(searchContext);
 
-        previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
-            "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
-            control -> {
-                if (control.isCancelRequested() || !isPreviewStillValid(generation, target, frozenConcreteFace)) {
-                    return ParallelTaskResult.TERMINATED;
-                }
+        try {
+            previewTaskSubscription = MyMod.ensureParallelTickExecutor().registerClientPre(
+                "chain-preview-" + target.getX() + "-" + target.getY() + "-" + target.getZ(),
+                control -> {
+                    if (control.isCancelRequested() || !isPreviewStillValid(
+                            generation, target, frozenConcreteFace, selectedMode, selectedSubMode)) {
+                        return ParallelTaskResult.TERMINATED;
+                    }
 
-                if (control.shouldYield()) {
-                    return ParallelTaskResult.YIELDED;
-                }
+                    if (control.shouldYield()) {
+                        return ParallelTaskResult.YIELDED;
+                    }
 
-                TraversalStepResult traversalResult = ChainTraversalSupport.step(
-                    traverser,
-                    searchContext,
-                    control,
-                    matchedTarget -> !control.isCancelRequested()
-                        && isPreviewStillValid(generation, target, frozenConcreteFace)
-                        && blockMatcher.matches(player, matchedTarget),
-                    matchedTarget -> {
-                        if (!control.isCancelRequested()
-                                && isPreviewStillValid(generation, target, frozenConcreteFace)) {
-                            previewState.addPreviewTarget(matchedTarget);
-                        }
-                    });
-                if (traversalResult == TraversalStepResult.TERMINATED) {
-                    return ParallelTaskResult.TERMINATED;
-                }
+                    TraversalStepResult traversalResult = ChainTraversalSupport.step(
+                        traverser,
+                        searchContext,
+                        control,
+                        matchedTarget -> !control.isCancelRequested()
+                            && isPreviewStillValid(
+                                generation, target, frozenConcreteFace, selectedMode, selectedSubMode)
+                            && blockMatcher.matches(player, matchedTarget),
+                        matchedTarget -> {
+                            if (!control.isCancelRequested()
+                                    && isPreviewStillValid(
+                                        generation, target, frozenConcreteFace, selectedMode, selectedSubMode)) {
+                                previewState.addPreviewTarget(generation, matchedTarget);
+                            }
+                        });
+                    if (traversalResult == TraversalStepResult.TERMINATED) {
+                        return ParallelTaskResult.TERMINATED;
+                    }
 
-                if (control.isCancelRequested() || !isPreviewStillValid(generation, target, frozenConcreteFace)) {
-                    return ParallelTaskResult.TERMINATED;
-                }
+                    if (control.isCancelRequested() || !isPreviewStillValid(
+                            generation, target, frozenConcreteFace, selectedMode, selectedSubMode)) {
+                        return ParallelTaskResult.TERMINATED;
+                    }
 
-                previewState.incrementScannedCount();
-                boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE || traversalResult == TraversalStepResult.YIELDED;
+                    previewState.incrementScannedCount(generation);
+                    boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
+                        || traversalResult == TraversalStepResult.YIELDED;
 
-                if (!shouldContinue) {
-                    previewState.setCompleted(true);
-                }
+                    if (!shouldContinue) {
+                        previewState.setCompleted(generation, true);
+                    }
 
-                if (shouldContinue && control.shouldYield()) {
-                    return ParallelTaskResult.YIELDED;
-                }
+                    if (shouldContinue && control.shouldYield()) {
+                        return ParallelTaskResult.YIELDED;
+                    }
 
-                return ChainTraversalSupport.toParallelTaskResult(traversalResult);
-            });
+                    return ChainTraversalSupport.toParallelTaskResult(traversalResult);
+                });
+        } catch (RuntimeException failure) {
+            if (previewState.getGeneration() == generation) {
+                resetPreview(true);
+            }
+            MyMod.LOG.warn("[ChainPreview] Failed to register preview planner; retrying on next tick", failure);
+            return;
+        }
 
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());
     }
 
-    private void startRemotePreview(ChainMode selectedMode, ChainSubMode selectedSubMode, ChainTarget target, int previewRadius, int previewMaxTargets) {
+    private void startRemotePreview(
+            ChainMode selectedMode,
+            ChainSubMode selectedSubMode,
+            ChainTarget target,
+            int previewRadius,
+            int previewMaxTargets,
+            int generation) {
         specialPreviewRequestId++;
         if (!ChainSubModeRegistry.requestRemotePreview(selectedSubMode, specialPreviewRequestId, target, previewRadius, previewMaxTargets)) {
-            previewState.setCompleted(true);
+            previewState.setCompleted(generation, true);
             return;
         }
         MyMod.LOG.debug(
@@ -316,10 +352,13 @@ public class ChainPreviewController {
             return;
         }
 
+        int generation = previewState.getGeneration();
         for (ChainTarget target : targets) {
-            previewState.addPreviewTarget(target);
+            if (!previewState.addPreviewTarget(generation, target)) {
+                return;
+            }
         }
-        previewState.setCompleted(true);
+        previewState.setCompleted(generation, true);
         MyMod.LOG.debug(
             "[ChainPreview] Applied LootGames minesweeper preview for ({}, {}, {}) targets={} requestId={}",
             origin.getX(),
@@ -361,14 +400,22 @@ public class ChainPreviewController {
         return Math.max(1, Math.min(serverChainMaxBlocks, Config.clientPreviewMaxTargets));
     }
 
-    private boolean isPreviewStillValid(int generation, ChainTarget target, int concreteFace) {
+    private boolean isPreviewStillValid(
+            int generation,
+            ChainTarget target,
+            int concreteFace,
+            ChainMode mode,
+            ChainSubMode subMode) {
         if (MyMod.chainStateService == null || !MyMod.chainStateService.getClientState().isChainKeyPressed()) {
             return false;
         }
         if (previewState.getGeneration() != generation) {
             return false;
         }
-        return target.equals(currentTarget) && concreteFace == previewConcreteFace;
+        return target.equals(currentTarget)
+            && concreteFace == previewConcreteFace
+            && mode == previewMode
+            && subMode == previewSubMode;
     }
 
     /**
@@ -423,6 +470,8 @@ public class ChainPreviewController {
         previewState.clear();
         currentTarget = null;
         previewConcreteFace = 0;
+        previewMode = null;
+        previewSubMode = null;
         specialPreviewRequestId++;
         if (clearSeedLease) {
             previewSeedSnapshot = null;
@@ -475,9 +524,22 @@ public class ChainPreviewController {
     }
 
     /** 纯身份判定：同 origin 只要 world 或 concrete face 变化也必须换 generation。 */
-    static boolean shouldRestartPreview(Object currentWorld, Object nextWorld,
-            ChainTarget currentTarget, ChainTarget nextTarget, int currentFace, int nextFace) {
+    static boolean shouldRestartPreview(
+            Object currentWorld,
+            Object nextWorld,
+            ChainTarget currentTarget,
+            ChainTarget nextTarget,
+            int currentFace,
+            int nextFace,
+            ChainMode currentMode,
+            ChainMode nextMode,
+            ChainSubMode currentSubMode,
+            ChainSubMode nextSubMode) {
         return currentWorld != nextWorld || currentTarget == null || !currentTarget.equals(nextTarget)
-                || currentFace != nextFace;
+                || currentFace != nextFace || currentMode != nextMode || currentSubMode != nextSubMode;
+    }
+
+    static boolean shouldProjectOriginBeforeTraversal(ChainSubMode subMode) {
+        return subMode != ChainSubMode.SPECIAL_GT_CABLE_REPLACE;
     }
 }

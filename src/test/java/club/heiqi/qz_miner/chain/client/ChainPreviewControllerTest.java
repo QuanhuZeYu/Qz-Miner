@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /** seed 租约刷新与生命周期隔离的无 GL 结构合同。 */
@@ -64,16 +66,50 @@ public class ChainPreviewControllerTest {
     }
 
     @Test
-    public void sameOriginConcreteFaceOrWorldChangeRestartsGenerationIdentity() {
+    public void worldFaceModeAndSubModeBelongToGenerationIdentity() {
         Object worldA = new Object();
         Object worldB = new Object();
         ChainTarget origin = new ChainTarget(1, 2, 3);
         Assert.assertFalse(ChainPreviewController.shouldRestartPreview(
-                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2));
+                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2,
+                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_BASE));
         Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
-                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 3));
+                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 3,
+                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_BASE));
         Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
-                worldA, worldB, origin, new ChainTarget(1, 2, 3), 2, 2));
+                worldA, worldB, origin, new ChainTarget(1, 2, 3), 2, 2,
+                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_BASE));
+        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
+                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2,
+                ChainMode.CHAIN, ChainMode.AREA, ChainSubMode.CHAIN_BASE, ChainSubMode.AREA_SAME_BLOCK));
+        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
+                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2,
+                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE));
+    }
+
+    @Test
+    public void gtTraverserOwnsItsOriginAndPlannerRegistrationFailureRetries() throws Exception {
+        Assert.assertFalse(ChainPreviewController.shouldProjectOriginBeforeTraversal(
+                ChainSubMode.SPECIAL_GT_CABLE_REPLACE));
+        Assert.assertTrue(ChainPreviewController.shouldProjectOriginBeforeTraversal(ChainSubMode.CHAIN_BASE));
+
+        String source = source();
+        int registration = source.indexOf("registerClientPre(");
+        int failure = source.indexOf("catch (RuntimeException failure)", registration);
+        Assert.assertTrue(registration >= 0 && failure > registration);
+        String recovery = source.substring(failure, source.indexOf("MyMod.LOG.debug", failure));
+        Assert.assertTrue(recovery.contains("resetPreview(true)"));
+        Assert.assertTrue(recovery.contains("retrying on next tick"));
+
+        int identityStart = source.indexOf("private boolean isPreviewStillValid(");
+        int identityEnd = source.indexOf("private boolean shouldLockCurrentPreview()", identityStart);
+        String identity = source.substring(identityStart, identityEnd);
+        Assert.assertFalse(identity.contains("getSelectedMode()"));
+        Assert.assertFalse(identity.contains("getSelectedSubMode()"));
+
+        int lockCheck = source.indexOf("if (shouldLockCurrentPreview())");
+        int cuboidStop = source.indexOf("selectedSubMode == ChainSubMode.AREA_CUBOID_CLEAR");
+        Assert.assertTrue("frozen preview lock must win over live submode changes", lockCheck < cuboidStop);
     }
 
     @Test
