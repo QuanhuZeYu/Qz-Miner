@@ -1,5 +1,7 @@
 # 空手接替逐目标往返导致执行吞吐退化
 
+> **历史错误记录。** 5.2 已删除逐目标 takeover 热路，5.3 又以 shared soft deadline 替代 `maxBreakPerTick` 与 50ms 节流；下文描述的是当时症状、修复与证据边界。
+
 ## 错误现象
 
 真实空手连锁中，约 1793 个目标的规划只需约 2 秒，但服务端随后每个目标都建立一次 `TAKEOVER` 等待门并等待客户端 `DECLINE_TAKEOVER`。执行桥因此约每 tick 只消费一个目标，50 tick 仅处理约 51 个目标后触发 watchdog；`maxBreakPerTick=64` 未成为实际吞吐上限。

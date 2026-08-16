@@ -1,5 +1,7 @@
 # ERROR：自动工具目标校验失败放大为整轮取消
 
+> **历史错误记录。** CHAIN 能力断链、AREA 宽进、局部 `SKIP_TARGET` 与零成功推进仍有效；逐目标网络 gate 已由 5.2 服务端本地批量路径取代，poll/count budget 与 50ms 节流又在 5.3 改为 shared soft deadline。下文按发生时版本保留。
+
 ## 错误现象
 
 普通 `CHAIN/AREA` 在已经成功消费若干目标后，只要后续某个目标的实时采掘权威或接替候选校验失败，执行桥就曾把统一的 `STOP` 提升为 planner 协作取消，整条任务提前结束。2026-07-24 服务端日志中 311 次 `PlanStarted` 有 120 个唯一会话以 `auto-tool-takeover-stopped` 收口，且包含大量不应进入接替事务的 round 0。
