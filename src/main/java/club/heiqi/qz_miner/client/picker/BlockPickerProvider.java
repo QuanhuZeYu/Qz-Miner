@@ -10,8 +10,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import net.minecraft.creativetab.CreativeTabs;
-
 import club.heiqi.config.ui.editor.CategorizedValueEditorProvider;
 import club.heiqi.config.ui.editor.Codec;
 import club.heiqi.config.ui.editor.CurrentValuePresenter;
@@ -21,13 +19,9 @@ import club.heiqi.config.ui.editor.SearchPickerPanelPresentation;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.config.ui.editor.VisualAdapter;
 
-/** 方块选择器 Provider；构造时固化索引、空查询全量浏览快照、搜索函数、双维度分类快照、Codec 和视觉适配器。 */
+/** 方块选择器 Provider；构造时固化索引、空查询全量浏览快照、搜索函数、按 Mod 分类快照、Codec 和视觉适配器。 */
 public final class BlockPickerProvider implements CategorizedValueEditorProvider {
     public static final String ID = "qz_miner:block-selector";
-    /** 无有效创造栏（tabAllSearch/null/捕获失败）候选的稳定分类 key（含冒号避免与 tab 标签冲突）。 */
-    public static final String OTHER_TAB_KEY = "qz_miner:other";
-    /** 「其他」分类展示文案。 */
-    public static final String OTHER_TAB_LABEL = "其他";
 
     private final Codec codec;
     private final VisualAdapter visualAdapter;
@@ -37,7 +31,6 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
     private final SearchPickerPanelPresentation panelPresentation;
     private final CurrentValuePresenter currentValuePresenter;
     private final Map<String, BlockCandidate> byRegistry;
-    private final List<SearchPickerCategories.Category> tabCategories;
     private final List<SearchPickerCategories.Category> modCategories;
 
     public BlockPickerProvider(List<BlockCandidate> source) {
@@ -45,7 +38,6 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
         Map<String, BlockCandidate> index = new LinkedHashMap<String, BlockCandidate>();
         for (BlockCandidate candidate : snapshot) index.put(candidate.registry(), candidate);
         byRegistry = Collections.unmodifiableMap(index);
-        tabCategories = buildTabCategories(snapshot);
         modCategories = buildModCategories(snapshot);
         BlockSearchIndex searchIndex = new BlockSearchIndex(snapshot);
         browseResult = convertCandidates(snapshot);
@@ -95,7 +87,7 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .build();
         panelPresentation = SearchPickerPanelPresentation.builder()
                 .panelTitle("选择方块")
-                .categoryDimensions(Arrays.asList("创造栏", "按 Mod"))
+                .categoryDimensions(Arrays.asList("按 Mod"))
                 .categoryDimensionTitle("浏览分类")
                 .allCategoryLabel("全部")
                 .tooltipPrefix("ID: ")
@@ -117,80 +109,32 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
     public CurrentValuePresenter currentValuePresenter() { return currentValuePresenter; }
 
     @Override
-    public List<SearchPickerCategories.Category> categories() { return tabCategories; }
+    public List<SearchPickerCategories.Category> categories() { return modCategories; }
 
     @Override
     public String categoryOf(String candidateKey) { return categoryOf(0, candidateKey); }
 
     @Override
-    public int categoryDimensionCount() { return 2; }
+    public int categoryDimensionCount() { return 1; }
 
     @Override
     public List<SearchPickerCategories.Category> categories(int dimension) {
         if (dimension < 0) throw new IllegalArgumentException("dimension must not be negative: " + dimension);
-        if (dimension == 0) return tabCategories;
-        if (dimension == 1) return modCategories;
+        if (dimension == 0) return modCategories;
         return Collections.emptyList();
     }
 
     @Override
     public String categoryOf(int dimension, String candidateKey) {
         if (dimension < 0) throw new IllegalArgumentException("dimension must not be negative: " + dimension);
-        if (dimension > 1 || candidateKey == null) return null;
+        if (dimension > 0 || candidateKey == null) return null;
         BlockCandidate candidate = byRegistry.get(candidateKey);
         if (candidate == null) return null;
-        if (dimension == 1) {
-            String modId = candidate.modId();
-            return modId == null || modId.isEmpty() ? null : modId;
-        }
-        String tab = candidate.creativeTab();
-        return tab == null || tab.isEmpty() ? OTHER_TAB_KEY : tab;
+        String modId = candidate.modId();
+        return modId == null || modId.isEmpty() ? null : modId;
     }
 
-    /**
-     * dim 0（创造栏）分类快照：按 creativeTabArray 顺序的本地化标签，静态 count 为注册时候选数；
-     * 无有效创造栏的候选归入「其他」桶（仅在有此类候选时出现）。同名本地化标签合并计数。
-     */
-    private static List<SearchPickerCategories.Category> buildTabCategories(List<BlockCandidate> snapshot) {
-        List<String> tabLabels = new ArrayList<String>();
-        Set<String> seen = new LinkedHashSet<String>();
-        CreativeTabs[] tabs;
-        try {
-            tabs = CreativeTabs.creativeTabArray;
-        } catch (RuntimeException e) {
-            tabs = null;
-        } catch (LinkageError e) {
-            tabs = null;
-        }
-        if (tabs != null) {
-            for (CreativeTabs tab : tabs) {
-                if (tab == null || tab == CreativeTabs.tabAllSearch) continue;
-                String label = translatedTabLabel(tab);
-                if (label != null && seen.add(label)) tabLabels.add(label);
-            }
-        }
-        Map<String, Integer> counts = new LinkedHashMap<String, Integer>();
-        for (String label : tabLabels) counts.put(label, Integer.valueOf(0));
-        int otherCount = 0;
-        for (BlockCandidate candidate : snapshot) {
-            String tabLabel = candidate.creativeTab();
-            if (tabLabel == null || tabLabel.isEmpty()) {
-                otherCount++;
-            } else if (counts.containsKey(tabLabel)) {
-                counts.put(tabLabel, Integer.valueOf(counts.get(tabLabel).intValue() + 1));
-            }
-        }
-        List<SearchPickerCategories.Category> categories = new ArrayList<SearchPickerCategories.Category>();
-        for (String label : tabLabels) {
-            categories.add(new SearchPickerCategories.Category(label, label, counts.get(label).intValue()));
-        }
-        if (otherCount > 0) {
-            categories.add(new SearchPickerCategories.Category(OTHER_TAB_KEY, OTHER_TAB_LABEL, otherCount));
-        }
-        return Collections.unmodifiableList(categories);
-    }
-
-    /** dim 1（Mod）分类快照：registry namespace 字典序，静态 count 为注册时候选数。 */
+    /** 分类快照：registry namespace 字典序，静态 count 为注册时候选数。 */
     private static List<SearchPickerCategories.Category> buildModCategories(List<BlockCandidate> snapshot) {
         Map<String, Integer> counts = new TreeMap<String, Integer>();
         for (BlockCandidate candidate : snapshot) {
@@ -205,18 +149,6 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                     entry.getValue().intValue()));
         }
         return Collections.unmodifiableList(categories);
-    }
-
-    /** 读取创造栏本地化标签；任何客户端本地化异常降级为 null。 */
-    private static String translatedTabLabel(CreativeTabs tab) {
-        try {
-            String label = tab.getTranslatedTabLabel();
-            return label == null || label.trim().isEmpty() ? null : label;
-        } catch (RuntimeException e) {
-            return null;
-        } catch (LinkageError e) {
-            return null;
-        }
     }
 
     /** 将成员选择格式化为本地化主名称，错误成员不暴露 raw。 */

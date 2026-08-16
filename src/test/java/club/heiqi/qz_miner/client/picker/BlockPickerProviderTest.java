@@ -224,7 +224,7 @@ public class BlockPickerProviderTest {
     }
 
     @Test
-    public void categoriesExposeTwoDimensionsWithStableKeysAndCounts() {
+    public void categoriesExposeSingleModDimensionWithStableKeysAndCounts() {
         List<BlockCandidate> source = new ArrayList<BlockCandidate>();
         source.add(new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
                 Collections.<BlockVariant>emptyList(), null));
@@ -237,21 +237,14 @@ public class BlockPickerProviderTest {
         BlockPickerProvider provider = new BlockPickerProvider(source);
         source.clear();
 
-        Assert.assertEquals(2, provider.categoryDimensionCount());
+        Assert.assertEquals(1, provider.categoryDimensionCount());
         List<SearchPickerCategories.Category> dim0 = provider.categories(0);
-        List<SearchPickerCategories.Category> dim1 = provider.categories(1);
-
-        SearchPickerCategories.Category other = SearchPickerCategories.find(dim0,
-                BlockPickerProvider.OTHER_TAB_KEY);
-        Assert.assertNotNull(other);
-        Assert.assertEquals(BlockPickerProvider.OTHER_TAB_LABEL, other.label());
-        Assert.assertEquals(2, other.count());
-        Assert.assertFalse(SearchPickerCategories.contains(dim0, "测试栏"));
-
-        Assert.assertEquals(Arrays.asList("galacticraft", "gt", "minecraft"), categoryKeys(dim1));
-        Assert.assertEquals(2, SearchPickerCategories.find(dim1, "minecraft").count());
-        Assert.assertEquals(1, SearchPickerCategories.find(dim1, "gt").count());
-        Assert.assertEquals(1, SearchPickerCategories.find(dim1, "galacticraft").count());
+        Assert.assertEquals(provider.categories(), provider.categories(0));
+        Assert.assertEquals(Arrays.asList("galacticraft", "gt", "minecraft"), categoryKeys(dim0));
+        Assert.assertEquals(2, SearchPickerCategories.find(dim0, "minecraft").count());
+        Assert.assertEquals(1, SearchPickerCategories.find(dim0, "gt").count());
+        Assert.assertEquals(1, SearchPickerCategories.find(dim0, "galacticraft").count());
+        Assert.assertEquals(Collections.emptyList(), provider.categories(1));
 
         try {
             provider.categories(0).add(new SearchPickerCategories.Category("x", "y", 1));
@@ -261,22 +254,23 @@ public class BlockPickerProviderTest {
     }
 
     @Test
-    public void categoryOfResolvesBothDimensionsAndUnknownKeys() {
+    public void categoryOfResolvesModDimensionAndUnknownKeys() {
         List<BlockCandidate> source = new ArrayList<BlockCandidate>();
         source.add(new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
                 Collections.<BlockVariant>emptyList(), null));
         source.add(new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
                 Collections.<BlockVariant>emptyList(), null));
+        source.add(new BlockCandidate("legacy:bare", null, null, "Bare",
+                Collections.<BlockVariant>emptyList(), null));
         BlockPickerProvider provider = new BlockPickerProvider(source);
 
-        Assert.assertEquals(BlockPickerProvider.OTHER_TAB_KEY, provider.categoryOf("minecraft:stone"));
-        Assert.assertEquals(BlockPickerProvider.OTHER_TAB_KEY, provider.categoryOf(0, "minecraft:stone"));
-        Assert.assertEquals("测试栏", provider.categoryOf(0, "minecraft:dirt"));
-        Assert.assertEquals("minecraft", provider.categoryOf(1, "minecraft:stone"));
-        Assert.assertEquals("minecraft", provider.categoryOf(1, "minecraft:dirt"));
-        Assert.assertNull(provider.categoryOf(1, "missing:block"));
+        Assert.assertEquals("minecraft", provider.categoryOf("minecraft:stone"));
+        Assert.assertEquals("minecraft", provider.categoryOf(0, "minecraft:stone"));
+        Assert.assertEquals("minecraft", provider.categoryOf(0, "minecraft:dirt"));
+        Assert.assertNull(provider.categoryOf(0, "legacy:bare"));
         Assert.assertNull(provider.categoryOf(0, "missing:block"));
-        Assert.assertNull(provider.categoryOf(1, null));
+        Assert.assertNull(provider.categoryOf(0, null));
+        Assert.assertNull(provider.categoryOf(1, "minecraft:stone"));
         Assert.assertEquals(Collections.emptyList(), provider.categories(2));
         Assert.assertNull(provider.categoryOf(2, "minecraft:stone"));
         try {
@@ -296,7 +290,7 @@ public class BlockPickerProviderTest {
         SearchPickerPanelPresentation text = new BlockPickerProvider(Collections.<BlockCandidate>emptyList())
                 .panelPresentation();
         Assert.assertEquals("选择方块", text.panelTitle());
-        Assert.assertEquals(Arrays.asList("创造栏", "按 Mod"), text.categoryDimensions());
+        Assert.assertEquals(Arrays.asList("按 Mod"), text.categoryDimensions());
         Assert.assertEquals("浏览分类", text.categoryDimensionTitle());
         Assert.assertEquals("全部", text.allCategoryLabel());
         Assert.assertEquals("ID: ", text.tooltipPrefix());
