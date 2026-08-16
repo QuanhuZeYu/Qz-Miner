@@ -43,9 +43,9 @@ dependencies {
     // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
     // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
-    // 当前为 UILib b65f6881+dirty 版（选择器滚动条 + 物品渲染分级追踪/回退）
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.7.0-feat-ui-projection-material-item.21+c90ccb7d98-dirty-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.7.0-feat-ui-projection-material-item.21+c90ccb7d98-dirty-dev.jar"))
+    // 当前为 UILib b4830ab0+dirty 版（滚动条 + 渲染分级追踪 + 分类/中栏外边框）
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.7.0-feat-ui-projection-material-item.22+b65f6881c5-dirty-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.7.0-feat-ui-projection-material-item.22+b65f6881c5-dirty-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
