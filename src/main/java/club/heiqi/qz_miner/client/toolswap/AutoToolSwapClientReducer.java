@@ -14,7 +14,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 
-/** 严格 5.2 自动工具客户端 round/projection reducer；不读取或推断客户端库存。 */
+/** 严格 5.3 自动工具客户端 round/projection reducer；不读取或推断客户端库存。 */
 public final class AutoToolSwapClientReducer {
 
     public static final int TRANSMISSION_DEADLINE_TICKS = 120;

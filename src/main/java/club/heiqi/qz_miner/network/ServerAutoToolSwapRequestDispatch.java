@@ -21,7 +21,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 自动工具换位 C2S 请求的 FIFO 主线程收口。
  *
  * <p>Netty 线程只捕获 UUID、弱 endpoint identity 和原始 wire 值。主线程重新从
- * {@code PlayerManager} 获取同一实例后，才执行协议解码和 projection 核心调用。严格 5.2 intent
+ * {@code PlayerManager} 获取同一实例后，才执行协议解码和 projection 核心调用。严格 5.3 intent
  * 只有 FREEZE/CLOSE，不创建或读取库存端口。</p>
  */
 public final class ServerAutoToolSwapRequestDispatch {

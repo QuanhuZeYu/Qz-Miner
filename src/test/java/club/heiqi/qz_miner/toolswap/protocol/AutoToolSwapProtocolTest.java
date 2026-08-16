@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.toolswap.protocol;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 严格 5.2 自动工具 control 协议。 */
+/** 严格 5.3 自动工具 control 协议。 */
 public class AutoToolSwapProtocolTest {
     @Test
     public void onlyFreezeAndCloseKeepCodesThreeAndFour() {

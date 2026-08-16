@@ -10,7 +10,7 @@ import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
 
-/** Minecraft 客户端轻量事实门面；严格 5.2 路径从不扫描库存或准星目标。 */
+/** Minecraft 客户端轻量事实门面；严格 5.3 路径从不扫描库存或准星目标。 */
 @SideOnly(Side.CLIENT)
 public class ToolSwapMinecraftFacade implements AutoToolSwapClientAdapter.GameFacade {
 

@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 5.2 严格版本冻结的 17 项 discriminator、packet class 与接收 Side 全表。 */
+/** 5.3 严格版本冻结的 17 项 discriminator、packet class 与接收 Side 全表。 */
 public class NetworkDiscriminatorRegressionTest {
 
     private static final String[][] EXPECTED = {

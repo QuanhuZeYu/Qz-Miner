@@ -15,7 +15,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 
 /**
- * 严格 5.2 自动工具 wire projection/control facade。
+ * 严格 5.3 自动工具 wire projection/control facade。
  *
  * <p>本服务只拥有 round nonce、普通 action sequence、exact result cache、phase 与 closure。
  * 库存 mutation 和 physical ledger 始终由 {@link AutoToolSwapServerBatchService} 独占。</p>
@@ -177,7 +177,7 @@ public final class AutoToolSwapRoundService {
         return record.serverRoundId;
     }
 
-    /** 只结算严格 5.2 的 FREEZE/CLOSE control intent；inventory 参数永不读取。 */
+    /** 只结算严格 5.3 的 FREEZE/CLOSE control intent；inventory 参数永不读取。 */
     public synchronized AutoToolSwapRoundResult handleIntent(UUID playerId, Object endpoint,
             AutoToolSwapIntent intent, AutoToolSwapInventoryPort inventory, long serverTick) {
         requireServerTick(serverTick);

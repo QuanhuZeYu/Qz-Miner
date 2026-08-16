@@ -13,7 +13,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapInventoryPort;
 
-/** C2S dispatcher 在主线程解码严格 5.2 FREEZE/CLOSE，且没有 inventory factory。 */
+/** C2S dispatcher 在主线程解码严格 5.3 FREEZE/CLOSE，且没有 inventory factory。 */
 public class ServerAutoToolSwapRequestDispatchTest {
     @Test
     public void validControlIsDecodedAfterEndpointGate() {

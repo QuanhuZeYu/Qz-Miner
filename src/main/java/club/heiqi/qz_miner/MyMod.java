@@ -115,7 +115,7 @@ public class MyMod {
     public static CommonProxy proxy;
 
     /**
-     * 检查远端 Qz-Miner 是否属于可互通的 5.2 版本族。
+     * 检查远端 Qz-Miner 是否属于可互通的 5.3 版本族。
      *
      * @param remoteVersions 远端模组版本表
      * @param side 发起检查的一侧

@@ -13,7 +13,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 
-/** 严格 5.2 客户端只发送 round/FREEZE/CLOSE，且不具有库存采样边界。 */
+/** 严格 5.3 客户端只发送 round/FREEZE/CLOSE，且不具有库存采样边界。 */
 public class AutoToolSwapClientAdapterTest {
 
     @Test

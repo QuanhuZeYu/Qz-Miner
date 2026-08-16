@@ -13,7 +13,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapResultCode;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundResult;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapRoundState;
 
-/** 严格 5.2 round service 只处理 FREEZE/CLOSE projection。 */
+/** 严格 5.3 round service 只处理 FREEZE/CLOSE projection。 */
 public class AutoToolSwapRoundServiceTest {
     @Test
     public void nonceActivationAndRoundIdsRemainEndpointBoundAndMonotonic() {
