@@ -35,6 +35,29 @@ public class BlockPickerProviderTest {
     }
 
     @Test
+    public void emptyQueryReturnsCompleteSnapshotForCategoryBrowsing() {
+        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
+        source.add(new BlockCandidate("minecraft:stone", "minecraft", "建筑方块", "Stone",
+                Collections.singletonList(new BlockVariant(3, "Stone 3", null)), null));
+        source.add(new BlockCandidate("minecraft:dirt", "minecraft", "建筑方块", "Dirt",
+                Collections.<BlockVariant>emptyList(), null));
+        source.add(new BlockCandidate("gt:copper", "gt", null, "Copper",
+                Collections.<BlockVariant>emptyList(), null));
+        BlockPickerProvider provider = new BlockPickerProvider(source);
+        source.clear();
+
+        SearchPickerData.SearchResult all = provider.searchFunction().search("", 64);
+        Assert.assertEquals(3, all.candidates().size());
+        Assert.assertEquals("minecraft:stone", all.candidates().get(0).key());
+        Assert.assertEquals("minecraft:stone@3", all.candidates().get(0).variants().get(0).key());
+
+        SearchPickerData.SearchResult whitespace = provider.searchFunction().search("  ", 64);
+        Assert.assertEquals(3, whitespace.candidates().size());
+
+        Assert.assertEquals(1, provider.searchFunction().search("copper", 64).candidates().size());
+    }
+
+    @Test
     public void completeResultOverLimitKeepsExactlyRealEncodableCandidates() {
         List<BlockCandidate> source = new ArrayList<BlockCandidate>();
         Set<String> registries = new HashSet<String>();

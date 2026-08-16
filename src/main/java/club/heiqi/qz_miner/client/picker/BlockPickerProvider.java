@@ -21,7 +21,7 @@ import club.heiqi.config.ui.editor.SearchPickerPanelPresentation;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.config.ui.editor.VisualAdapter;
 
-/** 方块选择器 Provider；构造时固化索引、搜索函数、双维度分类快照、Codec 和视觉适配器。 */
+/** 方块选择器 Provider；构造时固化索引、空查询全量浏览快照、搜索函数、双维度分类快照、Codec 和视觉适配器。 */
 public final class BlockPickerProvider implements CategorizedValueEditorProvider {
     public static final String ID = "qz_miner:block-selector";
     /** 无有效创造栏（tabAllSearch/null/捕获失败）候选的稳定分类 key（含冒号避免与 tab 标签冲突）。 */
@@ -32,6 +32,7 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
     private final Codec codec;
     private final VisualAdapter visualAdapter;
     private final SearchFunction searchFunction;
+    private final SearchPickerData.SearchResult browseResult;
     private final SearchPickerPresentation presentation;
     private final SearchPickerPanelPresentation panelPresentation;
     private final CurrentValuePresenter currentValuePresenter;
@@ -47,10 +48,15 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
         tabCategories = buildTabCategories(snapshot);
         modCategories = buildModCategories(snapshot);
         BlockSearchIndex searchIndex = new BlockSearchIndex(snapshot);
+        browseResult = convertCandidates(snapshot);
         ObjectGroupPickerCodec pickerCodec = new ObjectGroupPickerCodec();
         codec = pickerCodec;
         visualAdapter = new BlockPickerVisualAdapter(snapshot);
-        searchFunction = (query, limit) -> convert(searchIndex.search(query, Integer.MAX_VALUE));
+        // 空查询是分类浏览模式：面板据此渲染全部候选并派生分类计数；
+        // 非空查询仍走确定性搜索索引。
+        searchFunction = (query, limit) -> query == null || query.trim().isEmpty()
+                ? browseResult
+                : convertCandidates(searchIndex.search(query, Integer.MAX_VALUE).candidates());
         currentValuePresenter = new BlockSelectorCurrentValuePresenter(snapshot, visualAdapter);
         presentation = SearchPickerPresentation.builder()
                 .title("添加方块")
@@ -228,9 +234,9 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
         return (String) pickerCodec.encodeMember(null, member.selection());
     }
 
-    private static SearchPickerData.SearchResult convert(BlockSearchIndex.Result result) {
+    private static SearchPickerData.SearchResult convertCandidates(List<BlockCandidate> blockCandidates) {
         List<SearchPickerData.Candidate> candidates = new ArrayList<SearchPickerData.Candidate>();
-        for (BlockCandidate candidate : result.candidates()) {
+        for (BlockCandidate candidate : blockCandidates) {
             List<SearchPickerData.Variant> variants = new ArrayList<SearchPickerData.Variant>();
             for (BlockVariant variant : candidate.variants()) {
                 String key = candidate.registry() + "@" + variant.metadata();
