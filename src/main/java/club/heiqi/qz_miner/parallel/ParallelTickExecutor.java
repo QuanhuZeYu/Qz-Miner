@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.parallel;
 
+import java.util.EnumMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
@@ -32,7 +33,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  */
 public final class ParallelTickExecutor {
 
-    private static final long MIN_TICK_BUDGET_NANOS = TimeUnit.MILLISECONDS.toNanos(10L);
+    private static final long MIN_TICK_BUDGET_MILLIS = 1L;
+    private static final long MAX_TICK_BUDGET_MILLIS = 40L;
     private static final int CORE_WORKER_THREADS = 1;
     private static final int MAX_WORKER_THREADS = 20;
     private static final long WORKER_KEEP_ALIVE_SECONDS = 30L;
@@ -46,15 +48,16 @@ public final class ParallelTickExecutor {
     private final ReentrantLock stateLock = new ReentrantLock();
     private final Condition windowChanged = stateLock.newCondition();
     private final Condition workersIdle = stateLock.newCondition();
+    private final EnumMap<ParallelTickStage, WindowState> windows = createWindows();
 
     private volatile boolean running = true;
-    private volatile boolean tickWindowOpen = false;
-    private volatile ParallelTickContext currentContext;
-    private volatile long currentTickId = 0L;
-    private volatile ParallelTickStage currentStage;
-    private int activeWorkers = 0;
 
     public ParallelTickExecutor() {
+        this(true);
+    }
+
+    /** 纯逻辑测试可跳过 FML bus 注册，生产构造保持原行为。 */
+    ParallelTickExecutor(boolean registerEventBus) {
         this.workerPool = new ThreadPoolExecutor(
             CORE_WORKER_THREADS,
             MAX_WORKER_THREADS,
@@ -64,7 +67,9 @@ public final class ParallelTickExecutor {
             new ParallelWorkerThreadFactory());
         this.workerPool.allowCoreThreadTimeOut(false);
         this.workerPool.prestartCoreThread();
-        FMLCommonHandler.instance().bus().register(this);
+        if (registerEventBus) {
+            FMLCommonHandler.instance().bus().register(this);
+        }
         MyMod.LOG.info("[ParallelTick] Initialized cooperative incremental scheduler with pooled workers (core={}, max={})",
             Integer.valueOf(CORE_WORKER_THREADS), Integer.valueOf(MAX_WORKER_THREADS));
     }
@@ -119,7 +124,9 @@ public final class ParallelTickExecutor {
         running = false;
         stateLock.lock();
         try {
-            tickWindowOpen = false;
+            for (WindowState window : windows.values()) {
+                window.open = false;
+            }
             windowChanged.signalAll();
             workersIdle.signalAll();
         } finally {
@@ -159,33 +166,23 @@ public final class ParallelTickExecutor {
     }
 
     public void beginStage(ParallelTickStage stage) {
-        if (getTasks(stage).isEmpty()) {
-            stateLock.lock();
-            try {
-                currentStage = stage;
-                currentContext = null;
-                tickWindowOpen = false;
-                windowChanged.signalAll();
-            } finally {
-                stateLock.unlock();
-            }
-            return;
-        }
-
         long tickId = tickCounter.incrementAndGet();
         long startNanoTime = System.nanoTime();
         long deadlineNanoTime = startNanoTime + getConfiguredTickBudgetNanos();
 
         stateLock.lock();
         try {
-            currentTickId = tickId;
-            currentStage = stage;
-            currentContext = new ParallelTickContext(
+            WindowState window = getWindow(stage);
+            if (window.open || window.activeWorkers > 0) {
+                throw new IllegalStateException("Parallel tick stage already active: " + stage);
+            }
+            window.tickId = tickId;
+            window.context = new ParallelTickContext(
                 tickId,
                 startNanoTime,
                 deadlineNanoTime,
                 stage);
-            tickWindowOpen = true;
+            window.open = true;
             windowChanged.signalAll();
         } finally {
             stateLock.unlock();
@@ -193,26 +190,29 @@ public final class ParallelTickExecutor {
     }
 
     public void endStage(ParallelTickStage stage) {
-        waitForMinimumWindow(stage);
+        waitForAvailableWindow(stage);
 
         stateLock.lock();
         boolean interrupted = false;
         try {
-            if (currentStage != stage) {
+            WindowState window = getWindow(stage);
+            if (!window.open) {
                 return;
             }
 
-            tickWindowOpen = false;
+            window.open = false;
             windowChanged.signalAll();
 
-            while (activeWorkers > 0) {
+            while (window.activeWorkers > 0) {
                 try {
                     workersIdle.await();
                 } catch (InterruptedException e) {
                     interrupted = true;
-                    MyMod.LOG.warn("[ParallelTick] Interrupted while waiting workers to stop on tick {}", Long.valueOf(currentTickId), e);
+                    MyMod.LOG.warn("[ParallelTick] Interrupted while waiting {} workers to stop on tick {}",
+                        stage, Long.valueOf(window.tickId), e);
                 }
             }
+            window.context = null;
         } finally {
             stateLock.unlock();
             if (interrupted) {
@@ -221,33 +221,53 @@ public final class ParallelTickExecutor {
         }
     }
 
-    private void waitForMinimumWindow(ParallelTickStage stage) {
+    /**
+     * 只在该 stage 仍有并行任务时保留窗口；任务提前完成时不为空闲 deadline 强制占满 Tick。
+     */
+    private void waitForAvailableWindow(ParallelTickStage stage) {
         ParallelTickContext snapshot;
         stateLock.lock();
         try {
-            if (currentStage != stage || currentContext == null || !tickWindowOpen) {
+            WindowState window = getWindow(stage);
+            if (!window.open || window.context == null || getTasks(stage).isEmpty()) {
                 return;
             }
-            snapshot = currentContext;
+            snapshot = window.context;
         } finally {
             stateLock.unlock();
         }
 
-        long minBudgetNanos = getConfiguredTickBudgetNanos();
-        long remainingNanos = (snapshot.getStartNanoTime() + minBudgetNanos) - System.nanoTime();
-        while (remainingNanos > 0L) {
+        long remainingNanos = snapshot.getDeadlineNanoTime() - System.nanoTime();
+        while (remainingNanos > 0L && !getTasks(stage).isEmpty()) {
             LockSupport.parkNanos(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(1L)));
             if (Thread.currentThread().isInterrupted()) {
                 Thread.currentThread().interrupt();
                 return;
             }
-            remainingNanos = (snapshot.getStartNanoTime() + minBudgetNanos) - System.nanoTime();
+            remainingNanos = snapshot.getDeadlineNanoTime() - System.nanoTime();
         }
     }
 
     private long getConfiguredTickBudgetNanos() {
-        long configuredBudgetMillis = Math.max(10L, Config.parallelTickMinDurationMs);
-        return Math.max(MIN_TICK_BUDGET_NANOS, TimeUnit.MILLISECONDS.toNanos(configuredBudgetMillis));
+        long configuredBudgetMillis = Math.max(MIN_TICK_BUDGET_MILLIS,
+            Math.min(MAX_TICK_BUDGET_MILLIS, Config.tickBudgetMs));
+        return TimeUnit.MILLISECONDS.toNanos(configuredBudgetMillis);
+    }
+
+    /**
+     * 返回当前 stage 已冻结的共享时间预算。
+     *
+     * <p>调用方只能在对应 Tick stage 内使用该快照；窗口关闭后旧快照即使仍可读，
+     * 也不得据此开始新工作。</p>
+     */
+    public TickTimeBudget currentTimeBudget(ParallelTickStage stage) {
+        stateLock.lock();
+        try {
+            WindowState window = getWindow(stage);
+            return window.open ? window.context : null;
+        } finally {
+            stateLock.unlock();
+        }
     }
 
     private void unregister(RegisteredTask registeredTask) {
@@ -256,22 +276,6 @@ public final class ParallelTickExecutor {
                 MyMod.LOG.debug("[ParallelTick] Cancellation requested for {} task: {}", registeredTask.stage, registeredTask.name);
             }
         }
-    }
-
-    private int getWorkBudgetUnits(ParallelTickStage stage) {
-        switch (stage) {
-            case CLIENT_PRE:
-            case CLIENT_POST:
-                return getConfiguredWorkBudgetUnits(Config.parallelTickClientWorkBudgetUnits);
-            case SERVER_PRE:
-            case SERVER_POST:
-            default:
-                return getConfiguredWorkBudgetUnits(Config.parallelTickServerWorkBudgetUnits);
-        }
-    }
-
-    private int getConfiguredWorkBudgetUnits(int configuredUnits) {
-        return Math.max(1, configuredUnits);
     }
 
     private CopyOnWriteArrayList<RegisteredTask> getTasks(ParallelTickStage stage) {
@@ -287,6 +291,30 @@ public final class ParallelTickExecutor {
             default:
                 throw new IllegalArgumentException("Unsupported stage: " + stage);
         }
+    }
+
+    private WindowState getWindow(ParallelTickStage stage) {
+        WindowState window = windows.get(stage);
+        if (window == null) {
+            throw new IllegalArgumentException("Unsupported stage: " + stage);
+        }
+        return window;
+    }
+
+    private static EnumMap<ParallelTickStage, WindowState> createWindows() {
+        EnumMap<ParallelTickStage, WindowState> result =
+            new EnumMap<ParallelTickStage, WindowState>(ParallelTickStage.class);
+        for (ParallelTickStage stage : ParallelTickStage.values()) {
+            result.put(stage, new WindowState());
+        }
+        return result;
+    }
+
+    private static final class WindowState {
+        private boolean open;
+        private long tickId;
+        private ParallelTickContext context;
+        private int activeWorkers;
     }
 
     private final class RegisteredTask implements Runnable {
@@ -382,8 +410,9 @@ public final class ParallelTickExecutor {
         private ParallelTickContext awaitNextWindow() {
             stateLock.lock();
             try {
+                WindowState window = getWindow(stage);
                 while (running && active
-                    && (!tickWindowOpen || currentContext == null || currentStage != stage || observedTickId == currentTickId)) {
+                    && (!window.open || window.context == null || observedTickId == window.tickId)) {
                     try {
                         windowChanged.await();
                     } catch (InterruptedException e) {
@@ -392,12 +421,12 @@ public final class ParallelTickExecutor {
                     }
                 }
 
-                if (!running || !active || !tickWindowOpen || currentContext == null || currentStage != stage) {
+                if (!running || !active || !window.open || window.context == null) {
                     return null;
                 }
 
-                observedTickId = currentTickId;
-                return currentContext;
+                observedTickId = window.tickId;
+                return window.context;
             } finally {
                 stateLock.unlock();
             }
@@ -411,8 +440,7 @@ public final class ParallelTickExecutor {
 
                 ParallelTaskResult result = ParallelTaskResult.YIELDED;
                 try {
-                    ParallelWorkBudget budget = new ParallelWorkBudget(getWorkBudgetUnits(stage));
-                    ParallelTickControl control = new RegisteredTaskControl(this, context, budget);
+                    ParallelTickControl control = new RegisteredTaskControl(this, context);
                     state = cancelRequested ? ParallelTaskState.TERMINATING : ParallelTaskState.RUNNING;
                     result = task.run(control);
                     if (result == null) {
@@ -439,7 +467,7 @@ public final class ParallelTickExecutor {
                     finishTask(ParallelTaskState.FAILED);
                     return;
                 } finally {
-                    exitWorker();
+                    exitWorker(stage);
                 }
 
                 if (result == ParallelTaskResult.YIELDED || !isWindowStillUsable(context)) {
@@ -487,12 +515,12 @@ public final class ParallelTickExecutor {
         private boolean isWindowStillUsable(ParallelTickContext context) {
             stateLock.lock();
             try {
+                WindowState window = getWindow(stage);
                 return running
                     && active
-                    && tickWindowOpen
-                    && currentContext == context
-                    && currentTickId == context.getTickId()
-                    && currentStage == stage
+                    && window.open
+                    && window.context == context
+                    && window.tickId == context.getTickId()
                     && context.hasTimeLeft();
             } finally {
                 stateLock.unlock();
@@ -503,27 +531,28 @@ public final class ParallelTickExecutor {
     private boolean enterWorker(ParallelTickContext context) {
         stateLock.lock();
         try {
+            WindowState window = getWindow(context.getStage());
             if (!running
-                || !tickWindowOpen
-                || currentContext != context
-                || currentTickId != context.getTickId()
-                || currentStage != context.getStage()
+                || !window.open
+                || window.context != context
+                || window.tickId != context.getTickId()
                 || !context.hasTimeLeft()) {
                 return false;
             }
 
-            activeWorkers++;
+            window.activeWorkers++;
             return true;
         } finally {
             stateLock.unlock();
         }
     }
 
-    private void exitWorker() {
+    private void exitWorker(ParallelTickStage stage) {
         stateLock.lock();
         try {
-            activeWorkers--;
-            if (activeWorkers <= 0) {
+            WindowState window = getWindow(stage);
+            window.activeWorkers--;
+            if (window.activeWorkers <= 0) {
                 workersIdle.signalAll();
             }
         } finally {
@@ -535,12 +564,10 @@ public final class ParallelTickExecutor {
 
         private final RegisteredTask registeredTask;
         private final ParallelTickContext context;
-        private final ParallelWorkBudget budget;
 
-        private RegisteredTaskControl(RegisteredTask registeredTask, ParallelTickContext context, ParallelWorkBudget budget) {
+        private RegisteredTaskControl(RegisteredTask registeredTask, ParallelTickContext context) {
             this.registeredTask = registeredTask;
             this.context = context;
-            this.budget = budget;
         }
 
         @Override
@@ -557,11 +584,11 @@ public final class ParallelTickExecutor {
         public boolean isWindowOpen() {
             stateLock.lock();
             try {
+                WindowState window = getWindow(registeredTask.stage);
                 return running
-                    && tickWindowOpen
-                    && currentContext == context
-                    && currentTickId == context.getTickId()
-                    && currentStage == registeredTask.stage;
+                    && window.open
+                    && window.context == context
+                    && window.tickId == context.getTickId();
             } finally {
                 stateLock.unlock();
             }
@@ -574,15 +601,7 @@ public final class ParallelTickExecutor {
 
         @Override
         public boolean shouldYield() {
-            return isCancelRequested() || !budget.hasRemaining() || !context.hasTimeLeft() || !isWindowOpen();
-        }
-
-        @Override
-        public boolean tryConsumeWork(int units) {
-            if (isCancelRequested() || !context.hasTimeLeft() || !isWindowOpen()) {
-                return false;
-            }
-            return budget.tryConsumeWork(units);
+            return isCancelRequested() || !context.hasTimeLeft() || !isWindowOpen();
         }
 
         @Override

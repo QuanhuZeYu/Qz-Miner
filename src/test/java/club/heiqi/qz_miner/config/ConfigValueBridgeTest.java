@@ -16,7 +16,7 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
- * Authority → 静态字段：全 23 字段 + 非法值不 round。
+ * Authority → 静态字段：全 19 个 runtime 字段 + 非法值不 round。
  */
 public class ConfigValueBridgeTest {
 
@@ -46,11 +46,9 @@ public class ConfigValueBridgeTest {
         draft.setDraft("general.chainRadius", Double.valueOf(32.0));
         draft.setDraft("general.chainMaxBlocks", Double.valueOf(2048.0));
         draft.setDraft("general.chainLoggingShellLayers", Double.valueOf(3.0));
-        draft.setDraft("general.maxBreakPerTick", Double.valueOf(16.0));
         draft.setDraft("general.cableReplaceMaxPerTick", Double.valueOf(512.0));
         draft.setDraft("general.chainWatchdogTimeoutTicks", Double.valueOf(40.0));
-        draft.setDraft("general.parallelTickMinDurationMs", Double.valueOf(12.0));
-        draft.setDraft("general.parallelTickServerWorkBudgetUnits", Double.valueOf(320.0));
+        draft.setDraft("general.tickBudgetMs", Double.valueOf(25.0));
         draft.setDraft("general.enableUnlimitedOreFortune", Boolean.TRUE);
         draft.setDraft("general.enableFortuneForPlacedOre", Boolean.TRUE);
         draft.setDraft("client.clientEnablePreviewRender", Boolean.FALSE);
@@ -58,7 +56,6 @@ public class ConfigValueBridgeTest {
         draft.setDraft("client.autoToolSwapEnabled", Boolean.FALSE);
         draft.setDraft("client.autoToolPrioritySelectors",
                 java.util.Arrays.asList(" ore:toolPickaxe ", "mod:drill@4"));
-        draft.setDraft("client.parallelTickClientWorkBudgetUnits", Double.valueOf(200.0));
         draft.setDraft("client.clientPreviewMaxRadius", Double.valueOf(8.0));
         draft.setDraft("client.clientPreviewMaxTargets", Double.valueOf(128.0));
         draft.setDraft("client.clientPreviewAlphaFadeStartRadius", Double.valueOf(1.5));
@@ -76,11 +73,9 @@ public class ConfigValueBridgeTest {
         Assert.assertEquals(32, Config.chainRadius);
         Assert.assertEquals(2048, Config.chainMaxBlocks);
         Assert.assertEquals(3, Config.chainLoggingShellLayers);
-        Assert.assertEquals(16, Config.maxBreakPerTick);
         Assert.assertEquals(512, Config.cableReplaceMaxPerTick);
         Assert.assertEquals(40, Config.chainWatchdogTimeoutTicks);
-        Assert.assertEquals(12, Config.parallelTickMinDurationMs);
-        Assert.assertEquals(320, Config.parallelTickServerWorkBudgetUnits);
+        Assert.assertEquals(25, Config.tickBudgetMs);
         Assert.assertTrue(Config.enableUnlimitedOreFortune);
         Assert.assertTrue(Config.enableFortuneForPlacedOre);
         Assert.assertFalse(Config.clientEnablePreviewRender);
@@ -95,7 +90,6 @@ public class ConfigValueBridgeTest {
         } catch (UnsupportedOperationException expected) {
             // 合同断言
         }
-        Assert.assertEquals(200, Config.parallelTickClientWorkBudgetUnits);
         Assert.assertEquals(8, Config.clientPreviewMaxRadius);
         Assert.assertEquals(128, Config.clientPreviewMaxTargets);
         Assert.assertEquals(1.5D, Config.clientPreviewAlphaFadeStartRadius, 1e-9);
@@ -143,18 +137,15 @@ public class ConfigValueBridgeTest {
         Config.chainRadius = QzMinerConfigDefaults.CHAIN_RADIUS;
         Config.chainMaxBlocks = QzMinerConfigDefaults.CHAIN_MAX_BLOCKS;
         Config.chainLoggingShellLayers = QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS;
-        Config.maxBreakPerTick = QzMinerConfigDefaults.MAX_BREAK_PER_TICK;
         Config.cableReplaceMaxPerTick = QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK;
         Config.chainWatchdogTimeoutTicks = QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS;
-        Config.parallelTickMinDurationMs = QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS;
-        Config.parallelTickServerWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS;
+        Config.tickBudgetMs = QzMinerConfigDefaults.TICK_BUDGET_MS;
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
         Config.tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
-        Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
         Config.clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;
         Config.clientPreviewAlphaFadeStartRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS;

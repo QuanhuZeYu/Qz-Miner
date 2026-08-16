@@ -1,12 +1,19 @@
 package club.heiqi.qz_miner.chain.execution;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionDeferred;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
@@ -23,6 +30,8 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
+import club.heiqi.qz_miner.parallel.ParallelTickStage;
+import club.heiqi.qz_miner.parallel.TickTimeBudget;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.BatchOutcome;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.BatchToken;
@@ -42,7 +51,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <p>订阅 {@link PlanCompleted}（领取执行上下文）+ {@link TickEvent.ServerTickEvent#START}
  * （主线程每 tick 消费队列），实现新链路完整执行闭环：
  * worker publish PlanCompleted → 主线程 drain：状态机 T5 进 RUNNING + 本桥登记 ExecutionContext
- * （G1 此时 setExecuting(true) 开掉落收集窗口）→ 后续每 tick START 消费（{@code maxBreakPerTick} 控速，
+ * （G1 此时 setExecuting(true) 开掉落收集窗口）→ 后续每 tick START 在共享 soft deadline 内消费，
  * 真实破坏经 {@link ChainActionExecutor#execute}）→ 队列空 publish ExecutionFinished（G1 setExecuting(false) 关窗口）
  * → 状态机 T7 RUNNING→FINISHING → 同 tick publish LifecycleCleanup(reason="execution-complete") → 状态机 T8 FINISHING→IDLE。</p>
  *
@@ -107,6 +116,8 @@ public class ChainExecutionEventBridge {
     private final ChainExecutionContextRegistry registry;
     /** 普通 CHAIN/AREA 的服务端本地候选与唯一 physical ledger owner。 */
     private final AutoToolSwapServerBatchService localToolSwap;
+    /** 上一个获得执行窗口的玩家；下 Tick 从其后继开始，避免固定 map 顺序长期饥饿。 */
+    private UUID lastServedPlayerUUID;
 
     /**
      * 构造桥并订阅 {@link PlanCompleted}（不注册 FML bus，留 {@link #bootstrap()} 显式触发）。
@@ -249,11 +260,28 @@ public class ChainExecutionEventBridge {
         if (event.phase != TickEvent.Phase.START) {
             return;
         }
-        int maxBreakPerTick = Config.maxBreakPerTick;
-        // snapshot 是弱一致视图，遍历期间 worker put 不影响本批
-        for (ChainExecutionContext context : registry.snapshot()) {
-            consumeContext(context, maxBreakPerTick);
+        TickTimeBudget timeBudget = currentServerTimeBudget();
+        if (timeBudget == null) {
+            return;
         }
+        consumeScheduledContexts(timeBudget);
+    }
+
+    /** 外层不按 deadline 截断；普通路径自行延期，GT 必须有机会进入原子分支。 */
+    void consumeScheduledContexts(TickTimeBudget timeBudget) {
+        if (timeBudget == null) return;
+        // snapshot 是弱一致视图，遍历期间 worker put 不影响本批；起点跨 Tick 轮转。
+        List<ChainExecutionContext> contexts = roundRobinSnapshot(registry.snapshot(), lastServedPlayerUUID);
+        for (ChainExecutionContext context : contexts) {
+            if (consumeContext(context, timeBudget)) {
+                lastServedPlayerUUID = context.getPlayerUUID();
+            }
+        }
+    }
+
+    private TickTimeBudget currentServerTimeBudget() {
+        return MyMod.parallelTickExecutor == null ? null
+                : MyMod.parallelTickExecutor.currentTimeBudget(ParallelTickStage.SERVER_PRE);
     }
 
     /**
@@ -264,7 +292,7 @@ public class ChainExecutionEventBridge {
      *   <li>解析玩家（{@code MyMod.playerManager.getPlayer}），非 EntityPlayerMP → publish ExecutionFinished + return。</li>
      *   <li>解析执行器（{@code context.getSession()} → mode → ChainModeDefinition → resolveActionExecutor(subMode)），
      *       null → publish ExecutionFinished + return。</li>
-     *   <li>控速检查（{@code context.isExecutorReady(now)}）+ while 循环 {@code canExecute}/{@code execute}。</li>
+     *   <li>共享 deadline 检查 + while 循环 {@code canExecute}/{@code execute}。</li>
      * </ol>
      *
      * <p>守 I1：本方法由 {@link #onServerTick} 在 {@link TickEvent.ServerTickEvent#START} 主线程调用，
@@ -272,9 +300,10 @@ public class ChainExecutionEventBridge {
      * session 仅作配置载体（mode/subMode/interactFace/hit），不破坏世界。</p>
      *
      * @param context         执行上下文
-     * @param maxBreakPerTick 非 GT 普通模式的最大 poll 数；GT 原子分支不受此预算约束
+     * @param timeBudget 当前 server tick 的共享 soft deadline；GT 入场后不受其截断
+     * @return 是否推进 ordinary round-robin cursor；GT 与未获事务窗口的普通 context 返回 false
      */
-    private void consumeContext(ChainExecutionContext context, int maxBreakPerTick) {
+    boolean consumeContext(ChainExecutionContext context, TickTimeBudget timeBudget) {
         UUID playerUUID = context.getPlayerUUID();
         int gen = context.getGeneration();
 
@@ -283,7 +312,7 @@ public class ChainExecutionEventBridge {
         if (!(rawPlayer instanceof EntityPlayerMP)) {
             publishExecutionFinishedWithCleanup(context, "player-unavailable");
             registry.remove(playerUUID, gen, context.getServerRoundId());
-            return;
+            return false;
         }
         EntityPlayerMP player = (EntityPlayerMP) rawPlayer;
 
@@ -301,7 +330,7 @@ public class ChainExecutionEventBridge {
         if (actionExecutor == null) {
             publishExecutionFinishedWithCleanup(context, "executor-unresolved");
             registry.remove(playerUUID, gen, context.getServerRoundId());
-            return;
+            return false;
         }
 
         // 三元组3：按执行模式分叉
@@ -312,49 +341,38 @@ public class ChainExecutionEventBridge {
             // B1 门：等规划完整链路，不流式边搜边替换（防中间态混压）
             if (!context.isPlanningComplete()) {
                 // worker 仍在搜，留下一 tick 再判
-                return;
+                return shouldAdvanceOrdinaryCursor(true, null, timeBudget);
             }
 
-            // B3 预校验放行门
-            String precheckFail = precheckCableReplacement(player, session, context);
+            final EntityPlayerMP cablePlayer = player;
+            final ChainSession cableSession = session;
+            final ChainActionExecutor cableExecutor = actionExecutor;
+            CableDrainResult cableResult = consumeGregTechCableTargets(context,
+                    () -> precheckCableReplacement(cablePlayer, cableSession, context),
+                    new OrdinaryTargetExecutor() {
+                        @Override
+                        public boolean canExecute(ChainTarget target) {
+                            return cableExecutor.canExecute(cablePlayer, cableSession, target);
+                        }
+
+                        @Override
+                        public boolean execute(ChainTarget target) {
+                            return cableExecutor.execute(cablePlayer, cableSession, target);
+                        }
+                    });
+            String precheckFail = cableResult.getPrecheckFailure();
             if (precheckFail != null) {
                 // 预校验失败：取消连锁 + 聊天提示 + 清锁
                 notifyPlayer(player, "[QzMiner] " + precheckFail);
                 publishExecutionFinishedWithCleanup(context, "cable-precheck-failed");
                 GregTechCableSessionState.clear(playerUUID);
                 registry.remove(playerUUID, gen, context.getServerRoundId());
-                return;
+                return shouldAdvanceOrdinaryCursor(true, null, timeBudget);
             }
 
-            // B2 单 tick 原子执行：while 到空，绕过 maxBreakPerTick + 50ms 节流
-            int totalTargets = context.getTargets().size();
-            int executed = 0;
-            int failed = 0;
-            while (true) {
-                ChainTarget target = context.getTargets().poll();
-                if (target == null) {
-                    break;
-                }
-                context.recordExecutionConsumed();
-                if (!actionExecutor.canExecute(player, session, target)) {
-                    continue;
-                }
-                try {
-                    if (!actionExecutor.execute(player, session, target)) {
-                        failed++;
-                        continue;
-                    }
-                } catch (RuntimeException e) {
-                    // F4 防护：单根异常不崩 drain 帧，best-effort 继续
-                    MyMod.LOG.error("[CableReplace] 单 tick 批量替换异常 player={} pos=({},{},{})",
-                        playerUUID, Integer.valueOf(target.getX()), Integer.valueOf(target.getY()), Integer.valueOf(target.getZ()), e);
-                    failed++;
-                    continue;
-                }
-                executed++;
-                if (context.recordExecutionSucceeded()) logFirstSuccessfulExecution(context, target);
-                // 单 tick 原子执行仍需喂看门狗推进信号（虽然不跨 tick，但防 drain 帧内被误判）
-            }
+            int totalTargets = cableResult.getTotalTargets();
+            int executed = cableResult.getExecutedTargets();
+            int failed = cableResult.getFailedTargets();
 
             // best-effort 提示
             if (failed > 0) {
@@ -370,18 +388,17 @@ public class ChainExecutionEventBridge {
             publishExecutionFinishedWithCleanup(context, "cable-atomic-complete:" + executed);
             GregTechCableSessionState.clear(playerUUID);
             registry.remove(playerUUID, gen, context.getServerRoundId());
-            return;
+            return shouldAdvanceOrdinaryCursor(true, null, timeBudget);
         }
 
-        // ===== 非 GT：按实际 poll 计预算的流式执行 =====
-        long nowMillis = System.currentTimeMillis();
-        if (!context.isExecutorReady(nowMillis)) {
-            return;
+        // ===== 非 GT：与 planning 共享本 server tick 的 soft deadline =====
+        if (timeBudget == null || !timeBudget.hasTimeLeft()) {
+            publishDeadlineDeferral(context);
+            return shouldAdvanceOrdinaryCursor(false, null, timeBudget);
         }
         if (!usesLocalToolSwap(session)) {
-            // INTERACT 与非 GT SPECIAL 不接入接替门，但与普通采掘共用 poll 预算和零成功推进。
-            consumeNonTakeoverTargets(player, session, actionExecutor, context, maxBreakPerTick);
-            return;
+            // INTERACT 与非 GT SPECIAL 不接入接替门，但与普通采掘共用 deadline 和零成功推进。
+            return consumeNonTakeoverTargets(player, session, actionExecutor, context, timeBudget);
         }
         final EntityPlayerMP ordinaryPlayer = player;
         final ChainSession ordinarySession = session;
@@ -389,7 +406,7 @@ public class ChainExecutionEventBridge {
         final long ordinaryTick = Math.max(0L, ChainTickSource.currentServerTick());
         final BatchToken batchToken = localToolSwap == null ? null
                 : localToolSwap.beginOrdinaryBatch(ordinaryPlayer, context.getServerRoundId(), gen, ordinaryTick);
-        OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, maxBreakPerTick,
+        OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, timeBudget::hasTimeLeft,
                 new OrdinaryTargetGate() {
                     @Override
                     public PrepareResult prepareTarget(ChainTarget target) {
@@ -409,12 +426,17 @@ public class ChainExecutionEventBridge {
                     }
                 });
         finishOrdinaryTickAndStopIfNeeded(context, tickResult, batchToken, ordinaryPlayer, ordinaryTick);
+        boolean advanceOrdinaryCursor = shouldAdvanceOrdinaryCursor(false, tickResult, timeBudget);
+        if (!advanceOrdinaryCursor) {
+            publishDeadlineDeferral(context);
+        }
+        return advanceOrdinaryCursor;
     }
 
-    /** INTERACT 与非 GT SPECIAL 不走接替门，但复用按 poll 计数的有界消费。 */
-    private void consumeNonTakeoverTargets(EntityPlayerMP player, ChainSession session,
-            ChainActionExecutor actionExecutor, ChainExecutionContext context, int maxBreakPerTick) {
-        OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, maxBreakPerTick,
+    /** INTERACT 与非 GT SPECIAL 不走接替门，但复用共享 deadline 的有界消费。 */
+    private boolean consumeNonTakeoverTargets(EntityPlayerMP player, ChainSession session,
+            ChainActionExecutor actionExecutor, ChainExecutionContext context, TickTimeBudget timeBudget) {
+        OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, timeBudget::hasTimeLeft,
                 target -> PrepareResult.PROCEED,
                 new OrdinaryTargetExecutor() {
                     @Override
@@ -428,6 +450,19 @@ public class ChainExecutionEventBridge {
                     }
                 });
         finishOrdinaryTickAndStopIfNeeded(context, tickResult);
+        boolean advanceOrdinaryCursor = shouldAdvanceOrdinaryCursor(false, tickResult, timeBudget);
+        if (!advanceOrdinaryCursor) {
+            publishDeadlineDeferral(context);
+        }
+        return advanceOrdinaryCursor;
+    }
+
+    private void publishDeadlineDeferral(ChainExecutionContext context) {
+        if (context == null) {
+            return;
+        }
+        bus.publish(new ExecutionDeferred(context.getPlayerUUID(), context.getServerRoundId(),
+                context.getGeneration(), ChainTickSource.currentServerTick(), ChainTickSource.nowNanos()));
     }
 
     /** 纯测试/非 local 路径：先发布本 tick 真实推进，再沿既有 STOP 合同收口。 */
@@ -477,10 +512,6 @@ public class ChainExecutionEventBridge {
     /** 普通批次真实推进；terminal publication 由调用方在 restore 屏障后决定。 */
     private void finishOrdinaryProgress(ChainExecutionContext context, OrdinaryTickResult tickResult) {
         if (tickResult.getProcessedTargets() > 0) {
-            if (tickResult.getExecutedTargets() > 0) {
-                // 只有真实成功执行才设置 50ms 节流；纯跳过/失败可以在下一 tick 继续。
-                context.setNextExecutorAllowedMillis(System.currentTimeMillis() + 50L);
-            }
             if (tickResult.getFirstRoundSuccessfulTarget() != null) {
                 logFirstSuccessfulExecution(context, tickResult.getFirstRoundSuccessfulTarget());
             }
@@ -683,6 +714,67 @@ public class ChainExecutionEventBridge {
         boolean execute(ChainTarget target);
     }
 
+    /** GT 预检与原子 drain 的纯值结果。 */
+    static final class CableDrainResult {
+        private final String precheckFailure;
+        private final int totalTargets;
+        private final int executedTargets;
+        private final int failedTargets;
+
+        private CableDrainResult(String precheckFailure, int totalTargets, int executedTargets, int failedTargets) {
+            this.precheckFailure = precheckFailure;
+            this.totalTargets = totalTargets;
+            this.executedTargets = executedTargets;
+            this.failedTargets = failedTargets;
+        }
+
+        String getPrecheckFailure() { return precheckFailure; }
+        int getTotalTargets() { return totalTargets; }
+        int getExecutedTargets() { return executedTargets; }
+        int getFailedTargets() { return failedTargets; }
+    }
+
+    /** 截断计划在任何背包检查或目标回调前拒绝；放行后单 tick drain 到队列为空。 */
+    CableDrainResult consumeGregTechCableTargets(ChainExecutionContext context,
+            Supplier<String> precheck, OrdinaryTargetExecutor executor) {
+        if (context == null || precheck == null || executor == null) {
+            throw new IllegalArgumentException("cable execution dependencies must not be null");
+        }
+        int totalTargets = context.getTargets().size();
+        if (context.isPlanningTargetLimitExceeded()) {
+            return new CableDrainResult(
+                    "线缆链路超过本轮安全上限，已取消避免只替换链路前缀", totalTargets, 0, 0);
+        }
+        String precheckFailure = precheck.get();
+        if (precheckFailure != null) {
+            return new CableDrainResult(precheckFailure, totalTargets, 0, 0);
+        }
+
+        int executed = 0;
+        int failed = 0;
+        while (true) {
+            ChainTarget target = context.getTargets().poll();
+            if (target == null) break;
+            context.recordExecutionConsumed();
+            if (!executor.canExecute(target)) continue;
+            try {
+                if (!executor.execute(target)) {
+                    failed++;
+                    continue;
+                }
+            } catch (RuntimeException e) {
+                MyMod.LOG.error("[CableReplace] 单 tick 批量替换异常 player={} pos=({},{},{})",
+                        context.getPlayerUUID(), Integer.valueOf(target.getX()), Integer.valueOf(target.getY()),
+                        Integer.valueOf(target.getZ()), e);
+                failed++;
+                continue;
+            }
+            executed++;
+            if (context.recordExecutionSucceeded()) logFirstSuccessfulExecution(context, target);
+        }
+        return new CableDrainResult(null, totalTargets, executed, failed);
+    }
+
     /** 单 tick 非 GT 普通执行纯值结果，用于统一推进、节流和完成尾处理。 */
     static final class OrdinaryTickResult {
         private final int processedTargets;
@@ -705,19 +797,19 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 按实际 poll 数而非成功数消费非 GT 普通目标；SKIP_TARGET 只消费队首且绝不到达执行器。
+     * 在共享 deadline 内消费非 GT 普通目标；SKIP_TARGET 只消费队首且绝不到达执行器。
+     * deadline 只在目标事务开始前检查，已开始的 prepare/poll/execute 必须完整收口。
      */
-    static OrdinaryTickResult consumeOrdinaryTargets(ChainExecutionContext context, int maxBreakPerTick,
+    static OrdinaryTickResult consumeOrdinaryTargets(ChainExecutionContext context, BooleanSupplier hasTimeLeft,
             OrdinaryTargetGate gate, OrdinaryTargetExecutor executor) {
-        if (context == null || gate == null || executor == null) {
+        if (context == null || hasTimeLeft == null || gate == null || executor == null) {
             throw new IllegalArgumentException("ordinary execution dependencies must not be null");
         }
         int processed = 0;
         int executed = 0;
         boolean stopped = false;
         ChainTarget firstRoundSuccessfulTarget = null;
-        int processingBudget = Math.max(0, maxBreakPerTick);
-        while (processed < processingBudget) {
+        while (hasTimeLeft.getAsBoolean()) {
             ChainTarget target = context.getTargets().peek();
             if (target == null) break;
             PrepareResult decision = gate.prepareTarget(target);
@@ -743,6 +835,46 @@ public class ChainExecutionEventBridge {
             }
         }
         return new OrdinaryTickResult(processed, executed, stopped, firstRoundSuccessfulTarget);
+    }
+
+    /** 零处理且窗口已关闭表示真正延期，不得占用 ordinary round-robin cursor。 */
+    static boolean shouldAdvanceOrdinaryCursor(boolean waitForPlanner,
+            OrdinaryTickResult tickResult, TickTimeBudget timeBudget) {
+        if (waitForPlanner || tickResult == null || timeBudget == null) return false;
+        return tickResult.getProcessedTargets() > 0 || tickResult.isStopped() || timeBudget.hasTimeLeft();
+    }
+
+    /** 按 UUID 稳定排序并从上次服务玩家的后继起步，保证跨 Tick 的确定性轮转。 */
+    static List<ChainExecutionContext> roundRobinSnapshot(
+            java.util.Collection<ChainExecutionContext> contexts, UUID afterPlayer) {
+        List<ChainExecutionContext> ordered = new ArrayList<ChainExecutionContext>();
+        if (contexts != null) {
+            ordered.addAll(contexts);
+        }
+        Collections.sort(ordered, new Comparator<ChainExecutionContext>() {
+            @Override
+            public int compare(ChainExecutionContext left, ChainExecutionContext right) {
+                return left.getPlayerUUID().compareTo(right.getPlayerUUID());
+            }
+        });
+        if (afterPlayer == null || ordered.size() < 2) {
+            return ordered;
+        }
+        int split = 0;
+        while (split < ordered.size()
+                && ordered.get(split).getPlayerUUID().compareTo(afterPlayer) <= 0) {
+            split++;
+        }
+        if (split == 0 || split == ordered.size()) {
+            if (split == ordered.size()) {
+                return ordered;
+            }
+            return ordered;
+        }
+        List<ChainExecutionContext> rotated = new ArrayList<ChainExecutionContext>(ordered.size());
+        rotated.addAll(ordered.subList(split, ordered.size()));
+        rotated.addAll(ordered.subList(0, split));
+        return rotated;
     }
 
     /**
@@ -851,7 +983,7 @@ public class ChainExecutionEventBridge {
         }
         int targetMetaId = mainHand.getItemDamage();
 
-        // 2. 链路不超单 tick 上限（F3 truncated 也由此兜住：chainMaxBlocks=1024=cableReplaceMaxPerTick）
+        // 2. 链路不超单 tick 上限。
         int queueSize = context.getTargets().size();
         if (queueSize > Config.cableReplaceMaxPerTick) {
             return "线缆链路过大（" + queueSize + " 超过单 tick 上限 " + Config.cableReplaceMaxPerTick + "），已取消避免电压不匹配";

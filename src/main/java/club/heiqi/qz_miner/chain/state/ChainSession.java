@@ -16,9 +16,10 @@ import net.minecraft.block.Block;
  * 单次连锁任务会话。
  *
  * <p>阶段8 块3 瘦身：删除旧链路委托方法（beginPlanning/markPlanningCompleted/getPendingBreakTargets/
- * getMatchedTargetCount/setMatchedTargetCount/isPlannerCompleted/isPlannerRunning/isExecutorReady/
- * scheduleNextExecutorRun/stopExecutionPreservingDrops）。新链路目标队列/节流/matchedCount 由
- * {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，session 仅作配置载体
+ * getMatchedTargetCount/setMatchedTargetCount/isPlannerCompleted/isPlannerRunning/
+ * scheduleNextExecutorRun/stopExecutionPreservingDrops）。新链路目标队列/matchedCount 由
+ * {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，普通执行节奏由共享 Tick
+ * deadline 控制；session 仅作配置载体
  * （mode/subMode/origin/interactFace/hitOffset/radius/maxBlocks/交互 seed）+ 装配 traverser 的 traversalTargets。
  * 真实破坏桥（{@link club.heiqi.qz_miner.chain.execution.ChainExecutionEventBridge}）只读 session 配置字段，
  * 不读运行态字段（块3 已删）。</p>

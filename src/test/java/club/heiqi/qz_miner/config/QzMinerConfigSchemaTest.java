@@ -18,12 +18,12 @@ import club.heiqi.config.schema.ValueKind;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
-/** 5.2 Schema 字面量快照与多使用方 Defaults 对齐。 */
+/** 5.3 Schema 字面量快照与多使用方 Defaults 对齐。 */
 public class QzMinerConfigSchemaTest {
 
-    /** 以独立字面量冻结 5.2 全部 path/type/default，不复用生产 Defaults oracle。 */
+    /** 以独立字面量冻结 5.3 全部 path/type/default，不复用生产 Defaults oracle。 */
     @Test
-    public void schemaLocks52LiteralPathTypeAndDefaultSnapshotInStableOrder() {
+    public void schemaLocks53LiteralPathTypeAndDefaultSnapshotInStableOrder() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         List<Map<String, Object>> objectGroups = new ArrayList<Map<String, Object>>();
         Map<String, Object> logs = new LinkedHashMap<String, Object>();
@@ -47,18 +47,15 @@ public class QzMinerConfigSchemaTest {
                 {"general.chainRadius", FieldType.NUMBER, Double.valueOf(8.0D)},
                 {"general.chainMaxBlocks", FieldType.NUMBER, Double.valueOf(1024.0D)},
                 {"general.chainLoggingShellLayers", FieldType.NUMBER, Double.valueOf(1.0D)},
-                {"general.maxBreakPerTick", FieldType.NUMBER, Double.valueOf(64.0D)},
                 {"general.cableReplaceMaxPerTick", FieldType.NUMBER, Double.valueOf(1024.0D)},
                 {"general.chainWatchdogTimeoutTicks", FieldType.NUMBER, Double.valueOf(50.0D)},
-                {"general.parallelTickMinDurationMs", FieldType.NUMBER, Double.valueOf(15.0D)},
-                {"general.parallelTickServerWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(640.0D)},
+                {"general.tickBudgetMs", FieldType.NUMBER, Double.valueOf(15.0D)},
                 {"general.enableUnlimitedOreFortune", FieldType.BOOLEAN, Boolean.FALSE},
                 {"general.enableFortuneForPlacedOre", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientEnablePreviewRender", FieldType.BOOLEAN, Boolean.TRUE},
                 {"client.tunnelDirectionSource", FieldType.CHOICE, "look_direction"},
                 {"client.autoToolSwapEnabled", FieldType.BOOLEAN, Boolean.TRUE},
                 {"client.autoToolPrioritySelectors", FieldType.SIMPLE_LIST, Collections.<String>emptyList()},
-                {"client.parallelTickClientWorkBudgetUnits", FieldType.NUMBER, Double.valueOf(640.0D)},
                 {"client.clientPreviewMaxRadius", FieldType.NUMBER, Double.valueOf(16.0D)},
                 {"client.clientPreviewMaxTargets", FieldType.NUMBER, Double.valueOf(1024.0D)},
                 {"client.clientPreviewAlphaFadeStartRadius", FieldType.NUMBER, Double.valueOf(2.0D)},
@@ -80,7 +77,7 @@ public class QzMinerConfigSchemaTest {
         }
     }
 
-    /** 校验多个生产使用方继续对齐共享 Defaults；本方法不承担 5.2 字面量快照职责。 */
+    /** 校验多个生产使用方继续对齐共享 Defaults；本方法不承担 5.3 字面量快照职责。 */
     @Test
     public void defaultsAlignWithQzMinerConfigDefaults() {
         ConfigSchema schema = QzMinerConfigSchema.create();
@@ -91,6 +88,14 @@ public class QzMinerConfigSchemaTest {
         FieldSpec radius = schema.field("general.chainRadius");
         Assert.assertEquals(FieldType.NUMBER, radius.type());
         Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.CHAIN_RADIUS), radius.defaultValue());
+
+        FieldSpec tickBudget = schema.field("general.tickBudgetMs");
+        Assert.assertEquals(FieldType.NUMBER, tickBudget.type());
+        Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.TICK_BUDGET_MS), tickBudget.defaultValue());
+        Assert.assertNull(schema.field("general.maxBreakPerTick"));
+        Assert.assertNull(schema.field("general.parallelTickMinDurationMs"));
+        Assert.assertNull(schema.field("general.parallelTickServerWorkBudgetUnits"));
+        Assert.assertNull(schema.field("client.parallelTickClientWorkBudgetUnits"));
 
         FieldSpec preview = schema.field("client.clientEnablePreviewRender");
         Assert.assertEquals(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER),

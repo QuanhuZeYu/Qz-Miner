@@ -26,7 +26,7 @@ public class CuboidScanTraverserTest {
         traverser.seed(context);
         TraversalStepResult result = TraversalStepResult.CONTINUE;
         for (int slice = 0; slice < 100 && result != TraversalStepResult.COMPLETED; slice++) {
-            result = traverser.step(context, new SliceControl(1), target -> true, targets::add);
+            result = traverser.step(context, new SliceControl(4), target -> true, targets::add);
         }
         Assert.assertEquals(TraversalStepResult.COMPLETED, result);
         Assert.assertEquals(8, targets.size());
@@ -53,12 +53,7 @@ public class CuboidScanTraverserTest {
         @Override public ParallelTickStage getStage() { return ParallelTickStage.SERVER_PRE; }
         @Override public boolean isWindowOpen() { return true; }
         @Override public boolean isCancelRequested() { return false; }
-        @Override public boolean shouldYield() { return remaining <= 0; }
-        @Override public boolean tryConsumeWork(int units) {
-            if (units > remaining) return false;
-            remaining -= units;
-            return true;
-        }
+        @Override public boolean shouldYield() { return remaining-- <= 0; }
         @Override public long getElapsedNanoTime() { return 0L; }
         @Override public String getCancelReason() { return ""; }
     }

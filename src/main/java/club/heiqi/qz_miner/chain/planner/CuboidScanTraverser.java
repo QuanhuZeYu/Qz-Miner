@@ -43,15 +43,27 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
 
             if (currentTarget == null) currentTarget = new ChainTarget(x, y, z);
             if (phase == Phase.COMMIT_CANDIDATE) {
-                PlanningCandidateWorkBudget.CommitResult result =
+                PlanningCandidateGate.CommitResult result =
                         context.tryCommitPlanningCandidate(control, currentTarget);
-                if (result == PlanningCandidateWorkBudget.CommitResult.YIELDED) return TraversalStepResult.YIELDED;
-                if (result == PlanningCandidateWorkBudget.CommitResult.TERMINATED) return TraversalStepResult.TERMINATED;
-                if (result == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                if (result == PlanningCandidateGate.CommitResult.YIELDED) return TraversalStepResult.YIELDED;
+                if (result == PlanningCandidateGate.CommitResult.TERMINATED) return TraversalStepResult.TERMINATED;
+                if (result == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
                     advance();
                     continue;
                 }
-                if (!context.canTraverse(currentTarget)) {
+                phase = Phase.CHECK_FILTER;
+            }
+
+            if (phase == Phase.CHECK_FILTER) {
+                PlanningCandidateGate.FilterResult filterResult =
+                        context.tryCommitPlanningCandidateFilter(control, currentTarget);
+                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
+                }
+                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
+                }
+                if (filterResult == PlanningCandidateGate.FilterResult.REJECTED) {
                     advance();
                     continue;
                 }
@@ -59,7 +71,7 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
             }
 
             if (phase == Phase.CHECK_MATCHER) {
-                if (!control.tryConsumeWork(1)) return yieldOrTerminate(control);
+                if (control.shouldYield()) return yieldOrTerminate(control);
                 if (!matcher.matches(currentTarget)) {
                     advance();
                     continue;
@@ -67,7 +79,7 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
                 phase = Phase.SUBMIT_TARGET;
             }
 
-            if (!control.tryConsumeWork(1)) return yieldOrTerminate(control);
+            if (control.shouldYield()) return yieldOrTerminate(control);
             if (control.isCancelRequested()) return TraversalStepResult.TERMINATED;
             consumer.accept(currentTarget);
             context.incrementConfirmedCount();
@@ -97,5 +109,5 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
         return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
     }
 
-    private enum Phase { COMMIT_CANDIDATE, CHECK_MATCHER, SUBMIT_TARGET }
+    private enum Phase { COMMIT_CANDIDATE, CHECK_FILTER, CHECK_MATCHER, SUBMIT_TARGET }
 }

@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionDeferred;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
@@ -35,10 +36,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <p>本类订阅 {@link ChainPhaseChanged}（阶段6 G1 加入，状态机 {@code applyTransition} 每次转移后 publish）
  * 建 per-player 活跃镜像。<b>不</b>自建钩子、<b>不</b>读状态机字段（守 I10 只读广播）。</p>
  *
- * <p>另订阅 {@link PlanProgress}（worker 分片 yield 时 publish）与 {@link ExecutionAdvanced}
- * （每 tick 破坏后 publish）作为 PLANNING/RUNNING 阶段的真实工作推进信号——
+     * <p>另订阅 {@link PlanProgress}（worker 分片提交 durable progress 时 publish）与 {@link ExecutionAdvanced}
+     * （目标消费后 publish）作为真实推进信号；{@link ExecutionDeferred} 只登记 shared deadline
+     * 排队的有界宽限，不改写真正的 lastProgress——
  * 因为 PLANNING/RUNNING 两次状态机转移之间无 ChainPhaseChanged 广播，长规划/长执行会被
- * 「N tick 无状态推进」误判卡死。补订阅这两路后，看门狗推进信号对齐「真实工作推进」语义
+     * 「N tick 无状态推进」误判卡死。补订阅真实推进后，看门狗信号对齐「真实工作推进」语义
  * 而非「状态机转移」，根治误杀。新条目仍归 onPhaseChanged 的 T4 进 PLANNING 管，
  * 本订阅只刷新既有条目（守信号源分工）。</p>
  *
@@ -62,6 +64,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * 契约上单线程串行，{@link HashMap} 无需加锁（对齐 {@code ChainStateMachine.onLifecycleCleanup} 契约）。</p>
  */
 public class ChainWatchdog {
+
+    private static final long NO_DEFERRED_TICK = Long.MIN_VALUE;
 
     /** 注入的事件总线（与状态机共享同一实例）。 */
     private final ChainEventBus bus;
@@ -88,6 +92,7 @@ public class ChainWatchdog {
         // B 方案：补订阅真实工作推进信号，根治 PLANNING/RUNNING 阶段长任务误判卡死
         bus.subscribe(PlanProgress.class, this::onProgress);
         bus.subscribe(ExecutionAdvanced.class, this::onProgress);
+        bus.subscribe(ExecutionDeferred.class, this::onDeferred);
     }
 
     /**
@@ -165,9 +170,35 @@ public class ChainWatchdog {
             // 陈旧代际或轮次迟到事件不误刷新新条目
             return;
         }
+        if (event.getServerTick() < existing.lastProgressTick) {
+            return;
+        }
         // 同代际推进刷新：用事件的 serverTick/timestampNanos 重建不可变条目
         activePlayers.put(uuid, new WatchEntry(existing.generation, existing.serverRoundId,
                 event.getServerTick(), event.getTimestampNanos()));
+    }
+
+    /**
+     * shared deadline 排队只提供一个 watchdog 窗口的有界宽限，不伪装成真实工作推进。
+     */
+    private void onDeferred(ExecutionDeferred event) {
+        UUID uuid = event.getPlayerUUID();
+        WatchEntry existing = activePlayers.get(uuid);
+        if (existing == null
+                || existing.generation != event.getGeneration()
+                || existing.serverRoundId != event.getServerRoundId()
+                || event.getServerTick() < existing.lastProgressTick) {
+            return;
+        }
+        long deferredSinceProgress = event.getServerTick() - existing.lastProgressTick;
+        boolean progressNearTimeout = deferredSinceProgress >= Math.max(0, Config.chainWatchdogTimeoutTicks - 1);
+        long firstDeferredTick = existing.firstDeferredTick;
+        if (firstDeferredTick == NO_DEFERRED_TICK && progressNearTimeout) {
+            firstDeferredTick = event.getServerTick();
+        }
+        long lastDeferredTick = Math.max(existing.lastDeferredTick, event.getServerTick());
+        activePlayers.put(uuid, new WatchEntry(existing.generation, existing.serverRoundId,
+                existing.lastProgressTick, existing.lastNanos, firstDeferredTick, lastDeferredTick));
     }
 
     /**
@@ -214,7 +245,13 @@ public class ChainWatchdog {
                 continue;
             }
             long elapsed = currentTick - entry.lastProgressTick;
-            if (elapsed >= threshold) {
+            long deferredElapsed = currentTick - entry.firstDeferredTick;
+            long sinceLastDeferral = currentTick - entry.lastDeferredTick;
+            boolean boundedDeferralGrace = entry.firstDeferredTick != NO_DEFERRED_TICK
+                    && deferredElapsed >= 0L && deferredElapsed <= threshold
+                    && sinceLastDeferral >= 0L && sinceLastDeferral <= 1L;
+            // 推进事件在 execution/planning 回调发布后要到下一 Tick drain 才可见，阈值边界留一 Tick。
+            if (elapsed > threshold && !boundedDeferralGrace) {
                 long nanos = ChainTickSource.nowNanos();
                 // P2-2：真实 elapsedNanos delta = nowNanos - 进态时记录的 lastNanos（不再占位）
                 long elapsedNanos = Math.max(0L, nanos - entry.lastNanos);
@@ -240,12 +277,24 @@ public class ChainWatchdog {
         final long lastProgressTick;
         /** 该玩家最后一次进态时记录的纳秒戳（P2-2：checkTimeouts 据此算真 elapsedNanos delta）。 */
         final long lastNanos;
+        /** 当前连续 scheduler deferral 的起点；真实推进会重置。 */
+        final long firstDeferredTick;
+        /** 最近一次 scheduler deferral；用于确认宽限仍连续。 */
+        final long lastDeferredTick;
 
         WatchEntry(int generation, long serverRoundId, long lastProgressTick, long lastNanos) {
+            this(generation, serverRoundId, lastProgressTick, lastNanos,
+                    NO_DEFERRED_TICK, NO_DEFERRED_TICK);
+        }
+
+        WatchEntry(int generation, long serverRoundId, long lastProgressTick, long lastNanos,
+                long firstDeferredTick, long lastDeferredTick) {
             this.generation = generation;
             this.serverRoundId = serverRoundId;
             this.lastProgressTick = lastProgressTick;
             this.lastNanos = lastNanos;
+            this.firstDeferredTick = firstDeferredTick;
+            this.lastDeferredTick = lastDeferredTick;
         }
     }
 

@@ -82,12 +82,33 @@ public final class ChainSearchAlgorithm {
                 continue;
             }
 
+            if (state.phase == BudgetPhase.CHECK_CURRENT_FILTER) {
+                if (state.currentTarget == null) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
+                PlanningCandidateGate.FilterResult filterResult =
+                        context.tryCommitPlanningCandidateFilter(control, state.currentTarget);
+                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
+                }
+                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
+                }
+                if (filterResult == PlanningCandidateGate.FilterResult.REJECTED) {
+                    state.clearCurrentTarget();
+                    continue;
+                }
+                state.phase = BudgetPhase.CHECK_CURRENT_MATCHER;
+                continue;
+            }
+
             if (state.phase == BudgetPhase.CHECK_CURRENT_MATCHER) {
                 if (state.currentTarget == null) {
                     state.clearCurrentTarget();
                     continue;
                 }
-                if (!control.tryConsumeWork(1)) {
+                if (control.shouldYield()) {
                     return yieldOrTerminate(control);
                 }
                 if (!matcher.matches(state.currentTarget)) {
@@ -103,7 +124,7 @@ public final class ChainSearchAlgorithm {
                     state.clearCurrentTarget();
                     continue;
                 }
-                if (!control.tryConsumeWork(1)) {
+                if (control.shouldYield()) {
                     return yieldOrTerminate(control);
                 }
                 if (control.isCancelRequested()) {
@@ -124,7 +145,7 @@ public final class ChainSearchAlgorithm {
 
             if (state.currentTarget == null) {
                 if (context.getCurrentFrontier().isEmpty()) {
-                    if (!control.tryConsumeWork(1)) {
+                    if (control.shouldYield()) {
                         return yieldOrTerminate(control);
                     }
                     if (!context.getNextFrontier().isEmpty()) {
@@ -136,12 +157,12 @@ public final class ChainSearchAlgorithm {
                 }
 
                 ChainTarget queuedTarget = context.getCurrentFrontier().peek();
-                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                PlanningCandidateGate.CommitResult candidateResult =
                         context.tryCommitPlanningCandidate(control, queuedTarget);
-                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
                     return TraversalStepResult.YIELDED;
                 }
-                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
                     return TraversalStepResult.TERMINATED;
                 }
 
@@ -149,27 +170,26 @@ public final class ChainSearchAlgorithm {
                 if (state.currentTarget == null) {
                     continue;
                 }
-                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
                     state.clearCurrentTarget();
                     continue;
                 }
-                if (!context.canTraverse(state.currentTarget)) {
-                    state.clearCurrentTarget();
-                    continue;
-                }
+                state.phase = BudgetPhase.CHECK_CURRENT_FILTER;
+                continue;
             }
-            state.phase = BudgetPhase.CHECK_CURRENT_MATCHER;
+            state.phase = BudgetPhase.CHECK_CURRENT_FILTER;
         }
     }
 
     private static void rotateFrontier(ChainSearchContext context, ParallelTickControl control, BudgetState state) {
         while (!context.getNextFrontier().isEmpty()) {
-            if (!control.tryConsumeWork(1)) {
+            if (control.shouldYield()) {
                 return;
             }
             ChainTarget target = context.getNextFrontier().poll();
             if (target != null) {
                 context.getCurrentFrontier().add(target);
+                context.recordDurableProgress();
             }
         }
         state.phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
@@ -189,6 +209,25 @@ public final class ChainSearchAlgorithm {
                 return TraversalStepResult.YIELDED;
             }
 
+            if (state.pendingNeighbor != null) {
+                PlanningCandidateGate.FilterResult filterResult =
+                        context.tryCommitPlanningCandidateFilter(control, state.pendingNeighbor);
+                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
+                    return TraversalStepResult.YIELDED;
+                }
+                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
+                    return TraversalStepResult.TERMINATED;
+                }
+                ChainTarget committedNeighbor = state.pendingNeighbor;
+                state.pendingNeighbor = null;
+                state.neighborIndex++;
+                if (context.getVisited().add(committedNeighbor)
+                        && filterResult == PlanningCandidateGate.FilterResult.ACCEPTED) {
+                    context.getNextFrontier().add(committedNeighbor);
+                }
+                continue;
+            }
+
             ChainTarget offset = NEIGHBOR_OFFSETS.get(state.neighborIndex);
             ChainTarget next = new ChainTarget(
                 state.currentTarget.getX() + offset.getX(),
@@ -198,30 +237,29 @@ public final class ChainSearchAlgorithm {
             if (context.getVisited().contains(next)
                 || getDistance(next, context.getOrigin()) > context.getMaxRadius()
                 || context.getConfirmedCount() >= context.getMaxTargets()) {
-                if (!control.tryConsumeWork(1)) {
+                if (control.shouldYield()) {
                     return yieldOrTerminate(control);
                 }
                 state.neighborIndex++;
+                context.recordDurableProgress();
                 continue;
             }
 
-            PlanningCandidateWorkBudget.CommitResult candidateResult =
+            PlanningCandidateGate.CommitResult candidateResult =
                     context.tryCommitPlanningCandidate(control, next);
-            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+            if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
                 return TraversalStepResult.YIELDED;
             }
-            if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+            if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
                 return TraversalStepResult.TERMINATED;
             }
 
-            state.neighborIndex++;
-            if (!context.getVisited().add(next)
-                    || candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+            if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
+                state.neighborIndex++;
+                context.getVisited().add(next);
                 continue;
             }
-            if (context.canTraverse(next)) {
-                context.getNextFrontier().add(next);
-            }
+            state.pendingNeighbor = next;
         }
 
         state.clearCurrentTarget();
@@ -234,6 +272,7 @@ public final class ChainSearchAlgorithm {
     public static final class BudgetState {
         private BudgetPhase phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
         private ChainTarget currentTarget;
+        private ChainTarget pendingNeighbor;
         private int neighborIndex;
 
         /** 初始化破坏后 origin 的预算化邻居生成，不在 seed 阶段读取世界。 */
@@ -247,6 +286,7 @@ public final class ChainSearchAlgorithm {
         private void clearCurrentTarget() {
             phase = BudgetPhase.PROCESS_CURRENT_FRONTIER;
             currentTarget = null;
+            pendingNeighbor = null;
             neighborIndex = 0;
         }
 
@@ -258,6 +298,7 @@ public final class ChainSearchAlgorithm {
 
     private enum BudgetPhase {
         PROCESS_CURRENT_FRONTIER,
+        CHECK_CURRENT_FILTER,
         CHECK_CURRENT_MATCHER,
         SUBMIT_CURRENT_TARGET,
         GENERATE_NEIGHBORS,

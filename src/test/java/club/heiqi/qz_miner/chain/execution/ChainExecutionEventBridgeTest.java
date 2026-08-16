@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.BooleanSupplier;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -25,6 +27,9 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
+import club.heiqi.qz_miner.parallel.ParallelTickContext;
+import club.heiqi.qz_miner.parallel.ParallelTickStage;
+import club.heiqi.qz_miner.parallel.TickTimeBudget;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.PrepareResult;
 
 /**
@@ -468,14 +473,14 @@ public class ChainExecutionEventBridgeTest {
     }
 
     @Test
-    public void ordinaryTickBudgetCountsRejectedPollsInsteadOfSuccessfulExecutions() {
+    public void ordinaryDeadlineStopsBeforeStartingAnotherRejectedTarget() {
         ConcurrentLinkedQueue<ChainTarget> queue = targets(5);
         ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
         AtomicInteger canExecuteCalls = new AtomicInteger();
         AtomicInteger executeCalls = new AtomicInteger();
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 2, target -> PrepareResult.PROCEED,
+                context, allowTargetStarts(2), target -> PrepareResult.PROCEED,
                 new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
                     @Override public boolean canExecute(ChainTarget target) {
                         canExecuteCalls.incrementAndGet();
@@ -487,17 +492,17 @@ public class ChainExecutionEventBridgeTest {
                     }
                 });
 
-        Assert.assertEquals("canExecute=false 也必须占用一次本 tick poll 预算", 2,
+        Assert.assertEquals("canExecute=false 也必须占用本 tick deadline 窗口", 2,
                 result.getProcessedTargets());
         Assert.assertEquals(0, result.getExecutedTargets());
         Assert.assertEquals(2, canExecuteCalls.get());
         Assert.assertEquals(0, executeCalls.get());
-        Assert.assertEquals("拒绝队列不得在单 tick 无界 drain", 3, queue.size());
+        Assert.assertEquals("deadline 后不得启动第三个目标", 3, queue.size());
         Assert.assertEquals(2, context.getExecutionConsumedCount());
     }
 
     @Test
-    public void interactAllFailuresRespectPollBudgetAndPublishZeroSuccessAdvance() {
+    public void interactAllFailuresRespectDeadlineAndPublishZeroSuccessAdvance() {
         Assert.assertFalse(ChainExecutionEventBridge.usesLocalToolSwap(ChainMode.INTERACT));
         Assert.assertFalse(ChainExecutionEventBridge.usesLocalToolSwap(ChainMode.SPECIAL));
         ChainEventBus bus = new ChainEventBus();
@@ -510,7 +515,7 @@ public class ChainExecutionEventBridgeTest {
         bus.subscribe(ExecutionAdvanced.class, advanced::add);
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 2, target -> PrepareResult.PROCEED,
+                context, allowTargetStarts(2), target -> PrepareResult.PROCEED,
                 new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
                     @Override public boolean canExecute(ChainTarget target) { return false; }
                     @Override public boolean execute(ChainTarget target) {
@@ -523,7 +528,7 @@ public class ChainExecutionEventBridgeTest {
 
         Assert.assertEquals(2, result.getProcessedTargets());
         Assert.assertEquals(0, result.getExecutedTargets());
-        Assert.assertEquals("全失败也不得在单 tick drain 超过 poll 预算", 3, context.getTargets().size());
+        Assert.assertEquals("全失败也不得在 deadline 后继续启动目标", 3, context.getTargets().size());
         Assert.assertEquals(2, context.getExecutionConsumedCount());
         Assert.assertEquals(1, advanced.size());
         Assert.assertEquals(0, advanced.get(0).getExecutedThisTick());
@@ -531,7 +536,7 @@ public class ChainExecutionEventBridgeTest {
     }
 
     @Test
-    public void mixedSuccessExecuteFailureAndSkipShareOnePollBudget() {
+    public void mixedSuccessExecuteFailureAndSkipShareOneDeadline() {
         ConcurrentLinkedQueue<ChainTarget> queue = targets(5);
         ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, queue, null);
         AtomicInteger gateCalls = new AtomicInteger();
@@ -539,7 +544,7 @@ public class ChainExecutionEventBridgeTest {
         AtomicInteger executeCalls = new AtomicInteger();
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 4, target -> gateCalls.incrementAndGet() == 3
+                context, allowTargetStarts(4), target -> gateCalls.incrementAndGet() == 3
                         ? PrepareResult.SKIP_TARGET
                         : PrepareResult.PROCEED,
                 new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
@@ -569,7 +574,7 @@ public class ChainExecutionEventBridgeTest {
         AtomicInteger executeCalls = new AtomicInteger();
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 3, target -> PrepareResult.PROCEED,
+                context, allowTargetStarts(3), target -> PrepareResult.PROCEED,
                 new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
                     @Override public boolean canExecute(ChainTarget target) {
                         if (canExecuteCalls.incrementAndGet() == 1) {
@@ -607,7 +612,7 @@ public class ChainExecutionEventBridgeTest {
         AtomicInteger gateCalls = new AtomicInteger();
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 4, target -> gateCalls.incrementAndGet() == 1
+                context, allowTargetStarts(4), target -> gateCalls.incrementAndGet() == 1
                         ? PrepareResult.PROCEED
                         : PrepareResult.STOP,
                 new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
@@ -619,6 +624,8 @@ public class ChainExecutionEventBridgeTest {
 
         Assert.assertTrue(result.isStopped());
         Assert.assertEquals(1, result.getProcessedTargets());
+        Assert.assertTrue(ChainExecutionEventBridge.shouldAdvanceOrdinaryCursor(
+                false, result, new ParallelTickContext(82L, 0L, 0L, ParallelTickStage.SERVER_PRE)));
         Assert.assertEquals(java.util.Arrays.asList("advanced", "cleanup"), order);
         Assert.assertNull(registry.get(PLAYER, 14, 1202L));
     }
@@ -637,7 +644,7 @@ public class ChainExecutionEventBridgeTest {
         bus.subscribe(ExecutionFinished.class, finished::add);
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 1, target -> PrepareResult.SKIP_TARGET,
+                context, allowTargetStarts(1), target -> PrepareResult.SKIP_TARGET,
                 neverExecutingTarget());
         bridge.finishOrdinaryTick(context, result);
         bus.drain();
@@ -665,7 +672,7 @@ public class ChainExecutionEventBridgeTest {
         bus.subscribe(LifecycleCleanup.class, event -> order.add("cleanup"));
 
         ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
-                context, 2, target -> PrepareResult.SKIP_TARGET,
+                context, allowTargetStarts(2), target -> PrepareResult.SKIP_TARGET,
                 neverExecutingTarget());
         bridge.finishOrdinaryTick(context, result);
         bus.drain();
@@ -678,6 +685,245 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertEquals(2, context.getExecutionSkippedCount());
         Assert.assertEquals(0, context.getExecutionSucceededCount());
         Assert.assertNull(registry.get(PLAYER, 12, 1103L));
+    }
+
+    @Test
+    public void ordinaryWindowConsumesMoreThanLegacy64Limit() {
+        int targetCount = 65;
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, targets(targetCount), null);
+        context.markPlanningComplete(targetCount);
+        AtomicInteger canExecuteCalls = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, () -> true, target -> PrepareResult.PROCEED,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        canExecuteCalls.incrementAndGet();
+                        return true;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        executeCalls.incrementAndGet();
+                        return true;
+                    }
+                });
+
+        Assert.assertEquals(targetCount, result.getProcessedTargets());
+        Assert.assertEquals(targetCount, result.getExecutedTargets());
+        Assert.assertEquals(targetCount, canExecuteCalls.get());
+        Assert.assertEquals(targetCount, executeCalls.get());
+        Assert.assertEquals(targetCount, context.getExecutionConsumedCount());
+        Assert.assertEquals(targetCount, context.getExecutionSucceededCount());
+        Assert.assertTrue(context.getTargets().isEmpty());
+        Assert.assertTrue(context.isCompleted());
+        Assert.assertTrue(ChainExecutionEventBridge.shouldAdvanceOrdinaryCursor(
+                false, result, new ParallelTickContext(83L, 0L, 0L, ParallelTickStage.SERVER_PRE)));
+    }
+
+    @Test
+    public void adjacentOrdinaryWindowsContinueBeforeLegacy50Millis() throws Exception {
+        ChainEventBus bus = new ChainEventBus();
+        bus.bindMainThread(Thread.currentThread());
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 1301L, 15, targets(2), null);
+        context.markPlanningComplete(2);
+        registry.put(context);
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        AtomicInteger canExecuteCalls = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+        ChainExecutionEventBridge.OrdinaryTargetExecutor targetExecutor =
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        canExecuteCalls.incrementAndGet();
+                        return true;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        executeCalls.incrementAndGet();
+                        return true;
+                    }
+                };
+
+        ChainExecutionEventBridge.OrdinaryTickResult first = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, allowTargetStarts(1), target -> PrepareResult.PROCEED, targetExecutor);
+        bridge.finishOrdinaryTick(context, first);
+
+        Assert.assertEquals(1, first.getProcessedTargets());
+        Assert.assertEquals(1, first.getExecutedTargets());
+        Assert.assertEquals(1, context.getExecutionConsumedCount());
+        Assert.assertEquals(1, context.getExecutionSucceededCount());
+        Assert.assertEquals(1, context.getTargets().size());
+        Assert.assertSame(context, registry.get(PLAYER, 15, 1301L));
+
+        ChainExecutionEventBridge.OrdinaryTickResult second = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, allowTargetStarts(1), target -> PrepareResult.PROCEED, targetExecutor);
+        bridge.finishOrdinaryTick(context, second);
+
+        Assert.assertEquals(1, second.getProcessedTargets());
+        Assert.assertEquals(1, second.getExecutedTargets());
+        Assert.assertEquals(2, canExecuteCalls.get());
+        Assert.assertEquals(2, executeCalls.get());
+        Assert.assertEquals(2, context.getExecutionConsumedCount());
+        Assert.assertEquals(2, context.getExecutionSucceededCount());
+        Assert.assertTrue(context.getTargets().isEmpty());
+        Assert.assertTrue(context.isCompleted());
+        Assert.assertNull(registry.get(PLAYER, 15, 1301L));
+
+        String source = new String(Files.readAllBytes(new File(
+                "src/main/java/club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge.java").toPath()),
+                StandardCharsets.UTF_8);
+        Assert.assertFalse(source.contains("System.currentTimeMillis"));
+        Assert.assertFalse(source.contains("isExecutorReady"));
+        Assert.assertFalse(source.contains("nextExecutorAllowedMillis"));
+    }
+
+    @Test
+    public void expiredDeadlineDoesNotPollQueue() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, targets(2), null);
+        ParallelTickContext expired = new ParallelTickContext(80L, 0L, 0L, ParallelTickStage.SERVER_PRE);
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, expired::hasTimeLeft, target -> PrepareResult.PROCEED,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) { return true; }
+                    @Override public boolean execute(ChainTarget target) { return true; }
+                });
+
+        Assert.assertEquals(0, result.getProcessedTargets());
+        Assert.assertEquals(2, context.getTargets().size());
+        Assert.assertEquals(0, context.getExecutionConsumedCount());
+        Assert.assertFalse(ChainExecutionEventBridge.shouldAdvanceOrdinaryCursor(false, result, expired));
+    }
+
+    @Test
+    public void targetTransactionCompletesBeforeExpiredDeadlineIsObserved() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, targets(2), null);
+        AtomicInteger deadlineChecks = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result = ChainExecutionEventBridge.consumeOrdinaryTargets(
+                context, () -> deadlineChecks.getAndIncrement() == 0,
+                target -> PrepareResult.PROCEED,
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) { return true; }
+                    @Override public boolean execute(ChainTarget target) {
+                        executeCalls.incrementAndGet();
+                        return true;
+                    }
+                });
+
+        Assert.assertEquals(1, result.getProcessedTargets());
+        Assert.assertEquals(1, result.getExecutedTargets());
+        Assert.assertEquals(1, executeCalls.get());
+        Assert.assertEquals("deadline 只能阻止下一事务，不得回滚已 poll 的目标", 1,
+                context.getTargets().size());
+    }
+
+    @Test
+    public void roundRobinSnapshotStartsAfterLastServedPlayer() {
+        UUID first = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID second = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID third = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        List<ChainExecutionContext> unordered = new ArrayList<ChainExecutionContext>();
+        unordered.add(new ChainExecutionContext(second, 1, targets(1), null));
+        unordered.add(new ChainExecutionContext(first, 1, targets(1), null));
+        unordered.add(new ChainExecutionContext(third, 1, targets(1), null));
+
+        List<ChainExecutionContext> ordered =
+                ChainExecutionEventBridge.roundRobinSnapshot(unordered, second);
+
+        Assert.assertEquals(third, ordered.get(0).getPlayerUUID());
+        Assert.assertEquals(first, ordered.get(1).getPlayerUUID());
+        Assert.assertEquals(second, ordered.get(2).getPlayerUUID());
+    }
+
+    @Test
+    public void absoluteNanoDeadlineStopsBeforeSecondOrdinaryTarget() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, targets(2), null);
+        long start = System.nanoTime();
+        ParallelTickContext budget = new ParallelTickContext(
+                81L, start, start + 100000000L, ParallelTickStage.SERVER_PRE);
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.OrdinaryTickResult result =
+                ChainExecutionEventBridge.consumeOrdinaryTargets(
+                        context,
+                        budget::hasTimeLeft,
+                        target -> PrepareResult.PROCEED,
+                        new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                            @Override
+                            public boolean canExecute(ChainTarget target) {
+                                return true;
+                            }
+
+                            @Override
+                            public boolean execute(ChainTarget target) {
+                                executeCalls.incrementAndGet();
+                                while (budget.hasTimeLeft()) {
+                                    LockSupport.parkNanos(100000L);
+                                }
+                                return true;
+                            }
+                        });
+
+        Assert.assertEquals(1, result.getProcessedTargets());
+        Assert.assertEquals(1, result.getExecutedTargets());
+        Assert.assertEquals(1, executeCalls.get());
+        Assert.assertEquals("绝对 deadline 到期后不得开始第二个目标事务", 1,
+                context.getTargets().size());
+    }
+
+    @Test
+    public void expiredDeadlineStillVisitsEveryContextBeforeModeSpecificGate() {
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        ChainExecutionContext first = new ChainExecutionContext(
+                UUID.fromString("00000000-0000-0000-0000-000000000011"), 1101L, 1, targets(1), null);
+        ChainExecutionContext second = new ChainExecutionContext(
+                UUID.fromString("00000000-0000-0000-0000-000000000012"), 1102L, 2, targets(1), null);
+        registry.put(first);
+        registry.put(second);
+        List<ChainExecutionContext> visited = new ArrayList<ChainExecutionContext>();
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(new ChainEventBus(), registry) {
+            @Override
+            boolean consumeContext(ChainExecutionContext context, TickTimeBudget budget) {
+                Assert.assertFalse(budget.hasTimeLeft());
+                visited.add(context);
+                return false;
+            }
+        };
+        ParallelTickContext expired = new ParallelTickContext(81L, 0L, 0L, ParallelTickStage.SERVER_PRE);
+
+        bridge.consumeScheduledContexts(expired);
+
+        Assert.assertEquals(2, visited.size());
+        Assert.assertTrue(visited.contains(first));
+        Assert.assertTrue(visited.contains(second));
+    }
+
+    @Test
+    public void deadlineDeferredContextsDoNotAdvanceRoundRobinCursor() {
+        UUID firstId = UUID.fromString("00000000-0000-0000-0000-000000000021");
+        UUID secondId = UUID.fromString("00000000-0000-0000-0000-000000000022");
+        UUID thirdId = UUID.fromString("00000000-0000-0000-0000-000000000023");
+        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+        registry.put(new ChainExecutionContext(firstId, 1201L, 1, targets(1), null));
+        registry.put(new ChainExecutionContext(secondId, 1202L, 2, targets(1), null));
+        registry.put(new ChainExecutionContext(thirdId, 1203L, 3, targets(1), null));
+        List<UUID> visited = new ArrayList<UUID>();
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(new ChainEventBus(), registry) {
+            @Override
+            boolean consumeContext(ChainExecutionContext context, TickTimeBudget budget) {
+                visited.add(context.getPlayerUUID());
+                return budget.hasTimeLeft();
+            }
+        };
+        AtomicInteger checks = new AtomicInteger();
+
+        bridge.consumeScheduledContexts(timeBudget(() -> checks.getAndIncrement() == 0));
+        visited.clear();
+        bridge.consumeScheduledContexts(timeBudget(() -> true));
+
+        Assert.assertEquals(secondId, visited.get(0));
+        Assert.assertEquals(java.util.Arrays.asList(secondId, thirdId, firstId), visited);
     }
 
     @Test
@@ -733,18 +979,80 @@ public class ChainExecutionEventBridgeTest {
     }
 
     @Test
-    public void gtCableAtomicBranchKeepsPlannerWaitPrecheckAndSingleTickLoop() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge.java").toPath()),
-                StandardCharsets.UTF_8);
-        int gtBranch = source.indexOf("if (waitForPlanner)");
-        int ordinaryBranch = source.indexOf("// ===== 非 GT", gtBranch);
-        Assert.assertTrue(gtBranch >= 0 && ordinaryBranch > gtBranch);
-        String gt = source.substring(gtBranch, ordinaryBranch);
-        Assert.assertTrue(gt.contains("if (!context.isPlanningComplete())"));
-        Assert.assertTrue(gt.contains("precheckCableReplacement(player, session, context)"));
-        Assert.assertTrue(gt.contains("while (true)"));
-        Assert.assertTrue(gt.contains("cable-atomic-complete:"));
+    public void truncatedGtPlanDoesNotPrecheckOrCallTargetExecutor() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, targets(2), null);
+        Assert.assertTrue(context.tryCompletePlanningAndPublish(2, true, () -> { }));
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(
+                new ChainEventBus(), new ChainExecutionContextRegistry());
+        AtomicInteger precheckCalls = new AtomicInteger();
+        AtomicInteger canExecuteCalls = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.CableDrainResult result = bridge.consumeGregTechCableTargets(
+                context,
+                () -> {
+                    precheckCalls.incrementAndGet();
+                    return null;
+                },
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        canExecuteCalls.incrementAndGet();
+                        return true;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        executeCalls.incrementAndGet();
+                        return true;
+                    }
+                });
+
+        Assert.assertNotNull(result.getPrecheckFailure());
+        Assert.assertEquals(0, precheckCalls.get());
+        Assert.assertEquals(0, canExecuteCalls.get());
+        Assert.assertEquals(0, executeCalls.get());
+        Assert.assertEquals(2, context.getTargets().size());
+        Assert.assertEquals(0, context.getExecutionConsumedCount());
+        Assert.assertEquals(0, context.getExecutionSucceededCount());
+        Assert.assertFalse(ChainExecutionEventBridge.shouldAdvanceOrdinaryCursor(
+                true, null, timeBudget(() -> true)));
+    }
+
+    @Test
+    public void gtCableAtomicDrainConsumesEntireQueueAfterPrecheck() {
+        ChainExecutionContext context = new ChainExecutionContext(PLAYER, 3, targets(3), null);
+        Assert.assertTrue(context.tryCompletePlanningAndPublish(3, false, () -> { }));
+        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(
+                new ChainEventBus(), new ChainExecutionContextRegistry());
+        AtomicInteger precheckCalls = new AtomicInteger();
+        AtomicInteger canExecuteCalls = new AtomicInteger();
+        AtomicInteger executeCalls = new AtomicInteger();
+
+        ChainExecutionEventBridge.CableDrainResult result = bridge.consumeGregTechCableTargets(
+                context,
+                () -> {
+                    precheckCalls.incrementAndGet();
+                    return null;
+                },
+                new ChainExecutionEventBridge.OrdinaryTargetExecutor() {
+                    @Override public boolean canExecute(ChainTarget target) {
+                        canExecuteCalls.incrementAndGet();
+                        return true;
+                    }
+                    @Override public boolean execute(ChainTarget target) {
+                        executeCalls.incrementAndGet();
+                        return true;
+                    }
+                });
+
+        Assert.assertNull(result.getPrecheckFailure());
+        Assert.assertEquals(3, result.getTotalTargets());
+        Assert.assertEquals(3, result.getExecutedTargets());
+        Assert.assertEquals(0, result.getFailedTargets());
+        Assert.assertEquals(1, precheckCalls.get());
+        Assert.assertEquals(3, canExecuteCalls.get());
+        Assert.assertEquals(3, executeCalls.get());
+        Assert.assertTrue(context.getTargets().isEmpty());
+        Assert.assertEquals(3, context.getExecutionConsumedCount());
+        Assert.assertEquals(3, context.getExecutionSucceededCount());
     }
 
     private static void assertGateDoesNotConsume(PrepareResult gate) {
@@ -765,6 +1073,21 @@ public class ChainExecutionEventBridgeTest {
         ConcurrentLinkedQueue<ChainTarget> queue = new ConcurrentLinkedQueue<ChainTarget>();
         for (int index = 0; index < count; index++) queue.add(new ChainTarget(index, 64, 0));
         return queue;
+    }
+
+    private static BooleanSupplier allowTargetStarts(int count) {
+        AtomicInteger remaining = new AtomicInteger(Math.max(0, count));
+        return () -> remaining.getAndDecrement() > 0;
+    }
+
+    private static TickTimeBudget timeBudget(BooleanSupplier hasTimeLeft) {
+        return new TickTimeBudget() {
+            @Override public long getTickId() { return 1L; }
+            @Override public long getStartNanoTime() { return 0L; }
+            @Override public long getDeadlineNanoTime() { return 0L; }
+            @Override public long getElapsedNanoTime() { return 0L; }
+            @Override public boolean hasTimeLeft() { return hasTimeLeft.getAsBoolean(); }
+        };
     }
 
     private static ChainExecutionEventBridge.OrdinaryTargetExecutor neverExecutingTarget() {

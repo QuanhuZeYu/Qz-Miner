@@ -85,6 +85,50 @@ public class ConfigSemanticValidatorTest {
     }
 
     @Test
+    public void tickBudgetAboveSoftDeadlineRangeIsStrictlyRejected() throws Exception {
+        assertInvalidTransaction(new DraftMutation() {
+            @Override
+            public void mutate(DraftBuffer draft) {
+                draft.setDraft("general.tickBudgetMs", Double.valueOf(41.0D));
+            }
+        }, "general.tickBudgetMs", Double.valueOf(41.0D));
+    }
+
+    @Test
+    public void tickBudgetBelowSoftDeadlineRangeIsStrictlyRejected() throws Exception {
+        assertInvalidTransaction(new DraftMutation() {
+            @Override
+            public void mutate(DraftBuffer draft) {
+                draft.setDraft("general.tickBudgetMs", Double.valueOf(0.0D));
+            }
+        }, "general.tickBudgetMs", Double.valueOf(0.0D));
+    }
+
+    @Test
+    public void fractionalTickBudgetIsStrictlyRejected() throws Exception {
+        assertInvalidTransaction(new DraftMutation() {
+            @Override
+            public void mutate(DraftBuffer draft) {
+                draft.setDraft("general.tickBudgetMs", Double.valueOf(1.5D));
+            }
+        }, "general.tickBudgetMs", Double.valueOf(1.5D));
+    }
+
+    @Test
+    public void tickBudgetInclusiveBoundsAreAccepted() throws Exception {
+        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        DraftBuffer minimum = manager.openDraft();
+        minimum.setDraft("general.tickBudgetMs", Double.valueOf(1.0D));
+        Assert.assertTrue(manager.save(minimum).isSuccess());
+        Assert.assertEquals(Double.valueOf(1.0D), manager.authority().get("general.tickBudgetMs"));
+
+        DraftBuffer maximum = manager.openDraft();
+        maximum.setDraft("general.tickBudgetMs", Double.valueOf(40.0D));
+        Assert.assertTrue(manager.save(maximum).isSuccess());
+        Assert.assertEquals(Double.valueOf(40.0D), manager.authority().get("general.tickBudgetMs"));
+    }
+
+    @Test
     public void selectorErrorsPointToExactIndexAndDuplicatesUseCanonicalText() throws Exception {
         ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
         DraftBuffer draft = manager.openDraft();
@@ -204,7 +248,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 23 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
+    /** 全 19 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 
@@ -218,18 +262,15 @@ public class ConfigSemanticValidatorTest {
             values.add(Integer.valueOf(Config.chainRadius));
             values.add(Integer.valueOf(Config.chainMaxBlocks));
             values.add(Integer.valueOf(Config.chainLoggingShellLayers));
-            values.add(Integer.valueOf(Config.maxBreakPerTick));
             values.add(Integer.valueOf(Config.cableReplaceMaxPerTick));
             values.add(Integer.valueOf(Config.chainWatchdogTimeoutTicks));
-            values.add(Integer.valueOf(Config.parallelTickMinDurationMs));
-            values.add(Integer.valueOf(Config.parallelTickServerWorkBudgetUnits));
+            values.add(Integer.valueOf(Config.tickBudgetMs));
             values.add(Boolean.valueOf(Config.enableUnlimitedOreFortune));
             values.add(Boolean.valueOf(Config.enableFortuneForPlacedOre));
             values.add(Boolean.valueOf(Config.clientEnablePreviewRender));
             values.add(Config.tunnelDirectionSource);
             values.add(Boolean.valueOf(Config.autoToolSwapEnabled));
             values.add(Config.autoToolPrioritySelectors);
-            values.add(Integer.valueOf(Config.parallelTickClientWorkBudgetUnits));
             values.add(Integer.valueOf(Config.clientPreviewMaxRadius));
             values.add(Integer.valueOf(Config.clientPreviewMaxTargets));
             values.add(Double.valueOf(Config.clientPreviewAlphaFadeStartRadius));
@@ -255,18 +296,15 @@ public class ConfigSemanticValidatorTest {
         Config.chainRadius = QzMinerConfigDefaults.CHAIN_RADIUS;
         Config.chainMaxBlocks = QzMinerConfigDefaults.CHAIN_MAX_BLOCKS;
         Config.chainLoggingShellLayers = QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS;
-        Config.maxBreakPerTick = QzMinerConfigDefaults.MAX_BREAK_PER_TICK;
         Config.cableReplaceMaxPerTick = QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK;
         Config.chainWatchdogTimeoutTicks = QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS;
-        Config.parallelTickMinDurationMs = QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS;
-        Config.parallelTickServerWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS;
+        Config.tickBudgetMs = QzMinerConfigDefaults.TICK_BUDGET_MS;
         Config.enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
         Config.enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
         Config.clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
         Config.tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
         Config.autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
         Config.autoToolPrioritySelectors = java.util.Collections.emptyList();
-        Config.parallelTickClientWorkBudgetUnits = QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
         Config.clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
         Config.clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;
         Config.clientPreviewAlphaFadeStartRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS;

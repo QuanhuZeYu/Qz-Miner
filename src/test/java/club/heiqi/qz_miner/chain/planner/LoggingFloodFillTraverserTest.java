@@ -70,13 +70,13 @@ public class LoggingFloodFillTraverserTest {
         Assert.assertEquals(3, outcome.context.getConfirmedCount());
     }
 
-    /** 每片仅一个工作单位时应跨分片恢复，并与充足预算得到完全相同的结果。 */
+    /** 很短 deadline checkpoint 窗口应跨分片恢复，并与充足窗口得到完全相同的结果。 */
     @Test
     public void lowBudgetSlicesMatchSingleSliceTraversal() {
         Set<ChainTarget> candidates = setOf(A, B, C);
 
         TraversalOutcome fullBudget = traverse(4096, candidates, target -> !B.equals(target));
-        TraversalOutcome oneUnitSlices = traverse(1, candidates, target -> !B.equals(target));
+        TraversalOutcome oneUnitSlices = traverse(8, candidates, target -> !B.equals(target));
 
         Assert.assertTrue("低预算必须实际跨越多个分片", oneUnitSlices.slices > 1);
         Assert.assertEquals(fullBudget.accepted, oneUnitSlices.accepted);
@@ -84,7 +84,42 @@ public class LoggingFloodFillTraverserTest {
         Assert.assertEquals(fullBudget.context.getVisited(), oneUnitSlices.context.getVisited());
     }
 
-    private static TraversalOutcome traverse(int workBudget, Set<ChainTarget> candidates,
+    @Test
+    public void visitedOnlySlicesAdvanceDurableProgressRevision() {
+        ConcurrentLinkedQueue<ChainTarget> current = new ConcurrentLinkedQueue<ChainTarget>();
+        ConcurrentLinkedQueue<ChainTarget> next = new ConcurrentLinkedQueue<ChainTarget>();
+        Set<ChainTarget> visited = new HashSet<ChainTarget>();
+        for (int x = -4; x <= 4; x++) {
+            for (int y = -4; y <= 4; y++) {
+                for (int z = -4; z <= 4; z++) {
+                    visited.add(new ChainTarget(ORIGIN.getX() + x, ORIGIN.getY() + y, ORIGIN.getZ() + z));
+                }
+            }
+        }
+        ChainSearchContext context = new ChainSearchContext(null, ORIGIN, null, 0, null,
+                ChainSubMode.CHAIN_LOGGING, 16, 16, current, next, visited);
+        context.setCandidateFilter(target -> true);
+        LoggingFloodFillTraverser traverser = new LoggingFloodFillTraverser(4);
+        traverser.seed(context);
+
+        int yieldedSlices = 0;
+        for (int slice = 0; slice < 1024; slice++) {
+            long before = context.getProgressRevision();
+            TraversalStepResult result = traverser.step(
+                    context, new SliceControl(8), target -> true, target -> Assert.fail("visited target submitted"));
+            if (result == TraversalStepResult.COMPLETED) {
+                Assert.assertTrue("测试必须实际覆盖多个仅 visited-skip 的 deadline 分片", yieldedSlices > 1);
+                return;
+            }
+            Assert.assertEquals(TraversalStepResult.YIELDED, result);
+            Assert.assertTrue("已持久化的 visited-skip 游标必须刷新 durable progress",
+                    context.getProgressRevision() > before);
+            yieldedSlices++;
+        }
+        Assert.fail("visited-only 遍历未在安全分片上限内完成");
+    }
+
+    private static TraversalOutcome traverse(int checkpointBudget, Set<ChainTarget> candidates,
             ChainTargetMatcher matcher) {
         ConcurrentLinkedQueue<ChainTarget> current = new ConcurrentLinkedQueue<ChainTarget>();
         ConcurrentLinkedQueue<ChainTarget> next = new ConcurrentLinkedQueue<ChainTarget>();
@@ -98,7 +133,7 @@ public class LoggingFloodFillTraverserTest {
 
         for (int slice = 1; slice <= 4096; slice++) {
             TraversalStepResult result = traverser.step(
-                    context, new SliceControl(workBudget), matcher, accepted::add);
+                    context, new SliceControl(checkpointBudget), matcher, accepted::add);
             if (result == TraversalStepResult.COMPLETED) {
                 return new TraversalOutcome(context, accepted, slice);
             }
@@ -124,26 +159,19 @@ public class LoggingFloodFillTraverserTest {
         }
     }
 
-    /** 每次 step 独立提供固定工作量，模拟 ParallelTick 的跨 tick 分片。 */
+    /** 每次 step 独立提供固定 checkpoint 窗口，模拟 deadline 跨 tick 恢复。 */
     private static final class SliceControl implements ParallelTickControl {
         private int remaining;
 
-        private SliceControl(int workBudget) {
-            this.remaining = Math.max(0, workBudget);
+        private SliceControl(int checkpointBudget) {
+            this.remaining = Math.max(0, checkpointBudget);
         }
 
         @Override public long getTickId() { return 1L; }
         @Override public ParallelTickStage getStage() { return ParallelTickStage.SERVER_PRE; }
         @Override public boolean isWindowOpen() { return true; }
         @Override public boolean isCancelRequested() { return false; }
-        @Override public boolean shouldYield() { return remaining <= 0; }
-
-        @Override
-        public boolean tryConsumeWork(int units) {
-            if (units < 0 || units > remaining) return false;
-            remaining -= units;
-            return true;
-        }
+        @Override public boolean shouldYield() { return remaining-- <= 0; }
 
         @Override public long getElapsedNanoTime() { return 0L; }
         @Override public String getCancelReason() { return ""; }

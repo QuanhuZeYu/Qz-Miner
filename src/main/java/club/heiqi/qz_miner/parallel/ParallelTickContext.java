@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.parallel;
 /**
  * 并行 Tick 上下文。
  */
-public final class ParallelTickContext {
+public final class ParallelTickContext implements TickTimeBudget {
 
     private final long tickId;
     private final long startNanoTime;
@@ -20,6 +20,7 @@ public final class ParallelTickContext {
     /**
      * @return 当前逻辑服务器 Tick 编号
      */
+    @Override
     public long getTickId() {
         return tickId;
     }
@@ -27,6 +28,7 @@ public final class ParallelTickContext {
     /**
      * @return 当前 Tick 开始时间
      */
+    @Override
     public long getStartNanoTime() {
         return startNanoTime;
     }
@@ -34,6 +36,7 @@ public final class ParallelTickContext {
     /**
      * @return 当前 Tick 已运行的纳秒数
      */
+    @Override
     public long getElapsedNanoTime() {
         return System.nanoTime() - startNanoTime;
     }
@@ -41,6 +44,7 @@ public final class ParallelTickContext {
     /**
      * @return 当前 Tick 并行窗口结束时间
      */
+    @Override
     public long getDeadlineNanoTime() {
         return deadlineNanoTime;
     }
@@ -55,6 +59,7 @@ public final class ParallelTickContext {
     /**
      * @return 当前窗口是否还有剩余时间
      */
+    @Override
     public boolean hasTimeLeft() {
         return System.nanoTime() < deadlineNanoTime;
     }

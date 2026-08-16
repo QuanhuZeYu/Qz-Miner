@@ -24,11 +24,9 @@ public final class ServerConfigMutationService {
                     "general.chainRadius",
                     "general.chainMaxBlocks",
                     "general.chainLoggingShellLayers",
-                    "general.maxBreakPerTick",
                     "general.cableReplaceMaxPerTick",
                     "general.chainWatchdogTimeoutTicks",
-                    "general.parallelTickMinDurationMs",
-                    "general.parallelTickServerWorkBudgetUnits",
+                    "general.tickBudgetMs",
                     "general.enableUnlimitedOreFortune",
                     "general.enableFortuneForPlacedOre")));
 

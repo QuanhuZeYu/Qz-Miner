@@ -83,7 +83,7 @@ public class ChainPlanningConfirmedCountContractTest {
 
         String preview = read(
                 "src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java");
-        int originAdd = preview.indexOf("previewState.addPreviewTarget(target)");
+        int originAdd = preview.indexOf("previewState.addPreviewTarget(generation, target)");
         int originCount = preview.indexOf("searchContext.incrementConfirmedCount()", originAdd);
         int traverserSeed = preview.indexOf("traverser.seed(searchContext)", originCount);
         Assert.assertTrue("预览 origin 仍须在 traverser seed 前单独计入投影",
@@ -126,27 +126,19 @@ public class ChainPlanningConfirmedCountContractTest {
         return new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8);
     }
 
-    /** 每个 step 独立提供固定工作预算。 */
+    /** 每个 step 独立提供固定 deadline checkpoint 数。 */
     private static final class SliceControl implements ParallelTickControl {
         private int remaining;
 
-        private SliceControl(int workBudget) {
-            remaining = Math.max(0, workBudget);
+        private SliceControl(int checkpointBudget) {
+            remaining = Math.max(0, checkpointBudget);
         }
 
         @Override public long getTickId() { return 1L; }
         @Override public ParallelTickStage getStage() { return ParallelTickStage.SERVER_PRE; }
         @Override public boolean isWindowOpen() { return true; }
         @Override public boolean isCancelRequested() { return false; }
-        @Override public boolean shouldYield() { return remaining <= 0; }
-
-        @Override
-        public boolean tryConsumeWork(int units) {
-            if (units <= 0) return true;
-            if (units > remaining) return false;
-            remaining -= units;
-            return true;
-        }
+        @Override public boolean shouldYield() { return remaining-- <= 0; }
 
         @Override public long getElapsedNanoTime() { return 0L; }
         @Override public String getCancelReason() { return ""; }
@@ -159,7 +151,6 @@ public class ChainPlanningConfirmedCountContractTest {
         @Override public boolean isWindowOpen() { return true; }
         @Override public boolean isCancelRequested() { return true; }
         @Override public boolean shouldYield() { return true; }
-        @Override public boolean tryConsumeWork(int units) { return false; }
         @Override public long getElapsedNanoTime() { return 0L; }
         @Override public String getCancelReason() { return "fixture-cancelled"; }
     }

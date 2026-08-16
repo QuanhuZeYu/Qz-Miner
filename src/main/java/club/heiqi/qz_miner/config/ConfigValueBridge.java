@@ -42,11 +42,9 @@ public final class ConfigValueBridge {
         Config.chainRadius = snapshot.chainRadius;
         Config.chainMaxBlocks = snapshot.chainMaxBlocks;
         Config.chainLoggingShellLayers = snapshot.chainLoggingShellLayers;
-        Config.maxBreakPerTick = snapshot.maxBreakPerTick;
         Config.cableReplaceMaxPerTick = snapshot.cableReplaceMaxPerTick;
         Config.chainWatchdogTimeoutTicks = snapshot.chainWatchdogTimeoutTicks;
-        Config.parallelTickMinDurationMs = snapshot.parallelTickMinDurationMs;
-        Config.parallelTickServerWorkBudgetUnits = snapshot.parallelTickServerWorkBudgetUnits;
+        Config.tickBudgetMs = snapshot.tickBudgetMs;
         Config.enableUnlimitedOreFortune = snapshot.enableUnlimitedOreFortune;
         Config.enableFortuneForPlacedOre = snapshot.enableFortuneForPlacedOre;
     }
@@ -65,7 +63,6 @@ public final class ConfigValueBridge {
         Config.autoToolSwapEnabled = snapshot.autoToolSwapEnabled;
         Config.autoToolPrioritySelectors = Collections.unmodifiableList(
                 new ArrayList<club.heiqi.qz_miner.toolswap.ToolSelector>(snapshot.autoToolPrioritySelectors));
-        Config.parallelTickClientWorkBudgetUnits = snapshot.parallelTickClientWorkBudgetUnits;
         Config.clientPreviewMaxRadius = snapshot.clientPreviewMaxRadius;
         Config.clientPreviewMaxTargets = snapshot.clientPreviewMaxTargets;
         Config.clientPreviewAlphaFadeStartRadius = snapshot.clientPreviewAlphaFadeStartRadius;

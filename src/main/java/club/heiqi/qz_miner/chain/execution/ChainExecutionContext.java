@@ -24,7 +24,7 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
  *
  * <h3>守 NORTH_STAR 不变量</h3>
  * <ul>
- *   <li><b>I1</b>：本类只承载数据（队列 + 代际 + 节流戳 + session），<b>不</b>触碰世界、
+ *   <li><b>I1</b>：本类只承载数据（队列 + 代际 + session），<b>不</b>触碰世界、
  *       <b>不</b>切执行态、<b>不</b>调任何破坏方块 API。真实破坏发生在主线程消费订阅者
  *       （{@link ChainExecutionEventBridge#onServerTick} ServerTickEvent.START）经
  *       {@link club.heiqi.qz_miner.chain.executor.ChainActionExecutor#execute} 调起，
@@ -75,13 +75,6 @@ public final class ChainExecutionContext {
     /** round 级有界规划诊断器；仅持有纯值计数与文本快照。 */
     private final club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics;
     /**
-     * 独立节流字段：下次允许执行器消费的毫秒戳。
-     *
-     * <p>真实破坏桥在 {@code executed>0} 时 set 本字段为 {@code now+50}（对齐旧 ChainExecutor 控速）。</p>
-     */
-    private volatile long nextExecutorAllowedMillis;
-
-    /**
      * 流式执行标志：worker 是否已完成影子遍历（所有 confirmed target 已 shadowQueue.add）。
      *
      * <p>流式语义（C 修复）：</p>
@@ -99,6 +92,8 @@ public final class ChainExecutionContext {
     private volatile boolean planningComplete;
     /** worker 完成时冻结的确认目标数。 */
     private volatile int planningConfirmedCount;
+    /** worker 是否确认仍存在第一个无法纳入安全上限的目标。 */
+    private volatile boolean planningTargetLimitExceeded;
     /** 主线程已从执行队列消费的目标数。 */
     private int executionConsumedCount;
     /** 主线程实际成功执行的额外目标数。 */
@@ -153,9 +148,9 @@ public final class ChainExecutionContext {
         this.targets = targets;
         this.session = session;
         this.diagnostics = diagnostics;
-        this.nextExecutorAllowedMillis = 0L;
         this.planningComplete = false;
         this.planningConfirmedCount = 0;
+        this.planningTargetLimitExceeded = false;
     }
 
     /** 标记 worker 影子遍历完成（worker 完成路径调用，主线程消费订阅者据此判定可否 publish ExecutionFinished）。 */
@@ -165,7 +160,7 @@ public final class ChainExecutionContext {
 
     /** 冻结 worker 确认数并标记规划完成。 */
     public void markPlanningComplete(int confirmedCount) {
-        tryCompletePlanningAndPublish(confirmedCount, new Runnable() {
+        tryCompletePlanningAndPublish(confirmedCount, false, new Runnable() {
             @Override
             public void run() {
             }
@@ -238,11 +233,18 @@ public final class ChainExecutionContext {
      * {@link RuntimeException} 或 {@link LinkageError} 时同样保持 ACTIVE，由规划桥负责发布
      * 固定原因的 PlanCancelled。</p>
      */
-    public synchronized boolean tryCompletePlanningAndPublish(int confirmedCount, Runnable publication) {
+    public boolean tryCompletePlanningAndPublish(int confirmedCount, Runnable publication) {
+        return tryCompletePlanningAndPublish(confirmedCount, false, publication);
+    }
+
+    /** 同一完成线性化点冻结 GT 等特殊规划的目标上限截断事实。 */
+    public synchronized boolean tryCompletePlanningAndPublish(int confirmedCount,
+            boolean targetLimitExceeded, Runnable publication) {
         if (publication == null) throw new IllegalArgumentException("completion publication must not be null");
         if (planningTerminal != PlanningTerminal.ACTIVE) return false;
         publication.run();
         planningConfirmedCount = Math.max(0, confirmedCount);
+        planningTargetLimitExceeded = targetLimitExceeded;
         planningTerminal = PlanningTerminal.COMPLETED;
         // 最后写 volatile 标志，确保主线程不会在 PlanCompleted publication 之前观察到完成。
         planningComplete = true;
@@ -319,6 +321,11 @@ public final class ChainExecutionContext {
         return planningConfirmedCount;
     }
 
+    /** @return 完成的规划是否确认目标集合被安全上限截断 */
+    public boolean isPlanningTargetLimitExceeded() {
+        return planningTargetLimitExceeded;
+    }
+
     /** 记录主线程从队列消费一个目标。 */
     public void recordExecutionConsumed() {
         executionConsumedCount++;
@@ -355,22 +362,6 @@ public final class ChainExecutionContext {
     }
 
     /**
-     * @return 下次允许执行器消费的毫秒戳
-     */
-    public long getNextExecutorAllowedMillis() {
-        return nextExecutorAllowedMillis;
-    }
-
-    /**
-     * 设置下次允许消费的毫秒戳（真实破坏桥 executed>0 时设 now+50 控速）。
-     *
-     * @param nextExecutorAllowedMillis 毫秒戳
-     */
-    public void setNextExecutorAllowedMillis(long nextExecutorAllowedMillis) {
-        this.nextExecutorAllowedMillis = nextExecutorAllowedMillis;
-    }
-
-    /**
      * 执行是否已完成（流式语义）。
      *
      * <p>流式语义（C 修复）：返回 {@code planningComplete && targets.isEmpty()}，
@@ -390,16 +381,4 @@ public final class ChainExecutionContext {
         return planningComplete && targets.isEmpty();
     }
 
-    /**
-     * 控速闸门：当前时间戳是否已到下次允许执行戳。
-     *
-     * <p>真实破坏桥在 while 循环前调用本方法判定；未到则 return 留下一 tick 再判。
-     * 控速语义对齐旧 {@code ChainExecutor:89-110}。</p>
-     *
-     * @param nowMillis 当前毫秒戳（System.currentTimeMillis()）
-     * @return true 表示已到允许时刻，可进入破坏循环
-     */
-    public boolean isExecutorReady(long nowMillis) {
-        return nowMillis >= nextExecutorAllowedMillis;
-    }
 }

@@ -132,6 +132,8 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertTrue(source.contains("context.isExternalPlanningCancellationRequested()"));
         Assert.assertTrue(source.contains("tryCompletePlanningAndPublish"));
         Assert.assertTrue(source.contains("publishPlanningProgressIfActive"));
+        Assert.assertTrue("无 durable progress 的 YIELDED 不得给 watchdog 续命",
+                source.contains("searchContext.getProgressRevision() != progressRevisionBefore"));
         Assert.assertTrue(source.contains("cancelPlanningAndPublishIfActive"));
         Assert.assertTrue("PlanStarted 必须只按顶层 CHAIN 冻结工具能力",
                 source.contains("ChainPlanningRuntimeFactory.usesFrozenToolCapabilities(mode)"));

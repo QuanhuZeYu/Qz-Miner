@@ -31,14 +31,6 @@ public interface ParallelTickControl {
     boolean shouldYield();
 
     /**
-     * 尝试消耗工作量预算。
-     *
-     * @param units 本次工作消耗的预算单位
-     * @return 预算足够且当前仍可继续工作时返回 true
-     */
-    boolean tryConsumeWork(int units);
-
-    /**
      * @return 当前 Tick 已运行的纳秒数
      */
     long getElapsedNanoTime();

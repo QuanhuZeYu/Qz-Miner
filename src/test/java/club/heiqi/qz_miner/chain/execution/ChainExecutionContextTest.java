@@ -109,16 +109,6 @@ public class ChainExecutionContextTest {
         Assert.assertSame(queue, context.getTargets());
     }
 
-    /** nextExecutorAllowedMillis 节流字段默认 0，可读写（阶段8 块2 起真实破坏桥控速复用）。 */
-    @Test
-    public void throttleFieldDefaultZeroAndMutable() {
-        ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1,
-                new ConcurrentLinkedQueue<ChainTarget>(), null);
-        Assert.assertEquals(0L, context.getNextExecutorAllowedMillis());
-        context.setNextExecutorAllowedMillis(12345L);
-        Assert.assertEquals(12345L, context.getNextExecutorAllowedMillis());
-    }
-
     /** 目标局部跳过计数独立于 consumed/succeeded，并从零单调增加。 */
     @Test
     public void skippedTargetCountIsObservableAndIndependent() {
@@ -132,19 +122,6 @@ public class ChainExecutionContextTest {
         Assert.assertEquals(1, context.getExecutionConsumedCount());
         Assert.assertEquals(2, context.getExecutionSkippedCount());
         Assert.assertEquals(0, context.getExecutionSucceededCount());
-    }
-
-    /** isExecutorReady 控速闸门：未到允许戳返回 false，已到或越过返回 true。 */
-    @Test
-    public void isExecutorReadyThrottleGate() {
-        ChainExecutionContext context = new ChainExecutionContext(PLAYER_A, 1,
-                new ConcurrentLinkedQueue<ChainTarget>(), null);
-        // 默认 0L，任意正数时间戳都应就绪
-        Assert.assertTrue("默认戳 0，nowMillis=100 应已就绪", context.isExecutorReady(100L));
-        context.setNextExecutorAllowedMillis(500L);
-        Assert.assertFalse("nowMillis=499 < 500，应未就绪", context.isExecutorReady(499L));
-        Assert.assertTrue("nowMillis=500 = 500，应就绪", context.isExecutorReady(500L));
-        Assert.assertTrue("nowMillis=501 > 500，应就绪", context.isExecutorReady(501L));
     }
 
     /**
@@ -194,6 +171,17 @@ public class ChainExecutionContextTest {
         Assert.assertTrue(context.observePlanningCompletionAndShouldStop());
         Assert.assertEquals(ChainExecutionContext.PlanningStopResult.COMPLETION_OBSERVED,
                 context.requestPlanningStop());
+    }
+
+    @Test
+    public void completionFreezesTargetLimitExceededFact() {
+        ChainExecutionContext context = context();
+
+        Assert.assertTrue(context.tryCompletePlanningAndPublish(7, true, () -> { }));
+
+        Assert.assertTrue(context.isPlanningComplete());
+        Assert.assertEquals(7, context.getPlanningConfirmedCount());
+        Assert.assertTrue(context.isPlanningTargetLimitExceeded());
     }
 
     /** publication 返回前不得对主线程暴露完成标志或空队列终态。 */

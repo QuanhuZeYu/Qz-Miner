@@ -12,17 +12,16 @@ public final class QzMinerConfigDefaults {
     public static final int CHAIN_RADIUS = 8;
     public static final int CHAIN_MAX_BLOCKS = 1024;
     public static final int CHAIN_LOGGING_SHELL_LAYERS = 1;
-    public static final int MAX_BREAK_PER_TICK = 64;
     public static final int CABLE_REPLACE_MAX_PER_TICK = 1024;
     public static final int CHAIN_WATCHDOG_TIMEOUT_TICKS = 50;
-    public static final int PARALLEL_TICK_MIN_DURATION_MS = 15;
-    public static final int PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS = 640;
+    public static final int TICK_BUDGET_MS = 15;
+    public static final int TICK_BUDGET_MIN_MS = 1;
+    public static final int TICK_BUDGET_MAX_MS = 40;
     public static final boolean ENABLE_UNLIMITED_ORE_FORTUNE = false;
     public static final boolean ENABLE_FORTUNE_FOR_PLACED_ORE = false;
     public static final boolean CLIENT_ENABLE_PREVIEW_RENDER = true;
     public static final String CLIENT_TUNNEL_DIRECTION_SOURCE = "look_direction";
     public static final boolean CLIENT_AUTO_TOOL_SWAP_ENABLED = true;
-    public static final int PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS = 640;
     public static final int CLIENT_PREVIEW_MAX_RADIUS = 16;
     public static final int CLIENT_PREVIEW_MAX_TARGETS = 1024;
     public static final double CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS = 2.0D;
@@ -46,20 +45,15 @@ public final class QzMinerConfigDefaults {
         target.put("general.chainRadius", Double.valueOf(CHAIN_RADIUS));
         target.put("general.chainMaxBlocks", Double.valueOf(CHAIN_MAX_BLOCKS));
         target.put("general.chainLoggingShellLayers", Double.valueOf(CHAIN_LOGGING_SHELL_LAYERS));
-        target.put("general.maxBreakPerTick", Double.valueOf(MAX_BREAK_PER_TICK));
         target.put("general.cableReplaceMaxPerTick", Double.valueOf(CABLE_REPLACE_MAX_PER_TICK));
         target.put("general.chainWatchdogTimeoutTicks", Double.valueOf(CHAIN_WATCHDOG_TIMEOUT_TICKS));
-        target.put("general.parallelTickMinDurationMs", Double.valueOf(PARALLEL_TICK_MIN_DURATION_MS));
-        target.put("general.parallelTickServerWorkBudgetUnits",
-                Double.valueOf(PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS));
+        target.put("general.tickBudgetMs", Double.valueOf(TICK_BUDGET_MS));
         target.put("general.enableUnlimitedOreFortune", Boolean.valueOf(ENABLE_UNLIMITED_ORE_FORTUNE));
         target.put("general.enableFortuneForPlacedOre", Boolean.valueOf(ENABLE_FORTUNE_FOR_PLACED_ORE));
         target.put("client.clientEnablePreviewRender", Boolean.valueOf(CLIENT_ENABLE_PREVIEW_RENDER));
         target.put("client.tunnelDirectionSource", CLIENT_TUNNEL_DIRECTION_SOURCE);
         target.put("client.autoToolSwapEnabled", Boolean.valueOf(CLIENT_AUTO_TOOL_SWAP_ENABLED));
         target.put("client.autoToolPrioritySelectors", java.util.Collections.<String>emptyList());
-        target.put("client.parallelTickClientWorkBudgetUnits",
-                Double.valueOf(PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS));
         target.put("client.clientPreviewMaxRadius", Double.valueOf(CLIENT_PREVIEW_MAX_RADIUS));
         target.put("client.clientPreviewMaxTargets", Double.valueOf(CLIENT_PREVIEW_MAX_TARGETS));
         target.put("client.clientPreviewAlphaFadeStartRadius",

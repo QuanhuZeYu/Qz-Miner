@@ -68,6 +68,11 @@ public final class ChainPlanningRuntimeFactory {
         int requestedMaxBlocks = session.getRequest().getRequestedChainMaxBlocks();
         int effectiveRadius = requestedRadius > 0 ? Math.min(Config.chainRadius, requestedRadius) : Config.chainRadius;
         int effectiveMaxBlocks = requestedMaxBlocks > 0 ? Math.min(Config.chainMaxBlocks, requestedMaxBlocks) : Config.chainMaxBlocks;
+        if (session.getRequest().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
+            // GT 必须证明完整连通分量未被截断；半径不能制造可执行的混压前缀。
+            effectiveRadius = Integer.MAX_VALUE;
+            effectiveMaxBlocks = Math.min(effectiveMaxBlocks, Config.cableReplaceMaxPerTick);
+        }
         ChainSearchContext searchContext = createSearchContext(
             world,
             seedSnapshot,

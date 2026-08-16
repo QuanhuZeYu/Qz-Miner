@@ -21,6 +21,7 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
     private int enqueueY;
     private int enqueueZ;
     private boolean shellEnqueueInProgress;
+    private ChainTarget pendingEnqueueCandidate;
     private ChainTarget currentTarget;
     private CurrentTargetPhase currentTargetPhase = CurrentTargetPhase.CHECK_MATCHER;
 
@@ -79,19 +80,19 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
 
             if (currentTarget == null) {
                 ChainTarget queuedTarget = context.getCurrentFrontier().peek();
-                PlanningCandidateWorkBudget.CommitResult candidateResult =
+                PlanningCandidateGate.CommitResult candidateResult =
                         context.tryCommitPlanningCandidate(control, queuedTarget);
-                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
                     return TraversalStepResult.YIELDED;
                 }
-                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
                     return TraversalStepResult.TERMINATED;
                 }
                 currentTarget = context.getCurrentFrontier().poll();
                 if (currentTarget == null) {
                     continue;
                 }
-                if (candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
                     clearCurrentTarget();
                     continue;
                 }
@@ -99,7 +100,7 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
             }
 
             if (currentTargetPhase == CurrentTargetPhase.CHECK_MATCHER) {
-                if (!control.tryConsumeWork(1)) {
+                if (control.shouldYield()) {
                     return yieldOrTerminate(control);
                 }
                 if (!matcher.matches(currentTarget)) {
@@ -110,7 +111,7 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
                 continue;
             }
 
-            if (!control.tryConsumeWork(1)) {
+            if (control.shouldYield()) {
                 return yieldOrTerminate(control);
             }
             if (control.isCancelRequested()) {
@@ -135,7 +136,7 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
             if (nextDepth > maxDepth) {
                 return TraversalStepResult.COMPLETED;
             }
-            if (!control.tryConsumeWork(1)) {
+            if (control.shouldYield()) {
                 return yieldOrTerminate(control);
             }
             beginShellEnqueue(context, nextDepth);
@@ -149,48 +150,56 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
         int startZ = Math.max(minZ, origin.getZ() - enqueueDepth);
         int endZ = Math.min(maxZ, origin.getZ() + enqueueDepth);
 
+        TraversalStepResult pendingResult = commitPendingEnqueueCandidate(context, control);
+        if (pendingResult != TraversalStepResult.CONTINUE) {
+            return pendingResult;
+        }
+
         for (int x = enqueueX; x <= endX; x++) {
             int yStart = x == enqueueX ? enqueueY : startY;
             for (int y = yStart; y <= endY; y++) {
                 int zStart = x == enqueueX && y == yStart ? enqueueZ : startZ;
                 for (int z = zStart; z <= endZ; z++) {
                     if (!isOnShell(origin, enqueueDepth, x, y, z)) {
-                        if (!control.tryConsumeWork(1)) {
+                        if (control.shouldYield()) {
                             saveCursor(x, y, z);
                             return yieldOrTerminate(control);
                         }
+                        context.recordDurableProgress();
                         continue;
                     }
 
                     ChainTarget candidate = new ChainTarget(x, y, z);
                     if (context.getVisited().contains(candidate)) {
-                        if (!control.tryConsumeWork(1)) {
+                        if (control.shouldYield()) {
                             saveCursor(x, y, z);
                             return yieldOrTerminate(control);
                         }
+                        context.recordDurableProgress();
                         continue;
                     }
 
-                    PlanningCandidateWorkBudget.CommitResult candidateResult =
+                    PlanningCandidateGate.CommitResult candidateResult =
                             context.tryCommitPlanningCandidate(control, candidate);
-                    if (candidateResult == PlanningCandidateWorkBudget.CommitResult.YIELDED) {
+                    if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
                         saveCursor(x, y, z);
                         return TraversalStepResult.YIELDED;
                     }
-                    if (candidateResult == PlanningCandidateWorkBudget.CommitResult.TERMINATED) {
+                    if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
                         saveCursor(x, y, z);
                         return TraversalStepResult.TERMINATED;
                     }
 
-                    if (!context.getVisited().add(candidate)
-                            || candidateResult == PlanningCandidateWorkBudget.CommitResult.AIR_COMMITTED) {
+                    if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
+                        context.getVisited().add(candidate);
                         continue;
                     }
-                    if (!context.canTraverse(candidate)) {
-                        continue;
+                    pendingEnqueueCandidate = candidate;
+                    saveCursor(x, y, z);
+                    pendingResult = commitPendingEnqueueCandidate(context, control);
+                    if (pendingResult != TraversalStepResult.CONTINUE) {
+                        return pendingResult;
                     }
-
-                    context.getCurrentFrontier().add(candidate);
                 }
             }
         }
@@ -221,6 +230,29 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
         enqueueY = 0;
         enqueueZ = 0;
         shellEnqueueInProgress = false;
+        pendingEnqueueCandidate = null;
+    }
+
+    private TraversalStepResult commitPendingEnqueueCandidate(
+            ChainSearchContext context, ParallelTickControl control) {
+        if (pendingEnqueueCandidate == null) {
+            return TraversalStepResult.CONTINUE;
+        }
+        PlanningCandidateGate.FilterResult filterResult =
+                context.tryCommitPlanningCandidateFilter(control, pendingEnqueueCandidate);
+        if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
+            return TraversalStepResult.YIELDED;
+        }
+        if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
+            return TraversalStepResult.TERMINATED;
+        }
+        ChainTarget candidate = pendingEnqueueCandidate;
+        pendingEnqueueCandidate = null;
+        if (context.getVisited().add(candidate)
+                && filterResult == PlanningCandidateGate.FilterResult.ACCEPTED) {
+            context.getCurrentFrontier().add(candidate);
+        }
+        return TraversalStepResult.CONTINUE;
     }
 
     private boolean hasMoreShellWork(ChainSearchContext context) {

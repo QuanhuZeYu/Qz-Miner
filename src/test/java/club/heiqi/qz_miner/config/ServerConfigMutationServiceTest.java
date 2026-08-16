@@ -48,8 +48,9 @@ public class ServerConfigMutationServiceTest {
     @Test
     public void listAndGetExposeOnlyExplicitGeneralScalarWhitelist() {
         List<String> all = service.list("").lines();
-        Assert.assertEquals(11, all.size());
+        Assert.assertEquals(9, all.size());
         Assert.assertTrue(all.get(0).startsWith("general.greeting = "));
+        Assert.assertTrue(all.toString(), all.toString().contains("general.tickBudgetMs = "));
         for (String line : all) {
             Assert.assertFalse(line.startsWith("client."));
         }

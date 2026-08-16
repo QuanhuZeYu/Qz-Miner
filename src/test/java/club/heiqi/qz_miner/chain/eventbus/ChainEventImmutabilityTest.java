@@ -11,6 +11,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionDeferred;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LeftClickObserved;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
@@ -43,6 +44,7 @@ public class ChainEventImmutabilityTest {
             PlanCompleted.class,
             PlanCancelled.class,
             ExecutionAdvanced.class,
+            ExecutionDeferred.class,
             ExecutionFinished.class,
             LifecycleCleanup.class,
             WatchdogTimeout.class,
@@ -50,7 +52,7 @@ public class ChainEventImmutabilityTest {
     };
 
     /**
-     * 反射遍历 ChainEvent 及 11 子类所有声明字段，断言每个字段为 final。
+     * 反射遍历 ChainEvent 与已登记子类的所有声明字段，断言每个字段为 final。
      */
     @Test
     public void allEventFieldsAreFinal() {
@@ -108,10 +110,10 @@ public class ChainEventImmutabilityTest {
     }
 
     /**
-     * 全部 14 个事件子类均保留旧构造器，并提供 UUID 后紧邻 serverRoundId 的新构造器。
+     * 既有事件保留旧构造器；全部事件提供 UUID 后紧邻 serverRoundId 的构造器。
      */
     @Test
-    public void allEventSubclassesKeepLegacyRoundDefaultAndExposeExplicitRoundConstructor() throws Exception {
+    public void existingEventsKeepLegacyRoundDefaultAndAllExposeExplicitRoundConstructor() throws Exception {
         for (int index = 1; index < EVENT_CLASSES.length; index++) {
             Class<?> eventClass = EVENT_CLASSES[index];
             Constructor<?> legacy = null;
@@ -126,12 +128,14 @@ public class ChainEventImmutabilityTest {
                     explicitRound = constructor;
                 }
             }
-            Assert.assertNotNull(eventClass.getSimpleName() + " 必须保留旧构造器", legacy);
             Assert.assertNotNull(eventClass.getSimpleName() + " 必须提供 UUID 后的 serverRoundId 构造器", explicitRound);
 
-            ChainEvent legacyEvent = (ChainEvent) legacy.newInstance(defaultArguments(legacy.getParameterTypes()));
-            Assert.assertEquals(eventClass.getSimpleName() + " 旧构造器必须默认 NO_SERVER_ROUND_ID",
-                    ChainEvent.NO_SERVER_ROUND_ID, legacyEvent.getServerRoundId());
+            if (eventClass != ExecutionDeferred.class) {
+                Assert.assertNotNull(eventClass.getSimpleName() + " 必须保留旧构造器", legacy);
+                ChainEvent legacyEvent = (ChainEvent) legacy.newInstance(defaultArguments(legacy.getParameterTypes()));
+                Assert.assertEquals(eventClass.getSimpleName() + " 旧构造器必须默认 NO_SERVER_ROUND_ID",
+                        ChainEvent.NO_SERVER_ROUND_ID, legacyEvent.getServerRoundId());
+            }
 
             Object[] explicitArguments = defaultArguments(explicitRound.getParameterTypes());
             explicitArguments[1] = Long.valueOf(91L);

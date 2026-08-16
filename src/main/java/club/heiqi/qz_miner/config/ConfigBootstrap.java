@@ -3,11 +3,20 @@ package club.heiqi.qz_miner.config;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
+import club.heiqi.config.AtomicFileWrites;
+import club.heiqi.config.Config;
 import club.heiqi.config.ConfigException;
+import club.heiqi.config.ConfigFormat;
+import club.heiqi.config.ConfigNode;
+import club.heiqi.config.ConfigSerializer;
+import club.heiqi.config.MutableConfig;
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.config.runtime.DraftBuffer;
 import club.heiqi.config.runtime.SaveOutcome;
@@ -27,6 +36,16 @@ public final class ConfigBootstrap {
 
     public static final String YAML_FILE_NAME = "qz_miner.yaml";
 
+    private static final String TICK_BUDGET_PATH = "general.tickBudgetMs";
+    private static final String LEGACY_TICK_DURATION_PATH = "general.parallelTickMinDurationMs";
+    private static final int LEGACY_TICK_DURATION_MIN_MS = 10;
+    private static final String[] LEGACY_BUDGET_PATHS = {
+            "general.maxBreakPerTick",
+            LEGACY_TICK_DURATION_PATH,
+            "general.parallelTickServerWorkBudgetUnits",
+            "client.parallelTickClientWorkBudgetUnits"
+    };
+
     private static volatile ConfigManager manager;
     private static volatile File yamlFile;
     private static final AtomicLong COMMIT_EPOCH = new AtomicLong();
@@ -34,6 +53,7 @@ public final class ConfigBootstrap {
     private static volatile BackupCopier backupCopier = BackupCopier.DEFAULT;
     private static volatile CfgRetirer cfgRetirer = CfgRetirer.DEFAULT;
     private static volatile DefaultPersister defaultPersister = DefaultPersister.DEFAULT;
+    private static volatile BudgetMigrationSaver budgetMigrationSaver = BudgetMigrationSaver.DEFAULT;
 
     private ConfigBootstrap() {
     }
@@ -107,7 +127,10 @@ public final class ConfigBootstrap {
 
         ConfigSchema schema = QzMinerConfigSchema.create();
         if (isFile(targetYaml)) {
-            StrictLoad existing = loadStrict(targetYaml, schema, "existing YAML");
+            StrictLoad existing = migrateLegacyYamlBudgetIfNeeded(targetYaml, schema);
+            if (existing == null) {
+                existing = loadStrict(targetYaml, schema, "existing YAML");
+            }
             if (existing.isValid()) {
                 commitManager(targetYaml, existing.manager, existing.snapshot);
                 MyMod.LOG.info("Loaded YAML config authority: {}", targetYaml.getAbsolutePath());
@@ -223,6 +246,7 @@ public final class ConfigBootstrap {
         backupCopier = BackupCopier.DEFAULT;
         cfgRetirer = CfgRetirer.DEFAULT;
         defaultPersister = DefaultPersister.DEFAULT;
+        budgetMigrationSaver = BudgetMigrationSaver.DEFAULT;
     }
 
     static synchronized void setBackupCopierForTests(BackupCopier copier) {
@@ -235,6 +259,10 @@ public final class ConfigBootstrap {
 
     static synchronized void setDefaultPersisterForTests(DefaultPersister persister) {
         defaultPersister = persister == null ? DefaultPersister.DEFAULT : persister;
+    }
+
+    static synchronized void setBudgetMigrationSaverForTests(BudgetMigrationSaver saver) {
+        budgetMigrationSaver = saver == null ? BudgetMigrationSaver.DEFAULT : saver;
     }
 
     private static StrictLoad migrateLegacy(File file, ConfigSchema schema, Map<String, Object> values) {
@@ -259,6 +287,207 @@ public final class ConfigBootstrap {
         } catch (RuntimeException e) {
             return StrictLoad.failed("migration failed: " + message(e));
         }
+    }
+
+    /** 将 5.2 YAML 的四个旧预算键一次性收敛为 5.3 tickBudgetMs。 */
+    private static StrictLoad migrateLegacyYamlBudgetIfNeeded(File file, ConfigSchema schema) {
+        ConfigNode root;
+        try {
+            root = Config.load(file);
+        } catch (ConfigException e) {
+            // 语法错误继续交给通用 strict load 与默认恢复路径。
+            return null;
+        }
+        if (root == null || root.getType() != ConfigNode.NodeType.MAP || !containsLegacyBudget(root)) {
+            return null;
+        }
+
+        RawYamlPreflight.Result raw;
+        try {
+            raw = RawYamlPreflight.validate(file, schema);
+        } catch (ConfigException e) {
+            return StrictLoad.failed("legacy YAML budget migration raw preflight: " + message(e));
+        }
+        if (!raw.isValid()) {
+            return StrictLoad.failed("legacy YAML budget migration raw preflight: " + raw.summary());
+        }
+
+        ConfigManager migrationManager;
+        try {
+            migrationManager = newManager(file, schema);
+        } catch (ConfigException e) {
+            return StrictLoad.failed("legacy YAML budget migration bootstrap failed: " + message(e));
+        }
+        ParseOutcome before = ConfigSemanticValidator.captureAndValidate(migrationManager);
+        if (!before.isValid()) {
+            return StrictLoad.failed("legacy YAML budget migration semantic validation: "
+                    + before.result.summary());
+        }
+
+        boolean hasTickBudget = containsRawPath(root, TICK_BUDGET_PATH);
+        int tickBudgetMs = hasTickBudget
+                ? before.snapshot.tickBudgetMs
+                : readLegacyTickDuration(root);
+
+        requiredBackup(file, "pre-5.3-budget-migration");
+        try {
+            Map<String, Object> migrated = copyMutableMap(root);
+            for (String path : LEGACY_BUDGET_PATHS) {
+                removeMutablePath(migrated, path);
+            }
+            setMutablePath(migrated, TICK_BUDGET_PATH, Double.valueOf(tickBudgetMs));
+            saveBudgetMigration(file, migrated);
+
+            StrictLoad reloaded = loadStrict(file, schema, "5.3 budget migration strict reload");
+            if (!reloaded.isValid()) {
+                throw new IllegalStateException(reloaded.error);
+            }
+            MyMod.LOG.info("Migrated 5.2 YAML budgets to {}={} and removed legacy count controls: {}",
+                    TICK_BUDGET_PATH,
+                    Integer.valueOf(reloaded.snapshot.tickBudgetMs),
+                    file.getAbsolutePath());
+            return reloaded;
+        } catch (ConfigException e) {
+            throw new IllegalStateException("Failed to migrate 5.2 YAML budgets: "
+                    + file.getAbsolutePath(), e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> copyMutableMap(ConfigNode root) throws ConfigException {
+        Object copied = copyMutableValue(root);
+        if (!(copied instanceof Map)) {
+            throw new ConfigException("Budget migration root must be a map");
+        }
+        return (Map<String, Object>) copied;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void removeMutablePath(Map<String, Object> root, String path) {
+        String[] parts = path.split("\\.");
+        Map<String, Object> current = root;
+        for (int index = 0; index < parts.length - 1; index++) {
+            Object child = current.get(parts[index]);
+            if (!(child instanceof Map)) {
+                return;
+            }
+            current = (Map<String, Object>) child;
+        }
+        current.remove(parts[parts.length - 1]);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void setMutablePath(Map<String, Object> root, String path, Object value) {
+        String[] parts = path.split("\\.");
+        Map<String, Object> current = root;
+        for (int index = 0; index < parts.length - 1; index++) {
+            Object child = current.get(parts[index]);
+            if (!(child instanceof Map)) {
+                child = new LinkedHashMap<String, Object>();
+                current.put(parts[index], child);
+            }
+            current = (Map<String, Object>) child;
+        }
+        current.put(parts[parts.length - 1], value);
+    }
+
+    private static void saveBudgetMigration(File file, Map<String, Object> values) throws ConfigException {
+        MutableConfig wrapper = Config.createMutable(ConfigFormat.YAML);
+        wrapper.set("root", values);
+        String yaml = ConfigSerializer.toString(wrapper.get("root"), ConfigFormat.YAML);
+        try {
+            budgetMigrationSaver.save(file, yaml);
+        } catch (IOException e) {
+            throw new ConfigException("Failed to save budget migration: " + file.getAbsolutePath(), e);
+        }
+    }
+
+    private static Object copyMutableValue(ConfigNode node) throws ConfigException {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        switch (node.getType()) {
+            case STRING:
+                return node.asString();
+            case NUMBER:
+                String text = node.asString();
+                try {
+                    return Long.valueOf(text);
+                } catch (NumberFormatException ignored) {
+                    return Double.valueOf(node.asDouble());
+                }
+            case BOOLEAN:
+                return Boolean.valueOf(node.asBoolean());
+            case LIST:
+                List<Object> list = new ArrayList<Object>();
+                for (ConfigNode child : node.asList()) {
+                    list.add(copyMutableValue(child));
+                }
+                return list;
+            case MAP:
+                Map<String, Object> map = new LinkedHashMap<String, Object>();
+                for (Map.Entry<String, ConfigNode> entry : node.asMap().entrySet()) {
+                    map.put(entry.getKey(), copyMutableValue(entry.getValue()));
+                }
+                return map;
+            default:
+                throw new ConfigException("Unsupported config node type: " + node.getType());
+        }
+    }
+
+    private static boolean containsLegacyBudget(ConfigNode root) {
+        for (String path : LEGACY_BUDGET_PATHS) {
+            if (containsRawPath(root, path)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsRawPath(ConfigNode root, String path) {
+        if (root == null || path == null || path.isEmpty()) {
+            return false;
+        }
+        ConfigNode current = root;
+        String[] parts = path.split("\\.");
+        for (String part : parts) {
+            if (current == null || current.getType() != ConfigNode.NodeType.MAP
+                    || current.asMap() == null || !current.asMap().containsKey(part)) {
+                return false;
+            }
+            current = current.asMap().get(part);
+        }
+        return true;
+    }
+
+    private static int readLegacyTickDuration(ConfigNode root) {
+        if (!containsRawPath(root, LEGACY_TICK_DURATION_PATH)) {
+            return QzMinerConfigDefaults.TICK_BUDGET_MS;
+        }
+        ConfigNode legacy = root.get(LEGACY_TICK_DURATION_PATH);
+        if (legacy == null || legacy.getType() != ConfigNode.NodeType.NUMBER) {
+            return QzMinerConfigDefaults.TICK_BUDGET_MS;
+        }
+        try {
+            return normalizeLegacyTickDuration(legacy.asDouble());
+        } catch (ConfigException e) {
+            return QzMinerConfigDefaults.TICK_BUDGET_MS;
+        }
+    }
+
+    /** 将旧 YAML duration 的合法整数域映射到 5.3 deadline。 */
+    static int normalizeLegacyTickDuration(double value) {
+        if (!Double.isFinite(value) || value != Math.rint(value)
+                || value < LEGACY_TICK_DURATION_MIN_MS || value > Integer.MAX_VALUE) {
+            return QzMinerConfigDefaults.TICK_BUDGET_MS;
+        }
+        return (int) Math.min(value, QzMinerConfigDefaults.TICK_BUDGET_MAX_MS);
+    }
+
+    /** Forge getter 已产出 int；沿用旧下限后映射到 5.3 上限。 */
+    static int normalizeLegacyCfgTickDuration(int value) {
+        return Math.max(LEGACY_TICK_DURATION_MIN_MS,
+                Math.min(value, QzMinerConfigDefaults.TICK_BUDGET_MAX_MS));
     }
 
     /** 持久化默认值，并对落盘结果执行 raw + 语义复验。 */
@@ -453,6 +682,19 @@ public final class ConfigBootstrap {
 
         /** @return 已落盘并复验的严格加载结果 */
         StrictLoad persist(File file, ConfigSchema schema, String reason);
+    }
+
+    /** 预算迁移写盘小边界，供原文件保留与零发布失败语义测试。 */
+    interface BudgetMigrationSaver {
+        BudgetMigrationSaver DEFAULT = new BudgetMigrationSaver() {
+            @Override
+            public void save(File file, String yaml) throws IOException {
+                AtomicFileWrites.writeUtf8Atomically(file, yaml);
+            }
+        };
+
+        /** @param file 权威 YAML @param yaml 完整迁移内容 */
+        void save(File file, String yaml) throws IOException;
     }
 
     /** 严格加载结果。 */

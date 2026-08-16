@@ -28,7 +28,6 @@ public class Config {
     public static int chainRadius = QzMinerConfigDefaults.CHAIN_RADIUS;
     public static int chainMaxBlocks = QzMinerConfigDefaults.CHAIN_MAX_BLOCKS;
     public static int chainLoggingShellLayers = QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS;
-    public static int maxBreakPerTick = QzMinerConfigDefaults.MAX_BREAK_PER_TICK;
     /**
      * GT 线缆连锁替换单 tick 原子上限。
      */
@@ -37,17 +36,14 @@ public class Config {
      * 连锁看门狗超时阈值（tick）。
      */
     public static int chainWatchdogTimeoutTicks = QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS;
-    public static int parallelTickMinDurationMs = QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS;
-    public static int parallelTickServerWorkBudgetUnits =
-            QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS;
+    /** planning、preview 与普通执行共享的单 Tick soft deadline。 */
+    public static int tickBudgetMs = QzMinerConfigDefaults.TICK_BUDGET_MS;
     public static boolean enableUnlimitedOreFortune = QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE;
     public static boolean enableFortuneForPlacedOre = QzMinerConfigDefaults.ENABLE_FORTUNE_FOR_PLACED_ORE;
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
     public static TunnelDirectionSource tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
     public static boolean autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;
     public static List<ToolSelector> autoToolPrioritySelectors = Collections.emptyList();
-    public static int parallelTickClientWorkBudgetUnits =
-            QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS;
     public static int clientPreviewMaxRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS;
     public static int clientPreviewMaxTargets = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS;
     public static double clientPreviewAlphaFadeStartRadius =

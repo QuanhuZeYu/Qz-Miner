@@ -11,9 +11,9 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
  * 单次连锁运行时状态。
  *
  * <p>阶段8 块3 瘦身：删除旧链路依赖的 5 字段（pendingBreakTargets/plannerRunning/plannerCompleted/
- * matchedTargetCount/nextExecutorAllowedMillis）+ stopExecutionPreservingDrops 三层死代码。
+ * matchedTargetCount）+ stopExecutionPreservingDrops 三层死代码。
  * 新链路的目标队列由 {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，
- * 节流戳由 context.nextExecutorAllowedMillis 承载，matchedCount 由 PlanCompleted 事件承载。
+ * 普通执行节奏由共享 Tick deadline 控制，matchedCount 由 PlanCompleted 事件承载。
  * 本类仅保留 traversalTargets（ChainPlanningRuntimeFactory 装配 traverser 用）+ plannerSubscription
  * （规划订阅句柄，clear 时摘除）。</p>
  */

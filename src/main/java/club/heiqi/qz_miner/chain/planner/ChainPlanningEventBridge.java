@@ -301,6 +301,7 @@ public class ChainPlanningEventBridge {
             return ParallelTaskResult.YIELDED;
         }
 
+        long progressRevisionBefore = searchContext.getProgressRevision();
         TraversalStepResult traversalResult = ChainTraversalSupport.step(
                 traverser,
                 searchContext,
@@ -320,21 +321,22 @@ public class ChainPlanningEventBridge {
                     "shadow-traversal-terminated");
             return ParallelTaskResult.TERMINATED;
         }
-        // B 方案：每分片发一次 PlanProgress 喂看门狗（天然节流：每分片≈64 工作单位），
-        // 让 PLANNING 阶段两次状态机转移之间有真实工作推进信号，避免长规划被误判卡死。
-        // 仅在非 TERMINATED 路径发（TERMINATED 已 publish PlanCancelled，不算推进）。
+        // 仅在本分片提交了候选事务或可恢复游标时发布 PlanProgress；单纯 deadline
+        // deferral 不得给 watchdog 续命。TERMINATED 已发布 PlanCancelled，也不算推进。
         // ChainSearchContext 无 getProcessedCount，processedCount 传 confirmedCount（诊断字段，
         // 看门狗只读 serverTick/nanos 刷新，不读这两个值，语义略不精确但无功能影响）。
         final int confirmedCount = searchContext.getConfirmedCount();
-        if (!context.publishPlanningProgressIfActive(new Runnable() {
-            @Override
-            public void run() {
-                bus.publish(new PlanProgress(playerUUID, serverRoundId, planningGen,
-                        ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
-                        confirmedCount, confirmedCount));
+        if (searchContext.getProgressRevision() != progressRevisionBefore) {
+            if (!context.publishPlanningProgressIfActive(new Runnable() {
+                @Override
+                public void run() {
+                    bus.publish(new PlanProgress(playerUUID, serverRoundId, planningGen,
+                            ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
+                            confirmedCount, confirmedCount));
+                }
+            })) {
+                return ParallelTaskResult.TERMINATED;
             }
-        })) {
-            return ParallelTaskResult.TERMINATED;
         }
 
         boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
@@ -343,7 +345,8 @@ public class ChainPlanningEventBridge {
             // C 流式执行修复：worker 完成路径不再 registry.put（context 已在 onPlanStarted 提前登记）。
             // PlanCompleted 入队成功返回后，context 才最后暴露 planningComplete=true；异常由桥统一
             // 走单次 PlanCancelled，避免 publication 失败留下 COMPLETED 幽灵状态。
-            boolean completed = tryCompletePlanningOrCancel(context, confirmedCount, new Runnable() {
+            boolean completed = tryCompletePlanningOrCancel(context, confirmedCount,
+                    searchContext.isTargetLimitExceeded(), new Runnable() {
                 @Override
                 public void run() {
                     // 生产 Runnable 只做 publication；诊断必须放在 publication 成功之后，
@@ -379,8 +382,16 @@ public class ChainPlanningEventBridge {
      */
     static boolean tryCompletePlanningOrCancel(ChainExecutionContext context, int confirmedCount,
             Runnable completionPublication, Runnable cancellationPublication) {
+        return tryCompletePlanningOrCancel(context, confirmedCount, false,
+                completionPublication, cancellationPublication);
+    }
+
+    /** 完成 publication 与目标上限截断事实共享同一线性化点。 */
+    static boolean tryCompletePlanningOrCancel(ChainExecutionContext context, int confirmedCount,
+            boolean targetLimitExceeded, Runnable completionPublication, Runnable cancellationPublication) {
         try {
-            return context.tryCompletePlanningAndPublish(confirmedCount, completionPublication);
+            return context.tryCompletePlanningAndPublish(
+                    confirmedCount, targetLimitExceeded, completionPublication);
         } catch (RuntimeException failure) {
             context.cancelPlanningAndPublishIfActive(cancellationPublication);
             return false;

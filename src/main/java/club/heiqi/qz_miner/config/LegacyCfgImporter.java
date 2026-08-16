@@ -85,17 +85,11 @@ public final class LegacyCfgImporter {
                     QzMinerConfigDefaults.CHAIN_MAX_BLOCKS);
             putInt(values, configuration, CATEGORY_GENERAL, "chainLoggingShellLayers",
                     "general.chainLoggingShellLayers", QzMinerConfigDefaults.CHAIN_LOGGING_SHELL_LAYERS);
-            putInt(values, configuration, CATEGORY_GENERAL, "maxBreakPerTick", "general.maxBreakPerTick",
-                    QzMinerConfigDefaults.MAX_BREAK_PER_TICK);
             putInt(values, configuration, CATEGORY_GENERAL, "cableReplaceMaxPerTick",
                     "general.cableReplaceMaxPerTick", QzMinerConfigDefaults.CABLE_REPLACE_MAX_PER_TICK);
             putInt(values, configuration, CATEGORY_GENERAL, "chainWatchdogTimeoutTicks",
                     "general.chainWatchdogTimeoutTicks", QzMinerConfigDefaults.CHAIN_WATCHDOG_TIMEOUT_TICKS);
-            putInt(values, configuration, CATEGORY_GENERAL, "parallelTickMinDurationMs",
-                    "general.parallelTickMinDurationMs", QzMinerConfigDefaults.PARALLEL_TICK_MIN_DURATION_MS);
-            putInt(values, configuration, CATEGORY_GENERAL, "parallelTickServerWorkBudgetUnits",
-                    "general.parallelTickServerWorkBudgetUnits",
-                    QzMinerConfigDefaults.PARALLEL_TICK_SERVER_WORK_BUDGET_UNITS);
+            putLegacyTickDuration(values, configuration);
             putBoolean(values, configuration, CATEGORY_GENERAL, "enableUnlimitedOreFortune",
                     "general.enableUnlimitedOreFortune", QzMinerConfigDefaults.ENABLE_UNLIMITED_ORE_FORTUNE);
             putBoolean(values, configuration, CATEGORY_GENERAL, "enableFortuneForPlacedOre",
@@ -103,9 +97,6 @@ public final class LegacyCfgImporter {
 
             putBoolean(values, configuration, CATEGORY_CLIENT, "clientEnablePreviewRender",
                     "client.clientEnablePreviewRender", QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER);
-            putInt(values, configuration, CATEGORY_CLIENT, "parallelTickClientWorkBudgetUnits",
-                    "client.parallelTickClientWorkBudgetUnits",
-                    QzMinerConfigDefaults.PARALLEL_TICK_CLIENT_WORK_BUDGET_UNITS);
             putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewMaxRadius",
                     "client.clientPreviewMaxRadius", QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_RADIUS);
             putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewMaxTargets",
@@ -149,6 +140,20 @@ public final class LegacyCfgImporter {
         Property property = configuration.get(category, name, defaultValue);
         if (property != null) {
             values.put(path, Double.valueOf(property.getInt()));
+        }
+    }
+
+    private static void putLegacyTickDuration(
+            Map<String, Object> values, Configuration configuration) {
+        if (!configuration.hasKey(CATEGORY_GENERAL, "parallelTickMinDurationMs")) {
+            return;
+        }
+        Property property = configuration.get(CATEGORY_GENERAL, "parallelTickMinDurationMs",
+                QzMinerConfigDefaults.TICK_BUDGET_MS);
+        if (property != null) {
+            int legacyValue = property.getInt(QzMinerConfigDefaults.TICK_BUDGET_MS);
+            values.put("general.tickBudgetMs", Double.valueOf(
+                    ConfigBootstrap.normalizeLegacyCfgTickDuration(legacyValue)));
         }
     }
 

@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
+import club.heiqi.qz_miner.chain.eventbus.event.ExecutionDeferred;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -241,6 +242,62 @@ public class ChainWatchdogTest {
         h.bus.drain();
         Assert.assertTrue("推进刷新后未超时不应 publish", captured.isEmpty());
         Assert.assertEquals("未超时镜像条目不应被移除", 1, h.watchdog.activeCount());
+    }
+
+    /** deadline scheduler deferral 在下一 Tick drain 后续命，不能被当成执行卡死。 */
+    @Test
+    public void deadlineDeferralFeedsWatchdogBeforeTimeoutCheck() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        long roundId = 42L;
+        drive(h, phase(PLAYER, roundId, 1, 1, 3, 100L));
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+        driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1,
+                100L + threshold - 1L, 1L));
+
+        h.watchdog.checkTimeouts(100L + threshold);
+        h.bus.drain();
+
+        Assert.assertTrue("仅因 shared deadline 排队的 context 不应被误杀", captured.isEmpty());
+        ChainWatchdog.WatchEntry entry = h.watchdog.getEntry(PLAYER);
+        Assert.assertEquals("deadline deferral 不得伪装成真实推进", 100L, entry.lastProgressTick);
+        Assert.assertEquals(100L + threshold - 1L, entry.firstDeferredTick);
+        Assert.assertEquals(100L + threshold - 1L, entry.lastDeferredTick);
+    }
+
+    /** 连续零消费不能靠每 tick deadline deferral 永久逃过 watchdog。 */
+    @Test
+    public void continuousDeadlineDeferralHasOneBoundedWatchdogWindow() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        long roundId = 43L;
+        long firstDeferredTick = 100L + threshold - 1L;
+        drive(h, phase(PLAYER, roundId, 1, 1, 3, 100L));
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+        for (long tick = firstDeferredTick; tick < firstDeferredTick + threshold; tick++) {
+            driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1, tick, tick));
+        }
+        h.watchdog.checkTimeouts(firstDeferredTick + threshold - 1L);
+        h.bus.drain();
+        Assert.assertTrue("一个完整宽限窗口内不应误杀排队 context", captured.isEmpty());
+
+        driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1,
+                firstDeferredTick + threshold, firstDeferredTick + threshold));
+        h.watchdog.checkTimeouts(firstDeferredTick + threshold);
+        h.bus.drain();
+        Assert.assertTrue("drain 延迟边界仍应保留最后一 Tick 宽限", captured.isEmpty());
+
+        driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1,
+                firstDeferredTick + threshold + 1L, firstDeferredTick + threshold + 1L));
+        h.watchdog.checkTimeouts(firstDeferredTick + threshold + 1L);
+        h.bus.drain();
+
+        Assert.assertEquals("连续零消费超过宽限窗口必须回收", 1, captured.size());
+        Assert.assertEquals(0, h.watchdog.activeCount());
     }
 
     /**
