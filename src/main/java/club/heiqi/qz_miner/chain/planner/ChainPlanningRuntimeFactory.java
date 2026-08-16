@@ -70,6 +70,8 @@ public final class ChainPlanningRuntimeFactory {
         int effectiveMaxBlocks = requestedMaxBlocks > 0 ? Math.min(Config.chainMaxBlocks, requestedMaxBlocks) : Config.chainMaxBlocks;
         if (session.getRequest().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
             // GT 必须证明完整连通分量未被截断；半径不能制造可执行的混压前缀。
+            // MAX_VALUE 是「不裁剪」哨兵：遍历器的距离检查对世界坐标有界、不会溢出为负；
+            // 规模上限由 effectiveMaxBlocks ≤ cableReplaceMaxPerTick 与入场预校验（B3）联合约束。
             effectiveRadius = Integer.MAX_VALUE;
             effectiveMaxBlocks = Math.min(effectiveMaxBlocks, Config.cableReplaceMaxPerTick);
         }

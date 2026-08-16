@@ -89,11 +89,9 @@ public final class ChainSearchAlgorithm {
                 }
                 PlanningCandidateGate.FilterResult filterResult =
                         context.tryCommitPlanningCandidateFilter(control, state.currentTarget);
-                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult filtered = PlanningCandidateGate.filterStep(filterResult, control);
+                if (filtered != null) {
+                    return filtered;
                 }
                 if (filterResult == PlanningCandidateGate.FilterResult.REJECTED) {
                     state.clearCurrentTarget();
@@ -159,11 +157,9 @@ public final class ChainSearchAlgorithm {
                 ChainTarget queuedTarget = context.getCurrentFrontier().peek();
                 PlanningCandidateGate.CommitResult candidateResult =
                         context.tryCommitPlanningCandidate(control, queuedTarget);
-                if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
+                if (committed != null) {
+                    return committed;
                 }
 
                 state.currentTarget = context.getCurrentFrontier().poll();
@@ -212,11 +208,9 @@ public final class ChainSearchAlgorithm {
             if (state.pendingNeighbor != null) {
                 PlanningCandidateGate.FilterResult filterResult =
                         context.tryCommitPlanningCandidateFilter(control, state.pendingNeighbor);
-                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult filtered = PlanningCandidateGate.filterStep(filterResult, control);
+                if (filtered != null) {
+                    return filtered;
                 }
                 ChainTarget committedNeighbor = state.pendingNeighbor;
                 state.pendingNeighbor = null;
@@ -247,11 +241,9 @@ public final class ChainSearchAlgorithm {
 
             PlanningCandidateGate.CommitResult candidateResult =
                     context.tryCommitPlanningCandidate(control, next);
-            if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
-                return TraversalStepResult.YIELDED;
-            }
-            if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
-                return TraversalStepResult.TERMINATED;
+            TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
+            if (committed != null) {
+                return committed;
             }
 
             if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
@@ -306,7 +298,7 @@ public final class ChainSearchAlgorithm {
     }
 
     private static TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
-        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
+        return PlanningCandidateGate.yieldOrTerminate(control);
     }
 
     private static int getDistance(ChainTarget a, ChainTarget b) {

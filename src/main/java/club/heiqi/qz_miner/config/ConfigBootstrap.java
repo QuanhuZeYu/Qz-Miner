@@ -127,6 +127,9 @@ public final class ConfigBootstrap {
 
         ConfigSchema schema = QzMinerConfigSchema.create();
         if (isFile(targetYaml)) {
+            // 迁移失败（写盘/重载异常）直接抛 IllegalStateException 中断启动：保留原 YAML 不动、
+            // 下次启动重试迁移；与「无效 YAML → 备份重建默认」路径有意不同——迁移只发生在
+            // 通过 raw+语义预检的合法 5.2 配置上，宁可中断也不丢弃用户键值。
             StrictLoad existing = migrateLegacyYamlBudgetIfNeeded(targetYaml, schema);
             if (existing == null) {
                 existing = loadStrict(targetYaml, schema, "existing YAML");
@@ -475,19 +478,23 @@ public final class ConfigBootstrap {
         }
     }
 
-    /** 将旧 YAML duration 的合法整数域映射到 5.3 deadline。 */
+    /** 将旧 YAML duration 的合法整数域映射到 5.3 deadline（非法值回退默认，不做 clamp）。 */
     static int normalizeLegacyTickDuration(double value) {
         if (!Double.isFinite(value) || value != Math.rint(value)
                 || value < LEGACY_TICK_DURATION_MIN_MS || value > Integer.MAX_VALUE) {
             return QzMinerConfigDefaults.TICK_BUDGET_MS;
         }
-        return (int) Math.min(value, QzMinerConfigDefaults.TICK_BUDGET_MAX_MS);
+        return clampTickBudget((int) value);
     }
 
-    /** Forge getter 已产出 int；沿用旧下限后映射到 5.3 上限。 */
+    /** Forge getter 已产出 int；沿用旧下限 clamp 后映射到 5.3 上限。 */
     static int normalizeLegacyCfgTickDuration(int value) {
-        return Math.max(LEGACY_TICK_DURATION_MIN_MS,
-                Math.min(value, QzMinerConfigDefaults.TICK_BUDGET_MAX_MS));
+        return clampTickBudget(Math.max(LEGACY_TICK_DURATION_MIN_MS, value));
+    }
+
+    /** 两个旧预算入口共享的 5.3 上限收口（单点，避免上下限表达式双写漂移）。 */
+    private static int clampTickBudget(int value) {
+        return (int) Math.min(value, QzMinerConfigDefaults.TICK_BUDGET_MAX_MS);
     }
 
     /** 持久化默认值，并对落盘结果执行 raw + 语义复验。 */

@@ -139,11 +139,9 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
                 ChainTarget queuedTarget = context.getCurrentFrontier().peek();
                 PlanningCandidateGate.CommitResult candidateResult =
                         context.tryCommitPlanningCandidate(control, queuedTarget);
-                if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
+                if (committed != null) {
+                    return committed;
                 }
                 currentTarget = context.getCurrentFrontier().poll();
                 if (currentTarget == null) {
@@ -192,11 +190,9 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
             if (pendingNeighbor != null) {
                 PlanningCandidateGate.FilterResult filterResult =
                         context.tryCommitPlanningCandidateFilter(control, pendingNeighbor);
-                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult filtered = PlanningCandidateGate.filterStep(filterResult, control);
+                if (filtered != null) {
+                    return filtered;
                 }
                 ChainTarget committedNeighbor = pendingNeighbor;
                 pendingNeighbor = null;
@@ -236,11 +232,9 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
 
             PlanningCandidateGate.CommitResult candidateResult =
                     context.tryCommitPlanningCandidate(control, next);
-            if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
-                return TraversalStepResult.YIELDED;
-            }
-            if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
-                return TraversalStepResult.TERMINATED;
+            TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
+            if (committed != null) {
+                return committed;
             }
 
             if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
@@ -283,7 +277,7 @@ public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
     }
 
     private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
-        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
+        return PlanningCandidateGate.yieldOrTerminate(control);
     }
 
     private void clearCurrentTarget() {

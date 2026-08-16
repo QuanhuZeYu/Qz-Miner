@@ -575,6 +575,47 @@ public class ChainWatchdogTest {
         Assert.assertEquals("超时事件 gen 应来自镜像条目（=1）", 1, captured.get(0).getGeneration());
     }
 
+    /**
+     * late-start 边界（语义固化）：超过阈值后才开始的 deferral 最多重新打开一个 watchdog 窗口。
+     *
+     * <p>onDeferred 只在 deferredSinceProgress ≥ threshold-1 时记录 firstDeferredTick；
+     * 已逾期任务只要仍在逐 tick 发布 deferral（= 仍存活），就获得最多 threshold 个 tick 的有界宽限，
+     * 之后无真实推进仍会被回收。本测固化该语义，防止被当 off-by-one 误改。</p>
+     */
+    @Test
+    public void lateStartedDeferralGrantsOneBoundedWindowThenReclaims() {
+        Harness h = newHarness();
+        int threshold = Config.chainWatchdogTimeoutTicks;
+        long roundId = 44L;
+        drive(h, phase(PLAYER, roundId, 1, 1, 3, 100L));
+
+        List<WatchdogTimeout> captured = new ArrayList<WatchdogTimeout>();
+        h.bus.subscribe(WatchdogTimeout.class, captured::add);
+
+        // 静默超过阈值 5 tick 后才开始逐 tick defer（晚到 deferral）
+        long firstDeferredTick = 100L + threshold + 5L;
+        driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1, firstDeferredTick, firstDeferredTick));
+        h.watchdog.checkTimeouts(firstDeferredTick);
+        h.bus.drain();
+        Assert.assertTrue("晚到 deferral 仍应打开一个有界宽限窗口", captured.isEmpty());
+
+        // 逐 tick 持续 defer 至窗口末尾（deferredElapsed ≤ threshold）
+        for (long tick = firstDeferredTick + 1L; tick <= firstDeferredTick + threshold; tick++) {
+            driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1, tick, tick));
+        }
+        h.watchdog.checkTimeouts(firstDeferredTick + threshold);
+        h.bus.drain();
+        Assert.assertTrue("宽限窗口内不应回收", captured.isEmpty());
+
+        // 窗口耗尽后继续 defer：无真实推进必须回收
+        driveProgress(h, new ExecutionDeferred(PLAYER, roundId, 1,
+                firstDeferredTick + threshold + 1L, firstDeferredTick + threshold + 1L));
+        h.watchdog.checkTimeouts(firstDeferredTick + threshold + 1L);
+        h.bus.drain();
+        Assert.assertEquals("晚到 deferral 的宽限窗口耗尽后必须回收", 1, captured.size());
+        Assert.assertEquals(0, h.watchdog.activeCount());
+    }
+
     /** 同 generation 的旧轮进度不得给新轮 entry 续命，timeout 必须携带新轮 round。 */
     @Test
     public void oldRoundProgressDoesNotRefreshSameGenerationNewRound() {

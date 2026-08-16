@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.client.picker;
 
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -19,11 +18,9 @@ final class BlockSelectorCurrentValuePresenter implements CurrentValuePresenter 
     private final Map<String, BlockCandidate> candidates;
     private final VisualAdapter visualAdapter;
 
-    /** 固化候选索引与视觉适配器。 */
-    BlockSelectorCurrentValuePresenter(List<BlockCandidate> source, VisualAdapter visualAdapter) {
-        Map<String, BlockCandidate> snapshot = new LinkedHashMap<String, BlockCandidate>();
-        for (BlockCandidate candidate : source) snapshot.put(candidate.registry(), candidate);
-        this.candidates = Collections.unmodifiableMap(snapshot);
+    /** 直接复用 Provider 的共享候选索引（同一份不可变快照，不再重复建索引）。 */
+    BlockSelectorCurrentValuePresenter(Map<String, BlockCandidate> candidates, VisualAdapter visualAdapter) {
+        this.candidates = candidates;
         this.visualAdapter = visualAdapter;
     }
 

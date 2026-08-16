@@ -43,13 +43,14 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
         browseResult = convertCandidates(snapshot);
         ObjectGroupPickerCodec pickerCodec = new ObjectGroupPickerCodec();
         codec = pickerCodec;
-        visualAdapter = new BlockPickerVisualAdapter(snapshot);
+        // 视觉适配器共享同一候选索引，图标按首次请求懒建（构造期不再全量建图）。
+        visualAdapter = new BlockPickerVisualAdapter(byRegistry);
         // 空查询是分类浏览模式：面板据此渲染全部候选并派生分类计数；
         // 非空查询仍走确定性搜索索引。
         searchFunction = (query, limit) -> query == null || query.trim().isEmpty()
                 ? browseResult
                 : convertCandidates(searchIndex.search(query, Integer.MAX_VALUE).candidates());
-        currentValuePresenter = new BlockSelectorCurrentValuePresenter(snapshot, visualAdapter);
+        currentValuePresenter = new BlockSelectorCurrentValuePresenter(byRegistry, visualAdapter);
         presentation = SearchPickerPresentation.builder()
                 .title("添加方块")
                 .placeholder("搜索方块名称或 registry id")

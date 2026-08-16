@@ -82,11 +82,9 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
                 ChainTarget queuedTarget = context.getCurrentFrontier().peek();
                 PlanningCandidateGate.CommitResult candidateResult =
                         context.tryCommitPlanningCandidate(control, queuedTarget);
-                if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
+                if (committed != null) {
+                    return committed;
                 }
                 currentTarget = context.getCurrentFrontier().poll();
                 if (currentTarget == null) {
@@ -181,13 +179,11 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
 
                     PlanningCandidateGate.CommitResult candidateResult =
                             context.tryCommitPlanningCandidate(control, candidate);
-                    if (candidateResult == PlanningCandidateGate.CommitResult.YIELDED) {
+                    TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
+                    if (committed != null) {
+                        // 让出/终止才保存游标；显式保存避免 lambda 捕获循环变量。
                         saveCursor(x, y, z);
-                        return TraversalStepResult.YIELDED;
-                    }
-                    if (candidateResult == PlanningCandidateGate.CommitResult.TERMINATED) {
-                        saveCursor(x, y, z);
-                        return TraversalStepResult.TERMINATED;
+                        return committed;
                     }
 
                     if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
@@ -240,11 +236,9 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
         }
         PlanningCandidateGate.FilterResult filterResult =
                 context.tryCommitPlanningCandidateFilter(control, pendingEnqueueCandidate);
-        if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
-            return TraversalStepResult.YIELDED;
-        }
-        if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
-            return TraversalStepResult.TERMINATED;
+        TraversalStepResult filtered = PlanningCandidateGate.filterStep(filterResult, control);
+        if (filtered != null) {
+            return filtered;
         }
         ChainTarget candidate = pendingEnqueueCandidate;
         pendingEnqueueCandidate = null;
@@ -260,7 +254,7 @@ public class SectionClearTraverser implements BudgetedChainTraverser {
     }
 
     private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
-        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
+        return PlanningCandidateGate.yieldOrTerminate(control);
     }
 
     private void clearCurrentTarget() {

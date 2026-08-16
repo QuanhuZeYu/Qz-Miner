@@ -45,8 +45,8 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
             if (phase == Phase.COMMIT_CANDIDATE) {
                 PlanningCandidateGate.CommitResult result =
                         context.tryCommitPlanningCandidate(control, currentTarget);
-                if (result == PlanningCandidateGate.CommitResult.YIELDED) return TraversalStepResult.YIELDED;
-                if (result == PlanningCandidateGate.CommitResult.TERMINATED) return TraversalStepResult.TERMINATED;
+                TraversalStepResult committed = PlanningCandidateGate.commitStep(result, control);
+                if (committed != null) return committed;
                 if (result == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
                     advance();
                     continue;
@@ -57,11 +57,9 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
             if (phase == Phase.CHECK_FILTER) {
                 PlanningCandidateGate.FilterResult filterResult =
                         context.tryCommitPlanningCandidateFilter(control, currentTarget);
-                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
+                TraversalStepResult filtered = PlanningCandidateGate.filterStep(filterResult, control);
+                if (filtered != null) {
+                    return filtered;
                 }
                 if (filterResult == PlanningCandidateGate.FilterResult.REJECTED) {
                     advance();
@@ -106,7 +104,7 @@ public final class CuboidScanTraverser implements BudgetedChainTraverser {
     }
 
     private static TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
-        return control.isCancelRequested() ? TraversalStepResult.TERMINATED : TraversalStepResult.YIELDED;
+        return PlanningCandidateGate.yieldOrTerminate(control);
     }
 
     private enum Phase { COMMIT_CANDIDATE, CHECK_FILTER, CHECK_MATCHER, SUBMIT_TARGET }

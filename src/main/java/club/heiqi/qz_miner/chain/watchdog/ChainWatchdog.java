@@ -180,6 +180,11 @@ public class ChainWatchdog {
 
     /**
      * shared deadline 排队只提供一个 watchdog 窗口的有界宽限，不伪装成真实工作推进。
+     *
+     * <p>firstDeferredTick 仅在距上次推进 ≥ threshold-1（临近超时）时记录：超时后才开始的
+     * 晚到 deferral 同样最多重新打开一个 threshold 长的宽限窗口（能逐 tick 发 deferral 即证明
+     * 仍存活），窗口耗尽后无真实推进仍会回收——语义由
+     * {@code ChainWatchdogTest#lateStartedDeferralGrantsOneBoundedWindowThenReclaims} 固化。</p>
      */
     private void onDeferred(ExecutionDeferred event) {
         UUID uuid = event.getPlayerUUID();
