@@ -132,8 +132,6 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("无匹配结果", text.emptySearchResults());
         Assert.assertEquals("编辑", text.edit());
         Assert.assertEquals("删除", text.remove());
-        Assert.assertEquals("取消", text.cancelRemove());
-        Assert.assertEquals("确认删除", text.confirmRemove());
         Assert.assertEquals("错误/无效", text.invalidMemberBadge());
         Assert.assertEquals("警告/重复", text.duplicateMemberBadge());
         Assert.assertEquals("3 个结果", text.resultSummary(3));

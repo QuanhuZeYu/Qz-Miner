@@ -72,8 +72,6 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .emptySearchResults("无匹配结果")
                 .edit("编辑")
                 .remove("删除")
-                .cancelRemove("取消")
-                .confirmRemove("确认删除")
                 .errorSeverity("错误")
                 .invalidIssue("无效")
                 .warningSeverity("警告")
