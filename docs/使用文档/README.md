@@ -52,6 +52,9 @@
 - 5.3 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与
   20-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为
   **INCOMPLETE**，不因自动化通过而升级证据等级。
+- GTNH 基线：CI 门禁与发布构建仅覆盖 `2.9.0-beta-2`（GT5 5.09.54.20）。`2.8.4` 基线于
+  2026-08-17 从 CI 矩阵移除：上游 POM 缺陷（`Thaumic_Exploration:1.4.2-GTNH` 引用不存在的
+  `com.github.GTNewHorizons:CodeChickenLib:1.3.0`，正确 group 为 `codechicken`）使该基线依赖图无法解析，不再承诺兼容。
 
 ## 维护规则
 
