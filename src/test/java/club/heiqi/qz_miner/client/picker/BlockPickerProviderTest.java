@@ -200,7 +200,7 @@ public class BlockPickerProviderTest {
 
     @Test
     public void realLitRedstoneOreSearchesByRegistryAndLocalizedNameAndEncodesBothModes() {
-        BlockCandidate lit = BlockVariantEnumerator.enumerateBlock(
+        BlockCandidate lit = BlockVariantMaterializer.materialize(
                 "minecraft:lit_redstone_ore", Blocks.lit_redstone_ore);
         BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(lit));
 

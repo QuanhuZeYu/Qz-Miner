@@ -17,15 +17,15 @@ import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.StatCollector;
 
-/** 方块变体枚举只信任物品子类型实际暴露的 ItemStack。 */
-public class BlockVariantEnumeratorTest {
+/** 分片物化层：只信任物品子类型实际暴露的 ItemStack（原 BlockVariantEnumeratorTest 11 例全保留）。 */
+public class BlockVariantMaterializerTest {
     @Test
     public void sparseExposedMetadataIsDeduplicatedFilteredAndSorted() {
         ExposingBlock block = new ExposingBlock(8, 0, 4, 8, 32767, -1, 16, 4,
                 24902, 65535, 16777216, Integer.MAX_VALUE);
         Item item = new ItemBlock(block);
 
-        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("test:sparse", block, item);
+        BlockCandidate candidate = BlockVariantMaterializer.materialize("test:sparse", block, item);
 
         Assert.assertEquals(Arrays.asList(0, 4, 8, 16, 24902, 32767, 65535,
                 16777216, Integer.MAX_VALUE), metadata(candidate));
@@ -42,14 +42,14 @@ public class BlockVariantEnumeratorTest {
     public void emptyAndFailingSubBlocksProduceVisualPlaceholder() {
         ExposingBlock empty = new ExposingBlock();
         Item emptyItem = new ItemBlock(empty);
-        BlockCandidate emptyCandidate = BlockVariantEnumerator.enumerateBlock("test:empty", empty, emptyItem);
+        BlockCandidate emptyCandidate = BlockVariantMaterializer.materialize("test:empty", empty, emptyItem);
         Assert.assertTrue(emptyCandidate.variants().isEmpty());
         Assert.assertNull(emptyCandidate.representative());
         Assert.assertEquals("test:empty", emptyCandidate.localizedName());
 
         ExposingBlock failing = new ExposingBlock();
         failing.failure = new IllegalStateException("expected");
-        BlockCandidate failedCandidate = BlockVariantEnumerator.enumerateBlock(
+        BlockCandidate failedCandidate = BlockVariantMaterializer.materialize(
                 "test:failing", failing, new ItemBlock(failing));
         Assert.assertTrue(failedCandidate.variants().isEmpty());
         Assert.assertNull(failedCandidate.representative());
@@ -58,7 +58,7 @@ public class BlockVariantEnumeratorTest {
 
     @Test
     public void blockWithoutItemBlockKeepsLogicalMetaZeroWithoutItemIdentity() {
-        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("minecraft:air", Blocks.air);
+        BlockCandidate candidate = BlockVariantMaterializer.materialize("minecraft:air", Blocks.air);
 
         Assert.assertEquals(Collections.singletonList(0), metadata(candidate));
         Assert.assertNull(candidate.variants().get(0).stack());
@@ -68,7 +68,7 @@ public class BlockVariantEnumeratorTest {
 
     @Test
     public void realLitRedstoneOreKeepsStableRegistryAndEncodableVariants() {
-        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock(
+        BlockCandidate candidate = BlockVariantMaterializer.materialize(
                 "minecraft:lit_redstone_ore", Blocks.lit_redstone_ore);
 
         Assert.assertEquals("minecraft:lit_redstone_ore", candidate.registry());
@@ -86,15 +86,15 @@ public class BlockVariantEnumeratorTest {
         };
         ExposingBlock block = new ExposingBlock(0);
         block.setCreativeTab(fakeTab);
-        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("test:tabbed", block, new ItemBlock(block));
+        BlockCandidate candidate = BlockVariantMaterializer.materialize("test:tabbed", block, new ItemBlock(block));
         Assert.assertEquals("测试标签", candidate.creativeTab());
         Assert.assertEquals("test", candidate.modId());
 
         block.setCreativeTab(CreativeTabs.tabAllSearch);
-        Assert.assertNull(BlockVariantEnumerator.enumerateBlock("test:tabbed", block, new ItemBlock(block)).creativeTab());
+        Assert.assertNull(BlockVariantMaterializer.materialize("test:tabbed", block, new ItemBlock(block)).creativeTab());
 
         block.setCreativeTab(null);
-        Assert.assertNull(BlockVariantEnumerator.enumerateBlock("test:tabbed", block, new ItemBlock(block)).creativeTab());
+        Assert.assertNull(BlockVariantMaterializer.materialize("test:tabbed", block, new ItemBlock(block)).creativeTab());
     }
 
     @Test
@@ -107,7 +107,8 @@ public class BlockVariantEnumeratorTest {
         };
         ExposingBlock block = new ExposingBlock(0);
         block.setCreativeTab(failingTab);
-        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("test:failing_tab", block, new ItemBlock(block));
+        BlockCandidate candidate = BlockVariantMaterializer.materialize(
+                "test:failing_tab", block, new ItemBlock(block));
         Assert.assertNull(candidate.creativeTab());
         Assert.assertEquals("test", candidate.modId());
         Assert.assertEquals("test:failing_tab", candidate.registry());
@@ -115,14 +116,14 @@ public class BlockVariantEnumeratorTest {
 
     @Test
     public void blockWithoutItemBlockKeepsNullCreativeTab() {
-        BlockCandidate candidate = BlockVariantEnumerator.enumerateBlock("minecraft:air", Blocks.air);
+        BlockCandidate candidate = BlockVariantMaterializer.materialize("minecraft:air", Blocks.air);
         Assert.assertNull(candidate.creativeTab());
         Assert.assertEquals("minecraft", candidate.modId());
     }
 
     @Test
     public void safeNamePrefersTranslatedDisplayName() {
-        BlockCandidate candidate = enumerateWithNameItem(
+        BlockCandidate candidate = materializeWithNameItem(
                 new NameItem("tile.test_stone", "测试石", null));
 
         Assert.assertEquals("测试石", candidate.variants().get(0).name());
@@ -132,7 +133,7 @@ public class BlockVariantEnumeratorTest {
     @Test
     public void safeNameRetriesTranslationWhenDisplayNameIsUntranslated() {
         String expected = StatCollector.translateToLocal("tile.test_stone.name");
-        BlockCandidate candidate = enumerateWithNameItem(
+        BlockCandidate candidate = materializeWithNameItem(
                 new NameItem("tile.test_stone", "tile.test_stone.name", null));
 
         Assert.assertEquals(expected, candidate.variants().get(0).name());
@@ -142,7 +143,7 @@ public class BlockVariantEnumeratorTest {
     @Test
     public void safeNameRetriesTranslationWhenDisplayNameIsEmpty() {
         String expected = StatCollector.translateToLocal("tile.test_stone.name");
-        BlockCandidate candidate = enumerateWithNameItem(
+        BlockCandidate candidate = materializeWithNameItem(
                 new NameItem("tile.test_stone", "", null));
 
         Assert.assertEquals(expected, candidate.variants().get(0).name());
@@ -151,15 +152,15 @@ public class BlockVariantEnumeratorTest {
 
     @Test
     public void safeNameDegradesToUnlocalizedNameWhenDisplayThrows() {
-        BlockCandidate candidate = enumerateWithNameItem(
+        BlockCandidate candidate = materializeWithNameItem(
                 new NameItem("tile.test_stone", "测试石", new IllegalStateException("expected")));
 
         Assert.assertEquals("tile.test_stone", candidate.variants().get(0).name());
         Assert.assertEquals("tile.test_stone", candidate.localizedName());
     }
 
-    private static BlockCandidate enumerateWithNameItem(NameItem item) {
-        return BlockVariantEnumerator.enumerateBlock("test:name_block", new NameExposingBlock(), item);
+    private static BlockCandidate materializeWithNameItem(NameItem item) {
+        return BlockVariantMaterializer.materialize("test:name_block", new NameExposingBlock(), item);
     }
 
     private static List<Integer> metadata(BlockCandidate candidate) {
