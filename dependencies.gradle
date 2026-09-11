@@ -61,8 +61,19 @@ dependencies {
     // 集成与发布必须以本注释的 sha256 为准（详见 .changelogs/5.3.1.md「同版本内容漂移」条）。
     // 4.9.1 相对 4.9.0 为纯增量（公开面零删除零改签名），acceptableRemoteVersions [4.9.0,4.10.0) 同时接受两者；
     // 该制品已于 2026-09-11 随 4.9.1 正式 Release 上线，资产 sha256 与本注释一致，无需再回填。
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.9.1-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.9.1-dev.jar"))
+    // 【P2-B 开发期依赖切换·过渡态】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
+    // PickerIconCache / PickerRevisionBridge 等）只在 Qz-UILib 4.10.0 构建中存在；4.9.1 件不含新 SPI，
+    // 会让 P2-B 代码无法编译。本行因此改指本机构建的 4.10.0 dev 制品：
+    //   来源 = Qz-UILib 分支 4.0 HEAD ab8c32f6（P2-A 六提交完成态），命令
+    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（518 类 / 5422 例 / 0 失败 / 7 跳过）；
+    //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
+    //   sha256 F99DACB78DD79C984376D1240F4FC1831BE3562E8E2ECD5D763510EABCACBFE5（3842344 bytes）。
+    // 过渡态删除条件（P6 成对升级，需用户确认）：Qz-UILib 出 5.0.0 Release 资产（T-1/T-6 旧路径删除的同一批）
+    //   + Miner 把 @Mod 依赖上界同步到 5.0.0，此时本两行改指 5.0.0 Release 资产并删除本段注释。
+    // 过渡态回退方式：把下面两行的版本号改回 4.9.1 即可（该件仍保留在 libs/ 目录，未删除、未覆盖；
+    //   回退后 P2-B 的新 SPI 代码无法编译，必须先 revert 对应的 Miner 提交）。
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
