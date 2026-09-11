@@ -51,14 +51,16 @@ dependencies {
     // 当前为含 HUD 公开编辑契约（HudEditTarget/HudEditService）+ overlay 相对倍率 + 锚定浮层跨树坐标换算 +
     // HUD 布局/缩放持久化端口（HudLayoutStore/HudLayoutPersistence）的本机构建 dev 制品：
     // 来源 Qz-UILib 提交 ecce000b（在 f3bae7a7 基础上新增「编辑态预览按自身倍率渲染与命中」「缩放后 tooltip 位置错修复」
-    // 与「四角锚点 + 行程百分比 + 缩放百分比」持久化契约），
+    // 与「四角锚点 + 行程百分比 + 缩放百分比」持久化契约），已随 Qz-UILib 4.9.1 正式 Release 发布
+    // （https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.9.1，2026-09-11）：本 libs 件与 Release 资产
+    // qz_uilib-4.9.1-dev.jar 逐字节一致（sha256 相同），可直接替换为该 Release 资产。
     // 构建时以 VERSION=4.9.1 注入版本（jar 内 mcmod.info version=4.9.1，满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)）；
     // sha256 1AB9DFE7427B2CED0BA205420AB4BD21518523C238D2807034E77AE7FDBEF9B9（3795995 bytes）；
     // ⚠ 同名同版本内容漂移：旧 4.9.1 件（7E0A8EF2…/57BAB4C2…）不含 HudLayoutStore/HudLayoutPersistence，
     // 混用会在类加载期 NoClassDefFoundError；QzUiLibArtifactContractTest 只判版本区间、识别不了内容漂移，
     // 集成与发布必须以本注释的 sha256 为准（详见 .changelogs/5.3.1.md「同版本内容漂移」条）。
     // 4.9.1 相对 4.9.0 为纯增量（公开面零删除零改签名），acceptableRemoteVersions [4.9.0,4.10.0) 同时接受两者；
-    // 该制品尚未发布，正式 Release 资产上线后须替换为 Release 制品并回填 sha256。
+    // 该制品已于 2026-09-11 随 4.9.1 正式 Release 上线，资产 sha256 与本注释一致，无需再回填。
     devOnlyNonPublishable(project.files("libs/qz_uilib-4.9.1-dev.jar"))
     testImplementation(project.files("libs/qz_uilib-4.9.1-dev.jar"))
 
