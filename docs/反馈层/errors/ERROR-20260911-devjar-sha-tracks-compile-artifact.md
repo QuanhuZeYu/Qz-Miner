@@ -40,6 +40,9 @@
   其**引用的** UILib 符号面」的联合指纹；只有被引用符号面变化（如 `HudToolbarService.scale` 的返回类型
   改为新增类 `HudScaleState`）才改变主 jar，仅新增未被 Miner 引用的成员不影响主 jar。
 - 交接纪律不变：交接件 sha 与三个产物 sha 仍须在 `dependencies.gradle` 注释与 `.changelogs/5.3.1.md` 成对记录。
+- **2026-09-11 定稿 5.3.1 后**：开发默认版本由 `5.3.0-dev` 升为 `5.3.1-dev`（`build.gradle.kts:7`），
+  此后本仓本地产物名为 `qz_miner-5.3.1-dev*.jar`。本文前述 `qz_miner-5.3.0-dev.jar`（`407e663f…` / `b38d2fc0…`）
+  等 sha 对应**升版之前**的历史构建，口径与结论不变；后续换件按同口径在新文件名下重跑并成对回填。
 
 ## 处置
 
