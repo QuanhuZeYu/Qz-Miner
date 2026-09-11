@@ -1,56 +1,88 @@
 package club.heiqi.qz_miner.client.picker;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
 
+import club.heiqi.config.ui.editor.CandidateSourceValueEditorProvider;
 import club.heiqi.config.ui.editor.CategorizedValueEditorProvider;
 import club.heiqi.config.ui.editor.Codec;
 import club.heiqi.config.ui.editor.CurrentValuePresenter;
+import club.heiqi.config.ui.editor.PickerCandidateSource;
+import club.heiqi.config.ui.editor.PickerIconSource;
+import club.heiqi.config.ui.editor.PickerQuery;
 import club.heiqi.config.ui.editor.SearchPickerCategories;
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.config.ui.editor.SearchPickerPanelPresentation;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
 import club.heiqi.config.ui.editor.VisualAdapter;
 
-/** 方块选择器 Provider；构造时固化索引、空查询全量浏览快照、搜索函数、按 Mod 分类快照、Codec 和视觉适配器。 */
-public final class BlockPickerProvider implements CategorizedValueEditorProvider {
+/**
+ * 方块选择器 Provider：<b>只固化惰性候选源的引用</b>，构造期零枚举、零全量预转换。
+ *
+ * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.2/§1.4/§1.7（D-1..D-7）；{@code team/P2-Miner-Provider-改造设计.md} §2/§3（M3-M6）。</p>
+ *
+ * <p><b>构造期删除清单（ADR §1.7）</b>：</p>
+ * <ul>
+ *   <li>D-1 {@code browseResult = convertCandidates(snapshot)} —— 删除；空查询由
+ *       {@link PickerCandidateSource#page} 按窗口切片产出；</li>
+ *   <li>D-2 每次非空查询的 {@code convertCandidates(searchIndex.search(...))} —— 删除；
+ *       搜索只给命中序，转换随窗口物化；</li>
+ *   <li>D-3 构造期索引里的变体名拼串 —— 迁到 {@link BlockPickerNameIndex}（首个文本查询时构建一次）；</li>
+ *   <li>D-4 构造期全量分类快照 —— 迁到 {@link BlockRegistrySnapshot#modCategories()}（清单级前缀统计，随清单代际重建）；</li>
+ *   <li>D-5 注册期枚举 —— 删除（{@link ObjectGroupPickerRegistration} 只注册引用）；</li>
+ *   <li>D-6 无界图标缓存 —— 删除（缓存归 UILib {@code PickerIconCache}）；</li>
+ *   <li>D-7 {@code BlockSearchIndex} 的 65 硬夹 —— 删除（{@code maxItems=64} 由 UILib 装配层传入，
+ *       {@code truncated} 与窗口切片归调用方）。</li>
+ * </ul>
+ *
+ * <p><b>兼容壳</b>：{@link #searchFunction()} 仍返回非 null（{@code Registry.register} 要求），
+ * 但它与候选源走<b>同一条惰性路径</b>（不再有任何全量预转换）；SPI 路径下 UILib 直接调用
+ * {@link #candidateSource()}，该壳只服务未实现新 SPI 的外部消费面（过渡态 T-1）。</p>
+ */
+public final class BlockPickerProvider implements CategorizedValueEditorProvider, CandidateSourceValueEditorProvider {
     public static final String ID = "qz_miner:block-selector";
 
+    private final BlockPickerCandidateSource candidateSource;
+    private final PickerIconSource iconSource;
     private final Codec codec;
     private final VisualAdapter visualAdapter;
     private final SearchFunction searchFunction;
-    private final SearchPickerData.SearchResult browseResult;
     private final SearchPickerPresentation presentation;
     private final SearchPickerPanelPresentation panelPresentation;
     private final CurrentValuePresenter currentValuePresenter;
-    private final Map<String, BlockCandidate> byRegistry;
-    private final List<SearchPickerCategories.Category> modCategories;
 
-    public BlockPickerProvider(List<BlockCandidate> source) {
-        List<BlockCandidate> snapshot = Collections.unmodifiableList(new ArrayList<BlockCandidate>(source));
-        Map<String, BlockCandidate> index = new LinkedHashMap<String, BlockCandidate>();
-        for (BlockCandidate candidate : snapshot) index.put(candidate.registry(), candidate);
-        byRegistry = Collections.unmodifiableMap(index);
-        modCategories = buildModCategories(snapshot);
-        BlockSearchIndex searchIndex = new BlockSearchIndex(snapshot);
-        browseResult = convertCandidates(snapshot);
+    /** 生产装配：进程级单例候选源（注册不读注册表、不物化候选）。 */
+    public BlockPickerProvider() {
+        this(BlockPickerCandidateSource.getInstance());
+    }
+
+    /**
+     * 可注入候选源（测试用）。
+     *
+     * @param candidateSource 候选源（非 null）
+     */
+    public BlockPickerProvider(BlockPickerCandidateSource candidateSource) {
+        if (candidateSource == null) {
+            throw new IllegalArgumentException("candidateSource must not be null");
+        }
+        this.candidateSource = candidateSource;
+        this.iconSource = new BlockPickerIconSource(candidateSource);
         ObjectGroupPickerCodec pickerCodec = new ObjectGroupPickerCodec();
         codec = pickerCodec;
-        // 视觉适配器共享同一候选索引，图标按首次请求懒建（构造期不再全量建图）。
-        visualAdapter = new BlockPickerVisualAdapter(byRegistry);
-        // 空查询是分类浏览模式：面板据此渲染全部候选并派生分类计数；
-        // 非空查询仍走确定性搜索索引。
-        searchFunction = (query, limit) -> query == null || query.trim().isEmpty()
-                ? browseResult
-                : convertCandidates(searchIndex.search(query, Integer.MAX_VALUE).candidates());
-        currentValuePresenter = new BlockSelectorCurrentValuePresenter(byRegistry, visualAdapter);
+        visualAdapter = new BlockPickerVisualAdapter(iconSource);
+        // 兼容壳（T-1 外部消费面）：与 SPI 路径同一惰性源，仅按调用方给出的预算切窗口。
+        searchFunction = (query, limit) -> {
+            if (limit <= 0) {
+                return SearchPickerData.SearchResult.empty();
+            }
+            PickerQuery pickerQuery = PickerQuery.text(query, 0, null);
+            int hits = candidateSource.matchCount(pickerQuery);
+            int window = pickerQuery.isBrowse() ? hits : Math.min(hits, limit);
+            List<SearchPickerData.Candidate> slice = candidateSource.page(pickerQuery, 0, window);
+            return SearchPickerData.SearchResult.of(slice, hits > window);
+        };
+        currentValuePresenter = new BlockSelectorCurrentValuePresenter(candidateSource, visualAdapter);
         presentation = SearchPickerPresentation.builder()
                 .title("添加方块")
                 .placeholder("搜索方块名称或 registry id")
@@ -107,8 +139,17 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
     public SearchPickerPanelPresentation panelPresentation() { return panelPresentation; }
     public CurrentValuePresenter currentValuePresenter() { return currentValuePresenter; }
 
+    /** {@inheritDoc} SPI 路径：UILib 探测到非 null 即走查询式求值（窗口 + truncated 真值）。 */
     @Override
-    public List<SearchPickerCategories.Category> categories() { return modCategories; }
+    public PickerCandidateSource candidateSource() { return candidateSource; }
+
+    /** {@inheritDoc} 候选域图标源的唯一入口（候选级/变体级）；图标缓存归 UILib。 */
+    @Override
+    public PickerIconSource iconSource() { return iconSource; }
+
+    /** {@inheritDoc} 分类导航行（维度 0 = 按 Mod）：清单级前缀统计，随清单代际重建。 */
+    @Override
+    public List<SearchPickerCategories.Category> categories() { return candidateSource.categories(0); }
 
     @Override
     public String categoryOf(String candidateKey) { return categoryOf(0, candidateKey); }
@@ -118,44 +159,22 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
 
     @Override
     public List<SearchPickerCategories.Category> categories(int dimension) {
-        if (dimension < 0) throw new IllegalArgumentException("dimension must not be negative: " + dimension);
-        if (dimension == 0) return modCategories;
-        return Collections.emptyList();
+        return candidateSource.categories(dimension);
     }
 
     @Override
     public String categoryOf(int dimension, String candidateKey) {
         if (dimension < 0) throw new IllegalArgumentException("dimension must not be negative: " + dimension);
-        if (dimension > 0 || candidateKey == null) return null;
-        BlockCandidate candidate = byRegistry.get(candidateKey);
-        if (candidate == null) return null;
-        String modId = candidate.modId();
-        return modId == null || modId.isEmpty() ? null : modId;
-    }
-
-    /** 分类快照：registry namespace 字典序，静态 count 为注册时候选数。 */
-    private static List<SearchPickerCategories.Category> buildModCategories(List<BlockCandidate> snapshot) {
-        Map<String, Integer> counts = new TreeMap<String, Integer>();
-        for (BlockCandidate candidate : snapshot) {
-            String modId = candidate.modId();
-            if (modId == null || modId.isEmpty()) continue;
-            Integer current = counts.get(modId);
-            counts.put(modId, Integer.valueOf(current == null ? 1 : current.intValue() + 1));
-        }
-        List<SearchPickerCategories.Category> categories = new ArrayList<SearchPickerCategories.Category>();
-        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
-            categories.add(new SearchPickerCategories.Category(entry.getKey(), entry.getKey(),
-                    entry.getValue().intValue()));
-        }
-        return Collections.unmodifiableList(categories);
+        if (dimension > 0) return null;
+        return candidateSource.categoryOf(candidateKey);
     }
 
     /** 将成员选择格式化为本地化主名称，错误成员不暴露 raw。 */
     private String formatCurrentMemberPrimary(SearchPickerData.CurrentMember member) {
         if (member.selection() == null) return "无法读取当前方块规则";
         if (member.enumerated()) return member.candidate().label();
-        BlockCandidate candidate = byRegistry.get(member.selection().candidateKey());
-        return candidate == null ? member.selection().candidateKey() : candidate.localizedName();
+        SearchPickerData.Candidate candidate = candidateSource.exact(member.selection().candidateKey());
+        return candidate == null ? member.selection().candidateKey() : candidate.label();
     }
 
     /** 将合法成员选择格式化为完整 canonical 补充信息。 */
@@ -165,16 +184,8 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
         return (String) pickerCodec.encodeMember(null, member.selection());
     }
 
-    private static SearchPickerData.SearchResult convertCandidates(List<BlockCandidate> blockCandidates) {
-        List<SearchPickerData.Candidate> candidates = new ArrayList<SearchPickerData.Candidate>();
-        for (BlockCandidate candidate : blockCandidates) {
-            List<SearchPickerData.Variant> variants = new ArrayList<SearchPickerData.Variant>();
-            for (BlockVariant variant : candidate.variants()) {
-                String key = candidate.registry() + "@" + variant.metadata();
-                variants.add(new SearchPickerData.Variant(key, variant.name() + " (" + variant.metadata() + ")"));
-            }
-            candidates.add(new SearchPickerData.Candidate(candidate.registry(), candidate.localizedName(), variants));
-        }
-        return new SearchPickerData.SearchResult(candidates);
+    /** 空清单占位（诊断/测试）：不读取真实注册表。 */
+    static List<SearchPickerCategories.Category> noCategories() {
+        return Collections.emptyList();
     }
 }

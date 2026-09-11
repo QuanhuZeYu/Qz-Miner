@@ -1,8 +1,6 @@
 package club.heiqi.qz_miner.client.picker;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import club.heiqi.config.ui.editor.CurrentValuePresenter;
 import club.heiqi.config.ui.editor.SearchPickerData;
@@ -15,12 +13,12 @@ final class BlockSelectorCurrentValuePresenter implements CurrentValuePresenter 
     private static final String INVALID_TITLE = "无法读取当前方块规则";
     private static final String INVALID_SUMMARY = "请通过高级原始规则修正或删除";
 
-    private final Map<String, BlockCandidate> candidates;
+    private final BlockPickerCandidateSource candidateSource;
     private final VisualAdapter visualAdapter;
 
-    /** 直接复用 Provider 的共享候选索引（同一份不可变快照，不再重复建索引）。 */
-    BlockSelectorCurrentValuePresenter(Map<String, BlockCandidate> candidates, VisualAdapter visualAdapter) {
-        this.candidates = candidates;
+    /** 直接复用进程级候选源（O(1) 定位 + 至多一次分片物化，不再持有构造期索引副本）。 */
+    BlockSelectorCurrentValuePresenter(BlockPickerCandidateSource candidateSource, VisualAdapter visualAdapter) {
+        this.candidateSource = candidateSource;
         this.visualAdapter = visualAdapter;
     }
 
@@ -31,15 +29,13 @@ final class BlockSelectorCurrentValuePresenter implements CurrentValuePresenter 
         String text = (String) raw;
         try {
             ObjectGroupSelector selector = ObjectGroupParser.parseSelector(text);
-            BlockCandidate candidate = candidates.get(selector.registry());
+            SearchPickerData.Candidate candidate = candidateSource.exact(selector.registry());
             if (candidate == null) {
                 String canonical = selector.canonical();
                 return new Presentation(canonical, canonical, null);
             }
-            SearchPickerData.Candidate visual = new SearchPickerData.Candidate(candidate.registry(),
-                    candidate.localizedName(), Collections.<SearchPickerData.Variant>emptyList());
-            return new Presentation(candidate.localizedName(), selector.canonical(),
-                    visualAdapter.candidateImage(visual));
+            return new Presentation(candidate.label(), selector.canonical(),
+                    visualAdapter.candidateImage(candidate));
         } catch (IllegalArgumentException invalid) {
             return new Presentation(INVALID_TITLE, INVALID_SUMMARY, null);
         }

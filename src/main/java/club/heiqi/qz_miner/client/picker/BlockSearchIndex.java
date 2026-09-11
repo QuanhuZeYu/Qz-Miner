@@ -4,84 +4,174 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
-/** 不可变、预归一化的方块候选搜索索引。 */
+import club.heiqi.config.ui.editor.PickerQuery;
+
+/**
+ * 清单级搜索索引：只做归一化 + rank，返回「命中的清单下标」有序数组。
+ *
+ * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.7 D-2/D-3/D-7、§1.6(a)（搜索 lane 顺序 =
+ * rank 升序 + registry 字典序 tie-break）；{@code team/P2-Miner-Provider-改造设计.md} §2.5。</p>
+ *
+ * <p><b>与旧形态的差别</b>（旧 {@code search(query, requestedLimit)} 返回 {@code Result(candidates, truncated)}）：</p>
+ * <ul>
+ *   <li>不再返回 {@code SearchPickerData}（D-2：转换职责移交窗口切片，见 {@link BlockPickerCandidateSource#page}）；</li>
+ *   <li>不再有 {@code Math.min(65, requestedLimit)} 硬夹（D-7/A5）：命中数是<b>真值</b>，
+ *       窗口与 truncated 由调用方按 {@code SearchPickerSpec.maxItems()} 决定；</li>
+ *   <li>rank 表不变（0=registry 相等、1=modId 相等、2=registry 前缀、3=本地化名前缀、4=modId 前缀、
+ *       5=本地化名或变体名包含、6=modId 包含、7=registry 包含），避免搜索行为静默漂移。</li>
+ * </ul>
+ *
+ * <p><b>名字索引</b>：rank 3/5 需要本地化名与变体名，它们只在分片物化时可获得，因此名字索引
+ * （{@link BlockPickerNameIndex}）在<b>首个文本查询</b>时一次性构建并缓存；浏览 lane 与 {@code exact}
+ * 永不触发该构建。索引在清单代际内不变 ⇒ 同一 {@code (query, 代际)} 命中序稳定（A-02/A-03）。</p>
+ */
 public final class BlockSearchIndex {
-    private final List<Entry> entries;
 
-    public BlockSearchIndex(List<BlockCandidate> candidates) {
-        List<Entry> copy = new ArrayList<Entry>();
-        for (BlockCandidate candidate : candidates) copy.add(new Entry(candidate));
-        this.entries = Collections.unmodifiableList(copy);
-    }
+    private final BlockRegistrySnapshot snapshot;
+    private final BlockVariantShardCache shards;
+    private final String[] normalizedRegistries;
+    private final String[] normalizedModIds;
+    private BlockPickerNameIndex names;
 
-    /** 空查询返回空；非空查询按确定性相关度排序，最多保留 64 项及一项截断探针。 */
-    public Result search(String query, int requestedLimit) {
-        String normalized = normalize(query);
-        if (normalized.isEmpty() || requestedLimit <= 0) return new Result(Collections.<BlockCandidate>emptyList(), false);
-        int limit = Math.min(65, requestedLimit);
-        List<Match> matches = new ArrayList<Match>();
-        for (Entry entry : entries) {
-            int rank = entry.rank(normalized);
-            if (rank >= 0) matches.add(new Match(entry, rank));
+    /**
+     * @param snapshot 清单快照（索引生命周期 = 该快照的代际）
+     * @param shards   分片缓存（构建名字索引时复用其物化结果）
+     */
+    public BlockSearchIndex(BlockRegistrySnapshot snapshot, BlockVariantShardCache shards) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("snapshot must not be null");
         }
-        Collections.sort(matches, Comparator.comparingInt((Match match) -> match.rank)
-                .thenComparing(match -> match.entry.registry));
-        List<BlockCandidate> result = new ArrayList<BlockCandidate>();
-        for (int i = 0; i < matches.size() && i < limit; i++) result.add(matches.get(i).entry.candidate);
-        return new Result(result, matches.size() > limit);
-    }
-
-    private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static final class Entry {
-        private final BlockCandidate candidate;
-        private final String registry;
-        private final String modId;
-        private final String localized;
-        private final String variants;
-
-        private Entry(BlockCandidate candidate) {
-            this.candidate = candidate;
-            registry = normalize(candidate.registry());
-            modId = normalize(candidate.modId());
-            localized = normalize(candidate.localizedName());
-            StringBuilder names = new StringBuilder();
-            for (BlockVariant variant : candidate.variants()) names.append('\n').append(normalize(variant.name()));
-            variants = names.toString();
+        if (shards == null) {
+            throw new IllegalArgumentException("shards must not be null");
         }
-
-        private int rank(String query) {
-            if (registry.equals(query)) return 0;
-            if (modId.equals(query)) return 1;
-            if (registry.startsWith(query)) return 2;
-            if (localized.startsWith(query)) return 3;
-            if (modId.startsWith(query)) return 4;
-            if (localized.contains(query) || variants.contains(query)) return 5;
-            if (modId.contains(query)) return 6;
-            if (registry.contains(query)) return 7;
-            return -1;
+        this.snapshot = snapshot;
+        this.shards = shards;
+        int size = snapshot.size();
+        this.normalizedRegistries = new String[size];
+        this.normalizedModIds = new String[size];
+        for (int i = 0; i < size; i++) {
+            normalizedRegistries[i] = BlockPickerNameIndex.normalize(snapshot.registry(i));
+            normalizedModIds[i] = BlockPickerNameIndex.normalize(snapshot.modId(i));
         }
     }
 
-    private static final class Match {
-        private final Entry entry;
+    /**
+     * 命中序（清单下标数组）。
+     *
+     * @param query 查询条件（非 null）
+     * @return {@code null} = 清单恒等序（浏览 lane 且无分类过滤，调用方零分配直接按下标切片）；
+     *         否则命中下标：浏览 + 分类 = 清单序的子序列，文本 = rank 序 + registry 字典序 tie-break
+     */
+    public int[] orderFor(PickerQuery query) {
+        if (query == null) {
+            throw new IllegalArgumentException("query must not be null");
+        }
+        if (query.isBrowse()) {
+            if (!query.hasCategoryFilter()) {
+                return null;
+            }
+            return categoryOrder(query.categoryKey());
+        }
+        return rankedOrder(query);
+    }
+
+    /** 名字代际（语言/资源包）变化：丢弃名字索引与归一化结果之外的缓存，下次文本查询重建。 */
+    public void invalidateNames() {
+        names = null;
+    }
+
+    /** @return 名字索引是否已构建（诊断/测试探针） */
+    public boolean hasNames() {
+        return names != null;
+    }
+
+    private int[] categoryOrder(String categoryKey) {
+        List<Integer> matches = new ArrayList<Integer>();
+        for (int i = 0; i < normalizedModIds.length; i++) {
+            if (normalizedModIds[i].equals(categoryKey)) {
+                matches.add(Integer.valueOf(i));
+            }
+        }
+        return toArray(matches);
+    }
+
+    private int[] rankedOrder(PickerQuery query) {
+        String text = query.normalizedText();
+        String category = query.hasCategoryFilter() ? query.categoryKey() : null;
+        BlockPickerNameIndex nameIndex = names();
+        List<Hit> matches = new ArrayList<Hit>();
+        for (int i = 0; i < normalizedRegistries.length; i++) {
+            if (category != null && !normalizedModIds[i].equals(category)) {
+                continue;
+            }
+            int rank = rank(i, text, nameIndex);
+            if (rank >= 0) {
+                matches.add(new Hit(i, rank));
+            }
+        }
+        Collections.sort(matches, Comparator.comparingInt((Hit hit) -> hit.rank)
+                .thenComparing(hit -> normalizedRegistries[hit.index]));
+        int[] order = new int[matches.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = matches.get(i).index;
+        }
+        return order;
+    }
+
+    /** 8 级 rank（与旧 {@code BlockSearchIndex.Entry.rank} 逐条同序，避免搜索行为漂移）。 */
+    private int rank(int index, String text, BlockPickerNameIndex nameIndex) {
+        if (normalizedRegistries[index].equals(text)) {
+            return 0;
+        }
+        if (normalizedModIds[index].equals(text)) {
+            return 1;
+        }
+        if (normalizedRegistries[index].startsWith(text)) {
+            return 2;
+        }
+        String localized = nameIndex.localName(index);
+        if (localized.startsWith(text)) {
+            return 3;
+        }
+        if (normalizedModIds[index].startsWith(text)) {
+            return 4;
+        }
+        if (localized.contains(text) || nameIndex.variantNames(index).contains(text)) {
+            return 5;
+        }
+        if (normalizedModIds[index].contains(text)) {
+            return 6;
+        }
+        if (normalizedRegistries[index].contains(text)) {
+            return 7;
+        }
+        return -1;
+    }
+
+    private BlockPickerNameIndex names() {
+        if (names == null) {
+            names = BlockPickerNameIndex.build(snapshot, shards);
+        }
+        return names;
+    }
+
+    private static int[] toArray(List<Integer> values) {
+        int[] result = new int[values.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = values.get(i).intValue();
+        }
+        return result;
+    }
+
+    /** 命中项（下标 + rank），排序用。 */
+    private static final class Hit {
+        private final int index;
         private final int rank;
-        private Match(Entry entry, int rank) { this.entry = entry; this.rank = rank; }
-    }
 
-    /** 搜索结果及截断标记。 */
-    public static final class Result {
-        private final List<BlockCandidate> candidates;
-        private final boolean truncated;
-        private Result(List<BlockCandidate> candidates, boolean truncated) {
-            this.candidates = Collections.unmodifiableList(new ArrayList<BlockCandidate>(candidates));
-            this.truncated = truncated;
+        private Hit(int index, int rank) {
+            this.index = index;
+            this.rank = rank;
         }
-        public List<BlockCandidate> candidates() { return candidates; }
-        public boolean truncated() { return truncated; }
     }
 }

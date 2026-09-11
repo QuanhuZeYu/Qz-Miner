@@ -4,77 +4,131 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import net.minecraft.block.Block;
+import net.minecraft.block.material.Material;
 import net.minecraft.init.Blocks;
 
+import club.heiqi.config.ui.editor.CandidateSourceValueEditorProvider;
 import club.heiqi.config.ui.editor.ListMemberCodec;
+import club.heiqi.config.ui.editor.PickerCandidateSource;
+import club.heiqi.config.ui.editor.PickerQuery;
+import club.heiqi.config.ui.editor.Registry;
 import club.heiqi.config.ui.editor.SearchPickerCategories;
 import club.heiqi.config.ui.editor.SearchPickerData;
 import club.heiqi.config.ui.editor.SearchPickerPanelPresentation;
 import club.heiqi.config.ui.editor.SearchPickerPresentation;
-import club.heiqi.uilib.ui.scene.image.SceneImageSource;
 
-/** Provider 在构造时固化候选与 SearchFunction。 */
+/**
+ * Provider 收敛后的 SPI 契约测试：构造期零枚举、浏览/搜索两条 lane 的窗口语义、
+ * 兼容壳与 SPI 同源、分类与文案不变（ADR A-05/A-06/A5，设计 N4/N5）。
+ */
 public class BlockPickerProviderTest {
+
     @Test
-    public void providerSearchUsesImmutableSnapshotAndStableVariantKeys() {
-        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
-        source.add(new BlockCandidate("minecraft:stone", "Stone",
+    public void providerConstructionCapturesNothingAndSearchSharesOneLazySource() {
+        Fixture fixture = new Fixture(new BlockCandidate("minecraft:stone", "Stone",
                 Collections.singletonList(new BlockVariant(3, "Stone 3", null)), null));
-        BlockPickerProvider provider = new BlockPickerProvider(source);
-        source.clear();
+
+        BlockPickerProvider provider = fixture.provider();
+
+        Assert.assertEquals("构造期不得捕获清单", 0, fixture.snapshots.calls);
+        Assert.assertEquals("构造期不得物化任何分片", 0, fixture.materializations);
+        Assert.assertNotNull(provider.candidateSource());
+        Assert.assertNotNull(provider.iconSource());
+        Assert.assertSame(provider.candidateSource(), provider.candidateSource());
+
         Assert.assertEquals("minecraft:stone", provider.searchFunction().search("stone", 64)
                 .candidates().get(0).key());
         Assert.assertEquals("minecraft:stone@3", provider.searchFunction().search("stone", 64)
                 .candidates().get(0).variants().get(0).key());
+        Assert.assertEquals("SPI 面与兼容壳必须同源", "minecraft:stone", provider.candidateSource()
+                .exact("minecraft:stone").key());
     }
 
     @Test
-    public void emptyQueryReturnsCompleteSnapshotForCategoryBrowsing() {
-        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
-        source.add(new BlockCandidate("minecraft:stone", "minecraft", "建筑方块", "Stone",
-                Collections.singletonList(new BlockVariant(3, "Stone 3", null)), null));
-        source.add(new BlockCandidate("minecraft:dirt", "minecraft", "建筑方块", "Dirt",
-                Collections.<BlockVariant>emptyList(), null));
-        source.add(new BlockCandidate("gt:copper", "gt", null, "Copper",
-                Collections.<BlockVariant>emptyList(), null));
-        BlockPickerProvider provider = new BlockPickerProvider(source);
-        source.clear();
+    public void registrationCapturesReferenceWithoutEnumeratingCandidates() {
+        Fixture fixture = new Fixture(
+                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("gt:copper", "Copper", Collections.<BlockVariant>emptyList(), null));
+        Registry registry = new Registry();
 
-        SearchPickerData.SearchResult all = provider.searchFunction().search("", 64);
-        Assert.assertEquals(3, all.candidates().size());
-        Assert.assertEquals("minecraft:stone", all.candidates().get(0).key());
-        Assert.assertEquals("minecraft:stone@3", all.candidates().get(0).variants().get(0).key());
+        registry.register(new BlockPickerProvider(fixture.source));
 
-        SearchPickerData.SearchResult whitespace = provider.searchFunction().search("  ", 64);
-        Assert.assertEquals(3, whitespace.candidates().size());
-
-        Assert.assertEquals(1, provider.searchFunction().search("copper", 64).candidates().size());
+        Assert.assertEquals("注册不得物化任何分片（getSubBlocks = 0）", 0, fixture.materializations);
+        Assert.assertTrue("清单读取不得超过一次", fixture.snapshots.calls <= 1);
+        CandidateSourceValueEditorProvider registered =
+                (CandidateSourceValueEditorProvider) registry.find(BlockPickerProvider.ID);
+        Assert.assertNotNull(registered);
+        Assert.assertSame("注册只固化惰性 source 引用", fixture.source, registered.candidateSource());
+        Assert.assertNotNull(registered.iconSource());
+        Assert.assertEquals(64, registered.searchMaxItems());
     }
 
+    @Test
+    public void emptyQueryReturnsBrowseWindowForCategoryBrowsing() {
+        Fixture fixture = new Fixture(
+                new BlockCandidate("minecraft:stone", "minecraft", "建筑方块", "Stone",
+                        Collections.singletonList(new BlockVariant(3, "Stone 3", null)), null),
+                new BlockCandidate("minecraft:dirt", "minecraft", "建筑方块", "Dirt",
+                        Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("gt:copper", "gt", null, "Copper",
+                        Collections.<BlockVariant>emptyList(), null));
+        PickerCandidateSource source = fixture.provider().candidateSource();
+
+        PickerQuery browse = PickerQuery.browse(0, null);
+        Assert.assertEquals(3, source.matchCount(browse));
+        List<SearchPickerData.Candidate> window = source.page(browse, 0, 64);
+        Assert.assertEquals(3, window.size());
+        Assert.assertEquals("minecraft:stone", window.get(0).key());
+        Assert.assertEquals("minecraft:stone@3", window.get(0).variants().get(0).key());
+
+        Assert.assertTrue("空白文本 = 浏览 lane", PickerQuery.text("  ", 0, null).isBrowse());
+        Assert.assertEquals(3, fixture.provider().candidateSource()
+                .matchCount(PickerQuery.text("  ", 0, null)));
+        Assert.assertEquals(1, fixture.provider().candidateSource()
+                .matchCount(PickerQuery.text("copper", 0, null)));
+        Assert.assertEquals("兼容壳浏览 lane 仍返回全量", 3,
+                fixture.provider().searchFunction().search("", 64).candidates().size());
+    }
+
+    /**
+     * A5 改写：上限 64 由 UILib 装配层（{@code SearchPickerSpec.maxItems()}）传入，
+     * 命中数为真值、{@code truncated} 为真值透传，Miner 侧不再有 65 硬夹与截断探针项。
+     */
     @Test
     public void completeResultOverLimitKeepsExactlyRealEncodableCandidates() {
-        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
         Set<String> registries = new HashSet<String>();
+        List<BlockCandidate> values = new ArrayList<BlockCandidate>();
         for (int i = 0; i < 65; i++) {
             String registry = "test:block_" + i;
             registries.add(registry);
-            source.add(new BlockCandidate(registry, "Matching Block " + i,
+            values.add(new BlockCandidate(registry, "Matching Block " + i,
                     Collections.<BlockVariant>emptyList(), null));
         }
+        Fixture fixture = new Fixture(values.toArray(new BlockCandidate[values.size()]));
+        BlockPickerProvider provider = fixture.provider();
+        PickerCandidateSource source = provider.candidateSource();
+        PickerQuery query = PickerQuery.text("matching", 0, null);
 
-        SearchPickerData.SearchResult result = new BlockPickerProvider(source).searchFunction().search("matching", 64);
+        Assert.assertEquals("命中数必须为真值（无 65 硬夹）", 65, source.matchCount(query));
+        List<SearchPickerData.Candidate> window = source.page(query, 0, 64);
+        Assert.assertEquals(64, window.size());
+        Assert.assertTrue("truncated = matchCount > maxItems（真值透传）", source.matchCount(query) > 64);
+        SearchPickerData.SearchResult shim = provider.searchFunction().search("matching", 64);
+        Assert.assertEquals(64, shim.candidates().size());
+        Assert.assertTrue("兼容壳同样透传截断真值", shim.truncated());
 
-        Assert.assertEquals(65, result.candidates().size());
-        Assert.assertFalse(result.truncated());
-        for (SearchPickerData.Candidate candidate : result.candidates()) {
-            Assert.assertNotEquals("qz_miner:truncated", candidate.key());
+        for (SearchPickerData.Candidate candidate : window) {
             Assert.assertTrue(registries.contains(candidate.key()));
+            Assert.assertNotEquals("qz_miner:truncated", candidate.key());
             ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
             Assert.assertEquals(Collections.singletonList(candidate.key() + "@*"), codec.encode(
                     Collections.emptyList(),
@@ -85,8 +139,9 @@ public class BlockPickerProviderTest {
 
     @Test
     public void currentValuePresenterUsesSafeMalformedCopyAndCanonicalValidValues() {
-        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
-                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
+        BlockPickerProvider provider = new Fixture(new BlockCandidate("minecraft:stone", "Stone",
+                Collections.<BlockVariant>emptyList(), null)).provider();
+
         club.heiqi.config.ui.editor.CurrentValuePresenter.Presentation valid =
                 provider.currentValuePresenter().present(Collections.singletonList("minecraft:stone@03"));
         Assert.assertEquals("Stone", valid.title());
@@ -108,7 +163,7 @@ public class BlockPickerProviderTest {
 
     @Test
     public void presentationUsesCompleteChinesePlayerCopy() {
-        SearchPickerPresentation text = new BlockPickerProvider(Collections.<BlockCandidate>emptyList()).presentation();
+        SearchPickerPresentation text = new Fixture().provider().presentation();
         Assert.assertEquals("添加方块", text.title());
         Assert.assertEquals("搜索方块名称或 registry id", text.placeholder());
         Assert.assertEquals("全部状态", text.all());
@@ -143,8 +198,8 @@ public class BlockPickerProviderTest {
 
     @Test
     public void unenumeratedMemberFallsBackToLocalizedRegistrySnapshot() {
-        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
-                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
+        BlockPickerProvider provider = new Fixture(new BlockCandidate("minecraft:stone", "Stone",
+                Collections.<BlockVariant>emptyList(), null)).provider();
         SearchPickerData.Selection selection = new ObjectGroupPickerCodec().decodeMember("minecraft:stone@7");
         SearchPickerData.CurrentMember unEnumeratedHit =
                 new SearchPickerData.CurrentMember(4L, selection, null, false);
@@ -158,11 +213,11 @@ public class BlockPickerProviderTest {
 
     @Test
     public void memberFormatterUsesLocalizedCanonicalUnknownCanonicalAndGenericMalformedCopy() {
-        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(
-                new BlockCandidate("minecraft:stone", "Stone", Collections.<BlockVariant>emptyList(), null)));
+        BlockPickerProvider provider = new Fixture(new BlockCandidate("minecraft:stone", "Stone",
+                Collections.<BlockVariant>emptyList(), null)).provider();
         Assert.assertTrue(provider.codec() instanceof ListMemberCodec);
         SearchPickerData.Selection knownSelection = new ObjectGroupPickerCodec().decodeMember("minecraft:stone@03");
-        SearchPickerData.Candidate knownCandidate = provider.searchFunction().search("stone", 64).candidates().get(0);
+        SearchPickerData.Candidate knownCandidate = provider.candidateSource().exact("minecraft:stone");
         SearchPickerData.CurrentMember known =
                 new SearchPickerData.CurrentMember(1L, knownSelection, knownCandidate, true);
         Assert.assertEquals("Stone", provider.presentation().currentMemberPrimary(known));
@@ -182,34 +237,34 @@ public class BlockPickerProviderTest {
     }
 
     @Test
-    public void missingImagesShareScreenPlaceholderButRemainScreenScoped() {
+    public void missingImagesReturnNullSoUilibOwnsThePlaceholder() {
         BlockCandidate missing = new BlockCandidate("test:missing", "Missing",
                 Collections.singletonList(new BlockVariant(2, "Missing Variant", null)), null);
-        BlockPickerProvider first = new BlockPickerProvider(Collections.singletonList(missing));
-        BlockPickerProvider second = new BlockPickerProvider(Collections.singletonList(missing));
-        SearchPickerData.Candidate candidate = first.searchFunction().search("missing", 64).candidates().get(0);
-        SceneImageSource candidateImage = first.visualAdapter().candidateImage(candidate);
+        BlockPickerProvider provider = new Fixture(missing).provider();
+        SearchPickerData.Candidate candidate = provider.candidateSource().exact("test:missing");
 
-        Assert.assertSame(candidateImage, first.visualAdapter().candidateImage(candidate));
-        Assert.assertSame(candidateImage, first.visualAdapter().variantImage(candidate.variants().get(0)));
-        Assert.assertNotSame(candidateImage, second.visualAdapter().candidateImage(candidate));
-        SearchPickerData.Candidate unknown = new SearchPickerData.Candidate("test:enumeration-fallback", "Fallback",
-                Collections.<SearchPickerData.Variant>emptyList());
-        Assert.assertSame(candidateImage, first.visualAdapter().candidateImage(unknown));
+        Assert.assertNotNull(candidate);
+        Assert.assertNull("A6：无代表栈 → 无图，占位下沉 UILib",
+                provider.iconSource().candidateIcon("test:missing"));
+        Assert.assertNull(provider.visualAdapter().candidateImage(candidate));
+        Assert.assertNull(provider.visualAdapter().variantImage(candidate.variants().get(0)));
+        Assert.assertNull(provider.visualAdapter().candidateImage(null));
+        Assert.assertNull("未知 key 不产生图标", provider.iconSource().candidateIcon("test:absent"));
     }
 
     @Test
     public void realLitRedstoneOreSearchesByRegistryAndLocalizedNameAndEncodesBothModes() {
         BlockCandidate lit = BlockVariantMaterializer.materialize(
                 "minecraft:lit_redstone_ore", Blocks.lit_redstone_ore);
-        BlockPickerProvider provider = new BlockPickerProvider(Collections.singletonList(lit));
+        BlockPickerProvider provider = new Fixture(lit).provider();
+        PickerCandidateSource source = provider.candidateSource();
 
-        SearchPickerData.Candidate byRegistry = provider.searchFunction()
-                .search("lit_redstone_ore", 64).candidates().get(0);
-        Assert.assertEquals("minecraft:lit_redstone_ore", byRegistry.key());
+        SearchPickerData.Candidate byRegistry = source.exact("minecraft:lit_redstone_ore");
+        Assert.assertNotNull(byRegistry);
         Assert.assertEquals("minecraft:lit_redstone_ore@0", byRegistry.variants().get(0).key());
-        Assert.assertEquals(byRegistry.key(), provider.searchFunction()
-                .search(lit.localizedName(), 64).candidates().get(0).key());
+        PickerQuery byName = PickerQuery.text(lit.localizedName(), 0, null);
+        Assert.assertEquals(1, source.matchCount(byName));
+        Assert.assertEquals("minecraft:lit_redstone_ore", source.page(byName, 0, 1).get(0).key());
 
         ObjectGroupPickerCodec codec = new ObjectGroupPickerCodec();
         Assert.assertEquals(Collections.singletonList("minecraft:lit_redstone_ore@*"), codec.encode(
@@ -223,17 +278,16 @@ public class BlockPickerProviderTest {
 
     @Test
     public void categoriesExposeSingleModDimensionWithStableKeysAndCounts() {
-        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
-        source.add(new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
-                Collections.<BlockVariant>emptyList(), null));
-        source.add(new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
-                Collections.<BlockVariant>emptyList(), null));
-        source.add(new BlockCandidate("gt:copper", "gt", "测试栏", "Copper",
-                Collections.<BlockVariant>emptyList(), null));
-        source.add(new BlockCandidate("galacticraft:venus", "galacticraft", null, "Venus",
-                Collections.<BlockVariant>emptyList(), null));
-        BlockPickerProvider provider = new BlockPickerProvider(source);
-        source.clear();
+        Fixture fixture = new Fixture(
+                new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
+                        Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
+                        Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("gt:copper", "gt", "测试栏", "Copper",
+                        Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("galacticraft:venus", "galacticraft", null, "Venus",
+                        Collections.<BlockVariant>emptyList(), null));
+        BlockPickerProvider provider = fixture.provider();
 
         Assert.assertEquals(1, provider.categoryDimensionCount());
         List<SearchPickerCategories.Category> dim0 = provider.categories(0);
@@ -253,19 +307,20 @@ public class BlockPickerProviderTest {
 
     @Test
     public void categoryOfResolvesModDimensionAndUnknownKeys() {
-        List<BlockCandidate> source = new ArrayList<BlockCandidate>();
-        source.add(new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
-                Collections.<BlockVariant>emptyList(), null));
-        source.add(new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
-                Collections.<BlockVariant>emptyList(), null));
-        source.add(new BlockCandidate("legacy:bare", null, null, "Bare",
-                Collections.<BlockVariant>emptyList(), null));
-        BlockPickerProvider provider = new BlockPickerProvider(source);
+        Fixture fixture = new Fixture(
+                new BlockCandidate("minecraft:stone", "minecraft", null, "Stone",
+                        Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("minecraft:dirt", "minecraft", "测试栏", "Dirt",
+                        Collections.<BlockVariant>emptyList(), null),
+                new BlockCandidate("legacy:bare", null, null, "Bare",
+                        Collections.<BlockVariant>emptyList(), null));
+        BlockPickerProvider provider = fixture.provider();
 
         Assert.assertEquals("minecraft", provider.categoryOf("minecraft:stone"));
         Assert.assertEquals("minecraft", provider.categoryOf(0, "minecraft:stone"));
         Assert.assertEquals("minecraft", provider.categoryOf(0, "minecraft:dirt"));
-        Assert.assertNull(provider.categoryOf(0, "legacy:bare"));
+        // D-4：分类来自清单级 namespace 前缀统计（不再读 candidate 的显式 modId 字段）
+        Assert.assertEquals("legacy", provider.categoryOf(0, "legacy:bare"));
         Assert.assertNull(provider.categoryOf(0, "missing:block"));
         Assert.assertNull(provider.categoryOf(0, null));
         Assert.assertNull(provider.categoryOf(1, "minecraft:stone"));
@@ -285,8 +340,7 @@ public class BlockPickerProviderTest {
 
     @Test
     public void panelPresentationUsesCompleteChineseCopy() {
-        SearchPickerPanelPresentation text = new BlockPickerProvider(Collections.<BlockCandidate>emptyList())
-                .panelPresentation();
+        SearchPickerPanelPresentation text = new Fixture().provider().panelPresentation();
         Assert.assertEquals("选择方块", text.panelTitle());
         Assert.assertEquals(Arrays.asList("按 Mod"), text.categoryDimensions());
         Assert.assertEquals("浏览分类", text.categoryDimensionTitle());
@@ -304,5 +358,53 @@ public class BlockPickerProviderTest {
         List<String> keys = new ArrayList<String>();
         for (SearchPickerCategories.Category category : categories) keys.add(category.key());
         return keys;
+    }
+
+    /** 假清单 + 受控分片物化 + 捕获/物化计数；不读真实注册表、不触碰多方块 API。 */
+    private static final class Fixture {
+        private final Map<String, BlockCandidate> byRegistry = new LinkedHashMap<String, BlockCandidate>();
+        private final CountingSnapshotSource snapshots = new CountingSnapshotSource();
+        private final BlockPickerCandidateSource source;
+        private int materializations;
+
+        private Fixture(BlockCandidate... candidates) {
+            Map<String, Block> blocks = new LinkedHashMap<String, Block>();
+            for (BlockCandidate candidate : candidates) {
+                byRegistry.put(candidate.registry(), candidate);
+                blocks.put(candidate.registry(), new TestBlock());
+            }
+            snapshots.snapshot = BlockRegistrySnapshot.of(blocks);
+            source = new BlockPickerCandidateSource(snapshots, new BlockVariantShardCache(64,
+                    new BlockVariantShardCache.Materializer() {
+                        @Override
+                        public BlockCandidate materialize(String registry, Block block) {
+                            materializations++;
+                            BlockCandidate candidate = byRegistry.get(registry);
+                            return candidate == null ? BlockVariantMaterializer.placeholder(registry) : candidate;
+                        }
+                    }));
+        }
+
+        private BlockPickerProvider provider() {
+            return new BlockPickerProvider(source);
+        }
+    }
+
+    private static final class CountingSnapshotSource implements BlockPickerCandidateSource.SnapshotSource {
+        private BlockRegistrySnapshot snapshot;
+        private int calls;
+
+        @Override
+        public BlockRegistrySnapshot capture() {
+            calls++;
+            return snapshot;
+        }
+    }
+
+    /** Block(Material) 是 protected 构造。 */
+    private static final class TestBlock extends Block {
+        private TestBlock() {
+            super(Material.rock);
+        }
     }
 }
