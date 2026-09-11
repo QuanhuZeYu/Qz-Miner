@@ -48,9 +48,11 @@ dependencies {
     // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
     // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
-    // 当前为 Qz-UILib 4.9.0 正式 dev 制品（Release 资产下载入库，避免 JitPack 网络依赖）
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.9.0-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.9.0-dev.jar"))
+    // 当前为含 4.10 公开 HUD 编辑契约（HudEditTarget/HudEditService）的本机构建 dev 制品：
+    // 来源 Qz-UILib HEAD 4bf42b53，sha256 9511F30D38421C1A9DDDCFF6F8E47ADF504F8E418A2C1845BEED91CD1295F53D；
+    // 该制品尚未发布，正式 Release 资产上线后须替换为 Release 制品并回填 sha256。
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
