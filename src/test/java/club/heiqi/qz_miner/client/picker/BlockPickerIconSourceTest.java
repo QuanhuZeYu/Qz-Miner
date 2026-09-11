@@ -101,24 +101,29 @@ public class BlockPickerIconSourceTest {
     }
 
     /**
-     * U-A9 现状刻画：图标源必须返回可渲染的 {@link HostImageSource}（渲染唯一入口
-     * {@code UiRenderContext.drawImage} 只认它），而该类型是 final 且 {@code registryKey()} 自算，
-     * 因此候选域键需要 UILib 侧显式键工厂；本用例把「必须可渲染」钉死，翻面时只改断言。
+     * U-A9 闭环：图标源必须返回可渲染的 {@link HostImageSource}（渲染唯一入口
+     * {@code UiRenderContext.drawImage} 只认它），<b>同时</b>其 {@code registryKey()} 必须是
+     * 候选域键（{@code PickerIconKey.candidate/variant}）——否则 UNRENDERABLE 回退集合命中不了
+     * （ADR §5.1 的 S-1 漏匹配 + meta 粒度丢失）。
+     *
+     * <p>本条曾经不可能成立（{@code HostImageSource} 是 final 且键由内部 ItemStack 自算），现由
+     * UILib 显式键工厂 {@code HostImageSource.itemIcon(ItemStack, String)} 提供接缝（ADR V2.2）。</p>
      */
     @Test
-    public void returnedSourceIsRenderableHostImageSoCandidateKeyNeedsUilibSeam() {
+    public void returnedSourceIsRenderableHostImageAndReportsCandidateDomainKey() {
         BlockCandidate block = new BlockCandidate("minecraft:stone", "Stone",
                 Collections.singletonList(new BlockVariant(0, "Stone", new ItemStack(new Item(), 1, 0))),
                 new ItemStack(new Item(), 1, 0));
-        SceneImageSource source = icons(block).candidateIcon("minecraft:stone");
+        BlockPickerIconSource icons = icons(block);
+        SceneImageSource source = icons.candidateIcon("minecraft:stone");
+        SceneImageSource variant = icons.variantIcon("minecraft:stone", "0");
 
         Assert.assertNotNull(source);
         Assert.assertTrue("必须可渲染（UiRenderContext.drawImage 只认 instanceof HostImageSource）",
                 source instanceof HostImageSource);
-        // U-A9：HostImageSource 是 final 且 registryKey() 由内部 ItemStack 自算（Item 注册名:meta）。
-        // 合成 Item 未注册 ⇒ headless 下键为 null；真机上形如 "minecraft:stone:0"（Item 域）。
-        // 候选域键（PickerIconKey.candidate/variant）需要 UILib 侧显式键工厂，届时本断言改为等值断言。
-        Assert.assertNull("现有 API 无法自报候选域键", source.registryKey());
+        Assert.assertEquals("候选级键必须是候选域键", "minecraft:stone", source.registryKey());
+        Assert.assertNotNull(variant);
+        Assert.assertEquals("变体级键必须是候选域键@meta", "minecraft:stone@0", variant.registryKey());
     }
 
     private static BlockPickerIconSource icons(BlockCandidate candidate) {

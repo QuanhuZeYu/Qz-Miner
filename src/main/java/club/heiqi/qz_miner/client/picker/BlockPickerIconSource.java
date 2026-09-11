@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.client.picker;
 
 import club.heiqi.config.ui.editor.PickerIconSource;
 import club.heiqi.uilib.ui.image.HostImageSource;
+import club.heiqi.uilib.ui.scene.control.search.PickerIconKey;
 import club.heiqi.uilib.ui.scene.image.SceneImageSource;
 
 /**
@@ -19,13 +20,13 @@ import club.heiqi.uilib.ui.scene.image.SceneImageSource;
  *   <li><b>只允许客户端主线程</b>（{@link BlockPickerCandidateSource#blockCandidate(String)} 入口断言）。</li>
  * </ul>
  *
- * <p><b>U-A9 现状（ADR 与源码事实冲突，已上报 Lead）</b>：ADR §5.1(Z-2) 要求本方法返回的
- * {@link SceneImageSource} 覆写 {@code registryKey()} 为候选域键，但 UILib 侧
- * {@code HostImageSource} 是 {@code final} 且键由内部 ItemStack 自算（{@code Item 注册名:meta}），
- * 而渲染唯一入口 {@code UiRenderContext.drawImage} 只绘制 {@code instanceof HostImageSource} 的对象。
- * 因此当前实现取「渲染正确」优先：返回 HostImageSource，键暂为 Item 域；待 UILib 提供
- * 「显式候选域键」的图标工厂后，本类两处工厂调用改为携带 {@code PickerIconKey} 值即可闭环，
- * 调用面不变（详见 {@code team/P2B-实现记录.md} 未决项 U-B2）。</p>
+ * <p><b>U-A9 已闭环（ADR V2.2）</b>：分级键必须由本方法返回的图标源自报为**候选域键**，但
+ * {@code HostImageSource} 是 {@code final} 且默认键由内部 ItemStack 自算（{@code Item 注册名:meta}），
+ * 而渲染唯一入口 {@code UiRenderContext.drawImage} 只绘制 {@code instanceof HostImageSource} 的对象
+ * —— 两者不可兼得。UILib 侧已按 ADR V2.2 新增**显式键工厂**
+ * {@code HostImageSource.itemIcon(ItemStack, String)}（纯加法：显式键优先、null/空白回落自算）。
+ * 本类两处调用均携带 {@code PickerIconKey.candidate/variant} 的值，使 UNRENDERABLE 回退集合与
+ * meta 粒度按候选域键正确命中（S-1 漏匹配修复），且图标仍走可渲染的 HostImageSource。</p>
  */
 public final class BlockPickerIconSource implements PickerIconSource {
 
@@ -50,7 +51,7 @@ public final class BlockPickerIconSource implements PickerIconSource {
         if (candidate == null || candidate.representative() == null) {
             return null;
         }
-        return HostImageSource.itemIcon(candidate.representative());
+        return HostImageSource.itemIcon(candidate.representative(), PickerIconKey.candidate(candidateKey));
     }
 
     /**
@@ -80,7 +81,7 @@ public final class BlockPickerIconSource implements PickerIconSource {
         }
         for (BlockVariant variant : candidate.variants()) {
             if (variant.metadata() == meta && variant.stack() != null) {
-                return HostImageSource.itemIcon(variant.stack());
+                return HostImageSource.itemIcon(variant.stack(), PickerIconKey.variant(candidateKey, Integer.toString(meta)));
             }
         }
         return null;
