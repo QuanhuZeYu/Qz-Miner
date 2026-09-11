@@ -9,10 +9,10 @@ import cpw.mods.fml.common.Mod;
 public class MyModMetadataTest {
 
     @Test
-    public void qzUiLibRuntimeRangeIs470ToBefore500() {
+    public void qzUiLibRuntimeRangeIs490ToBefore500() {
         Mod metadata = MyMod.class.getAnnotation(Mod.class);
 
         Assert.assertNotNull("MyMod must retain @Mod metadata", metadata);
-        Assert.assertEquals("required-after:qz_uilib@[4.7.0,5.0.0);", metadata.dependencies());
+        Assert.assertEquals("required-after:qz_uilib@[4.9.0,5.0.0);", metadata.dependencies());
     }
 }

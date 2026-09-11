@@ -12,32 +12,51 @@ import java.nio.file.Files;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** 守卫 Miner 不再自行渲染 HUD，且 UILib HUD API 不泄漏到 common/server。 */
+/**
+ * 守卫 Miner 不自行渲染 HUD、HUD 接入只走 UILib 客户端 API（4.9 虚拟窗口契约），
+ * 且 HUD 注册与内容刷新只有一个所有者。
+ */
 public class HudArchitectureBoundaryTest {
 
+    /** 生产源码不得出现的原版 HUD 渲染符号（Miner 只描述内容，渲染归 UILib 宿主）。 */
     private static final String[] FORBIDDEN_RENDERING = {
             "RenderGameOverlayEvent", "ScaledResolution", "FontRenderer", "drawString",
             "drawStringWithShadow", "hudX", "hudY"
     };
 
+    /** 4.9 已删除的旧行式快照协议符号；生产源码不得回退引用。 */
+    private static final String[] FORBIDDEN_LEGACY_HUD_API = {
+            "CompactHud", "HudSnapshotProvider", "HudSnapshot", "HudLine", "HudSpan", "HudTone"
+    };
+
+    /** 4.9 唯一注册入口（锚点）。 */
+    private static final String HUD_REGISTRATION_CALL = "ClientHudService.getInstance().register(";
+
     @Test
     public void productionSourcesContainNoLegacyHudRendering() throws Exception {
         File root = new File("src/main/java/club/heiqi/qz_miner");
-        assertJavaSources(root, new SourceAssertion() {
+        int scannedSources = assertJavaSources(root, new SourceAssertion() {
             @Override
             public void check(File file, String source) {
                 for (String forbidden : FORBIDDEN_RENDERING) {
                     Assert.assertFalse(file + " must not contain " + forbidden, source.contains(forbidden));
                 }
+                for (String legacy : FORBIDDEN_LEGACY_HUD_API) {
+                    Assert.assertFalse(file + " must not reference removed HUD snapshot API " + legacy,
+                            source.contains(legacy));
+                }
             }
         });
-        assertClassFilesContainNoSectionStyle(new File("build/classes/java/main/club/heiqi/qz_miner"));
+        Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
+        int scannedClasses = assertClassFilesContainNoSectionStyle(
+                new File("build/classes/java/main/club/heiqi/qz_miner"));
+        Assert.assertTrue("编译产物必须真实被扫描（§ 门禁不得空跑）", scannedClasses > 0);
     }
 
     @Test
     public void hudApiIsClientOnlyAndRegistrationHasSingleOwner() throws Exception {
         File root = new File("src/main/java/club/heiqi/qz_miner");
-        assertJavaSources(root, new SourceAssertion() {
+        int scannedSources = assertJavaSources(root, new SourceAssertion() {
             @Override
             public void check(File file, String source) {
                 String path = file.getPath().replace('\\', '/');
@@ -46,32 +65,51 @@ public class HudArchitectureBoundaryTest {
                             source.contains("club.heiqi.uilib.ui.hud.api"));
                 }
                 if (!path.endsWith("/ClientProxy.java")) {
-                    Assert.assertFalse(file + " must not register compact HUD", source.contains("CompactHud.register("));
+                    Assert.assertFalse(file + " must not register a HUD window",
+                            source.contains(HUD_REGISTRATION_CALL));
+                    Assert.assertFalse(file + " must not own the HUD refresh driver",
+                            source.contains("new QzMinerHudTicker("));
                 }
             }
         });
+        Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
+
         String proxy = read(new File(root, "ClientProxy.java"));
-        Assert.assertEquals("ClientProxy.init owns exactly one registration", 1,
-                occurrences(proxy, "CompactHud.register("));
+        Assert.assertEquals("ClientProxy.init owns exactly one HUD window registration", 1,
+                occurrences(proxy, HUD_REGISTRATION_CALL));
+        Assert.assertEquals("exactly one client tick driver refreshes the HUD", 1,
+                occurrences(proxy, "new QzMinerHudTicker("));
         Assert.assertFalse("HUD registration survives disconnects", proxy.contains("chainStatusHudRegistration.close("));
+
+        Assert.assertEquals("exactly one HudWindowFactory in production sources", 1,
+                countOccurrences(root, "implements HudWindowFactory"));
+        String window = read(new File(root, "client/QzMinerHudWindow.java"));
+        Assert.assertTrue("HUD content must be declared as a UILib window factory",
+                window.contains("implements HudWindowFactory"));
+        Assert.assertTrue("HUD content must be built from scene nodes",
+                window.contains("SceneNode") && window.contains("SceneRuntime"));
+
         String keyListener = read(new File(root, "client/KeyListener.java"));
         Assert.assertFalse("KeyListener only updates state", keyListener.contains("HudRegistration"));
-        Assert.assertFalse("KeyListener only updates state", keyListener.contains("CompactHud"));
+        Assert.assertFalse("KeyListener only updates state", keyListener.contains("ClientHudService"));
+        Assert.assertFalse("KeyListener only updates state", keyListener.contains("QzMinerHudWindow"));
     }
 
     @Test
     public void clientInitReadyMarkerFollowsEveryUiLibIntegrationRegistration() throws Exception {
         String proxy = read(new File("src/main/java/club/heiqi/qz_miner/ClientProxy.java"));
         int marker = proxy.indexOf("[ClientInit] stage=uilib-integrations-ready");
-
         Assert.assertTrue("ClientInit marker must exist", marker >= 0);
-        Assert.assertTrue(marker > proxy.indexOf("AutoToolSwapHooks.install(autoToolSwapAdapter)"));
-        Assert.assertTrue(marker > proxy.indexOf("chainPreviewController.register()"));
-        Assert.assertTrue(marker > proxy.indexOf("chainPreviewRenderer.register()"));
-        Assert.assertTrue(marker > proxy.indexOf("new ClientConnectionListener().register()"));
-        Assert.assertTrue(marker > proxy.indexOf("new ClientConfigChangeListener().register()"));
-        Assert.assertTrue(marker > proxy.indexOf("CompactHud.register("));
-        Assert.assertTrue(marker > proxy.indexOf("new KeyListener(autoToolSwapAdapter).register()"));
+
+        assertMarkerFollows(proxy, marker, "AutoToolSwapHooks.install(autoToolSwapAdapter)");
+        assertMarkerFollows(proxy, marker, "chainPreviewController.register()");
+        assertMarkerFollows(proxy, marker, "chainPreviewRenderer.register()");
+        assertMarkerFollows(proxy, marker, "cuboidSelectionRenderer.register()");
+        assertMarkerFollows(proxy, marker, "connectionListener.register()");
+        assertMarkerFollows(proxy, marker, "new ClientConfigChangeListener().register()");
+        assertMarkerFollows(proxy, marker, HUD_REGISTRATION_CALL);
+        assertMarkerFollows(proxy, marker, "new QzMinerHudTicker(chainStatusHud).register()");
+        assertMarkerFollows(proxy, marker, "new KeyListener(autoToolSwapAdapter).register()");
     }
 
     @Test
@@ -81,7 +119,7 @@ public class HudArchitectureBoundaryTest {
 
         boolean sectionSignRejected = false;
         try {
-            assertClassBytesContainNoSectionStyle(classFileWithUtf8("§cstyled", new byte[0]));
+            assertClassBytesContainNoSectionStyle(classFileWithUtf8("\u00a7cstyled", new byte[0]));
         } catch (AssertionError expected) {
             // 预期：真实 HUD 样式字符串仍应触发门禁。
             sectionSignRejected = true;
@@ -105,32 +143,70 @@ public class HudArchitectureBoundaryTest {
         });
     }
 
-    private static void assertJavaSources(File file, SourceAssertion assertion) throws Exception {
+    /**
+     * 锚点必须真实存在，且 ClientInit marker 位于其后。
+     *
+     * <p>不用裸 {@code marker > proxy.indexOf(anchor)}：锚点拼写漂移时 indexOf 返回 -1，
+     * 断言会静默通过（守卫失效）。</p>
+     */
+    private static void assertMarkerFollows(String proxy, int marker, String anchor) {
+        int index = proxy.indexOf(anchor);
+        Assert.assertTrue("integration anchor must exist: " + anchor, index >= 0);
+        Assert.assertTrue("ClientInit marker must follow: " + anchor, marker > index);
+    }
+
+    private static int countOccurrences(File file, String needle) throws IOException {
         if (file.isDirectory()) {
             File[] children = file.listFiles();
             Assert.assertNotNull(children);
+            int count = 0;
             for (File child : children) {
-                assertJavaSources(child, assertion);
+                count += countOccurrences(child, needle);
             }
-        } else if (file.getName().endsWith(".java")) {
-            assertion.check(file, read(file));
+            return count;
         }
+        if (!file.getName().endsWith(".java")) {
+            return 0;
+        }
+        return occurrences(read(file), needle);
+    }
+
+    private static int assertJavaSources(File file, SourceAssertion assertion) throws Exception {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            Assert.assertNotNull(children);
+            int count = 0;
+            for (File child : children) {
+                count += assertJavaSources(child, assertion);
+            }
+            return count;
+        }
+        if (file.getName().endsWith(".java")) {
+            assertion.check(file, read(file));
+            return 1;
+        }
+        return 0;
     }
 
     private static String read(File file) throws IOException {
         return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
     }
 
-    private static void assertClassFilesContainNoSectionStyle(File file) throws IOException {
+    private static int assertClassFilesContainNoSectionStyle(File file) throws IOException {
         if (file.isDirectory()) {
             File[] children = file.listFiles();
             Assert.assertNotNull(children);
+            int count = 0;
             for (File child : children) {
-                assertClassFilesContainNoSectionStyle(child);
+                count += assertClassFilesContainNoSectionStyle(child);
             }
-        } else if (file.getName().endsWith(".class")) {
-            assertClassBytesContainNoSectionStyle(Files.readAllBytes(file.toPath()));
+            return count;
         }
+        if (file.getName().endsWith(".class")) {
+            assertClassBytesContainNoSectionStyle(Files.readAllBytes(file.toPath()));
+            return 1;
+        }
+        return 0;
     }
 
     /**

@@ -22,7 +22,8 @@ import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.KeyListener;
-import club.heiqi.qz_miner.client.QzMinerHudSnapshotProvider;
+import club.heiqi.qz_miner.client.QzMinerHudTicker;
+import club.heiqi.qz_miner.client.QzMinerHudWindow;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
@@ -30,9 +31,10 @@ import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
 import club.heiqi.qz_miner.client.toolswap.QzAutoToolSwapClientTransport;
 import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
-import club.heiqi.uilib.ui.hud.api.CompactHud;
+import club.heiqi.uilib.ui.hud.api.ClientHudService;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
+import club.heiqi.uilib.ui.hud.api.HudSpec;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import club.heiqi.qz_miner.network.PacketChainConfigSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -98,7 +100,7 @@ public class ClientProxy extends CommonProxy {
     public static CuboidSelectionRenderer cuboidSelectionRenderer;
     /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
-    /** Qz-Miner 紧凑 HUD 的 UILib 注册句柄。 */
+    /** Qz-Miner 连锁状态 HUD 的 UILib 注册句柄；跨断线/世界切换保持有效，只在模组资源释放时关闭。 */
     public static HudRegistration chainStatusHudRegistration;
     /** 新版自动工具换位唯一长寿命客户端 adapter。 */
     public static AutoToolSwapClientAdapter autoToolSwapAdapter;
@@ -131,13 +133,20 @@ public class ClientProxy extends CommonProxy {
         connectionListener = new ClientConnectionListener();
         connectionListener.register();
         new ClientConfigChangeListener().register();
-        chainStatusHudRegistration = CompactHud.register(
-                "qz_miner:chain-status",
-                HudAnchor.TOP_LEFT,
-                new QzMinerHudSnapshotProvider(MyMod.chainStateService.getClientState(), clientPhaseProjection));
+        // UILib 4.9 虚拟窗口：窗口工厂在挂载时构建 scene 内容树，内容变化经 signal 驱动；
+        // 注册与 signal 写限定客户端主线程，断线只释放宿主 session 窗口、注册本身保留（不重注册、不 close）。
+        QzMinerHudWindow chainStatusHud = new QzMinerHudWindow(
+                MyMod.chainStateService.getClientState(), clientPhaseProjection);
+        chainStatusHudRegistration = ClientHudService.getInstance().register(
+                HudSpec.builder(QzMinerHudWindow.HUD_ID)
+                        .anchor(HudAnchor.TOP_LEFT)
+                        .build(),
+                chainStatusHud);
+        new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
-                + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,compact-hud,key-listener");
+                + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
+                + "chain-status-hud,key-listener");
     }
 
     /**

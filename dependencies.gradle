@@ -34,6 +34,11 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 dependencies {
+    // GTNH 基线唯一真源（对齐 Qz-UILib）：单值声明，不再经 gradle.properties 的 elytra.manifest.version
+    elytraModpackVersion {
+        setGtnhVersion("2.9.0-beta-3")
+    }
+
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("GT5-Unofficial"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("LootGames"))
     devOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("GTNHLib"))
@@ -43,9 +48,9 @@ dependencies {
     // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
     // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
-    // 当前为 Qz-UILib 4.8.0 正式 dev 制品（Release 资产下载入库，避免 JitPack 网络依赖）
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.8.0-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.8.0-dev.jar"))
+    // 当前为 Qz-UILib 4.9.0 正式 dev 制品（Release 资产下载入库，避免 JitPack 网络依赖）
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.9.0-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.9.0-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))
