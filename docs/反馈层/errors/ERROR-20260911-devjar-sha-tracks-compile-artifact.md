@@ -33,6 +33,14 @@
 `QzUiLibArtifactContractTest` 只校验 `mcmod.info` 版本满足声明区间，**识别不了这种同版本内容漂移**；
 必须靠 `dependencies.gradle` 注释里的 sha256 与 changelog 记录人工核对。
 
+## 后续观察（同日第二次交接，2026-09-11 晚）
+
+- 换为 UILib `f3bae7a7` 件（overlay 相对渲染倍率，`7E0A8EF2…` / 3780142 bytes）后重建，主 jar 仍为
+  `b38d2fc0…`，`-dev-dev.jar` / `-sources.jar` 亦逐位不变 → **结论细化**：主 jar 的字节是「Miner 源码 +
+  其**引用的** UILib 符号面」的联合指纹；只有被引用符号面变化（如 `HudToolbarService.scale` 的返回类型
+  改为新增类 `HudScaleState`）才改变主 jar，仅新增未被 Miner 引用的成员不影响主 jar。
+- 交接纪律不变：交接件 sha 与三个产物 sha 仍须在 `dependencies.gradle` 注释与 `.changelogs/5.3.1.md` 成对记录。
+
 ## 处置
 
 - changelog 主 jar sha 回填为当前实测值，并注明与交接件 sha、HEAD 的对应关系；
