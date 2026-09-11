@@ -16,7 +16,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# GTNH 基线为依赖声明单值真源（dependencies.gradle 的 elytraModpackVersion.setGtnhVersion），
+# 发布流程不解析基线清单/矩阵。
+# 兼容承诺：运行期兼容范围含 GTNH 2.9.0-beta-2 与 2.9.0-beta-3；依据是源码对 GTNH 侧组件零静态链接
+# + 双基线编译实证（beta-2/beta-3 均 compileJava/compileTestJava 通过）；真机运行态未验证。
 jobs:
+  # 单基线发布构建（对齐 Qz-UILib）：基线真源为 dependencies.gradle 单值声明，
+  # 环境里不再传递 -Pelytra.manifest.version / -Pqz.gtnh.* 覆盖。
   build:
     runs-on: ubuntu-24.04
     env:
@@ -57,79 +63,6 @@ jobs:
           fetch-depth: 32
           submodules: recursive
 
-      - name: Determine default GTNH baseline
-        id: default-baseline
-        shell: bash
-        run: |
-          python3 <<'PY'
-          import json
-          import os
-          import re
-          from pathlib import Path
-
-          SAFE_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-
-          def fail(message):
-              raise SystemExit(message)
-
-          def reject_duplicates(pairs):
-              result = {}
-              for key, value in pairs:
-                  if key in result:
-                      fail(f"duplicate JSON key: {key}")
-                  result[key] = value
-              return result
-
-          def reject_constant(value):
-              fail(f"invalid JSON constant: {value}")
-
-          raw = Path("gradle/gtnh-baselines.json").read_bytes()
-          if len(raw) > 16384:
-              fail("baseline manifest exceeds 16 KiB")
-          try:
-              text = raw.decode("ascii")
-          except UnicodeDecodeError:
-              fail("baseline manifest must contain ASCII only")
-          data = json.loads(
-              text,
-              object_pairs_hook=reject_duplicates,
-              parse_constant=reject_constant,
-          )
-          if type(data) is not dict or set(data) != {"schemaVersion", "baselines"}:
-              fail("baseline manifest must contain only schemaVersion and baselines")
-          if type(data["schemaVersion"]) is not int or data["schemaVersion"] != 1:
-              fail("unsupported baseline manifest schemaVersion")
-          baselines = data["baselines"]
-          if type(baselines) is not list or len(baselines) < 1:
-              fail("baseline manifest must contain at least one baseline")
-          for index, baseline in enumerate(baselines):
-              if type(baseline) is not dict or set(baseline) != {"manifest", "gregTechVersion"}:
-                  fail(f"baseline {index} must contain only manifest and gregTechVersion")
-              for key in ("manifest", "gregTechVersion"):
-                  value = baseline[key]
-                  if type(value) is not str or SAFE_VALUE.fullmatch(value) is None:
-                      fail(f"baseline {index} has unsafe {key}")
-          manifests = [baseline["manifest"] for baseline in baselines]
-          if len(set(manifests)) != len(manifests):
-              fail("baseline manifests must be unique")
-
-          properties = Path("gradle.properties").read_text(encoding="utf-8")
-          default_matches = re.findall(
-              r"(?m)^\s*elytra\.manifest\.version\s*=\s*([^\s#]+)\s*$",
-              properties,
-          )
-          if len(default_matches) != 1 or SAFE_VALUE.fullmatch(default_matches[0]) is None:
-              fail("gradle.properties must define one safe default manifest")
-          default_manifest = default_matches[0]
-          selected = [baseline for baseline in baselines if baseline["manifest"] == default_manifest]
-          if len(selected) != 1:
-              fail("default manifest must occur exactly once in the baseline manifest")
-
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-              print(f"manifest={selected[0]['manifest']}", file=output)
-              print(f"gregTechVersion={selected[0]['gregTechVersion']}", file=output)
-          PY
-
       - name: Determine JDK versions
         id: list-jdk-versions
         shell: bash
@@ -163,13 +96,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Setup the workspace
-        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' setupCIWorkspace
-
-      - name: Verify resolved GregTech baseline
-        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" "-Pqz.gtnh.expectedGregTechVersion=${{ steps.default-baseline.outputs.gregTechVersion }}" verifyGtnhBaseline
+        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' setupCIWorkspace
 
       - name: Build the mod
-        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble
+        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble
 
       - name: Release under current tag
         run: |
@@ -198,7 +128,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to Maven
-        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
+        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
         continue-on-error: true
         env:
           MAVEN_USER: ${{ secrets.MAVEN_USER }}
@@ -206,14 +136,14 @@ jobs:
         if: ${{ env.MAVEN_USER != '' }}
 
       - name: Publish to Modrinth
-        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
+        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
         continue-on-error: true
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
         if: ${{ env.SNAPSHOT != 'true' && env.PRERELEASE != 'true' }}
 
       - name: Publish to Curseforge
-        run: ./gradlew --build-cache --info --stacktrace "-Pelytra.manifest.version=${{ steps.default-baseline.outputs.manifest }}" -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
+        run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble publish -x test
         continue-on-error: true
         env:
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
