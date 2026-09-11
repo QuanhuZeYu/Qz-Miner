@@ -39,5 +39,7 @@ hud.qz_miner.sub_mode.special.lootgames_minesweeper=特殊扫雷预览模式
 hud.qz_miner.sub_mode.special.gt_cable_replace=GT线缆连锁替换模式
 hud.qz_miner.sub_mode.interact.liquid_source=液体源
 hud.qz_miner.sub_mode.interact.fertilize_immature_crop=未成熟作物施肥
+hud.qz_miner.edit_action.label=编辑 HUD
+hud.qz_miner.edit_action.tooltip=拖动连锁状态 HUD 调整屏幕位置
 key.categories.qz_miner=Qz-Miner
 key.qz_miner.chainSwitch=连锁按键

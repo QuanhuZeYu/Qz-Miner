@@ -22,6 +22,7 @@ import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.KeyListener;
+import club.heiqi.qz_miner.client.QzMinerHudEditEntry;
 import club.heiqi.qz_miner.client.QzMinerHudTicker;
 import club.heiqi.qz_miner.client.QzMinerHudWindow;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
@@ -146,24 +147,30 @@ public class ClientProxy extends CommonProxy {
         chainStatusHudRegistration = ClientHudService.getInstance().register(
                 HudSpec.builder(QzMinerHudWindow.HUD_ID)
                         .anchor(HudAnchor.TOP_LEFT)
+                        .margin(QzMinerHudWindow.HUD_MARGIN_PX)
                         .chrome(false)
                         .build(),
                 chainStatusHud);
+        // 工具栏规格唯一实例：关闭态外接工具栏与编辑期预览共用同一份，外框尺寸/clamp 口径一致。
+        HudToolbarSpec chainStatusToolbarSpec = HudToolbarSpec.builder().build();
         // 外接工具栏：缩放 -/1:1/+ 由 UILib 公共层按 HudToolbarSpec 追加，Miner 不自绘。
         // 注册失败只丢工具栏，HUD 主体照常显示（与宿主 mountLayer 的隔离语义一致）。
         try {
             chainStatusHudToolbarRegistration = HudToolbarService.getInstance().register(
                     QzMinerHudWindow.HUD_ID,
-                    HudToolbarSpec.builder().build(),
+                    chainStatusToolbarSpec,
                     QzMinerHudWindow.TOOLBAR_FACTORY);
         } catch (RuntimeException toolbarFailure) {
             MyMod.LOG.warn("[ClientInit] HUD 外接工具栏注册失败，已隔离（HUD 主体照常显示）", toolbarFailure);
         }
+        // 编辑入口单点：可编辑目标（预览/默认放置/工具栏规格）+ 聊天工具栏「编辑 HUD」动作。
+        // 内部幂等且逐件失败隔离，异常不外溢（HUD 主体与工具栏不受影响）。
+        QzMinerHudEditEntry.install(chainStatusHud, chainStatusToolbarSpec);
         new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
-                + "chain-status-hud,chain-status-hud-toolbar,key-listener");
+                + "chain-status-hud,chain-status-hud-toolbar,chain-status-hud-edit,key-listener");
     }
 
     /**

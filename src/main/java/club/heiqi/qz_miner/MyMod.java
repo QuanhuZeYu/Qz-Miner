@@ -51,7 +51,7 @@ import cpw.mods.fml.relauncher.Side;
     version = Tags.VERSION,
     name = MyMod.MOD_NAME,
     acceptedMinecraftVersions = "[1.7.10]",
-    dependencies = "required-after:qz_uilib@[4.9.0,5.0.0);",
+    dependencies = "required-after:qz_uilib@[4.10.0,5.0.0);",
     guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory")
 public class MyMod {
 

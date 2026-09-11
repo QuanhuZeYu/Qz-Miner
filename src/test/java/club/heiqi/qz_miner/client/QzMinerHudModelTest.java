@@ -134,6 +134,32 @@ public class QzMinerHudModelTest {
     }
 
     @Test
+    public void previewTranslationIgnoresDisplayGate() {
+        Fixture fixture = new Fixture();
+        fixture.state.setSelectedMode(ChainMode.CHAIN);
+        fixture.state.setSelectedSubMode(ChainSubMode.CHAIN_ORE);
+        fixture.state.setServerMatchedTargetCount(12);
+
+        // 门关闭（连锁键未按、阶段 IDLE）：HUD 翻译为空，编辑预览仍有完整卡片内容。
+        Assert.assertTrue(fixture.model().isEmpty());
+        QzMinerHudModel preview = fixture.previewModel();
+        Assert.assertFalse("预览模型不跟随显示门（编辑会话里门必然关闭）", preview.isEmpty());
+        Assert.assertEquals(Arrays.asList("status", "mode", "sub-mode", "chain-config",
+                "server-matched", "object-group-sync"), ids(preview));
+        assertSpan(preview, "status", "status.value", ClientI18n.tr("hud.qz_miner.status.idle"),
+                QzMinerHudModel.Tone.WARNING);
+        assertSpan(preview, "mode", "mode.value", ClientI18n.tr("hud.qz_miner.mode.chain"),
+                QzMinerHudModel.Tone.INFO);
+        assertSpan(preview, "server-matched", "server-matched.value", "12",
+                QzMinerHudModel.Tone.INFO);
+        assertNoLegacySectionStyle(preview);
+
+        // 门打开时预览与 HUD 同源（行序一致），预览只是不把门当条件。
+        fixture.state.setChainKeyPressed(true);
+        Assert.assertEquals(ids(fixture.model()), ids(preview));
+    }
+
+    @Test
     public void modelIsImmutableAndEqualitySupportsSignalDeduplication() {
         Fixture fixture = new Fixture();
         fixture.state.setChainKeyPressed(true);
@@ -232,16 +258,21 @@ public class QzMinerHudModelTest {
         private final ChainClientState state = new ChainClientState();
         private final ClientPhaseProjection projection = new ClientPhaseProjection();
         private final ChainPreviewState preview = new ChainPreviewState();
+        private final QzMinerHudModel.PreviewStateSource source =
+                new QzMinerHudModel.PreviewStateSource() {
+                    @Override
+                    public ChainPreviewState current() {
+                        return preview;
+                    }
+                };
         private int generation = 1;
 
         private QzMinerHudModel model() {
-            return QzMinerHudModel.translate(state, projection,
-                    new QzMinerHudModel.PreviewStateSource() {
-                        @Override
-                        public ChainPreviewState current() {
-                            return preview;
-                        }
-                    });
+            return QzMinerHudModel.translate(state, projection, source);
+        }
+
+        private QzMinerHudModel previewModel() {
+            return QzMinerHudModel.translateForPreview(state, projection, source);
         }
     }
 }

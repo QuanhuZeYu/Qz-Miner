@@ -76,6 +76,14 @@ public final class QzMinerHudWindow implements HudWindowFactory {
     /** 单卡片键：卡片常驻复用，内容增量由卡内按行 key 的列表承担。 */
     static final String CARD_KEY = "qz_miner:chain-status-card";
 
+    /**
+     * HUD 锚定边距（logical px）。
+     *
+     * <p>同时是 {@code HudSpec.margin} 与编辑期默认放置（{@code HudPlacement.defaultOf}）的值：
+     * 编辑预览的起始位置必须与关闭态 HUD 的默认位置一致，否则用户一进编辑就看到 HUD「跳位」。</p>
+     */
+    public static final int HUD_MARGIN_PX = 8;
+
     /** 常启信号：HUD 卡片只读展示、不参与命中，表面绑定恒取 idle 档。 */
     private static final ReadableSignal<Boolean> ALWAYS_ENABLED = () -> Boolean.TRUE;
 
@@ -117,6 +125,28 @@ public final class QzMinerHudWindow implements HudWindowFactory {
                             : Collections.singletonList(current);
                 }
             };
+
+    /**
+     * 编辑期预览模型只读视图：忽略显示门（编辑会话里连锁键必然松开），
+     * 订阅点仍是模型 signal —— HUD 侧模型变化会驱动预览重算。
+     */
+    private final ReadableSignal<QzMinerHudModel> previewModel =
+            new ReadableSignal<QzMinerHudModel>() {
+                @Override
+                public QzMinerHudModel get() {
+                    model.get();
+                    return QzMinerHudModel.translateForPreview(
+                            clientState, phaseProjection, previewStateSource);
+                }
+            };
+
+    /** 预览卡片列表视图：恒一张卡片（预览不跟随显示门，保证拖动命中面始终存在）。 */
+    private final ReadableSignal<List<QzMinerHudModel>> previewCards =
+            () -> Collections.singletonList(previewModel.get());
+
+    /** 预览行列表只读视图（同 {@link #lines}，数据源换成预览模型）。 */
+    private final ReadableSignal<List<QzMinerHudModel.Line>> previewLines =
+            () -> previewModel.get().getLines();
 
     /**
      * 创建窗口工厂（生产入口：预览状态取当前预览控制器）。
@@ -167,8 +197,41 @@ public final class QzMinerHudWindow implements HudWindowFactory {
         SceneNode content = SceneNode.column().setHitTestable(false)
                 .setWidthSizing(SceneNode.WidthSizing.SHRINK);
         // 单卡片列表：键稳定 → 内容变化复用卡内行列表；空模型 → 卡片卸载。
-        runtime.forEach(content, cards, QzMinerHudWindow::cardKey, ignored -> buildCard(runtime));
+        runtime.forEach(content, cards, QzMinerHudWindow::cardKey,
+                ignored -> buildCard(runtime, lines));
         return content;
+    }
+
+    /**
+     * 编辑期预览工厂（{@code HudEditTarget.previewFactory}）。
+     *
+     * <p><b>与 HUD 工厂的关键差异：根可命中。</b>UILib 编辑宿主把拖动 handler 挂在
+     * {@code previewFactory.build(rt)} 返回的内容根上（{@code ChatHudEditPreviews} 对
+     * {@code layer.content()} 注册 POINTER_DOWN/MOVE/UP/CANCEL）；命中路由只为
+     * {@code hitTestable=true} 的节点派发指针事件，因此预览根必须可命中，否则按下事件到不了
+     * 拖动 handler，预览「看得见、拖不动」。</p>
+     *
+     * <p>HUD 工厂的根相反：关闭态 HUD 浮在游戏画面上、不得拦截玩家输入，故恒
+     * {@code setHitTestable(false)}（见 {@link #build}）。两者共用同一张卡片的构建代码，
+     * 只有「根」的命中性不同——预览多包一层可命中的包裹根作拖动命中面，内部卡片与文本
+     * 保持不可命中，只读展示语义不被编辑期改写。</p>
+     *
+     * <p>预览内容不跟随显示门（{@link QzMinerHudModel#translateForPreview}）：编辑会话在
+     * 聊天输入屏里，连锁键松开、阶段 IDLE，照搬显示门会让预览零尺寸而无法拖动。</p>
+     *
+     * @return 预览内容根工厂（与 {@link HudEditTarget} 的 previewFactory 同契约）
+     */
+    public HudWindowFactory previewFactory() {
+        return runtime -> buildPreviewRoot(runtime);
+    }
+
+    /** 预览根：可命中的拖动命中面（包裹根），内部卡片/文本仍不可命中。 */
+    private SceneNode buildPreviewRoot(SceneRuntime runtime) {
+        SceneNode dragSurface = SceneNode.column().setHitTestable(true)
+                .setWidthSizing(SceneNode.WidthSizing.SHRINK);
+        runtime.forEach(dragSurface, previewCards, QzMinerHudWindow::cardKey,
+                ignored -> buildCard(runtime, previewLines));
+        return dragSurface;
     }
 
     /** @return 单卡片稳定键（卡片节点常驻复用，重建由卡内行列表承担）。 */
@@ -176,8 +239,9 @@ public final class QzMinerHudWindow implements HudWindowFactory {
         return CARD_KEY;
     }
 
-    /** 构建液态玻璃卡片：公开表面绑定独占外观写入，行内容走卡内 keyed 列表。 */
-    private SceneNode buildCard(SceneRuntime runtime) {
+    /** 构建液态玻璃卡片：公开表面绑定独占外观写入，行内容走传入的 keyed 列表数据源。 */
+    private SceneNode buildCard(SceneRuntime runtime,
+            ReadableSignal<List<QzMinerHudModel.Line>> lineSource) {
         SceneNode card = SceneNode.column(ROW_GAP_PX).setHitTestable(false)
                 .setWidthSizing(SceneNode.WidthSizing.SHRINK)
                 .setPadding(CARD_PADDING_Y_PX, CARD_PADDING_X_PX, CARD_PADDING_Y_PX, CARD_PADDING_X_PX);
@@ -185,7 +249,7 @@ public final class QzMinerHudWindow implements HudWindowFactory {
         // 本节点此后不再静态写这些属性（契约 §4 属性归属）。
         SceneSurfaceBinder.bind(runtime, card, cardSurface(runtime), ALWAYS_ENABLED,
                 runtime.interactionState(card));
-        runtime.forEach(card, lines, QzMinerHudModel.Line::contentKey, QzMinerHudWindow::buildLine);
+        runtime.forEach(card, lineSource, QzMinerHudModel.Line::contentKey, QzMinerHudWindow::buildLine);
         return card;
     }
 

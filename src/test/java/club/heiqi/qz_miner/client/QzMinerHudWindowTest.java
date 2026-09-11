@@ -156,6 +156,44 @@ public class QzMinerHudWindowTest {
     }
 
     @Test
+    public void editPreviewRootIsHitTestableWhileCardStaysReadOnly() {
+        Fixture fixture = new Fixture();
+        fixture.state.setSelectedMode(ChainMode.CHAIN);
+        fixture.state.setSelectedSubMode(ChainSubMode.CHAIN_ORE);
+        SceneRuntime runtime = new SceneRuntime();
+
+        // 门关闭（默认状态）：HUD 工厂内容根不可命中；编辑预览根必须可命中，否则拖动 handler 收不到指针事件。
+        SceneNode preview = fixture.window.previewFactory().build(runtime);
+        Assert.assertNotNull(preview);
+        Assert.assertTrue("预览根必须是可命中的拖动命中面", preview.isHitTestable());
+        Assert.assertEquals(SceneNode.WidthSizing.SHRINK, preview.getWidthSizing());
+
+        runtime.flush();
+        SceneNode card = cardOf(preview);
+        Assert.assertFalse("卡片与文本在编辑期仍不可命中（只读展示语义不变）", card.isHitTestable());
+        Assert.assertNotNull("预览卡片同样走公开液态玻璃材质", card.getBackdrop());
+        Assert.assertEquals(UiBackdropEffect.Family.LIQUID_GLASS,
+                card.getBackdrop().getEffect().getFamily());
+        List<SceneNode> rows = rowsOf(card);
+        Assert.assertEquals("预览不跟随显示门：门关闭也必须有完整内容", 6, rows.size());
+        for (SceneNode row : rows) {
+            Assert.assertFalse(row.isHitTestable());
+            for (SceneNode span : row.__getChildren()) {
+                Assert.assertFalse(span.isHitTestable());
+            }
+        }
+
+        // 可拖动的前提是预览有非零面积（宿主按内容盒英寸测量 + clamp）。
+        LayoutBox box = layoutOf(preview);
+        Assert.assertTrue("预览必须有可拖动面积，实际 " + box, box.getWidth() > 0);
+        Assert.assertTrue("预览必须有可拖动面积，实际 " + box, box.getHeight() > 0);
+
+        SceneRuntime hudRuntime = new SceneRuntime();
+        SceneNode hud = fixture.window.build(hudRuntime);
+        Assert.assertFalse("关闭态 HUD 内容根不得拦截玩家输入", hud.isHitTestable());
+    }
+
+    @Test
     public void refreshPublishesOnlyChangedModelsAndReusesStableNodes() {
         Fixture fixture = new Fixture();
         fixture.state.setSelectedMode(ChainMode.CHAIN);

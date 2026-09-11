@@ -43,6 +43,20 @@ public class HudArchitectureBoundaryTest {
             "HudScaleState", "zoomIn", "zoomOut", "\"1:1\"", "SceneButtonPrimitive"
     };
 
+    /** 编辑入口唯一注册锚点（可编辑目标 / 聊天工具栏动作）。 */
+    private static final String EDIT_TARGET_REGISTRATION_CALL = "HudEditService.getInstance().register(";
+    private static final String CHAT_ACTION_REGISTRATION_CALL = "ChatActionService.getInstance().register(";
+
+    /** 拖动/放置/夹取数学归 UILib 编辑宿主；Miner 不得自行实现编辑链路。 */
+    private static final String[] FORBIDDEN_SELF_MADE_EDIT_IMPORTS = {
+            "import club.heiqi.uilib.ui.hud.api.HudLayoutService;",
+            "import club.heiqi.uilib.ui.hud.api.HudLayoutResolver;",
+            "import club.heiqi.uilib.ui.scene.input.SceneEventContext;"
+    };
+
+    /** 运行期 UILib 下界：公开编辑契约（HudEditTarget/HudEditService/ChatActionService）只有 4.10 起才有。 */
+    private static final String UILIB_RUNTIME_RANGE = "required-after:qz_uilib@[4.10.0,5.0.0)";
+
     @Test
     public void productionSourcesContainNoLegacyHudRendering() throws Exception {
         File root = new File("src/main/java/club/heiqi/qz_miner");
@@ -123,6 +137,12 @@ public class HudArchitectureBoundaryTest {
                     Assert.assertFalse(file + " must not self-implement HUD scale controls: " + forbidden,
                             source.contains(forbidden));
                 }
+                for (String forbiddenImport : FORBIDDEN_SELF_MADE_EDIT_IMPORTS) {
+                    Assert.assertFalse(file + " must not implement HUD edit/drag math itself: "
+                            + forbiddenImport, source.contains(forbiddenImport));
+                }
+                Assert.assertFalse(file + " must not keep the pre-4.10 UILib lower bound",
+                        source.contains("required-after:qz_uilib@[4.9.0"));
             }
         });
         Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
@@ -162,6 +182,72 @@ public class HudArchitectureBoundaryTest {
     }
 
     @Test
+    public void hudEditEntryRegistersOnceThroughPublicApi() throws Exception {
+        File root = new File("src/main/java/club/heiqi/qz_miner");
+        String entry = read(new File(root, "client/QzMinerHudEditEntry.java"));
+
+        // 注册单点：两个注册调用只允许出现在编辑入口类里，各一次。
+        int scannedSources = assertJavaSources(root, new SourceAssertion() {
+            @Override
+            public void check(File file, String source) {
+                String path = file.getPath().replace('\\', '/');
+                if (path.endsWith("/QzMinerHudEditEntry.java")) {
+                    return;
+                }
+                Assert.assertFalse(file + " must not register a HUD edit target",
+                        source.contains(EDIT_TARGET_REGISTRATION_CALL));
+                Assert.assertFalse(file + " must not register a chat toolbar action",
+                        source.contains(CHAT_ACTION_REGISTRATION_CALL));
+            }
+        });
+        Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
+        Assert.assertEquals("可编辑目标注册单点", 1, occurrences(entry, EDIT_TARGET_REGISTRATION_CALL));
+        Assert.assertEquals("聊天工具栏动作注册单点", 1, occurrences(entry, CHAT_ACTION_REGISTRATION_CALL));
+
+        // 公开 API 接线：目标走 builder、预览复用窗口工厂与共享工具栏规格、label/tooltip 走 ClientI18n。
+        Assert.assertTrue("edit target must use the public builder", entry.contains("HudEditTarget.builder("));
+        Assert.assertTrue("preview factory must come from the HUD window", entry.contains(".previewFactory("));
+        Assert.assertTrue("edit preview must reuse the closed-state toolbar spec", entry.contains(".toolbarSpec("));
+        Assert.assertTrue("edit default placement must reuse the HUD margin",
+                entry.contains("HudPlacement.defaultOf(HudAnchor.TOP_LEFT, QzMinerHudWindow.HUD_MARGIN_PX)"));
+        Assert.assertTrue("label/tooltip must go through ClientI18n",
+                entry.contains("ClientI18n.tr(\"hud.qz_miner.edit_action.label\")")
+                        && entry.contains("ClientI18n.tr(\"hud.qz_miner.edit_action.tooltip\")"));
+        Assert.assertTrue("edit intent must be published to the public service",
+                entry.contains("HudEditService.getInstance().requestEdit("));
+
+        // ClientProxy.init 单点安装；句柄常驻（断线不重注册、不 close）。
+        String proxy = read(new File(root, "ClientProxy.java"));
+        Assert.assertEquals("ClientProxy.init owns exactly one edit entry install", 1,
+                occurrences(proxy, "QzMinerHudEditEntry.install("));
+        Assert.assertFalse("edit registrations survive disconnects",
+                proxy.contains("editTargetRegistration.close("));
+        Assert.assertFalse("edit registrations survive disconnects",
+                entry.contains("editTargetRegistration.close("));
+        Assert.assertFalse("edit registrations survive disconnects",
+                entry.contains("chatActionRegistration.close("));
+
+        // 预览根必须可命中（拖动 handler 挂在预览内容根上）；关闭态 HUD 根保持不可命中。
+        String window = read(new File(root, "client/QzMinerHudWindow.java"));
+        Assert.assertTrue("preview factory must exist",
+                window.contains("public HudWindowFactory previewFactory()"));
+        Assert.assertTrue("preview drag surface must be hit-testable", window.contains(".setHitTestable(true)"));
+
+        // 运行期下界必须同步到 4.10.0（新 API 只有 4.10 起才有，4.9 下界会 NoClassDefFoundError）。
+        String myMod = read(new File(root, "MyMod.java"));
+        Assert.assertTrue("runtime lower bound must be 4.10.0", myMod.contains(UILIB_RUNTIME_RANGE));
+        Assert.assertFalse("runtime lower bound must not stay 4.9.0", myMod.contains("[4.9.0"));
+
+        // label/tooltip 中英都要有。
+        String zhLang = read(new File("src/main/resources/assets/qz_miner/lang/zh_CN.lang"));
+        String enLang = read(new File("src/main/resources/assets/qz_miner/lang/en_US.lang"));
+        Assert.assertTrue(zhLang.contains("hud.qz_miner.edit_action.label="));
+        Assert.assertTrue(zhLang.contains("hud.qz_miner.edit_action.tooltip="));
+        Assert.assertTrue(enLang.contains("hud.qz_miner.edit_action.label="));
+        Assert.assertTrue(enLang.contains("hud.qz_miner.edit_action.tooltip="));
+    }
+
+    @Test
     public void clientInitReadyMarkerFollowsEveryUiLibIntegrationRegistration() throws Exception {
         String proxy = read(new File("src/main/java/club/heiqi/qz_miner/ClientProxy.java"));
         int marker = proxy.indexOf("[ClientInit] stage=uilib-integrations-ready");
@@ -175,6 +261,7 @@ public class HudArchitectureBoundaryTest {
         assertMarkerFollows(proxy, marker, "new ClientConfigChangeListener().register()");
         assertMarkerFollows(proxy, marker, HUD_REGISTRATION_CALL);
         assertMarkerFollows(proxy, marker, TOOLBAR_REGISTRATION_CALL);
+        assertMarkerFollows(proxy, marker, "QzMinerHudEditEntry.install(");
         assertMarkerFollows(proxy, marker, "new QzMinerHudTicker(chainStatusHud).register()");
         assertMarkerFollows(proxy, marker, "new KeyListener(autoToolSwapAdapter).register()");
     }

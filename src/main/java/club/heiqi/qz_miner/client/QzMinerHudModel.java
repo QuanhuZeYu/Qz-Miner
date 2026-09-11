@@ -192,14 +192,44 @@ public final class QzMinerHudModel {
      */
     public static QzMinerHudModel translate(ChainClientState clientState,
             ClientPhaseProjection phaseProjection, PreviewStateSource previewStateSource) {
-        ChainPhase phase = phaseProjection.getCurrentPhase();
-        if (!clientState.isChainKeyPressed()
-                && phase != ChainPhase.PLANNING
-                && phase != ChainPhase.RUNNING
-                && phase != ChainPhase.FINISHING) {
+        if (!isDisplayGateOpen(clientState, phaseProjection)) {
             return EMPTY;
         }
+        return new QzMinerHudModel(buildLines(clientState, phaseProjection, previewStateSource));
+    }
 
+    /**
+     * 编辑期预览模型：忽略显示门，返回当前设置下的完整卡片内容。
+     *
+     * <p><b>为什么忽略显示门</b>：显示门表达的是「连锁键按下或执行阶段活跃时才上屏」，
+     * 而编辑会话发生在聊天输入屏里——那时连锁键必然松开、阶段为 IDLE，门恒关闭。
+     * 预览若照搬显示门就永远零尺寸（不可见、不可命中、不可拖动），编辑入口失去意义。
+     * 本方法只服务 UILib 编辑期预览；{@link #translate} 的显示门语义不变。</p>
+     *
+     * @param clientState        客户端连锁状态
+     * @param phaseProjection    客户端阶段投影
+     * @param previewStateSource 预览状态端口
+     * @return 当前设置下的显示模型（行集合恒非空）
+     */
+    public static QzMinerHudModel translateForPreview(ChainClientState clientState,
+            ClientPhaseProjection phaseProjection, PreviewStateSource previewStateSource) {
+        return new QzMinerHudModel(buildLines(clientState, phaseProjection, previewStateSource));
+    }
+
+    /** 显示门：连锁键按下，或阶段处于 PLANNING/RUNNING/FINISHING。 */
+    private static boolean isDisplayGateOpen(ChainClientState clientState,
+            ClientPhaseProjection phaseProjection) {
+        ChainPhase phase = phaseProjection.getCurrentPhase();
+        return clientState.isChainKeyPressed()
+                || phase == ChainPhase.PLANNING
+                || phase == ChainPhase.RUNNING
+                || phase == ChainPhase.FINISHING;
+    }
+
+    /** 行集合构建：显示门之外的翻译逻辑由 HUD 与编辑预览共用。 */
+    private static List<Line> buildLines(ChainClientState clientState,
+            ClientPhaseProjection phaseProjection, PreviewStateSource previewStateSource) {
+        ChainPhase phase = phaseProjection.getCurrentPhase();
         List<Line> lines = new ArrayList<Line>();
         ChainMode selectedMode = clientState.getSelectedMode();
         ChainSubMode selectedSubMode = clientState.getSelectedSubMode();
@@ -270,7 +300,7 @@ public final class QzMinerHudModel {
                             String.valueOf(dimensions[0] * dimensions[1] * dimensions[2]), Tone.INFO),
                     span("server-area.unit", ClientI18n.tr("hud.qz_miner.volume.unit"), Tone.MUTED))));
         }
-        return new QzMinerHudModel(lines);
+        return lines;
     }
 
     /** @return 不可变行列表（渲染顺序即声明顺序） */
