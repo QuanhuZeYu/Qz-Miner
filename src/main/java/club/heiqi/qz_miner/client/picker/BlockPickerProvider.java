@@ -144,6 +144,8 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 // 悬停态单行模板：id 已含 tooltipPrefix（"ID: "），中文语境用全角括号比 " · " 更易读。
                 .infoBarIdPattern("{label}（{id}）")
                 .alreadyConfiguredBadge("已在本规则中")
+                // D4（P5 第四轮）：信息条点击复制稳定 ID 后的 ≤2s 反馈模板（{id} = 已写入剪贴板的稳定 key）。
+                .infoBarCopiedPattern("已复制 ID：{id}")
                 // 成员带模式横幅（LIST_MEMBERS 为 Miner 的默认绑定模式）。
                 .memberAddingBanner("点击方块继续添加（Esc 结束）")
                 .memberEditingBanner("正在编辑：{name}")
