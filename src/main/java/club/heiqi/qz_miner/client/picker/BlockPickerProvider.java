@@ -102,6 +102,11 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .advancedRaw("高级自定义")
                 .emptyCurrentMembers("当前无规则")
                 .emptySearchResults("无匹配结果")
+                // P5 新增键（ADR §1.5 三态空态；P5 规格 §3.3）：浏览 + 分类过滤为 0 与变体筛选无匹配
+                // 必须与「搜索无命中」区分，只读提示必须点出可勾选的模式名（与本 builder 的 selected 文案一致）。
+                .emptyCategoryResults("该分类下暂无方块")
+                .emptyVariants("没有匹配的状态")
+                .modeReadOnlyHint("切换到「指定状态」后可勾选")
                 .edit("编辑")
                 .remove("删除")
                 .errorSeverity("错误")
@@ -128,6 +133,23 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .back("返回")
                 .close("关闭")
                 .addMember("添加方块")
+                // P5 新增键（P5 规格 §3.3）：全部为面板侧新增区域的文案。键 = Presentation 访问器，
+                // 任何一个漏注入都会让中文界面显示英文默认值（P6 阻塞项 B-4），故在此一次补齐，
+                // 并由 BlockPickerProviderTest 的注入完整性守卫（反射枚举访问器）钉死。
+                // 信息条：空闲态提示优先级 = 截断 > 键盘 > 滚动 > 悬停（ScenePickerPanel 内容 Owner 内唯一取值点）。
+                .truncatedResults("结果已截断，请缩小搜索范围")
+                .hoverHint("悬停查看完整名称与 ID")
+                // 悬停态单行模板：id 已含 tooltipPrefix（"ID: "），中文语境用全角括号比 " · " 更易读。
+                .infoBarIdPattern("{label}（{id}）")
+                .alreadyConfiguredBadge("已在本规则中")
+                // 成员带模式横幅（LIST_MEMBERS 为 Miner 的默认绑定模式）。
+                .memberAddingBanner("点击方块继续添加（Esc 结束）")
+                .memberEditingBanner("正在编辑：{name}")
+                .keyboardHint("方向键移动，回车选择")
+                .scrollHint("滚动查看更多结果")
+                .densityLabel("密度")
+                .removedToast("已删除 {name}")
+                .undoAction("撤销")
                 .build();
     }
 

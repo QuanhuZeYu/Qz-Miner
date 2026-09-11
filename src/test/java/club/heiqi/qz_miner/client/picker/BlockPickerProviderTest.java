@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.client.picker;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -185,6 +186,10 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("高级自定义", text.advancedRaw());
         Assert.assertEquals("当前无规则", text.emptyCurrentMembers());
         Assert.assertEquals("无匹配结果", text.emptySearchResults());
+        // P6/B-4：P5 新增三态空态与只读提示键（ADR §1.5 R-05；P5 规格 §3.3）。
+        Assert.assertEquals("该分类下暂无方块", text.emptyCategoryResults());
+        Assert.assertEquals("没有匹配的状态", text.emptyVariants());
+        Assert.assertEquals("切换到「指定状态」后可勾选", text.modeReadOnlyHint());
         Assert.assertEquals("编辑", text.edit());
         Assert.assertEquals("删除", text.remove());
         Assert.assertEquals("错误/无效", text.invalidMemberBadge());
@@ -352,6 +357,81 @@ public class BlockPickerProviderTest {
         Assert.assertEquals("返回", text.back());
         Assert.assertEquals("关闭", text.close());
         Assert.assertEquals("添加方块", text.addMember());
+        // P6/B-4：P5 新增的 11 个面板键（含信息条单行模板）；键名与语义出处 = P5 规格 §3.3 与
+        // P5-实现记录 §10.2「键 → 显示位置 → 触发条件」表。
+        Assert.assertEquals("结果已截断，请缩小搜索范围", text.truncatedResults());
+        Assert.assertEquals("悬停查看完整名称与 ID", text.hoverHint());
+        Assert.assertEquals("石头（ID: minecraft:stone）",
+                text.infoBarIdLabel("石头", "ID: minecraft:stone"));
+        Assert.assertEquals("已在本规则中", text.alreadyConfiguredBadge());
+        Assert.assertEquals("点击方块继续添加（Esc 结束）", text.memberAddingBanner());
+        Assert.assertEquals("正在编辑：石头", text.memberEditingBanner("石头"));
+        Assert.assertEquals("正在编辑：", text.memberEditingBanner(null));
+        Assert.assertEquals("方向键移动，回车选择", text.keyboardHint());
+        Assert.assertEquals("滚动查看更多结果", text.scrollHint());
+        Assert.assertEquals("密度", text.densityLabel());
+        Assert.assertEquals("已删除 石头", text.removedToast("石头"));
+        Assert.assertEquals("已删除 ", text.removedToast(null));
+        Assert.assertEquals("撤销", text.undoAction());
+    }
+
+    /**
+     * 注入完整性守卫（P6 阻塞项 B-4 的回归闸口）。
+     *
+     * <p><b>键清单来源</b>：UILib 侧 Presentation 类的公共访问器本身 —— P5 规格 §3.2 已把
+     * 「Presentation 访问器 = 键」定为命名规范，故这里用反射枚举「返回 {@code String} 且参数全为
+     * {@code String}/{@code int}」的公共实例方法（无参键 + 占位符/count 模板键），逐个以探针实参
+     * 调用 Miner 注入实例与 UILib 英文默认实例；两者输出相同即说明该键回落英文默认值（用户可见缺陷）。</p>
+     *
+     * <p><b>为什么不是硬编码清单</b>：硬编码只能证明「我列出的键都在」，无法发现 UILib 后续新增的键；
+     * 反射版把 UILib 的公共访问器面当清单，新增键未注入即红（本轮把注入回退到修复前形态实测
+     * 14 个键变红：面板 11 + 选择器 3）。{@code int} 参数的 count 重载（如 {@code currentMembersTitle(int)}）
+     * 一并覆盖，其文案由同一零参键派生。</p>
+     *
+     * <p><b>键名对照</b>：信息条单行模板的<b>读取访问器</b>是 {@code infoBarIdLabel(label, id)}
+     * （带 {@code {label}}/{@code {id}} 占位符），<b>注入键</b>是 {@code infoBarIdPattern} ——
+     * P6 收口报告 §7.1 B-4 列的 13 键漏了它（它是 P5-2 与 {@code hoverHint} 同批新增的面板键），
+     * 故本守卫按 UILib 访问器面为准，注入面共 14 键。</p>
+     */
+    @Test
+    public void everyPresentationKeyIsInjectedSoNoChineseUiFallsBackToEnglishDefaults() throws Exception {
+        BlockPickerProvider provider = new Fixture().provider();
+
+        List<String> fallbacks = new ArrayList<String>();
+        fallbacks.addAll(englishDefaultFallbacks(
+                provider.presentation(), SearchPickerPresentation.defaultEnglish()));
+        fallbacks.addAll(englishDefaultFallbacks(
+                provider.panelPresentation(), SearchPickerPanelPresentation.defaultEnglish()));
+
+        Assert.assertEquals("Presentation 访问器 = 键：以下键仍回落 UILib 英文默认值（中文界面会显示英文）",
+                Collections.<String>emptyList(), fallbacks);
+    }
+
+    /** @return 「注入值与英文默认值相同」的访问器清单（空 = 全部键都注入了中文文案） */
+    private static List<String> englishDefaultFallbacks(Object injected, Object englishDefault)
+            throws Exception {
+        List<String> fallbacks = new ArrayList<String>();
+        Assert.assertNotSame("注入实例不得就是英文默认实例", englishDefault, injected);
+        for (Method method : injected.getClass().getMethods()) {
+            if (method.getDeclaringClass() == Object.class) continue;
+            if (method.getReturnType() != String.class) continue;
+            Class<?>[] parameters = method.getParameterTypes();
+            Object[] probe = new Object[parameters.length];
+            boolean addressable = true;
+            for (int index = 0; index < parameters.length; index++) {
+                if (parameters[index] == String.class) probe[index] = "探针";
+                else if (parameters[index] == int.class) probe[index] = Integer.valueOf(3);
+                else { addressable = false; break; }
+            }
+            if (!addressable) continue;
+            String actual = (String) method.invoke(injected, probe);
+            String fallback = (String) method.invoke(englishDefault, probe);
+            if (actual.equals(fallback)) {
+                fallbacks.add(injected.getClass().getSimpleName() + "#" + method.getName()
+                        + " 仍为英文默认值：\"" + fallback + "\"");
+            }
+        }
+        return fallbacks;
     }
 
     private static List<String> categoryKeys(List<SearchPickerCategories.Category> categories) {
