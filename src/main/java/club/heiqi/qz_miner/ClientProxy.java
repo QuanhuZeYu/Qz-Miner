@@ -36,8 +36,6 @@ import club.heiqi.uilib.ui.hud.api.ClientHudService;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
 import club.heiqi.uilib.ui.hud.api.HudSpec;
-import club.heiqi.uilib.ui.hud.api.HudToolbarService;
-import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import club.heiqi.qz_miner.network.PacketChainConfigSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -105,8 +103,6 @@ public class ClientProxy extends CommonProxy {
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
     /** Qz-Miner 连锁状态 HUD 的 UILib 注册句柄；跨断线/世界切换保持有效，只在模组资源释放时关闭。 */
     public static HudRegistration chainStatusHudRegistration;
-    /** 连锁状态 HUD 外接工具栏（缩放）注册句柄；与 HUD 注册同生共死，断线不重注册、不 close。 */
-    public static HudRegistration chainStatusHudToolbarRegistration;
     /** 新版自动工具换位唯一长寿命客户端 adapter。 */
     public static AutoToolSwapClientAdapter autoToolSwapAdapter;
 
@@ -151,26 +147,17 @@ public class ClientProxy extends CommonProxy {
                         .chrome(false)
                         .build(),
                 chainStatusHud);
-        // 工具栏规格唯一实例：关闭态外接工具栏与编辑期预览共用同一份，外框尺寸/clamp 口径一致。
-        HudToolbarSpec chainStatusToolbarSpec = HudToolbarSpec.builder().build();
-        // 外接工具栏：缩放 -/1:1/+ 由 UILib 公共层按 HudToolbarSpec 追加，Miner 不自绘。
-        // 注册失败只丢工具栏，HUD 主体照常显示（与宿主 mountLayer 的隔离语义一致）。
-        try {
-            chainStatusHudToolbarRegistration = HudToolbarService.getInstance().register(
-                    QzMinerHudWindow.HUD_ID,
-                    chainStatusToolbarSpec,
-                    QzMinerHudWindow.TOOLBAR_FACTORY);
-        } catch (RuntimeException toolbarFailure) {
-            MyMod.LOG.warn("[ClientInit] HUD 外接工具栏注册失败，已隔离（HUD 主体照常显示）", toolbarFailure);
-        }
-        // 编辑入口单点：可编辑目标（预览/默认放置/工具栏规格）+ 聊天工具栏「编辑 HUD」动作。
-        // 内部幂等且逐件失败隔离，异常不外溢（HUD 主体与工具栏不受影响）。
-        QzMinerHudEditEntry.install(chainStatusHud, chainStatusToolbarSpec);
+        // 关闭态 HUD 不再注册常驻外接工具栏：连锁 HUD 无内容时整窗（含工具栏）隐藏，
+        // 常驻缩放工具平时根本看不到。缩放改由 UILib 编辑层在编辑子模式统一提供
+        // （Miner 只注册可编辑目标与聊天工具栏编辑入口，见 QzMinerHudEditEntry）。
+        // 编辑入口单点：可编辑目标（预览/默认放置）+ 聊天工具栏「编辑 HUD」动作。
+        // 内部幂等且逐件失败隔离，异常不外溢（HUD 主体不受影响）。
+        QzMinerHudEditEntry.install(chainStatusHud);
         new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
-                + "chain-status-hud,chain-status-hud-toolbar,chain-status-hud-edit,key-listener");
+                + "chain-status-hud,chain-status-hud-edit,key-listener");
     }
 
     /**

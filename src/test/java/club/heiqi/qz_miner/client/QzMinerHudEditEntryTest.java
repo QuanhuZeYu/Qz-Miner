@@ -21,7 +21,6 @@ import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudEditService;
 import club.heiqi.uilib.ui.hud.api.HudEditTarget;
 import club.heiqi.uilib.ui.hud.api.HudPlacement;
-import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.uilib.ui.reactive.ReadableSignal;
 
 /**
@@ -64,10 +63,8 @@ public class QzMinerHudEditEntryTest {
 
     @Test
     public void installRegistersEditTargetAndChatActionExactlyOnce() {
-        HudToolbarSpec spec = HudToolbarSpec.builder().build();
-
-        QzMinerHudEditEntry.install(window, spec);
-        QzMinerHudEditEntry.install(window, spec);
+        QzMinerHudEditEntry.install(window);
+        QzMinerHudEditEntry.install(window);
 
         Assert.assertTrue("HUD 必须注册为可编辑目标",
                 HudEditService.getInstance().hasTarget(QzMinerHudWindow.HUD_ID));
@@ -81,14 +78,14 @@ public class QzMinerHudEditEntryTest {
     }
 
     @Test
-    public void editTargetCarriesDefaultPlacementAndSharedToolbarSpec() {
-        HudToolbarSpec spec = HudToolbarSpec.builder().thickness(32).build();
-        QzMinerHudEditEntry.install(window, spec);
+    public void editTargetCarriesDefaultPlacementAndLeavesScalingToEditLayer() {
+        QzMinerHudEditEntry.install(window);
 
         HudEditTarget target = HudEditService.getInstance().target(QzMinerHudWindow.HUD_ID);
         Assert.assertNotNull(target);
         Assert.assertNotNull("预览工厂必填（builder 缺失即失败）", target.getPreviewFactory());
-        Assert.assertSame("编辑预览必须复用关闭态工具栏规格实例", spec, target.getToolbarSpec());
+        Assert.assertNull("关闭态不挂常驻工具栏：目标不得声明 preview toolbarSpec（缩放归 UILib 编辑层）",
+                target.getToolbarSpec());
 
         HudPlacement placement = target.getDefaultPlacement();
         Assert.assertEquals("默认放置锚点必须与关闭态 HUD 一致", HudAnchor.TOP_LEFT, placement.getAnchor());
@@ -99,7 +96,7 @@ public class QzMinerHudEditEntryTest {
 
     @Test
     public void chatActionPublishesEditIntentForChainStatusHud() {
-        QzMinerHudEditEntry.install(window, HudToolbarSpec.builder().build());
+        QzMinerHudEditEntry.install(window);
         ChatAction action = chatActions(QzMinerHudEditEntry.ACTION_ID).get(0);
 
         Assert.assertEquals(QzMinerHudEditEntry.ACTION_ID, action.getId());
@@ -140,7 +137,7 @@ public class QzMinerHudEditEntryTest {
 
     @Test
     public void editIntentIsDroppedSilentlyWithoutActiveChatScreen() {
-        QzMinerHudEditEntry.install(window, HudToolbarSpec.builder().build());
+        QzMinerHudEditEntry.install(window);
         ChatAction action = chatActions(QzMinerHudEditEntry.ACTION_ID).get(0);
 
         Assert.assertFalse(HudEditService.getInstance().isEditing());
@@ -153,22 +150,21 @@ public class QzMinerHudEditEntryTest {
     @Test
     public void registrationFailureIsIsolatedAndReinstallRemainsPossible() {
         Assert.assertNull("目标构建异常必须被隔离，不向外抛出",
-                QzMinerHudEditEntry.registerEditTarget(null, HudToolbarSpec.builder().build()));
+                QzMinerHudEditEntry.registerEditTarget(null));
         Assert.assertFalse("失败不得留下半注册状态",
                 HudEditService.getInstance().hasTarget(QzMinerHudWindow.HUD_ID));
 
-        QzMinerHudEditEntry.install(window, HudToolbarSpec.builder().build());
+        QzMinerHudEditEntry.install(window);
         Assert.assertTrue(HudEditService.getInstance().hasTarget(QzMinerHudWindow.HUD_ID));
         Assert.assertEquals(1, chatActions(QzMinerHudEditEntry.ACTION_ID).size());
     }
 
     @Test
     public void reinstallAfterExternalClearRestoresEntryWithoutDuplicates() {
-        HudToolbarSpec spec = HudToolbarSpec.builder().build();
-        QzMinerHudEditEntry.install(window, spec);
+        QzMinerHudEditEntry.install(window);
 
         ChatActionService.getInstance().clear();
-        QzMinerHudEditEntry.install(window, spec);
+        QzMinerHudEditEntry.install(window);
 
         Assert.assertEquals("外部 clear 后重装仍必须只有一份入口", 1,
                 chatActions(QzMinerHudEditEntry.ACTION_ID).size());

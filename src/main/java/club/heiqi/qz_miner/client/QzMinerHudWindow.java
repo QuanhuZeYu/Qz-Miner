@@ -87,15 +87,6 @@ public final class QzMinerHudWindow implements HudWindowFactory {
     /** 常启信号：HUD 卡片只读展示、不参与命中，表面绑定恒取 idle 档。 */
     private static final ReadableSignal<Boolean> ALWAYS_ENABLED = () -> Boolean.TRUE;
 
-    /**
-     * 外接工具栏工厂：Miner 只提供空工具槽，缩放 {@code -} / {@code 1:1} / {@code +} 由 UILib
-     * 公共层（{@code HudToolbarSpec.scaleControls}）按规格追加。Miner 不自绘缩放按钮，
-     * 也不持有任何倍率状态：倍率归 UILib 宿主/HUD 工具栏层。
-     */
-    public static final HudWindowFactory TOOLBAR_FACTORY =
-            runtime -> SceneNode.row().setText("").setHitTestable(false)
-                    .setWidthSizing(SceneNode.WidthSizing.SHRINK);
-
     private final ChainClientState clientState;
     private final ClientPhaseProjection phaseProjection;
     private final QzMinerHudModel.PreviewStateSource previewStateSource;

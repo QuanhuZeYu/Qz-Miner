@@ -16,7 +16,6 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
-import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.uilib.ui.render.UiBackdrop;
 import club.heiqi.uilib.ui.render.UiBackdropEffect;
 import club.heiqi.uilib.ui.scene.layout.Constraints;
@@ -275,18 +274,6 @@ public class QzMinerHudWindowTest {
         runtime.flush();
 
         assertNoSectionStyle(content);
-    }
-
-    @Test
-    public void toolbarFactoryLeavesScaleButtonsToUiLibPublicLayer() {
-        SceneRuntime runtime = new SceneRuntime();
-        SceneNode toolbar = QzMinerHudWindow.TOOLBAR_FACTORY.build(runtime);
-        Assert.assertNotNull(toolbar);
-        Assert.assertTrue("Miner 工具栏只提供空工具槽", toolbar.__getChildren().isEmpty());
-        Assert.assertEquals("", toolbar.getText());
-        Assert.assertFalse(toolbar.isHitTestable());
-        Assert.assertTrue("缩放 -/1:1/+ 必须由 UILib 公共层追加，规格不得关闭",
-                HudToolbarSpec.builder().build().isScaleControls());
     }
 
     private static SceneNode cardOf(SceneNode content) {

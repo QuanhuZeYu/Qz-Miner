@@ -32,8 +32,13 @@ public class HudArchitectureBoundaryTest {
     /** 4.9 唯一注册入口（锚点）。 */
     private static final String HUD_REGISTRATION_CALL = "ClientHudService.getInstance().register(";
 
-    /** 外接工具栏唯一注册入口（锚点）。 */
+    /** 常驻外接工具栏注册入口：Miner 不得调用（缩放只在编辑子模式由 UILib 编辑层提供）。 */
     private static final String TOOLBAR_REGISTRATION_CALL = "HudToolbarService.getInstance().register(";
+
+    /** 常驻工具栏 API（注册入口 + 规格 + 宿主装配层）：生产源码一律不得使用。 */
+    private static final String[] FORBIDDEN_PERSISTENT_TOOLBAR_API = {
+            "HudToolbarService", "HudToolbarSpec", "HudToolbarLayer"
+    };
 
     /** UILib 非公开实现包：生产源码只允许依赖公开 API。 */
     private static final String FORBIDDEN_UILIB_INTERNAL = "club.heiqi.uilib.internal";
@@ -162,36 +167,28 @@ public class HudArchitectureBoundaryTest {
     }
 
     @Test
-    public void externalToolbarIsRegisteredOnceAndFailureIsolated() throws Exception {
+    public void productionSourcesRegisterNoPersistentHudToolbar() throws Exception {
         File root = new File("src/main/java/club/heiqi/qz_miner");
         int scannedSources = assertJavaSources(root, new SourceAssertion() {
             @Override
             public void check(File file, String source) {
-                String path = file.getPath().replace('\\', '/');
-                if (!path.endsWith("/ClientProxy.java")) {
-                    Assert.assertFalse(file + " must not register a HUD toolbar",
-                            source.contains(TOOLBAR_REGISTRATION_CALL));
+                Assert.assertFalse(file + " must not register a persistent HUD toolbar",
+                        source.contains(TOOLBAR_REGISTRATION_CALL));
+                for (String forbidden : FORBIDDEN_PERSISTENT_TOOLBAR_API) {
+                    Assert.assertFalse(file + " must not use the persistent-toolbar API: " + forbidden,
+                            source.contains(forbidden));
                 }
             }
         });
         Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
 
-        String proxy = read(new File(root, "ClientProxy.java"));
-        Assert.assertEquals("ClientProxy.init owns exactly one HUD toolbar registration", 1,
-                occurrences(proxy, TOOLBAR_REGISTRATION_CALL));
-        Assert.assertTrue("toolbar registration must use the frozen public spec builder",
-                proxy.contains("HudToolbarSpec.builder()"));
-        Assert.assertFalse("scale controls must stay enabled for the public layer to append -/1:1/+",
-                proxy.contains("scaleControls(false)"));
-        Assert.assertFalse("toolbar registration survives disconnects",
-                proxy.contains("chainStatusHudToolbarRegistration.close("));
-
-        // 注册失败隔离：工具栏注册必须自带 RuntimeException 捕获，异常不得冒泡影响 HUD 主体。
-        int registration = proxy.indexOf(TOOLBAR_REGISTRATION_CALL);
-        int handler = proxy.indexOf("catch (RuntimeException", registration);
-        int marker = proxy.indexOf("[ClientInit] stage=uilib-integrations-ready");
-        Assert.assertTrue("toolbar registration must be wrapped in a RuntimeException guard", handler > registration);
-        Assert.assertTrue("toolbar failure guard must sit before the ready marker", marker > handler);
+        // 关闭态 HUD 整窗隐藏时工具栏不可见（用户反馈），故缩放只在编辑子模式出现；
+        // 反向断言防回归到「常驻外接工具栏 + 常驻缩放按钮」。
+        String entry = read(new File(root, "client/QzMinerHudEditEntry.java"));
+        Assert.assertFalse("edit target must not declare a preview toolbarSpec (scaling lives in the edit layer)",
+                entry.contains(".toolbarSpec("));
+        Assert.assertFalse("only the edit entry may open the edit session",
+                entry.contains("HudToolbarSpec") || entry.contains("HudToolbarService"));
     }
 
     @Test
@@ -220,7 +217,8 @@ public class HudArchitectureBoundaryTest {
         // 公开 API 接线：目标走 builder、预览复用窗口工厂与共享工具栏规格、label/tooltip 走 ClientI18n。
         Assert.assertTrue("edit target must use the public builder", entry.contains("HudEditTarget.builder("));
         Assert.assertTrue("preview factory must come from the HUD window", entry.contains(".previewFactory("));
-        Assert.assertTrue("edit preview must reuse the closed-state toolbar spec", entry.contains(".toolbarSpec("));
+        Assert.assertFalse("edit preview must not declare a toolbarSpec (scaling lives in the UILib edit layer)",
+                entry.contains(".toolbarSpec("));
         Assert.assertTrue("edit default placement must reuse the HUD margin",
                 entry.contains("HudPlacement.defaultOf(HudAnchor.TOP_LEFT, QzMinerHudWindow.HUD_MARGIN_PX)"));
         Assert.assertTrue("label/tooltip must go through ClientI18n",
@@ -278,7 +276,6 @@ public class HudArchitectureBoundaryTest {
         assertMarkerFollows(proxy, marker, "connectionListener.register()");
         assertMarkerFollows(proxy, marker, "new ClientConfigChangeListener().register()");
         assertMarkerFollows(proxy, marker, HUD_REGISTRATION_CALL);
-        assertMarkerFollows(proxy, marker, TOOLBAR_REGISTRATION_CALL);
         assertMarkerFollows(proxy, marker, "QzMinerHudEditEntry.install(");
         assertMarkerFollows(proxy, marker, "new QzMinerHudTicker(chainStatusHud).register()");
         assertMarkerFollows(proxy, marker, "new KeyListener(autoToolSwapAdapter).register()");

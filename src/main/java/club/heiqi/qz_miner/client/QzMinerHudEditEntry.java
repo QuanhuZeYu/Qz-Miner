@@ -9,7 +9,6 @@ import club.heiqi.uilib.ui.hud.api.HudEditService;
 import club.heiqi.uilib.ui.hud.api.HudEditTarget;
 import club.heiqi.uilib.ui.hud.api.HudPlacement;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
-import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.uilib.ui.reactive.Signal;
 
 /**
@@ -27,7 +26,7 @@ import club.heiqi.uilib.ui.reactive.Signal;
  *
  * <p><b>注册契约</b>：注册单点（{@code ClientProxy.init} 调用 {@link #install}）、幂等
  * （以 UILib 注册表实际内容为准，重复 install 不重复注册、不抛异常）、失败隔离
- * （任一注册失败只丢该件并告警，HUD 主体、工具栏与另一件不受影响）、断线不重注册
+ * （任一注册失败只丢该件并告警，HUD 主体与另一件不受影响）、断线不重注册
  * （句柄常驻静态字段，不 close；重连只重建宿主窗口，不重放注册）。</p>
  *
  * <p><b>边界</b>：放置/拖动/夹取数学全部归 UILib（{@code HudLayoutService} 与编辑宿主），
@@ -55,12 +54,10 @@ public final class QzMinerHudEditEntry {
     /**
      * 安装编辑入口（{@code ClientProxy.init} 单点调用；重复调用幂等）。
      *
-     * @param window      连锁状态 HUD 窗口（提供编辑期预览工厂）
-     * @param toolbarSpec 与 {@code HudToolbarService.register} 同一份工具栏规格：
-     *                    编辑预览据此装配同款外接工具栏，外框尺寸/clamp 口径因此与关闭态一致
+     * @param window 连锁状态 HUD 窗口（提供编辑期预览工厂）
      */
-    public static void install(QzMinerHudWindow window, HudToolbarSpec toolbarSpec) {
-        editTargetRegistration = registerEditTarget(window, toolbarSpec);
+    public static void install(QzMinerHudWindow window) {
+        editTargetRegistration = registerEditTarget(window);
         chatActionRegistration = registerChatAction();
     }
 
@@ -69,14 +66,14 @@ public final class QzMinerHudEditEntry {
      *
      * @return 注册句柄；已注册或注册失败返回既有句柄 / null（调用方无需处理）
      */
-    static HudRegistration registerEditTarget(QzMinerHudWindow window, HudToolbarSpec toolbarSpec) {
+    static HudRegistration registerEditTarget(QzMinerHudWindow window) {
         if (HudEditService.getInstance().hasTarget(QzMinerHudWindow.HUD_ID)) {
             return editTargetRegistration;
         }
         try {
-            return HudEditService.getInstance().register(buildTarget(window, toolbarSpec));
+            return HudEditService.getInstance().register(buildTarget(window));
         } catch (RuntimeException failure) {
-            MyMod.LOG.warn("[HudEdit] 可编辑目标注册失败，已隔离（HUD 主体与工具栏不受影响）", failure);
+            MyMod.LOG.warn("[HudEdit] 可编辑目标注册失败，已隔离（HUD 主体不受影响）", failure);
             return null;
         }
     }
@@ -86,12 +83,14 @@ public final class QzMinerHudEditEntry {
      *
      * <p>默认放置取与关闭态 HUD 相同的锚点与边距（{@link QzMinerHudWindow#HUD_MARGIN_PX}），
      * 预览因此从 HUD 的默认位置起步，不出现「一进编辑就跳位」。</p>
+     *
+     * <p><b>不声明 toolbarSpec</b>：关闭态 HUD 不挂常驻工具栏（无内容时整窗隐藏、工具栏不可见），
+     * 缩放工具改由 UILib 编辑层在编辑子模式统一提供；Miner 因此只声明预览与默认放置。</p>
      */
-    static HudEditTarget buildTarget(QzMinerHudWindow window, HudToolbarSpec toolbarSpec) {
+    static HudEditTarget buildTarget(QzMinerHudWindow window) {
         return HudEditTarget.builder(QzMinerHudWindow.HUD_ID)
                 .previewFactory(window.previewFactory())
                 .defaultPlacement(HudPlacement.defaultOf(HudAnchor.TOP_LEFT, QzMinerHudWindow.HUD_MARGIN_PX))
-                .toolbarSpec(toolbarSpec)
                 .build();
     }
 
