@@ -27,6 +27,8 @@ import club.heiqi.qz_miner.client.QzMinerHudEditEntry;
 import club.heiqi.qz_miner.client.QzMinerHudTicker;
 import club.heiqi.qz_miner.client.QzMinerHudWindow;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
+import club.heiqi.qz_miner.client.picker.BlockPickerCandidateSource;
+import club.heiqi.qz_miner.client.picker.BlockPickerRegistryWatcher;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
 import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
@@ -160,9 +162,13 @@ public class ClientProxy extends CommonProxy {
         HudLayoutPersistence.install(new MinerHudLayoutStore(MinerHudLayoutStore.resolveConfigDir()));
         new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
+        // P2-B：候选源注册表代际接入（FMLLoadCompleteEvent / FMLModIdMappingEvent 标脏 + 20 tick 兜底探测）。
+        // 只写 volatile 标记，不在事件回调内重建；重建发生在候选源的下一次真实读取（ADR §2.4 / A-08）。
+        new BlockPickerRegistryWatcher(BlockPickerCandidateSource.getInstance()).register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
-                + "chain-status-hud,chain-status-hud-edit,hud-layout-persist,key-listener");
+                + "chain-status-hud,chain-status-hud-edit,hud-layout-persist,key-listener,"
+                + "block-picker-registry-watcher");
     }
 
     /**
