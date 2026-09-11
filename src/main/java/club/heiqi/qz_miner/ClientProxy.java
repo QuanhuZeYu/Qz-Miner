@@ -35,6 +35,8 @@ import club.heiqi.uilib.ui.hud.api.ClientHudService;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
 import club.heiqi.uilib.ui.hud.api.HudSpec;
+import club.heiqi.uilib.ui.hud.api.HudToolbarService;
+import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import club.heiqi.qz_miner.network.PacketChainConfigSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -102,6 +104,8 @@ public class ClientProxy extends CommonProxy {
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
     /** Qz-Miner 连锁状态 HUD 的 UILib 注册句柄；跨断线/世界切换保持有效，只在模组资源释放时关闭。 */
     public static HudRegistration chainStatusHudRegistration;
+    /** 连锁状态 HUD 外接工具栏（缩放）注册句柄；与 HUD 注册同生共死，断线不重注册、不 close。 */
+    public static HudRegistration chainStatusHudToolbarRegistration;
     /** 新版自动工具换位唯一长寿命客户端 adapter。 */
     public static AutoToolSwapClientAdapter autoToolSwapAdapter;
 
@@ -137,16 +141,29 @@ public class ClientProxy extends CommonProxy {
         // 注册与 signal 写限定客户端主线程，断线只释放宿主 session 窗口、注册本身保留（不重注册、不 close）。
         QzMinerHudWindow chainStatusHud = new QzMinerHudWindow(
                 MyMod.chainStateService.getClientState(), clientPhaseProjection);
+        // 内容自绘液态玻璃卡片，故关闭宿主外壳（chrome(false)）：避免「宿主半透明外壳 + 卡片玻璃」
+        // 双层底色；卡片自带内边距，窗口尺寸仍由宿主按内容盒测量、空内容整窗隐藏。
         chainStatusHudRegistration = ClientHudService.getInstance().register(
                 HudSpec.builder(QzMinerHudWindow.HUD_ID)
                         .anchor(HudAnchor.TOP_LEFT)
+                        .chrome(false)
                         .build(),
                 chainStatusHud);
+        // 外接工具栏：缩放 -/1:1/+ 由 UILib 公共层按 HudToolbarSpec 追加，Miner 不自绘。
+        // 注册失败只丢工具栏，HUD 主体照常显示（与宿主 mountLayer 的隔离语义一致）。
+        try {
+            chainStatusHudToolbarRegistration = HudToolbarService.getInstance().register(
+                    QzMinerHudWindow.HUD_ID,
+                    HudToolbarSpec.builder().build(),
+                    QzMinerHudWindow.TOOLBAR_FACTORY);
+        } catch (RuntimeException toolbarFailure) {
+            MyMod.LOG.warn("[ClientInit] HUD 外接工具栏注册失败，已隔离（HUD 主体照常显示）", toolbarFailure);
+        }
         new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
-                + "chain-status-hud,key-listener");
+                + "chain-status-hud,chain-status-hud-toolbar,key-listener");
     }
 
     /**

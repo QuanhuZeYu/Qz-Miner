@@ -32,6 +32,17 @@ public class HudArchitectureBoundaryTest {
     /** 4.9 唯一注册入口（锚点）。 */
     private static final String HUD_REGISTRATION_CALL = "ClientHudService.getInstance().register(";
 
+    /** 外接工具栏唯一注册入口（锚点）。 */
+    private static final String TOOLBAR_REGISTRATION_CALL = "HudToolbarService.getInstance().register(";
+
+    /** UILib 非公开实现包：生产源码只允许依赖公开 API。 */
+    private static final String FORBIDDEN_UILIB_INTERNAL = "club.heiqi.uilib.internal";
+
+    /** 缩放按钮与倍率状态归 UILib 公共层；Miner 不得自绘缩放按钮或直连倍率状态。 */
+    private static final String[] FORBIDDEN_SELF_SCALE_CONTROLS = {
+            "HudScaleState", "zoomIn", "zoomOut", "\"1:1\"", "SceneButtonPrimitive"
+    };
+
     @Test
     public void productionSourcesContainNoLegacyHudRendering() throws Exception {
         File root = new File("src/main/java/club/heiqi/qz_miner");
@@ -80,6 +91,7 @@ public class HudArchitectureBoundaryTest {
         Assert.assertEquals("exactly one client tick driver refreshes the HUD", 1,
                 occurrences(proxy, "new QzMinerHudTicker("));
         Assert.assertFalse("HUD registration survives disconnects", proxy.contains("chainStatusHudRegistration.close("));
+        Assert.assertTrue("card paints its own glass; host chrome stays off", proxy.contains(".chrome(false)"));
 
         Assert.assertEquals("exactly one HudWindowFactory in production sources", 1,
                 countOccurrences(root, "implements HudWindowFactory"));
@@ -88,11 +100,65 @@ public class HudArchitectureBoundaryTest {
                 window.contains("implements HudWindowFactory"));
         Assert.assertTrue("HUD content must be built from scene nodes",
                 window.contains("SceneNode") && window.contains("SceneRuntime"));
+        Assert.assertTrue("HUD card must use the public liquid glass material API",
+                window.contains("UiBackdrop.liquidGlass("));
+        Assert.assertTrue("HUD card surface must be bound through the public surface binder",
+                window.contains("SceneSurfaceBinder.bind("));
 
         String keyListener = read(new File(root, "client/KeyListener.java"));
         Assert.assertFalse("KeyListener only updates state", keyListener.contains("HudRegistration"));
         Assert.assertFalse("KeyListener only updates state", keyListener.contains("ClientHudService"));
         Assert.assertFalse("KeyListener only updates state", keyListener.contains("QzMinerHudWindow"));
+    }
+
+    @Test
+    public void productionSourcesUseOnlyPublicUiLibApi() throws Exception {
+        File root = new File("src/main/java/club/heiqi/qz_miner");
+        int scannedSources = assertJavaSources(root, new SourceAssertion() {
+            @Override
+            public void check(File file, String source) {
+                Assert.assertFalse(file + " must not depend on UILib internal packages",
+                        source.contains(FORBIDDEN_UILIB_INTERNAL));
+                for (String forbidden : FORBIDDEN_SELF_SCALE_CONTROLS) {
+                    Assert.assertFalse(file + " must not self-implement HUD scale controls: " + forbidden,
+                            source.contains(forbidden));
+                }
+            }
+        });
+        Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
+    }
+
+    @Test
+    public void externalToolbarIsRegisteredOnceAndFailureIsolated() throws Exception {
+        File root = new File("src/main/java/club/heiqi/qz_miner");
+        int scannedSources = assertJavaSources(root, new SourceAssertion() {
+            @Override
+            public void check(File file, String source) {
+                String path = file.getPath().replace('\\', '/');
+                if (!path.endsWith("/ClientProxy.java")) {
+                    Assert.assertFalse(file + " must not register a HUD toolbar",
+                            source.contains(TOOLBAR_REGISTRATION_CALL));
+                }
+            }
+        });
+        Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
+
+        String proxy = read(new File(root, "ClientProxy.java"));
+        Assert.assertEquals("ClientProxy.init owns exactly one HUD toolbar registration", 1,
+                occurrences(proxy, TOOLBAR_REGISTRATION_CALL));
+        Assert.assertTrue("toolbar registration must use the frozen public spec builder",
+                proxy.contains("HudToolbarSpec.builder()"));
+        Assert.assertFalse("scale controls must stay enabled for the public layer to append -/1:1/+",
+                proxy.contains("scaleControls(false)"));
+        Assert.assertFalse("toolbar registration survives disconnects",
+                proxy.contains("chainStatusHudToolbarRegistration.close("));
+
+        // 注册失败隔离：工具栏注册必须自带 RuntimeException 捕获，异常不得冒泡影响 HUD 主体。
+        int registration = proxy.indexOf(TOOLBAR_REGISTRATION_CALL);
+        int handler = proxy.indexOf("catch (RuntimeException", registration);
+        int marker = proxy.indexOf("[ClientInit] stage=uilib-integrations-ready");
+        Assert.assertTrue("toolbar registration must be wrapped in a RuntimeException guard", handler > registration);
+        Assert.assertTrue("toolbar failure guard must sit before the ready marker", marker > handler);
     }
 
     @Test
@@ -108,6 +174,7 @@ public class HudArchitectureBoundaryTest {
         assertMarkerFollows(proxy, marker, "connectionListener.register()");
         assertMarkerFollows(proxy, marker, "new ClientConfigChangeListener().register()");
         assertMarkerFollows(proxy, marker, HUD_REGISTRATION_CALL);
+        assertMarkerFollows(proxy, marker, TOOLBAR_REGISTRATION_CALL);
         assertMarkerFollows(proxy, marker, "new QzMinerHudTicker(chainStatusHud).register()");
         assertMarkerFollows(proxy, marker, "new KeyListener(autoToolSwapAdapter).register()");
     }

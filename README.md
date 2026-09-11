@@ -25,7 +25,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 按住连锁键后滚轮：切换当前主模式下的子模式
 - 按住连锁键和左 Shift 后滚轮：上下切换主模式
 - 每个主模式都会记住自己上一次使用的子模式，切回该主模式时会自动恢复
-- 连锁状态由 Qz-UILib 的 HUD 虚拟窗口在屏幕左上角统一显示（内容随状态变化经 Signal 刷新，空状态整窗隐藏）；打开 GUI 时由 UILib 自动隐藏
+- 连锁状态由 Qz-UILib 的 HUD 虚拟窗口在屏幕左上角以液态玻璃卡片统一显示（内容随状态变化经 Signal 刷新，空状态整窗隐藏）；卡片下挂 UILib 外接工具栏，提供 `- / 1:1 / +` 缩放；打开 GUI 时由 UILib 自动隐藏
 
 ### 主模式说明
 
@@ -132,7 +132,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `SPECIAL_LOOTGAMES_MINESWEEPER`：对准 `LootGames` 扫雷棋盘时，通过服务端读取雷位并在客户端预览中标出扫描半径内的雷
 - 复杂方块匹配：支持 `TileEntity` 参与同类判定，特别针对 GregTech 与 BartWorks 的复杂方块做了兼容
 - 客户端预览：支持实时预览、deadline 协作式计算、执行期间锁定目标，并支持通过客户端配置完全关闭
-- HUD 状态展示：通过 Qz-UILib 4.9 的 HUD 虚拟窗口（`HudWindowFactory` 契约 + 状态 Signal）显示执行阶段、模式/子模式、服务端限制与匹配数量、对象组同步、预览进度及 AREA 区域尺寸；注册单点在 `ClientProxy.init`，锚点为屏幕左上角，断线不重注册
+- HUD 状态展示：通过 Qz-UILib 4.9 的 HUD 虚拟窗口（`HudWindowFactory` 契约 + 状态 Signal）显示执行阶段、模式/子模式、服务端限制与匹配数量、对象组同步、预览进度及 AREA 区域尺寸；外观为 UILib 公开材质 API 的液态玻璃卡片（`UiBackdrop.liquidGlass` + `SceneSurfaceBinder`，宿主外壳关闭），并挂 `HudToolbarService` 外接工具栏（缩放 `- / 1:1 / +` 由 UILib 公共层追加，Miner 不自绘缩放按钮）；注册单点在 `ClientProxy.init`，锚点为屏幕左上角，断线不重注册
 - 文本国际化：HUD、模式名、子模式名、按键名已提供 `zh_CN / en_US`
 - 生命周期清理：登录、重生、切维度、退出等场景会清理连锁状态
 - 并行计算与主线程写世界分离：搜索放在并行 Tick 中，真实方块破坏仍由主线程执行

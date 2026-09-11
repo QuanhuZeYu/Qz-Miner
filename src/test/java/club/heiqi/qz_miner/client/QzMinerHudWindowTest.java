@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.client;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.Assert;
@@ -15,17 +16,48 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
+import club.heiqi.uilib.ui.render.UiBackdrop;
+import club.heiqi.uilib.ui.render.UiBackdropEffect;
+import club.heiqi.uilib.ui.scene.layout.Constraints;
 import club.heiqi.uilib.ui.scene.layout.FlexDirection;
+import club.heiqi.uilib.ui.scene.layout.LayoutBox;
+import club.heiqi.uilib.ui.scene.layout.SceneLayoutEngine;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
 import club.heiqi.uilib.ui.scene.paint.SceneChromeTokens;
 import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
+import club.heiqi.uilib.ui.scene.text.SceneTextMeasurer;
 
 /**
- * 回归 4.9 虚拟窗口契约：scene 内容树结构、空内容整窗隐藏、signal 冲刷与样式约束。
+ * 回归 4.9 虚拟窗口契约：液态玻璃卡片内容树、空内容整窗隐藏、signal 冲刷与样式约束。
  *
- * <p>headless 使用真实 {@link SceneRuntime}：窗口工厂只建树，物化由 runtime.flush() 驱动。</p>
+ * <p>headless 使用真实 {@link SceneRuntime}：窗口工厂只建树，物化由 runtime.flush() 驱动；
+ * 「整窗隐藏」按宿主 {@code SceneHudHost.RetainedWindow.isEmptyContent()} 的口径验证——
+ * 同源 {@link SceneLayoutEngine} 布局后读内容根 cachedLayout，空内容必须为零尺寸。</p>
  */
 public class QzMinerHudWindowTest {
+
+    /** 无头文本度量：足够驱动 SHRINK 宽度与行高收敛，不依赖客户端字体栈。 */
+    private static final SceneTextMeasurer MEASURER = new SceneTextMeasurer() {
+        @Override
+        public int measureWidth(String text, int fontSize) {
+            return text.length() * fontSize / 2;
+        }
+
+        @Override
+        public int lineHeight(int fontSize) {
+            return fontSize + 2;
+        }
+
+        @Override
+        public int epoch() {
+            return 0;
+        }
+    };
+
+    /** 宿主测量口径：逻辑视口尺寸（SceneHudHost.render 用视口宽高做约束）。 */
+    private static final int VIEWPORT_WIDTH = 320;
+    private static final int VIEWPORT_HEIGHT = 240;
 
     @BeforeClass
     public static void bootstrapModes() {
@@ -34,7 +66,7 @@ public class QzMinerHudWindowTest {
     }
 
     @Test
-    public void contentTreeIsSceneRowsWithToneColoredSpans() {
+    public void contentRootWrapsSingleLiquidGlassCard() {
         Fixture fixture = new Fixture();
         fixture.openGate(ChainPhase.RUNNING);
         fixture.state.setSelectedMode(ChainMode.CHAIN);
@@ -50,14 +82,34 @@ public class QzMinerHudWindowTest {
         runtime.flush();
 
         Assert.assertEquals(FlexDirection.COLUMN, content.getFlexDirection());
-        Assert.assertEquals(QzMinerHudWindow.ROW_GAP_PX, content.getGap());
+        Assert.assertEquals(SceneNode.WidthSizing.SHRINK, content.getWidthSizing());
         Assert.assertFalse(content.isHitTestable());
 
-        List<SceneNode> rows = content.__getChildren();
+        SceneNode card = cardOf(content);
+        Assert.assertEquals(FlexDirection.COLUMN, card.getFlexDirection());
+        Assert.assertEquals(QzMinerHudWindow.ROW_GAP_PX, card.getGap());
+        Assert.assertEquals(QzMinerHudWindow.CARD_PADDING_X_PX, card.getPaddingLeft());
+        Assert.assertEquals(QzMinerHudWindow.CARD_PADDING_X_PX, card.getPaddingRight());
+        Assert.assertEquals(QzMinerHudWindow.CARD_PADDING_Y_PX, card.getPaddingTop());
+        Assert.assertEquals(QzMinerHudWindow.CARD_PADDING_Y_PX, card.getPaddingBottom());
+        Assert.assertEquals(SceneNode.WidthSizing.SHRINK, card.getWidthSizing());
+        Assert.assertFalse(card.isHitTestable());
+
+        // 液态玻璃：公开材质 API + 公开表面绑定落到卡片节点（含圆角，来自主题 PANEL 配方）。
+        UiBackdrop backdrop = card.getBackdrop();
+        Assert.assertNotNull("卡片必须绑定 UILib 液态玻璃滤镜", backdrop);
+        Assert.assertTrue("滤镜必须处于生效态", backdrop.isActive());
+        Assert.assertEquals(UiBackdropEffect.Family.LIQUID_GLASS, backdrop.getEffect().getFamily());
+        Assert.assertEquals(QzMinerHudWindow.GLASS_MATERIAL, backdrop.getEffect().getMaterial());
+        Assert.assertEquals(QzMinerHudWindow.GLASS_BLUR_PX, backdrop.getBlurRadius());
+        Assert.assertTrue("卡片圆角来自主题 PANEL 角色", card.getCornerRadius() > 0);
+
+        List<SceneNode> rows = rowsOf(card);
         Assert.assertEquals(6, rows.size());
         for (SceneNode row : rows) {
             Assert.assertEquals(FlexDirection.ROW, row.getFlexDirection());
             Assert.assertEquals(QzMinerHudWindow.SPAN_GAP_PX, row.getGap());
+            Assert.assertEquals(SceneNode.WidthSizing.SHRINK, row.getWidthSizing());
             Assert.assertFalse(row.isHitTestable());
             for (SceneNode span : row.__getChildren()) {
                 Assert.assertEquals(QzMinerHudWindow.FONT_SIZE_PX, span.getFontSize());
@@ -83,28 +135,28 @@ public class QzMinerHudWindowTest {
     }
 
     @Test
-    public void emptyModelKeepsContentTreeHiddenUntilGateOpens() {
+    public void emptyModelUnmountsCardAndKeepsContentRootZeroSized() {
         Fixture fixture = new Fixture();
         SceneRuntime runtime = new SceneRuntime();
         SceneNode content = fixture.window.build(runtime);
         fixture.window.refresh();
         runtime.flush();
-        Assert.assertTrue("显示门关闭 => 内容树零尺寸（宿主整窗隐藏）",
-                content.__getChildren().isEmpty());
+        assertHostHides(content);
 
         fixture.openGate(ChainPhase.PLANNING);
         fixture.window.refresh();
         runtime.flush();
-        Assert.assertFalse("显示门打开 => 内容树出现", content.__getChildren().isEmpty());
+        Assert.assertEquals("显示门打开 => 卡片挂载", 1, content.__getChildren().size());
+        assertHostShows(content);
 
         fixture.closeGate();
         fixture.window.refresh();
         runtime.flush();
-        Assert.assertTrue("显示门再次关闭 => 内容整树卸载", content.__getChildren().isEmpty());
+        assertHostHides(content);
     }
 
     @Test
-    public void refreshPublishesOnlyChangedModels() {
+    public void refreshPublishesOnlyChangedModelsAndReusesStableNodes() {
         Fixture fixture = new Fixture();
         fixture.state.setSelectedMode(ChainMode.CHAIN);
         fixture.state.setSelectedSubMode(ChainSubMode.CHAIN_ORE);
@@ -119,11 +171,20 @@ public class QzMinerHudWindowTest {
         fixture.window.refresh();
         Assert.assertSame("状态未变不得重发 signal", first, fixture.window.currentModel());
 
+        SceneNode card = cardOf(content);
+        // __getChildren() 返回内部 children 的不可变视图（applyChildReconcile 原地改写），
+        // 行复用断言必须先快照，否则读到的永远是当前子序列。
+        List<SceneNode> rowsBefore = new ArrayList<SceneNode>(rowsOf(card));
         fixture.state.setServerMatchedTargetCount(31);
         fixture.window.refresh();
         Assert.assertNotSame(first, fixture.window.currentModel());
         runtime.flush();
-        Assert.assertEquals("31", rows(content).get(4).__getChildren().get(1).getText());
+
+        Assert.assertSame("内容变化不得重建卡片（键稳定复用）", card, cardOf(content));
+        List<SceneNode> rowsAfter = new ArrayList<SceneNode>(rowsOf(card));
+        Assert.assertSame("未变化的行复用既有节点", rowsBefore.get(0), rowsAfter.get(0));
+        Assert.assertNotSame("变化行按内容键重建", rowsBefore.get(4), rowsAfter.get(4));
+        Assert.assertEquals("31", rowsAfter.get(4).__getChildren().get(1).getText());
     }
 
     @Test
@@ -142,7 +203,8 @@ public class QzMinerHudWindowTest {
         fixture.window.refresh();
         runtime.flush();
 
-        List<SceneNode> rows = rows(content);
+        SceneNode card = cardOf(content);
+        List<SceneNode> rows = rowsOf(card);
         Assert.assertEquals(8, rows.size());
         Assert.assertEquals(ClientI18n.tr("hud.qz_miner.preview_matched.label") + " ",
                 rows.get(rows.size() - 2).__getChildren().get(0).getText());
@@ -152,12 +214,12 @@ public class QzMinerHudWindowTest {
         fixture.state.setPreviewActive(false);
         fixture.window.refresh();
         runtime.flush();
-        Assert.assertEquals(7, rows(content).size());
+        Assert.assertEquals(7, rowsOf(cardOf(content)).size());
 
         fixture.state.setSelectedMode(ChainMode.CHAIN);
         fixture.window.refresh();
         runtime.flush();
-        Assert.assertEquals(6, rows(content).size());
+        Assert.assertEquals(6, rowsOf(cardOf(content)).size());
     }
 
     @Test
@@ -177,10 +239,47 @@ public class QzMinerHudWindowTest {
         assertNoSectionStyle(content);
     }
 
-    private static List<SceneNode> rows(SceneNode content) {
-        List<SceneNode> rows = content.__getChildren();
-        Assert.assertFalse("内容树必须已物化", rows.isEmpty());
-        return rows;
+    @Test
+    public void toolbarFactoryLeavesScaleButtonsToUiLibPublicLayer() {
+        SceneRuntime runtime = new SceneRuntime();
+        SceneNode toolbar = QzMinerHudWindow.TOOLBAR_FACTORY.build(runtime);
+        Assert.assertNotNull(toolbar);
+        Assert.assertTrue("Miner 工具栏只提供空工具槽", toolbar.__getChildren().isEmpty());
+        Assert.assertEquals("", toolbar.getText());
+        Assert.assertFalse(toolbar.isHitTestable());
+        Assert.assertTrue("缩放 -/1:1/+ 必须由 UILib 公共层追加，规格不得关闭",
+                HudToolbarSpec.builder().build().isScaleControls());
+    }
+
+    private static SceneNode cardOf(SceneNode content) {
+        List<SceneNode> cards = content.__getChildren();
+        Assert.assertEquals("内容根必须只挂一张卡片", 1, cards.size());
+        return cards.get(0);
+    }
+
+    private static List<SceneNode> rowsOf(SceneNode card) {
+        Assert.assertFalse("卡片必须已物化", card.__getChildren().isEmpty());
+        return card.__getChildren();
+    }
+
+    /** 宿主 isEmptyContent() 口径：布局后内容根 cachedLayout 任一轴为零 → 整窗隐藏。 */
+    private static void assertHostHides(SceneNode content) {
+        Assert.assertTrue("显示门关闭 => 卡片整体卸载", content.__getChildren().isEmpty());
+        LayoutBox box = layoutOf(content);
+        Assert.assertTrue("空内容内容根必须零尺寸（宿主整窗隐藏），实际 " + box, box.getHeight() <= 0);
+    }
+
+    private static void assertHostShows(SceneNode content) {
+        LayoutBox box = layoutOf(content);
+        Assert.assertTrue("有内容内容根必须非零尺寸，实际 " + box, box.getHeight() > 0);
+        Assert.assertTrue("有内容内容根必须非零尺寸，实际 " + box, box.getWidth() > 0);
+    }
+
+    private static LayoutBox layoutOf(SceneNode content) {
+        new SceneLayoutEngine(MEASURER).layout(content, new Constraints(VIEWPORT_WIDTH, VIEWPORT_HEIGHT));
+        Object box = content.getCachedLayout();
+        Assert.assertTrue("布局后必须产出 LayoutBox", box instanceof LayoutBox);
+        return (LayoutBox) box;
     }
 
     private static void assertNoSectionStyle(SceneNode node) {
