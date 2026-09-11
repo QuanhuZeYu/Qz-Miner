@@ -113,6 +113,8 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .invalidIssue("无效")
                 .warningSeverity("警告")
                 .duplicateIssue("重复")
+                // D5（P5 第三轮）：成员徽章 hover 原因模板（severity/issue/id 由 UILib 填充，raw 非空时自动追加）。
+                .memberIssueReasonPattern("{severity} · {issue} · ID：{id}")
                 .currentMemberPrimaryFormatter(this::formatCurrentMemberPrimary)
                 .currentMemberSecondaryFormatter(member -> formatCurrentMemberSecondary(member, pickerCodec))
                 .resultSummaryFormatter(count -> count + " 个结果")
