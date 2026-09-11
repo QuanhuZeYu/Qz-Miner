@@ -52,9 +52,20 @@
 - 5.3 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与
   20-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为
   **INCOMPLETE**，不因自动化通过而升级证据等级。
-- GTNH 基线：CI 门禁与发布构建仅覆盖 `2.9.0-beta-2`（GT5 5.09.54.20）。`2.8.4` 基线于
-  2026-08-17 从 CI 矩阵移除：上游 POM 缺陷（`Thaumic_Exploration:1.4.2-GTNH` 引用不存在的
-  `com.github.GTNewHorizons:CodeChickenLib:1.3.0`，正确 group 为 `codechicken`）使该基线依赖图无法解析，不再承诺兼容。
+- GTNH 基线：本轮起为**单基线构建**，唯一真源是 `dependencies.gradle` 的
+  `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib）；CI 与发布不再使用基线矩阵，
+  `gradle/gtnh-baselines.json`、`scripts/verify-gtnh-baselines.ps1` 与 `verifyGtnhBaseline` 任务已删除。
+- `2.9.0-beta-3` 的运行期组件版本（2026-09-11 实测解析）：GT5 5.09.54.133、GTNHLib 0.11.46、
+  Hodgepodge 2.7.196、NewHorizonsCoreMod 2.9.61、Et-Futurum-Requiem 2.6.58-GTNH、lwjgl3ify 3.0.31、
+  Angelica 2.2.10。
+- 同一份 jar 的运行期兼容范围含 `2.9.0-beta-2` 与 `2.9.0-beta-3`：依据是源码对 GTNH 侧组件零静态链接
+  （main/test 无 `gregtech.*` / `com.gtnewhorizons.*` / `gtnhlib.*` 等静态 import，GT 侧只走反射能力档案与
+  Mixin 字符串目标）+ 双基线编译实证（两基线 `compileJava`/`compileTestJava` 均通过，2026-09-11）。
+  该实证采集于 HUD 迁移前的工作树（GTNH 侧零静态链接，故与 UILib 版本无关）；HUD 迁移完成后由本轮验证流程复测。
+  这是编译期证据：真机运行态未验证，不因编译通过升级证据等级。
+- `2.8.4` 基线于 2026-08-17 从基线承诺移除（当时经 CI 矩阵移除）：上游 POM 缺陷
+  （`Thaumic_Exploration:1.4.2-GTNH` 引用不存在的 `com.github.GTNewHorizons:CodeChickenLib:1.3.0`，
+  正确 group 为 `codechicken`）使该基线依赖图无法解析；该历史结论不因矩阵机制退役而改变，`2.8.4` 仍不在承诺内。
 
 ## 维护规则
 
