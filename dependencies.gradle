@@ -49,7 +49,8 @@ dependencies {
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
     // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
     // 当前为含 4.10 公开 HUD 编辑契约（HudEditTarget/HudEditService）的本机构建 dev 制品：
-    // 来源 Qz-UILib HEAD 4bf42b53，sha256 9511F30D38421C1A9DDDCFF6F8E47ADF504F8E418A2C1845BEED91CD1295F53D；
+    // 来源 Qz-UILib HEAD 4bf42b53，构建时以 VERSION=4.10.0 注入版本（jar 内 mcmod.info version=4.10.0，
+    // 满足 @Mod required-after:qz_uilib@[4.10.0,5.0.0)）；sha256 78C7D98B336A35569176C2F938BA9139F00744428978E6C7B468EB308287D3A6；
     // 该制品尚未发布，正式 Release 资产上线后须替换为 Release 制品并回填 sha256。
     devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
     testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
