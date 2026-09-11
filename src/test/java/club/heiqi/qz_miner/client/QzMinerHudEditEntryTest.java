@@ -25,7 +25,7 @@ import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.uilib.ui.reactive.ReadableSignal;
 
 /**
- * 回归 UILib 4.10 公开编辑契约的 Miner 接入：可编辑目标注册（单点/幂等/失败隔离）、
+ * 回归 UILib 4.9.1 公开编辑契约的 Miner 接入：可编辑目标注册（单点/幂等/失败隔离）、
  * 默认放置与工具栏规格复用、聊天工具栏「编辑 HUD」动作的注册与触发链路。
  *
  * <p>headless：只用 UILib 公开单例注册表（纯 Java 注册表 + Signal）与自建窗口，

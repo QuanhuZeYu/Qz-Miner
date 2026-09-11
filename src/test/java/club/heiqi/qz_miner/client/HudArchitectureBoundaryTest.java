@@ -54,8 +54,19 @@ public class HudArchitectureBoundaryTest {
             "import club.heiqi.uilib.ui.scene.input.SceneEventContext;"
     };
 
-    /** 运行期 UILib 下界：公开编辑契约（HudEditTarget/HudEditService/ChatActionService）只有 4.10 起才有。 */
-    private static final String UILIB_RUNTIME_RANGE = "required-after:qz_uilib@[4.10.0,5.0.0)";
+    /** 运行期 UILib 下界：当前交接制品版本 4.9.1（公开编辑契约自 4.9.1 起才有）。 */
+    private static final String UILIB_RUNTIME_RANGE = "required-after:qz_uilib@[4.9.1,5.0.0)";
+
+    /**
+     * 已退役的 UILib 运行期下界（历史编号）。
+     *
+     * <p>只列历史真值、不写「当前下界 - 1」这类推导：下界语义是「当前交接制品版本」，
+     * 每次定档都需要显式更新本清单；当前下界另由 {@link #UILIB_RUNTIME_RANGE} 正向断言。</p>
+     */
+    private static final String[] RETIRED_UILIB_RUNTIME_BOUNDS = {
+            "required-after:qz_uilib@[4.9.0,5.0.0)",
+            "required-after:qz_uilib@[4.10.0,5.0.0)"
+    };
 
     @Test
     public void productionSourcesContainNoLegacyHudRendering() throws Exception {
@@ -141,8 +152,10 @@ public class HudArchitectureBoundaryTest {
                     Assert.assertFalse(file + " must not implement HUD edit/drag math itself: "
                             + forbiddenImport, source.contains(forbiddenImport));
                 }
-                Assert.assertFalse(file + " must not keep the pre-4.10 UILib lower bound",
-                        source.contains("required-after:qz_uilib@[4.9.0"));
+                for (String retired : RETIRED_UILIB_RUNTIME_BOUNDS) {
+                    Assert.assertFalse(file + " must not declare a retired UILib lower bound: " + retired,
+                            source.contains(retired));
+                }
             }
         });
         Assert.assertTrue("生产源码必须真实被扫描（守卫不得空跑）", scannedSources > 0);
@@ -233,10 +246,15 @@ public class HudArchitectureBoundaryTest {
                 window.contains("public HudWindowFactory previewFactory()"));
         Assert.assertTrue("preview drag surface must be hit-testable", window.contains(".setHitTestable(true)"));
 
-        // 运行期下界必须同步到 4.10.0（新 API 只有 4.10 起才有，4.9 下界会 NoClassDefFoundError）。
+        // 运行期下界必须同步到「当前交接制品版本」（编辑契约自 4.9.1 起才有：4.9.0 会
+        // NoClassDefFoundError，已退役的 4.10.0 等旧编号会让声明与交付制品脱节）。
         String myMod = read(new File(root, "MyMod.java"));
-        Assert.assertTrue("runtime lower bound must be 4.10.0", myMod.contains(UILIB_RUNTIME_RANGE));
-        Assert.assertFalse("runtime lower bound must not stay 4.9.0", myMod.contains("[4.9.0"));
+        Assert.assertTrue("runtime lower bound must be the handed-off artifact version",
+                myMod.contains(UILIB_RUNTIME_RANGE));
+        for (String retired : RETIRED_UILIB_RUNTIME_BOUNDS) {
+            Assert.assertFalse("runtime lower bound must not stay retired: " + retired,
+                    myMod.contains(retired));
+        }
 
         // label/tooltip 中英都要有。
         String zhLang = read(new File("src/main/resources/assets/qz_miner/lang/zh_CN.lang"));

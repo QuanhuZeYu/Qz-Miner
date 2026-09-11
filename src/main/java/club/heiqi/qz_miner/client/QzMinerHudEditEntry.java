@@ -13,7 +13,7 @@ import club.heiqi.uilib.ui.hud.api.HudToolbarSpec;
 import club.heiqi.uilib.ui.reactive.Signal;
 
 /**
- * 连锁状态 HUD 的编辑入口唯一接线点（UILib 4.10 公开 HUD 编辑契约）。
+ * 连锁状态 HUD 的编辑入口唯一接线点（UILib 4.9.1 公开 HUD 编辑契约）。
  *
  * <p>两件注册，互相独立：</p>
  * <ol>

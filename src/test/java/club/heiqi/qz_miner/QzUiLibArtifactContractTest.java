@@ -84,7 +84,7 @@ public class QzUiLibArtifactContractTest {
     }
 
     /**
-     * @return {@code @Mod} 依赖里 qz_uilib 的区间规格（如 {@code [4.10.0,5.0.0)}）
+     * @return {@code @Mod} 依赖里 qz_uilib 的区间规格（如 {@code [4.9.1,5.0.0)}）
      *
      * <p>区间两端括号可以是 {@code [}/{@code (} 与 {@code ]}/{@code )} 的任意 Maven 组合，
      * 故按 {@code qz_uilib@} 到子句分隔符 {@code ;} 切片，不做括号形态假设。</p>
