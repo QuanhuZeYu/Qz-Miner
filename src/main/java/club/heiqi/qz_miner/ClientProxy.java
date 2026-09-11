@@ -22,6 +22,7 @@ import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.KeyListener;
+import club.heiqi.qz_miner.client.MinerHudLayoutStore;
 import club.heiqi.qz_miner.client.QzMinerHudEditEntry;
 import club.heiqi.qz_miner.client.QzMinerHudTicker;
 import club.heiqi.qz_miner.client.QzMinerHudWindow;
@@ -34,6 +35,7 @@ import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.uilib.ui.hud.api.ClientHudService;
 import club.heiqi.uilib.ui.hud.api.HudAnchor;
+import club.heiqi.uilib.ui.hud.api.HudLayoutPersistence;
 import club.heiqi.uilib.ui.hud.api.HudRegistration;
 import club.heiqi.uilib.ui.hud.api.HudSpec;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
@@ -153,11 +155,14 @@ public class ClientProxy extends CommonProxy {
         // 编辑入口单点：可编辑目标（预览/默认放置）+ 聊天工具栏「编辑 HUD」动作。
         // 内部幂等且逐件失败隔离，异常不外溢（HUD 主体不受影响）。
         QzMinerHudEditEntry.install(chainStatusHud);
+        // HUD 布局持久化：纯文本端口（编解码/版本判定/降级归 UILib；宿主只整串读写）；
+        // save 由 UILib 在提交编辑/缩放变更合并后触发，宿主不主动 flush。
+        HudLayoutPersistence.install(new MinerHudLayoutStore(MinerHudLayoutStore.resolveConfigDir()));
         new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
-                + "chain-status-hud,chain-status-hud-edit,key-listener");
+                + "chain-status-hud,chain-status-hud-edit,hud-layout-persist,key-listener");
     }
 
     /**
