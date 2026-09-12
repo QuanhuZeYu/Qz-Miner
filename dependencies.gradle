@@ -76,8 +76,21 @@ dependencies {
     //   方案与验收见工作站 temp/picker-lane-a-design.md，规格修订见 team/P0-ADR-契约与测量.md §0-R 修订 R-02。命令
     //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（544 类 / 5645 例 / 0 失败 / 0 错误 / 7 跳过）；
     //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 FCCFBCE8F054A8B8C38AD4B8CA371DE42287C86EB793DBDCB08D61E654BC317E（3939700 bytes）。
-    //   本件取代 3C7B2F0B…（3940946 bytes，文本通道诊断制品）、C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
+    //   sha256 FCCFBCE8F054A8B8C38AD4B8CA371DE42287C86EB793DBDCB08D61E654BC317E（3939700 bytes）
+    //   ——该件已被下一段「背景滤镜档位」增量取代，禁止回退。
+    //   + 【本轮·背景滤镜档位与玻璃成本优化】配置项 general.backdropQuality（full 默认 / eco / solid）：
+    //   full 与改动前逐像素一致（13 抽头 GLSL 段逐字节保留）；eco 换 9 抽头向日葵核（片元采样 −30.8%、
+    //   覆盖半径 1.6001 vs 1.5996 步、等效模糊强度 −0.069%）；solid 令玻璃链路整体早退并由主题回落
+    //   SceneTheme.withoutBackdrop() 实色替代（取值用 solid 而非 off：YAML 1.1 裸词 off 会被解析为
+    //   Boolean，手改配置会让 bootstrap 失败、配置页打不开）。同批零观感优化：ds==1 时不再生成无消费者
+    //   的 mipmap 链、玻璃表面与当前 clip 无交集时整链早退、诊断 detail 按 diagnosticsEnabled 门控；
+    //   并新增 useDebug 下 frame.backdrop.surfaces/areaPx/captures/taps 计数（真机 full/eco/solid A/B 用）。
+    //   症状与根因：打开配置页笔记本风扇狂转——每帧 26-46 个玻璃表面 / 1.76-2.53 屏 × 13 次纹理采样
+    //   （CPU 侧已由 headless 基准排除：净 scene 核心 0.0238 ms/帧）。
+    //   命令 VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks
+    //   （主源 class 1529 个；550 suites / 5688 例 / 0 失败 / 0 错误 / 7 跳过）；
+    //   sha256 9951D2EA5FD1633B587234690466E1D03CEF36D768829715FC04B5344DA89688（3946495 bytes）。
+    //   本件取代 FCCFBCE8…（3939700 bytes，搜索 lane A 方案制品）、3C7B2F0B…（3940946 bytes，文本通道诊断制品）、C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
     //   标签可读性修复版）与更早的 56A9C0FB…：本轮新增平台文本通道可诊断化（统一前缀 [文本通道]，
     //   桥可用性/注册结果/external 实际写入值/被吞字符/TEXT 无接收者等 11 条限流日志）与 picker 焦点
     //   消费双依赖加固（意图早于目标就绪不再永久丢焦点）；此前累计的分类筛选修复（浏览 lane 总量按
