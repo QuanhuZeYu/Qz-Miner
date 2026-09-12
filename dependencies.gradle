@@ -64,10 +64,10 @@ dependencies {
     // 【P2-B 开发期依赖切换·过渡态】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
     // PickerIconCache / PickerRevisionBridge 等）只在 Qz-UILib 4.10.0 构建中存在；4.9.1 件不含新 SPI，
     // 会让 P2-B 代码无法编译。本行因此改指本机构建的 4.10.0 dev 制品：
-    //   来源 = Qz-UILib 分支 4.0 HEAD bc832161（P0-P6 + 第四轮成品细节终局 + 密度偏好通路 + 网格度量修复），命令
-    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（535 类 / 5571 例 / 0 失败 / 0 错误 / 7 跳过）；
+    //   来源 = Qz-UILib 分支 4.0 HEAD f1385d60（P0-P6 + 第四轮成品细节 + 密度偏好通路 + 网格度量修复 + 第五/六轮框架级收尾），命令
+    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（538 类 / 5598 例 / 0 失败 / 0 错误 / 7 跳过）；
     //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 437287AC0DF5F205182B881B4B492370B261853861E521E88C5FAB6583EBA1EC（3923043 bytes）。
+    //   sha256 104B6940A03C58215EE7D52BD0FE0ECA5D63544EDB634D3866F268971F78D1D5（3925675 bytes）。
     //   内容漂移警示同 4.9.1 段：同版本名不同内容会在类加载期炸，集成与发布以本注释 sha256 为准。
     // 过渡态删除条件（P6 成对升级，需用户确认）：Qz-UILib 出 5.0.0 Release 资产（T-1/T-6 旧路径删除的同一批）
     //   + Miner 把 @Mod 依赖上界同步到 5.0.0，此时本两行改指 5.0.0 Release 资产并删除本段注释。
