@@ -65,18 +65,23 @@ dependencies {
     // 【P2-B 开发期依赖切换·过渡态】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
     // PickerIconCache / PickerRevisionBridge 等）只在 Qz-UILib 4.10.0 构建中存在；4.9.1 件不含新 SPI，
     // 会让 P2-B 代码无法编译。本行因此改指本机构建的 4.10.0 dev 制品：
-    //   来源 = Qz-UILib 分支 4.0 HEAD cdaf1c3a + 本轮「选择器分类筛选无效 / hover 与左栏质感」修复
-    //   （工作区增量，2026-09-12；上游与评测记录见工作站 team/R5-实施记录-分类筛选与hover质感.md）
-    //   + 「无法进入世界」修复（远端版本区间必须含自身构建版本）+ 选择器结果网格末排裁切修复，命令
-    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（540 类 / 5622 例 / 0 失败 / 0 错误 / 7 跳过）；
+    //   来源 = Qz-UILib 分支 4.0 HEAD e1c55eff + 历史工作区增量（分类筛选/hover 与左栏质感、无法进入
+    //   世界版本区间、结果网格末排裁切；见工作站 team/R5-实施记录-分类筛选与hover质感.md）
+    //   + 本轮「平台文本通道可诊断化 + picker 焦点消费加固」工作区增量（2026-09-12；诊断与日志清单见
+    //   工作站 temp/uilib-textdiag-report.md），命令
+    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（544 类 / 5645 例 / 0 失败 / 0 错误 / 7 跳过）；
     //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 6DC66F9925867739A662615CBBC8681E610FF456FF1D02A96F8AD38E3A29AB2F（3934854 bytes）。
-    //   本件取代 44788B81…（3927386 bytes，标签可读性修复版）与更早的 56A9C0FB…：新增分类筛选修复
-    //   （浏览 lane 总量按命中数 + 结果切片「修订」失效通道）、分类导航 pill 行与成员卡悬停面、
-    //   分类行文本按当前快照刷新（keyed 复用下计数不再停留在构建期）。
+    //   sha256 3C7B2F0B1B817732484FB00F5F5564D567D4FB11C244C7825F58D03ABF852085（3940946 bytes）。
+    //   本件取代 C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
+    //   标签可读性修复版）与更早的 56A9C0FB…：本轮新增平台文本通道可诊断化（统一前缀 [文本通道]，
+    //   桥可用性/注册结果/external 实际写入值/被吞字符/TEXT 无接收者等 11 条限流日志）与 picker 焦点
+    //   消费双依赖加固（意图早于目标就绪不再永久丢焦点）；此前累计的分类筛选修复（浏览 lane 总量按
+    //   命中数 + 结果切片「修订」失效通道）、分类导航 pill 行与成员卡悬停面、分类行文本按当前快照
+    //   刷新（keyed 复用下计数不再停留在构建期）仍在件内。
     //   内容漂移警示同 4.9.1 段：同版本名不同内容会在类加载期炸，集成与发布以本注释 sha256 为准。
     //   本件声明 acceptableRemoteVersions=[4.9.0,4.11.0)（同 major；上界取制品版本 4.10.0 的下一 minor 边界）。
-    //   历史件（同名不同内容，禁止回退）：E18C5F6E…/3926208（声明为跨 major 的 [4.9.0,5.0.0)，多承诺一个 major）、
+    //   历史件（同名不同内容，禁止回退）：C44547F6…/3935630（对象组编辑视图改动期制品，无文本通道诊断）、
+    //   E18C5F6E…/3926208（声明为跨 major 的 [4.9.0,5.0.0)，多承诺一个 major）、
     //   A24A1532…/3925676（仅版本修复、无布局修复）、104B6940…/3925675（错声明 [4.9.0,4.10.0)，自我拒绝致无法进入世界）。
     //   ⚠ 更早一件（sha256 104B6940…/3925675 bytes）携带 UILib 侧声明 acceptableRemoteVersions=[4.9.0,4.10.0)，
     //   该区间开上界不含制品自身版本 4.10.0：FML 启动期报「mod qz_uilib appears to reject its own version
