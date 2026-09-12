@@ -94,9 +94,14 @@ public final class BlockPickerRegistryWatcher {
     /**
      * 模组加载完成：标脏（首次建快照延后到首个真实读取）。
      *
+     * <p><b>不要给本方法加 {@code @SubscribeEvent}</b>：{@link FMLLoadCompleteEvent} 是 FML 生命周期事件，
+     * <b>不是</b> {@code cpw.mods.fml.common.eventhandler.Event} 的子类；一旦标注，{@link #register()} 遍历方法时
+     * 会抛 {@code IllegalArgumentException: ... takes a argument that is not an Event class}——真机实证为客户端
+     * init 阶段直接崩溃（crash-2026-09-12_08.46.25-client.txt）。正确通道 = {@code @Mod} 类上的
+     * {@code @Mod.EventHandler} 方法（{@code MyMod#onLoadComplete}）→ SidedProxy 转发 → 本方法。</p>
+     *
      * @param event FML 加载完成事件
      */
-    @SubscribeEvent
     public void onLoadComplete(FMLLoadCompleteEvent event) {
         onRegistrySourceChanged("fml_load_complete");
     }
@@ -104,9 +109,10 @@ public final class BlockPickerRegistryWatcher {
     /**
      * ID 重映射：标脏（不重建；事件可能反复出现）。
      *
+     * <p>同 {@link #onLoadComplete(FMLLoadCompleteEvent)}：FML 生命周期事件不得标 {@code @SubscribeEvent}。</p>
+     *
      * @param event FML ID 重映射事件
      */
-    @SubscribeEvent
     public void onModIdMapping(FMLModIdMappingEvent event) {
         onRegistrySourceChanged("fml_modid_mapping");
     }

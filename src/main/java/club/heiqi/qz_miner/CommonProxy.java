@@ -11,6 +11,8 @@ import club.heiqi.qz_miner.config.ServerConfigHotApplyService;
 import club.heiqi.qz_miner.config.ServerConfigMutationService;
 import club.heiqi.qz_miner.network.PacketCuboidSelectionSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
+import cpw.mods.fml.common.event.FMLLoadCompleteEvent;
+import cpw.mods.fml.common.event.FMLModIdMappingEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
@@ -33,6 +35,25 @@ public class CommonProxy {
 
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {}
+
+    /**
+     * FML 加载完成事件转发（common 侧 no-op；客户端由 {@code ClientProxy} 覆写）。
+     *
+     * <p><b>通道约定</b>：FML 生命周期事件（{@link FMLLoadCompleteEvent} / {@link FMLModIdMappingEvent}）
+     * <b>不得</b>标 {@code @SubscribeEvent}——它们不是 {@code cpw.mods.fml.common.eventhandler.Event}
+     * 的子类，注册进 EventBus 会在装配期抛 {@code IllegalArgumentException} 并让客户端启动崩溃。
+     * 唯一正确通道：{@code @Mod} 类上的 {@code @Mod.EventHandler} → SidedProxy（本方法）→ 侧实现。</p>
+     *
+     * @param event FML 加载完成事件
+     */
+    public void onLoadComplete(FMLLoadCompleteEvent event) {}
+
+    /**
+     * FML ID 重映射事件转发（common 侧 no-op）。
+     *
+     * @param event FML ID 重映射事件
+     */
+    public void onModIdMapping(FMLModIdMappingEvent event) {}
 
     /**
      * 处理客户端扫雷预览结果（dedicated no-op）。

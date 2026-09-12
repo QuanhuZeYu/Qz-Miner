@@ -43,6 +43,8 @@ import club.heiqi.uilib.ui.hud.api.HudSpec;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import club.heiqi.qz_miner.network.PacketChainConfigSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
+import cpw.mods.fml.common.event.FMLLoadCompleteEvent;
+import cpw.mods.fml.common.event.FMLModIdMappingEvent;
 import net.minecraft.network.INetHandler;
 
 public class ClientProxy extends CommonProxy {
@@ -51,6 +53,8 @@ public class ClientProxy extends CommonProxy {
     private static final RateLimitedRejectDiagnostics CONFIG_SYNC_REJECT_DIAG =
             new RateLimitedRejectDiagnostics(CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS);
     private ClientConnectionListener connectionListener;
+    /** P2-B 候选源注册表代际监听（FML 事件由 {@link MyMod} 的 {@code @Mod.EventHandler} 转发进来）。 */
+    private BlockPickerRegistryWatcher blockPickerRegistryWatcher;
 
     private static final ClientChainConfigSyncDispatch.LifecycleGate LIFECYCLE_GATE =
             new ClientChainConfigSyncDispatch.LifecycleGate() {
@@ -164,11 +168,33 @@ public class ClientProxy extends CommonProxy {
         new KeyListener(autoToolSwapAdapter).register();
         // P2-B：候选源注册表代际接入（FMLLoadCompleteEvent / FMLModIdMappingEvent 标脏 + 20 tick 兜底探测）。
         // 只写 volatile 标记，不在事件回调内重建；重建发生在候选源的下一次真实读取（ADR §2.4 / A-08）。
-        new BlockPickerRegistryWatcher(BlockPickerCandidateSource.getInstance()).register();
+        blockPickerRegistryWatcher = new BlockPickerRegistryWatcher(BlockPickerCandidateSource.getInstance());
+        blockPickerRegistryWatcher.register();
         MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
                 + "chain-status-hud,chain-status-hud-edit,hud-layout-persist,key-listener,"
                 + "block-picker-registry-watcher");
+    }
+
+    /**
+     * FML 加载完成 → 候选源注册表标脏（由 {@code MyMod#onLoadComplete} 经 SidedProxy 转发）。
+     *
+     * <p>FML 生命周期事件不能走 {@code @SubscribeEvent}（不是 {@code Event} 子类，注册期即抛异常，
+     * 真机崩溃 crash-2026-09-12_08.46.25），故只有 tick 事件留在事件总线路径。</p>
+     */
+    @Override
+    public void onLoadComplete(FMLLoadCompleteEvent event) {
+        if (blockPickerRegistryWatcher != null) {
+            blockPickerRegistryWatcher.onLoadComplete(event);
+        }
+    }
+
+    /** FML ID 重映射 → 候选源注册表标脏（转发；重复出现只标脏、不重建）。 */
+    @Override
+    public void onModIdMapping(FMLModIdMappingEvent event) {
+        if (blockPickerRegistryWatcher != null) {
+            blockPickerRegistryWatcher.onModIdMapping(event);
+        }
     }
 
     /**
