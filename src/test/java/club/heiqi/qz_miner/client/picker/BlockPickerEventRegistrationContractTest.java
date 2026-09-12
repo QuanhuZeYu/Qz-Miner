@@ -96,20 +96,38 @@ public class BlockPickerEventRegistrationContractTest {
                 Files.isDirectory(root));
         List<String> violations = new ArrayList<String>();
         final String forbidden = "cpw.mods.fml.common.event.";
-        // 源码通常用简名 import，故同时按「FML 事件简名」判定（窗口内出现 FMLxxxEvent 即违约）。
-        final java.util.regex.Pattern fmlEventName =
-                java.util.regex.Pattern.compile("\\bFML\\w+Event\\b");
+        // 只禁 FML 生命周期事件（cpw.mods.fml.common.event.*）。注意 cpw.mods.fml.common.network.FMLNetworkEvent
+        // 及其子类是 Event 子类、属**合法**订阅，不能用「FMLxxxEvent」泛匹配（初版判据就是这样误报了
+        // ClientConnectionListener）。这里用精确清单。
+        final String[] fmlLifecycleEvents = {
+                "FMLLoadCompleteEvent", "FMLModIdMappingEvent", "FMLPreInitializationEvent",
+                "FMLInitializationEvent", "FMLPostInitializationEvent", "FMLServerAboutToStartEvent",
+                "FMLServerStartingEvent", "FMLServerStartedEvent", "FMLServerStoppingEvent",
+                "FMLServerStoppedEvent", "FMLMissingMappingsEvent", "FMLFingerprintViolationEvent",
+        };
         try (Stream<Path> paths = Files.walk(root)) {
             for (Path path : (Iterable<Path>) paths.filter(p -> p.toString().endsWith(".java"))::iterator) {
                 String source = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-                int index = source.indexOf("@SubscribeEvent");
-                while (index >= 0) {
-                    int window = Math.min(source.length(), index + 600);
-                    String slice = source.substring(index, window);
-                    if (slice.contains(forbidden) || fmlEventName.matcher(slice).find()) {
-                        violations.add(path.toString().replace('\\', '/') + " @ " + index);
+                String[] lines = source.split("\n", -1);
+                int offset = 0;
+                for (String line : lines) {
+                    // 只认「注解独占一行」的形态：javadoc/注释里的 {@code @SubscribeEvent} 是行内文本，
+                    // 若把它也算进来，本文件的说明文字会自我误报（本轮实际踩到）。
+                    if (line.trim().startsWith("@SubscribeEvent")) {
+                        int window = Math.min(source.length(), offset + 600);
+                        String slice = source.substring(offset, window);
+                        boolean hit = slice.contains(forbidden);
+                        for (String lifecycle : fmlLifecycleEvents) {
+                            if (slice.contains(lifecycle)) {
+                                hit = true;
+                                break;
+                            }
+                        }
+                        if (hit) {
+                            violations.add(path.toString().replace('\\', '/') + " @ offset " + offset);
+                        }
                     }
-                    index = source.indexOf("@SubscribeEvent", index + 1);
+                    offset += line.length() + 1;
                 }
             }
         }
