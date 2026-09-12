@@ -87,8 +87,6 @@ public final class ObjectGroupMemberPane {
     private static final int PAGE_VIEWPORT_PERCENT = 35;
     /** 逻辑盒尚未就绪时的页高预算回落（按文本行数表达，仍随字号缩放）。 */
     private static final int PAGE_FALLBACK_LINES = 8;
-    /** 面板搜索 lane 窗口上限的回落值（provider 非 SPI 时）。 */
-    private static final int DEFAULT_SEARCH_MAX_ITEMS = 64;
 
     /** 常量启用信号（控件自身无禁用态时的默认）。 */
     private static final ReadableSignal<Boolean> ALWAYS_ENABLED = () -> Boolean.TRUE;
@@ -889,7 +887,7 @@ public final class ObjectGroupMemberPane {
             bridge.bindTo(rt);
             final Computed<PickerQuery> sourceQuery = Computed.create(() -> PickerQuery.text(
                     editor.query.get(), dimension.get().intValue(), categoryKey.get()));
-            builder.candidateSource(source, searchMaxItemsOf(provider), sourceQuery, bridge.versionSignal());
+            builder.candidateSource(source, sourceQuery, bridge.versionSignal());
         }
         return ScenePickerPanel.create(rt, builder.build()).root();
     }
@@ -1035,14 +1033,6 @@ public final class ObjectGroupMemberPane {
             return null;
         }
         return ((CandidateSourceValueEditorProvider) provider).candidateSource();
-    }
-
-    /** 搜索 lane 窗口上限（provider 自报；非 SPI 回落常量）。 */
-    private static int searchMaxItemsOf(ValueEditorProvider provider) {
-        if (provider instanceof CandidateSourceValueEditorProvider) {
-            return ((CandidateSourceValueEditorProvider) provider).searchMaxItems();
-        }
-        return DEFAULT_SEARCH_MAX_ITEMS;
     }
 
     /** 展示适配器：provider 给出图标源时接上 UILib 有界图标缓存（缓存释放随当前 Owner）。 */

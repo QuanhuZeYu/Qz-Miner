@@ -16,8 +16,9 @@ import club.heiqi.config.ui.editor.PickerQuery;
  * <p><b>与旧形态的差别</b>（旧 {@code search(query, requestedLimit)} 返回 {@code Result(candidates, truncated)}）：</p>
  * <ul>
  *   <li>不再返回 {@code SearchPickerData}（D-2：转换职责移交窗口切片，见 {@link BlockPickerCandidateSource#page}）；</li>
- *   <li>不再有 {@code Math.min(65, requestedLimit)} 硬夹（D-7/A5）：命中数是<b>真值</b>，
- *       窗口与 truncated 由调用方按 {@code SearchPickerSpec.maxItems()} 决定；</li>
+ *   <li>不再有 {@code Math.min(65, requestedLimit)} 硬夹（D-7/A5）：命中数是<b>真值</b>，窗口切片由
+ *       调用方按 {@code (offset, limit)} 惰性分页决定；搜索窗口上限概念已整链移除，命中序中的任意一项
+ *       都可寻址，调用方不再从命中数派生 {@code truncated}；</li>
  *   <li>rank 表不变（0=registry 相等、1=modId 相等、2=registry 前缀、3=本地化名前缀、4=modId 前缀、
  *       5=本地化名或变体名包含、6=modId 包含、7=registry 包含），避免搜索行为静默漂移。</li>
  * </ul>

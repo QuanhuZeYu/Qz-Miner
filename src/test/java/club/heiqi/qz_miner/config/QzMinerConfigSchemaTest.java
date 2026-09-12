@@ -131,7 +131,6 @@ public class QzMinerConfigSchemaTest {
         Assert.assertEquals(ValueKind.STRING, members.element().kind());
         Assert.assertTrue(members.widget() instanceof SearchPickerSpec);
         Assert.assertEquals("qz_miner:block-selector", ((SearchPickerSpec) members.widget()).editorId());
-        Assert.assertEquals(64, ((SearchPickerSpec) members.widget()).maxItems());
         Assert.assertEquals(SearchPickerSpec.BindingMode.LIST_MEMBERS,
                 ((SearchPickerSpec) members.widget()).bindingMode());
     }

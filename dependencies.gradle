@@ -68,11 +68,16 @@ dependencies {
     //   来源 = Qz-UILib 分支 4.0 HEAD e1c55eff + 历史工作区增量（分类筛选/hover 与左栏质感、无法进入
     //   世界版本区间、结果网格末排裁切；见工作站 team/R5-实施记录-分类筛选与hover质感.md）
     //   + 本轮「平台文本通道可诊断化 + picker 焦点消费加固」工作区增量（2026-09-12；该增量已随
-    //   Qz-UILib 4.0 提交 0363ee8b 落地，诊断与日志清单见工作站 temp/uilib-textdiag-report.md），命令
+    //   Qz-UILib 4.0 提交 0363ee8b 落地，诊断与日志清单见工作站 temp/uilib-textdiag-report.md）；
+    //   + 【本轮·搜索 lane 无窗口上限（A 方案）】搜索 lane 的 totalItems 回归真实命中数（原被
+    //   min(hits, searchMaxItems=64) 夹取，症状 = 「全部分类搜『木』看不到原版『橡木原木』」），并整链移除
+    //   maxItems/searchMaxItems 上限概念（SearchPickerSpec / Values / Registry /
+    //   CandidateSourceValueEditorProvider / SearchPickerFieldSupport / ScenePickerPanel 接线）；
+    //   方案与验收见工作站 temp/picker-lane-a-design.md，规格修订见 team/P0-ADR-契约与测量.md §0-R 修订 R-02。命令
     //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（544 类 / 5645 例 / 0 失败 / 0 错误 / 7 跳过）；
     //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 3C7B2F0B1B817732484FB00F5F5564D567D4FB11C244C7825F58D03ABF852085（3940946 bytes）。
-    //   本件取代 C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
+    //   sha256 FCCFBCE8F054A8B8C38AD4B8CA371DE42287C86EB793DBDCB08D61E654BC317E（3939700 bytes）。
+    //   本件取代 3C7B2F0B…（3940946 bytes，文本通道诊断制品）、C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
     //   标签可读性修复版）与更早的 56A9C0FB…：本轮新增平台文本通道可诊断化（统一前缀 [文本通道]，
     //   桥可用性/注册结果/external 实际写入值/被吞字符/TEXT 无接收者等 11 条限流日志）与 picker 焦点
     //   消费双依赖加固（意图早于目标就绪不再永久丢焦点）；此前累计的分类筛选修复（浏览 lane 总量按

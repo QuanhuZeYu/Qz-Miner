@@ -33,11 +33,12 @@ public class BlockSearchIndexTest {
     }
 
     /**
-     * A5 改写：旧实现 {@code Math.min(65, requestedLimit)} 硬夹 + truncated 探针被删除，
-     * 命中数是真值，窗口/truncated 由调用方按 {@code SearchPickerSpec.maxItems()} 决定。
+     * A 方案改写：旧实现 {@code Math.min(65, requestedLimit)} 硬夹 + truncated 探针被删除，
+     * 命中数是真值；搜索窗口上限概念整链移除后，命中序里第 70 项（旧上限 65/64 之外）仍在索引返回
+     * 结果内，调用方按窗口请求的任意 offset 寻址，不再从命中数派生 {@code truncated}。
      */
     @Test
-    public void searchLaneHasNoInternalLimitSoCallerOwnsTruncation() {
+    public void searchLaneHasNoInternalLimitAndKeepsEveryHitAddressable() {
         List<BlockCandidate> values = new ArrayList<BlockCandidate>();
         for (int i = 0; i < 70; i++) {
             values.add(candidate(String.format("mod:block%02d", Integer.valueOf(i)), "Block"));
@@ -47,8 +48,8 @@ public class BlockSearchIndexTest {
         int[] hits = fixture.index.orderFor(PickerQuery.text("mod:", 0, null));
 
         Assert.assertEquals("命中数必须为真值（旧实现硬夹 65）", 70, hits.length);
-        Assert.assertEquals("调用方按 maxItems=64 判定 truncated", Boolean.TRUE,
-                Boolean.valueOf(hits.length > 64));
+        Assert.assertEquals("第 70 项（旧上限之外）不得被夹掉", "mod:block69",
+                fixture.registries(new int[] {hits[69]}).get(0));
     }
 
     @Test

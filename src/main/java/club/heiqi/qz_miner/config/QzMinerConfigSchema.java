@@ -142,7 +142,7 @@ public final class QzMinerConfigSchema {
                             Values.member("modes", Values.list(Values.choice(ObjectGroupMode.ids())),
                                     java.util.Collections.<String>emptyList()),
                             Values.member("members", Values.widget(Values.list(Values.string()),
-                                    Values.searchPicker("qz_miner:block-selector", 64,
+                                    Values.searchPicker("qz_miner:block-selector",
                                             SearchPickerSpec.BindingMode.LIST_MEMBERS)))))
                         .defaultValue(QzMinerConfigDefaults.objectGroups())
                         .label("对象组")

@@ -32,13 +32,20 @@ import club.heiqi.config.ui.editor.VisualAdapter;
  *   <li>D-4 构造期全量分类快照 —— 迁到 {@link BlockRegistrySnapshot#modCategories()}（清单级前缀统计，随清单代际重建）；</li>
  *   <li>D-5 注册期枚举 —— 删除（{@link ObjectGroupPickerRegistration} 只注册引用）；</li>
  *   <li>D-6 无界图标缓存 —— 删除（缓存归 UILib {@code PickerIconCache}）；</li>
- *   <li>D-7 {@code BlockSearchIndex} 的 65 硬夹 —— 删除（{@code maxItems=64} 由 UILib 装配层传入，
- *       {@code truncated} 与窗口切片归调用方）。</li>
+ *   <li>D-7 {@code BlockSearchIndex} 的 65 硬夹 —— 删除；命中数是真值，窗口切片按调用方给出的
+ *       {@code WindowRequest(offset, limit)} 惰性分页（搜索窗口上限概念已整链移除，本侧不再有任何
+ *       把命中数夹到上限的代码路径）。</li>
  * </ul>
  *
  * <p><b>兼容壳</b>：{@link #searchFunction()} 仍返回非 null（{@code Registry.register} 要求），
  * 但它与候选源走<b>同一条惰性路径</b>（不再有任何全量预转换）；SPI 路径下 UILib 直接调用
- * {@link #candidateSource()}，该壳只服务未实现新 SPI 的外部消费面（过渡态 T-1）。</p>
+ * {@link #candidateSource()}，该壳只服务未实现新 SPI 的外部消费面（过渡态 T-1）。旧全量路径的外部
+ * 调用方给出有限 {@code limit} 时，兼容壳仍按该预算切片并<b>如实</b>透传 {@code truncated()}；
+ * SPI 路径不经过该预算，故搜索 lane 不产生截断。</p>
+ *
+ * <p><b>截断文案通道</b>：{@code presentation.truncated()} 与 {@code panelPresentation.truncatedResults()}
+ * 两个键<b>保留</b>（旧全量路径的外部调用方给有限 limit 时仍须如实提示），但在 SPI 路径不再触发——
+ * 搜索 lane 走「真实命中数 + 惰性分页」，无上限即无截断，滚动态提示由 {@code scrollHint} 承担。</p>
  */
 public final class BlockPickerProvider implements CategorizedValueEditorProvider, CandidateSourceValueEditorProvider {
     public static final String ID = "qz_miner:block-selector";
@@ -71,7 +78,8 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
         ObjectGroupPickerCodec pickerCodec = new ObjectGroupPickerCodec();
         codec = pickerCodec;
         visualAdapter = new BlockPickerVisualAdapter(iconSource);
-        // 兼容壳（T-1 外部消费面）：与 SPI 路径同一惰性源，仅按调用方给出的预算切窗口。
+        // 兼容壳（T-1 外部消费面）：与 SPI 路径同一惰性源，仅按调用方给出的预算切窗口并如实透传
+        // truncated（SPI 路径不经过此预算，搜索 lane 恒不截断）。
         searchFunction = (query, limit) -> {
             if (limit <= 0) {
                 return SearchPickerData.SearchResult.empty();
@@ -118,6 +126,7 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 .currentMemberPrimaryFormatter(this::formatCurrentMemberPrimary)
                 .currentMemberSecondaryFormatter(member -> formatCurrentMemberSecondary(member, pickerCodec))
                 .resultSummaryFormatter(count -> count + " 个结果")
+                // 保留键：SPI 路径无上限即无截断，仅旧全量路径（外部调用方给有限 limit）触发。
                 .truncated("结果已截断，请继续缩小搜索范围")
                 .decodeError("无法读取当前方块规则，原规则未变")
                 .searchError("搜索方块时发生错误，原规则未变")
@@ -139,6 +148,7 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
                 // 任何一个漏注入都会让中文界面显示英文默认值（P6 阻塞项 B-4），故在此一次补齐，
                 // 并由 BlockPickerProviderTest 的注入完整性守卫（反射枚举访问器）钉死。
                 // 信息条：空闲态提示优先级 = 截断 > 键盘 > 滚动 > 悬停（ScenePickerPanel 内容 Owner 内唯一取值点）。
+                // 保留键：SPI 路径恒不截断（无上限即无提示），旧全量路径仍如实置 truncated。
                 .truncatedResults("结果已截断，请缩小搜索范围")
                 .hoverHint("悬停查看完整名称与 ID")
                 // 悬停态单行模板：id 已含 tooltipPrefix（"ID: "），中文语境用全角括号比 " · " 更易读。
@@ -165,7 +175,8 @@ public final class BlockPickerProvider implements CategorizedValueEditorProvider
     public SearchPickerPanelPresentation panelPresentation() { return panelPresentation; }
     public CurrentValuePresenter currentValuePresenter() { return currentValuePresenter; }
 
-    /** {@inheritDoc} SPI 路径：UILib 探测到非 null 即走查询式求值（窗口 + truncated 真值）。 */
+    /** {@inheritDoc} SPI 路径：UILib 探测到非 null 即走查询式求值；面板按窗口几何对命中序惰性分页
+     * （总量 = 真实命中数，任意 offset 可寻址），不产生截断。 */
     @Override
     public PickerCandidateSource candidateSource() { return candidateSource; }
 

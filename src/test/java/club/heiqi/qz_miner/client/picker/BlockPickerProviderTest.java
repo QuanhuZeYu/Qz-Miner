@@ -70,7 +70,6 @@ public class BlockPickerProviderTest {
         Assert.assertNotNull(registered);
         Assert.assertSame("注册只固化惰性 source 引用", fixture.source, registered.candidateSource());
         Assert.assertNotNull(registered.iconSource());
-        Assert.assertEquals(64, registered.searchMaxItems());
     }
 
     @Test
@@ -101,8 +100,9 @@ public class BlockPickerProviderTest {
     }
 
     /**
-     * A5 改写：上限 64 由 UILib 装配层（{@code SearchPickerSpec.maxItems()}）传入，
-     * 命中数为真值、{@code truncated} 为真值透传，Miner 侧不再有 65 硬夹与截断探针项。
+     * A 方案改写：搜索窗口上限概念已整链移除 —— 命中数为真值，候选源按调用方 {@code (offset, limit)}
+     * 切片，旧上限之外的第 65 项仍可寻址；兼容壳（旧全量路径）只按调用方给出的预算切片并如实透传
+     * {@code truncated}，Miner 侧不再有 65 硬夹与截断探针项。
      */
     @Test
     public void completeResultOverLimitKeepsExactlyRealEncodableCandidates() {
@@ -121,11 +121,16 @@ public class BlockPickerProviderTest {
 
         Assert.assertEquals("命中数必须为真值（无 65 硬夹）", 65, source.matchCount(query));
         List<SearchPickerData.Candidate> window = source.page(query, 0, 64);
-        Assert.assertEquals(64, window.size());
-        Assert.assertTrue("truncated = matchCount > maxItems（真值透传）", source.matchCount(query) > 64);
+        Assert.assertEquals("窗口大小 = 调用方 limit", 64, window.size());
+        List<SearchPickerData.Candidate> beyondFormerCap = source.page(query, 64, 8);
+        Assert.assertEquals("第 65 项（旧上限之外）必须可寻址", 1, beyondFormerCap.size());
+        Assert.assertTrue("旧上限之外取到的必须是真候选",
+                registries.contains(beyondFormerCap.get(0).key()));
         SearchPickerData.SearchResult shim = provider.searchFunction().search("matching", 64);
         Assert.assertEquals(64, shim.candidates().size());
-        Assert.assertTrue("兼容壳同样透传截断真值", shim.truncated());
+        Assert.assertTrue("兼容壳按调用方预算如实透传截断（旧全量路径）", shim.truncated());
+        Assert.assertFalse("兼容壳给足预算即不截断（截断只来自调用方预算）",
+                provider.searchFunction().search("matching", Integer.MAX_VALUE).truncated());
 
         for (SearchPickerData.Candidate candidate : window) {
             Assert.assertTrue(registries.contains(candidate.key()));

@@ -90,6 +90,27 @@ public class BlockPickerCandidateSourceTest {
                 doubled.materializer.calls - doubledAfterBuild <= 8);
     }
 
+    /**
+     * A 方案回归（候选源级）：搜索 lane 命中序无窗口上限，任意大 offset 都按全局命中序切片 ——
+     * {@code page(query, 70, 20)} 必须与 {@code page(query, 0, 90)} 的第 70..89 项逐项相等
+     * （旧面板层把搜索 lane 总量夹到 64，第 65 项起不可达）。
+     */
+    @Test
+    public void searchPageSlicesFarOffsetInGlobalHitOrder() {
+        Fixture fixture = new Fixture(200, 8);
+        PickerQuery query = PickerQuery.text("Block", 0, null);
+        Assert.assertEquals("命中数为真值", 200, fixture.source.matchCount(query));
+
+        List<String> whole = candidateKeys(fixture.source.page(query, 0, 90));
+        Assert.assertEquals(90, whole.size());
+        List<String> late = candidateKeys(fixture.source.page(query, 70, 20));
+
+        Assert.assertEquals("offset 70 起必须取到全局第 70..89 项", whole.subList(70, 90), late);
+        Assert.assertEquals(20, late.size());
+        Assert.assertEquals("同一 query 重复切片必须逐项稳定", late,
+                candidateKeys(fixture.source.page(query, 70, 20)));
+    }
+
     @Test
     public void exactLookupIsConstantTimeAndCached() {
         Fixture fixture = new Fixture(50, 8);
