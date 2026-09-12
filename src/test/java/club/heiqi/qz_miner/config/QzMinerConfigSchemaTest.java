@@ -26,21 +26,16 @@ public class QzMinerConfigSchemaTest {
     public void schemaLocks53LiteralPathTypeAndDefaultSnapshotInStableOrder() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         List<Map<String, Object>> objectGroups = new ArrayList<Map<String, Object>>();
-        Map<String, Object> logs = new LinkedHashMap<String, Object>();
-        logs.put("id", "vanilla_logs");
-        logs.put("modes", Collections.<String>emptyList());
-        logs.put("members", Arrays.asList("minecraft:log@*", "minecraft:log2@*"));
-        objectGroups.add(logs);
-        Map<String, Object> hay = new LinkedHashMap<String, Object>();
-        hay.put("id", "vanilla_hay");
-        hay.put("modes", Collections.<String>emptyList());
-        hay.put("members", Arrays.asList("minecraft:hay_block@[0,4,8]"));
-        objectGroups.add(hay);
-        Map<String, Object> redstone = new LinkedHashMap<String, Object>();
-        redstone.put("id", "vanilla_redstone");
-        redstone.put("modes", Collections.<String>emptyList());
-        redstone.put("members", Arrays.asList("minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"));
-        objectGroups.add(redstone);
+        Map<String, Object> redstoneOre = new LinkedHashMap<String, Object>();
+        redstoneOre.put("id", "红石矿石");
+        redstoneOre.put("modes",
+                Arrays.asList("chain_base", "chain_ore", "area_same_block", "area_ore"));
+        redstoneOre.put("members", Arrays.asList(
+                "minecraft:redstone_ore@*",
+                "minecraft:lit_redstone_ore@*",
+                "etfuturum:deepslate_redstone_ore@*",
+                "etfuturum:deepslate_lit_redstone_ore@*"));
+        objectGroups.add(redstoneOre);
 
         Object[][] expected = {
                 {"general.greeting", FieldType.STRING, "Hello World"},
@@ -119,6 +114,9 @@ public class QzMinerConfigSchemaTest {
 
         FieldSpec groups = schema.field("client.objectGroups");
         Assert.assertEquals(FieldType.STRUCTURED_LIST, groups.type());
+        Assert.assertEquals("schema 默认必须引用 QzMinerConfigDefaults.objectGroups()（唯一真源，禁止第二份字面量）",
+                QzMinerConfigDefaults.objectGroups(), groups.defaultValue());
+        Assert.assertEquals("出厂默认恰好 1 组", 1, ((List<?>) groups.defaultValue()).size());
         Assert.assertEquals("对象组", groups.label());
         Assert.assertEquals("按组标识和适用模式组织连锁挖掘对象", groups.helper());
         Assert.assertFalse(groups.helper().contains("已配置方块规则"));

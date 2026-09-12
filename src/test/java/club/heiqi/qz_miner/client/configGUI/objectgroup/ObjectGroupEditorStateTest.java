@@ -19,7 +19,6 @@ import club.heiqi.config.ui.DraftSignalAdapter;
 import club.heiqi.config.ui.field.StructuredListModel;
 import club.heiqi.qz_miner.client.ClientI18n;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
-import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
@@ -56,7 +55,7 @@ public class ObjectGroupEditorStateTest {
         delete(tempDir);
     }
 
-    /** 以给定草稿值重建 adapter 与 state（null = 使用默认 3 组）。 */
+    /** 以给定草稿值重建 adapter 与 state（null = 使用 authority 夹具 3 组）。 */
     private void installDraft(Object draftValue) {
         if (adapter != null) {
             adapter.dispose();
@@ -88,8 +87,8 @@ public class ObjectGroupEditorStateTest {
                 ClientI18n.tr("config.qz_miner.object_group.summary", Integer.valueOf(0), Integer.valueOf(0)),
                 ObjectGroupEditorFieldRenderer.summaryTextOf(state));
 
-        // 默认 3 组 / 5 成员 / 3 组未生效（默认 modes 全空）
-        installDraft(QzMinerConfigDefaults.objectGroups());
+        // 夹具 3 组 / 5 成员 / 3 组未生效（夹具 modes 全空）
+        installDraft(ObjectGroupEditorTestSupport.threeGroupFixture());
         Assert.assertEquals(3, state.summary().groupCount());
         Assert.assertEquals(5, state.summary().memberCount());
         Assert.assertEquals(0, state.summary().conflictCount());
@@ -98,7 +97,7 @@ public class ObjectGroupEditorStateTest {
         String expectedDefault = ClientI18n.tr("config.qz_miner.object_group.summary",
                 Integer.valueOf(3), Integer.valueOf(5))
                 + " · " + ClientI18n.tr("config.qz_miner.object_group.summary.inactive", Integer.valueOf(3));
-        Assert.assertEquals("默认 3 组摘要与单一真值 helper 口径一致", expectedDefault,
+        Assert.assertEquals("夹具 3 组摘要与单一真值 helper 口径一致", expectedDefault,
                 ObjectGroupEditorFieldRenderer.summaryTextOf(state));
 
         // 含冲突：同 mode + selector 相交 ⇒ 解析器真源报两行

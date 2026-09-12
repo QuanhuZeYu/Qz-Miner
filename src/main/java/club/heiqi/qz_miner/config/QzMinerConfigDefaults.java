@@ -1,5 +1,7 @@
 package club.heiqi.qz_miner.config;
 
+import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
+
 /**
  * 全部历史配置默认值的单一来源。
  *
@@ -65,21 +67,47 @@ public final class QzMinerConfigDefaults {
         target.put("client.objectGroups", objectGroups());
     }
 
-    /** @return 带空 modes 的三个 vanilla 默认对象组。 */
+    /**
+     * 出厂默认对象组：单组「红石矿石」，chain/area 四模式全开。
+     *
+     * <p>本方法是该字段的唯一真源：{@code QzMinerConfigSchema} 的 {@code defaultValue} 与配置页
+     * 「恢复默认」（UILib {@code ConfigScreen.restoreDefaults()} 逐字段 {@code resetFieldToDefault}
+     * ⇒ {@code DraftBuffer} ⇒ 本方法）都取这里；改默认只改本方法，不在 schema 二次抄写。</p>
+     *
+     * @return 恰好 1 组的不可变列表（组本身三键 id/modes/members 保序且不可变）
+     */
     public static java.util.List<java.util.Map<String, Object>> objectGroups() {
         java.util.List<java.util.Map<String, Object>> groups =
                 new java.util.ArrayList<java.util.Map<String, Object>>();
-        groups.add(group("vanilla_logs", "minecraft:log@*", "minecraft:log2@*"));
-        groups.add(group("vanilla_hay", "minecraft:hay_block@[0,4,8]"));
-        groups.add(group("vanilla_redstone", "minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"));
+        groups.add(group(
+                "红石矿石",
+                java.util.Arrays.asList(
+                        ObjectGroupMode.CHAIN_BASE,
+                        ObjectGroupMode.CHAIN_ORE,
+                        ObjectGroupMode.AREA_SAME_BLOCK,
+                        ObjectGroupMode.AREA_ORE),
+                java.util.Arrays.asList(
+                        "minecraft:redstone_ore@*",
+                        "minecraft:lit_redstone_ore@*",
+                        "etfuturum:deepslate_redstone_ore@*",
+                        "etfuturum:deepslate_lit_redstone_ore@*")));
         return java.util.Collections.unmodifiableList(groups);
     }
 
-    private static java.util.Map<String, Object> group(String id, String... members) {
+    /**
+     * 构造单个对象组（modes 非空，故与历史「空 modes」构造分离为显式三参 helper）。
+     *
+     * @param id      组标识（配置数据，不本地化）
+     * @param modes   适用模式稳定标识，取自 {@link ObjectGroupMode} 常量，禁止另写字面量
+     * @param members 成员 selector（{@code registry@meta} 语法）
+     * @return 三键（id/modes/members，保序）不可变组
+     */
+    private static java.util.Map<String, Object> group(String id, java.util.List<String> modes,
+            java.util.List<String> members) {
         java.util.Map<String, Object> group = new java.util.LinkedHashMap<String, Object>();
         group.put("id", id);
-        group.put("modes", java.util.Collections.<String>emptyList());
-        group.put("members", java.util.Collections.unmodifiableList(java.util.Arrays.asList(members)));
+        group.put("modes", java.util.Collections.unmodifiableList(new java.util.ArrayList<String>(modes)));
+        group.put("members", java.util.Collections.unmodifiableList(new java.util.ArrayList<String>(members)));
         return java.util.Collections.unmodifiableMap(group);
     }
 }

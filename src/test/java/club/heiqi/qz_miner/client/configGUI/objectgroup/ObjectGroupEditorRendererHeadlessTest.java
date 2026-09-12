@@ -17,6 +17,7 @@ import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.client.ClientI18n;
 import club.heiqi.qz_miner.client.picker.BlockPickerProvider;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
 import club.heiqi.uilib.ui.scene.input.SceneKey;
@@ -641,6 +642,66 @@ public class ObjectGroupEditorRendererHeadlessTest {
 
     private static String modeLabel(String modeId) {
         return ClientI18n.tr("config.qz_miner.object_group.mode." + modeId);
+    }
+
+    // ==================================================================
+    // 恢复默认后的视图活性（R5：不 NPE / 不残留旧行 / 行 key 重建 / 指针与按键仍生效）
+    // ==================================================================
+
+    /**
+     * 配置页「恢复默认」对 {@code client.objectGroups} 的真实调用是
+     * {@code DraftSignalAdapter.resetFieldToDefault(path)}（ConfigScreen 逐字段恢复；Miner 为空策略，
+     * 无跳过/自定义）。本用例在<b>编辑视图已挂载</b>时执行该调用，覆盖最易踩的行 key 失效场景：
+     * 草稿整值被替换后，列表行投影必须重建且视图仍可交互。
+     */
+    @Test
+    public void editorViewStaysInteractiveAfterFieldResetToDefault() {
+        openEditor();
+
+        // 前置：视图内先做真实编辑（选中 hay 行 + Delete 删除该组），确保恢复前草稿已与夹具不同。
+        harness.click(row("vanilla_hay"));
+        harness.pressKey(SceneKey.DELETE);
+        harness.frame();
+        Assert.assertFalse("前置条件：hay 行必须已被删除", hasText(editorRoot(), "vanilla_hay"));
+
+        // 真机恢复默认动作（单字段）：整值替换为出厂默认「红石矿石」单组。
+        fixture.adapter.resetFieldToDefault(ObjectGroupEditorState.PATH);
+        harness.frame();
+
+        // 1) 不残留旧行：旧 3 组 id 必须全部消失，新默认行出现。
+        Assert.assertNull("恢复后不得残留旧行 vanilla_logs", findText(editorRoot(), "vanilla_logs"));
+        Assert.assertNull("恢复后不得残留旧行 vanilla_hay", findText(editorRoot(), "vanilla_hay"));
+        Assert.assertNull("恢复后不得残留旧行 vanilla_redstone", findText(editorRoot(), "vanilla_redstone"));
+        Assert.assertNotNull("恢复后必须出现新默认组行", findText(editorRoot(), "红石矿石"));
+
+        // 2) 草稿就是出厂默认（顺序/modes/members 由既有断言口径保证，此处对照唯一真源）。
+        Assert.assertEquals(QzMinerConfigDefaults.objectGroups(),
+                fixture.adapter.draftSignal(ObjectGroupEditorState.PATH).get());
+
+        // 3) 行投影已随草稿重建：顶部条摘要必须与「同一 adapter 新建 state」派生一致。
+        Assert.assertEquals("恢复后顶部条摘要必须与草稿派生一致",
+                ObjectGroupEditorFieldRenderer.summaryTextOf(
+                        new ObjectGroupEditorState(fixture.spec, fixture.adapter)),
+                topBarSummary(editorRoot()));
+
+        // 4) 行 key 重建且指针可达：新行必须已布局、点中后详情内容出现。
+        SceneNode newRow = row("红石矿石");
+        AnchorRect newRowBox = SceneGeometry.absoluteBox(newRow, 0, 0);
+        Assert.assertTrue("恢复后新行必须已布局（非零宽）: " + newRowBox, newRowBox.getWidth() > 0);
+        harness.click(newRow);
+        Assert.assertTrue("恢复后点行仍须选中并构建详情", hasText(editorRoot(), idLabel()));
+
+        // 5) 视图仍能写草稿：Delete 必须删掉被选中的新行（证明行仍绑定活 key，不是失效残影）。
+        harness.pressKey(SceneKey.DELETE);
+        harness.frame();
+        Assert.assertFalse("恢复后的行必须仍绑定活 key（Delete 生效）",
+                hasText(editorRoot(), "红石矿石"));
+        Assert.assertEquals("删除后草稿必须为空列表", 0,
+                ((java.util.List<?>) fixture.adapter.draftSignal(ObjectGroupEditorState.PATH).get()).size());
+
+        // 6) 视图生命周期健全：仍可正常关闭（无 NPE、无残留 overlay）。
+        harness.click(findText(editorRoot(), doneLabel()));
+        Assert.assertEquals("恢复默认不得破坏「完成」关闭路径", 0, harness.overlayCount());
     }
 
     // ==================================================================

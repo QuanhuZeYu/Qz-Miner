@@ -8,6 +8,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +16,7 @@ import java.util.function.Supplier;
 
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.config.runtime.DraftBuffer;
+import club.heiqi.config.runtime.SaveOutcome;
 import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.config.ui.DraftSignalAdapter;
 import club.heiqi.config.ui.editor.CandidateSourceValueEditorProvider;
@@ -498,9 +500,53 @@ final class ObjectGroupEditorTestSupport {
     // 配置草稿 / 适配器 / 注册表
     // ==================================================================
 
+    /**
+     * 测试夹具：历史上的 3 组 vanilla 对象组。
+     *
+     * <p>生产默认 {@code client.objectGroups} 已改为单组「红石矿石」，而 M9 的多组行为用例
+     * （移动/复制/重命名身份/列表导航/窄挡下钻）需要 ≥3 组才有判别力。这些用例不再借用生产默认值，
+     * 改用本夹具显式提供；夹具经 {@link #bootstrap(File)} 装到 authority 层，与真机「用户已有 3 组配置」
+     * 的启动态等价（草稿 base/current 都是夹具 ⇒ 初始不脏）。</p>
+     *
+     * @return 3 组对象组值（modes 全空，与历史默认同形）
+     */
+    static List<Map<String, Object>> threeGroupFixture() {
+        List<Map<String, Object>> groups = new ArrayList<Map<String, Object>>();
+        groups.add(fixtureGroup("vanilla_logs", "minecraft:log@*", "minecraft:log2@*"));
+        groups.add(fixtureGroup("vanilla_hay", "minecraft:hay_block@[0,4,8]"));
+        groups.add(fixtureGroup("vanilla_redstone",
+                "minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"));
+        return groups;
+    }
+
+    private static Map<String, Object> fixtureGroup(String id, String... members) {
+        Map<String, Object> group = new LinkedHashMap<String, Object>();
+        group.put("id", id);
+        group.put("modes", new ArrayList<String>());
+        group.put("members", new ArrayList<String>(java.util.Arrays.asList(members)));
+        return group;
+    }
+
+    /**
+     * 启动测试 authority 并装入 {@link #threeGroupFixture()}。
+     *
+     * <p>夹具走真实 save 事务写入 authority 与磁盘：失败即抛（不静默退回生产默认，避免用例在
+     * 错误前提下继续跑）。</p>
+     *
+     * @param configDir 临时配置目录
+     * @return 已装夹具的 manager
+     */
     static ConfigManager bootstrap(File configDir) {
         ConfigBootstrap.resetForTests();
-        return ConfigBootstrap.bootstrap(configDir, null);
+        ConfigManager manager = ConfigBootstrap.bootstrap(configDir, null);
+        DraftBuffer seed = manager.openDraft();
+        seed.setDraft(ObjectGroupEditorState.PATH, threeGroupFixture());
+        SaveOutcome outcome = manager.save(seed);
+        if (!outcome.isSuccess()) {
+            throw new IllegalStateException("3 组测试夹具未能提交为 authority: "
+                    + outcome.status() + " " + outcome.errorMessage());
+        }
+        return manager;
     }
 
     static FieldSpec objectGroupsSpec() {

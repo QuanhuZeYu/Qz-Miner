@@ -41,7 +41,8 @@ public class ObjectGroupConfigValidationTest {
         draft.setDraft("client.objectGroups", groups(group("logs", "minecraft:log@2147483648")));
         SaveOutcome outcome = manager.save(draft);
         Assert.assertEquals(SaveOutcome.Status.INVALID, outcome.status());
-        Assert.assertEquals(3, ((List<?>) manager.authority().get("client.objectGroups")).size());
+        Assert.assertEquals("authority 必须保持出厂默认（1 组）而不是被非法草稿污染",
+                1, ((List<?>) manager.authority().get("client.objectGroups")).size());
     }
 
     @Test
@@ -85,8 +86,9 @@ public class ObjectGroupConfigValidationTest {
                 .matches("minecraft:log", Integer.MAX_VALUE));
     }
 
+    /** 草稿层单字段重置路径：必须回到 schema 真源（= {@link QzMinerConfigDefaults#objectGroups()}）。 */
     @Test
-    public void beta12ResetRestoresRealSchemaObjectGroupDefaults() {
+    public void resetFieldToDefaultRestoresShippedSingleGroupDefault() {
         DraftBuffer draft = ConfigBootstrap.bootstrap(tempDir, null).openDraft();
         draft.setDraft("client.objectGroups", new ArrayList<Object>());
 
@@ -94,13 +96,15 @@ public class ObjectGroupConfigValidationTest {
 
         Assert.assertEquals(QzMinerConfigDefaults.objectGroups(), draft.getDraft("client.objectGroups"));
         List<?> restored = (List<?>) draft.getDraft("client.objectGroups");
-        Assert.assertEquals(Arrays.asList("vanilla_logs", "vanilla_hay", "vanilla_redstone"),
-                Arrays.asList(id(restored, 0), id(restored, 1), id(restored, 2)));
-        Assert.assertEquals(Arrays.asList("minecraft:log@*", "minecraft:log2@*"), members(restored, 0));
-        Assert.assertEquals(Arrays.asList("minecraft:hay_block@[0,4,8]"), members(restored, 1));
-        Assert.assertEquals(Arrays.asList("minecraft:redstone_ore@*", "minecraft:lit_redstone_ore@*"),
-                members(restored, 2));
-        for (Object value : restored) Assert.assertEquals(new ArrayList<Object>(), ((Map<?, ?>) value).get("modes"));
+        Assert.assertEquals("出厂默认恰好 1 组", 1, restored.size());
+        Assert.assertEquals("红石矿石", id(restored, 0));
+        Assert.assertEquals(Arrays.asList("chain_base", "chain_ore", "area_same_block", "area_ore"),
+                modes(restored, 0));
+        Assert.assertEquals(Arrays.asList(
+                "minecraft:redstone_ore@*",
+                "minecraft:lit_redstone_ore@*",
+                "etfuturum:deepslate_redstone_ore@*",
+                "etfuturum:deepslate_lit_redstone_ore@*"), members(restored, 0));
     }
 
     private static Object id(List<?> groups, int index) {
@@ -109,6 +113,10 @@ public class ObjectGroupConfigValidationTest {
 
     private static Object members(List<?> groups, int index) {
         return ((Map<?, ?>) groups.get(index)).get("members");
+    }
+
+    private static Object modes(List<?> groups, int index) {
+        return ((Map<?, ?>) groups.get(index)).get("modes");
     }
 
     private static List<Map<String, Object>> groups(Map<String, Object>... groups) {
