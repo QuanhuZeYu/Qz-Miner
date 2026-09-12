@@ -176,7 +176,7 @@ public final class BlockPickerCandidateSource implements PickerCandidateSource {
         return versionSnapshot;
     }
 
-    /** {@inheritDoc} 浏览 lane 恒 = 清单长度；文本 lane = 真命中数（无 65 硬夹）。 */
+    /** {@inheritDoc} 浏览 lane 无分类收窄 = 清单长度；带分类过滤 = 该分类命中数（清单序子序列）；文本 lane = 真命中数（无 65 硬夹）。 */
     @Override
     public int matchCount(PickerQuery query) {
         PickerSourceGuard.requireMainThread("matchCount");
