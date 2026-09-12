@@ -28,12 +28,13 @@ Miner dev 环境（`runClient`）能正常启动到主菜单，但**进入世界
 
 ## 处置
 
-1. UILib 侧声明上抬为 `[4.9.0,5.0.0)`（与 Miner 依赖上界成对同源，兼容面只增不减），
-   并加源码守卫 `FmlRemoteVersionCompatibilityContractTest#declaredRangeMustContainOwnBuildVersion`。
+1. UILib 侧声明改为 `[4.9.0,4.11.0)`（同 major：下界保留 4.9.x，上界取制品版本 4.10.0 的下一 minor 边界），
+   并加源码守卫 `declaredRangeMustContainOwnBuildVersion`（区间必须含自身构建版本）与
+   `remoteVersionDeclarationMustBeExplicitRange`（禁空串、禁跨 major）。
 2. 本仓补制品守卫 `QzUiLibArtifactContractTest#referencedQzUiLibArtifactAcceptsItsOwnVersion`：
    被引用的 UILib jar 自己的远端区间必须接受它自己的 `mcmod.info` 版本（空串=开发期精确匹配，跳过）。
-3. `dependencies.gradle` 段注释记录新制品 sha256 `A24A1532…`（3925676 bytes），并禁止回退到
-   `104B6940…`（3925675 bytes，即携带 `[4.9.0,4.10.0)` 的那一件）。
+3. `dependencies.gradle` 段注释记录新制品 sha256 `56A9C0FB…`（3926209 bytes，含版本与布局双修复），
+   并禁止回退到 `E18C5F6E…`（跨 major 声明）、`A24A1532…`（无布局修复）、`104B6940…`（错声明致无法进入世界）。
 
 ## 教训
 

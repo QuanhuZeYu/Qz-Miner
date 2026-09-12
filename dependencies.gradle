@@ -69,10 +69,11 @@ dependencies {
     //   + 选择器结果网格末排裁切修复（轨道高按标签实际生效字号复核 I-2 内容底），命令
     //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（539 类 / 5602 例 / 0 失败 / 0 错误 / 7 跳过）；
     //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 E18C5F6ED56BAD514D2B3C62E57150D27C9F293611DFB26C3E9664876508E541（3926208 bytes）。
+    //   sha256 56A9C0FBD9ABD2DB6E2039513219A032CE235660DC65C8868B90E0069EB31228（3926209 bytes）。
     //   内容漂移警示同 4.9.1 段：同版本名不同内容会在类加载期炸，集成与发布以本注释 sha256 为准。
-    //   中间件 sha256 A24A1532…（3925676 bytes）= 仅版本修复、无布局修复；已由本件取代（同名不同内容，
-    //   混用不会崩但会丢掉末排裁切修复）。
+    //   本件声明 acceptableRemoteVersions=[4.9.0,4.11.0)（同 major；上界取制品版本 4.10.0 的下一 minor 边界）。
+    //   历史件（同名不同内容，禁止回退）：E18C5F6E…/3926208（声明为跨 major 的 [4.9.0,5.0.0)，多承诺一个 major）、
+    //   A24A1532…/3925676（仅版本修复、无布局修复）、104B6940…/3925675（错声明 [4.9.0,4.10.0)，自我拒绝致无法进入世界）。
     //   ⚠ 更早一件（sha256 104B6940…/3925675 bytes）携带 UILib 侧声明 acceptableRemoteVersions=[4.9.0,4.10.0)，
     //   该区间开上界不含制品自身版本 4.10.0：FML 启动期报「mod qz_uilib appears to reject its own version
     //   number (4.10.0)」，进入世界时集成服务器 Rejecting connection CLIENT 后卸载全部维度（症状=无法进入世界）。
