@@ -185,7 +185,13 @@ public final class ObjectGroupMemberPane {
 
     // ------------------------------------------------------------------ 工具条 / 空态 / 分页
 
-    /** 工具条：{@code 成员 N 个成员  <spacer>  [添加成员…]} + 达界原因行（达界时禁用入口）。 */
+    /**
+     * 工具条：{@code 成员 (N)  <spacer>  [添加成员…]} + 达界原因行（达界时禁用入口）。
+     *
+     * <p><b>文案结构</b>：区块标题键（{@code members.label}）+ 紧凑计数键（{@code members.count}，
+     * 值为纯括号数字）拼成「成员 (N)」；不得再用「%s 个成员」这类自带名词的计数文案，
+     * 否则标题与计数会合成为「成员 2 个成员」（真机 y=841 行实证）。</p>
+     */
     private static SceneNode toolbar(SceneRuntime rt, MemberEditor editor,
                                      ReadableSignal<Integer> count, ReadableSignal<String> limitReason) {
         final SceneNode bar = SceneNode.row();

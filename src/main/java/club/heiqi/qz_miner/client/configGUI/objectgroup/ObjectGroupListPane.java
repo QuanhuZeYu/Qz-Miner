@@ -23,9 +23,12 @@ import club.heiqi.uilib.ui.scene.input.SceneKey;
 import club.heiqi.uilib.ui.scene.input.SceneKeyAction;
 import club.heiqi.uilib.ui.scene.layout.AnchorRect;
 import club.heiqi.uilib.ui.scene.layout.CrossAxisAlign;
+import club.heiqi.uilib.ui.scene.layout.FlexDirection;
 import club.heiqi.uilib.ui.scene.layout.LayoutBox;
 import club.heiqi.uilib.ui.scene.layout.SceneGeometry;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
+import club.heiqi.uilib.ui.scene.node.TextHorizontalAlign;
+import club.heiqi.uilib.ui.scene.paint.SceneChromeTokens;
 import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
 import club.heiqi.uilib.ui.scene.runtime.SceneScrolls;
 import club.heiqi.uilib.ui.scene.theme.SceneSurfaceBinder;
@@ -51,7 +54,9 @@ import club.heiqi.uilib.ui.scene.theme.SceneThemes;
  *
  * <p><b>先验尺寸（布局闸门纪律）</b>：行主行是 ROW（标题槽 grow + 状态词/顺序号/状态点/行尾按钮
  * 固定），按 {@code ConstraintResolver} 的闸门要求，行尾按钮显式测量设宽高、标题槽设「行宽 1/3 宽
- * 下限」、状态词与副行设宽上限；工具栏两行（搜索行/谓词行）作为 pane COLUMN 的固定兄弟显式设先验高。
+ * 下限」、状态词与副行设宽上限；工具栏两区（搜索行 / 谓词区 = 分段行 + 计数行）作为 pane COLUMN 的
+ * 固定兄弟显式设先验高（COLUMN 的主轴先验高按<b>求和</b>，见 {@code contentHeight}）。列宽下限本身由
+ * {@link #minContentWidth} 用当前语言文案实测给出，编辑视图据此派生列宽，保证工具栏永不重叠。
  * 这样首帧布局就不会因「固定兄弟不可先验」而整条放弃（回退 shrink ⇒ 零宽/溢出）。</p>
  *
  * <p><b>菜单锚点口径</b>：编辑视图由 M1 以非锚定 portal 注册（宿主左上角全尺寸），其浮层树根即宿主
@@ -91,8 +96,8 @@ public final class ObjectGroupListPane {
     private static final int TITLE_MIN_WIDTH_PERCENT = 33;
     /** 行状态词宽上限：占行主行宽百分比。 */
     private static final int STATUS_WIDTH_PERCENT = 40;
-    /** 搜索行「新建组」按钮宽上限（占搜索行宽百分比）：长语言文案不得把搜索框挤成零宽。 */
-    private static final int ADD_ACTION_WIDTH_PERCENT = 55;
+    /** 谓词区「分段行 / 计数行」两行之间的间距（逻辑 px）：计数不再与分段争主轴宽。 */
+    private static final int FILTER_LINE_GAP_PX = 4;
     /** 行尾溢出按钮字形（与语言无关的符号，不参与本地化）。 */
     private static final String OVERFLOW_GLYPH = "\u22EE";
 
@@ -133,6 +138,9 @@ public final class ObjectGroupListPane {
         pane.setPadding(PANE_PADDING_PX);
         pane.setFillParentHeight(true);
         pane.setFillParentWidth(true);
+        // 极限文案（未本地化键名回退 / 极窄列）下工具栏可能仍超出列宽：裁剪在 pane 内，
+        // 绝不绘制到相邻的详情列上（重叠是可见缺陷，裁剪只是降级）。
+        pane.setClipChildren(true);
         bindPaneSurface(rt, pane);
 
         SceneNode search = buildSearch(rt, state, enabled, readOnly);
@@ -200,6 +208,8 @@ public final class ObjectGroupListPane {
                 SceneInputType.TEXT, next -> state.search().set(next));
         SceneNode search = SceneTextInput.create(rt, props).get();
         search.setFlexGrow(1);
+        // 搜索框最小宽 = 占位文案实测 + 控件内边距：列宽策略已保证整行放得下，这里是压缩兜底下界。
+        bindSearchMinWidth(rt, search);
         // 搜索框只独占 Enter（避免 Enter 顺带触发视图级下钻）：↑/↓/Menu 放行给列表键盘语义，
         // 其余键由 pane 级守卫按事件 target 区分（Delete 只在列表焦点生效）。
         rt.on(search, SceneEventType.KEY_DOWN, (ev, ectx) -> {
@@ -216,7 +226,7 @@ public final class ObjectGroupListPane {
                 () -> Boolean.TRUE.equals(canAddGroup.get())
                         ? ClientI18n.tr("config.qz_miner.object_group.list.add")
                         : ClientI18n.tr("config.qz_miner.object_group.limit.groups"));
-        SceneNode add = actionButton(rt, row, ADD_ACTION_WIDTH_PERCENT, addLabel, canAddGroup,
+        SceneNode add = searchActionButton(rt, row, search, addLabel, canAddGroup,
                 () -> state.addGroup());
         row.appendChild(add);
         // 搜索行是 pane COLUMN 的固定兄弟（同排还有行视口 grow 子）：高度必须先验可算。
@@ -224,9 +234,22 @@ public final class ObjectGroupListPane {
         return row;
     }
 
-    /** 谓词行：固定谓词四选一（SceneSegmented）+ 可见条数。 */
+    /**
+     * 谓词区（两行）：分段行 = 固定谓词四选一（{@code SceneSegmented}）；计数行 = 可见条数。
+     *
+     * <p><b>为什么拆两行</b>：分段控件是 {@code SHRINK} 段 + 段间距的水平底座，它的最小宽由
+     * 「四段文案实测 + 段内边距 + 段间距」决定、不能压缩；计数文本是行内固定兄弟，其先验宽会先被
+     * 扣掉，剩余宽再给分段控件 —— 二者同行时若列宽不足，分段控件内部各段会横向溢出自身盒并
+     * <b>直接绘制在计数文本之上</b>（真机症状：「含通配」chip 被「3 组」压住、chip 右边框被盖掉）。
+     * 拆行后两者各自占满整行宽，任何列宽下都不重叠。</p>
+     *
+     * <p>两行都是 pane COLUMN 的固定兄弟：整块高必须先验可算（{@link #bindPriorHeight}）。</p>
+     */
     private static SceneNode buildFilterRow(SceneRuntime rt, ObjectGroupEditorState state,
                                             Palette palette, ReadableSignal<Boolean> enabled) {
+        final SceneNode block = SceneNode.column();
+        block.setGap(FILTER_LINE_GAP_PX);
+
         SceneNode row = SceneNode.row();
         row.setGap(PANE_GAP_PX);
         row.setCrossAxisAlign(CrossAxisAlign.CENTER);
@@ -248,15 +271,39 @@ public final class ObjectGroupListPane {
         // 分段控件作 grow 子而非固定兄弟：既不必先验宽（闸门不适用），宽文案也不会把同排文本挤出画布。
         segmented.setFlexGrow(1);
         row.appendChild(segmented);
+        block.appendChild(row);
 
-        SceneNode count = label("");
+        // 计数独立一行、贴右：与分段行共享整行宽，不再互抢主轴空间。
+        final SceneNode countRow = SceneNode.row();
+        countRow.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        SceneNode spacer = new SceneNode();
+        spacer.setHitTestable(false);
+        spacer.setFlexGrow(1);
+        countRow.appendChild(spacer);
+        final SceneNode count = label("");
+        count.setMaxLines(1);
+        count.setEllipsis(true);
+        count.setTextHorizontalAlign(TextHorizontalAlign.RIGHT);
         rt.bindComputed(() -> ClientI18n.tr("config.qz_miner.object_group.list.count",
                 Integer.valueOf(state.visibleViews().size())), count::setText);
         rt.bind(palette.muted, count::setTextColor);
-        row.appendChild(count);
-        // 谓词行是 pane COLUMN 的固定兄弟：高度必须先验可算。
-        bindPriorHeight(rt, row);
-        return row;
+        countRow.appendChild(count);
+        block.appendChild(countRow);
+
+        // 计数文本宽上限 = 承载行宽：超长文案（未本地化键名 / 极窄列）只省略、不越界。
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(() -> {
+            Object cached = countRow.getCachedLayout();
+            if (cached instanceof LayoutBox) {
+                int width = ((LayoutBox) cached).getWidth();
+                if (width > 0) {
+                    count.setMaxWidth(Math.max(1, width - countRow.getPaddingLeft()
+                            - countRow.getPaddingRight()));
+                }
+            }
+        }));
+        // 谓词区是 pane COLUMN 的固定兄弟：整块高必须先验可算。
+        bindPriorHeight(rt, block);
+        return block;
     }
 
     // ------------------------------------------------------------------ 行
@@ -270,6 +317,9 @@ public final class ObjectGroupListPane {
         viewport.setClipChildren(true);
         viewport.setFillParentHeight(true);
         viewport.setFillParentWidth(true);
+        // COLUMN 主轴显式 grow：视口是 pane 里唯一吃剩余高的子，声明 grow 后 pane 的主轴先验高
+        // 不再被「视口内容高」估算放大（内容超高时 pane 只滚动，不撑高宿主）。
+        viewport.setFlexGrow(1);
         viewportRef[0] = viewport;
         // 调用方自管 scroll state 形态：同一 signal 同时服务滚轮、键盘滚动跟随与跨挂载位置保持。
         SceneScrolls.attach(rt, viewport, scroll, scroll::set);
@@ -374,13 +424,24 @@ public final class ObjectGroupListPane {
             int hitSide = hitSide(rt, fontSizePx);
             menu.setPreferredWidth(hitSide);
             menu.setPreferredHeight(hitSide);
-            // 标题槽宽下限 + 状态词宽上限：长文案（含未本地化键名）不得把 id 挤成零宽。
+            // 行内横向预算：固定兄弟（状态点 / 顺序号 / 行尾按钮）实测先验宽 + 标题槽下限 +
+            // 状态词上限必须落在主行内宽之内。若各写各的（33% 下限 + 40% 上限 + 固定项），
+            // 合计会超过 100% ⇒ 状态词与行尾按钮被推出行盒（真机症状：⋮ 压在行边框上）。
             Object headerCached = header.getCachedLayout();
             if (headerCached instanceof LayoutBox) {
                 int headerWidth = ((LayoutBox) headerCached).getWidth();
                 if (headerWidth > 0) {
-                    titleSlot.setPreferredWidth(Math.max(1, headerWidth * TITLE_MIN_WIDTH_PERCENT / 100));
-                    status.setMaxWidth(Math.max(1, headerWidth * STATUS_WIDTH_PERCENT / 100));
+                    int inner = Math.max(1, headerWidth - header.getPaddingLeft()
+                            - header.getPaddingRight());
+                    int fixed = dotSide + rt.measureTextWidth(orderText(state, key), header.effectiveFontSize())
+                            + hitSide;
+                    int gaps = ROW_GAP_PX * Math.max(0, header.__getChildren().size() - 1);
+                    int titleMin = Math.max(1, inner * TITLE_MIN_WIDTH_PERCENT / 100);
+                    int statusCap = Math.max(1, inner * STATUS_WIDTH_PERCENT / 100);
+                    int statusBudget = Math.max(1, inner - gaps - fixed - titleMin);
+                    titleSlot.setPreferredWidth(titleMin);
+                    // 上限 0 在布局语义里表示「无上限」，故下界取 1（省略号级别），不得写 0。
+                    status.setMaxWidth(Math.min(statusCap, statusBudget));
                 }
             }
             Object cached = titleSlot.getCachedLayout();
@@ -406,6 +467,9 @@ public final class ObjectGroupListPane {
         final SceneNode[] buttonRef = new SceneNode[1];
         final ReadableSignal<String> glyph = Signal.create(OVERFLOW_GLYPH);
         SceneButton.Props props = SceneButton.Props.builder(glyph)
+                // 行尾溢出按钮在行底上几乎同色（真机不可辨）：改走 INDICATOR 角色配方，
+                // 由主题给出可见底盘/描边与 hover 反馈，不在业务侧写死颜色。
+                .surface(SceneThemes.surface(rt, SceneTheme.Role.INDICATOR))
                 .onClick(() -> {
                     SceneNode button = buttonRef[0];
                     if (button == null) {
@@ -670,6 +734,77 @@ public final class ObjectGroupListPane {
         }
     }
 
+    // ------------------------------------------------------------------ 内容下限（列宽自适应输入）
+
+    /**
+     * 列表 pane 的<b>内容下限宽</b>（逻辑 px）：工具栏任一行在此宽内都不得重叠或裁掉文案。
+     *
+     * <p><b>为什么必须由内容实测</b>：搜索行与谓词行都是「固定文案 + 固定内边距 + 固定间距」，
+     * 它们的自然需求随语言（zh/en）、字号与主题内边距变化；把列宽写死为常量族（如 220~300）
+     * 在长语言文案下必然溢出——真机症状是谓词分段 chip 被计数文本压住。这里用
+     * {@code rt.measureTextWidth} 实测当前生效文案，与控件同口径的先验内边距（
+     * {@link SceneChromeTokens#PAD_MD} = 按钮内边距、{@link SceneChromeTokens#PAD_LG} =
+     * {@link SceneSegmented} 段内边距、{@link SceneChromeTokens#GAP_SM} = 段间距，三者都是
+     * UILib 公开常量，与控件实现同源）相加，得到「不裁字的最小列宽」。</p>
+     *
+     * <p>调用方（编辑视图）只在宽挡用它做列宽下限；窄挡下列表独占整宽，由视口宽保证。</p>
+     *
+     * @param rt         场景运行时（提供文本实测）
+     * @param fontSizePx 生效字号（逻辑 px）
+     * @return 最小内容宽（含 pane 左右内边距）
+     */
+    public static int minContentWidth(SceneRuntime rt, int fontSizePx) {
+        return 2 * PANE_PADDING_PX + Math.max(searchRowNeed(rt, fontSizePx), filterRowNeed(rt, fontSizePx));
+    }
+
+    /** 搜索框最小宽：占位文案完整可见（控件内边距同 {@code SceneTextInput.PADDING}）。 */
+    static int searchBoxMinWidth(SceneRuntime rt, int fontSizePx) {
+        return labelWidth(rt, "config.qz_miner.object_group.list.search", fontSizePx)
+                + 2 * SceneChromeTokens.PAD_MD;
+    }
+
+    /** 搜索行自然需求宽（搜索框最小宽 + 间距 + 「新建组」自然宽）。 */
+    private static int searchRowNeed(SceneRuntime rt, int fontSizePx) {
+        return searchBoxMinWidth(rt, fontSizePx) + PANE_GAP_PX + addButtonNaturalWidth(rt, fontSizePx);
+    }
+
+    /** 「新建组」按钮自然宽（标签实测 + 按钮内边距同 {@code SceneButton.PADDING}）。 */
+    private static int addButtonNaturalWidth(SceneRuntime rt, int fontSizePx) {
+        return labelWidth(rt, "config.qz_miner.object_group.list.add", fontSizePx)
+                + 2 * SceneChromeTokens.PAD_MD;
+    }
+
+    /** 谓词行自然需求宽：四段文案实测 + 段内边距 + 段间距（与 {@code SceneSegmented} 同口径常量）。 */
+    private static int filterRowNeed(SceneRuntime rt, int fontSizePx) {
+        int need = 0;
+        for (int i = 0; i < FILTER_ORDER.size(); i++) {
+            need += labelWidth(rt, filterKey(FILTER_ORDER.get(i)), fontSizePx)
+                    + 2 * SceneChromeTokens.PAD_LG;
+        }
+        return need + SceneChromeTokens.GAP_SM * (FILTER_ORDER.size() - 1);
+    }
+
+    /**
+     * 文案实测宽（供内容下限使用）：<b>未本地化的回退键名不参与测量</b>。
+     *
+     * <p>语言包缺失时 {@link ClientI18n#tr} 会把键名原样返回（例如
+     * {@code config.qz_miner.object_group.filter.wildcard}，长度是真实文案的数倍）。这种回退键名
+     * 是异常态，若参与内容下限会把列宽需求放大数倍、把详情列挤到零宽；此时更稳妥的降级是
+     * 「不做内容下限抬升，由 pane 裁剪兜底」。真实语言文案存在时本规则不生效。</p>
+     *
+     * @param rt         场景运行时
+     * @param key        语言键
+     * @param fontSizePx 生效字号
+     * @return 文案宽（未本地化为 0）
+     */
+    private static int labelWidth(SceneRuntime rt, String key, int fontSizePx) {
+        String text = ClientI18n.tr(key);
+        if (text == null || text.equals(key)) {
+            return 0;
+        }
+        return rt.measureTextWidth(text, fontSizePx);
+    }
+
     // ------------------------------------------------------------------ 尺寸先验（布局闸门纪律）
 
     /**
@@ -712,6 +847,49 @@ public final class ObjectGroupListPane {
         rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(apply));
     }
 
+    /**
+     * 搜索行「新建组」按钮宽：自然宽（标签实测 + 按钮内边距）优先；
+     * 上限 = 行内宽 − 搜索框最小宽 − 间距，保证长语言文案下搜索框仍完整可读。
+     */
+    private static SceneNode searchActionButton(SceneRuntime rt, final SceneNode row, final SceneNode search,
+                                                final ReadableSignal<String> label,
+                                                ReadableSignal<Boolean> enabled, Runnable onClick) {
+        SceneNode button = SceneButton.create(rt, SceneButton.Props
+                .builder(label)
+                .enabled(enabled)
+                .onClick(onClick)
+                .build()).get();
+        Runnable apply = () -> {
+            String text = label.get();
+            int natural = rt.measureTextWidth(text == null ? "" : text, button.effectiveFontSize())
+                    + button.getPaddingLeft() + button.getPaddingRight();
+            int cap = 0;
+            Object cached = row.getCachedLayout();
+            if (cached instanceof LayoutBox) {
+                int width = ((LayoutBox) cached).getWidth();
+                if (width > 0) {
+                    int inner = Math.max(1, width - row.getPaddingLeft() - row.getPaddingRight());
+                    cap = Math.max(1, inner - searchBoxMinWidth(rt, row.effectiveFontSize()) - PANE_GAP_PX);
+                }
+            }
+            button.setPreferredWidth(cap > 0 ? Math.min(natural, cap) : natural);
+            button.setPreferredHeight(rt.lineHeight(button.effectiveFontSize())
+                    + button.getPaddingTop() + button.getPaddingBottom());
+        };
+        apply.run();
+        rt.bind(label, next -> apply.run());
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(apply));
+        claimKeyboard(rt, button);
+        return button;
+    }
+
+    /** 搜索框最小宽（占位文案 + 控件内边距，随生效字号重派生）。 */
+    private static void bindSearchMinWidth(SceneRuntime rt, final SceneNode search) {
+        Runnable apply = () -> search.setMinWidth(searchBoxMinWidth(rt, search.effectiveFontSize()));
+        apply.run();
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(apply));
+    }
+
     /** 父宽百分比上限（父无布局盒时返回 0 = 不设上限）。 */
     private static int capWidth(SceneNode parent, int percent) {
         if (parent == null || percent <= 0) {
@@ -734,12 +912,38 @@ public final class ObjectGroupListPane {
         rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(apply));
     }
 
-    /** 内容先验高（忽略本节点自身已写入的先验值，避免字号变化后被自锁）。 */
+    /**
+     * 内容先验高（忽略本节点自身已写入的先验值，避免字号变化后被自锁）。
+     *
+     * <p><b>主轴语义</b>：COLUMN 的子是纵向堆叠 ⇒ 高取<b>求和</b> + 间距；ROW 的子同排 ⇒ 取<b>最大</b>。
+     * 这里曾一律取 max：单行固定兄弟看不出来，但谓词区改成「分段行 + 计数行」的 COLUMN 块后，
+     * 先验高被算成单行高（40 而非 60），pane 的主轴余量多出 20px ⇒ 视口被内容撑高 ⇒ 编辑视图根
+     * 超出宿主视口（既有断言 700×420 实测 440）。</p>
+     */
     private static int contentHeight(SceneRuntime rt, SceneNode node) {
         int inner = node.getText() == null ? 0 : rt.lineHeight(node.effectiveFontSize());
         List<SceneNode> children = node.__getChildren();
-        for (SceneNode child : children) {
-            inner = Math.max(inner, priorHeight(rt, child) + child.marginV());
+        if (node.getFlexDirection() == FlexDirection.COLUMN) {
+            int sum = 0;
+            int stacked = 0;
+            for (SceneNode child : children) {
+                if (child.isCollapsed()) {
+                    continue;
+                }
+                sum += priorHeight(rt, child) + child.marginV();
+                stacked++;
+            }
+            if (stacked > 1) {
+                sum += node.getGap() * (stacked - 1);
+            }
+            inner = Math.max(inner, sum);
+        } else {
+            for (SceneNode child : children) {
+                if (child.isCollapsed()) {
+                    continue;
+                }
+                inner = Math.max(inner, priorHeight(rt, child) + child.marginV());
+            }
         }
         return inner + node.getPaddingTop() + node.getPaddingBottom();
     }

@@ -24,6 +24,7 @@ import club.heiqi.uilib.ui.scene.node.SceneNode;
 import club.heiqi.uilib.ui.scene.paint.SceneChromeTokens;
 import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
 import club.heiqi.uilib.ui.scene.theme.SceneSurfaceBinder;
+import club.heiqi.uilib.ui.scene.theme.SceneSurfaceStyle;
 import club.heiqi.uilib.ui.scene.theme.SceneTheme;
 import club.heiqi.uilib.ui.scene.theme.SceneThemes;
 
@@ -45,7 +46,14 @@ import club.heiqi.uilib.ui.scene.theme.SceneThemes;
  * 经 {@code removeUnknownMode} 取消，绝不静默丢弃。</p>
  *
  * <p><b>动态化（§6.2）</b>：颜色全走 {@link SceneThemes}；字号不写死（继承父链声明/倍率）；
- * 图标与行高由生效字号派生；pill 换行按容器实测宽 + 文本实测宽贪心分包；分页页大小由运行时逻辑盒高派生。</p>
+ * 图标与行高由生效字号派生；pill 换行按<b>外部约束宽</b>（section 实测分配宽，非 pill 容器自测）
+ * + 文本实测宽贪心分包，宽度未知时单列安全退化；分页页大小由运行时逻辑盒高派生。</p>
+ *
+ * <p><b>pill 可辨识度</b>：模式 pill 走 {@link SceneThemes#selectableSurface} 的
+ * {@link SceneTheme.Role#INDICATOR} 角色配方（与 UILib 既有 chip 控件同源同角色）——未选中态即带该角色的
+ * 1px 描边与胶囊圆角（描边色取自角色配方的 {@code StateStyle.edge}，本类不拼 RGB）；选中态由该入口把
+ * tint 换成主题 accent。横向内边距与行内间距按生效字号派生（{@link #pillPadH}/{@link #pillGap}），
+ * 避免小字号下 pill 贴边成串。</p>
  */
 public final class ObjectGroupDetailPane {
 
@@ -53,10 +61,19 @@ public final class ObjectGroupDetailPane {
     private static final int SECTION_GAP = SceneChromeTokens.GAP_MD;
     /** 区块内部间距（逻辑 px）。 */
     private static final int INNER_GAP = SceneChromeTokens.GAP_SM;
-    /** pill 横向内边距（逻辑 px）。 */
-    private static final int PILL_PAD_H = SceneChromeTokens.PAD_SM;
-    /** pill 纵向内边距（逻辑 px）。 */
-    private static final int PILL_PAD_V = 2;
+    /** pill 横向内边距下界（逻辑 px）；实际值按生效字号派生（见 {@link #pillPadH}）。 */
+    private static final int PILL_PAD_H_MIN = SceneChromeTokens.PAD_MD;
+    /** pill 行内间距下界（逻辑 px）；实际值按生效字号派生（见 {@link #pillGap}）。 */
+    private static final int PILL_GAP_MIN = SceneChromeTokens.GAP_MD;
+    /** pill 纵向内边距下界（逻辑 px）；实际值按生效字号派生（见 {@link #pillPadV}）。 */
+    private static final int PILL_PAD_V_MIN = 2;
+    /**
+     * pill 横向内边距 / 行内间距的字号派生比例：字号的 0.5 倍（16px 字号 ⇒ 8px，32px ⇒ 16px）。
+     * 只表达「随生效字号等比」，不假设分辨率、GUI Scale、主题或语言。
+     */
+    private static final float PILL_METRIC_RATIO = 0.5F;
+    /** pill 纵向内边距的字号派生比例：字号的 0.25 倍（16px 字号 ⇒ 4px，32px ⇒ 8px）。 */
+    private static final float PILL_PAD_V_RATIO = 0.25F;
     /** 状态点直径下限（逻辑 px）；实际直径随生效字号派生。 */
     private static final int STATUS_DOT_MIN_PX = 8;
 
@@ -249,18 +266,23 @@ public final class ObjectGroupDetailPane {
         final ReadableSignal<List<String>> unknown = Computed.create(() -> unknownModesOf(state, key));
         final String[] modeIds = ObjectGroupMode.ids();
 
-        // 换行容器：按容器实测宽 + 文本实测宽贪心分包（随宽换行，不写死每行数量）。
+        // 换行容器：按外部约束宽 + 文本实测宽贪心分包（随宽换行，不写死每行数量）。
         final SceneNode wrapHost = SceneNode.column();
         wrapHost.setGap(INNER_GAP);
+        // 换行输入 = 外部约束宽：本 section 的实测分配宽（COLUMN 的 cross 宽由父内宽下传，
+        // 与 pill 行内容无关）—— 绝不读 wrapHost / pill 行自身的测量宽，杜绝自引用。
+        // 前提：本 section 必须保持 COLUMN 的 fill 语义（容器宽 = 外部约束宽）；若改为
+        // WidthSizing.SHRINK，宽度会重新受内容影响 ⇒ 那时必须先改为读详情内容视口的分配宽。
+        // 布局完成前保持「宽度未知」（0），wrapModes 按单列安全退化（不并排即不会被裁剪）。
         final Signal<Integer> available = Signal.create(Integer.valueOf(0));
         rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(() -> {
-            final Object cached = wrapHost.getCachedLayout();
-            if (cached instanceof LayoutBox) {
-                available.set(Integer.valueOf(((LayoutBox) cached).getWidth()));
+            final int allocated = allocatedWidthOf(column);
+            if (allocated > 0) {
+                available.set(Integer.valueOf(allocated));
             }
         }));
         final ReadableSignal<List<List<String>>> rows = Computed.create(() -> {
-            // 失效源：容器实测宽 + 布局纪元 + 字号纪元（文本实测宽随字号变化）。
+            // 失效源：外部约束宽 + 布局纪元 + 字号纪元（文本实测宽随字号变化）。
             rt.layoutDoneSignal().get();
             rt.fontEpochSignal().get();
             return wrapModes(rt, wrapHost, modeIds, available.get().intValue());
@@ -289,8 +311,11 @@ public final class ObjectGroupDetailPane {
     private static SceneNode modesRow(SceneRuntime rt, final ObjectGroupEditorState state, final long key,
                                       ReadableSignal<List<String>> known, List<String> row, Signal<String> notice) {
         final SceneNode line = SceneNode.row();
-        line.setGap(INNER_GAP);
         line.setCrossAxisAlign(CrossAxisAlign.CENTER);
+        // 行内间距按生效字号派生（与 wrapModes 分包共用 pillGap）：构建期先落一次，布局完成后重派生。
+        final Runnable applyGap = () -> line.setGap(pillGap(line.effectiveFontSize()));
+        applyGap.run();
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(applyGap));
         for (final String modeId : row) {
             final ReadableSignal<Boolean> selected = Computed.create(() -> Boolean.valueOf(
                     known.get().contains(modeId)));
@@ -300,17 +325,24 @@ public final class ObjectGroupDetailPane {
         return line;
     }
 
-    /** 模式 pill：多选 chip（外观走主题可选配方，命中/键盘可聚焦）。 */
+    /**
+     * 模式 pill：多选 chip（外观走 {@link SceneTheme.Role#INDICATOR} 主题可选配方，命中/键盘可聚焦）。
+     *
+     * <p>用 INDICATOR 而不是 INPUT：UILib 既有 chip / 多选控件（{@code SceneCheckbox}、
+     * {@code SceneNavList}、{@code SceneRadioGroup}、{@code SceneSegmented}、{@code SceneTab}、
+     * {@code CategoryNavPane} 的 pill 行）全部消费该角色，其未选中配方自带可辨识 1px {@code edge}
+     * 描边 + 胶囊圆角（dark {@code 0x40FFFFFF} / light {@code 0x99FFFFFF}，见 {@code SceneTheme}
+     * 角色表）；INPUT 的 idle 描边（dark {@code 0x24FFFFFF}）在深色面板上近乎不可见，正是「一排文字
+     * 看不出可多选」的来源。选中态仍由 {@code selectableSurface} 把 tint 换成主题 accent。</p>
+     */
     private static SceneNode pill(SceneRuntime rt, String label, ReadableSignal<Boolean> selected,
                                   final Runnable onClick) {
         final SceneNode node = SceneNode.row();
         node.setGap(2);
-        node.setPadding(PILL_PAD_H, PILL_PAD_V, PILL_PAD_H, PILL_PAD_V);
         node.setCrossAxisAlign(CrossAxisAlign.CENTER);
-        SceneSurfaceBinder.bind(rt, node,
-                SceneThemes.selectableSurface(rt, SceneTheme.Role.INPUT, selected),
-                ObjectGroupMemberPane.alwaysEnabled(), ObjectGroupMemberPane.interactionOf(rt, node));
+        bindChipSurface(rt, node, selected, ObjectGroupMemberPane.alwaysEnabled());
         node.appendChild(ObjectGroupMemberPane.textNode(rt, label, SceneThemes.foreground(rt)));
+        bindChipMetrics(rt, node, label);
         rt.focusable(node);
         rt.on(node, SceneEventType.CLICK, (event, ectx) -> {
             onClick.run();
@@ -337,11 +369,11 @@ public final class ObjectGroupDetailPane {
                                          final String modeId, final Signal<String> notice) {
         final SceneNode chip = SceneNode.row();
         chip.setGap(2);
-        chip.setPadding(PILL_PAD_H, PILL_PAD_V, PILL_PAD_H, PILL_PAD_V);
+        final int chipFontSize = chip.effectiveFontSize();
+        chip.setPadding(pillPadV(chipFontSize), pillPadH(chipFontSize),
+                pillPadV(chipFontSize), pillPadH(chipFontSize));
         chip.setCrossAxisAlign(CrossAxisAlign.CENTER);
-        SceneSurfaceBinder.bind(rt, chip,
-                SceneThemes.selectableSurface(rt, SceneTheme.Role.INPUT, ObjectGroupMemberPane.neverEnabled()),
-                ObjectGroupMemberPane.alwaysEnabled(), ObjectGroupMemberPane.interactionOf(rt, chip));
+        bindChipSurface(rt, chip, ObjectGroupMemberPane.neverEnabled(), ObjectGroupMemberPane.alwaysEnabled());
         chip.appendChild(ObjectGroupMemberPane.textNode(rt, modeId, SceneThemes.warningText(rt)));
         chip.appendChild(ObjectGroupMemberPane.textNode(rt,
                 ClientI18n.tr("config.qz_miner.object_group.modes.unknown"), SceneThemes.warningText(rt)));
@@ -379,26 +411,37 @@ public final class ObjectGroupDetailPane {
     }
 
     /**
-     * pill 换行分包：按文本实测宽 + 内边距贪心装行；容器宽未知（首帧）时退化为单行。
+     * pill 换行分包：按「外部约束宽 + pill 先验外宽」贪心装行。
+     *
+     * <p>宽度口径与 {@link #pillWidthPx} 同源（pill 外宽 = 文本实测宽 + 左右内边距），行内分隔按
+     * {@link #pillGap}（生效字号派生）计入 ⇒ 「分包认为放得下」等价于「行内 pill 总占位 ≤ 约束宽」，
+     * 不依赖任何节点自身的测量结果。</p>
+     *
+     * <p>宽度未知（首帧 / 尚无实测分配宽）时按<b>单列</b>安全退化：不并排就不会横向溢出裁剪；
+     * 布局完成后由实测约束宽自动恢复多列，随宽换行能力不受影响。</p>
      *
      * @param rt        场景运行时（提供文本度量）
      * @param probe     生效字号探针（须已进树）
      * @param modeIds   模式 id（保序）
-     * @param available 容器实测宽（0 = 未知）
+     * @param available 外部约束宽（&lt;= 0 = 未知）
      * @return 每行的模式 id 列表
      */
     static List<List<String>> wrapModes(SceneRuntime rt, SceneNode probe, String[] modeIds, int available) {
         final int fontSize = probe.effectiveFontSize();
+        final int gap = pillGap(fontSize);
         final List<List<String>> rows = new ArrayList<List<String>>();
         List<String> current = new ArrayList<String>();
         int used = 0;
         for (String modeId : modeIds) {
-            final String label = ClientI18n.tr(modeKey(modeId));
-            final int width = rt.measureTextWidth(label, fontSize) + PILL_PAD_H * 2 + INNER_GAP;
-            if (!current.isEmpty() && available > 0 && used + width > available) {
+            final int width = pillWidthPx(rt, ClientI18n.tr(modeKey(modeId)), fontSize);
+            // 放不下才换行（本行首个 pill 永不因宽度被挤出）；宽度未知 ⇒ 每个 pill 独占一行。
+            if (!current.isEmpty() && (available <= 0 || used + gap + width > available)) {
                 rows.add(Collections.unmodifiableList(current));
                 current = new ArrayList<String>();
                 used = 0;
+            }
+            if (!current.isEmpty()) {
+                used += gap;
             }
             current.add(modeId);
             used += width;
@@ -407,6 +450,111 @@ public final class ObjectGroupDetailPane {
             rows.add(Collections.unmodifiableList(current));
         }
         return Collections.unmodifiableList(rows);
+    }
+
+    /**
+     * pill 先验外宽：文本实测宽 + 左右内边距（{@link #pillPadH}）。
+     *
+     * <p>单点口径：{@link #pill} 的 {@code preferredWidth} 与 {@link #wrapModes} 的分包共用本方法，
+     * 避免「分包口径」与「实际占位」两处漂移（文本宽与内边距随字号的失效链只走字号纪元）。</p>
+     *
+     * @param rt       场景运行时
+     * @param label    已本地化文案（null 视作空串）
+     * @param fontSize 生效字号
+     * @return pill 外宽（逻辑 px）
+     */
+    static int pillWidthPx(SceneRuntime rt, String label, int fontSize) {
+        return rt.measureTextWidth(label == null ? "" : label, fontSize) + pillPadH(fontSize) * 2;
+    }
+
+    /**
+     * pill 横向内边距：按生效字号派生（{@link #PILL_METRIC_RATIO}），下界 = {@link SceneChromeTokens#PAD_MD}。
+     *
+     * <p>16px 字号 ⇒ 8px/侧（旧值 4px 会让相邻 pill 的文字视觉连成一片）；字号放大时等比放大，
+     * 不写死像素档。</p>
+     */
+    static int pillPadH(int fontSize) {
+        return Math.max(PILL_PAD_H_MIN, Math.round(fontSize * PILL_METRIC_RATIO));
+    }
+
+    /** pill 行内间距：按生效字号派生（同 {@link #PILL_METRIC_RATIO}），下界 = {@link SceneChromeTokens#GAP_MD}。 */
+    static int pillGap(int fontSize) {
+        return Math.max(PILL_GAP_MIN, Math.round(fontSize * PILL_METRIC_RATIO));
+    }
+
+    /**
+     * pill 纵向内边距：按生效字号派生（{@link #PILL_PAD_V_RATIO}），下界 = {@link #PILL_PAD_V_MIN}。
+     *
+     * <p>16px 字号 ⇒ 上下各 4px（pill 高 = 行高 16 + 8 = 24），与既有紧凑行高一致。</p>
+     */
+    static int pillPadV(int fontSize) {
+        return Math.max(PILL_PAD_V_MIN, Math.round(fontSize * PILL_PAD_V_RATIO));
+    }
+
+    /**
+     * chip 表面绑定：{@code selectableSurface(INDICATOR, selected)} 提供「主题基线 + 选中语义」，
+     * 再经 {@link #chipSurface} 做字段级覆盖（去滤镜、关浮雕），最后交 {@link SceneSurfaceBinder}
+     * 独占写入 —— 与 UILib 既有「列表 pill 行」同一条通道（{@code CategoryNavPane.bindRowSurface}
+     * 的「selectableSurface + 局部纯函数覆盖」组合）。
+     *
+     * <p>为什么不用 {@code SceneThemes.derivedSurface}：它从 {@code surface(role)} 起算，拿不到
+     * {@code selectableSurface} 的「选中 = 主题 accent」语义（{@code SELECTED_TINT_ALPHA} 是主题私有真值），
+     * 自带一份等于复制主题。</p>
+     */
+    private static void bindChipSurface(SceneRuntime rt, SceneNode node,
+                                        ReadableSignal<Boolean> selected, ReadableSignal<Boolean> enabled) {
+        final ReadableSignal<SceneSurfaceStyle> selectable =
+                SceneThemes.selectableSurface(rt, SceneTheme.Role.INDICATOR, selected);
+        final ReadableSignal<SceneSurfaceStyle> recipe = Computed.create(
+                chipSurface(selectable.get()), () -> chipSurface(selectable.get()));
+        SceneSurfaceBinder.bind(rt, node, recipe, enabled, ObjectGroupMemberPane.interactionOf(rt, node));
+    }
+
+    /**
+     * chip 配方 = 主题可选配方 + 本地字段级覆盖（纯函数）：
+     * {@code backdrop(null)} 不装滤镜（零新增 BACKDROP 采样）、{@code reliefDisabled(true)} 走普通绘制路径。
+     *
+     * <p>复用 UILib 既有裁决：列表 pill 行应「零滤镜 + 普通绘制」（{@code CategoryNavPane.rowSurface}、
+     * {@code VariantChooser} 的「复用行零滤镜」档）。普通路径下 background/border 成对进入绘制出口，
+     * 未选中 pill 的 1px 描边才是可统计、可目视的轮廓；浮雕通道下倒角由
+     * {@code SceneSurfaceReliefPainter} 输出 ROUNDED_BAND，轮廓既不可枚举也难以判读。</p>
+     */
+    private static SceneSurfaceStyle chipSurface(SceneSurfaceStyle base) {
+        return base.toBuilder().backdrop(null).reliefDisabled(true).build();
+    }
+
+    /**
+     * pill 尺寸派生（构建期一次 + 每次布局完成重派生）：
+     * ① 横向内边距按生效字号；② 先验外宽 = {@link #pillWidthPx}。
+     *
+     * <p><b>先验宽是 ROW 纪律</b>：pill 是容器节点，无 {@code preferredWidth} 时 ROW 主轴会把「整行内宽」
+     * 下传给每个无 grow 子 ⇒ 每枚 pill 被拉成整行宽、第二枚起被裁剪（F1 根因）。显式钉死后
+     * 「分包口径 = 实际占位」。</p>
+     *
+     * <p>{@code setPadding}/{@code setPreferredWidth} 同值短路（不标脏），逐帧重派生无额外布局开销。</p>
+     */
+    private static void bindChipMetrics(SceneRuntime rt, final SceneNode node, final String label) {
+        final Runnable apply = () -> {
+            final int fontSize = node.effectiveFontSize();
+            // setPadding 的参数顺序是 (top, right, bottom, left)：横向取 pillPadH、纵向取 pillPadV，
+            // 否则会出现「左 2 / 右 8」的不对称文字偏移（旧调用即错序，只是 PAD_SM=4 时不易察觉）。
+            node.setPadding(pillPadV(fontSize), pillPadH(fontSize),
+                    pillPadV(fontSize), pillPadH(fontSize));
+            node.setPreferredWidth(pillWidthPx(rt, label, fontSize));
+        };
+        apply.run();
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(apply));
+    }
+
+    /** 节点实测分配宽（外宽 - 左右内边距）；无布局盒或宽非正时返回 0（= 未知）。 */
+    private static int allocatedWidthOf(SceneNode node) {
+        final Object cached = node.getCachedLayout();
+        if (cached instanceof LayoutBox) {
+            final int width = ((LayoutBox) cached).getWidth()
+                    - node.getPaddingLeft() - node.getPaddingRight();
+            return width > 0 ? width : 0;
+        }
+        return 0;
     }
 
     // ------------------------------------------------------------------ 高级：原始规则

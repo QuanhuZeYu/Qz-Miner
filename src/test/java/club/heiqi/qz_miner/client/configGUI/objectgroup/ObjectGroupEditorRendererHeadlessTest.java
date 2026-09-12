@@ -17,12 +17,14 @@ import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.client.ClientI18n;
 import club.heiqi.qz_miner.client.picker.BlockPickerProvider;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
 import club.heiqi.uilib.ui.scene.input.SceneKey;
 import club.heiqi.uilib.ui.scene.layout.AnchorRect;
 import club.heiqi.uilib.ui.scene.layout.LayoutBox;
 import club.heiqi.uilib.ui.scene.layout.SceneGeometry;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
+import club.heiqi.uilib.ui.scene.theme.SceneTheme;
 import club.heiqi.uilib.ui.scene.theme.SceneThemes;
 
 /**
@@ -440,6 +442,197 @@ public class ObjectGroupEditorRendererHeadlessTest {
                 findText(editorRoot(), inactiveStateLabel()));
         Assert.assertNull("结构错误不得渲染冲突状态词",
                 findText(editorRoot(), conflictStateLabel()));
+    }
+
+    // ==================================================================
+    // F1（适用模式 pill 可见性 / 换行 / 一次点击可达）
+    // ==================================================================
+
+    /**
+     * F1 修复验证：组 {@code modes=0} 时 7 枚已知模式 pill 必须全部构建、全部落在详情裁剪框内，
+     * 且每枚 pill 的实际宽 = 先验宽（文本实测宽 + 左右内边距）—— 证明 ROW 主轴不再把「整行内宽」
+     * 下传给每一枚容器 pill（旧行为：pill 宽≈行宽，第 2 枚起被裁剪）。
+     */
+    @Test
+    public void modePillsStayInsideDetailViewportAtWideLayout() {
+        openEditor();
+        SceneNode listRow = findText(editorRoot(), "vanilla_logs");
+        Assert.assertNotNull("列表行必须在树里", listRow);
+        harness.click(listRow);
+        harness.frame();
+        Assert.assertNotNull("点行后详情必须显示「适用模式」", findText(editorRoot(), modesLabel()));
+
+        SceneNode viewport = detailViewport();
+        Assert.assertNotNull("详情必须有滚动裁剪视口", viewport);
+        AnchorRect clip = SceneGeometry.absoluteBox(viewport, 0, 0);
+        List<SceneNode> pills = modePills();
+        Assert.assertEquals("7 枚已知模式 pill 必须全部构建", ObjectGroupMode.ids().length, pills.size());
+
+        int visible = 0;
+        StringBuilder outside = new StringBuilder();
+        for (SceneNode pill : pills) {
+            String label = labelOf(pill);
+            AnchorRect box = SceneGeometry.absoluteBox(pill, 0, 0);
+            Assert.assertTrue("pill 必须非零尺寸: " + label + " " + box,
+                    box.getWidth() > 0 && box.getHeight() > 0);
+            int expected = ObjectGroupDetailPane.pillWidthPx(harness.rt, label, pill.effectiveFontSize());
+            Assert.assertEquals("pill 必须先验宽（不得被 ROW 主轴拉满整行）: " + label,
+                    expected, box.getWidth());
+            if (box.getX() >= clip.getX() && box.getX() + box.getWidth() <= clip.getX() + clip.getWidth()
+                    && box.getY() < clip.getY() + clip.getHeight()
+                    && box.getY() + box.getHeight() > clip.getY()) {
+                visible++;
+            } else {
+                outside.append(label).append("=[").append(box.getX()).append(',').append(box.getY())
+                        .append(' ').append(box.getWidth()).append('x').append(box.getHeight()).append("] ");
+            }
+        }
+        Assert.assertEquals("7 枚 pill 必须全部落在详情裁剪框内（实测 " + visible + "/7；clip=[" + clip.getX()
+                        + "," + clip.getY() + " " + clip.getWidth() + "x" + clip.getHeight() + "]；越界="
+                        + (outside.length() == 0 ? "无" : outside.toString()) + "）",
+                ObjectGroupMode.ids().length, visible);
+
+        // 可辨识轮廓（F1 后续）：未选中 pill 必须带主题 INDICATOR 角色的 1px 描边 + 胶囊圆角，
+        // 描边色只能来自角色配方（edge），本组件不得自行拼 RGB。
+        int indicatorEdge = SceneThemes.surface(harness.rt, SceneTheme.Role.INDICATOR)
+                .get().getIdle().getEdge();
+        Assert.assertTrue("主题 INDICATOR idle edge 必须非透明（轮廓判据前提）",
+                alphaOf(indicatorEdge) > 0);
+        for (SceneNode pill : pills) {
+            Assert.assertEquals("每枚 pill 必须有 1px 描边: " + labelOf(pill), 1, pill.getBorderWidth());
+            Assert.assertEquals("pill 描边必须取主题 INDICATOR idle edge（不得自拼色）: " + labelOf(pill),
+                    indicatorEdge, pill.getBorderColor());
+            Assert.assertTrue("pill 必须有胶囊圆角（取主题角色半径）: " + labelOf(pill),
+                    pill.getCornerRadius() > 0);
+        }
+    }
+
+    /** ARGB alpha 通道。 */
+    private static int alphaOf(int argb) {
+        return (argb >>> 24) & 0xFF;
+    }
+
+    /**
+     * F1 修复验证：分包随可用宽变化（不是固定行数）。
+     *
+     * <p>本用例在 headless 原始键文案口径下运行（未注入语言包 ⇒ 模式标签更长、pill 更宽）：
+     * 1600 逻辑宽的宽挡详情栏每行可放多枚 pill，收窄到 500（窄挡下钻）后每行只能放 1 枚 ⇒
+     * 行数必须严格增加。这同时证明换行输入确实来自<b>外部约束宽</b>（宽度变 → 行数变），
+     * 而不是固定分行或按内容自测收敛。</p>
+     */
+    @Test
+    public void modePillsRewrapWhenViewportNarrows() {
+        harness.resize(1600, HEIGHT);
+        harness.frame();
+        openEditor();
+        harness.click(row("vanilla_logs"));
+        // 两帧：首帧详情以「宽度未知」单列安全退化，外部约束宽在 layoutDone 后写入 signal，
+        // 分包结果与行重建在下一帧生效（真机同语义：打开后下一帧收敛）。
+        harness.frame();
+        harness.frame();
+        Assert.assertTrue("宽挡下点行后详情必须可见", hasText(editorRoot(), modesLabel()));
+        int wideRows = modeRowCount();
+        Assert.assertTrue("宽挡大视口下必须多枚同行（实测 " + wideRows + " 行 / 7 枚）",
+                wideRows < ObjectGroupMode.ids().length);
+
+        harness.resize(NARROW, HEIGHT);
+        harness.frame();
+        if (!hasText(editorRoot(), modesLabel())) {
+            harness.pressKey(SceneKey.ENTER);
+        }
+        harness.frame();
+        harness.frame();
+        Assert.assertTrue("窄挡下钻后详情必须可见", hasText(editorRoot(), modesLabel()));
+        int narrowRows = modeRowCount();
+        Assert.assertTrue("收窄后行数必须增加（" + wideRows + " 行 -> " + narrowRows + " 行）",
+                narrowRows > wideRows);
+
+        AnchorRect clip = SceneGeometry.absoluteBox(detailViewport(), 0, 0);
+        for (SceneNode pill : modePills()) {
+            AnchorRect box = SceneGeometry.absoluteBox(pill, 0, 0);
+            Assert.assertTrue("换行后每枚 pill 仍须在裁剪框内: " + labelOf(pill) + " " + box + " clip=" + clip,
+                    box.getX() >= clip.getX() && box.getX() + box.getWidth() <= clip.getX() + clip.getWidth());
+        }
+    }
+
+    /**
+     * 「两个点击内可达」核验：打开编辑器（第 1 击）+ 点行（第 2 击）后详情就位；
+     * 此后对任意一枚模式 pill <b>单击一次</b>即完成该模式的选中（modes=0 的组无需先滚动/展开）。
+     */
+    @Test
+    public void oneClickOnAnyModePillTogglesThatMode() {
+        openEditor();
+        harness.click(row("vanilla_logs"));
+        harness.frame();
+        Assert.assertEquals("7 枚已知模式 pill 必须全部就位",
+                ObjectGroupMode.ids().length, modePills().size());
+
+        for (int click = 0; click < ObjectGroupMode.ids().length; click++) {
+            SceneNode pill = modePills().get(click);
+            harness.click(pill);
+            harness.frame();
+            ObjectGroupEditorState state = new ObjectGroupEditorState(fixture.spec, fixture.adapter);
+            ObjectGroupEditorState.RowView view = state.viewOfId("vanilla_logs");
+            Assert.assertNotNull("组视图必须在", view);
+            Assert.assertEquals("每次单击必须恰好新增一个选中模式（第 " + (click + 1) + " 次点击）",
+                    click + 1, view.modes().size());
+        }
+        Assert.assertNull("选中模式后「未选择模式的组不会生效」必须消失",
+                findText(editorRoot(), ClientI18n.tr("config.qz_miner.object_group.modes.none")));
+    }
+
+    /** 详情滚动视口：包含「适用模式」文案的最近可滚动祖先（= 视图内唯一详情裁剪框）。 */
+    private SceneNode detailViewport() {
+        SceneNode cursor = findText(editorRoot(), modesLabel());
+        while (cursor != null) {
+            if (cursor.isScrollable()) {
+                return cursor;
+            }
+            cursor = cursor.__getParent();
+        }
+        return null;
+    }
+
+    /** 7 枚已知模式 pill（按 {@code ObjectGroupMode.ids()} 顺序；缺失项直接跳过由调用方断言数量）。 */
+    private List<SceneNode> modePills() {
+        List<SceneNode> pills = new ArrayList<SceneNode>();
+        for (String modeId : ObjectGroupMode.ids()) {
+            SceneNode text = findText(editorRoot(), modeLabel(modeId));
+            if (text != null && text.__getParent() != null) {
+                pills.add(text.__getParent());
+            }
+        }
+        return pills;
+    }
+
+    /** 模式 pill 的可见行数（按 pill 绝对 y 去重）。 */
+    private int modeRowCount() {
+        List<Integer> ys = new ArrayList<Integer>();
+        for (SceneNode pill : modePills()) {
+            int y = SceneGeometry.absoluteBox(pill, 0, 0).getY();
+            if (!ys.contains(Integer.valueOf(y))) {
+                ys.add(Integer.valueOf(y));
+            }
+        }
+        return ys.size();
+    }
+
+    private static String labelOf(SceneNode pill) {
+        for (SceneNode child : ObjectGroupEditorTestSupport.descendants(pill)) {
+            String text = child.getText();
+            if (text != null && !text.isEmpty()) {
+                return text;
+            }
+        }
+        return "";
+    }
+
+    private static String modesLabel() {
+        return ClientI18n.tr("config.qz_miner.object_group.modes.label");
+    }
+
+    private static String modeLabel(String modeId) {
+        return ClientI18n.tr("config.qz_miner.object_group.mode." + modeId);
     }
 
     // ==================================================================

@@ -20,6 +20,7 @@ import club.heiqi.uilib.ui.scene.node.SceneNode;
 import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
 import club.heiqi.uilib.ui.scene.runtime.SceneScrolls;
 import club.heiqi.uilib.ui.scene.theme.SceneSurfaceBinder;
+import club.heiqi.uilib.ui.scene.theme.SceneSurfaceStyle;
 import club.heiqi.uilib.ui.scene.theme.SceneTheme;
 import club.heiqi.uilib.ui.scene.theme.SceneThemes;
 
@@ -41,12 +42,19 @@ import club.heiqi.uilib.ui.scene.theme.SceneThemes;
  * 同一时刻只有一个在滚——详情占满剩余高并独立滚动，列表仅在内容超长时自滚。页面滚动不参与，
  * 视图内没有第三层滚动。</p>
  *
+ * <p><b>列宽（C3 §6.1 的实测化）</b>：宽挡列表列宽 = {@code clamp(内容下限, 0.28×W, 让详情保底)}，
+ * 内容下限来自 {@link ObjectGroupListPane#minContentWidth}（当前语言文案实测），因此长语言文案下
+ * 左栏不会重叠；超宽视口下不再是固定上限（旧口径 300 会把左栏钉成窄条而详情独占 2000+ px）。</p>
+ *
+ * <p><b>背板</b>：视图根用「当前主题 {@code withoutBackdrop()} 变体的 PANEL 配方」——不透明、
+ * 不依赖玻璃滤镜，背景配置页文字不再透出（见 {@link #bindPanelSurface}）。</p>
+ *
  * <p><b>先验尺寸（布局闸门纪律）</b>：{@code ConstraintResolver} 的 grow 分配要求容器主轴先验已知
  * ——ROW 里存在 {@code flexGrow} 子时，所有固定兄弟必须 {@code priorKnownChildWidth} 可算；
  * COLUMN 同理要求固定兄弟高度可算。因此本类对顶部条/窄挡下钻头部显式设 {@code preferredHeight}、
- * 对全部动作按钮显式测量设 {@code preferredWidth}，并对隐藏宿主用 {@code setCollapsed(true)}
- * 声明「退出布局域」（{@code SceneButton} 根节点自身无文本、无 preferredWidth，不显式声明就会
- * 撞掉整条 grow 分配并 WARN）。</p>
+ * 对全部动作按钮显式测量设 {@code preferredWidth}（{@code SceneButton} 根节点自身无文本、
+ * 无 preferredWidth，不显式声明就会撞掉整条 grow 分配并 WARN）；主体三态形态
+ * （{@see #buildBody}）不依赖任何「折叠列占位退出」——同一时刻树里只存在激活的那一列。</p>
  *
  * <p><b>ROW 内禁用 {@code rt.show}（维护纪律）</b>：{@code SceneConditionalRenderer} 的零尺寸 anchor
  * 是「无文本叶」，而 {@code SizingCalculator.computeWidth} 对无文本叶返回可用宽 ⇒ anchor 会在 ROW
@@ -72,10 +80,14 @@ public final class ObjectGroupEditorView {
     private static final int WIDE_MIN_WIDTH_PX = 620;
     /** 宽挡列表列宽占可用宽比例（%）：{@code 0.28×W}（C3 §6.1）。 */
     private static final int LIST_WIDTH_PERCENT = 28;
-    /** 宽挡列表列宽下限（逻辑 px）。 */
-    private static final int LIST_MIN_WIDTH_PX = 220;
-    /** 宽挡列表列宽上限（逻辑 px）。 */
-    private static final int LIST_MAX_WIDTH_PX = 300;
+    /**
+     * 宽挡详情列最小可用宽（逻辑 px）。
+     *
+     * <p>列表列宽不再用固定上下限（旧口径 {@code clamp(220, 0.28×W, 300)}）：固定下限在长语言文案
+     * 下列内必然重叠，固定上限又在超宽视口下把列表钉成一条窄条、详情独占 2000+ px。现口径 =
+     * 「内容下限（{@link ObjectGroupListPane#minContentWidth} 实测）与比例取大者，再让详情至少保留本值」。</p>
+     */
+    private static final int DETAIL_MIN_WIDTH_PX = 300;
     /** 视图根内边距（逻辑 px）。 */
     private static final int ROOT_PADDING_PX = 8;
     /** 视图根纵向区间间距（逻辑 px）。 */
@@ -146,9 +158,19 @@ public final class ObjectGroupEditorView {
         // 列表 pane 根引用：返回列表时把焦点交回列表（列表随后由 rt.show 重挂，M3 自持初始焦点）。
         final SceneNode[] listRoot = new SceneNode[1];
 
+        // 列表列内容下限：由 M3 用当前生效字号 + 当前语言文案实测（随字号/语言/主题内边距变化）。
+        final Signal<Integer> listContentMin = Signal.create(
+                Integer.valueOf(ObjectGroupListPane.minContentWidth(rt, root.effectiveFontSize())));
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(() -> {
+            int min = ObjectGroupListPane.minContentWidth(rt, root.effectiveFontSize());
+            if (listContentMin.get().intValue() != min) {
+                listContentMin.set(Integer.valueOf(min));
+            }
+        }));
+
         root.appendChild(buildTopBar(ctx, state));
         root.appendChild(buildUndoBar(ctx, state));
-        root.appendChild(buildBody(ctx, state, wide, availableWidth, drilled, listRoot));
+        root.appendChild(buildBody(ctx, state, wide, availableWidth, listContentMin, drilled, listRoot));
 
         // 单一 ESC 通路：浮层策略（M1）消费 ESC 后回调到此；返回 true = 视图自行处理（保持打开）。
         ctx.setDismissHandler(() -> {
@@ -243,82 +265,139 @@ public final class ObjectGroupEditorView {
 
     // ------------------------------------------------------------------ 主从主体
 
-    /** 主从主体：宽挡列表固定列宽 + 详情并排；窄挡单栏下钻（列表 ↔ 详情互斥）。 */
+    /**
+     * 主从主体：<b>三态互斥形态</b>（宽挡并排 / 窄挡列表独占 / 窄挡下钻详情独占）。
+     *
+     * <p><b>为什么不是「两列常挂 + 折叠退出」（本轮 P0 修复）</b>：UILib 的 {@code setCollapsed}
+     * 语义是「内容退出布局域，自身仍按<b>零内容叶</b>留在父流中」
+     * （{@code SceneLayoutProps.java:237-249}），而零内容叶在宽度维度取<b>可用宽</b>
+     * （{@code SizingCalculator.java:146-151}：折叠节点文本恒 null ⇒ 落「无文本叶，宽 = 可用宽」）。
+     * 于是 ROW 里被折叠的列表列仍占满整行宽，并把详情列顺序推到 {@code x = 视口宽} 之外 ——
+     * 真机最差挡位（1920×1080 @ GUI Scale 4 = 480×270 逻辑）下钻后详情整列在视口外、含返回头部不可见。
+     * UILib 没有「脱离主轴占位」的正门 API（折叠 = 零内容叶留在父流是既定语义），
+     * 故此处按挡位切换主体<b>形态</b>：同一时刻树里只存在激活的那一列。</p>
+     *
+     * <p>挂载容器必须是 COLUMN：{@code rt.show} 的零尺寸 anchor 在 COLUMN 主轴高 0（无害），
+     * 在 ROW 主轴会按可用宽铺满（见 {@link ObjectGroupListPane} 类注释的 ROW 纪律）。三态互斥
+     * 保证任一时刻只有一棵主体子树挂载，换挡时旧形态整体卸载（pane 随作用域回收）。</p>
+     */
     private static SceneNode buildBody(ObjectGroupEditorContext ctx, final ObjectGroupEditorState state,
                                        final ReadableSignal<Boolean> wide,
                                        final ReadableSignal<Integer> availableWidth,
+                                       final ReadableSignal<Integer> listContentMin,
                                        final Signal<Boolean> drilled, final SceneNode[] listRoot) {
         final SceneRuntime rt = ctx.rt();
-        // 详情根引用：宽挡「Enter 焦点进详情」需要它（详情内容与列表分属两个 show 作用域）。
+        // 详情根引用：宽挡「Enter 焦点进详情」需要它。
         final SceneNode[] detailRoot = new SceneNode[1];
 
+        final SceneNode holder = SceneNode.column();
+        holder.setFillParentHeight(true);
+        holder.setFillParentWidth(true);
+
+        final ReadableSignal<Boolean> listOnly = Computed.create(Boolean.TRUE,
+                () -> Boolean.valueOf(!Boolean.TRUE.equals(wide.get()) && !Boolean.TRUE.equals(drilled.get())));
+        final ReadableSignal<Boolean> detailOnly = Computed.create(Boolean.FALSE,
+                () -> Boolean.valueOf(!Boolean.TRUE.equals(wide.get()) && Boolean.TRUE.equals(drilled.get())));
+
+        // 三态宽度策略（结构性，按形态声明，不在 builder 里共用）：
+        //   宽挡           → ROW 内「列表列固定列宽（preferredWidth）+ 详情列 grow 吃满剩余」；
+        //   窄挡未下钻     → 唯一列在 holder(COLUMN) 里两轴吃满 = body 内宽；
+        //   窄挡下钻       → 同上的详情列（含返回头部）。
+        rt.show(holder, wide, () -> buildWideBody(ctx, state, wide, availableWidth, listContentMin,
+                drilled, listRoot, detailRoot));
+        rt.show(holder, listOnly, () -> fillHolder(buildListColumn(ctx, state, wide, drilled,
+                listRoot, detailRoot)));
+        rt.show(holder, detailOnly, () -> fillHolder(buildDetailHost(ctx, state, wide, drilled,
+                detailRoot, listRoot)));
+        return holder;
+    }
+
+    /** 宽挡形态：列表固定列宽 + 详情并排（两列都是同一 ROW 的直接子，不再有折叠列占位）。 */
+    private static SceneNode buildWideBody(ObjectGroupEditorContext ctx, final ObjectGroupEditorState state,
+                                           final ReadableSignal<Boolean> wide,
+                                           final ReadableSignal<Integer> availableWidth,
+                                           final ReadableSignal<Integer> listContentMin,
+                                           final Signal<Boolean> drilled, final SceneNode[] listRoot,
+                                           final SceneNode[] detailRoot) {
+        final SceneRuntime rt = ctx.rt();
         final SceneNode body = SceneNode.row();
         body.setGap(ROOT_GAP_PX);
         body.setFillParentHeight(true);
         body.setFillParentWidth(true);
 
-        final ReadableSignal<Boolean> listVisible = Computed.create(Boolean.TRUE,
-                () -> Boolean.valueOf(Boolean.TRUE.equals(wide.get()) || !Boolean.TRUE.equals(drilled.get())));
-        final ReadableSignal<Boolean> detailVisible = Computed.create(Boolean.FALSE,
-                () -> Boolean.valueOf(Boolean.TRUE.equals(wide.get()) || Boolean.TRUE.equals(drilled.get())));
-        // 宽挡：固定列宽 clamp(220, 0.28×W, 300)；窄挡非下钻：列表独占整宽（grow=1）；
-        // 窄挡下钻：列表让位（grow=0 + collapsed，宽可先验）。
+        // 宽挡列表列宽 = clamp(内容下限, 0.28×W, 让详情保留下限后的余量)（见 listWidth）。
         final ReadableSignal<Integer> listPreferredWidth = Computed.create(Integer.valueOf(0),
-                () -> Integer.valueOf(Boolean.TRUE.equals(wide.get())
-                        ? listWidth(availableWidth.get().intValue()) : 0));
-        final ReadableSignal<Integer> listGrow = Computed.create(Integer.valueOf(1),
-                () -> Integer.valueOf(!Boolean.TRUE.equals(wide.get())
-                        && !Boolean.TRUE.equals(drilled.get()) ? 1 : 0));
-        final ReadableSignal<Integer> detailGrow = Computed.create(Integer.valueOf(0),
-                () -> Integer.valueOf(Boolean.TRUE.equals(detailVisible.get()) ? 1 : 0));
-
-        final SceneNode listHost = SceneNode.column();
-        listHost.setFillParentHeight(true);
+                () -> Integer.valueOf(listWidth(availableWidth.get().intValue(),
+                        listContentMin.get().intValue())));
+        // 宽挡第一列 = ROW 主轴「固定列宽」：显式 preferredWidth，并显式不声明 fillParentWidth ——
+        // UILib ConstraintResolver.effectiveGrowRow（ROW 主轴 grow 判定：flexGrow>0 优先，否则
+        // fillParentWidth 视为隐式 grow=1）会把声明了 fill 的固定列也拉进 grow 集合，与详情列的
+        // 显式 grow=1 等权分配（两列各 338），而列表列只画自己的 preferredWidth（196）
+        // ⇒ 详情列被压窄、body 右侧空出一截。这是本轮真实回归的根因。
+        final SceneNode listHost = buildListColumn(ctx, state, wide, drilled, listRoot, detailRoot);
+        listHost.setFillParentWidth(false);
+        listHost.setPreferredWidth(listPreferredWidth.get().intValue());
+        rt.bind(listPreferredWidth, width -> listHost.setPreferredWidth(width.intValue()));
         body.appendChild(listHost);
 
-        final SceneNode detailHost = SceneNode.column();
-        detailHost.setFillParentHeight(true);
+        final SceneNode detailHost = buildDetailHost(ctx, state, wide, drilled, detailRoot, listRoot);
+        detailHost.setFlexGrow(1);
         body.appendChild(detailHost);
-
-        // 构建期先把策略同步落一次：首帧布局就满足先验条件（否则首帧闸门放弃 -> 首帧残值几何）。
-        listHost.setPreferredWidth(listPreferredWidth.get().intValue());
-        listHost.setFlexGrow(listGrow.get().intValue());
-        listHost.setCollapsed(!Boolean.TRUE.equals(listVisible.get()));
-        detailHost.setFlexGrow(detailGrow.get().intValue());
-        detailHost.setCollapsed(!Boolean.TRUE.equals(detailVisible.get()));
-        rt.bind(listPreferredWidth, width -> listHost.setPreferredWidth(width.intValue()));
-        rt.bind(listGrow, grow -> listHost.setFlexGrow(grow.intValue()));
-        rt.bind(listVisible, visible -> listHost.setCollapsed(!Boolean.TRUE.equals(visible)));
-        rt.bind(detailGrow, grow -> detailHost.setFlexGrow(grow.intValue()));
-        rt.bind(detailVisible, visible -> detailHost.setCollapsed(!Boolean.TRUE.equals(visible)));
-
-        // 列表常驻（宽挡并排；窄挡未下钻），详情单实例（宽挡常驻；窄挡下钻时挂载）。
-        rt.show(listHost, listVisible, () -> {
-            SceneNode pane = ObjectGroupListPane.build(ctx);
-            listRoot[0] = pane;
-            // 列表 Enter：窄挡下钻到详情；宽挡把焦点移入详情（列表自身不消费 Enter，见 M3）。
-            rt.on(pane, SceneEventType.KEY_DOWN, (ev, ectx) -> {
-                if (ev.getKeyAction() != SceneKeyAction.PRESSED || ev.getKey() != SceneKey.ENTER) {
-                    return;
-                }
-                ectx.stopPropagation();
-                if (state.selection() == null) {
-                    return;
-                }
-                if (Boolean.TRUE.equals(wide.get())) {
-                    if (detailRoot[0] != null) {
-                        rt.requestFocus(detailRoot[0]);
-                    }
-                } else {
-                    drilled.set(Boolean.TRUE);
-                }
-            });
-            return pane;
-        });
-
-        rt.show(detailHost, detailVisible,
-                () -> buildDetailHost(ctx, state, wide, drilled, detailRoot, listRoot));
         return body;
+    }
+
+    /**
+     * 列表列（宽挡第一列 / 窄挡独占整宽）：<b>只建内容与键盘语义，宽度轴策略由形态工厂声明</b>
+     * ——宽挡 = {@code buildWideBody} 里固定 {@code preferredWidth}；窄挡 = {@code fillHolder} 两轴吃满。
+     *
+     * <p>这里刻意不声明 {@code fillParentWidth}：ROW 主轴上 fill 等于隐式 grow=1
+     * （{@code ConstraintResolver.effectiveGrowRow}），共用 builder 会让宽挡的固定列也参与 grow
+     * 等权分配，把详情列压窄（详见 {@link #buildWideBody}）。</p>
+     *
+     * <p>列表 pane 实例随本列挂载一次构建（{@code show} 的 I7 稳定语义：条件不跨界不重建），
+     * 列表 Enter 在窄挡下钻、宽挡把焦点移入详情（列表自身不消费 Enter，见 M3）。</p>
+     */
+    private static SceneNode buildListColumn(ObjectGroupEditorContext ctx, final ObjectGroupEditorState state,
+                                            final ReadableSignal<Boolean> wide, final Signal<Boolean> drilled,
+                                            final SceneNode[] listRoot, final SceneNode[] detailRoot) {
+        final SceneRuntime rt = ctx.rt();
+        final SceneNode host = SceneNode.column();
+        // 高度两形态一致：宽挡是 ROW 交叉轴 fill，窄挡是 COLUMN 主轴 fill（吃满剩余高）。
+        host.setFillParentHeight(true);
+
+        SceneNode pane = ObjectGroupListPane.build(ctx);
+        listRoot[0] = pane;
+        rt.on(pane, SceneEventType.KEY_DOWN, (ev, ectx) -> {
+            if (ev.getKeyAction() != SceneKeyAction.PRESSED || ev.getKey() != SceneKey.ENTER) {
+                return;
+            }
+            ectx.stopPropagation();
+            if (state.selection() == null) {
+                return;
+            }
+            if (Boolean.TRUE.equals(wide.get())) {
+                if (detailRoot[0] != null) {
+                    rt.requestFocus(detailRoot[0]);
+                }
+            } else {
+                drilled.set(Boolean.TRUE);
+            }
+        });
+        host.appendChild(pane);
+        return host;
+    }
+
+    /**
+     * 窄挡单列形态：唯一列在 holder（COLUMN）里两轴吃满 —— 宽度方向是 COLUMN <b>交叉轴</b>
+     * （fill 拉伸，不是主轴 grow），高度方向是 COLUMN 主轴 fill（吃满剩余高）。
+     *
+     * @param column 单列根（列表列或详情列）
+     * @return 同一节点（便于在 show 工厂里链式表达）
+     */
+    private static SceneNode fillHolder(SceneNode column) {
+        column.setFillParentWidth(true);
+        column.setFillParentHeight(true);
+        return column;
     }
 
     /** 详情宿主：窄挡下钻头部（视图自建）+ 视图内唯一滚动视口 + M4 详情 pane。 */
@@ -328,8 +407,9 @@ public final class ObjectGroupEditorView {
         final SceneRuntime rt = ctx.rt();
         final SceneNode host = SceneNode.column();
         host.setGap(DETAIL_GAP_PX);
+        // 高度两形态一致（宽挡交叉轴 / 窄挡主轴）；宽度轴由形态工厂声明：宽挡靠 flexGrow(1) 吃满剩余，
+        // 窄挡由 fillHolder 两轴吃满（同 buildListColumn 的口径）。
         host.setFillParentHeight(true);
-        host.setFillParentWidth(true);
 
         // 窄挡下钻头部：[← 返回] + 当前组 id（返回语义与 ESC 一致，M4 的 pane 保持不变）。
         rt.show(host, Computed.create(Boolean.FALSE, () -> Boolean.valueOf(
@@ -482,8 +562,28 @@ public final class ObjectGroupEditorView {
     private static int contentHeight(SceneRuntime rt, SceneNode node) {
         int inner = node.getText() == null ? 0 : rt.lineHeight(node.effectiveFontSize());
         List<SceneNode> children = node.__getChildren();
-        for (SceneNode child : children) {
-            inner = Math.max(inner, priorHeight(rt, child) + child.marginV());
+        if (node.getFlexDirection() == club.heiqi.uilib.ui.scene.layout.FlexDirection.COLUMN) {
+            // COLUMN 主轴：纵向堆叠 ⇒ 求和 + 间距（ROW 才取最大，见 ListPane 同名实现）。
+            int sum = 0;
+            int stacked = 0;
+            for (SceneNode child : children) {
+                if (child.isCollapsed()) {
+                    continue;
+                }
+                sum += priorHeight(rt, child) + child.marginV();
+                stacked++;
+            }
+            if (stacked > 1) {
+                sum += node.getGap() * (stacked - 1);
+            }
+            inner = Math.max(inner, sum);
+        } else {
+            for (SceneNode child : children) {
+                if (child.isCollapsed()) {
+                    continue;
+                }
+                inner = Math.max(inner, priorHeight(rt, child) + child.marginV());
+            }
         }
         return inner + node.getPaddingTop() + node.getPaddingBottom();
     }
@@ -505,7 +605,10 @@ public final class ObjectGroupEditorView {
         return box == null ? 0 : box.widthPx();
     }
 
-    /** 返回列表：清下钻态，并在列表仍挂载时就交回焦点（重挂场景由 M3 的初始焦点接管）。 */
+    /**
+     * 返回列表：清下钻态。主体形态随之从「详情单列」切回「列表单列」，列表 pane 由形态工厂重建，
+     * 其构建期自持搜索框焦点（M3）；此处的交回焦点覆盖「列表仍在树里」的宽挡路径，避免重复请求。
+     */
     private static void backToList(SceneRuntime rt, Signal<Boolean> drilled, SceneNode[] listRoot) {
         drilled.set(Boolean.FALSE);
         SceneNode pane = listRoot[0];
@@ -516,10 +619,23 @@ public final class ObjectGroupEditorView {
 
     // ------------------------------------------------------------------ 工具
 
-    /** 宽挡列表列宽：{@code clamp(220, 0.28×W, 300)}（C3 §6.1）。 */
-    private static int listWidth(int availableWidthPx) {
-        int scaled = Math.round(Math.max(0, availableWidthPx) * LIST_WIDTH_PERCENT / 100.0F);
-        return Math.max(LIST_MIN_WIDTH_PX, Math.min(LIST_MAX_WIDTH_PX, scaled));
+    /**
+     * 宽挡列表列宽（C3 §6.1 的比例口径 + 内容下限/详情下限两个实测约束）。
+     *
+     * <p>取值顺序：以 {@code 0.28×W} 为起点，先保证不低于列表<b>内容下限</b>（否则左栏工具栏
+     * 重叠/裁字 —— 真机症状），再保证详情列至少 {@link #DETAIL_MIN_WIDTH_PX}；两者冲突时
+     * <b>内容下限优先</b>（重叠是可见缺陷，详情窄只是观感取舍）。</p>
+     *
+     * @param availableWidthPx 视图根实际可用宽（逻辑 px）
+     * @param contentMinWidthPx 列表 pane 实测内容下限（逻辑 px，含其内边距）
+     * @return 列表列宽（逻辑 px）
+     */
+    private static int listWidth(int availableWidthPx, int contentMinWidthPx) {
+        int lower = Math.max(1, contentMinWidthPx);
+        int bodyAvailable = Math.max(0, availableWidthPx - 2 * ROOT_PADDING_PX - ROOT_GAP_PX);
+        int upper = Math.max(lower, bodyAvailable - DETAIL_MIN_WIDTH_PX);
+        int ratio = Math.round(Math.max(0, availableWidthPx) * LIST_WIDTH_PERCENT / 100.0F);
+        return Math.max(lower, Math.min(upper, Math.max(lower, ratio)));
     }
 
     private static SceneNode label(String text) {
@@ -529,13 +645,30 @@ public final class ObjectGroupEditorView {
         return node;
     }
 
-    /** 视图根表面：PANEL 角色配方是唯一外观写入者（主题切换只重派生、不重建节点）。 */
+    /**
+     * 视图根表面：<b>不透明</b> PANEL 配方是唯一外观写入者（主题切换只重派生、不重建节点）。
+     *
+     * <p><b>为什么不能用 {@link SceneThemes#surface}</b>：液态玻璃档 PANEL 的 idle tint alpha 仅
+     * {@code 0x14}（20/255 ≈ 7.8%，见 {@code SceneTheme.Builder} 默认配方），编辑器遮不遮住下层
+     * 配置页完全押在玻璃模糊上；真机玻璃滤镜不可用时它退化为纯 tint 叠加 —— 背景配置页的
+     * key/value 文案直接透出（用户截图实证）。本视图是占满视口的编辑浮层，背板必须先自足不透明。</p>
+     *
+     * <p><b>做法</b>：取「当前来源主题的 {@link SceneTheme#withoutBackdrop()} 变体」的 PANEL 配方
+     * （全角色 backdrop 置 null、tint 换不透明底色，语义色/边框/圆角保持同套），经
+     * {@link SceneThemes#resolve} 的只读主题信号派生 —— 主题切换自动重派生，不重建节点，
+     * 不新增 UILib 公共面，也不在业务侧写死 ARGB。内部子控件各自仍走原主题角色（叠在不透明
+     * 背板之上，玻璃不可用时也不会透出配置页）。</p>
+     */
     private static void bindPanelSurface(SceneRuntime rt, SceneNode root) {
         SceneInteractionState interaction = rt.interactionState(root);
         interaction.hovered();
         interaction.pressed();
         interaction.focused();
-        SceneSurfaceBinder.bind(rt, root, SceneThemes.surface(rt, SceneTheme.Role.PANEL),
-                Signal.create(Boolean.TRUE), interaction);
+        ReadableSignal<SceneTheme> theme = SceneThemes.resolve(rt);
+        final SceneSurfaceStyle[] holder = new SceneSurfaceStyle[1];
+        Effect.untrack(() -> holder[0] = theme.get().withoutBackdrop().surface(SceneTheme.Role.PANEL));
+        ReadableSignal<SceneSurfaceStyle> solidPanel = Computed.create(holder[0],
+                () -> theme.get().withoutBackdrop().surface(SceneTheme.Role.PANEL));
+        SceneSurfaceBinder.bind(rt, root, solidPanel, Signal.create(Boolean.TRUE), interaction);
     }
 }
