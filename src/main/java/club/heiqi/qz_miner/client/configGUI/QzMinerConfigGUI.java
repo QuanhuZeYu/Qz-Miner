@@ -5,7 +5,10 @@ import net.minecraft.client.gui.GuiScreen;
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.config.ui.ConfigScreen;
 import club.heiqi.config.ui.ConfigUI;
+import club.heiqi.config.ui.editor.Registry;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.client.configGUI.objectgroup.ObjectGroupEditorFieldRenderer;
+import club.heiqi.qz_miner.client.configGUI.objectgroup.ObjectGroupEditorState;
 import club.heiqi.qz_miner.client.picker.ObjectGroupPickerRegistration;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.uilib.ui.scene.host.lwjgl.LwjglInputSource;
@@ -38,8 +41,18 @@ public class QzMinerConfigGUI extends McScreenBridge {
             throw new IllegalStateException("ConfigBootstrap.manager() is null; preInit must run first");
         }
         PlatformInputSource input = new LwjglInputSource(new LwjglStateReader());
-        return ConfigUI.buildScreen(manager, input, registry -> { }, policy -> { },
-                ObjectGroupPickerRegistration::register);
+        // 对象组编辑视图要用与本 screen 同一个已冻结 editor registry（成员 picker 候选源来自它）。
+        // buildScreen 先执行 editorRegistryCustomizer、再执行字段 renderer customizer，所以用一个
+        // 惰性持有者把该 registry 带进 renderer：render 发生在 ConfigScreen 构造期，届时已冻结。
+        final Registry[] editorRegistry = new Registry[1];
+        return ConfigUI.buildScreen(manager, input,
+                registry -> registry.registerPath(ObjectGroupEditorState.PATH,
+                        new ObjectGroupEditorFieldRenderer(() -> editorRegistry[0])),
+                policy -> { },
+                editors -> {
+                    editorRegistry[0] = editors;
+                    ObjectGroupPickerRegistration.register(editors);
+                });
     }
 
     @Override
