@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -72,15 +73,150 @@ public class QzUiLibArtifactContractTest {
         }
     }
 
-    /** @return dependencies.gradle 实际引用的 qz_uilib jar 文件名（注册顺序、去重） */
+    /** @return dependencies.gradle 实际引用的 qz_uilib jar 文件名（注册顺序、去重；注释不参与） */
     private static List<String> referencedQzUiLibJars() throws IOException {
-        String gradle = readAll(Files.newInputStream(new File("dependencies.gradle").toPath()));
+        return extractReferencedJars(readAll(Files.newInputStream(new File("dependencies.gradle").toPath())));
+    }
+
+    /**
+     * 从 Gradle 源码文本里提取被引用的 qz_uilib jar 文件名（注册顺序、去重）。
+     *
+     * <p>拆成独立入口是为了让「文本 → 引用列表」这一步可被直接单测：文件系统状态不可控，
+     * 但解析行为必须可判别（见 {@link #jarReferenceExtractionIgnoresComments}）。</p>
+     */
+    static List<String> extractReferencedJars(String gradleSource) {
         LinkedHashSet<String> jars = new LinkedHashSet<String>();
-        Matcher matcher = QZ_UILIB_JAR_REFERENCE.matcher(gradle);
+        Matcher matcher = QZ_UILIB_JAR_REFERENCE.matcher(stripComments(gradleSource));
         while (matcher.find()) {
             jars.add(matcher.group(1));
         }
         return new ArrayList<String>(jars);
+    }
+
+    /**
+     * 文本解析守卫：注释里举例的 jar 文件名不得被当成真实依赖引用。
+     *
+     * <p>2026-09-12 实际事故：段注释中的回退示例（{@code libs/qz_uilib-4.9.1-dev.jar}）被整文正则捕获，
+     * 让「依赖引用的 jar 必须存在」断言在一个与代码无关的文本上失败 —— 而该旧件早已从 {@code libs/} 移除。
+     * 同类前科：{@code BlockPickerEventRegistrationContractTest} 的 javadoc 被当成注解。</p>
+     */
+    @Test
+    public void jarReferenceExtractionIgnoresComments() {
+        String source = "    // 回退方式：把文件名改回 libs/qz_uilib-9.9.9-dev.jar 即可\n"
+                + "    // api(\"libs/qz_uilib-8.8.8-dev.jar\") 只是历史示例\n"
+                + "    devOnlyNonPublishable(project.files(\"libs/qz_uilib-4.10.0-dev.jar\"))\n"
+                + "    testImplementation(project.files('libs/qz_uilib-4.10.0-dev.jar'))\n"
+                + "    /* 块注释里的 libs/qz_uilib-7.7.7-dev.jar 同样不算引用 */\n";
+
+        List<String> extracted = extractReferencedJars(source);
+
+        Assert.assertEquals("注释里的 jar 名不得进入引用列表，代码里的引用必须去重保留",
+                Collections.singletonList("qz_uilib-4.10.0-dev.jar"), extracted);
+    }
+
+    /**
+     * 去掉 Groovy/Gradle 源码里的注释，只留可执行文本。
+     *
+     * <p><b>为什么必须去注释</b>：{@code dependencies.gradle} 的段注释会举例写出历史/回退用的 jar 文件名
+     * （如 {@code qz_uilib-4.9.1-dev.jar}）。整文扫正则时这些示例会被当成真实依赖引用，于是「注释文字」
+     * 与「文件系统」产生伪耦合：删掉一个只存在于注释里的旧件就让全量 build 变红（2026-09-12 实际发生）。
+     * 同类前科：{@code BlockPickerEventRegistrationContractTest} 的 javadoc 被当成注解（2026-09-12）。</p>
+     *
+     * <p>同时跳过字符串字面量，避免 {@code "https://…"} 里的双斜杠被误判为注释起点。</p>
+     */
+    private static String stripComments(String source) {
+        StringBuilder stripped = new StringBuilder(source.length());
+        int index = 0;
+        while (index < source.length()) {
+            char current = source.charAt(index);
+            if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                while (index < source.length() && source.charAt(index) != '\n') {
+                    index++;
+                }
+                continue;
+            }
+            if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                index += 2;
+                while (index + 1 < source.length()
+                        && !(source.charAt(index) == '*' && source.charAt(index + 1) == '/')) {
+                    index++;
+                }
+                index = Math.min(index + 2, source.length());
+                continue;
+            }
+            if (current == '"' || current == '\'') {
+                char quote = current;
+                stripped.append(current);
+                index++;
+                while (index < source.length() && source.charAt(index) != quote) {
+                    if (source.charAt(index) == '\\' && index + 1 < source.length()) {
+                        stripped.append(source.charAt(index));
+                        index++;
+                    }
+                    if (index < source.length()) {
+                        stripped.append(source.charAt(index));
+                        index++;
+                    }
+                }
+                if (index < source.length()) {
+                    stripped.append(source.charAt(index));
+                    index++;
+                }
+                continue;
+            }
+            stripped.append(current);
+            index++;
+        }
+        return stripped.toString();
+    }
+
+    /**
+     * 自洽守卫：被引用的 UILib 制品，其 {@code @Mod} 声明的远端版本区间必须接受<b>该制品自己的版本</b>。
+     *
+     * <p><b>为什么需要</b>（2026-09-12 事故）：制品携带 {@code acceptableRemoteVersions=[4.9.0,4.10.0)}
+     * 而自身版本是 4.10.0 时，FML 判定「mod 拒绝自身版本」——启动期报
+     * {@code appears to reject its own version number (4.10.0)}，进入世界时集成服务器
+     * {@code Rejecting connection CLIENT: [FMLMod:qz_uilib{4.10.0}]} 后卸载全部维度
+     * （症状：无法进入世界，且不生成 crash-report）。本仓原有断言只校验「jar 版本满足 Miner 的依赖区间」，
+     * 两条都绿仍会把事故漏到真机；本条补的是「<b>上游制品自身自洽</b>」。</p>
+     *
+     * <p>区间为空串时 FML 走精确版本相等检查，自身版本恒被接受，跳过。</p>
+     */
+    @Test
+    public void referencedQzUiLibArtifactAcceptsItsOwnVersion() throws Exception {
+        List<String> referencedJars = referencedQzUiLibJars();
+        Assert.assertFalse("dependencies.gradle 必须实际引用 libs/ 下的 qz_uilib jar",
+                referencedJars.isEmpty());
+
+        String range = referencedQzUiLibRemoteRange();
+        if (range.isEmpty()) {
+            return;
+        }
+        for (String fileName : referencedJars) {
+            File jar = new File("libs", fileName);
+            Assert.assertTrue("依赖引用的 jar 必须存在: " + jar.getPath(), jar.isFile());
+            String modVersion = readMcModInfoVersion(jar);
+            Assert.assertTrue("libs/" + fileName + " 自己声明的远端版本区间 " + range
+                            + " 必须接受该制品自身版本 " + modVersion
+                            + "（否则 FML 判定 mod 拒绝自身版本：集成服务器握手拒绝、进世界立即卸载全部维度）",
+                    satisfiesRange(modVersion, range));
+        }
+    }
+
+    /**
+     * @return 被引用 UILib 制品自身的 {@code acceptableRemoteVersions}。
+     *
+     * <p>用反射读制品里的声明（而非本仓常量），保证校验对象就是 classpath 上实际加载的那一件。</p>
+     */
+    private static String referencedQzUiLibRemoteRange() {
+        try {
+            Class<?> uilibMyMod = Class.forName("club.heiqi.uilib.MyMod");
+            Mod declaration = uilibMyMod.getAnnotation(Mod.class);
+            Assert.assertNotNull("被引用的 Qz-UILib 制品必须暴露带 @Mod 的 club.heiqi.uilib.MyMod", declaration);
+            return declaration.acceptableRemoteVersions();
+        } catch (ClassNotFoundException missing) {
+            throw new AssertionError("classpath 上必须能加载被引用的 club.heiqi.uilib.MyMod", missing);
+        }
     }
 
     /**

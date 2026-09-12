@@ -59,20 +59,31 @@ dependencies {
     // ⚠ 同名同版本内容漂移：旧 4.9.1 件（7E0A8EF2…/57BAB4C2…）不含 HudLayoutStore/HudLayoutPersistence，
     // 混用会在类加载期 NoClassDefFoundError；QzUiLibArtifactContractTest 只判版本区间、识别不了内容漂移，
     // 集成与发布必须以本注释的 sha256 为准（详见 .changelogs/5.3.1.md「同版本内容漂移」条）。
-    // 4.9.1 相对 4.9.0 为纯增量（公开面零删除零改签名），acceptableRemoteVersions [4.9.0,4.10.0) 同时接受两者；
+    // 4.9.1 相对 4.9.0 为纯增量（公开面零删除零改签名），当时的 acceptableRemoteVersions [4.9.0,4.10.0) 同时接受两者
+    // （该声明已于 2026-09-12 上抬为 [4.9.0,5.0.0)，原因见本段末尾「无法进入世界」修复说明）；
     // 该制品已于 2026-09-11 随 4.9.1 正式 Release 上线，资产 sha256 与本注释一致，无需再回填。
     // 【P2-B 开发期依赖切换·过渡态】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
     // PickerIconCache / PickerRevisionBridge 等）只在 Qz-UILib 4.10.0 构建中存在；4.9.1 件不含新 SPI，
     // 会让 P2-B 代码无法编译。本行因此改指本机构建的 4.10.0 dev 制品：
-    //   来源 = Qz-UILib 分支 4.0 HEAD f1385d60（P0-P6 + 第四轮成品细节 + 密度偏好通路 + 网格度量修复 + 第五/六轮框架级收尾），命令
-    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（538 类 / 5598 例 / 0 失败 / 0 错误 / 7 跳过）；
+    //   来源 = Qz-UILib 分支 4.0 HEAD f1385d60 + 「无法进入世界」修复（远端版本区间必须含自身构建版本）
+    //   + 选择器结果网格末排裁切修复（轨道高按标签实际生效字号复核 I-2 内容底），命令
+    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（539 类 / 5602 例 / 0 失败 / 0 错误 / 7 跳过）；
     //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 104B6940A03C58215EE7D52BD0FE0ECA5D63544EDB634D3866F268971F78D1D5（3925675 bytes）。
+    //   sha256 E18C5F6ED56BAD514D2B3C62E57150D27C9F293611DFB26C3E9664876508E541（3926208 bytes）。
     //   内容漂移警示同 4.9.1 段：同版本名不同内容会在类加载期炸，集成与发布以本注释 sha256 为准。
+    //   中间件 sha256 A24A1532…（3925676 bytes）= 仅版本修复、无布局修复；已由本件取代（同名不同内容，
+    //   混用不会崩但会丢掉末排裁切修复）。
+    //   ⚠ 更早一件（sha256 104B6940…/3925675 bytes）携带 UILib 侧声明 acceptableRemoteVersions=[4.9.0,4.10.0)，
+    //   该区间开上界不含制品自身版本 4.10.0：FML 启动期报「mod qz_uilib appears to reject its own version
+    //   number (4.10.0)」，进入世界时集成服务器 Rejecting connection CLIENT 后卸载全部维度（症状=无法进入世界）。
+    //   现声明改为 [4.9.0,5.0.0)（与 Miner 依赖上界成对同源），并由 Qz-UILib 的
+    //   FmlRemoteVersionCompatibilityContractTest#declaredRangeMustContainOwnBuildVersion 守卫
+    //   「区间必须含自身构建版本」；禁止把本两行回退到 104B6940 件。
     // 过渡态删除条件（P6 成对升级，需用户确认）：Qz-UILib 出 5.0.0 Release 资产（T-1/T-6 旧路径删除的同一批）
     //   + Miner 把 @Mod 依赖上界同步到 5.0.0，此时本两行改指 5.0.0 Release 资产并删除本段注释。
-    // 过渡态回退方式：把下面两行的文件名改回 libs/qz_uilib-4.9.1-dev.jar 即可（该件仍保留在 libs/ 目录，未删除、未覆盖；
-    //   回退后 P2-B 的新 SPI 代码无法编译，必须先 revert 对应的 Miner 提交）。
+    // 过渡态回退方式：4.8.0 / 4.9.0 / 4.9.1 三件旧 dev jar 已于 2026-09-12 从本仓 libs/ 移除（git 索引中为删除态），
+    //   回退需先从 Qz-UILib Release 资产取回对应 dev jar 放回 libs/，再把下面两行的文件名改回去；
+    //   回退后 P2-B 的新 SPI 代码无法编译，必须先 revert 对应的 Miner 提交。
     devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
     testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
 
