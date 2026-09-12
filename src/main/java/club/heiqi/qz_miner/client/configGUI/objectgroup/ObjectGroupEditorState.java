@@ -567,8 +567,32 @@ public final class ObjectGroupEditorState {
         }
         groups.get(index).put(MEMBER_ID, id);
         clearRemoved();
+        // 改名 = 换 identity：必须先把「旧 key + 新 identity」推进 lineage，再写草稿，
+        // 否则 sync/appendByIdentity 按 identity member 匹配不到新值 ⇒ 分配新 row key
+        // ⇒ 详情 keyed 列表整棵重建、输入框回收、焦点清空、连续键入全丢（P0 缺陷）。
+        bindIdentityAlias(key, MEMBER_ID, id);
         write(groups);
         return EditResult.ok();
+    }
+
+    /**
+     * 把一行的 identity member 更新为新值，同时把该 row key 的 identity 别名推进 lineage
+     * （identity 变更类命令的专用前置）。
+     *
+     * <p><b>为什么必须有这一步</b>：{@code StructuredListModel.sync/appendByIdentity} 用 schema 声明的
+     * identity member（本表为 {@code id}）匹配行——改名后旧 key 的 identity 与新值对不上，sync 会
+     * 分配新 row key（keyed 列表随之重建）。UILib 的正门是
+     * {@link StructuredListModel.IdentityLineage#observe(java.util.List)}：先喂入「保 key、换 identity」
+     * 的完整行集，{@code historicalKey(新 id)} 便指回旧 key，随后的 sync 复用旧 key；行集用
+     * {@link StructuredListModel#updateMember(java.util.List, long, String, Object)}（保 key 的公开面）
+     * 构造，不改写 UI 层真值、不触碰 UILib 内部状态。</p>
+     *
+     * @param key    目标行 key（保持不变）
+     * @param member identity member（本表 {@code id}）
+     * @param value  新 identity 值
+     */
+    private void bindIdentityAlias(long key, String member, Object value) {
+        lineage.observe(StructuredListModel.updateMember(rows.get(), key, member, value));
     }
 
     /**

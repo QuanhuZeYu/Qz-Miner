@@ -52,6 +52,21 @@ import club.heiqi.uilib.ui.scene.theme.SceneThemes;
  * {@link ObjectGroupEditorView} 承担「窄挡下钻 / 宽挡焦点进详情」。内层按钮经 {@link #claimKeyboard}
  * 独占非 TAB、非 ESC 键，既不顺带触发视图级语义，也不吞掉 TAB（框架焦点遍历）与 ESC（视图关闭）。</p>
  *
+ * <p><b>行与命中（C3 §5.3）</b>：行点击绑在<b>行根</b>（整卡可点——主行、副行与行内 padding 都落在行盒内），
+ * 顺序固定 {@code state.select → rt.requestFocus(viewport) → ctx.rowActivate()}；行尾 ⋮ 在按钮自身
+ * stopPropagation，只开菜单、不叠加行激活。Tab 环走 roving：只有当前选中行的 ⋮ 经
+ * {@code rt.focusable(menu, selected)} 进出（UILib 按钮基元自身按 enabled 的注册
+ * 恒 TRUE、只 add 一次，不会重复注销），非选中行 ⋮ 仍可鼠标点击打开菜单、Menu/F10 仍作用于选中行。</p>
+ *
+ * <p><b>搜索焦点</b>：初始焦点落在搜索<b>输入控件</b>（不是承载它的行容器——TEXT_INPUT 只派发给
+ * 焦点节点本身，停在行容器上会丢字）；pane 级键守卫按「输入控件或其子树」判定搜索焦点，故搜索框内
+ * ↑/↓ 仍换组、Delete 仍只在列表焦点删组、Enter 仍由搜索框消费。</p>
+ *
+ * <p><b>极窄高保护</b>：可用高不足时按序折叠「计数行」→「筛选行」（{@link #installHeightGuard}，
+ * 判据 = pane 实测盒高 − 内边距与行/块先验高，全部实测派生），正常挡位（含 480×270 逻辑最差挡）
+ * 一次都不折。空/非空双分支共用<b>一个</b> {@code rt.show}：零尺寸 anchor 槽位在 COLUMN 里会吃掉
+ * 一份 pane 间距，少一个 show 就少一份间距，矮屏预算全给列表视口。</p>
+ *
  * <p><b>先验尺寸（布局闸门纪律）</b>：行主行是 ROW（标题槽 grow + 状态词/顺序号/状态点/行尾按钮
  * 固定），按 {@code ConstraintResolver} 的闸门要求，行尾按钮显式测量设宽高、标题槽设「行宽 1/3 宽
  * 下限」、状态词与副行设宽上限；工具栏两区（搜索行 / 谓词区 = 分段行 + 计数行）作为 pane COLUMN 的
@@ -143,20 +158,22 @@ public final class ObjectGroupListPane {
         pane.setClipChildren(true);
         bindPaneSurface(rt, pane);
 
-        SceneNode search = buildSearch(rt, state, enabled, readOnly);
-        pane.appendChild(search);
-        pane.appendChild(buildFilterRow(rt, state, palette, enabled));
+        final SearchRow search = buildSearch(rt, state, enabled, readOnly);
+        pane.appendChild(search.row);
+        final FilterSection filter = buildFilterRow(rt, state, palette, enabled);
+        pane.appendChild(filter.block);
 
         ReadableSignal<Boolean> hasRows = Computed.create(Boolean.FALSE,
                 () -> Boolean.valueOf(!state.visibleViews().isEmpty()));
-        ReadableSignal<Boolean> empty = Computed.create(Boolean.TRUE,
-                () -> Boolean.valueOf(!Boolean.TRUE.equals(hasRows.get())));
-        rt.show(pane, empty, () -> buildEmptyState(rt, state, palette));
-        rt.show(pane, hasRows, () -> buildRowViewport(rt, state, palette, scroll, viewportRef));
+        // 双分支只用<b>一个</b> show：rt.show 的零尺寸 anchor 常驻 parent 子表，每个槽位在 COLUMN
+        // 主轴都会吃掉一份 pane 间距（实测两个 show = 5 槽 4 间距 = 24px，极端矮屏正是这 24px 的
+        // 争夺）；单 show = 4 槽 3 间距，把间距预算还给列表视口（见 installHeightGuard）。
+        rt.show(pane, hasRows, () -> Boolean.TRUE.equals(hasRows.get())
+                ? buildRowViewport(rt, ctx, state, palette, scroll, viewportRef)
+                : buildEmptyState(rt, state, palette));
 
-        // 列表键盘：目标为 pane 根 / 行视口（列表焦点），或搜索框（仅导航键）。
+        // 列表键盘：目标为 pane 根 / 行视口（列表焦点），或搜索输入控件（仅导航键）。
         // ENTER 不在此消费 —— 留给 ObjectGroupEditorView 在 pane 根上的「下钻 / 焦点进详情」语义。
-        final SceneNode searchBox = search;
         rt.on(pane, SceneEventType.KEY_DOWN, (ev, ectx) -> {
             if (ev.getKeyAction() != SceneKeyAction.PRESSED) {
                 return;
@@ -164,7 +181,7 @@ public final class ObjectGroupListPane {
             final SceneNode viewport = viewportRef[0];
             SceneNode target = ev.getTarget();
             boolean listFocused = target == pane || (viewport != null && target == viewport);
-            boolean searchFocused = target != null && target == searchBox;
+            boolean searchFocused = target != null && isWithin(target, search.input);
             if (!listFocused && !searchFocused) {
                 return;
             }
@@ -189,15 +206,22 @@ public final class ObjectGroupListPane {
             }
         });
 
-        // 初始焦点落在搜索框：绝不在删除控件上，同时给视图根的 ESC / Enter 语义一个事件 target。
-        rt.requestFocus(search);
+        // ⑤ 选择移动处理器：视图在根上转发 ↑/↓（焦点在详情时也能换组）。内部复用 moveSelection
+        // 的滚动跟随；越界 / 空列表 / 视口未挂载都是 no-op。
+        ctx.setSelectionNudgeHandler(delta -> moveSelection(rt, state, viewportRef[0], scroll, delta));
+        // ⑥ 极窄高保护：可用高不足时按序折叠「计数行」→「筛选行」，保证列表视口 ≥ 2 行先验高。
+        installHeightGuard(rt, pane, search.row, filter, viewportRef, hasRows);
+
+        // 初始焦点必须落在搜索「输入控件」上：文本事件只派发给焦点节点本身（不向下传给子节点），
+        // 焦点停在承载行容器上时用户直接打字（TEXT_INPUT）会丢失、必须先用鼠标点一下输入框。
+        rt.requestFocus(search.input);
         return pane;
     }
 
     // ------------------------------------------------------------------ 工具条 / 谓词
 
     /** 搜索行：搜索框独占剩余宽 + 「新建组」（达组数上限时改为结构化提示并禁用）。 */
-    private static SceneNode buildSearch(SceneRuntime rt, ObjectGroupEditorState state,
+    private static SearchRow buildSearch(SceneRuntime rt, ObjectGroupEditorState state,
                                          ReadableSignal<Boolean> enabled, ReadableSignal<Boolean> readOnly) {
         SceneNode row = SceneNode.row();
         row.setGap(PANE_GAP_PX);
@@ -206,18 +230,24 @@ public final class ObjectGroupListPane {
         SceneTextInput.Props props = new SceneTextInput.Props(state.search(), enabled, readOnly,
                 ClientI18n.tr("config.qz_miner.object_group.list.search"), Integer.MAX_VALUE,
                 SceneInputType.TEXT, next -> state.search().set(next));
-        SceneNode search = SceneTextInput.create(rt, props).get();
-        search.setFlexGrow(1);
+        SceneNode input = SceneTextInput.create(rt, props).get();
+        input.setFlexGrow(1);
         // 搜索框最小宽 = 占位文案实测 + 控件内边距：列宽策略已保证整行放得下，这里是压缩兜底下界。
-        bindSearchMinWidth(rt, search);
-        // 搜索框只独占 Enter（避免 Enter 顺带触发视图级下钻）：↑/↓/Menu 放行给列表键盘语义，
-        // 其余键由 pane 级守卫按事件 target 区分（Delete 只在列表焦点生效）。
-        rt.on(search, SceneEventType.KEY_DOWN, (ev, ectx) -> {
-            if (ev.getKey() == SceneKey.ENTER) {
+        bindSearchMinWidth(rt, input);
+        // 搜索框 Enter 口径（对 C3 §5.7「搜索框自己吞掉 Enter」的显式偏离）：
+        //   · 搜索词非空（trim 后，与 state.matchesQuery 同口径）→ 消费，保留「打字时 Enter 不误触
+        //     下钻」的防误触意图；
+        //   · 搜索词为空 → 不消费、放行给视图根的 Enter 语义（窄挡下钻 / 宽挡焦点进详情）。
+        // 为什么偏离：初始焦点合法落在本输入控件后（见 build 的焦点说明），一律消费会让
+        // 「先 ↑/↓ 选组再 Enter 下钻」这条基线键盘路径失效（回归实测 focusMovedAfterDownEnter
+        // 由 true 变 false）；空词放行既恢复该路径，又不违背 §5.7 的防误触本意。
+        // ↑/↓/Menu 放行给列表键盘语义，其余键由 pane 级守卫按事件 target 区分（Delete 只在列表焦点生效）。
+        rt.on(input, SceneEventType.KEY_DOWN, (ev, ectx) -> {
+            if (ev.getKey() == SceneKey.ENTER && hasSearchQuery(state)) {
                 ectx.stopPropagation();
             }
         });
-        row.appendChild(search);
+        row.appendChild(input);
 
         ReadableSignal<Boolean> canAddGroup = Computed.create(Boolean.TRUE, () -> Boolean.valueOf(
                 state.summary().groupCount() < ObjectGroupRuleSet.MAX_GROUPS));
@@ -226,12 +256,12 @@ public final class ObjectGroupListPane {
                 () -> Boolean.TRUE.equals(canAddGroup.get())
                         ? ClientI18n.tr("config.qz_miner.object_group.list.add")
                         : ClientI18n.tr("config.qz_miner.object_group.limit.groups"));
-        SceneNode add = searchActionButton(rt, row, search, addLabel, canAddGroup,
+        SceneNode add = searchActionButton(rt, row, input, addLabel, canAddGroup,
                 () -> state.addGroup());
         row.appendChild(add);
         // 搜索行是 pane COLUMN 的固定兄弟（同排还有行视口 grow 子）：高度必须先验可算。
         bindPriorHeight(rt, row);
-        return row;
+        return new SearchRow(row, input);
     }
 
     /**
@@ -245,8 +275,8 @@ public final class ObjectGroupListPane {
      *
      * <p>两行都是 pane COLUMN 的固定兄弟：整块高必须先验可算（{@link #bindPriorHeight}）。</p>
      */
-    private static SceneNode buildFilterRow(SceneRuntime rt, ObjectGroupEditorState state,
-                                            Palette palette, ReadableSignal<Boolean> enabled) {
+    private static FilterSection buildFilterRow(SceneRuntime rt, ObjectGroupEditorState state,
+                                               Palette palette, ReadableSignal<Boolean> enabled) {
         final SceneNode block = SceneNode.column();
         block.setGap(FILTER_LINE_GAP_PX);
 
@@ -303,13 +333,44 @@ public final class ObjectGroupListPane {
         }));
         // 谓词区是 pane COLUMN 的固定兄弟：整块高必须先验可算。
         bindPriorHeight(rt, block);
-        return block;
+        return new FilterSection(block, row, countRow);
+    }
+
+    /** 谓词区节点束（块 / 分段行 / 计数行）：极窄高保护按「计数行 → 筛选行」顺序折叠时需要按行寻址。 */
+    private static final class FilterSection {
+        private final SceneNode block;
+        private final SceneNode segmentedRow;
+        private final SceneNode countRow;
+
+        FilterSection(SceneNode block, SceneNode segmentedRow, SceneNode countRow) {
+            this.block = block;
+            this.segmentedRow = segmentedRow;
+            this.countRow = countRow;
+        }
+    }
+
+    /**
+     * 搜索行节点束：行容器 + 搜索输入控件根。
+     *
+     * <p>焦点与文本事件的真值节点是<b>输入控件</b>，不是承载它的行容器：{@code SceneRuntime}
+     * 只把 TEXT_INPUT 派发给焦点节点本身（事件只向上冒泡），焦点留在行容器上时用户直接打字必然丢失。
+     * 类型键守卫也按该控件判定（控件及其子树都算「搜索焦点」）。</p>
+     */
+    private static final class SearchRow {
+        private final SceneNode row;
+        private final SceneNode input;
+
+        SearchRow(SceneNode row, SceneNode input) {
+            this.row = row;
+            this.input = input;
+        }
     }
 
     // ------------------------------------------------------------------ 行
 
     /** 行视口：独立滚动容器（{@code SceneScrolls} 为本类唯一滚轮汇点），行按 keyed 渲染。 */
-    private static SceneNode buildRowViewport(SceneRuntime rt, ObjectGroupEditorState state,
+    private static SceneNode buildRowViewport(SceneRuntime rt, ObjectGroupEditorContext ctx,
+                                              ObjectGroupEditorState state,
                                               Palette palette, Signal<Integer> scroll, SceneNode[] viewportRef) {
         final SceneNode viewport = SceneNode.column();
         viewport.setGap(PANE_GAP_PX);
@@ -336,12 +397,13 @@ public final class ObjectGroupListPane {
         rt.forEach(viewport, Computed.create(
                         Collections.<ObjectGroupEditorState.RowView>emptyList(), state::visibleViews),
                 row -> Long.valueOf(row.key()),
-                row -> buildRow(rt, state, viewport, palette, row));
+                row -> buildRow(rt, ctx, state, viewport, palette, row));
         return viewport;
     }
 
     /** 单行：主行（状态点 / 顺序号 / id / 状态词 / 溢出菜单）+ 副行（模式数 · 成员数）。 */
-    private static SceneNode buildRow(SceneRuntime rt, final ObjectGroupEditorState state,
+    private static SceneNode buildRow(SceneRuntime rt, final ObjectGroupEditorContext ctx,
+                                      final ObjectGroupEditorState state,
                                       final SceneNode viewport, final Palette palette,
                                       final ObjectGroupEditorState.RowView row) {
         final long key = row.key();
@@ -361,14 +423,18 @@ public final class ObjectGroupListPane {
                         ? palette.borderFocus.get().intValue() : palette.borderDefault.get().intValue()),
                 root::setBorderColor);
 
+        // 整卡可点（C3 §5.3「点击行 →」）：命中绑在行根而非 header —— 副行（counts）、行内 padding
+        // 与 header/副行之间的间隙都落在行盒内，点击一律选中；行尾 ⋮ 在按钮自身 stopPropagation，
+        // 不会二次触发。顺序固定：选中 → 焦点回列表视口 → 视图语义 rowActivate。
+        rt.on(root, SceneEventType.CLICK, (ev, ectx) -> {
+            state.select(key);
+            rt.requestFocus(viewport);
+            ctx.rowActivate();
+        });
+
         final SceneNode header = SceneNode.row();
         header.setGap(ROW_GAP_PX);
         header.setCrossAxisAlign(CrossAxisAlign.CENTER);
-        // 点行主区即选中；焦点交给行视口，使点击后 ↑/↓/Menu/Delete 立即可用。
-        rt.on(header, SceneEventType.CLICK, (ev, ectx) -> {
-            state.select(key);
-            rt.requestFocus(viewport);
-        });
 
         final SceneNode dot = new SceneNode();
         dot.setHitTestable(false);
@@ -396,6 +462,11 @@ public final class ObjectGroupListPane {
 
         final SceneNode menu = buildRowMenu(rt, state, key);
         header.appendChild(menu);
+        // roving Tab（C3 §5.7：Tab 环只随「当前选中行」走）：只有选中行的 ⋮ 进 Tab 环。
+        // UILib 按钮基元自身已按 enabled 注册过一次 focusable（本行 enabled 恒 TRUE ⇒ 只在
+        // 构建期 add 一次、不重复注销、不重复 cleanup）；这里用同一个 rt.focusable 动态重载，以选中
+        // 信号做唯一的进出控制：非选中行 unregister（仍可鼠标点击打开菜单），选中行 register。
+        rt.focusable(menu, selected);
         root.appendChild(header);
 
         final SceneNode counts = label("");
@@ -579,21 +650,26 @@ public final class ObjectGroupListPane {
         scrollIntoView(rt, viewport, scroll, next);
     }
 
-    /** 滚动跟随：行高与视口高都取运行期生效值，不做静态假定。 */
+    /**
+     * 滚动跟随：行几何与视口高都取运行期<b>实测</b>值，不做静态假定。
+     *
+     * <p>步距必须实测：行盒高由内容派生（主行 + 副行 + 内边距，实测 ≈62~70），与
+     * {@link #rowHeight} 的先验下界（36）不是同一个量。用先验当步距会让选中行越滚越偏——
+     * 实测 64 组 / 视口高 106 时 ↓×20 后选中行仍在视口之外（scrollY 770，应约 1484）。</p>
+     */
     private static void scrollIntoView(SceneRuntime rt, SceneNode viewport, Signal<Integer> scroll, int index) {
         Object cached = viewport.getCachedLayout();
         if (!(cached instanceof LayoutBox)) {
             return;
         }
-        int rowHeight = rowHeight(rt, viewport.effectiveFontSize());
-        int top = index * (rowHeight + PANE_GAP_PX);
+        RowMetrics row = rowMetrics(viewport, index, rowHeight(rt, viewport.effectiveFontSize()));
         int viewportHeight = Math.max(0, ((LayoutBox) cached).getHeight());
         int current = scroll.get().intValue();
         int next = current;
-        if (top < current) {
-            next = top;
-        } else if (top + rowHeight > current + viewportHeight) {
-            next = top + rowHeight - viewportHeight;
+        if (row.top < current) {
+            next = row.top;
+        } else if (row.top + row.height > current + viewportHeight) {
+            next = row.top + row.height - viewportHeight;
         }
         next = Math.max(0, Math.min(Math.max(0, SceneGeometry.maxScrollY(viewport)), next));
         if (next != current) {
@@ -601,7 +677,12 @@ public final class ObjectGroupListPane {
         }
     }
 
-    /** Menu / Shift+F10：以选中行的行盒为锚打开溢出菜单（键盘路径没有指针坐标）。 */
+    /**
+     * Menu / Shift+F10：以选中行的<b>实测行盒</b>为锚打开溢出菜单（键盘路径没有指针坐标）。
+     *
+     * <p>锚点行号 → y 的换算同样走 {@link #rowMetrics}（实测行高 + 行间距），否则滚动后锚点会
+     * 按先验步距漂移，菜单越靠后越偏。</p>
+     */
     private static void openSelectedRowMenu(SceneRuntime rt, ObjectGroupEditorState state,
                                             SceneNode viewport, int treeRootAbsX, int treeRootAbsY) {
         ObjectGroupEditorState.RowView selected = state.selection();
@@ -610,10 +691,50 @@ public final class ObjectGroupListPane {
         }
         AnchorRect box = SceneGeometry.absoluteBox(viewport, treeRootAbsX, treeRootAbsY);
         int index = indexOf(state.visibleViews(), selected.key());
-        int rowHeight = rowHeight(rt, viewport.effectiveFontSize());
-        int y = box.getY() + Math.max(0, index) * (rowHeight + PANE_GAP_PX) + rowHeight
-                - viewport.getScrollOffsetY();
+        RowMetrics row = rowMetrics(viewport, Math.max(0, index),
+                rowHeight(rt, viewport.effectiveFontSize()));
+        int y = box.getY() + row.top + row.height - viewport.getScrollOffsetY();
         SceneContextMenu.open(rt, box.getX() + ROW_PADDING_PX, y, rowMenuItems(state, selected.key()));
+    }
+
+    /**
+     * 目标行的实测几何（<b>内容坐标</b>，不含滚动偏移——与子节点 cachedLayout 同空间）。
+     *
+     * <p>优先读 viewport 第 {@code index} 个子节点（= 第 index 行，{@code forEach} 保序）的
+     * cachedLayout；目标行尚未布局（首帧 / 刚挂载）时回落到先验步距
+     * {@code index × (rowHeight + PANE_GAP_PX)}，保证键盘仍在合理位置工作。</p>
+     *
+     * @param viewport        行视口（子节点即行）
+     * @param index           可见行下标
+     * @param priorRowHeight  先验行高（{@link #rowHeight}，仅兜底用）
+     * @return 行几何（内容坐标）
+     */
+    private static RowMetrics rowMetrics(SceneNode viewport, int index, int priorRowHeight) {
+        if (index >= 0) {
+            List<SceneNode> children = viewport.__getChildren();
+            if (index < children.size()) {
+                Object cached = children.get(index).getCachedLayout();
+                if (cached instanceof LayoutBox) {
+                    LayoutBox box = (LayoutBox) cached;
+                    if (box.getHeight() > 0) {
+                        return new RowMetrics(box.getY(), box.getHeight());
+                    }
+                }
+            }
+        }
+        int height = Math.max(1, priorRowHeight);
+        return new RowMetrics(index * (height + PANE_GAP_PX), height);
+    }
+
+    /** 行几何（内容坐标）：{@code top} = 行顶、{@code height} = 行高。 */
+    private static final class RowMetrics {
+        private final int top;
+        private final int height;
+
+        RowMetrics(int top, int height) {
+            this.top = top;
+            this.height = height;
+        }
     }
 
     /**
@@ -719,6 +840,18 @@ public final class ObjectGroupListPane {
     private static int filterIndexOf(ObjectGroupEditorState.Filter filter) {
         int index = FILTER_ORDER.indexOf(filter);
         return index < 0 ? 0 : index;
+    }
+
+    /**
+     * 搜索词是否非空（trim 口径，与 {@code RowView.matchesQuery} / 视图 ESC 清词判定同源）：
+     * 空串与纯空白都视为「无搜索词」——此时 Enter 归视图的下钻语义。
+     *
+     * @param state 编辑状态
+     * @return true 表示有搜索词
+     */
+    private static boolean hasSearchQuery(ObjectGroupEditorState state) {
+        String query = state.search().get();
+        return query != null && !query.trim().isEmpty();
     }
 
     private static String filterKey(ObjectGroupEditorState.Filter filter) {
@@ -905,11 +1038,116 @@ public final class ObjectGroupListPane {
         return 0;
     }
 
-    /** 显式先验高（构建期一次 + 每次布局后重派生）：COLUMN 固定兄弟高必须先验可算。 */
+    /**
+     * 显式先验高（构建期一次 + 每次布局后重派生）：COLUMN 固定兄弟高必须先验可算。
+     *
+     * <p>折叠节点先验高必须归零：{@code ConstraintResolver.priorKnownChildHeight} 对「有
+     * preferredHeight 的节点」直接返回该值、不查折叠态，归零后折叠才真正退出主轴留位
+     * （口径同 {@code ObjectGroupEditorView.buildUndoBar}）。</p>
+     */
     private static void bindPriorHeight(SceneRuntime rt, final SceneNode node) {
-        Runnable apply = () -> node.setPreferredHeight(contentHeight(rt, node));
+        Runnable apply = () -> node.setPreferredHeight(node.isCollapsed() ? 0 : contentHeight(rt, node));
         apply.run();
         rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(apply));
+    }
+
+    /**
+     * 极窄高保护：pane 可用高不足时按序折叠「计数行」→「筛选行」，保证列表视口拿到至少 2 行先验高。
+     *
+     * <p><b>判据全部实测派生</b>：可用高 = pane 实测布局盒高 − 内边距；需求高 = 2 × 行高先验
+     * （{@link #rowHeight}，生效字号派生）+ 行间距（{@link #PANE_GAP_PX}）；固定兄弟高 = 搜索行与
+     * 谓词区的先验高（与 {@code ConstraintResolver.priorKnownChildHeight} 同口径）。不写死分辨率、
+     * 字号或像素阈值：正常挡位（含真机最差挡 480×270 逻辑）需求本已满足，一次折叠都不发生。</p>
+     *
+     * <p>折叠只声明 {@code setCollapsed}（布局 / 绘制 / 命中 / 焦点四面同时退出），谓词区自身先验高
+     * 同步归零 / 还原；恢复挡位时逐级解折叠，工具条与视口回到原布局。</p>
+     *
+     * @param rt          场景运行时
+     * @param pane        pane 根（实测可用高的来源）
+     * @param search      搜索行（固定兄弟，参与可用高扣除）
+     * @param filter      谓词区节点束（折叠顺序：计数行 → 筛选行）
+     * @param viewportRef 行视口引用（未挂载时为 null ⇒ 不折）
+     * @param hasRows     是否存在可见行（空列表不折工具条）
+     */
+    private static void installHeightGuard(SceneRuntime rt, final SceneNode pane, final SceneNode search,
+                                           final FilterSection filter, final SceneNode[] viewportRef,
+                                           final ReadableSignal<Boolean> hasRows) {
+        rt.bind(rt.layoutDoneSignal(), epoch -> Effect.untrack(
+                () -> applyHeightGuard(rt, pane, search, filter, viewportRef, hasRows)));
+    }
+
+    /** 按当前实测可用高落折叠级别（每次布局后重派生：挡位变化立即回弹 / 复折）。 */
+    private static void applyHeightGuard(SceneRuntime rt, SceneNode pane, SceneNode search,
+                                         FilterSection filter, SceneNode[] viewportRef,
+                                         ReadableSignal<Boolean> hasRows) {
+        int level = foldLevel(rt, pane, search, filter, viewportRef[0], hasRows);
+        filter.countRow.setCollapsed(level >= 1);
+        filter.block.setCollapsed(level >= 2);
+        // 折叠声明与先验高必须同帧一致（守卫先于下一轮布局生效，不等 bindPriorHeight 的第二拍）。
+        filter.block.setPreferredHeight(level >= 2 ? 0 : declaredFilterHeight(rt, filter, level >= 1));
+    }
+
+    /** 折叠级别：0 = 不折；1 = 折计数行；2 = 连筛选行整块折。 */
+    private static int foldLevel(SceneRuntime rt, SceneNode pane, SceneNode search, FilterSection filter,
+                                 SceneNode viewport, ReadableSignal<Boolean> hasRows) {
+        // 空列表没有列表视口可保，保持工具条完整（折叠只服务「行可见」）。
+        if (viewport == null || !Boolean.TRUE.equals(hasRows.get())) {
+            return 0;
+        }
+        Object cached = pane.getCachedLayout();
+        if (!(cached instanceof LayoutBox)) {
+            return 0;
+        }
+        int inner = ((LayoutBox) cached).getHeight() - pane.getPaddingTop() - pane.getPaddingBottom();
+        if (inner <= 0) {
+            return 0;
+        }
+        int need = 2 * rowHeight(rt, pane.effectiveFontSize()) + PANE_GAP_PX;
+        int searchHeight = priorHeight(rt, search);
+        // 间距成本按<b>引擎实际槽位</b>实测：折叠只把子节点压成零高，槽位与间距仍在
+        // （FlexLayouter 按有布局盒的子计数），写死「折了就少一份间距」会把这部分算漏。
+        int gaps = pane.getGap() * Math.max(0, boxedChildCount(pane) - 1);
+        if (inner - searchHeight - gaps - declaredFilterHeight(rt, filter, false) >= need) {
+            return 0;
+        }
+        if (inner - searchHeight - gaps - declaredFilterHeight(rt, filter, true) >= need) {
+            return 1;
+        }
+        return 2;
+    }
+
+    /** 参与主轴间距计算的子节点数（与 FlexLayouter 同口径：有布局盒的子都占一个槽位）。 */
+    private static int boxedChildCount(SceneNode node) {
+        int count = 0;
+        for (SceneNode child : node.__getChildren()) {
+            if (child.getCachedLayout() instanceof LayoutBox) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 谓词区高度先验（与布局同口径、与当前折叠态无关）：
+     * {@code 块内边距 + 分段行 + （未折计数行时：计数行 + 块内间距）}。
+     */
+    private static int declaredFilterHeight(SceneRuntime rt, FilterSection filter, boolean countFolded) {
+        int segmented = priorHeight(rt, filter.segmentedRow);
+        int count = priorHeight(rt, filter.countRow);
+        int inner = countFolded ? segmented : segmented + filter.block.getGap() + count;
+        return inner + filter.block.getPaddingTop() + filter.block.getPaddingBottom();
+    }
+
+    /** {@code node} 是否位于 {@code root} 子树内（含自身）：类型键守卫按「搜索输入控件」判定用。 */
+    private static boolean isWithin(SceneNode node, SceneNode root) {
+        SceneNode cursor = node;
+        while (cursor != null) {
+            if (cursor == root) {
+                return true;
+            }
+            cursor = cursor.__getParent();
+        }
+        return false;
     }
 
     /**

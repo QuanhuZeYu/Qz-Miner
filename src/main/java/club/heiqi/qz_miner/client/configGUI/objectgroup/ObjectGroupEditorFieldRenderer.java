@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.client.configGUI.objectgroup;
 
 import java.util.function.BooleanSupplier;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
 import club.heiqi.config.schema.FieldSpec;
@@ -273,6 +274,34 @@ public final class ObjectGroupEditorFieldRenderer implements FieldRenderer {
             open.set(Boolean.FALSE);
         }
 
+        @Override
+        public void setRowActivateHandler(Runnable handler) {
+            if (handler == null) throw new IllegalArgumentException("handler must not be null");
+            rowActivateHandler = handler;
+        }
+
+        @Override
+        public void rowActivate() {
+            Runnable handler = rowActivateHandler;
+            if (handler != null) handler.run();
+        }
+
+        @Override
+        public void setSelectionNudgeHandler(IntConsumer handler) {
+            if (handler == null) throw new IllegalArgumentException("handler must not be null");
+            selectionNudgeHandler = handler;
+        }
+
+        @Override
+        public boolean nudgeSelection(int delta) {
+            IntConsumer handler = selectionNudgeHandler;
+            if (handler == null) return false;
+            handler.accept(delta);
+            return true;
+        }
+
         private BooleanSupplier dismissHandler;
+        private Runnable rowActivateHandler;
+        private IntConsumer selectionNudgeHandler;
     }
 }

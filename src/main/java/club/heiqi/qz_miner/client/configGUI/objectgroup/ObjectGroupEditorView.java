@@ -65,10 +65,22 @@ import club.heiqi.uilib.ui.scene.theme.SceneThemes;
  *
  * <p><b>键盘（C3 §5.7）</b>：ESC 走浮层单一路径——M1 的 portal 用
  * {@code OverlayDismissPolicy(true,false,false)} 消费 ESC 后回调 {@code dismissRequest}，
- * 视图在 {@link ObjectGroupEditorContext#setDismissHandler} 注册处理器：窄挡下钻中 → 返回列表
- * 并保持打开，否则 → 关闭视图（此路径不依赖焦点，是窄挡下钻的兜底）。ENTER 挂列表 pane 根
- * （窄挡下钻 / 宽挡把焦点移入详情）；窄挡详情挂载即接管焦点；删除、↑/↓、Menu 由列表 pane 自持。
- * 关闭语义只写可见性 signal，不直接挂卸浮层。</p>
+ * 视图在 {@link ObjectGroupEditorContext#setDismissHandler} 注册<b>两段式</b>处理器：
+ * ① 搜索词非空 → 清空搜索并保持打开；② 窄挡下钻中 → 返回列表并保持打开；否则 → 关闭视图
+ * （此路径不依赖焦点，是窄挡下钻的兜底）。<b>为什么①不能按焦点判定</b>：ESC 在控件派发<b>之前</b>
+ * 就被 {@code SceneInputRouter} 无条件消费（{@code SceneInputRouter.java:556-559} →
+ * {@code requestTopEscapeDismiss()} 只要栈顶浮层 policy 允许即返回 true，
+ * {@code SceneInputRouter.java:925-936}），视图收不到 ESC 键事件，故只能以「有无搜索词」为判据。</p>
+ *
+ * <p><b>↑/↓ 归属</b>：列表焦点（pane / 行视口 / 搜索框）由列表 pane 自持并
+ * {@code stopPropagation}；焦点在详情（宽挡 ENTER 进详情、窄挡下钻）时事件冒泡到视图根，
+ * 由视图根转发 {@link ObjectGroupEditorContext#nudgeSelection(int)}——列表实现持有视口与滚动
+ * 状态，故「滚动跟随」不需要视图了解列表内部。picker 面板是独立 portal 树
+ * （{@code ScenePickerPanel.java:852}），其焦点节点父链不到本根，键盘事件不会误触本视图。
+ * ENTER 挂列表 pane 根（窄挡下钻 / 宽挡把焦点移入详情）；窄挡详情挂载即接管焦点；删除、Menu
+ * 由列表 pane 自持；指针行激活（{@link ObjectGroupEditorContext#setRowActivateHandler}）
+ * 窄挡下钻、宽挡 no-op（保持列表焦点，点击后 ↑/↓ 仍可换组）。关闭语义只写可见性 signal，
+ * 不直接挂卸浮层。</p>
  */
 public final class ObjectGroupEditorView {
 
@@ -172,8 +184,44 @@ public final class ObjectGroupEditorView {
         root.appendChild(buildUndoBar(ctx, state));
         root.appendChild(buildBody(ctx, state, wide, availableWidth, listContentMin, drilled, listRoot));
 
+        // 行激活（M3 在指针点击行、select + 焦点交回行视口之后调用）：窄挡 → 下钻到详情，
+        // 焦点随后由 buildDetailHost 的既有「挂载即接管焦点」逻辑拿走；宽挡 → no-op ——
+        // 详情已并排显示，指针点击后仍应保持列表焦点，使 ↑/↓ 继续在列表里移动选中。
+        ctx.setRowActivateHandler(() -> {
+            if (!Boolean.TRUE.equals(wide.get())) {
+                drilled.set(Boolean.TRUE);
+            }
+        });
+
+        // 浮层根拦 ↑/↓：焦点在详情（宽挡 ENTER 进详情 / 窄挡下钻）时列表 pane 不在冒泡路径上，
+        // 这里把方向键转发给列表注册的选择移动处理器（含滚动跟随，由列表自持实现）。
+        // 列表焦点下 ListPane 先 stopPropagation，事件到不了本根 ⇒ 不会重复移动；
+        // picker 打开时焦点在 picker 自己的 portal 树内，父链不到本根（见类注释「↑/↓ 归属」）。
+        rt.on(root, SceneEventType.KEY_DOWN, (ev, ectx) -> {
+            if (ev.getKeyAction() != SceneKeyAction.PRESSED) {
+                return;
+            }
+            SceneKey key = ev.getKey();
+            if (key == SceneKey.ARROW_UP) {
+                ctx.nudgeSelection(-1);
+                ectx.stopPropagation();
+            } else if (key == SceneKey.ARROW_DOWN) {
+                ctx.nudgeSelection(1);
+                ectx.stopPropagation();
+            }
+        });
+
         // 单一 ESC 通路：浮层策略（M1）消费 ESC 后回调到此；返回 true = 视图自行处理（保持打开）。
         ctx.setDismissHandler(() -> {
+            // 两段式第一段：有搜索词 → 第一次 ESC 只清搜索并保持打开。判据用「有无搜索词」
+            // 而不是「焦点是否在搜索框」——ESC 在控件派发前就被 SceneInputRouter 无条件消费
+            // （见类注释），视图收不到 ESC 键事件（空/空白搜索视为无搜索，与列表 matchesQuery 同口径）。
+            String query = state.search().get();
+            if (query != null && !query.trim().isEmpty()) {
+                state.search().set("");
+                return true;
+            }
+            // 两段式第二段：窄挡下钻中 → 返回列表并保持打开。
             if (!Boolean.TRUE.equals(wide.get()) && Boolean.TRUE.equals(drilled.get())) {
                 backToList(rt, drilled, listRoot);
                 return true;

@@ -211,8 +211,11 @@ public class ObjectGroupEditorRendererHeadlessTest {
 
         harness.resize(NARROW, HEIGHT);
         harness.frame();
-        harness.pressKey(SceneKey.ENTER);
-        Assert.assertTrue("窄挡 Enter 必须下钻", hasText(editorRoot(), narrowBackLabel()));
+        // 适配（C8 行为修复）：窄挡「指针点击行」即下钻（C3 §5.3 线框「点击行 →」），
+        // 且打开编辑器后的初始焦点合法落在搜索输入框（Enter 按 C3 在搜索框内被消费），
+        // 故下钻改走指针点击；本用例验的是「挡位切换后选中项不丢」。
+        harness.click(row("vanilla_hay"));
+        Assert.assertTrue("窄挡下钻必须生效", hasText(editorRoot(), narrowBackLabel()));
         Assert.assertTrue("挡位切换后选中项不丢", hasText(editorRoot(), "vanilla_hay"));
     }
 
@@ -287,10 +290,12 @@ public class ObjectGroupEditorRendererHeadlessTest {
         Assert.assertNotNull("返回列表后必须有焦点", afterReturn);
         Assert.assertTrue("返回列表后焦点必须留在编辑视图内（focused=" + afterReturn + "）",
                 ObjectGroupEditorTestSupport.descendants(editorRoot()).contains(afterReturn));
+        // 适配（C8 行为修复）：返回列表后焦点回到搜索输入框，↑/↓ 仍放行给列表导航（已修），
+        // 但 Enter 按 C3 在搜索框内被消费 ⇒ 用「选中行判定 + 指针点击」验证导航与再次下钻。
         harness.pressKey(SceneKey.ARROW_DOWN);
-        harness.pressKey(SceneKey.ENTER);
-        Assert.assertTrue("返回列表后 Enter 必须可再次下钻", hasText(editorRoot(), narrowBackLabel()));
-        Assert.assertTrue("返回列表后 ↑/↓ 应继续导航到下一行", hasText(editorRoot(), "vanilla_redstone"));
+        Assert.assertEquals("返回列表后 ↑/↓ 应继续导航到下一行", "vanilla_redstone", selectedRowId());
+        harness.click(row("vanilla_redstone"));
+        Assert.assertTrue("返回列表后点击行必须可再次下钻", hasText(editorRoot(), narrowBackLabel()));
 
         // 4) 详情态 ESC 回列表；列表态 ESC 关闭视图（单一 ESC 通路的另一半）。
         harness.pressKey(SceneKey.ESCAPE);
@@ -306,7 +311,9 @@ public class ObjectGroupEditorRendererHeadlessTest {
 
     @Test
     public void deleteUndoAndDraftSurvivalAcrossReopen() {
-        harness.resize(NARROW, HEIGHT);
+        // 适配（C8 行为修复）：窄挡下点击行即下钻、列表卸载 ⇒ Delete 快捷路径需要列表焦点；
+        // 本用例验的是「删除 + 撤销 + 草稿跨重开」，与挡位无关，故用宽挡（列表常驻、点行后焦点在列表）。
+        harness.resize(WIDE, HEIGHT);
         harness.frame();
         openEditor();
         harness.click(row("vanilla_hay"));
@@ -538,7 +545,8 @@ public class ObjectGroupEditorRendererHeadlessTest {
         harness.resize(NARROW, HEIGHT);
         harness.frame();
         if (!hasText(editorRoot(), modesLabel())) {
-            harness.pressKey(SceneKey.ENTER);
+            // 适配（C8 行为修复）：窄挡下钻走指针点击（初始焦点在搜索框，Enter 被其消费）。
+            harness.click(row("vanilla_logs"));
         }
         harness.frame();
         harness.frame();
@@ -688,6 +696,23 @@ public class ObjectGroupEditorRendererHeadlessTest {
         SceneNode node = findText(editorRoot(), id);
         Assert.assertNotNull("列表行缺失: " + id, node);
         return node;
+    }
+
+    /** 当前选中行的 id（按行根背景色判定；无选中返回 null）。 */
+    private String selectedRowId() {
+        for (String id : new String[]{"vanilla_logs", "vanilla_hay", "vanilla_redstone"}) {
+            SceneNode cursor = findText(editorRoot(), id);
+            for (int up = 0; up < 6 && cursor != null; up++) {
+                if (cursor.getBorderWidth() == 1) {
+                    if (cursor.getBackgroundColor() != 0) {
+                        return id;
+                    }
+                    break;
+                }
+                cursor = cursor.__getParent();
+            }
+        }
+        return null;
     }
 
     /** 顶部条摘要文本：与摘要卡 helper 同口径的第一个匹配文本。 */

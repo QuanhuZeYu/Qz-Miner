@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.client.configGUI.objectgroup;
 import club.heiqi.config.ui.DraftSignalAdapter;
 import club.heiqi.config.ui.editor.Registry;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntConsumer;
 
 import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
 
@@ -72,6 +73,40 @@ public interface ObjectGroupEditorContext {
      * @param handler 处理器，不可为 null
      */
     void setDismissHandler(BooleanSupplier handler);
+
+    /**
+     * 注册「行激活」处理器（M3 列表在指针点击某行后调用；M2 视图构建期注入一次）。
+     *
+     * <p>语义由视图决定：<b>窄挡</b> → 下钻到详情；<b>宽挡</b> → 不改焦点（详情已并排显示，
+     * 指针点击后仍应能用 ↑/↓ 继续在列表里移动选中）。键盘 Enter 的语义不在这里
+     * （见 M2 在列表根上的 KEY_DOWN 处理）。</p>
+     *
+     * @param handler 处理器，不可为 null
+     */
+    void setRowActivateHandler(Runnable handler);
+
+    /**
+     * 激活当前选中行（列表行被指针点击时调用；视图未注入处理器时为 no-op）。
+     */
+    void rowActivate();
+
+    /**
+     * 注册「选择移动」处理器（M3 列表构建期注入；M2 视图在浮层根上转发 ↑/↓ 时调用）。
+     *
+     * <p>处理器由列表实现（含滚动跟随），因此「焦点在详情时 ↑/↓ 仍能换组」不需要视图
+     * 了解列表内部的视口与滚动状态。</p>
+     *
+     * @param handler 处理器，不可为 null
+     */
+    void setSelectionNudgeHandler(IntConsumer handler);
+
+    /**
+     * 移动列表选中项（delta = ±1；列表未挂载或不可移动时为 no-op）。
+     *
+     * @param delta 方向
+     * @return true 表示列表已处理该请求
+     */
+    boolean nudgeSelection(int delta);
 
     /**
      * 处理一次关闭请求（由本渲染器注册给 portal 的 dismissRequest 调用；pane 不应直接调用）。

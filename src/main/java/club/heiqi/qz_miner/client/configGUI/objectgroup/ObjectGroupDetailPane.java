@@ -196,7 +196,11 @@ public final class ObjectGroupDetailPane {
      * 组标识区：{@code SceneTextInput} + 就地校验（重复/空/超长 ⇒ 行内红字，错误绝不进对话框）。
      *
      * <p>写入经 {@code renameGroup} 命令；被拒绝时保留用户输入并就地提示（便于修正），
-     * 成功或外部回灌（reload/撤销）时才同步回草稿值。</p>
+     * 外部回灌（reload/撤销）在非聚焦期同步回草稿值。</p>
+     *
+     * <p><b>受控契约</b>：{@code SceneTextInput} 不自持文本真值，每次按键都以 {@code props.value()}
+     * 计算下一个值——因此 {@code onChange} 内必须把新文本写回该 signal（见 {@link #applyRename}）。
+     * 漏写会让控件始终以旧值计算：连续键入只保留最后一个字符、退格按陈旧值错删（实测）。</p>
      */
     private static SceneNode idSection(SceneRuntime rt, final ObjectGroupEditorState state, final long key) {
         final SceneNode column = SceneNode.column();
@@ -211,10 +215,25 @@ public final class ObjectGroupDetailPane {
                         .placeholder("")
                         .maxLength(ObjectGroup.MAX_ID_LENGTH)
                         .inputType(SceneInputType.TEXT)
-                        .onChange(next -> applyRename(state, key, next, error))
+                        .onChange(next -> applyRename(state, key, next, text, error))
                         .build());
         final SceneNode input = handle.component().get();
         column.appendChild(input);
+        // ↑/↓ 键守卫（task-5 5a）：单行文本输入只处理 ←/→ 的 caret 移动（SceneTextInputPrimitive），
+        // ↑/↓ 会冒泡到编辑视图根，被「焦点在详情时 ↑/↓ 换组」当成列表导航 ⇒ 详情按新 key 重建、
+        // 本输入框被卸载，焦点丢失且后续键入落空（verifier 实测：选中 0→1、focus=null、键入丢失）。
+        // UILib 无「焦点节点是文本输入控件」的正门判定（SceneTextInput 只暴露 create/createHandle，
+        // 输入根无标记、Router 的 handler 注册表不可查询），故按 UILib 既有「控件独占键盘」范式
+        // （同 ObjectGroupListPane.claimKeyboard）在本控件消费 ↑/↓；TAB/ESC 与其它键一律放行
+        // （焦点遍历、浮层 ESC 单一路径、输入自身 ←/→/Home/End 语义都不受影响）。
+        rt.on(input, SceneEventType.KEY_DOWN, (ev, ectx) -> {
+            if (ev.getKeyAction() != SceneKeyAction.PRESSED) {
+                return;
+            }
+            if (ev.getKey() == SceneKey.ARROW_UP || ev.getKey() == SceneKey.ARROW_DOWN) {
+                ectx.stopPropagation();
+            }
+        });
 
         // 外部变化回灌：输入框聚焦时不覆盖用户正在输入的文本。
         final ReadableSignal<Boolean> focused = rt.interactionState(input).focused();
@@ -235,9 +254,24 @@ public final class ObjectGroupDetailPane {
         return column;
     }
 
-    /** 就地校验的写入：成功清错，拒绝则行内红字（结构化反馈，不静默失败）。 */
-    private static void applyRename(ObjectGroupEditorState state, long key, String next, Signal<String> error) {
+    /**
+     * 就地校验的写入：成功清错，拒绝则行内红字（结构化反馈，不静默失败）。
+     *
+     * <p><b>必须写回 {@code text}（受控源）</b>：{@code SceneTextInput} 不缓存文本，按键处理直接读
+     * {@code props.value()} 并用其 caret 权威计算下一个值。只把新值交给 {@code renameGroup} 而不回写，
+     * 下一次按键仍以旧值计算 ⇒ 连续键入互相覆盖、退格错位。被拒绝时同样回写用户文本（草稿由 state
+     * 守卫保持旧值，行内红字解释拒绝原因），否则用户刚键入的内容会立即被旧值覆盖。</p>
+     *
+     * @param state 编辑状态
+     * @param key   行 key（改名不再换 key，见 renameGroup）
+     * @param next  控件交还的期望新值
+     * @param text  输入控件的受控文本 signal（必须回写）
+     * @param error 行内错误提示 signal
+     */
+    private static void applyRename(ObjectGroupEditorState state, long key, String next,
+                                    Signal<String> text, Signal<String> error) {
         final ObjectGroupEditorState.EditResult result = state.renameGroup(key, next);
+        text.set(next);
         error.set(result.accepted() ? "" : rejectionText(result.rejection()));
     }
 
