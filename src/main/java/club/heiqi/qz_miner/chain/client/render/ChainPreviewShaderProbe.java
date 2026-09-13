@@ -58,8 +58,34 @@ final class ChainPreviewShaderProbe {
     private final float[] cpuBounds = new float[6];
     /** 顶点流总 float 数：用于回读整段 VBO 判「几何是否塌缩」。 */
     private int expectedFullFloatCount;
+    /**
+     * T50 全量 CPU 顶点快照（逐点比对用）。
+     *
+     * <p>为什么必须补这一层：旧的 {@code vertexHeadEqual} 只比首 8 个顶点、{@code bboxEqual} 只比 min/max，
+     * 而 0 恰好落在包围盒内部——「中后段被清零」这一整类失败对两者都是不可见的。真机表型
+     * 「只剩一小片几何」正是「只有前段数据生效」的样子，必须逐点比对才能证实或证伪。</p>
+     */
+    private float[] fullPositions;
+    private int fullPositionCount;
+    /** T50 全量 CPU 展开索引快照（与后端 {@code expandQuadsToTriangles} 同规则 [a,b,c, a,c,d]）。 */
+    private int[] fullIndices;
+    private int fullIndexCount;
     private boolean pending;
     private int reports;
+    /**
+     * T50 稳态取样倒计时（帧）。上传后先等 {@link #STEADY_FRAMES} 帧再取一次样。
+     *
+     * <p>为什么首帧取样不够：上传那一刻动画时钟刚随新代重置，{@code uAnimProgress} 必然是起点 0，
+     * 而 {@code growth = clamp(u × span − order, 0, 1)} 在起点只放行序号最小的顶点——
+     * 「首帧只画出一小片」是**正常**的。若把首帧画面当成稳态，就会把正常动画误判成病灶。
+     * 真机需要的是「等到玩家真正看到的那一帧」，即动画结束后的稳态。</p>
+     */
+    private int steadyCountdown = -1;
+    private int steadyTick;
+    /** 稳态取样总帧数（约 1 秒；flow/wave 时长远小于此）。 */
+    private static final int STEADY_FRAMES = 60;
+    /** 稳态取样间隔（每 10 帧一条，共 6 条）。 */
+    private static final int STEADY_INTERVAL = 10;
     /** EBO 展开后抽样的三角形索引个数（2 个 quad）。 */
     private static final int TRIANGLE_INDEX_SAMPLE = 12;
 
@@ -68,6 +94,14 @@ final class ChainPreviewShaderProbe {
     private FloatBuffer uniformBuffer;
     /** LWJGL2 只有 glGetVertexAttribfv（整数参数按 float 返回，值域为小整数，精度无损）。 */
     private FloatBuffer attribBuffer;
+    /** T50 覆盖率测量缓冲与视口缓存。 */
+    private ByteBuffer coverageBefore;
+    private ByteBuffer coverageAfter;
+    private int coverageWidth;
+    private int coverageHeight;
+    /** 「本帧已抓取 draw 前像素、等待 draw 后比对」：未置位时 endCoverage() 必须是空操作。 */
+    private boolean coveragePending;
+    private java.nio.IntBuffer integerBuffer;
 
     /**
      * 上传拓扑时登记 CPU 期望快照（有界）。
@@ -88,6 +122,7 @@ final class ChainPreviewShaderProbe {
             expectedIndices[index] = quadIndices != null && index < quadIndices.length ? quadIndices[index] : -1;
         }
         expectedFullFloatCount = Math.max(0, vertexFloatCount);
+        captureFullSnapshots(vertices, vertexFloatCount, quadIndices, quadIndexCount);
         for (int index = 0; index < expectedQuadIndices.length; index++) {
             expectedQuadIndices[index] = quadIndices != null && index < quadIndexCount && index < quadIndices.length
                     ? quadIndices[index] : -1;
@@ -165,6 +200,8 @@ final class ChainPreviewShaderProbe {
         boolean vertexHeadEqual = false;
         boolean indexEqual = false;
         String note = "ok";
+        int[] vertexFull = new int[] {-1, 0, 0};
+        int[] indexFull = new int[] {-1, 0, 0};
         try {
             int previousArray = integerValue(GL15.GL_ARRAY_BUFFER_BINDING, 0);
             int previousElement = integerValue(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING, 0);
@@ -175,6 +212,7 @@ final class ChainPreviewShaderProbe {
                 vertexBytes.position(0);
                 java.nio.FloatBuffer floats = vertexBytes.asFloatBuffer();
                 accumulateBounds(floats, expectedFullFloatCount, gpuBounds);
+                compareFullVertices(floats, vertexFull);
                 vertexHeadEqual = true;
                 for (int index = 0; index < expectedVertexCount * 3; index++) {
                     if (Float.compare(floats.get(index), expectedPositions[index]) != 0) {
@@ -201,6 +239,7 @@ final class ChainPreviewShaderProbe {
                     }
                 }
                 indexOutOfRange = indexMax >= gpuVertexCount;
+                compareFullIndices(indices, triangleIndexCount, indexFull);
                 int[] expectedTriangles = expandCpuQuads();
                 indexEqual = true;
                 for (int index = 0; index < expectedTriangles.length; index++) {
@@ -227,13 +266,290 @@ final class ChainPreviewShaderProbe {
             + ", bboxCpu=" + boundsText(cpuBounds)
             + ", bboxGpu=" + boundsText(gpuBounds)
             + ", bboxEqual=" + boundsMatch
-            + ", vertices=" + (expectedFullFloatCount / 3) + "}");
+            + ", vertices=" + (expectedFullFloatCount / 3)
+            + ", vboFirstMismatchAt=" + vertexFull[0]
+            + ", vboZeroFloats=" + vertexFull[1]
+            + ", vboNaNs=" + vertexFull[2]
+            + ", eboFirstMismatchAt=" + indexFull[0]
+            + ", eboZeroIndices=" + indexFull[1]
+            + ", eboDegenerateTriangles=" + indexFull[2]
+            + ", eboTotalIndices=" + triangleIndexCount
+            + ", eboCpuIndices=" + fullIndexCount + "}");
         // 结论行：把三类事实压成一条，真机一眼可判「是数据没上去，还是几何本身塌了，还是索引越界」。
         log("verdict{geometry=" + (boundsEquivalent() ? "cpu-uncollapsed" : "cpu-collapsed")
-            + ", vbo=" + (boundsMatch ? "matches-cpu" : "MISMATCH")
-            + ", index=" + (indexOutOfRange ? "OUT-OF-RANGE" : "ok")
+            + ", vbo=" + (vertexFull[0] < 0 ? "full-match" : "truncated-at-" + vertexFull[0])
+            + ", index=" + (indexOutOfRange ? "OUT-OF-RANGE"
+                : (indexFull[0] < 0 ? "full-match" : "truncated-at-" + indexFull[0]))
             + ", head=" + (vertexHeadEqual ? "ok" : "mismatch")
+            + ", degenerateTris=" + indexFull[2]
             + "}");
+    }
+
+    /** 保存整段 CPU 顶点流与展开后的索引流（容量按需增长，单代规模有界）。 */
+    private void captureFullSnapshots(float[] vertices, int vertexFloatCount,
+                                      int[] quadIndices, int quadIndexCount) {
+        fullPositionCount = Math.max(0, vertexFloatCount);
+        if (fullPositions == null || fullPositions.length < fullPositionCount) {
+            fullPositions = new float[Math.max(fullPositionCount, 1)];
+        }
+        for (int index = 0; index < fullPositionCount; index++) {
+            fullPositions[index] = vertices != null && index < vertices.length ? vertices[index] : 0.0F;
+        }
+        int quads = Math.max(0, quadIndexCount) / 4;
+        fullIndexCount = quads * 6;
+        if (fullIndices == null || fullIndices.length < fullIndexCount) {
+            fullIndices = new int[Math.max(fullIndexCount, 1)];
+        }
+        int cursor = 0;
+        for (int quad = 0; quad < quads; quad++) {
+            int base = quad * 4;
+            if (base + 3 >= (quadIndices == null ? 0 : quadIndices.length)) {
+                break;
+            }
+            int a = quadIndices[base];
+            int b = quadIndices[base + 1];
+            int c = quadIndices[base + 2];
+            int d = quadIndices[base + 3];
+            fullIndices[cursor++] = a;
+            fullIndices[cursor++] = b;
+            fullIndices[cursor++] = c;
+            fullIndices[cursor++] = a;
+            fullIndices[cursor++] = c;
+            fullIndices[cursor++] = d;
+        }
+        fullIndexCount = cursor;
+        // T50：上传后同时排一次「立即取证」与一段「稳态取样」。
+        steadyCountdown = STEADY_FRAMES;
+        steadyTick = 0;
+    }
+
+    /**
+     * 每帧推进探针状态（由 draw 调用）。
+     *
+     * @return 0 = 本帧不取样；1 = 首帧全量取证；2 = 稳态标量取样；3 = 稳态首点（附带覆盖率测量）
+     */
+    int tick() {
+        if (ready()) {
+            return 1;
+        }
+        if (steadyCountdown > 0) {
+            steadyCountdown--;
+            steadyTick++;
+            if (steadyTick % STEADY_INTERVAL == 0) {
+                return steadyTick == STEADY_INTERVAL ? 3 : 2;
+            }
+        }
+        return 0;
+    }
+
+    /** 整段 VBO 逐点比对统计（第一个不一致位置 / 零值数 / NaN 数）。 */
+    private void compareFullVertices(java.nio.FloatBuffer gpu, int[] stats) {
+        stats[0] = -1;
+        stats[1] = 0;
+        stats[2] = 0;
+        for (int index = 0; index < expectedFullFloatCount; index++) {
+            float value = gpu.get(index);
+            if (value == 0.0F) {
+                stats[1]++;
+            }
+            if (Float.isNaN(value)) {
+                stats[2]++;
+            }
+            if (stats[0] < 0 && index < fullPositionCount
+                && Float.compare(value, fullPositions[index]) != 0) {
+                stats[0] = index;
+            }
+        }
+    }
+
+    /** 整段 EBO 逐点比对统计（第一个不一致位置 / 零索引数 / 退化三角形数）。 */
+    private void compareFullIndices(java.nio.IntBuffer gpu, int triangleIndexCount, int[] stats) {
+        stats[0] = -1;
+        stats[1] = 0;
+        int degenerate = 0;
+        for (int index = 0; index < triangleIndexCount; index++) {
+            int value = gpu.get(index);
+            if (value == 0) {
+                stats[1]++;
+            }
+            if (stats[0] < 0 && index < fullIndexCount && value != fullIndices[index]) {
+                stats[0] = index;
+            }
+        }
+        for (int index = 0; index + 2 < triangleIndexCount; index += 3) {
+            int a = gpu.get(index);
+            int b = gpu.get(index + 1);
+            int c = gpu.get(index + 2);
+            if (a == b || b == c || a == c) {
+                degenerate++;
+            }
+        }
+        stats[2] = degenerate;
+    }
+
+    /** 属性槽落位（GLSL 1.20 无 layout 限定符：这里是唯一能证明 bindAttribLocation 真生效的观测）。 */
+    void reportAttribLocations(int programId) {
+        try {
+            log("attribSlot{aPos=" + GL20.glGetAttribLocation(programId, "aPos")
+                + ", aAux=" + GL20.glGetAttribLocation(programId, "aAux")
+                + ", aColor=" + GL20.glGetAttribLocation(programId, "aColor") + "}");
+        } catch (Throwable failure) {
+            log("attribSlot{query-failed=" + failure.getClass().getSimpleName() + "}");
+        }
+    }
+
+    /** 标量 uniform 实际取值（写进去的是什么，而不是我们以为写了什么）。 */
+    void reportScalarUniforms(int programId, int[] locations, String[] names) {
+        try {
+            StringBuilder text = new StringBuilder("scalarUniform{");
+            for (int index = 0; index < names.length; index++) {
+                if (index > 0) {
+                    text.append(", ");
+                }
+                text.append(names[index]).append('=');
+                if (locations[index] < 0) {
+                    text.append("<no-location>");
+                    continue;
+                }
+                FloatBuffer buffer = uniformBuffer(4);
+                if (buffer == null) {
+                    text.append("<no-buffer>");
+                    continue;
+                }
+                buffer.clear();
+                GL20.glGetUniform(programId, locations[index], buffer);
+                buffer.position(0);
+                text.append(fixed(buffer.get(0)));
+            }
+            text.append('}');
+            log(text.toString());
+        } catch (Throwable failure) {
+            log("scalarUniform{query-failed=" + failure.getClass().getSimpleName() + "}");
+        }
+    }
+
+    /** 覆盖率测量：draw 前抓一帧像素。 */
+    void beginCoverage() {
+        coverageWidth = 0;
+        coverageHeight = 0;
+        coveragePending = true;
+        try {
+            int[] viewport = new int[4];
+            java.nio.IntBuffer viewportBuffer = intBuffer(4);
+            if (viewportBuffer == null) {
+                return;
+            }
+            viewportBuffer.clear();
+            GL11.glGetInteger(GL11.GL_VIEWPORT, viewportBuffer);
+            viewportBuffer.position(0);
+            for (int index = 0; index < 4; index++) {
+                viewport[index] = viewportBuffer.get(index);
+            }
+            int width = viewport[2];
+            int height = viewport[3];
+            if (width <= 0 || height <= 0 || (long) width * (long) height > 16_777_216L) {
+                return;
+            }
+            coverageBefore = allocateCoverage(width * height * 4);
+            coverageAfter = allocateCoverage(width * height * 4);
+            if (coverageBefore == null || coverageAfter == null) {
+                return;
+            }
+            coverageBefore.clear();
+            GL11.glReadPixels(viewport[0], viewport[1], width, height,
+                GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, coverageBefore);
+            coverageWidth = width;
+            coverageHeight = height;
+        } catch (Throwable failure) {
+            coverageWidth = 0;
+            coverageHeight = 0;
+        }
+    }
+
+    /** 覆盖率测量：draw 后比对像素差异，得到「本次 draw 实际改了屏幕上的哪些位置」。 */
+    void endCoverage() {
+        if (!coveragePending) {
+            return;
+        }
+        coveragePending = false;
+        if (coverageWidth <= 0 || coverageBefore == null || coverageAfter == null) {
+            log("coverage{unavailable}");
+            return;
+        }
+        try {
+            coverageAfter.clear();
+            GL11.glReadPixels(0, 0, coverageWidth, coverageHeight,
+                GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, coverageAfter);
+            coverageBefore.position(0);
+            coverageAfter.position(0);
+            int changed = 0;
+            int beforeNonZero = 0;
+            int minX = Integer.MAX_VALUE;
+            int minY = Integer.MAX_VALUE;
+            int maxX = -1;
+            int maxY = -1;
+            int pixels = coverageWidth * coverageHeight;
+            for (int pixel = 0; pixel < pixels; pixel++) {
+                int offset = pixel * 4;
+                int r0 = coverageBefore.get(offset) & 0xFF;
+                int g0 = coverageBefore.get(offset + 1) & 0xFF;
+                int b0 = coverageBefore.get(offset + 2) & 0xFF;
+                if (r0 != 0 || g0 != 0 || b0 != 0) {
+                    beforeNonZero++;
+                }
+                int r1 = coverageAfter.get(offset) & 0xFF;
+                int g1 = coverageAfter.get(offset + 1) & 0xFF;
+                int b1 = coverageAfter.get(offset + 2) & 0xFF;
+                if (r0 != r1 || g0 != g1 || b0 != b1) {
+                    changed++;
+                    int x = pixel % coverageWidth;
+                    int y = pixel / coverageWidth;
+                    if (x < minX) {
+                        minX = x;
+                    }
+                    if (y < minY) {
+                        minY = y;
+                    }
+                    if (x > maxX) {
+                        maxX = x;
+                    }
+                    if (y > maxY) {
+                        maxY = y;
+                    }
+                }
+            }
+            log("coverage{viewport=" + coverageWidth + "x" + coverageHeight
+                + ", changedPixels=" + changed
+                + ", ratio=" + fixed((float) changed / (float) Math.max(1, pixels))
+                + ", bbox=(" + minX + "," + minY + ")..(" + maxX + "," + maxY + ")"
+                + ", beforeNonZero=" + beforeNonZero + "}");
+        } catch (Throwable failure) {
+            log("coverage{measure-failed=" + failure.getClass().getSimpleName() + "}");
+        } finally {
+            coverageBefore = null;
+            coverageAfter = null;
+            coverageWidth = 0;
+            coverageHeight = 0;
+        }
+    }
+
+    private static ByteBuffer allocateCoverage(int bytes) {
+        try {
+            return BufferUtils.createByteBuffer(bytes);
+        } catch (Throwable failure) {
+            return null;
+        }
+    }
+
+    private java.nio.IntBuffer intBuffer(int elements) {
+        try {
+            if (integerBuffer == null || integerBuffer.capacity() < elements) {
+                integerBuffer = BufferUtils.createIntBuffer(Math.max(elements, 16));
+            }
+            return integerBuffer;
+        } catch (Throwable failure) {
+            return null;
+        }
     }
 
     /** 包围盒清零（空集用 min > max 表示）。 */

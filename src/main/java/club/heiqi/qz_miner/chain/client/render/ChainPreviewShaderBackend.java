@@ -363,9 +363,18 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL20.glEnableVertexAttribArray(2);
             // T49 探针：本帧绘制输入自证（属性布局 / 容量 / 数据回读 / 矩阵 / uniform 回读）。
             // 位置在此处是刻意的：VAO 已绑定且布局已重设，正是 DrawElements 即将消费的状态。
-            if (probe.ready()) {
-                reportProbe(plan, visibleIndexCount, indexOffset);
-                probe.consumed();
+            // T50：探针同时做「首帧全量取证」与「稳态取样」——首帧必然停在动画起点（正常也只会
+            // 画出序号最小的那一小片），只有稳态那一帧才对应玩家真正看到的画面。
+            int probeMode = probe.tick();
+            if (probeMode != 0) {
+                if (probeMode == 1) {
+                    reportProbe(plan, visibleIndexCount, indexOffset);
+                } else {
+                    reportFrameUniforms();
+                }
+                if (probeMode == 1 || probeMode == 3) {
+                    probe.beginCoverage();
+                }
             }
             int primitive = GL11.GL_TRIANGLES;
             GL11.glDrawElements(
@@ -373,6 +382,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                 visibleIndexCount,
                 GL11.GL_UNSIGNED_INT,
                 (long) indexOffset * 4L);
+            // T50 覆盖率：非探针帧立即返回（coveragePending 未置位），只在取证帧付一次读回代价。
+            probe.endCoverage();
+            if (probeMode == 1) {
+                probe.consumed();
+            }
             // attrib 的 enable 状态属于 VAO：必须在自绑 VAO 还绑定时成对关闭，
             // 否则关掉的是外部默认 VAO 的 attrib 数组（D1）。
             GL20.glDisableVertexAttribArray(2);
@@ -437,6 +451,37 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                     program.getUniformLocation("uModelView")},
                 new String[] {"uModelViewProjection", "uModelView"},
                 new float[][] {modelViewProjectionMatrix, modelViewMatrix});
+            reportFrameUniforms();
+        } catch (Throwable ignored) {
+            // 探针不得影响渲染帧。
+        }
+    }
+
+    /**
+     * T50：行级 uniform 取证——属性槽落位 + 顶点阶段真正决定「可见与否」的标量。
+     *
+     * <p>{@code uAnimProgress × uAppearSpan} 决定逐波生长放行到第几个序号，{@code uFadeStart/End/Min/Max}
+     * 决定距离淡出，{@code uFadeAlpha} 是全局包络。这几项此前从未被观测：离线只能证明「我们打算写什么」，
+     * 而真机表型恰恰是「写进去的与生效的不一致」。稳态取样会多次调用本方法，可直接看出
+     * {@code uAnimProgress} 是否随帧推进（不推进 = 时钟被反复重置 = 生长永远停在起点，只剩最小序号可见）。</p>
+     */
+    private void reportFrameUniforms() {
+        try {
+            probe.reportAttribLocations(program.getProgramId());
+            probe.reportScalarUniforms(program.getProgramId(),
+                new int[] {
+                    program.getUniformLocation("uAnimProgress"),
+                    program.getUniformLocation("uAppearSpan"),
+                    program.getUniformLocation("uFadeAlpha"),
+                    program.getUniformLocation("uFadeStart"),
+                    program.getUniformLocation("uFadeEnd"),
+                    program.getUniformLocation("uMinAlpha"),
+                    program.getUniformLocation("uMaxAlpha"),
+                    program.getUniformLocation("uOutlineWidthPx"),
+                    program.getUniformLocation("uMinScreenWidthPx"),
+                    program.getUniformLocation("uBarThickness")},
+                new String[] {"uAnimProgress", "uAppearSpan", "uFadeAlpha", "uFadeStart", "uFadeEnd",
+                    "uMinAlpha", "uMaxAlpha", "uOutlineWidthPx", "uMinScreenWidthPx", "uBarThickness"});
         } catch (Throwable ignored) {
             // 探针不得影响渲染帧。
         }
