@@ -70,10 +70,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     private final ChainPreviewShaderProgram program;
 
-    /** T49 临时探针（直接植入、有界输出；拆除条件见 {@link ChainPreviewShaderProbe} 类注释）。 */
-    private final ChainPreviewShaderProbe probe = new ChainPreviewShaderProbe();
-    /** 探针用：几何上传代数（每次 uploadTopology 递增，便于把日志对到具体一份网格）。 */
-    private int topologyGeneration;
     /** 程序首次就绪的能力对账日志是否已输出（一次性）。 */
     private boolean programReadyReported;
     /** uModelView 缺失（被编译器优化掉）的一次性说明是否已输出。 */
@@ -258,10 +254,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         int vertexFloatCount = mesh.getVertexFloatCount();
         int colorFloatCount = mesh.getColorFloatCount();
 
-        // T49 探针：登记 CPU 期望快照（有界：首 8 顶点 / 首 6 索引），供 draw 期回读逐项比对。
-        topologyGeneration++;
-        probe.captureMesh(vertices, vertexFloatCount, indices, mesh.getIndexCount());
-
         // plan 的索引语义恒为 mesh 的 quad 索引；shader EBO 在此处按 4→6 展开。
         int quadIndexCount = mesh.getIndexCount();
         int uploadIndexCount = expandQuadsToTriangles(indices, quadIndexCount);
@@ -316,10 +308,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         indexStaging = prepareIntBuffer(indexStaging, uploadIndices, uploadIndexCount);
         GL15.glBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0, indexStaging);
 
-        // T49 探针：上传后立即自证（与 draw 期回读配对，区分「没写进去」与「写进去后被清空」）。
-        probe.reportUpload(vbo, cbo, abo, ebo, vertices, vertexFloatCount, colors, colorFloatCount,
-            aux, triangleIndexScratch, uploadIndexCount);
-
         GL30.glBindVertexArray(0);
         // 成对恢复：与 draw 路径同一纪律（draw 早已恢复 ARRAY_BUFFER，upload 此前遗漏）。
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
@@ -359,11 +347,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             if (!applyUniforms(plan)) {
                 // 相机矩阵来源不可信：本帧不画（绝不留错误空间的一帧）。后端已被置为一次性不可用，
                 // 下一帧由 renderer 既有的 ensureReadyBackend() 永久回退 legacy。
-                if (probe.ready()) {
-                    probe.reportAbort("matrix-untrusted",
-                        matrixSourceFailure.isEmpty() ? "unknown" : matrixSourceFailure);
-                    probe.consumed();
-                }
                 return;
             }
 
@@ -377,32 +360,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             if (attributeColor >= 0) {
                 GL20.glEnableVertexAttribArray(attributeColor);
             }
-            // T49 探针：本帧绘制输入自证（属性布局 / 容量 / 数据回读 / 矩阵 / uniform 回读）。
-            // 位置在此处是刻意的：VAO 已绑定且布局已重设，正是 DrawElements 即将消费的状态。
-            // T50：探针同时做「首帧全量取证」与「稳态取样」——首帧必然停在动画起点（正常也只会
-            // 画出序号最小的那一小片），只有稳态那一帧才对应玩家真正看到的画面。
-            int probeMode = probe.tick();
-            if (probeMode != 0) {
-                if (probeMode == 1) {
-                    reportProbe(plan, visibleIndexCount, indexOffset);
-                } else {
-                    reportFrameUniforms();
-                }
-                if (probeMode == 1 || probeMode == 3) {
-                    probe.beginCoverage();
-                }
-            }
             int primitive = GL11.GL_TRIANGLES;
             GL11.glDrawElements(
                 primitive,
                 visibleIndexCount,
                 GL11.GL_UNSIGNED_INT,
                 (long) indexOffset * 4L);
-            // T50 覆盖率：非探针帧立即返回（coveragePending 未置位），只在取证帧付一次读回代价。
-            probe.endCoverage();
-            if (probeMode == 1) {
-                probe.consumed();
-            }
             // attrib 的 enable 状态属于 VAO：必须在自绑 VAO 还绑定时成对关闭，
             // 否则关掉的是外部默认 VAO 的 attrib 数组（D1）。
             if (attributeColor >= 0) {
@@ -429,97 +392,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         }
     }
 
-    /**
-     * T49 临时探针：输出本帧绘制输入的全量自证。
-     *
-     * <p><b>拆除条件与时机</b>：着色器路径真机取证完成、且与 legacy 观感 A/B 通过后，
-     * 删除本方法与 {@link ChainPreviewShaderProbe} 类、字段、调用点。</p>
-     *
-     * @param plan              本帧 draw plan（取 origin）
-     * @param visibleIndexCount 本帧实际提交的三角形索引数
-     * @param indexOffset       本帧三角形索引偏移
-     */
-    private void reportProbe(ChainPreviewDrawPlan plan, int visibleIndexCount, int indexOffset) {
-        try {
-            probe.reportContext(topologyGeneration, vao, vbo, cbo, abo, ebo,
-                vertexCount, indexCount, visibleIndexCount, indexOffset, plan.getIndexOffset(),
-                matrixSourceFailure.isEmpty());
-            probe.reportBindings(vao, ebo, vbo, cbo, abo,
-                attributePosition, attributeAux, attributeColor);
-            probe.reportBuffers(
-                boundBufferSize(vbo, GL15.GL_ARRAY_BUFFER),
-                boundBufferSize(cbo, GL15.GL_ARRAY_BUFFER),
-                boundBufferSize(abo, GL15.GL_ARRAY_BUFFER),
-                boundBufferSize(ebo, GL15.GL_ELEMENT_ARRAY_BUFFER));
-            probe.reportData(vbo, ebo, indexCount, vertexCount);
-            float viewYaw = 0.0F;
-            float viewPitch = 0.0F;
-            if (RenderManager.instance != null) {
-                viewYaw = RenderManager.instance.playerViewY;
-                viewPitch = RenderManager.instance.playerViewX;
-            }
-            probe.reportMatrix(projectionMatrix, modelViewMatrix, modelViewProjectionMatrix,
-                matrixExpectedMagnitude, matrixTranslationMagnitude,
-                new double[] {RenderManager.renderPosX, RenderManager.renderPosY, RenderManager.renderPosZ},
-                viewYaw, viewPitch,
-                new int[] {(int) plan.getOriginX(), (int) plan.getOriginY(), (int) plan.getOriginZ()},
-                indexCount, vertexCount);
-            probe.reportUniform(program.getProgramId(),
-                new int[] {
-                    program.getUniformLocation("uModelViewProjection"),
-                    program.getUniformLocation("uModelView")},
-                new String[] {"uModelViewProjection", "uModelView"},
-                new float[][] {modelViewProjectionMatrix, modelViewMatrix});
-            reportFrameUniforms();
-        } catch (Throwable ignored) {
-            // 探针不得影响渲染帧。
-        }
-    }
-
-    /**
-     * T50：行级 uniform 取证——属性槽落位 + 顶点阶段真正决定「可见与否」的标量。
-     *
-     * <p>{@code uAnimProgress × uAppearSpan} 决定逐波生长放行到第几个序号，{@code uFadeStart/End/Min/Max}
-     * 决定距离淡出，{@code uFadeAlpha} 是全局包络。这几项此前从未被观测：离线只能证明「我们打算写什么」，
-     * 而真机表型恰恰是「写进去的与生效的不一致」。稳态取样会多次调用本方法，可直接看出
-     * {@code uAnimProgress} 是否随帧推进（不推进 = 时钟被反复重置 = 生长永远停在起点，只剩最小序号可见）。</p>
-     */
-    private void reportFrameUniforms() {
-        try {
-            probe.reportAttribLocations(program.getProgramId());
-            probe.reportScalarUniforms(program.getProgramId(),
-                new int[] {
-                    program.getUniformLocation("uAnimProgress"),
-                    program.getUniformLocation("uAppearSpan"),
-                    program.getUniformLocation("uFadeAlpha"),
-                    program.getUniformLocation("uFadeStart"),
-                    program.getUniformLocation("uFadeEnd"),
-                    program.getUniformLocation("uMinAlpha"),
-                    program.getUniformLocation("uMaxAlpha"),
-                    program.getUniformLocation("uOutlineWidthPx"),
-                    program.getUniformLocation("uMinScreenWidthPx"),
-                    program.getUniformLocation("uBarThickness")},
-                new String[] {"uAnimProgress", "uAppearSpan", "uFadeAlpha", "uFadeStart", "uFadeEnd",
-                    "uMinAlpha", "uMaxAlpha", "uOutlineWidthPx", "uMinScreenWidthPx", "uBarThickness"});
-        } catch (Throwable ignored) {
-            // 探针不得影响渲染帧。
-        }
-    }
-
-    /** 回读某个 buffer 的 GL 容量（查询走「先绑定再查」，完成后恢复原绑定）。 */
-    private static int boundBufferSize(int bufferId, int target) {
-        try {
-            int bindingName = target == GL15.GL_ELEMENT_ARRAY_BUFFER
-                ? GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING : GL15.GL_ARRAY_BUFFER_BINDING;
-            int previous = GL11.glGetInteger(bindingName);
-            GL15.glBindBuffer(target, bufferId);
-            int size = GL15.glGetBufferParameter(target, GL15.GL_BUFFER_SIZE);
-            GL15.glBindBuffer(target, previous);
-            return size;
-        } catch (Throwable failure) {
-            return -1;
-        }
-    }
 
     @Override
     public void dispose() {
