@@ -29,6 +29,8 @@ public class ChainPreviewShaderSemanticColorTest {
 
     private static final String VERTEX_PATH = "src/main/resources/assets/qz_miner/shaders/preview.vert";
     private static final String FRAGMENT_PATH = "src/main/resources/assets/qz_miner/shaders/preview.frag";
+    private static final String BACKEND_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
     private static final float BASE_R = 0.25F;
     private static final float BASE_G = 0.9F;
@@ -170,6 +172,45 @@ public class ChainPreviewShaderSemanticColorTest {
         }
         Assert.assertNotEquals("config 量化值与 builtin 基线常量不同（两档口径可区分）",
                 BASE_R, ChainPreviewShaderMath.colorChannel(CONFIG_PRIMARY, 16), 0.0F);
+    }
+
+    /**
+     * config 档接线：后端必须按 plan 的四色设 uniform，且 builtin 档必须传精确常量。
+     *
+     * <p>两处关键不能退化：</p>
+     * <ol>
+     *   <li>builtin 档若误用 plan 的 {@code BUILTIN_RGB}（0x40E6FF 量化值）会引入 1.96e-3 色差，
+     *       破坏「逐字节等于现状」；</li>
+     *   <li>config 档必须真的读 plan 四色，而不是继续传常量（否则配置色永远不生效）。</li>
+     * </ol>
+     */
+    @Test
+    public void backendWiresConfigPaletteFromPlanAndKeepsBuiltinExact() throws Exception {
+        String body = stripComments(read(BACKEND_PATH));
+        Assert.assertTrue("必须读取 plan 的颜色来源", body.contains("plan.getColorSourceId()"));
+        Assert.assertTrue("config 档必须读 plan 四色",
+                body.contains("plan.getColorPrimary()") && body.contains("plan.getColorSecondary()")
+                        && body.contains("plan.getColorRemote()") && body.contains("plan.getColorTruncated()"));
+        Assert.assertTrue("config 档必须按 int RGB 量化设 uniform",
+                body.contains("setSemanticColorRgb("));
+        Assert.assertTrue("builtin 档必须仍然传精确基线常量（不得走量化值）",
+                body.contains("BUILTIN_COLOR_RED") && body.contains("BUILTIN_COLOR_GREEN")
+                        && body.contains("BUILTIN_COLOR_BLUE"));
+        Assert.assertFalse("builtin 档不得消费 plan 的量化基线值 BUILTIN_RGB",
+                body.contains("BUILTIN_RGB"));
+    }
+
+    /** plan 的 builtin 量化值与精确常量的差必须被显式认知（防止有人「顺手」改用它）。 */
+    @Test
+    public void quantizedBaselineDiffersFromExactConstant() {
+        int quantized = 0x40E6FF;
+        Assert.assertEquals("plan BUILTIN_RGB 的 G 通道是 230/255", 230 / 255.0F,
+                ChainPreviewShaderMath.colorChannel(quantized, 8), 0.0F);
+        Assert.assertNotEquals("它与精确常量 0.9F 相差约 1.96e-3 —— 所以 builtin 档不能用它",
+                BASE_G, ChainPreviewShaderMath.colorChannel(quantized, 8), 1.0e-4F);
+        Assert.assertEquals("精确常量必须是 0.9F", BASE_G, ChainPreviewShaderMath.BUILTIN_COLOR_GREEN, 0.0F);
+        Assert.assertEquals("0x40E6FF 的 R 也不是 0.25",
+                64 / 255.0F, ChainPreviewShaderMath.colorChannel(quantized, 16), 0.0F);
     }
 
     // ------------------------------------------------------------------ 段 4：F1 插值语义

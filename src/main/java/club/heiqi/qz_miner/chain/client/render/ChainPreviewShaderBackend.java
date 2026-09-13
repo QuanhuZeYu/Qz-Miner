@@ -386,13 +386,26 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     /**
      * 设置四色调色板（uniform 声明在**顶点**着色器：选色在顶点阶段完成，F1）。
      *
-     * <p>当前固定 builtin 档：四槽 = 精确基线常量 (0.25, 0.9, 1.0)。config 档需要 plan 暴露
-     * {@code getColorSourceId()/getColorPrimary()/...}（render-core 方案 A）；落地后在此按
-     * {@link ChainPreviewShaderMath#paletteFor} 切换即可，uniform 名称与槽位映射不变。</p>
+     * <p>两档分别走不同精度通道：</p>
+     * <ul>
+     *   <li><b>builtin（生产默认）</b>：四槽传**精确基线常量** (0.25, 0.9, 1.0)。
+     *       刻意不消费 plan 的 {@code Colors.BUILTIN_RGB}（= 0x40E6FF 的 8bit 量化值）——
+     *       量化后 R=0.25098…、G=0.90196…，与 legacy 颜色流有 ≤0.002 色差，
+     *       会破坏「builtin 逐字节等于现状」。plan 侧该量化值只用于值相等与诊断。</li>
+     *   <li><b>config</b>：四槽取 plan 的四色（配置本以 int RGB 存储），按 8bit 量化
+     *       （{@code /255}）；该量化差异只出现在本档，已登记。</li>
+     * </ul>
      *
-     * @param plan 当前 draw plan（config 档落地后从这里读色，保持「只读 plan + uniform」单通道）
+     * @param plan 当前 draw plan（配置只经 plan 传入，保持「只读 plan + uniform」单通道，遵守 §H）
      */
     private void applyColorPalette(ChainPreviewDrawPlan plan) {
+        if (ChainPreviewShaderMath.COLOR_SOURCE_CONFIG.equals(plan.getColorSourceId())) {
+            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_PRIMARY, plan.getColorPrimary());
+            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_SECONDARY, plan.getColorSecondary());
+            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_REMOTE, plan.getColorRemote());
+            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_TRUNCATED, plan.getColorTruncated());
+            return;
+        }
         for (int slot = ChainPreviewShaderMath.PALETTE_PRIMARY;
                 slot <= ChainPreviewShaderMath.PALETTE_TRUNCATED; slot++) {
             program.setSemanticColor(slot, BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE);
