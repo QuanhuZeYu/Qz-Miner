@@ -62,17 +62,26 @@ public class ChainPreviewShaderContractTest {
 
     // ------------------------------------------------------------------ 接口冻结 §A/§F
 
-    /** 属性 0/1/2 与接口冻结 §A 一致：aPos(3f) / aAux(4 通道) / aColor(4f)。 */
+    /**
+     * 顶点属性契约（接口冻结 §A 修订，T51）：只声明 aPos(3f) / aAux(4 通道)。
+     *
+     * <p>原 §A 还包含「attribute 2 aColor 4 x float32（既有颜色流）」，但着色器从不读取它
+     * （颜色由 aAux.semanticClass + uColor* 在顶点阶段决定），编译器因此把它整体优化掉
+     * （{@code glGetAttribLocation} 返回 -1）。契约里"保留该槽"的写法与实现长期不符，
+     * 还让后端每代白白上传一份 262 KB 级、永不被读取的颜色流。现已从契约与着色器中移除；
+     * 该流仅剩 legacy 固定管线消费（其逐顶点 α 是 CPU 烘焙值）。
+     * 槽位编号同样不再进入契约：GLSL 1.20 无 layout 限定符，属链接期事实，运行时解析。</p>
+     */
     @Test
-    public void declaresFrozenVertexAttributeTriple() throws IOException {
+    public void declaresFrozenVertexAttributes() throws IOException {
         List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
         Map<String, String> attributes = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
                 .getAttributes();
 
-        Assert.assertEquals("必须恰好声明 §A 约定的三个属性", 3, attributes.size());
+        Assert.assertEquals("必须恰好声明 §A 约定的两个属性", 2, attributes.size());
         Assert.assertEquals("vec3", attributes.get("aPos"));
         Assert.assertEquals("vec4", attributes.get("aAux"));
-        Assert.assertEquals("vec4", attributes.get("aColor"));
+        Assert.assertNull("aColor 已从 shader 路径移除（§A 修订 T51）", attributes.get("aColor"));
     }
 
     /**

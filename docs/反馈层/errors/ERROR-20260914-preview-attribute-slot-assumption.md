@@ -77,4 +77,24 @@ compileAndLink()
 2. **GLSL 1.20 没有 `layout(location)`**，属性槽位本就是链接期决定的外部契约；
    兼容档下还有 `gl_Vertex` 之类的内建占用，用户属性未必从 0 开始。
 3. **自证要覆盖"谁读谁写"，不能只覆盖"写了什么"**。本轮补上的 `attribSlot`（谁读）与
-   `coverage`（实际画了多少）才是决定性观测。
+   `coverage`（实际画了多少）才是决定性观测——这两条临时探针已在取证与 A/B 通过后按既定条件拆除。
+
+## 后续（T51）：§A 契约里的 aColor 顶点流已移除
+
+槽位改为运行时解析后，`aColor = -1` 这一事实暴露出**契约与实现长期不符**：§A 写的是
+「attribute 2 aColor 4 x float32（既有颜色流）／属性槽保留」，但顶点着色器从不读取它，
+颜色由 `aAux.semanticClass` + `uColor*` 在顶点阶段决定。代价是后端每代仍在
+`uploadTopology` 里为 CBO 做一次 `glBufferData` 重分配 + `glBufferSubData` 上传
+（262 KB 级），并且这个"保留槽"曾经是硬编码槽位 2 的来源之一——旧代码写死 `(2, …)`
+恰好覆盖了驱动分配给 `aAux` 的槽位。
+
+按 §A 修订执行：
+
+- `preview.vert` 删去 `attribute vec4 aColor;`，头部契约段记录修订理由；
+- `ChainPreviewShaderBackend` 删除 CBO 的字段 / 创建 / 上传 / 释放 / `describe()` 项；
+- `ChainPreviewShaderProgram` 删除 `ATTRIB_COLOR`、该槽的 `glBindAttribLocation`、查询与 getter；
+- 契约测试改为 `declaresFrozenVertexAttributes`：恰好两个属性 `aPos(3f)` / `aAux(4通道)`，
+  并显式断言 `aColor` 不再存在于 shader 路径。
+
+该颜色流仅剩 legacy 固定管线消费（其逐顶点 α 是 CPU 烘焙值），`ChainPreviewMesh.colorArray()`
+与 `getColorFloatCount()` 保持不变。

@@ -47,12 +47,10 @@ public final class ChainPreviewShaderProgram {
 
     private static final int ATTRIB_POSITION = 0;
     private static final int ATTRIB_AUX = 1;
-    private static final int ATTRIB_COLOR = 2;
 
     /** T50 运行时解析出的属性槽位（链接后查询；-1 = 未解析或被优化掉）。 */
     private int positionAttributeLocation = -1;
     private int auxAttributeLocation = -1;
-    private int colorAttributeLocation = -1;
 
     private static final String MISSING_UNIFORM_PREFIX = "预览着色器缺少必备 uniform: ";
 
@@ -563,14 +561,12 @@ public final class ChainPreviewShaderProgram {
      *
      * <p><b>这只是「请求」，不是「事实」</b>：真机实测（Angelica GLSM + lwjgl3ify + core profile）
      * 下本调用返回成功却不生效，驱动把 {@code aPos} 分到了槽位 1、{@code aAux} 分到了槽位 2
-     * （GLSL 1.20 兼容档里 {@code gl_Vertex} 占住槽位 0 之后的默认分配），而 {@code aColor}
-     * 因为着色器从不读取它被整体优化掉（location = -1）。因此槽位一律以
+     * （GLSL 1.20 兼容档里 {@code gl_Vertex} 占住槽位 0 之后的默认分配）。因此槽位一律以
      * {@link #resolveAttributeLocations()} 的查询结果为准，本方法只作为「请求」保留。</p>
      */
     private void bindAttributeLocations() {
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_POSITION, "aPos");
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_AUX, "aAux");
-        GL20.glBindAttribLocation(shaderProgramId, ATTRIB_COLOR, "aColor");
     }
 
     /**
@@ -583,13 +579,11 @@ public final class ChainPreviewShaderProgram {
      * 这是「离线全绿、真机错位」的最后一层，只有把槽位当运行时事实才能根治。</p>
      *
      * <p>{@code aPos} / {@code aAux} 缺一不可：缺失即抛，由 {@code ensureReady} 收敛为
-     * 「程序不可用」⇒ 后端一次性回退 legacy，绝不留错误空间的一帧。
-     * {@code aColor} 允许为 -1（着色器不消费 CPU 颜色流，编译器会把它优化掉）。</p>
+     * 「程序不可用」⇒ 后端一次性回退 legacy，绝不留错误空间的一帧。</p>
      */
     private void resolveAttributeLocations() {
         positionAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aPos");
         auxAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aAux");
-        colorAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aColor");
         if (positionAttributeLocation < 0 || auxAttributeLocation < 0) {
             throw new IllegalStateException("属性槽位解析失败：aPos=" + positionAttributeLocation
                 + ", aAux=" + auxAttributeLocation);
@@ -609,10 +603,6 @@ public final class ChainPreviewShaderProgram {
         return auxAttributeLocation;
     }
 
-    /** @return 颜色属性的运行时槽位；-1 表示被编译器优化掉（着色器不消费该流）。 */
-    public int getColorAttributeLocation() {
-        return colorAttributeLocation;
-    }
 
     private void releaseResources() {
         deleteShader(vertexShaderId);
@@ -627,7 +617,6 @@ public final class ChainPreviewShaderProgram {
         missingUniforms.clear();
         positionAttributeLocation = -1;
         auxAttributeLocation = -1;
-        colorAttributeLocation = -1;
     }
 
     private static void deleteShader(int shaderId) {

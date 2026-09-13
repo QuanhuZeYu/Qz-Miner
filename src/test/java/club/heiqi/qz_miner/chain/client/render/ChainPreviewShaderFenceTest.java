@@ -101,8 +101,7 @@ public class ChainPreviewShaderFenceTest {
             Assert.assertFalse("必须存在 glVertexAttribPointer: " + signature, slots.isEmpty());
             for (String slot : slots) {
                 Assert.assertTrue("属性槽位必须是运行时解析值而不是字面量：" + signature + " -> " + slot,
-                        slot.startsWith("attributePosition") || slot.startsWith("attributeAux")
-                                || slot.startsWith("attributeColor"));
+                        slot.startsWith("attributePosition") || slot.startsWith("attributeAux"));
             }
             Assert.assertTrue("绑定必须先取运行时槽位：" + signature,
                     body.contains("attributePosition") && body.contains("attributeAux"));

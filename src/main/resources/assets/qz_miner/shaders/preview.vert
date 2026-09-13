@@ -9,9 +9,14 @@
  *                        x = semanticClass（0..255，255 = 未定义）
  *                        y = tubeEdge（0..3，255 = 未定义）
  *                        z/w = appearOrder u16 小端（0xFFFF = 未定义）
- *   attribute 2 aColor 4 x float32  既有颜色流（legacy 唯一颜色来源）
- *            shader 路径不再消费其 rgb：颜色由 uColor* + semanticClass 在顶点阶段决定。
- *            属性槽保留（契约 §A 与 VAO 布局不动），避免拆槽带来的绑定/兼容风险。
+ *
+ *   **§A 修订（T51）**：原契约的「attribute 2 aColor 4 x float32（既有颜色流）」已从着色器路径移除。
+ *   那份颜色流只服务 legacy 固定管线（其逐顶点 α 是 CPU 烘焙值）；着色器路径的颜色由
+ *   aAux.semanticClass + uColor* 调色板在顶点阶段决定，从不读取 aColor——编译器因此把它整体优化掉
+ *   （location = -1），契约里「保留该槽」的写法与实现不符，还会让下游以为这份颜色流仍参与计算。
+ *   槽位编号同样不再写进契约：GLSL 1.20 无 layout 限定符，槽位是链接期事实，由
+ *   ChainPreviewShaderProgram#resolveAttributeLocations 运行时解析，见
+ *   docs/反馈层/errors/ERROR-20260914-preview-attribute-slot-assumption.md。
  *
  * 功能优先级与落点（接口冻结文档 §F）：
  *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
@@ -34,7 +39,6 @@
 
 attribute vec3 aPos;
 attribute vec4 aAux;
-attribute vec4 aColor;
 
 // 相机矩阵（T48c-A）：显式 uniform，由 Java 侧每帧从固定管线栈读取、CPU 相乘后上传。
 // 刻意不使用 gl_ModelViewProjectionMatrix / gl_ModelViewMatrix——在「固定管线由 Angelica GLSM
