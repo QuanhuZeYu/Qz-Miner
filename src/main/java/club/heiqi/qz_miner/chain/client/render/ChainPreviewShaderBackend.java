@@ -69,6 +69,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     private final ChainPreviewShaderProgram program;
 
+    /** T49 临时探针（直接植入、有界输出；拆除条件见 {@link ChainPreviewShaderProbe} 类注释）。 */
+    private final ChainPreviewShaderProbe probe = new ChainPreviewShaderProbe();
+    /** 探针用：几何上传代数（每次 uploadTopology 递增，便于把日志对到具体一份网格）。 */
+    private int topologyGeneration;
+
     private int vao;
     private int vbo;
     private int cbo;
@@ -233,6 +238,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         int vertexFloatCount = mesh.getVertexFloatCount();
         int colorFloatCount = mesh.getColorFloatCount();
 
+        // T49 探针：登记 CPU 期望快照（有界：首 8 顶点 / 首 6 索引），供 draw 期回读逐项比对。
+        topologyGeneration++;
+        probe.captureMesh(vertices, vertexFloatCount, indices, mesh.getIndexCount());
+
         // plan 的索引语义恒为 mesh 的 quad 索引；shader EBO 在此处按 4→6 展开。
         int quadIndexCount = mesh.getIndexCount();
         int uploadIndexCount = expandQuadsToTriangles(indices, quadIndexCount);
@@ -312,6 +321,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             if (!applyUniforms(plan)) {
                 // 相机矩阵来源不可信：本帧不画（绝不留错误空间的一帧）。后端已被置为一次性不可用，
                 // 下一帧由 renderer 既有的 ensureReadyBackend() 永久回退 legacy。
+                if (probe.ready()) {
+                    probe.reportAbort("matrix-untrusted",
+                        matrixSourceFailure.isEmpty() ? "unknown" : matrixSourceFailure);
+                    probe.consumed();
+                }
                 return;
             }
 
@@ -323,6 +337,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
+            // T49 探针：本帧绘制输入自证（属性布局 / 容量 / 数据回读 / 矩阵 / uniform 回读）。
+            // 位置在此处是刻意的：VAO 已绑定且布局已重设，正是 DrawElements 即将消费的状态。
+            if (probe.ready()) {
+                reportProbe(plan, visibleIndexCount, indexOffset);
+                probe.consumed();
+            }
             int primitive = GL11.GL_TRIANGLES;
             GL11.glDrawElements(
                 primitive,
@@ -350,6 +370,66 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             } catch (Throwable ignored) {
                 // GL 不可用时无需恢复。
             }
+        }
+    }
+
+    /**
+     * T49 临时探针：输出本帧绘制输入的全量自证。
+     *
+     * <p><b>拆除条件与时机</b>：着色器路径真机取证完成、且与 legacy 观感 A/B 通过后，
+     * 删除本方法与 {@link ChainPreviewShaderProbe} 类、字段、调用点。</p>
+     *
+     * @param plan              本帧 draw plan（取 origin）
+     * @param visibleIndexCount 本帧实际提交的三角形索引数
+     * @param indexOffset       本帧三角形索引偏移
+     */
+    private void reportProbe(ChainPreviewDrawPlan plan, int visibleIndexCount, int indexOffset) {
+        try {
+            probe.reportContext(topologyGeneration, vao, vbo, cbo, abo, ebo,
+                vertexCount, indexCount, visibleIndexCount, indexOffset, plan.getIndexOffset(),
+                matrixSourceFailure.isEmpty());
+            probe.reportBindings(vao, ebo, vbo, cbo, abo);
+            probe.reportBuffers(
+                boundBufferSize(vbo, GL15.GL_ARRAY_BUFFER),
+                boundBufferSize(cbo, GL15.GL_ARRAY_BUFFER),
+                boundBufferSize(abo, GL15.GL_ARRAY_BUFFER),
+                boundBufferSize(ebo, GL15.GL_ELEMENT_ARRAY_BUFFER));
+            probe.reportData(vbo, ebo);
+            float viewYaw = 0.0F;
+            float viewPitch = 0.0F;
+            if (RenderManager.instance != null) {
+                viewYaw = RenderManager.instance.playerViewY;
+                viewPitch = RenderManager.instance.playerViewX;
+            }
+            probe.reportMatrix(projectionMatrix, modelViewMatrix, modelViewProjectionMatrix,
+                matrixExpectedMagnitude, matrixTranslationMagnitude,
+                new double[] {RenderManager.renderPosX, RenderManager.renderPosY, RenderManager.renderPosZ},
+                viewYaw, viewPitch,
+                new int[] {(int) plan.getOriginX(), (int) plan.getOriginY(), (int) plan.getOriginZ()},
+                indexCount, vertexCount);
+            probe.reportUniform(program.getProgramId(),
+                new int[] {
+                    program.getUniformLocation("uModelViewProjection"),
+                    program.getUniformLocation("uModelView")},
+                new String[] {"uModelViewProjection", "uModelView"},
+                new float[][] {modelViewProjectionMatrix, modelViewMatrix});
+        } catch (Throwable ignored) {
+            // 探针不得影响渲染帧。
+        }
+    }
+
+    /** 回读某个 buffer 的 GL 容量（查询走「先绑定再查」，完成后恢复原绑定）。 */
+    private static int boundBufferSize(int bufferId, int target) {
+        try {
+            int bindingName = target == GL15.GL_ELEMENT_ARRAY_BUFFER
+                ? GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING : GL15.GL_ARRAY_BUFFER_BINDING;
+            int previous = GL11.glGetInteger(bindingName);
+            GL15.glBindBuffer(target, bufferId);
+            int size = GL15.glGetBufferParameter(target, GL15.GL_BUFFER_SIZE);
+            GL15.glBindBuffer(target, previous);
+            return size;
+        } catch (Throwable failure) {
+            return -1;
         }
     }
 
