@@ -104,26 +104,37 @@ public class ChainPreviewShaderContractTest {
                 vertex.getUniforms().containsKey("uAnimSpan"));
     }
 
-    /** 片元颜色必须来自 uniform（语义色），并且语义主色与 255 未定义都要落到同一兜底。 */
+    /** 语义调色板 uniform 必须声明在**顶点**着色器（选色在顶点阶段完成，F1）。 */
     @Test
-    public void fragmentColorComesFromUniformSemanticPalette() throws IOException {
+    public void semanticPaletteLivesInVertexStage() throws IOException {
         List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        GlslSourceScanner fragment = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag");
-        Map<String, String> uniforms = fragment.getUniforms();
+        Map<String, String> vertexUniforms = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
+                .getUniforms();
+        Map<String, String> fragmentUniforms = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag")
+                .getUniforms();
 
         for (String required : new String[] {
-                "uColorPrimary", "uColorSecondary", "uColorRemote", "uColorTruncated",
-                "uColorPrimaryEnabled", "uColorSecondaryEnabled", "uColorRemoteEnabled", "uColorTruncatedEnabled" }) {
-            Assert.assertTrue("片元必须声明语义色 uniform: " + required, uniforms.containsKey(required));
+                "uColorPrimary", "uColorSecondary", "uColorRemote", "uColorTruncated" }) {
+            Assert.assertTrue("顶点必须声明语义色 uniform: " + required, vertexUniforms.containsKey(required));
         }
+        for (String forbidden : new String[] {
+                "uColorPrimary", "uColorSecondary", "uColorRemote", "uColorTruncated" }) {
+            Assert.assertFalse("片元不得再声明 " + forbidden + "（避免两处真源分叉）",
+                    fragmentUniforms.containsKey(forbidden));
+        }
+        Assert.assertFalse("不得保留无人写入的 *Enabled uniform（死 uniform）",
+                vertexUniforms.containsKey("uColorPrimaryEnabled"));
 
-        String selector = fragment.body("selectSemanticColor");
-        Assert.assertTrue("语义色选择必须实现为独立函数", selector.length() > 0);
-        Assert.assertTrue("语义色必须以主色为默认值（255/未定义走主色兜底）",
-                selector.indexOf("vec3 color = uColorPrimary") >= 0);
-        Assert.assertTrue("四个类别必须逐个 select（GLSL 1.20 不允许非常量下标访问 uniform 数组）",
-                selector.indexOf("uColorSecondaryEnabled") > 0 && selector.indexOf("uColorRemoteEnabled") > 0
-                        && selector.indexOf("uColorTruncatedEnabled") > 0);
+        String selector = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("previewSemanticColor");
+        Assert.assertTrue("选色必须实现为顶点侧独立函数", selector.length() > 0);
+        Assert.assertTrue("主色必须作为兜底返回（0/4/5/255 都走它）",
+                selector.indexOf("return uColorPrimary;") >= 0);
+        Assert.assertTrue("子模式类别必须走 uColorSecondary",
+                selector.indexOf("semanticClass == 1.0") >= 0 && selector.indexOf("return uColorSecondary;") >= 0);
+        Assert.assertTrue("远端类别必须走 uColorRemote",
+                selector.indexOf("semanticClass == 2.0") >= 0 && selector.indexOf("return uColorRemote;") >= 0);
+        Assert.assertTrue("截断类别必须走 uColorTruncated（保留合法分支）",
+                selector.indexOf("semanticClass == 3.0") >= 0 && selector.indexOf("return uColorTruncated;") >= 0);
     }
 
     /** 片元必须真的输出颜色，且 alpha 来自顶点阶段（vColor.a）。 */
@@ -159,39 +170,57 @@ public class ChainPreviewShaderContractTest {
     // ------------------------------------------------------------------ S1/S2 回归（Lead 冻结前裁定）
 
     /**
-     * S1：顶点阶段不得预乘 alpha。
+     * S1：顶点阶段不得预乘 alpha（rgb 必须是语义色本身，不含 alpha 因子）。
      *
-     * <p>共用混合为 {@code GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA}，预乘后片元再输出 rgb
-     * 会得到 {@code rgb × alpha²}（alpha=0.15 → 0.0225 vs 0.15），远距条柱在 shader 档
-     * 几乎不可见，与 legacy 观感分叉。</p>
+     * <p>共用混合为 {@code GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA}：若 rgb 已乘 alpha，
+     * 混合阶段会再乘一次，得到 {@code rgb × alpha²}（alpha=0.15 → 0.0225 vs 0.15），
+     * 远距条柱在 shader 档几乎不可见，与 legacy 观感分叉。</p>
      */
     @Test
     public void vertexStageDoesNotPremultiplyAlpha() throws IOException {
         List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
         String mainBody = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("main");
 
-        Assert.assertTrue("vColor.rgb 必须来自顶点基色 aColor.rgb",
-                mainBody.indexOf("vColor = vec4(aColor.rgb,") >= 0);
+        Assert.assertTrue("vColor.rgb 必须是语义类别色（顶点选色，F1）",
+                mainBody.indexOf("vColor = vec4(previewSemanticColor(semanticClass), alpha)") >= 0);
         Assert.assertFalse("顶点阶段不得把 alpha 乘进 rgb（预乘会让共用 blend 产生 alpha²）",
-                mainBody.indexOf("aColor.rgb * alpha") >= 0
-                        || mainBody.indexOf("aColor.rgb * ") >= 0);
+                mainBody.indexOf("previewSemanticColor(semanticClass) * alpha") >= 0);
     }
 
     /**
-     * S2：语义色 uniform 必须被主路径真实消费（不得留从不调用的死代码）。
+     * 两阶段表达式必须严格互补（改写一边必失败）：顶点写 vColor.rgb=语义色，
+     * 片元读 vColor.rgb 且不再自行选色；片元也不重乘 alpha。
      */
     @Test
-    public void semanticPaletteIsActuallyConsumedByFragmentMain() throws IOException {
+    public void vertexAndFragmentColorExpressionsAreComplementary() throws IOException {
         List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        GlslSourceScanner fragment = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag");
-        String mainBody = fragment.body("main");
+        String vertexMain = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("main");
+        String fragmentMain = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag").body("main");
 
-        Assert.assertTrue("主路径必须调用语义色选择器（否则 uColor* 全是死 uniform）",
-                GlslSourceScanner.countIdentifier(mainBody, "selectSemanticColor") > 0);
-        Assert.assertTrue("最终颜色必须直接取语义绝对色：gl_FragColor = vec4(selectSemanticColor(), vColor.a)",
-                mainBody.indexOf("vec4(selectSemanticColor(), vColor.a)") >= 0);
-        Assert.assertFalse("片元不得再乘顶点基色 vColor.rgb（会与语义色二次乘色：0.25→0.0625、0.9→0.81）",
-                mainBody.indexOf("selectSemanticColor() * vColor.rgb") >= 0);
+        Assert.assertTrue("顶点必须把选好的语义色写进 vColor.rgb",
+                vertexMain.indexOf("vColor = vec4(previewSemanticColor(semanticClass), alpha)") >= 0);
+        Assert.assertTrue("片元必须直接输出插值后的 vColor.rgb",
+                fragmentMain.indexOf("gl_FragColor = vec4(vColor.rgb, vColor.a)") >= 0);
+        Assert.assertFalse("片元不得再乘 vColor.a（会变成预乘）", fragmentMain.indexOf("* vColor.a") >= 0);
+        Assert.assertFalse("片元不得自行选色（会与顶点选色形成第二真源）",
+                fragmentMain.indexOf("uColor") >= 0);
+    }
+
+    /**
+     * S2：语义调色板必须被主路径真实消费（不得留从不调用的死 uniform）。
+     *
+     * <p>F1 之后选择器在顶点：由 {@code main()} 调用 {@code previewSemanticColor}，
+     * 结果写进 vColor.rgb；片元只做插值输出，不再持有调色板。</p>
+     */
+    @Test
+    public void semanticPaletteIsConsumedByVertexMain() throws IOException {
+        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
+        String vertexMain = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("main");
+
+        Assert.assertTrue("顶点主路径必须调用语义色选择器（否则 uColor* 全是死 uniform）",
+                GlslSourceScanner.countIdentifier(vertexMain, "previewSemanticColor") > 0);
+        Assert.assertTrue("选中颜色必须写进 vColor.rgb",
+                vertexMain.indexOf("vColor = vec4(previewSemanticColor(semanticClass), alpha)") >= 0);
     }
 
     /**

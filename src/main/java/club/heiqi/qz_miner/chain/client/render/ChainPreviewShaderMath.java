@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder;
+import club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass;
 
 /**
  * 预览着色器的 CPU 参考模型：与 {@code preview.vert} / {@code preview.frag} 里同名同形的纯函数。
@@ -33,6 +34,60 @@ public final class ChainPreviewShaderMath {
 
     /** appearOrder 未定义哨兵（接口冻结 §A：0xFFFF）。 */
     public static final float APPEAR_ORDER_UNDEFINED = 65535.0F;
+
+    /** legacy 基线常量色 R（= ChainPreviewMeshBuilder.BASE_RED）。 */
+    public static final float BUILTIN_COLOR_RED = 0.25F;
+    /** legacy 基线常量色 G（= ChainPreviewMeshBuilder.BASE_GREEN）。 */
+    public static final float BUILTIN_COLOR_GREEN = 0.9F;
+    /** legacy 基线常量色 B（= ChainPreviewMeshBuilder.BASE_BLUE）。 */
+    public static final float BUILTIN_COLOR_BLUE = 1.0F;
+
+    /**
+     * builtin 调色板（静态复用，只读）：四槽都是精确基线常量。
+     *
+     * <p>本表会在每帧 uniform 路径上被取用，因此<strong>静态复用、不 clone</strong>（F4）；
+     * 调用方只能读。builtin 档刻意不经 8bit 量化往返——{@code round(0.9×255)=230}、
+     * {@code 230/255=0.9019608} 与 0.9F 差 1.96e-3，那正是「逐字节等于现状」不允许的色差。</p>
+     */
+    private static final float[][] BUILTIN_COLOR_TABLE = {
+        {BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE},
+        {BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE},
+        {BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE},
+        {BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE},
+    };
+
+    /** 颜色来源稳定 id：内置（legacy 现状兼容色）。 */
+    public static final String COLOR_SOURCE_BUILTIN = "builtin";
+    /** 颜色来源稳定 id：配置（四色来自 clientPreviewColor*）。 */
+    public static final String COLOR_SOURCE_CONFIG = "config";
+
+    // ---------------------------------------------------------------- §D 语义类别（冻结）
+
+    // 语义类别常量**单一真源**：session-core 的 ChainPreviewSemanticClass（F3）。
+    // 本类不再自造 id；GLSL 侧因无法共享 Java 常量而保留字面量，注释互指。
+    /** 0 PRIMARY_LOCAL 主模式本地预测 → 主色。 */
+    public static final int SEMANTIC_PRIMARY_LOCAL = ChainPreviewSemanticClass.PRIMARY_LOCAL;
+    /** 1 SUB_MODE_LOCAL 子模式本地预测 → 子模式色。 */
+    public static final int SEMANTIC_SUB_MODE_LOCAL = ChainPreviewSemanticClass.SUB_MODE_LOCAL;
+    /** 2 REMOTE_PREDICTED 远端预测 → 远端色。 */
+    public static final int SEMANTIC_REMOTE_PREDICTED = ChainPreviewSemanticClass.REMOTE_PREDICTED;
+    /** 3 TRUNCATED 截断（本轮数据源不产出，保留合法分支）→ 截断色。 */
+    public static final int SEMANTIC_TRUNCATED = ChainPreviewSemanticClass.TRUNCATED;
+    /** 4 DEFERRED 待执行（未启用）→ 主色兜底。 */
+    public static final int SEMANTIC_DEFERRED = ChainPreviewSemanticClass.DEFERRED;
+    /** 5 EXECUTED 已执行（未启用）→ 主色兜底。 */
+    public static final int SEMANTIC_EXECUTED = ChainPreviewSemanticClass.EXECUTED;
+    /** 255 UNDEFINED 未定义 → 主色兜底。 */
+    public static final int SEMANTIC_UNDEFINED = ChainPreviewSemanticClass.UNDEFINED;
+
+    /** 调色板下标：主色。 */
+    public static final int PALETTE_PRIMARY = 0;
+    /** 调色板下标：子模式色。 */
+    public static final int PALETTE_SECONDARY = 1;
+    /** 调色板下标：远端色。 */
+    public static final int PALETTE_REMOTE = 2;
+    /** 调色板下标：截断色。 */
+    public static final int PALETTE_TRUNCATED = 3;
 
     private ChainPreviewShaderMath() {}
 
@@ -161,6 +216,176 @@ public final class ChainPreviewShaderMath {
         }
         // 极小 epsilon 抵消浮点表示误差（u=1/3 时 u*3 可能略小于 1）。
         return (int) Math.ceil(animationProgress * totalTargets - 1.0e-9D) - 1;
+    }
+
+    /**
+     * 最终顶点 alpha：距离淡出 × 淡入淡出包络（B3.2）。
+     *
+     * <p>GLSL 侧 {@code vColor.a = fade * growth * uFadeAlpha}，其中 fade 是
+     * {@link #fadeAlpha} 的 quadratic 曲线。{@code fadeAlpha = 1} 时必须与现状逐值一致
+     * （乘 1 不改变任何结果），这是「不启用动画档 ⇒ 观感不变」的可断言形式。</p>
+     *
+     * @param distanceBasedAlpha 距离淡出 alpha（{@link #fadeAlpha} 的结果）
+     * @param fadeAlpha          淡入淡出包络 [0,1]；1 = 完全不透明
+     * @return 最终 alpha
+     */
+    public static float finalAlpha(float distanceBasedAlpha, float fadeAlpha) {
+        // NaN 收敛为「不透明」而非传播：异常配置不得让整条链路静默消失。
+        if (Float.isNaN(fadeAlpha)) {
+            return distanceBasedAlpha;
+        }
+        return distanceBasedAlpha * clamp(fadeAlpha, 0.0F, 1.0F);
+    }
+
+    /**
+     * 类别 → 调色板下标，与 {@code preview.vert} 的 {@code previewSemanticColor()} 逐条对应。
+     *
+     * <p>映射（接口冻结 §D 类别表，task-16 冻结）：
+     * 0 → 主色；1 → 子模式色；2 → 远端色；3 → 截断色；4/5/255 及任何未知值 → 主色兜底。</p>
+     *
+     * <p><strong>未知值绝不返回非法下标</strong>——这是「不得出现空洞或异常色」的可断言形式。</p>
+     *
+     * @param semanticClass aAux.x 还原后的类别 id（0..255）
+     * @return {@link #PALETTE_PRIMARY} / {@link #PALETTE_SECONDARY} /
+     *         {@link #PALETTE_REMOTE} / {@link #PALETTE_TRUNCATED}
+     */
+    public static int paletteIndexFor(int semanticClass) {
+        if (semanticClass == SEMANTIC_SUB_MODE_LOCAL) {
+            return PALETTE_SECONDARY;
+        }
+        if (semanticClass == SEMANTIC_REMOTE_PREDICTED) {
+            return PALETTE_REMOTE;
+        }
+        if (semanticClass == SEMANTIC_TRUNCATED) {
+            return PALETTE_TRUNCATED;
+        }
+        return PALETTE_PRIMARY;
+    }
+
+    /**
+     * 配置色（int RGB）→ 单通道 float：按 8bit 量化（{@code /255}）。
+     *
+     * <p>量化差异只出现在 {@code colorSource=config} 档；builtin 档传的是精确基线常量
+     * (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流。</p>
+     *
+     * @param rgb   0xRRGGBB 整数
+     * @param shift 通道位移：16=R、8=G、0=B
+     * @return 0..1 的通道值
+     */
+    public static float colorChannel(int rgb, int shift) {
+        return ((rgb >>> shift) & 0xFF) / 255.0F;
+    }
+
+    /**
+     * 浮点通道 → 0..255 整数（与 {@link #colorChannel(int, int)} 互逆）。
+     *
+     * @param channel 0..1 的通道值
+     * @return 0..255
+     */
+    public static int quantizeChannel(float channel) {
+        return (int) Math.floor(clamp(channel, 0.0F, 1.0F) * 255.0F + 0.5F);
+    }
+
+    /**
+     * builtin 档调色板（浮点）：四类都是精确基线常量 (0.25, 0.9, 1.0)。
+     *
+     * <p><strong>静态复用不可变数组</strong>（F4）：本方法会在每帧 uniform 路径上被调用，
+     * 不得每次新建数组；返回的数组<strong>只读</strong>，调用方不得修改。</p>
+     *
+     * <p><strong>刻意不经 8bit 量化往返</strong>：{@code round(0.9×255) = 230}、
+     * {@code 230/255 = 0.9019608}，与 legacy 常量 0.9F 差 1.96e-3 —— 那正是「builtin 必须逐位
+     * 等于现状」不允许的色差。量化只属于 config 档（配置本来就以 int RGB 存储）。</p>
+     *
+     * @return 长度 4 × 3 的 RGB（只读，禁止修改）
+     */
+    public static float[][] builtinColorTable() {
+        return BUILTIN_COLOR_TABLE;
+    }
+
+    /**
+     * legacy 基线常量色打包成 0xRRGGBB（仅供诊断与 int 口径断言使用）。
+     *
+     * <p>真实上传路径不做这条往返（见 {@link #builtinColorTable()}）。</p>
+     *
+     * @return 0xRRGGBB
+     */
+    public static int baselineColorRgb() {
+        return (quantizeChannel(BUILTIN_COLOR_RED) << 16)
+                | (quantizeChannel(BUILTIN_COLOR_GREEN) << 8)
+                | quantizeChannel(BUILTIN_COLOR_BLUE);
+    }
+
+    /**
+     * builtin 档调色板（int 口径，供 {@link #paletteFor} 的统一签名与断言使用）。
+     *
+     * <p>注意：int 口径本身携带 8bit 量化误差（0.9 → 230/255），<strong>不要</strong>用它做
+     * builtin 档的逐位断言——逐位断言请用 {@link #builtinColorTable()}。</p>
+     *
+     * @return 长度 4 的 int 数组，下标与 {@link #PALETTE_PRIMARY} 等一致
+     */
+    public static int[] builtinPalette() {
+        int rgb = baselineColorRgb();
+        return new int[] {rgb, rgb, rgb, rgb};
+    }
+
+    /**
+     * 选择调色板：{@code config} 档返回传入四色，其余（{@code builtin}/null/未知 id）
+     * 一律返回 {@link #builtinPalette()}——未知档位绝不产生异常色。
+     *
+     * @param colorSourceId  颜色来源稳定 id
+     * @param colorPrimary   配置主色 0xRRGGBB
+     * @param colorSecondary 配置子模式色 0xRRGGBB
+     * @param colorRemote    配置远端色 0xRRGGBB
+     * @param colorTruncated 配置截断色 0xRRGGBB
+     * @return 长度 4 的 int 调色板
+     */
+    public static int[] paletteFor(
+            String colorSourceId, int colorPrimary, int colorSecondary, int colorRemote, int colorTruncated) {
+        if (COLOR_SOURCE_CONFIG.equals(colorSourceId)) {
+            return new int[] {colorPrimary, colorSecondary, colorRemote, colorTruncated};
+        }
+        return builtinPalette();
+    }
+
+    /**
+     * 语义类别 → builtin 档最终输出 RGB（精确基线常量口径）。
+     *
+     * <p>builtin 档四色相同，故结果与类别无关；保留类别入参是为了让「类别选择链路」
+     * 在测验里被真实走一遍（未知类别也必须返回基线常量，不得抛异常或返回零向量）。</p>
+     *
+     * @param semanticClass 类别 id（0..255；未知值同样兜底）
+     * @return 长度为 3 的 RGB（精确基线常量）
+     */
+    public static float[] builtinColorRgb(int semanticClass) {
+        // 真实链路：先做类别 → 调色板映射（未知值兜底主色），再取该槽位的精确浮点色。
+        // 返回静态复用数组（只读），不做 clone —— 本方法在每帧路径上被调用（F4）。
+        return BUILTIN_COLOR_TABLE[paletteIndexFor(semanticClass)];
+    }
+
+    /**
+     * 语义类别 → 最终输出 RGB，逐条复刻 {@code preview.frag} 的选择逻辑。
+     *
+     * @param semanticClass  类别 id（0..255）
+     * @param colorPrimary   主色 0xRRGGBB
+     * @param colorSecondary 子模式色 0xRRGGBB
+     * @param colorRemote    远端色 0xRRGGBB
+     * @param colorTruncated 截断色 0xRRGGBB
+     * @return 长度为 3 的 RGB（0..1）
+     */
+    public static float[] semanticColorRgb(
+            int semanticClass, int colorPrimary, int colorSecondary, int colorRemote, int colorTruncated) {
+        int palette = paletteIndexFor(semanticClass);
+        int rgb;
+        if (palette == PALETTE_SECONDARY) {
+            rgb = colorSecondary;
+        } else if (palette == PALETTE_REMOTE) {
+            rgb = colorRemote;
+        } else if (palette == PALETTE_TRUNCATED) {
+            rgb = colorTruncated;
+        } else {
+            rgb = colorPrimary;
+        }
+        return new float[] {colorChannel(rgb, 16), colorChannel(rgb, 8), colorChannel(rgb, 0)};
     }
 
     /**
@@ -318,13 +543,6 @@ public final class ChainPreviewShaderMath {
             float semanticRed, float semanticGreen, float semanticBlue, float alpha) {
         return new float[] {semanticRed * alpha, semanticGreen * alpha, semanticBlue * alpha};
     }
-
-    /** legacy 基线常量色 R（= ChainPreviewMeshBuilder.BASE_RED）。 */
-    public static final float BUILTIN_COLOR_RED = 0.25F;
-    /** legacy 基线常量色 G（= ChainPreviewMeshBuilder.BASE_GREEN）。 */
-    public static final float BUILTIN_COLOR_GREEN = 0.9F;
-    /** legacy 基线常量色 B（= ChainPreviewMeshBuilder.BASE_BLUE）。 */
-    public static final float BUILTIN_COLOR_BLUE = 1.0F;
 
     private static float clamp(float value, float min, float max) {
         return value < min ? min : (value > max ? max : value);

@@ -374,16 +374,29 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             program.setAnimation(clamp01(animationU), orderCount);
         }
 
-        // builtin 档：四类同传精确基线常量，逐位等于 legacy 颜色流。
-        // 语义类别本轮恒为 255（未接线），片元选择器落到 uColorPrimary 兜底；
-        // B2.3 接线语义类别时，四色改由 config 提供（本方法的着色点不变）。
-        float red = BUILTIN_COLOR_RED;
-        float green = BUILTIN_COLOR_GREEN;
-        float blue = BUILTIN_COLOR_BLUE;
-        program.setSemanticColor(0, red, green, blue);
-        program.setSemanticColor(1, red, green, blue);
-        program.setSemanticColor(2, red, green, blue);
-        program.setSemanticColor(3, red, green, blue);
+        // 淡入淡出包络（B3.2 / L5）：与距离淡出、逐波生长相乘得到最终 alpha。
+        // 默认档 getFadeAlpha() == 1 ⇒ 逐值等于启用动画前（乘 1 不改变结果）。
+        program.setFadeAlpha(plan.getFadeAlpha());
+
+        // 调色板：builtin 档四槽都传精确基线常量 (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流
+        // （不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）。
+        applyColorPalette(plan);
+    }
+
+    /**
+     * 设置四色调色板（uniform 声明在**顶点**着色器：选色在顶点阶段完成，F1）。
+     *
+     * <p>当前固定 builtin 档：四槽 = 精确基线常量 (0.25, 0.9, 1.0)。config 档需要 plan 暴露
+     * {@code getColorSourceId()/getColorPrimary()/...}（render-core 方案 A）；落地后在此按
+     * {@link ChainPreviewShaderMath#paletteFor} 切换即可，uniform 名称与槽位映射不变。</p>
+     *
+     * @param plan 当前 draw plan（config 档落地后从这里读色，保持「只读 plan + uniform」单通道）
+     */
+    private void applyColorPalette(ChainPreviewDrawPlan plan) {
+        for (int slot = ChainPreviewShaderMath.PALETTE_PRIMARY;
+                slot <= ChainPreviewShaderMath.PALETTE_TRUNCATED; slot++) {
+            program.setSemanticColor(slot, BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE);
+        }
     }
 
     private void uploadAux(byte[] aux, int vertexCount) {

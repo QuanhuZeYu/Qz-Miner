@@ -10,12 +10,15 @@
  *                        y = tubeEdge（0..3，255 = 未定义）
  *                        z/w = appearOrder u16 小端（0xFFFF = 未定义）
  *   attribute 2 aColor 4 x float32  既有颜色流（legacy 唯一颜色来源）
+ *            shader 路径不再消费其 rgb：颜色由 uColor* + semanticClass 在顶点阶段决定。
+ *            属性槽保留（契约 §A 与 VAO 布局不动），避免拆槽带来的绑定/兼容风险。
  *
  * 功能优先级与落点（接口冻结文档 §F）：
  *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
  *   2) 屏幕最小宽度  —— 顶点侧沿横向偏移等比放大，与 glTranslated 相机相对坐标一致
  *   3) 逐波生长      —— 读 aAux 的 appearOrder 归一化后与 uAnimProgress 逐顶点比较（不要求索引有序）
- *   4) 语义颜色      —— 片元用 uniform 调制色（中性元 = 不调制），顶点只搬运 semanticClass 与基色
+ *   4) 语义颜色      —— 顶点按 semanticClass 选 uColor* 并写进 vColor.rgb（片元只做插值输出）
+ *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
  *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
  *
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
@@ -37,13 +40,50 @@ uniform float uAnimProgress;     // (出现序号 / 目标总数)；>= 1 表示�
 uniform float uAppearSpan;       // 同代目标总数（序号归一化分母），<= 0 时关闭生长比较
 uniform float uMinScreenWidthPx; // 0 = 关闭屏幕最小宽度钳制
 uniform float uBarThickness;
+uniform float uFadeAlpha;        // 淡入淡出包络（B3.2）[0,1]；1 = 完全不透明（默认档）
+                                 // 宿主每帧显式置 1，避免 uniform 未设时默认 0 导致整链透明
+
+// 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表）。
+// builtin 档四色都是精确基线常量 (0.25, 0.9, 1.0) ⇒ 输出逐字节等于现状。
+uniform vec3 uColorPrimary;
+uniform vec3 uColorSecondary;
+uniform vec3 uColorRemote;
+uniform vec3 uColorTruncated;
 
 varying vec4 vColor;
-varying float vSemantic;
 
 /** 还原 0..255 的量化通道：normalized uint8 attribute × 255 再四舍五入。 */
 float auxChannel(float value) {
     return floor(value * 255.0 + 0.5);
+}
+
+/**
+ * 语义类别 → 颜色，与接口冻结 §D 类别表逐条对应（task-16 冻结值域）：
+ *   0 PRIMARY_LOCAL → uColorPrimary
+ *   1 SUB_MODE_LOCAL → uColorSecondary
+ *   2 REMOTE_PREDICTED → uColorRemote
+ *   3 TRUNCATED → uColorTruncated（本轮数据源不产出，保留合法分支）
+ *   4 DEFERRED / 5 EXECUTED / 255 UNDEFINED 及任何未知值 → uColorPrimary 兜底
+ *
+ * <p><b>必须在顶点阶段选色</b>：varying 是 smooth 插值的，一个 quad 内若两顶点类别不同
+ * （共享角点取相邻目标的最小类别序），插值结果会落在两整数之间——片元里用
+ * {@code vSemantic == 2.0} 精确比较会整片落空、丢失远端/截断色。GLSL 1.20 没有 flat
+ * 限定符，所以颜色本身必须逐顶点定下来，片元只用插值后的 vColor.rgb。</p>
+ *
+ * 类别常量与 Java 侧 {@code club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass}
+ * 同源；GLSL 无法共享 Java 常量，改动时两处必须同步（GLSL 侧保留字面量）。
+ */
+vec3 previewSemanticColor(float semanticClass) {
+    if (semanticClass == 1.0) {
+        return uColorSecondary;
+    }
+    if (semanticClass == 2.0) {
+        return uColorRemote;
+    }
+    if (semanticClass == 3.0) {
+        return uColorTruncated;
+    }
+    return uColorPrimary;
 }
 
 /** 与 CPU 端同形的 quadratic 距离淡出。 */
@@ -120,15 +160,14 @@ void main(void) {
         displaced = aPos + lateralAxis * (lateralMagnitude * (widen - 1.0));
     }
 
-    // S1 修复：vColor.rgb 必须是非预乘基色，且**不参与片元最终颜色**。
+    // 颜色与 alpha：vColor.rgb 是「语义类别色」（非预乘），alpha 单独传给混合。
     // 共用混合是 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)（两后端共用）：
-    // 若此处预乘 alpha，片元输出该 rgb 会得到 rgb × alpha²（alpha=0.15 时 0.0225 vs 0.15）。
-    // 片元改用 uColor* 绝对色输出（Lead 裁定 S2），本处 rgb 仅作为属性契约的搬运
-    // （aColor 保持被读取），保留基色便于后续需要按顶点差色时不再改接口。
-    float alpha = fade * growth;
-    vColor = vec4(aColor.rgb, alpha);
-    // 语义类别：255 = 未定义，片元选择器对 255 兜底主色（Lead 裁定）。
-    vSemantic = auxChannel(aAux.x);
+    // 预乘 alpha 会让最终 src 变成 rgb × alpha²（alpha=0.15 时 0.0225 vs 0.15）。
+    // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）。
+    // uFadeAlpha = 1 时与启用动画前逐值一致（乘 1 不改变结果）。
+    float alpha = fade * growth * uFadeAlpha;
+    float semanticClass = auxChannel(aAux.x);
+    vColor = vec4(previewSemanticColor(semanticClass), alpha);
 
     // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），
     // 使上面的横向钳制算完即丢——B2.1 最小宽度在 shader 路径静默失效。

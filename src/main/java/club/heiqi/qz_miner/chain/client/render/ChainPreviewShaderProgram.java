@@ -77,6 +77,8 @@ public final class ChainPreviewShaderProgram {
             // 属性槽位必须在 glLinkProgram 之前绑定，链接后再绑对已链接程序无效。
             bindAttributeLocations();
             compileAndLink();
+            // 安全初值：uniform 未赋值时为 0，会让 uFadeAlpha 把整链 alpha 归零。
+            setFadeAlpha(1.0F);
             return true;
         } catch (Throwable failure) {
             // 编译 / 链接 / 验证失败，甚至 LWJGL native 不可用（UnsatisfiedLinkError /
@@ -262,27 +264,57 @@ public final class ChainPreviewShaderProgram {
         setUniform1f("uBarThickness", barThickness);
     }
 
-    public void setSemanticColor(int semanticClass, float red, float green, float blue) {
-        switch (semanticClass) {
-            case 0:
-                setUniform3f("uColorPrimary", red, green, blue);
-                setUniform1f("uColorPrimaryEnabled", 1.0F);
-                break;
-            case 1:
-                setUniform3f("uColorSecondary", red, green, blue);
-                setUniform1f("uColorSecondaryEnabled", 1.0F);
-                break;
-            case 2:
-                setUniform3f("uColorRemote", red, green, blue);
-                setUniform1f("uColorRemoteEnabled", 1.0F);
-                break;
-            case 3:
-                setUniform3f("uColorTruncated", red, green, blue);
-                setUniform1f("uColorTruncatedEnabled", 1.0F);
-                break;
-            default:
-                break;
+    /**
+     * 设置淡入淡出包络（B3.2）。
+     *
+     * <p>{@code fadeAlpha = 1} 表示完全不透明，与启用动画前逐值一致。宿主必须每帧显式设置：
+     * GLSL uniform 未赋值时为 0，若宿主漏设会让整链透明（因此 {@link #ensureReady()} 成功后
+     * 会先写入安全初值 1）。</p>
+     *
+     * @param fadeAlpha [0,1]；越界被 clamp
+     */
+    public void setFadeAlpha(float fadeAlpha) {
+        float safe = fadeAlpha < 0.0F ? 0.0F : (fadeAlpha > 1.0F ? 1.0F : fadeAlpha);
+        if (Float.isNaN(safe)) {
+            safe = 1.0F;
         }
+        setUniform1f("uFadeAlpha", safe);
+    }
+
+    /**
+     * 设置某个调色板槽位的颜色。
+     *
+     * @param paletteSlot {@link ChainPreviewShaderMath#PALETTE_PRIMARY} 等 4 个槽位
+     * @param red         0..1
+     * @param green       0..1
+     * @param blue        0..1
+     */
+    public void setSemanticColor(int paletteSlot, float red, float green, float blue) {
+        if (paletteSlot == ChainPreviewShaderMath.PALETTE_SECONDARY) {
+            setUniform3f("uColorSecondary", red, green, blue);
+        } else if (paletteSlot == ChainPreviewShaderMath.PALETTE_REMOTE) {
+            setUniform3f("uColorRemote", red, green, blue);
+        } else if (paletteSlot == ChainPreviewShaderMath.PALETTE_TRUNCATED) {
+            setUniform3f("uColorTruncated", red, green, blue);
+        } else {
+            setUniform3f("uColorPrimary", red, green, blue);
+        }
+    }
+
+    /**
+     * 设置某个调色板槽位的颜色（int RGB 口径，config 档用；按 8bit 量化）。
+     *
+     * <p>builtin 档请用 {@link #setSemanticColor(int, float, float, float)} 直传精确常量，
+     * 避免 {@code 0.9 → 230/255 = 0.9019608} 这种 1.96e-3 色差。</p>
+     *
+     * @param paletteSlot 槽位
+     * @param rgb         0xRRGGBB
+     */
+    public void setSemanticColorRgb(int paletteSlot, int rgb) {
+        setSemanticColor(paletteSlot,
+                ChainPreviewShaderMath.colorChannel(rgb, 16),
+                ChainPreviewShaderMath.colorChannel(rgb, 8),
+                ChainPreviewShaderMath.colorChannel(rgb, 0));
     }
 
     // ---------------------------------------------------------------- 内部
