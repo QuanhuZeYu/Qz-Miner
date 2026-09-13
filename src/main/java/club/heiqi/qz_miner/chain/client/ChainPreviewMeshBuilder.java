@@ -420,7 +420,16 @@ public class ChainPreviewMeshBuilder {
      * <p>线程契约：会话状态只归构建线程所有；{@link #dispose()} 可能由主线程调用，只置位
      * volatile 请求位，实际释放与后续拒绝由构建线程在下次 {@link #extend} 入口消费，不跨代残留。</p>
      *
-     * <p>appearOrder：时间序装配下最早的保留目标得到序号 0（符合「保留出现顺序」）。</p>
+     * <p><b>生产接口契约（B4.1 第二步阶段 B 冻结）</b>：RenderCache 按代创建一个会话，
+     * 代内每次修订调用一次 {@link #extend}（传完整快照 + settings 快照派生的 visuals/类别），
+     * 世代变化 / 世界切换 / lifecycle 复位时 {@link #dispose()} 旧会话并按需新建；
+     * 每秒相机刷新复用同一会话（保 LOD 滞回与增量缓存）。</p>
+     *
+     * <p><b>装配顺序契约变更（有意，已登记）</b>：生产装配由既有一次性入口的「最新→最早」
+     * 改为本会话的「时间序（最早→最新）」，几何不变、顶点/aux 顺序变化。
+     * <b>appearOrder 方向修正</b>：由「最新目标=0」改为「最早出现=0」（符合用户拍板的
+     * 「保留出现顺序」）；默认 animation=off，生产默认观感不变；
+     * 真机验收项：开启 animation 后生长顺序必须等于出现顺序。</p>
      */
     public static final class GenerationSession {
 

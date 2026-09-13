@@ -71,6 +71,43 @@ public class ChainPreviewGenerationIncrementalTest {
     }
 
     /**
+     * 生产生命周期契约（阶段 B 冻结口径）：代内复用同一会话；世代变化 = dispose 旧会话 + 新建；
+     * 新代锚点/序号从零开始，不携带上一代状态。
+     */
+    @Test
+    public void productionLifecycleReusesSessionWithinGenerationAndResetsAcross() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        GenerationSession session = builder.beginGeneration();
+        List<ChainTarget> accumulated = new ArrayList<ChainTarget>();
+        for (int x = 0; x < 3; x++) {
+            accumulated.add(new ChainTarget(x, 0, 0));
+            List<ChainTarget> snapshot = new ArrayList<ChainTarget>(accumulated);
+            Collections.reverse(snapshot);
+            session.extend(snapshot, classesFor(snapshot), visuals(), THICKNESS);
+        }
+        Assert.assertEquals("代内复用同一会话：锚点=首个目标", 0, session.getAnchorX());
+        Assert.assertEquals(3, session.getGenerationTargetCount());
+
+        // 世代变化：dispose 旧会话（构建线程下次 extend 消费），新建会话。
+        session.dispose();
+        try {
+            session.extend(Collections.<ChainTarget>emptyList(), null, visuals(), THICKNESS);
+            Assert.fail("已释放会话必须拒绝 extend");
+        } catch (IllegalStateException expected) {
+            Assert.assertNotNull(expected);
+        }
+        GenerationSession nextGeneration = builder.beginGeneration();
+        List<ChainTarget> nextTargets = Arrays.asList(new ChainTarget(20, 0, 0));
+        List<ChainTarget> nextSnapshot = new ArrayList<ChainTarget>(nextTargets);
+        Collections.reverse(nextSnapshot);
+        ChainPreviewMesh nextMesh =
+            nextGeneration.extend(nextSnapshot, classesFor(nextSnapshot), visuals(), THICKNESS);
+        Assert.assertEquals("新代锚点必须来自新代首个目标", 20, nextGeneration.getAnchorX());
+        Assert.assertEquals(0, nextGeneration.getReanchorCount());
+        Assert.assertEquals(1, nextMesh.getBlockCount());
+    }
+
+    /**
      * headless 计时（数量级，真机待验证）：同样目标的逐修订构建，代级增量 vs 逐次全量重建。
      *
      * <p>只断言「增量不慢于全量」（保守判据），数值本身用于汇报数量级，不作为验收判据。</p>
