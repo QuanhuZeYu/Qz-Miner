@@ -298,6 +298,56 @@ public class ChainPreviewDrawPlanTest {
         Assert.assertEquals(baseline.getDepthChannel(), clamped.getDepthChannel());
     }
 
+    @Test
+    public void withFadeAlphaRecordsMultiplierWithoutTouchingDistanceEndpoints() {
+        ChainPreviewDrawPlan.Visuals base = ChainPreviewDrawPlan.Visuals.BASELINE;
+
+        Assert.assertSame(base, base.withFadeAlpha(1.0F));
+
+        ChainPreviewDrawPlan.Visuals half = base.withFadeAlpha(0.5F);
+        Assert.assertEquals(0.5F, half.getFadeAlpha(), 1.0E-6F);
+        Assert.assertEquals("距离淡出端点不预乘：shader 的 uFadeAlpha 与 legacy 纹理各乘一次，预乘会双乘 k²",
+            base.getAlphaStart(), half.getAlphaStart(), 1.0E-6F);
+        Assert.assertEquals(base.getAlphaEnd(), half.getAlphaEnd(), 1.0E-6F);
+        Assert.assertEquals(base.getAnimationU(), half.getAnimationU(), 1.0E-6F);
+        Assert.assertEquals(base.getBarThickness(), half.getBarThickness(), 1.0E-6F);
+        Assert.assertEquals(base.getDepthChannel(), half.getDepthChannel());
+    }
+
+    /** 曲线性质：逐顶点乘子 k 与「两端点乘 k」等价——两条后端施加方式一致性的数学依据。 */
+    @Test
+    public void fadeAlphaEquivalentToEndpointScalingAtSampledDistances() {
+        float fadeStart = 2.0F;
+        float fadeEnd = 6.0F;
+        float maxAlpha = 0.78F;
+        float minAlpha = 0.15F;
+        double[] distances = { 1.0D, 2.0D, 3.0D, 4.0D, 5.5D, 6.0D, 8.0D };
+        float[] multipliers = { 0.25F, 0.5F, 0.75F, 1.0F };
+
+        for (float multiplier : multipliers) {
+            for (double distance : distances) {
+                float scaled = ChainPreviewDrawPlan.Visuals.alphaFor(
+                    distance, fadeStart, fadeEnd, maxAlpha * multiplier, minAlpha * multiplier);
+                float expected = multiplier * ChainPreviewDrawPlan.Visuals.alphaFor(
+                    distance, fadeStart, fadeEnd, maxAlpha, minAlpha);
+                Assert.assertEquals(
+                    "d=" + distance + " k=" + multiplier, expected, scaled, 1.0E-5F);
+            }
+        }
+    }
+
+    @Test
+    public void sanitizedNarrowsFadeAlpha() {
+        ChainPreviewDrawPlan.DepthChannel xray = ChainPreviewDrawPlan.DepthChannel.XRAY;
+
+        Assert.assertEquals(1.0F, new ChainPreviewDrawPlan.Visuals(
+            0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, xray, Float.NaN).sanitized().getFadeAlpha(), 1.0E-6F);
+        Assert.assertEquals(1.0F, new ChainPreviewDrawPlan.Visuals(
+            0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, xray, 1.5F).sanitized().getFadeAlpha(), 1.0E-6F);
+        Assert.assertEquals(0.0F, new ChainPreviewDrawPlan.Visuals(
+            0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, xray, -0.5F).sanitized().getFadeAlpha(), 1.0E-6F);
+    }
+
     private static ChainPreviewDrawPlan.Visuals visuals(float animationU) {
         return new ChainPreviewDrawPlan.Visuals(
             0.045F, 0.0F, animationU, 2.0F, 6.0F, 0.78F, 0.15F, ChainPreviewDrawPlan.DepthChannel.XRAY);

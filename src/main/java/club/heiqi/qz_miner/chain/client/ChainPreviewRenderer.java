@@ -6,6 +6,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewAnimationClock;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendSelector;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewFadeController;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlBindings;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlCapabilities;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewLegacyBackend;
@@ -28,6 +29,10 @@ import org.lwjgl.opengl.GL11;
  *
  * <p>每帧流程：采样相机 → 选择后端 → 取回 CPU publication → 帧级 GL 状态围栏内上传拓扑 /
  * 颜色并派生 {@link ChainPreviewDrawPlan} → 后端绘制。</p>
+ *
+ * <p>B3.2 淡入淡出：动画档位为 flow / wave 且 duration &gt; 0 时，出现按 {@link ChainPreviewFadeController}
+ * 淡入、预览结束进入 retiring 保留最后一份网格淡出；off 档无过渡、结束立即清空，逐字等于历史行为。
+ * 全局乘子经 plan 的 alpha 端点（shader 路径）与 1×1 白纹理 × GL_MODULATE（legacy 路径）施加。</p>
  *
  * <p>B0.4 口径：绑定捕获每帧 3 次 glGetInteger（一次捕获、一次恢复），矩阵模式不再单独查询
  * （glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）；着色器路径另有每帧 1 次 GL_VIEWPORT
@@ -52,6 +57,7 @@ public class ChainPreviewRenderer {
     private ChainPreviewVisualSettings lastVisualSettings;
     private ChainPreviewDrawPlan.Visuals visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
     private final ChainPreviewAnimationClock animationClock = new ChainPreviewAnimationClock();
+    private final ChainPreviewFadeController fadeController = new ChainPreviewFadeController();
     private String animationModeId = "";
     private int animationDurationMs;
 
@@ -94,6 +100,7 @@ public class ChainPreviewRenderer {
         animationModeId = "";
         animationDurationMs = 0;
         animationClock.reset();
+        fadeController.reset();
         scaleCounters.reset();
         resetUploadState();
     }
@@ -119,16 +126,27 @@ public class ChainPreviewRenderer {
             return;
         }
 
-        if (!renderCache.isPreviewActive()) {
+        refreshVisualSettings();
+        boolean previewActive = renderCache.isPreviewActive();
+        if (previewActive && fadeController.isRetiring()) {
+            // 新预览代抢占：旧 retiring 网格立即丢弃
             clearMesh();
-            return;
         }
+        long nowNanos = System.nanoTime();
+        if (previewActive) {
+            renderPreviewFrame(nowNanos);
+        } else {
+            renderRetiringFrame(nowNanos);
+        }
+    }
 
+    /** 激活帧：采样相机 → 选择后端 → 取回 publication → 帧围栏内上传 / 拟合 plan / 绘制。 */
+    private void renderPreviewFrame(long nowNanos) {
         renderCache.refreshForCamera(
             RenderManager.renderPosX,
             RenderManager.renderPosY,
             RenderManager.renderPosZ,
-            System.nanoTime());
+            nowNanos);
         ChainPreviewRenderBackend active = selectBackend();
         if (active == null) {
             clearMesh();
@@ -150,9 +168,48 @@ public class ChainPreviewRenderer {
                 if (publication != null) {
                     applyPublication(active, publication);
                 }
-                ChainPreviewDrawPlan plan = buildDrawPlan();
+                float fadeAlpha = fadeController.advance(
+                    true, uploadedGeneration, fadeEnabled(), animationDurationMs, nowNanos);
+                ChainPreviewDrawPlan plan = buildDrawPlan(fadeAlpha);
                 if (plan.getIndexCount() > 0) {
                     drawPreview(active, plan);
+                }
+            } finally {
+                GL11.glPopClientAttrib();
+            }
+        } finally {
+            GL11.glPopAttrib();
+            bindings.restore();
+        }
+    }
+
+    /**
+     * retiring 帧：预览已结束但启用淡入淡出时保留最后一份网格淡出。
+     *
+     * <p>不 poll publication、不 refreshForCamera、不 selectBackend——retiring 期间不重建拓扑、
+     * 不触发后端切换；淡出结束（{@link ChainPreviewFadeController#isIdle()}）即清空索引，
+     * GPU 缓冲保留复用、不泄漏。</p>
+     */
+    private void renderRetiringFrame(long nowNanos) {
+        if (backend == null || activeMesh.isEmpty() || !fadeEnabled()) {
+            clearMesh();
+            return;
+        }
+        float fadeAlpha = fadeController.advance(
+            false, uploadedGeneration, true, animationDurationMs, nowNanos);
+        if (fadeController.isIdle()) {
+            clearMesh();
+            return;
+        }
+        ChainPreviewGlBindings bindings = ChainPreviewGlBindings.capture();
+        scaleCounters.recordBindingCapture();
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        try {
+            GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
+            try {
+                ChainPreviewDrawPlan plan = buildDrawPlan(fadeAlpha);
+                if (plan.getIndexCount() > 0) {
+                    drawPreview(backend, plan);
                 }
             } finally {
                 GL11.glPopClientAttrib();
@@ -183,6 +240,7 @@ public class ChainPreviewRenderer {
         }
         disposeBackend();
         animationClock.reset();
+        fadeController.reset();
         ChainPreviewRenderBackend created = createBackend(selected);
         if (created == null) {
             reportShaderFallback(selected, configured);
@@ -223,6 +281,7 @@ public class ChainPreviewRenderer {
         shaderAttemptFailed = true;
         active.dispose();
         animationClock.reset();
+        fadeController.reset();
         ChainPreviewRenderBackend fallback = createBackend(ChainPreviewBackendSelector.LEGACY);
         backend = fallback;
         return fallback;
@@ -258,18 +317,20 @@ public class ChainPreviewRenderer {
      * 派生本帧 draw plan。
      *
      * <p>{@code animationU} 由 {@link ChainPreviewAnimationClock} 逐帧产出（off 恒 1、
-     * flow / wave 按 duration 线性、掉帧钳制到 1）。{@code waveEnds} 恒为 null：索引顺序
-     * != appearOrder 顺序，索引段无法表达逐波，本轮不生成索引段波表；逐波生长由 shader
-     * 按 aAux 逐顶点 appearOrder 比较实现（T11），legacy 路径整体绘制。</p>
+     * flow / wave 按 duration 线性、掉帧钳制到 1）；{@code fadeAlpha} 由
+     * {@link ChainPreviewFadeController} 产出并按等价缩放注入 α 端点（shader 路径生效）、
+     * 同时记录给 legacy 做纹理乘子。{@code waveEnds} 恒为 null：索引顺序 != appearOrder 顺序，
+     * 索引段无法表达逐波，本轮不生成索引段波表；逐波生长由 shader 按 aAux 逐顶点 appearOrder
+     * 比较实现（T11），legacy 路径整体绘制。</p>
      */
-    private ChainPreviewDrawPlan buildDrawPlan() {
+    private ChainPreviewDrawPlan buildDrawPlan(float fadeAlpha) {
         ChainPreviewMesh mesh = activeMesh == null ? ChainPreviewMesh.EMPTY : activeMesh;
         return ChainPreviewDrawPlan.derive(
             mesh,
             0,
             mesh.getIndexCount(),
             null,
-            currentVisuals(),
+            currentVisuals(fadeAlpha),
             ChainPreviewDrawPlan.SEMANTIC_MASK_ALL,
             mesh.getOriginX(),
             mesh.getOriginY(),
@@ -278,31 +339,39 @@ public class ChainPreviewRenderer {
             scaleCounters.getUploads());
     }
 
-    /**
-     * 视觉参数快照：settings 引用未变时复用基快照，动画完成度逐帧由时钟覆盖；
-     * u 未变化（例如 off / 已完成档）时 {@link ChainPreviewDrawPlan.Visuals#withAnimationU}
-     * 返回自身，零分配。
-     */
-    private ChainPreviewDrawPlan.Visuals currentVisuals() {
+    /** 视觉参数 / 动画档位快照刷新：settings 引用未变时零分配复用。 */
+    private void refreshVisualSettings() {
         ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
-        if (settings != lastVisualSettings) {
-            lastVisualSettings = settings;
-            if (settings == null) {
-                visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
-                animationModeId = "";
-                animationDurationMs = 0;
-            } else {
-                visuals = visualsFromSettings(settings);
-                animationModeId = settings.getAnimationId();
-                animationDurationMs = settings.getAnimationDurationMs();
-            }
+        if (settings == lastVisualSettings) {
+            return;
         }
+        lastVisualSettings = settings;
+        if (settings == null) {
+            visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
+            animationModeId = "";
+            animationDurationMs = 0;
+            return;
+        }
+        visuals = visualsFromSettings(settings);
+        animationModeId = settings.getAnimationId();
+        animationDurationMs = settings.getAnimationDurationMs();
+    }
+
+    /** @return 是否启用淡入 / 淡出（animation ∈ {flow, wave} 且 duration &gt; 0） */
+    private boolean fadeEnabled() {
+        return ChainPreviewFadeController.isFadeEnabled(animationModeId, animationDurationMs);
+    }
+
+    /**
+     * 视觉参数 + 动画完成度 + 全局淡入淡出乘子；三者未变化时对应 with* 方法返回自身（零分配）。
+     */
+    private ChainPreviewDrawPlan.Visuals currentVisuals(float fadeAlpha) {
         float animationU = animationClock.advance(
             uploadedGeneration,
             animationModeId,
             animationDurationMs,
             System.nanoTime());
-        return visuals.withAnimationU(animationU);
+        return visuals.withAnimationU(animationU).withFadeAlpha(fadeAlpha);
     }
 
     private static ChainPreviewDrawPlan.Visuals visualsFromSettings(ChainPreviewVisualSettings settings) {
@@ -368,6 +437,7 @@ public class ChainPreviewRenderer {
      */
     private void clearMesh() {
         animationClock.reset();
+        fadeController.reset();
         if (backend == null) {
             resetUploadState();
             return;

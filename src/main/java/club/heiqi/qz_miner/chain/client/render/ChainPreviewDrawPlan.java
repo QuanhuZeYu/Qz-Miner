@@ -84,7 +84,8 @@ public final class ChainPreviewDrawPlan {
             DEFAULT_FADE_END_RADIUS,
             DEFAULT_ALPHA_START,
             DEFAULT_ALPHA_END,
-            DepthChannel.XRAY);
+            DepthChannel.XRAY,
+            1.0F);
 
         private final float barThickness;
         private final float minScreenWidthPx;
@@ -94,7 +95,11 @@ public final class ChainPreviewDrawPlan {
         private final float alphaStart;
         private final float alphaEnd;
         private final DepthChannel depthChannel;
+        private final float fadeAlpha;
 
+        /**
+         * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出），保留既有调用点签名。
+         */
         public Visuals(
                 float barThickness,
                 float minScreenWidthPx,
@@ -104,6 +109,28 @@ public final class ChainPreviewDrawPlan {
                 float alphaStart,
                 float alphaEnd,
                 DepthChannel depthChannel) {
+            this(
+                barThickness,
+                minScreenWidthPx,
+                animationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel,
+                1.0F);
+        }
+
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -112,6 +139,7 @@ public final class ChainPreviewDrawPlan {
             this.alphaStart = alphaStart;
             this.alphaEnd = alphaEnd;
             this.depthChannel = depthChannel;
+            this.fadeAlpha = fadeAlpha;
         }
 
         public float getBarThickness() {
@@ -143,7 +171,8 @@ public final class ChainPreviewDrawPlan {
                 fadeEndRadius,
                 alphaStart,
                 alphaEnd,
-                depthChannel);
+                depthChannel,
+                fadeAlpha);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -161,9 +190,47 @@ public final class ChainPreviewDrawPlan {
             return alphaStart;
         }
 
-        /** @return 远端 α */
+        /** @return 远端 α（距离淡出端点；全局乘子见 {@link #getFadeAlpha()}） */
         public float getAlphaEnd() {
             return alphaEnd;
+        }
+
+        /**
+         * @return 全局淡入淡出乘子 [0,1]
+         *
+         * <p>由后端按各自机制施加，且只施加一次：shader 路径乘进顶点 alpha（{@code uFadeAlpha}），
+         * legacy 固定管线用 1×1 白纹理 × GL_MODULATE 乘进逐顶点 α。
+         * {@code alphaStart/alphaEnd} 保持距离淡出端点原值，不预乘本乘子（避免双乘 k²）。</p>
+         */
+        public float getFadeAlpha() {
+            return fadeAlpha;
+        }
+
+        /**
+         * 记录全局淡入淡出乘子（{@link #getAlphaStart()}/{@link #getAlphaEnd()} 保持原值）。
+         *
+         * <p>曲线性质（两条路径一致性的依据）：
+         * {@code k · alphaFor(d, start, end, max, min) == alphaFor(d, start, end, k·max, k·min)} ——
+         * 无论后端选择「端点缩放」还是「逐顶点乘子」，最终 α 都是同一乘法。</p>
+         *
+         * @param multiplier 乘子，运行时钳制到 [0,1]（NaN → 1）
+         * @return 新快照；乘子未变化时返回自身（零分配）
+         */
+        public Visuals withFadeAlpha(float multiplier) {
+            float safeMultiplier = clampFinite(multiplier, 0.0F, 1.0F, 1.0F);
+            if (Float.compare(fadeAlpha, safeMultiplier) == 0) {
+                return this;
+            }
+            return new Visuals(
+                barThickness,
+                minScreenWidthPx,
+                animationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel,
+                safeMultiplier);
         }
 
         /** @return 深度通道，永不为 null */
@@ -221,6 +288,7 @@ public final class ChainPreviewDrawPlan {
             }
             float safeAlphaStart = clampFinite(alphaStart, 0.0F, 1.0F, DEFAULT_ALPHA_START);
             float safeAlphaEnd = clampFinite(alphaEnd, 0.0F, 1.0F, DEFAULT_ALPHA_END);
+            float safeFadeAlpha = clampFinite(fadeAlpha, 0.0F, 1.0F, 1.0F);
             DepthChannel safeChannel = depthChannel == null ? DepthChannel.XRAY : depthChannel;
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx
@@ -229,6 +297,7 @@ public final class ChainPreviewDrawPlan {
                     && safeFadeEnd == fadeEndRadius
                     && safeAlphaStart == alphaStart
                     && safeAlphaEnd == alphaEnd
+                    && safeFadeAlpha == fadeAlpha
                     && safeChannel == depthChannel) {
                 return this;
             }
@@ -240,7 +309,8 @@ public final class ChainPreviewDrawPlan {
                 safeFadeEnd,
                 safeAlphaStart,
                 safeAlphaEnd,
-                safeChannel);
+                safeChannel,
+                safeFadeAlpha);
         }
 
         @Override
@@ -259,6 +329,7 @@ public final class ChainPreviewDrawPlan {
                 && Float.compare(fadeEndRadius, that.fadeEndRadius) == 0
                 && Float.compare(alphaStart, that.alphaStart) == 0
                 && Float.compare(alphaEnd, that.alphaEnd) == 0
+                && Float.compare(fadeAlpha, that.fadeAlpha) == 0
                 && depthChannel == that.depthChannel;
         }
 
@@ -271,6 +342,7 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + Float.floatToIntBits(fadeEndRadius);
             result = 31 * result + Float.floatToIntBits(alphaStart);
             result = 31 * result + Float.floatToIntBits(alphaEnd);
+            result = 31 * result + Float.floatToIntBits(fadeAlpha);
             result = 31 * result + (depthChannel == null ? 0 : depthChannel.hashCode());
             return result;
         }
@@ -282,6 +354,7 @@ public final class ChainPreviewDrawPlan {
                 + ", animationU=" + animationU
                 + ", fade=" + fadeStartRadius + ".." + fadeEndRadius
                 + ", alpha=" + alphaStart + ".." + alphaEnd
+                + ", fadeAlpha=" + fadeAlpha
                 + ", depthChannel=" + depthChannel
                 + '}';
         }
@@ -548,12 +621,19 @@ public final class ChainPreviewDrawPlan {
         return visuals.getFadeEndRadius();
     }
 
-    /** @return 近端 α */
+    /** @return 近端 α（距离淡出端点；全局乘子见 {@link #getFadeAlpha()}） */
     public float getAlphaStart() {
         return visuals.getAlphaStart();
     }
 
-    /** @return 远端 α */
+    /**
+     * @return 全局淡入淡出乘子 [0,1]（恰施加一次：shader 乘进顶点 alpha，legacy 走纹理乘子）
+     */
+    public float getFadeAlpha() {
+        return visuals.getFadeAlpha();
+    }
+
+    /** @return 远端 α（生效值：已含全局淡入淡出乘子） */
     public float getAlphaEnd() {
         return visuals.getAlphaEnd();
     }
