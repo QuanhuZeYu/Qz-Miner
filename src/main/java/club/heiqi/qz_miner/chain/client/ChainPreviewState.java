@@ -31,12 +31,29 @@ public class ChainPreviewState {
     private volatile int truncatedCount;
     private volatile int totalCount;
     private volatile CancelReason cancelReason = CancelReason.NONE;
+    private int currentSemanticClass = ChainPreviewSemanticClass.UNDEFINED;
 
+    /** @param origin 预览原点 @return 新代编号（类别记 {@link ChainPreviewSemanticClass#UNDEFINED}） */
     public int begin(ChainTarget origin) {
+        return begin(origin, ChainPreviewSemanticClass.UNDEFINED);
+    }
+
+    /**
+     * 开始新代并设定代内语义类别（B2.3 a 部分）。
+     *
+     * <p>代内后续 {@link #addPreviewTarget(int, ChainTarget)} 追加的目标都记录该类别；
+     * 跨代重置：新代开始时类别上下文与类别数组随目标链一同重建，不累积。</p>
+     *
+     * @param origin 预览原点
+     * @param semanticClass 本代类别（§D 冻结 id；非法值归 UNDEFINED）
+     * @return 新代编号
+     */
+    public int begin(ChainTarget origin, int semanticClass) {
         RenderChange change;
         int startedGeneration;
         synchronized (renderStateLock) {
             this.origin = origin;
+            this.currentSemanticClass = ChainPreviewSemanticClass.normalize(semanticClass);
             this.active = true;
             this.completed = false;
             this.generation++;
@@ -73,6 +90,7 @@ public class ChainPreviewState {
             this.truncatedCount = 0;
             this.totalCount = 0;
             this.cancelReason = CancelReason.NONE;
+            this.currentSemanticClass = ChainPreviewSemanticClass.UNDEFINED;
             this.renderRevision++;
             change = currentChangeLocked();
         }
@@ -142,6 +160,23 @@ public class ChainPreviewState {
         return cancelReason;
     }
 
+    /**
+     * 代内切换语义类别：只影响此后新增的目标，已记录目标类别不变；跨代由 {@link #begin} 重置。
+     *
+     * @param expectedGeneration 上报者持有的代
+     * @param semanticClass 新类别（§D 冻结 id；非法值归 UNDEFINED）
+     * @return 是否被本代接受
+     */
+    public boolean setSemanticClass(int expectedGeneration, int semanticClass) {
+        synchronized (renderStateLock) {
+            if (!active || generation != expectedGeneration) {
+                return false;
+            }
+            this.currentSemanticClass = ChainPreviewSemanticClass.normalize(semanticClass);
+            return true;
+        }
+    }
+
     public boolean addPreviewTarget(int expectedGeneration, ChainTarget target) {
         RenderChange change;
         synchronized (renderStateLock) {
@@ -149,7 +184,7 @@ public class ChainPreviewState {
                 return false;
             }
             previewTargetSet.add(target);
-            targetHead = new TargetNode(target, targetHead);
+            targetHead = new TargetNode(target, targetHead, currentSemanticClass);
             targetCount++;
             if (targetCount > totalCount) {
                 totalCount = targetCount;
@@ -212,16 +247,25 @@ public class ChainPreviewState {
     }
 
     /**
-     * O(1) 捕获不可变持久链；renderer 每帧不得调用本方法。
+     * 捕获不可变持久链与同序类别数组；renderer 每帧不得调用本方法。
+     *
+     * <p>每次调用物化一份 {@code int[targetCount]} 类别数组（与 getTargets() 迭代顺序严格同序），
+     * 供 worker 每次构建取用一次（构建频率，非渲染帧频率）。</p>
      */
     public RenderSnapshot captureRenderSnapshot() {
         synchronized (renderStateLock) {
+            int[] semanticClasses = new int[targetCount];
+            int index = 0;
+            for (TargetNode node = targetHead; node != null && index < semanticClasses.length; node = node.previous) {
+                semanticClasses[index++] = node.semanticClass;
+            }
             return new RenderSnapshot(
                 generation,
                 renderRevision,
                 active,
                 targetHead,
-                targetCount);
+                targetCount,
+                semanticClasses);
         }
     }
 
@@ -302,14 +346,21 @@ public class ChainPreviewState {
         private final boolean active;
         private final TargetNode targetHead;
         private final int targetCount;
+        private final int[] semanticClasses;
 
         private RenderSnapshot(
-                int generation, long revision, boolean active, TargetNode targetHead, int targetCount) {
+                int generation,
+                long revision,
+                boolean active,
+                TargetNode targetHead,
+                int targetCount,
+                int[] semanticClasses) {
             this.generation = generation;
             this.revision = revision;
             this.active = active;
             this.targetHead = targetHead;
             this.targetCount = targetCount;
+            this.semanticClasses = semanticClasses == null ? new int[0] : semanticClasses;
         }
 
         public int getGeneration() {
@@ -327,6 +378,18 @@ public class ChainPreviewState {
         /** @return snapshot 捕获时的目标数（包含上游重复值） */
         public int getTargetCount() {
             return targetCount;
+        }
+
+        /**
+         * 与 {@link #getTargets()} 迭代顺序严格同序、等长的类别数组。
+         *
+         * <p>索引 i 对应第 i 个迭代目标（最新 target → 最早 target）；长度恒等于
+         * {@link #getTargetCount()}。返回防御性拷贝，调用方可安全持有。</p>
+         *
+         * @return §D 冻结的类别 id 数组
+         */
+        public int[] getSemanticClasses() {
+            return semanticClasses.clone();
         }
 
         /**
@@ -368,10 +431,12 @@ public class ChainPreviewState {
 
         private final ChainTarget target;
         private final TargetNode previous;
+        private final int semanticClass;
 
-        private TargetNode(ChainTarget target, TargetNode previous) {
+        private TargetNode(ChainTarget target, TargetNode previous, int semanticClass) {
             this.target = target;
             this.previous = previous;
+            this.semanticClass = semanticClass;
         }
     }
 

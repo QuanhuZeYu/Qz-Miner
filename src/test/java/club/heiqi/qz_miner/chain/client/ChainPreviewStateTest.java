@@ -173,6 +173,68 @@ public class ChainPreviewStateTest {
         subscription.unsubscribe();
     }
 
+    @Test
+    public void semanticClassesFollowTargetOrderAppendSemanticsAndGenerationReset() {
+        ChainPreviewState state = new ChainPreviewState();
+        ChainTarget first = new ChainTarget(1, 1, 1);
+        ChainTarget second = new ChainTarget(2, 2, 2);
+        ChainTarget third = new ChainTarget(3, 3, 3);
+        int generation = state.begin(first, ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        state.addPreviewTarget(generation, first);
+        state.addPreviewTarget(generation, second);
+
+        RenderSnapshot snapshot = state.captureRenderSnapshot();
+        int[] classes = snapshot.getSemanticClasses();
+        Assert.assertEquals("数组长度必须等于目标数", snapshot.getTargetCount(), classes.length);
+        Assert.assertEquals("索引 0 对应最新目标", 0, classes[0]);
+        Assert.assertEquals(0, classes[1]);
+        Assert.assertEquals(java.util.Arrays.asList(second, first), collect(snapshot.getTargets()));
+        Assert.assertEquals("每次取用返回新的防御性拷贝",
+            snapshot.getTargetCount(), snapshot.getSemanticClasses().length);
+
+        Assert.assertTrue("代内切换只影响后续追加目标",
+            state.setSemanticClass(generation, ChainPreviewSemanticClass.REMOTE_PREDICTED));
+        state.addPreviewTarget(generation, third);
+        int[] updated = state.captureRenderSnapshot().getSemanticClasses();
+        Assert.assertEquals(3, updated.length);
+        Assert.assertEquals(2, updated[0]);
+        Assert.assertEquals("已记录目标类别不变", 0, updated[1]);
+        Assert.assertEquals(0, updated[2]);
+
+        int nextGeneration = state.begin(new ChainTarget(9, 9, 9), ChainPreviewSemanticClass.UNDEFINED);
+        state.addPreviewTarget(nextGeneration, new ChainTarget(9, 9, 9));
+        int[] reset = state.captureRenderSnapshot().getSemanticClasses();
+        Assert.assertEquals("跨代重置不累积", 1, reset.length);
+        Assert.assertEquals(ChainPreviewSemanticClass.UNDEFINED, reset[0]);
+
+        state.clear();
+        Assert.assertEquals(0, state.captureRenderSnapshot().getSemanticClasses().length);
+    }
+
+    @Test
+    public void semanticClassRejectsStaleGenerationAndNormalizesIllegalValues() {
+        ChainPreviewState state = new ChainPreviewState();
+        int generation = state.begin(new ChainTarget(0, 0, 0), 99);
+        Assert.assertEquals("begin 返回当前代编号", generation, state.getGeneration());
+        Assert.assertFalse("陈旧代不得切换类别",
+            state.setSemanticClass(generation - 1, ChainPreviewSemanticClass.SUB_MODE_LOCAL));
+
+        state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
+        Assert.assertEquals("非法 begin 类别归 UNDEFINED",
+            ChainPreviewSemanticClass.UNDEFINED,
+            state.captureRenderSnapshot().getSemanticClasses()[0]);
+
+        int negative = state.begin(new ChainTarget(1, 0, 0), -7);
+        state.addPreviewTarget(negative, new ChainTarget(1, 0, 0));
+        Assert.assertEquals(ChainPreviewSemanticClass.UNDEFINED,
+            state.captureRenderSnapshot().getSemanticClasses()[0]);
+
+        Assert.assertTrue(state.setSemanticClass(negative, ChainPreviewSemanticClass.EXECUTED));
+        state.addPreviewTarget(negative, new ChainTarget(2, 0, 0));
+        Assert.assertEquals(ChainPreviewSemanticClass.EXECUTED,
+            state.captureRenderSnapshot().getSemanticClasses()[0]);
+    }
+
     private static List<ChainTarget> collect(Iterable<ChainTarget> targets) {
         List<ChainTarget> result = new ArrayList<ChainTarget>();
         for (ChainTarget target : targets) {

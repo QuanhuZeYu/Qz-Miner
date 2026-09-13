@@ -229,6 +229,28 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         }
     }
 
+    /**
+     * 取与目标同序的类别载体（task-16a 契约）。
+     *
+     * <p>索引 i 对应 {@code snapshot.getTargets()} 第 i 个迭代目标；a 侧保证长度等于目标数。
+     * 若长度不一致则降级为 null（Builder 全部按 UNDEFINED 处理）并告警，绝不静默错位。</p>
+     *
+     * @param snapshot 本次构建的状态快照
+     * @return 类别数组，或 null 表示降级为全部 UNDEFINED
+     */
+    private static int[] semanticClassesFor(RenderSnapshot snapshot) {
+        int[] semanticClasses = snapshot.getSemanticClasses();
+        if (semanticClasses.length != snapshot.getTargetCount()) {
+            MyMod.LOG.warn(
+                "[ChainPreview] Semantic class carrier mismatch: classes={} targets={};"
+                    + " falling back to UNDEFINED",
+                semanticClasses.length,
+                snapshot.getTargetCount());
+            return null;
+        }
+        return semanticClasses;
+    }
+
     /** @return 相对上次提升视觉 revision 的相机位移（格）；由 taskLock 保护 */
     private double cameraDisplacementLocked(double cameraX, double cameraY, double cameraZ) {
         VisualState snapshot = latestVisualState;
@@ -499,7 +521,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         session = meshBuilder.begin(
                             snapshot.getTargets(),
                             visuals.toVisualParameters(settingsSnapshot),
-                            settingsSnapshot.getBarThickness());
+                            settingsSnapshot.getBarThickness(),
+                            semanticClassesFor(snapshot));
                     }
                 }
 

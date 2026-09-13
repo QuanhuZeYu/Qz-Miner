@@ -349,6 +349,32 @@ public class ChainPreviewRenderCacheTest {
         }
     }
 
+    @Test
+    public void semanticClassesReachBuilderAuxForEveryLocalAndRemoteClass() throws Exception {
+        assertAuxSemanticClass(ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        assertAuxSemanticClass(ChainPreviewSemanticClass.SUB_MODE_LOCAL);
+        assertAuxSemanticClass(ChainPreviewSemanticClass.REMOTE_PREDICTED);
+        assertAuxSemanticClass(ChainPreviewSemanticClass.UNDEFINED);
+    }
+
+    private static void assertAuxSemanticClass(int semanticClass) throws Exception {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+        int generation = state.begin(new ChainTarget(0, 0, 0), semanticClass);
+        state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
+        cache.pollPublication();
+        runCompleted(scheduler.tasks.get(0).task);
+        ChainPreviewRenderCache.MeshPublication publication = cache.pollPublication();
+        Assert.assertNotNull(publication);
+        ChainPreviewMesh mesh = publication.getMesh();
+        Assert.assertTrue("mesh 必须带 aAux", mesh.isAuxAvailable());
+        byte[] aux = mesh.getAux();
+        Assert.assertTrue(aux.length >= 4);
+        Assert.assertEquals("aAux.x 必须是真实 semanticClass", semanticClass, aux[0] & 0xFF);
+    }
+
     private static ChainPreviewRenderCache cache(ChainPreviewState state, RecordingScheduler scheduler) {
         return new ChainPreviewRenderCache(state, new ChainPreviewMeshBuilder(), scheduler);
     }

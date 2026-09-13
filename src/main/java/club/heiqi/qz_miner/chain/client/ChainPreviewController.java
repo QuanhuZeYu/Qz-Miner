@@ -194,7 +194,12 @@ public class ChainPreviewController {
             previewSeedSnapshot = seedSnapshot;
             previewSeedWorld = world;
         }
-        final int generation = previewState.begin(target);
+        // B2.3 a：代内语义类别在 begin 时冻结——远端路径记 2，本地路径按主/扩展子模式记 0/1。
+        final boolean remotePreviewPath = ChainSubModeRegistry.usesRemotePreview(selectedSubMode);
+        final int semanticClass = remotePreviewPath
+            ? ChainPreviewSemanticClass.REMOTE_PREDICTED
+            : ChainPreviewSemanticClass.resolveLocal(selectedSubMode);
+        final int generation = previewState.begin(target, semanticClass);
         MyMod.chainStateService.getClientState().setPreviewActive(true);
 
         final Block sampleBlock = seedSnapshot.getSampleBlock();
@@ -210,7 +215,7 @@ public class ChainPreviewController {
             previewState.setCompleted(generation, true);
             return;
         }
-        if (ChainSubModeRegistry.usesRemotePreview(selectedSubMode)) {
+        if (remotePreviewPath) {
             startRemotePreview(
                 selectedMode,
                 selectedSubMode,
