@@ -259,6 +259,16 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 让两后端语义分叉（T48c-A）。
         appearSpan = maxAppearOrder(aux, vertexCount);
 
+        // ARRAY_BUFFER 绑定是**全局**状态（不属于 VAO）：本方法为写 VBO / CBO / ABO 连续切换绑定，
+        // 必须在出口成对恢复，否则会把「当前绑定 = 我们的内部缓冲」泄漏给后续渲染路径。
+        //
+        // 为什么这条泄漏在本环境是致命的：Angelica 的 GLSM 带有 GLStateManager 状态缓存层
+        // （com.gtnewhorizons.angelica.glsm.GLStateManager + glsm/recording/*），它按**自己的缓存**
+        // 判断「绑定是否已是目标」；我们直接调用原生 GL15 绕过该缓存，一旦缓存与实际不一致，
+        // 它后续的缓冲上传/重分配就会落到我们当前绑定的缓冲上。真机表型正是：VBO 全 0 而 EBO 正常
+        // （EBO 绑定属于 VAO 状态，随 glBindVertexArray(0) 一起收敛，所以从未被串扰）。
+        int previousArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
+
         GL30.glBindVertexArray(vao);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
@@ -290,7 +300,13 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         indexStaging = prepareIntBuffer(indexStaging, uploadIndices, uploadIndexCount);
         GL15.glBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0, indexStaging);
 
+        // T49 探针：上传后立即自证（与 draw 期回读配对，区分「没写进去」与「写进去后被清空」）。
+        probe.reportUpload(vbo, cbo, abo, ebo, vertices, vertexFloatCount, colors, colorFloatCount,
+            aux, triangleIndexScratch, uploadIndexCount);
+
         GL30.glBindVertexArray(0);
+        // 成对恢复：与 draw 路径同一纪律（draw 早已恢复 ARRAY_BUFFER，upload 此前遗漏）。
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
     }
 
     /** shader 路径不消费 CPU 颜色流：颜色在 GPU 侧由 aAux + uniform 调色板产生。 */

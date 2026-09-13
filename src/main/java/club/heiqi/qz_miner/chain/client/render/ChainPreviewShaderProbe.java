@@ -380,6 +380,107 @@ final class ChainPreviewShaderProbe {
         log(text.toString());
     }
 
+    /**
+     * 上传后立即自证：在 {@code uploadTopology} 末尾调用（VAO 仍绑定、缓冲区刚写完）。
+     *
+     * <p>为什么必须与 draw 期的回读**同时存在**：draw 期读到 0 有两种完全不同的原因——
+     * 「上传根本没写进去」与「写进去之后被清空（外部渲染路径 / 驱动）」；只有上传后立即回读能区分。</p>
+     */
+    void reportUpload(int vbo, int cbo, int abo, int ebo,
+                      float[] vertices, int vertexFloatCount,
+                      float[] colors, int colorFloatCount,
+                      byte[] aux, int[] uploadIndices, int uploadIndexCount) {
+        log("upload{vbo=" + probeFloat(vbo, GL15.GL_ARRAY_BUFFER, vertices, vertexFloatCount)
+            + ", cbo=" + probeFloat(cbo, GL15.GL_ARRAY_BUFFER, colors, colorFloatCount)
+            + ", abo=" + probeBytes(abo, GL15.GL_ARRAY_BUFFER, aux)
+            + ", ebo=" + probeInts(ebo, GL15.GL_ELEMENT_ARRAY_BUFFER, uploadIndices, uploadIndexCount)
+            + ", arrayBufferBound=" + integer(GL15.GL_ARRAY_BUFFER_BINDING)
+            + ", elementBufferBound=" + integer(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING) + "}");
+    }
+
+    private String probeFloat(int bufferId, int target, float[] expected, int expectedCount) {
+        if (bufferId == 0 || expected == null || expectedCount <= 0) {
+            return "n/a";
+        }
+        int sample = Math.min(8, expectedCount);
+        try {
+            GL15.glBindBuffer(target, bufferId);
+            ByteBuffer bytes = readBuffer(sample * 4);
+            if (bytes == null) {
+                return "no-buffer";
+            }
+            GL15.glGetBufferSubData(target, 0L, bytes);
+            bytes.position(0);
+            java.nio.FloatBuffer floats = bytes.asFloatBuffer();
+            boolean allZero = true;
+            for (int index = 0; index < sample; index++) {
+                float value = floats.get(index);
+                if (Float.compare(value, 0.0F) != 0) {
+                    allZero = false;
+                }
+                if (Float.compare(value, expected[index]) != 0) {
+                    return "mismatch[" + index + "]=" + fixed(value) + "/exp=" + fixed(expected[index]);
+                }
+            }
+            return allZero && Float.compare(expected[0], 0.0F) != 0 ? "ZERO" : "ok";
+        } catch (Throwable failure) {
+            return "read-failed:" + failure.getClass().getSimpleName();
+        }
+    }
+
+    private String probeInts(int bufferId, int target, int[] expected, int expectedCount) {
+        if (bufferId == 0 || expected == null || expectedCount <= 0) {
+            return "n/a";
+        }
+        int sample = Math.min(12, expectedCount);
+        try {
+            GL15.glBindBuffer(target, bufferId);
+            ByteBuffer bytes = readBuffer(sample * 4);
+            if (bytes == null) {
+                return "no-buffer";
+            }
+            GL15.glGetBufferSubData(target, 0L, bytes);
+            bytes.position(0);
+            java.nio.IntBuffer ints = bytes.asIntBuffer();
+            boolean allZero = true;
+            for (int index = 0; index < sample; index++) {
+                int value = ints.get(index);
+                if (value != 0) {
+                    allZero = false;
+                }
+                if (value != expected[index]) {
+                    return "mismatch[" + index + "]=" + value + "/exp=" + expected[index];
+                }
+            }
+            return allZero && expected[0] != 0 ? "ZERO" : "ok";
+        } catch (Throwable failure) {
+            return "read-failed:" + failure.getClass().getSimpleName();
+        }
+    }
+
+    private String probeBytes(int bufferId, int target, byte[] expected) {
+        if (bufferId == 0 || expected == null || expected.length == 0) {
+            return "n/a";
+        }
+        int sample = Math.min(8, expected.length);
+        try {
+            GL15.glBindBuffer(target, bufferId);
+            ByteBuffer bytes = readBuffer(sample);
+            if (bytes == null) {
+                return "no-buffer";
+            }
+            GL15.glGetBufferSubData(target, 0L, bytes);
+            for (int index = 0; index < sample; index++) {
+                if (bytes.get(index) != expected[index]) {
+                    return "mismatch[" + index + "]=" + bytes.get(index) + "/exp=" + expected[index];
+                }
+            }
+            return "ok";
+        } catch (Throwable failure) {
+            return "read-failed:" + failure.getClass().getSimpleName();
+        }
+    }
+
     void reportAbort(String stage, String reason) {
         log("abort{stage=" + stage + ", reason=" + reason + "}");
     }
