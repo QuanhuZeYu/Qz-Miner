@@ -48,7 +48,7 @@ public class BaselineGeometryContractTest {
     @Test
     public void hardCapKeepsFirstRetainedSnapshotAndFlagsTruncation() {
         List<ChainTarget> beyond = VerifyShapes.scatteredX(4097, 3);
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(beyond, VISUALS);
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(VerifyFeeds.snapshot(beyond), VISUALS);
         Assert.assertTrue("超出 4096 必须置 truncated", mesh.isTruncated());
         Assert.assertEquals(4096, mesh.getBlockCount());
         Assert.assertEquals(262144, mesh.getVertexFloatCount() / 3);
@@ -62,7 +62,8 @@ public class BaselineGeometryContractTest {
         // 第 4097 个目标位于 x = 4096*3 = 12288；未被保留时最大 x 只能到 12285+1+0.0225。
         Assert.assertEquals(12286.0225F, maxX, 0.001F);
 
-        ChainPreviewMesh exact = new ChainPreviewMeshBuilder().build(VerifyShapes.scatteredX(4096, 3), VISUALS);
+        ChainPreviewMesh exact = new ChainPreviewMeshBuilder().build(
+            VerifyFeeds.snapshot(VerifyShapes.scatteredX(4096, 3)), VISUALS);
         Assert.assertFalse("正好 4096 不得置 truncated", exact.isTruncated());
     }
 

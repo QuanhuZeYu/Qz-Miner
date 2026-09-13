@@ -275,7 +275,7 @@ public class IncrementalGenerationContractTest {
         Assert.assertEquals(0, session.getReanchorCount());
         Assert.assertEquals("未重锚时锚点必须是首个目标", chronological.get(0).getX(), session.getAnchorX());
         ChainPreviewMesh full = new ChainPreviewMeshBuilder().build(
-            chronological, VISUALS, THICKNESS, null);
+            VerifyFeeds.snapshot(chronological), VISUALS, THICKNESS, null);
         Assert.assertEquals(full.getVertexFloatCount(), incremental.getVertexFloatCount());
         Assert.assertArrayEquals(full.vertexArray(), incremental.vertexArray(), 0.0F);
         Assert.assertArrayEquals(full.colorArray(), incremental.colorArray(), 0.0F);

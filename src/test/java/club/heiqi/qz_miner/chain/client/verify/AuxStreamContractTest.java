@@ -89,7 +89,8 @@ public class AuxStreamContractTest {
         // 末端接头角点（x ≈ 64 ± 半厚）只 incident 目标 63 → order 63；
         // 直通格点（x = 63.0，incident 目标 62/63）→ order 62（最小值）；
         // 近端接头角点（x ≈ 0 ± 半厚）与首个直通格点（x = 1.0）→ order 0。
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(VerifyShapes.line(64), VISUALS);
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
+            VerifyFeeds.snapshot(VerifyShapes.line(64)), VISUALS);
         float[] vertices = mesh.getVertices();
         byte[] aux = mesh.getAux();
         int farEndJunctionVertices = 0;
@@ -114,7 +115,8 @@ public class AuxStreamContractTest {
         Assert.assertTrue("近端接头角点缺失", nearJunctionVertices > 0);
 
         // 拐角接头（L 形）：原点接头 incident 目标 0 与 Z 臂首目标 → 最小 0。
-        ChainPreviewMesh corner = new ChainPreviewMeshBuilder().build(VerifyShapes.lShape(64), VISUALS);
+        ChainPreviewMesh corner = new ChainPreviewMeshBuilder().build(
+            VerifyFeeds.snapshot(VerifyShapes.lShape(64)), VISUALS);
         float[] cornerVertices = corner.getVertices();
         byte[] cornerAux = corner.getAux();
         int originJunctionVertices = 0;
@@ -189,7 +191,8 @@ public class AuxStreamContractTest {
 
     @Test
     public void isolatedTargetsAreSupplementCaseOnlyAndKeepLittleEndianU16() {
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(VerifyShapes.scatteredX(300, 3), VISUALS);
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
+            VerifyFeeds.snapshot(VerifyShapes.scatteredX(300, 3)), VISUALS);
         int vertexCount = mesh.getVertexFloatCount() / 3;
         Assert.assertEquals(300 * 64, vertexCount);
         byte[] aux = mesh.getAux();
@@ -221,7 +224,7 @@ public class AuxStreamContractTest {
         // 相邻两块共享接头格点：min(incident)=0，不得被后一次写入覆盖成 1。
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         List<ChainTarget> pair = VerifyShapes.line(2);
-        ChainPreviewMesh first = builder.build(pair, VISUALS);
+        ChainPreviewMesh first = builder.build(VerifyFeeds.snapshot(pair), VISUALS);
         float[] vertices = first.getVertices();
         byte[] aux = first.getAux();
         int joinVertices = 0;
@@ -232,7 +235,7 @@ public class AuxStreamContractTest {
             }
         }
         Assert.assertTrue("共享接头顶点缺失", joinVertices > 0);
-        ChainPreviewMesh second = builder.build(pair, VISUALS);
+        ChainPreviewMesh second = builder.build(VerifyFeeds.snapshot(pair), VISUALS);
         Assert.assertArrayEquals("同输入重建必须逐字节一致", first.getAux(), second.getAux());
         Assert.assertArrayEquals(first.getIndices(), second.getIndices());
     }

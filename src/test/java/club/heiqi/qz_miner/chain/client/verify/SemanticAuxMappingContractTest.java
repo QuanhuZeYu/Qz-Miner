@@ -102,7 +102,8 @@ public class SemanticAuxMappingContractTest {
             ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.REMOTE_PREDICTED
         };
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(targets, VISUALS, BAR_THICKNESS, classes);
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
+            VerifyFeeds.snapshot(targets), VISUALS, BAR_THICKNESS, VerifyFeeds.snapshot(classes));
         byte[] aux = mesh.getAux();
         Assert.assertNotNull(aux);
         int vertexCount = mesh.getVertexFloatCount() / 3;
@@ -144,7 +145,8 @@ public class SemanticAuxMappingContractTest {
             ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.REMOTE_PREDICTED
         };
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(targets, VISUALS, BAR_THICKNESS, classes);
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
+            VerifyFeeds.snapshot(targets), VISUALS, BAR_THICKNESS, VerifyFeeds.snapshot(classes));
         byte[] aux = mesh.getAux();
         float[] vertices = mesh.getVertices();
         int repeatedVertices = 0;

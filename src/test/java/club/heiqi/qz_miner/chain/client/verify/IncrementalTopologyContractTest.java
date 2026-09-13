@@ -36,8 +36,9 @@ public class IncrementalTopologyContractTest {
         return list;
     }
 
+    /** 夹具以时间序（最早→最新）表达；72fd97e 起公共 build 按生产快照序解释输入，故喂入前翻转。 */
     private static ChainPreviewMesh build(List<ChainTarget> targets) {
-        return new ChainPreviewMeshBuilder().build(targets, VISUALS);
+        return new ChainPreviewMeshBuilder().build(VerifyFeeds.snapshot(targets), VISUALS);
     }
 
     private static VerifyMeshReferenceModel.Expectation expect(List<ChainTarget> targets) {

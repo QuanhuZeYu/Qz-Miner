@@ -41,7 +41,8 @@ public class DrawPlanContractTest {
         List<ChainTarget> ordered = new ArrayList<ChainTarget>();
         ordered.add(new ChainTarget(5, 0, 0));
         ordered.add(new ChainTarget(0, 0, 0));
-        ChainPreviewMesh offsetMesh = builder.build(ordered, BUILDER_VISUALS);
+        // 72fd97e 起公共 build 按生产快照序（最新→最早）解释输入：翻转为时间序后最早目标 = (5,0,0)。
+        ChainPreviewMesh offsetMesh = builder.build(VerifyFeeds.snapshot(ordered), BUILDER_VISUALS);
         Assert.assertEquals(5, offsetMesh.getOriginX());
         ChainPreviewDrawPlan offsetPlan = derive(offsetMesh, 0, offsetMesh.getIndexCount(), null, null, 0L, 0L);
         Assert.assertEquals("origin 取迭代序首个唯一目标", 5, offsetPlan.getOriginX());
