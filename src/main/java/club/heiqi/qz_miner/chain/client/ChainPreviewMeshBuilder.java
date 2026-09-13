@@ -447,6 +447,10 @@ public class ChainPreviewMeshBuilder {
      * 缓存失效范围 = 新增目标 + 其 26 邻域（仅自身结果被替换）；{@link #dispose()} 释放全部缓存，
      * 不跨代残留。lod=auto 时剔除集合随相机变化，本阶段回退全量可见段重算（登记为边界）。</p>
      *
+     * <p><b>只增语义（已登记）</b>：生产侧 ChainPreviewState 同代目标只增（删除只能换代），
+     * 故本代级缓存不提供移除路径；若将来引入代内移除/收缩语义，必须同时补移除路径并把
+     * 「新增→移除→再新增」纳入差分覆盖。</p>
+     *
      * <p>锚点契约：meshOrigin = 代内首个目标，代内不变；新增目标与锚点 Chebyshev 距离超过
      * {@link #getReanchorDistance()} 时整代重锚（等效一次全量重建，锚点移到该目标）。</p>
      *

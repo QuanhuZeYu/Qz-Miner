@@ -107,9 +107,16 @@ public class ChainPreviewGenerationDiffTest {
         }
         Assert.assertNotNull(label, incremental);
 
+        // 参考侧独立决定锚点（时间序首元素 = 代内首个目标），不复用被测会话的锚点；
+        // 被测会话的锚点另行断言，避免「参考复用被测量」造成的假等价。
+        int anchorX = chronology.isEmpty() ? 0 : chronology.get(0).getX();
+        int anchorY = chronology.isEmpty() ? 0 : chronology.get(0).getY();
+        int anchorZ = chronology.isEmpty() ? 0 : chronology.get(0).getZ();
+        Assert.assertEquals(label + " anchorX", anchorX, session.getAnchorX());
+        Assert.assertEquals(label + " anchorY", anchorY, session.getAnchorY());
+        Assert.assertEquals(label + " anchorZ", anchorZ, session.getAnchorZ());
         ChainPreviewMesh reference = builder.buildWithOrigin(
-            chronology, visuals, THICKNESS, classesFor(chronology),
-            session.getAnchorX(), session.getAnchorY(), session.getAnchorZ());
+            chronology, visuals, THICKNESS, classesFor(chronology), anchorX, anchorY, anchorZ);
 
         Assert.assertArrayEquals(label + " vertices", reference.getVertices(), incremental.getVertices(), 0.0F);
         Assert.assertArrayEquals(label + " colors", reference.getColors(), incremental.getColors(), 0.0F);
