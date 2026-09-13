@@ -35,10 +35,11 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         new AtomicReference<MeshPublication>();
 
     private volatile RenderChange latestChange;
-    private volatile VisualState latestVisualState = new VisualState(
-        0L,
-        VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D));
-    private VisualParameters latestCameraParameters = latestVisualState.parameters;
+    private volatile VisualState latestVisualState = new VisualState(0L, 0.0D, 0.0D, 0.0D);
+    private volatile ChainPreviewVisualSettings visualSettings = ChainPreviewVisualSettings.fromConfig();
+    private double latestCameraX;
+    private double latestCameraY;
+    private double latestCameraZ;
     private volatile BuildKey publishedKey = BuildKey.NONE;
     private ChainPreviewMesh publishedMesh = ChainPreviewMesh.EMPTY;
 
@@ -51,6 +52,14 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private boolean lifecycleReady = true;
     private boolean visualRefreshPending;
     private boolean observing;
+
+    /**
+     * B0.3 消费门控：BuildTask 已产出但尚未被 {@link #pollPublication()} 取走的 publication。
+     *
+     * <p>临时补丁登记：修复"同帧重复重建 + 中间产物被单槽覆盖"。
+     * 删除条件 = B4.1 增量路径上线且差分测试通过后，随该次替换一并删除。</p>
+     */
+    private boolean publicationAwaitingConsumption;
 
     static ChainPreviewRenderCache createProduction(ChainPreviewState state) {
         return new ChainPreviewRenderCache(
@@ -126,6 +135,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         latestVisualState.revision);
                     publishedMesh = ChainPreviewMesh.EMPTY;
                     pendingPublication.set(new MeshPublication(publicationKey, ChainPreviewMesh.EMPTY));
+                    publicationAwaitingConsumption = false;
                 }
                 schedule = true;
             } else {
@@ -138,6 +148,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 publishedKey = emptyKey;
                 publishedMesh = ChainPreviewMesh.EMPTY;
                 pendingPublication.set(new MeshPublication(emptyKey, ChainPreviewMesh.EMPTY));
+                publicationAwaitingConsumption = false;
             }
         }
         if (schedule) {
@@ -149,14 +160,18 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
      * RenderWorld 只采样相机；状态 targets 不在此读取。连续 active 时每秒至少请求一次效果刷新。
      */
     void refreshForCamera(double cameraX, double cameraY, double cameraZ, long nowNanos) {
-        VisualParameters sampledParameters = VisualParameters.fromCurrentConfig(cameraX, cameraY, cameraZ);
         boolean schedule = false;
         synchronized (taskLock) {
-            latestCameraParameters = sampledParameters;
+            // B0.4：每帧只记录相机标量（零分配）；VisualParameters 只在提升视觉 revision 时冻结一次。
+            latestCameraX = cameraX;
+            latestCameraY = cameraY;
+            latestCameraZ = cameraZ;
             boolean refreshDue = lastEffectRefreshNanos == Long.MIN_VALUE
                 || nowNanos - lastEffectRefreshNanos >= EFFECT_REFRESH_INTERVAL_NANOS;
             if (refreshDue) {
                 lastEffectRefreshNanos = nowNanos;
+                // 视觉设置按既有 1 Hz 采样点刷新（不改刷新策略），renderer 每帧零分配读取。
+                visualSettings = ChainPreviewVisualSettings.fromConfig();
                 if (currentTask != null || pendingPublication.get() != null) {
                     visualRefreshPending = true;
                 } else {
@@ -176,14 +191,22 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         }
     }
 
+    /** @return 当前视觉参数快照（volatile 读、零分配、非 null），供 renderer 每帧读取 */
+    public ChainPreviewVisualSettings getVisualSettings() {
+        return visualSettings;
+    }
+
     MeshPublication pollPublication() {
-        MeshPublication publication = pendingPublication.getAndSet(null);
-        if (publication == null) {
-            return null;
-        }
+        MeshPublication publication;
         MeshPublication accepted = null;
         boolean schedule = false;
         synchronized (taskLock) {
+            publication = pendingPublication.getAndSet(null);
+            if (publication == null) {
+                return null;
+            }
+            // B0.3：单槽被取走即解除消费门控，并在确实还有待构建工作时唤醒 worker。
+            publicationAwaitingConsumption = false;
             boolean currentLifecycle = publication.key.lifecycleEpoch == lifecycleEpoch;
             boolean currentGeneration = publication.key.generation < 0
                 || latestChange == null
@@ -195,10 +218,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             }
             if (accepted != null && visualRefreshPending) {
                 promoteVisualRefreshLocked();
-                schedule = lifecycleReady
-                    && latestChange != null
-                    && latestChange.isActive();
             }
+            schedule = currentTask == null && needsBuildLocked();
         }
         if (schedule) {
             ensureWorker();
@@ -227,6 +248,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             publishedKey = emptyKey;
             publishedMesh = ChainPreviewMesh.EMPTY;
             pendingPublication.set(new MeshPublication(emptyKey, ChainPreviewMesh.EMPTY));
+            publicationAwaitingConsumption = false;
             subscription = taskSubscription;
             currentTask = null;
             taskSubscription = null;
@@ -242,7 +264,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             if (!lifecycleReady || latestChange == null || !latestChange.isActive()) {
                 return;
             }
-            if (currentTask != null || !needsBuildLocked()) {
+            if (currentTask != null || publicationAwaitingConsumption || !needsBuildLocked()) {
                 return;
             }
             task = new BuildTask(lifecycleEpoch);
@@ -298,7 +320,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             if (visualRefreshPending && pendingPublication.get() == null) {
                 promoteVisualRefreshLocked();
             }
-            reschedule = allowReschedule && needsBuildLocked();
+            // B0.3：未消费时不重排，避免空转任务；取走后由 pollPublication / 本方法任一窗口唤醒。
+            reschedule = allowReschedule && !publicationAwaitingConsumption && needsBuildLocked();
         }
         if (reschedule) {
             ensureWorker();
@@ -308,7 +331,9 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private void promoteVisualRefreshLocked() {
         latestVisualState = new VisualState(
             latestVisualState.revision + 1L,
-            latestCameraParameters);
+            latestCameraX,
+            latestCameraY,
+            latestCameraZ);
         visualRefreshPending = false;
     }
 
@@ -345,14 +370,21 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
 
             while (true) {
                 RenderChange desiredChange;
+                boolean awaitingConsumption;
                 synchronized (taskLock) {
                     if (currentTask != this || lifecycleEpoch != ownerEpoch) {
                         finish(false);
                         return ParallelTaskResult.TERMINATED;
                     }
                     desiredChange = latestChange;
+                    awaitingConsumption = publicationAwaitingConsumption;
                 }
                 if (desiredChange == null || !desiredChange.isActive()) {
+                    finish(true);
+                    return ParallelTaskResult.COMPLETED;
+                }
+                if (awaitingConsumption) {
+                    // B0.3：上一份 publication 未被消费，本帧不再重建拓扑（消费驱动，每帧至多一次重建）。
                     finish(true);
                     return ParallelTaskResult.COMPLETED;
                 }
@@ -371,6 +403,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                     }
 
                     VisualState visuals = latestVisualState;
+                    ChainPreviewVisualSettings settingsSnapshot = visualSettings;
                     synchronized (taskLock) {
                         RenderChange currentChange = latestChange;
                         boolean sameTopology = currentTask == this
@@ -394,7 +427,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                                 currentChange.getGeneration(),
                                 currentChange.getRevision(),
                                 visuals.revision);
-                            session = meshBuilder.beginRecolor(publishedMesh, visuals.parameters);
+                            session = meshBuilder.beginRecolor(
+                                publishedMesh, visuals.toVisualParameters(settingsSnapshot));
                         }
                     }
                     if (session == null) {
@@ -408,7 +442,10 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                             snapshot.getGeneration(),
                             snapshot.getRevision(),
                             visuals.revision);
-                        session = meshBuilder.begin(snapshot.getTargets(), visuals.parameters);
+                        session = meshBuilder.begin(
+                            snapshot.getTargets(),
+                            visuals.toVisualParameters(settingsSnapshot),
+                            settingsSnapshot.getBarThickness());
                     }
                 }
 
@@ -435,6 +472,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         publishedMesh = mesh;
                         if (latestVisualState.revision == sessionKey.visualRevision) {
                             pendingPublication.set(new MeshPublication(sessionKey, mesh));
+                            publicationAwaitingConsumption = true;
                         }
                     }
                 }
@@ -501,11 +539,31 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private static final class VisualState {
 
         private final long revision;
-        private final VisualParameters parameters;
+        private final double cameraX;
+        private final double cameraY;
+        private final double cameraZ;
 
-        private VisualState(long revision, VisualParameters parameters) {
+        private VisualState(long revision, double cameraX, double cameraY, double cameraZ) {
             this.revision = revision;
-            this.parameters = parameters;
+            this.cameraX = cameraX;
+            this.cameraY = cameraY;
+            this.cameraZ = cameraZ;
+        }
+
+        /**
+         * @param settings 本次构建的视觉设置快照
+         * @return 冻结本次视觉 revision 的视觉参数（只在构建时构造，不在每帧路径上）
+         */
+        private VisualParameters toVisualParameters(ChainPreviewVisualSettings settings) {
+            return new VisualParameters(
+                cameraX,
+                cameraY,
+                cameraZ,
+                settings.getAlphaFadeStartRadius(),
+                settings.getAlphaFadeEndRadius(),
+                settings.getAlphaStartValue(),
+                settings.getAlphaEndValue(),
+                settings.getBarThickness());
         }
     }
 

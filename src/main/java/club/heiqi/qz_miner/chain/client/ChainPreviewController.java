@@ -50,9 +50,11 @@ public class ChainPreviewController {
 
     private final ChainPreviewState previewState = new ChainPreviewState();
     private final PreviewOriginLease previewOriginLease = new PreviewOriginLease();
+    private final RemotePreviewRequest remotePreviewRequest = new RemotePreviewRequest();
     private volatile ChainTarget currentTarget;
     private ParallelTickSubscription previewTaskSubscription;
     private int specialPreviewRequestId;
+    private int remotePreviewMaxTargets;
     private BlockSeedSnapshot previewSeedSnapshot;
     private World previewSeedWorld;
     private volatile int previewConcreteFace;
@@ -117,6 +119,10 @@ public class ChainPreviewController {
 
         if (!MyMod.chainStateService.getClientState().isChainKeyPressed()) {
             stopPreview();
+            return;
+        }
+
+        if (checkRemotePreviewTimeout(System.nanoTime())) {
             return;
         }
 
@@ -196,6 +202,10 @@ public class ChainPreviewController {
         final TileEntity sampleTileEntity = seedSnapshot.getSampleTileEntity();
         final int previewRadius = getEffectivePreviewRadius();
         final int previewMaxTargets = getEffectivePreviewMaxTargets();
+        final ChainPreviewState.TruncationReason limitReason = isPreviewLimitClampedByHardCap(
+            currentServerChainMaxBlocks(), Config.clientPreviewMaxTargets, Config.clientPreviewMaxTargetsHardCap)
+                ? ChainPreviewState.TruncationReason.HARD_CAP
+                : ChainPreviewState.TruncationReason.MAX_TARGETS;
         if (!ChainSubModeRegistry.canStartPreview(selectedSubMode, world, target, sampleTileEntity)) {
             previewState.setCompleted(generation, true);
             return;
@@ -245,6 +255,8 @@ public class ChainPreviewController {
             }
             searchContext.incrementConfirmedCount();
             if (searchContext.getConfirmedCount() >= searchContext.getMaxTargets()) {
+                previewState.reportTruncation(
+                    generation, limitReason, 0, searchContext.getConfirmedCount());
                 previewState.setCompleted(generation, true);
                 return;
             }
@@ -293,6 +305,10 @@ public class ChainPreviewController {
                         || traversalResult == TraversalStepResult.YIELDED;
 
                     if (!shouldContinue) {
+                        if (searchContext.getConfirmedCount() >= searchContext.getMaxTargets()) {
+                            previewState.reportTruncation(
+                                generation, limitReason, 0, searchContext.getConfirmedCount());
+                        }
                         previewState.setCompleted(generation, true);
                     }
 
@@ -313,7 +329,7 @@ public class ChainPreviewController {
         MyMod.LOG.debug("[ChainPreview] Started preview for target ({}, {}, {})", target.getX(), target.getY(), target.getZ());
     }
 
-    private void startRemotePreview(
+    void startRemotePreview(
             ChainMode selectedMode,
             ChainSubMode selectedSubMode,
             ChainTarget target,
@@ -321,10 +337,14 @@ public class ChainPreviewController {
             int previewMaxTargets,
             int generation) {
         specialPreviewRequestId++;
-        if (!ChainSubModeRegistry.requestRemotePreview(selectedSubMode, specialPreviewRequestId, target, previewRadius, previewMaxTargets)) {
-            previewState.setCompleted(generation, true);
+        int requestId = specialPreviewRequestId;
+        if (!ChainSubModeRegistry.requestRemotePreview(
+                selectedSubMode, requestId, target, previewRadius, previewMaxTargets)) {
+            cancelRemotePreview(generation, ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE);
             return;
         }
+        remotePreviewMaxTargets = previewMaxTargets;
+        remotePreviewRequest.begin(requestId, System.nanoTime(), remotePreviewTimeoutMillis());
         MyMod.LOG.debug(
             "[ChainPreview] Requested remote preview for mode={} subMode={} target=({}, {}, {}) radius={} maxTargets={} requestId={}",
             selectedMode,
@@ -334,7 +354,52 @@ public class ChainPreviewController {
             target.getZ(),
             previewRadius,
             previewMaxTargets,
-            specialPreviewRequestId);
+            requestId);
+    }
+
+    /**
+     * 远端预览超时检查：命中即按失败取消本代预览并记录原因。
+     *
+     * @param nowNanos 当前时刻（调用方注入，便于无 Minecraft 的定时断言）
+     * @return 本次是否发生超时取消
+     */
+    boolean checkRemotePreviewTimeout(long nowNanos) {
+        if (!remotePreviewRequest.expire(nowNanos)) {
+            return false;
+        }
+        return cancelRemotePreview(
+            previewState.getGeneration(), ChainPreviewState.CancelReason.REMOTE_TIMEOUT);
+    }
+
+    /**
+     * 以失败原因取消本代预览：State 记录 cancelReason 并失活，同时清客户端 previewActive。
+     *
+     * @param generation 目标代
+     * @param reason 失败原因
+     * @return 是否确实取消了本代预览
+     */
+    boolean cancelRemotePreview(int generation, ChainPreviewState.CancelReason reason) {
+        if (!previewState.cancelPreview(generation, reason)) {
+            return false;
+        }
+        clearPreviewActiveFlag();
+        ChainTarget target = currentTarget;
+        if (target != null) {
+            MyMod.LOG.debug(
+                "[ChainPreview] Remote preview cancelled: reason={} target=({}, {}, {})",
+                reason, target.getX(), target.getY(), target.getZ());
+        }
+        return true;
+    }
+
+    private void clearPreviewActiveFlag() {
+        if (MyMod.chainStateService != null) {
+            MyMod.chainStateService.getClientState().setPreviewActive(false);
+        }
+    }
+
+    private static long remotePreviewTimeoutMillis() {
+        return Math.max(1L, (long) Config.clientPreviewRemoteTimeoutMs);
     }
 
     /**
@@ -345,8 +410,10 @@ public class ChainPreviewController {
      * @param targets 服务端返回的雷坐标
      */
     public void applyLootGamesMinesweeperPreview(int requestId, ChainTarget origin, java.util.List<ChainTarget> targets) {
-        if (requestId != specialPreviewRequestId
-            || currentTarget == null
+        if (!remotePreviewRequest.accept(requestId)) {
+            return;
+        }
+        if (currentTarget == null
             || !currentTarget.equals(origin)
             || !previewState.isActive()) {
             return;
@@ -357,6 +424,10 @@ public class ChainPreviewController {
             if (!previewState.addPreviewTarget(generation, target)) {
                 return;
             }
+        }
+        if (targets.size() >= remotePreviewMaxTargets) {
+            previewState.reportTruncation(
+                generation, ChainPreviewState.TruncationReason.REMOTE_LIMIT, 0, targets.size());
         }
         previewState.setCompleted(generation, true);
         MyMod.LOG.debug(
@@ -394,10 +465,37 @@ public class ChainPreviewController {
             return 1;
         }
 
-        int serverChainMaxBlocks = MyMod.chainStateService == null
+        return clampPreviewMaxTargets(
+            currentServerChainMaxBlocks(),
+            Config.clientPreviewMaxTargets,
+            Config.clientPreviewMaxTargetsHardCap);
+    }
+
+    /**
+     * 预览上限收窄纯函数：服务端上限与客户端配置取小后，再受硬顶约束。
+     *
+     * @param serverLimit 服务端 chainMaxBlocks
+     * @param configuredLimit 客户端 clientPreviewMaxTargets
+     * @param hardCap clientPreviewMaxTargetsHardCap 硬顶
+     * @return 生效上限，恒 >= 1
+     */
+    static int clampPreviewMaxTargets(int serverLimit, int configuredLimit, int hardCap) {
+        int requested = Math.max(1, Math.min(serverLimit, configuredLimit));
+        return Math.max(1, Math.min(requested, Math.max(1, hardCap)));
+    }
+
+    /**
+     * @return 生效上限是否被 clientPreviewMaxTargetsHardCap 收窄（截断原因归因用）
+     */
+    static boolean isPreviewLimitClampedByHardCap(int serverLimit, int configuredLimit, int hardCap) {
+        int requested = Math.max(1, Math.min(serverLimit, configuredLimit));
+        return requested > Math.max(1, hardCap);
+    }
+
+    private int currentServerChainMaxBlocks() {
+        return MyMod.chainStateService == null
             ? Config.chainMaxBlocks
             : MyMod.chainStateService.getClientState().getServerChainMaxBlocks();
-        return Math.max(1, Math.min(serverChainMaxBlocks, Config.clientPreviewMaxTargets));
     }
 
     private boolean isPreviewStillValid(
@@ -472,6 +570,7 @@ public class ChainPreviewController {
         previewConcreteFace = 0;
         previewMode = null;
         previewSubMode = null;
+        remotePreviewRequest.clear();
         specialPreviewRequestId++;
         if (clearSeedLease) {
             previewSeedSnapshot = null;

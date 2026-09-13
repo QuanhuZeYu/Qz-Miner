@@ -133,6 +133,49 @@ public class ChainPreviewControllerTest {
         Assert.assertFalse(helperBody.contains("false);"));
     }
 
+    @Test
+    public void previewLimitClampAndHardCapAttributionFollowFrozenRules() {
+        Assert.assertEquals(4096, ChainPreviewController.clampPreviewMaxTargets(8192, 8192, 4096));
+        Assert.assertEquals(1024, ChainPreviewController.clampPreviewMaxTargets(8192, 1024, 4096));
+        Assert.assertEquals(512, ChainPreviewController.clampPreviewMaxTargets(512, 8192, 4096));
+        Assert.assertEquals(1, ChainPreviewController.clampPreviewMaxTargets(0, 0, 0));
+        Assert.assertTrue(ChainPreviewController.isPreviewLimitClampedByHardCap(8192, 8192, 4096));
+        Assert.assertFalse(ChainPreviewController.isPreviewLimitClampedByHardCap(8192, 1024, 4096));
+        Assert.assertFalse("恰好等于硬顶不算被硬顶收窄",
+            ChainPreviewController.isPreviewLimitClampedByHardCap(8192, 4096, 4096));
+    }
+
+    @Test
+    public void rejectedRemoteProviderCancelsPreviewWithReason() {
+        ChainPreviewController controller = new ChainPreviewController();
+        ChainPreviewState state = controller.getPreviewState();
+        int generation = state.begin(new ChainTarget(1, 2, 3));
+
+        controller.startRemotePreview(
+            ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, new ChainTarget(1, 2, 3), 8, 4096, generation);
+
+        Assert.assertFalse("远端请求失败必须清 previewActive", state.isActive());
+        Assert.assertEquals(
+            ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE, state.getCancelReason());
+    }
+
+    @Test
+    public void cancelRemotePreviewIsGenerationScopedAndTimeoutCheckIsIdempotent() {
+        ChainPreviewController controller = new ChainPreviewController();
+        ChainPreviewState state = controller.getPreviewState();
+        int generation = state.begin(new ChainTarget(0, 0, 0));
+
+        Assert.assertTrue(controller.cancelRemotePreview(
+            generation, ChainPreviewState.CancelReason.REMOTE_TIMEOUT));
+        Assert.assertFalse(state.isActive());
+        Assert.assertEquals(ChainPreviewState.CancelReason.REMOTE_TIMEOUT, state.getCancelReason());
+        Assert.assertFalse("已取消的代不得重复取消", controller.cancelRemotePreview(
+            generation, ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE));
+        Assert.assertEquals(ChainPreviewState.CancelReason.REMOTE_TIMEOUT, state.getCancelReason());
+        Assert.assertFalse("无在途远端请求时超时检查不得误报",
+            controller.checkRemotePreviewTimeout(Long.MAX_VALUE));
+    }
+
     private static String source() throws Exception {
         return new String(Files.readAllBytes(new File(
                 "src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java").toPath()),

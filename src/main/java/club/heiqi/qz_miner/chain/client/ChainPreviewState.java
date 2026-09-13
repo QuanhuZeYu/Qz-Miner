@@ -27,6 +27,10 @@ public class ChainPreviewState {
     private long renderRevision;
     private TargetNode targetHead;
     private int targetCount;
+    private volatile TruncationReason truncationReason = TruncationReason.NONE;
+    private volatile int truncatedCount;
+    private volatile int totalCount;
+    private volatile CancelReason cancelReason = CancelReason.NONE;
 
     public int begin(ChainTarget origin) {
         RenderChange change;
@@ -41,6 +45,10 @@ public class ChainPreviewState {
             this.targetCount = 0;
             this.scannedCount.set(0);
             this.matchedCount.set(0);
+            this.truncationReason = TruncationReason.NONE;
+            this.truncatedCount = 0;
+            this.totalCount = 0;
+            this.cancelReason = CancelReason.NONE;
             this.renderRevision++;
             startedGeneration = this.generation;
             change = currentChangeLocked();
@@ -61,6 +69,10 @@ public class ChainPreviewState {
             this.targetCount = 0;
             this.scannedCount.set(0);
             this.matchedCount.set(0);
+            this.truncationReason = TruncationReason.NONE;
+            this.truncatedCount = 0;
+            this.totalCount = 0;
+            this.cancelReason = CancelReason.NONE;
             this.renderRevision++;
             change = currentChangeLocked();
         }
@@ -110,6 +122,26 @@ public class ChainPreviewState {
         return matchedCount.get();
     }
 
+    /** @return 本代目标被上限截断的原因；NONE 表示未发生上限截断 */
+    public TruncationReason getTruncationReason() {
+        return truncationReason;
+    }
+
+    /** @return 已知被上限挡在预览之外的目标数；0 表示未截断，或截断数量未知（只有下界） */
+    public int getTruncatedCount() {
+        return truncatedCount;
+    }
+
+    /** @return 本代已知目标总数（含被截断）；未截断时等于已接收目标数 */
+    public int getTotalCount() {
+        return totalCount;
+    }
+
+    /** @return 本代预览的失败取消原因；NONE 表示未因远端失败/超时取消 */
+    public CancelReason getCancelReason() {
+        return cancelReason;
+    }
+
     public boolean addPreviewTarget(int expectedGeneration, ChainTarget target) {
         RenderChange change;
         synchronized (renderStateLock) {
@@ -119,8 +151,60 @@ public class ChainPreviewState {
             previewTargetSet.add(target);
             targetHead = new TargetNode(target, targetHead);
             targetCount++;
+            if (targetCount > totalCount) {
+                totalCount = targetCount;
+            }
             matchedCount.incrementAndGet();
             renderRevision++;
+            change = currentChangeLocked();
+        }
+        publish(change);
+        return true;
+    }
+
+    /**
+     * 记录本代被上限截断的事实。
+     *
+     * <p>截断不改变几何 revision：只更新只读访问器，供 HUD 与 B1.1 表现投影消费。</p>
+     *
+     * @param expectedGeneration 上报者持有的代
+     * @param reason 截断原因；NONE 视为无效上报
+     * @param truncatedCount 已知被截断目标数；未知传 0
+     * @param totalCount 本代已知目标总数（含被截断）
+     * @return 是否被本代接受
+     */
+    public boolean reportTruncation(
+            int expectedGeneration, TruncationReason reason, int truncatedCount, int totalCount) {
+        if (reason == null || reason == TruncationReason.NONE) {
+            return false;
+        }
+        synchronized (renderStateLock) {
+            if (!active || generation != expectedGeneration) {
+                return false;
+            }
+            this.truncationReason = reason;
+            this.truncatedCount = Math.max(0, truncatedCount);
+            this.totalCount = Math.max(this.totalCount, Math.max(0, totalCount));
+            return true;
+        }
+    }
+
+    /**
+     * 以失败原因取消本代预览：保留已捕获目标，但不再活动，并通知 observer 取消。
+     *
+     * @param expectedGeneration 上报者持有的代
+     * @param reason 取消原因
+     * @return 是否被本代接受
+     */
+    public boolean cancelPreview(int expectedGeneration, CancelReason reason) {
+        RenderChange change;
+        synchronized (renderStateLock) {
+            if (!active || generation != expectedGeneration) {
+                return false;
+            }
+            this.active = false;
+            this.cancelReason = reason == null ? CancelReason.NONE : reason;
+            this.renderRevision++;
             change = currentChangeLocked();
         }
         publish(change);
@@ -289,6 +373,28 @@ public class ChainPreviewState {
             this.target = target;
             this.previous = previous;
         }
+    }
+
+    /** 预览目标被上限截断的原因。 */
+    public enum TruncationReason {
+        /** 未发生上限截断。 */
+        NONE,
+        /** 达到 clientPreviewMaxTargets / 服务端 chainMaxBlocks 上限，可能仍有未探索目标。 */
+        MAX_TARGETS,
+        /** 达到 clientPreviewMaxTargetsHardCap 硬顶。 */
+        HARD_CAP,
+        /** 远端预览返回达到本次请求上限。 */
+        REMOTE_LIMIT
+    }
+
+    /** 预览被失败取消的原因。 */
+    public enum CancelReason {
+        /** 未因失败取消。 */
+        NONE,
+        /** 远端预览在 clientPreviewRemoteTimeoutMs 内未返回。 */
+        REMOTE_TIMEOUT,
+        /** 远端预览 provider 不可用或拒绝请求。 */
+        REMOTE_UNAVAILABLE
     }
 
     public interface Observer {

@@ -191,6 +191,63 @@ public class ChainPreviewRenderCacheTest {
         Assert.assertEquals(2, scheduler.tasks.size());
     }
 
+    @Test
+    public void unconsumedPublicationBlocksRebuildUntilPollConsumesIt() throws Exception {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+
+        state.begin(new ChainTarget(0, 0, 0));
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(0, 0, 0));
+        Assert.assertEquals(1, scheduler.tasks.size());
+
+        runCompleted(scheduler.tasks.get(0).task);
+        ChainPreviewRenderCache.MeshPublication first = cache.pollPublication();
+        Assert.assertNotNull(first);
+        Assert.assertEquals(1, first.getMesh().getBlockCount());
+
+        // 消费后 redo 一次，并让产物停在单槽里不被取走
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(1, 0, 0));
+        Assert.assertEquals("消费后才允许再次入队", 2, scheduler.tasks.size());
+        runCompleted(scheduler.tasks.get(1).task);
+
+        // 门控生效：单槽未消费时，状态继续前进也不得入队新的拓扑重建
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(2, 0, 0));
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(3, 0, 0));
+        Assert.assertEquals("未消费的 publication 必须阻止新入队", 2, scheduler.tasks.size());
+
+        // 取走后才恰好唤醒一次，并构建出包含最新目标的新产物
+        ChainPreviewRenderCache.MeshPublication blocked = cache.pollPublication();
+        Assert.assertNotNull(blocked);
+        Assert.assertEquals(2, blocked.getMesh().getBlockCount());
+        Assert.assertEquals("取走后恰好一次重建", 3, scheduler.tasks.size());
+        runCompleted(scheduler.tasks.get(2).task);
+        ChainPreviewRenderCache.MeshPublication resumed = cache.pollPublication();
+        Assert.assertNotNull(resumed);
+        Assert.assertEquals(4, resumed.getMesh().getBlockCount());
+        Assert.assertEquals(3, scheduler.tasks.size());
+    }
+
+    @Test
+    public void consumedPublicationWithoutPendingWorkDoesNotEnqueueIdleWorker() throws Exception {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+
+        state.begin(new ChainTarget(5, 5, 5));
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(5, 5, 5));
+        cache.pollPublication();
+        runCompleted(scheduler.tasks.get(0).task);
+        Assert.assertEquals(1, scheduler.tasks.size());
+
+        Assert.assertNotNull(cache.pollPublication());
+        Assert.assertEquals("无待构建工作时消费不得产生空转任务", 1, scheduler.tasks.size());
+        Assert.assertNull(cache.pollPublication());
+        Assert.assertEquals(1, scheduler.tasks.size());
+    }
+
     private static ChainPreviewRenderCache cache(ChainPreviewState state, RecordingScheduler scheduler) {
         return new ChainPreviewRenderCache(state, new ChainPreviewMeshBuilder(), scheduler);
     }
