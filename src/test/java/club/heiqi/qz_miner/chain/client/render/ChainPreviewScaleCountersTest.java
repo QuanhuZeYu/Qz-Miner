@@ -53,6 +53,27 @@ public class ChainPreviewScaleCountersTest {
     }
 
     @Test
+    public void culledQuadCountsAccumulateOnlyForPositiveValues() {
+        ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
+
+        counters.recordCulled(0);
+        counters.recordCulled(-4);
+        Assert.assertEquals(0L, counters.getCulledTargets());
+        Assert.assertEquals(0L, counters.getCullEvents());
+
+        counters.recordCulled(5);
+        counters.recordCulled(3);
+        Assert.assertEquals(8L, counters.getCulledTargets());
+        Assert.assertEquals(2L, counters.getCullEvents());
+        Assert.assertTrue(counters.describe().contains("preview.culledTargets=8"));
+        Assert.assertTrue(counters.describe().contains("preview.cullEvents=2"));
+
+        counters.reset();
+        Assert.assertEquals(0L, counters.getCulledTargets());
+        Assert.assertEquals(0L, counters.getCullEvents());
+    }
+
+    @Test
     public void counterSnapshotIsCarriedByDrawPlan() {
         ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
         counters.recordTopologyUpload();

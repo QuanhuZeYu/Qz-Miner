@@ -54,6 +54,7 @@ public final class ChainPreviewDrawPlan {
     private final int semanticMask;
     private final int vertexCount;
     private final boolean truncated;
+    private final int culledTargetCount;
     private final long rebuilds;
     private final long uploads;
 
@@ -209,6 +210,81 @@ public final class ChainPreviewDrawPlan {
             }
         }
 
+        /**
+         * LOD 档位与 alpha 剔除阈值（不可变）：由 renderer 从 ChainPreviewVisualSettings 映射，plan 只读。
+         *
+         * <p>{@code off}（默认）＝ 不剔除、不合并，逐值等于现状；{@code auto} 启用构建期
+         * alpha ≤ lodMinAlpha 剔除（进出双阈值防抖 enter=lodMinAlpha / exit=lodMinAlpha+0.05
+         * 由 Builder 侧实现，本对象只承载生效档位与阈值）；null / 未知档位兜底 off。</p>
+         *
+         * <p>本轮「超距合并 / 外壳档位」未实现（Lead 裁定登记下一批），plan 不假设存在合并产物。</p>
+         */
+        public static final class Lod {
+
+            /** LOD 档位稳定 id：关闭（默认）。 */
+            public static final String MODE_OFF = "off";
+
+            /** LOD 档位稳定 id：自动。 */
+            public static final String MODE_AUTO = "auto";
+
+            /** 关闭档单例：无剔除。 */
+            public static final Lod OFF = new Lod(MODE_OFF, 0.0F);
+
+            private final String modeId;
+            private final float minAlpha;
+
+            /**
+             * 纯映射：只认 {@code auto}，其余（off / null / 未知）一律 off。
+             *
+             * @param modeId   LOD 档位稳定 id
+             * @param minAlpha alpha 剔除阈值（运行时钳制到 [0,1]，NaN → 0）
+             * @return 归一化 LOD 状态
+             */
+            public static Lod fromConfig(String modeId, float minAlpha) {
+                if (MODE_AUTO.equals(modeId)) {
+                    return new Lod(MODE_AUTO, minAlpha);
+                }
+                return OFF;
+            }
+
+            public Lod(String modeId, float minAlpha) {
+                this.modeId = MODE_AUTO.equals(modeId) ? MODE_AUTO : MODE_OFF;
+                this.minAlpha = clampFinite(minAlpha, 0.0F, 1.0F, 0.0F);
+            }
+
+            /** @return 归一化档位 id：off / auto */
+            public String getModeId() {
+                return modeId;
+            }
+
+            /** @return 生效 alpha 剔除阈值（off 档为 0 = 未启用） */
+            public float getMinAlpha() {
+                return minAlpha;
+            }
+
+            @Override
+            public boolean equals(Object other) {
+                if (this == other) {
+                    return true;
+                }
+                if (!(other instanceof Lod)) {
+                    return false;
+                }
+                Lod that = (Lod) other;
+                return modeId.equals(that.modeId) && Float.compare(minAlpha, that.minAlpha) == 0;
+            }
+
+            @Override
+            public int hashCode() {
+                return 31 * modeId.hashCode() + Float.floatToIntBits(minAlpha);
+            }
+
+            @Override
+            public String toString() {
+                return "Lod{" + modeId + ", minAlpha=" + minAlpha + '}';
+            }
+        }
+
         private final float barThickness;
         private final float minScreenWidthPx;
         private final float animationU;
@@ -219,6 +295,7 @@ public final class ChainPreviewDrawPlan {
         private final DepthChannel depthChannel;
         private final float fadeAlpha;
         private final Colors colors;
+        private final Lod lod;
 
         /**
          * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出）+ builtin 颜色，保留既有调用点签名。
@@ -279,6 +356,32 @@ public final class ChainPreviewDrawPlan {
                 DepthChannel depthChannel,
                 float fadeAlpha,
                 Colors colors) {
+            this(
+                barThickness,
+                minScreenWidthPx,
+                animationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel,
+                fadeAlpha,
+                colors,
+                Lod.OFF);
+        }
+
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha,
+                Colors colors,
+                Lod lod) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -289,6 +392,7 @@ public final class ChainPreviewDrawPlan {
             this.depthChannel = depthChannel;
             this.fadeAlpha = fadeAlpha;
             this.colors = colors == null ? Colors.BUILTIN : colors;
+            this.lod = lod == null ? Lod.OFF : lod;
         }
 
         public float getBarThickness() {
@@ -322,7 +426,8 @@ public final class ChainPreviewDrawPlan {
                 alphaEnd,
                 depthChannel,
                 fadeAlpha,
-                colors);
+                colors,
+                lod);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -361,6 +466,11 @@ public final class ChainPreviewDrawPlan {
             return colors;
         }
 
+        /** @return LOD 状态，永不为 null（默认 {@link Lod#OFF}） */
+        public Lod getLod() {
+            return lod;
+        }
+
         /**
          * 记录全局淡入淡出乘子（{@link #getAlphaStart()}/{@link #getAlphaEnd()} 保持原值）。
          *
@@ -386,7 +496,8 @@ public final class ChainPreviewDrawPlan {
                 alphaEnd,
                 depthChannel,
                 safeMultiplier,
-                colors);
+                colors,
+                lod);
         }
 
         /** @return 深度通道，永不为 null */
@@ -447,6 +558,7 @@ public final class ChainPreviewDrawPlan {
             float safeFadeAlpha = clampFinite(fadeAlpha, 0.0F, 1.0F, 1.0F);
             DepthChannel safeChannel = depthChannel == null ? DepthChannel.XRAY : depthChannel;
             Colors safeColors = colors == null ? Colors.BUILTIN : colors;
+            Lod safeLod = lod == null ? Lod.OFF : lod;
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx
                     && safeAnimationU == animationU
@@ -456,7 +568,8 @@ public final class ChainPreviewDrawPlan {
                     && safeAlphaEnd == alphaEnd
                     && safeFadeAlpha == fadeAlpha
                     && safeChannel == depthChannel
-                    && safeColors == colors) {
+                    && safeColors == colors
+                    && safeLod == lod) {
                 return this;
             }
             return new Visuals(
@@ -469,7 +582,8 @@ public final class ChainPreviewDrawPlan {
                 safeAlphaEnd,
                 safeChannel,
                 safeFadeAlpha,
-                safeColors);
+                safeColors,
+                safeLod);
         }
 
         @Override
@@ -490,7 +604,8 @@ public final class ChainPreviewDrawPlan {
                 && Float.compare(alphaEnd, that.alphaEnd) == 0
                 && Float.compare(fadeAlpha, that.fadeAlpha) == 0
                 && depthChannel == that.depthChannel
-                && colors.equals(that.colors);
+                && colors.equals(that.colors)
+                && lod.equals(that.lod);
         }
 
         @Override
@@ -505,6 +620,7 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + Float.floatToIntBits(fadeAlpha);
             result = 31 * result + (depthChannel == null ? 0 : depthChannel.hashCode());
             result = 31 * result + colors.hashCode();
+            result = 31 * result + lod.hashCode();
             return result;
         }
 
@@ -518,6 +634,7 @@ public final class ChainPreviewDrawPlan {
                 + ", fadeAlpha=" + fadeAlpha
                 + ", depthChannel=" + depthChannel
                 + ", " + colors
+                + ", " + lod
                 + '}';
         }
     }
@@ -536,6 +653,7 @@ public final class ChainPreviewDrawPlan {
             int originZ,
             int vertexCount,
             boolean truncated,
+            int culledTargetCount,
             long rebuilds,
             long uploads) {
         this(
@@ -552,6 +670,7 @@ public final class ChainPreviewDrawPlan {
             semanticMask,
             vertexCount,
             truncated,
+            culledTargetCount,
             rebuilds,
             uploads);
     }
@@ -570,6 +689,7 @@ public final class ChainPreviewDrawPlan {
             int semanticMask,
             int vertexCount,
             boolean truncated,
+            int culledTargetCount,
             long rebuilds,
             long uploads) {
         this.indexOffset = indexOffset;
@@ -585,6 +705,7 @@ public final class ChainPreviewDrawPlan {
         this.semanticMask = semanticMask;
         this.vertexCount = vertexCount;
         this.truncated = truncated;
+        this.culledTargetCount = culledTargetCount;
         this.rebuilds = rebuilds;
         this.uploads = uploads;
     }
@@ -636,6 +757,7 @@ public final class ChainPreviewDrawPlan {
             originZ,
             Math.max(0, source.getVertexFloatCount() / 3),
             source.isTruncated(),
+            Math.max(0, source.getCulledTargetCount()),
             rebuilds,
             uploads).sanitized();
     }
@@ -657,6 +779,7 @@ public final class ChainPreviewDrawPlan {
         Visuals normalizedVisuals = (visuals == null ? Visuals.BASELINE : visuals).sanitized();
         float normalizedAnimation = normalizedVisuals.getAnimationU();
         int normalizedVertexCount = Math.max(0, vertexCount);
+        int normalizedCulledTargets = Math.max(0, culledTargetCount);
         long normalizedRebuilds = Math.max(0L, rebuilds);
         long normalizedUploads = Math.max(0L, uploads);
         int normalizedQuadCount = normalizedCount / 4;
@@ -676,6 +799,7 @@ public final class ChainPreviewDrawPlan {
                 && normalizedVisibleIndices == visibleIndexCount
                 && normalizedVisuals == visuals
                 && normalizedVertexCount == vertexCount
+                && normalizedCulledTargets == culledTargetCount
                 && normalizedRebuilds == rebuilds
                 && normalizedUploads == uploads) {
             return this;
@@ -694,6 +818,7 @@ public final class ChainPreviewDrawPlan {
             semanticMask,
             normalizedVertexCount,
             truncated,
+            normalizedCulledTargets,
             normalizedRebuilds,
             normalizedUploads);
     }
@@ -827,6 +952,16 @@ public final class ChainPreviewDrawPlan {
         return visuals.getColors().getTruncated();
     }
 
+    /** @return LOD 生效档位 id：off（默认）/ auto；null 与未知值兜底 off */
+    public String getLodId() {
+        return visuals.getLod().getModeId();
+    }
+
+    /** @return LOD 生效 alpha 剔除阈值 [0,1]；off 档为 0（未启用） */
+    public float getLodMinAlpha() {
+        return visuals.getLod().getMinAlpha();
+    }
+
     /** @return 语义类别位掩码 */
     public int getSemanticMask() {
         return semanticMask;
@@ -840,6 +975,15 @@ public final class ChainPreviewDrawPlan {
     /** @return 网格顶点数 */
     public int getVertexCount() {
         return vertexCount;
+    }
+
+    /**
+     * @return 本网格构建期因 LOD（alpha ≤ lodMinAlpha）被剔除、未生成几何的目标（条柱）数；
+     *         lod=off 恒 0。单位与 {@code ChainPreviewMesh.getCulledTargetCount()} 一致（目标数，
+     *         不含 quad 估算）
+     */
+    public int getCulledTargetCount() {
+        return culledTargetCount;
     }
 
     /** @return 网格是否因配额截断 */
@@ -876,6 +1020,7 @@ public final class ChainPreviewDrawPlan {
             && originZ == that.originZ
             && semanticMask == that.semanticMask
             && vertexCount == that.vertexCount
+            && culledTargetCount == that.culledTargetCount
             && truncated == that.truncated
             && rebuilds == that.rebuilds
             && uploads == that.uploads
@@ -897,6 +1042,7 @@ public final class ChainPreviewDrawPlan {
         result = 31 * result + visuals.hashCode();
         result = 31 * result + semanticMask;
         result = 31 * result + vertexCount;
+        result = 31 * result + culledTargetCount;
         result = 31 * result + (truncated ? 1 : 0);
         result = 31 * result + (int) (rebuilds ^ (rebuilds >>> 32));
         result = 31 * result + (int) (uploads ^ (uploads >>> 32));
@@ -915,6 +1061,7 @@ public final class ChainPreviewDrawPlan {
             + ", " + visuals
             + ", semanticMask=" + semanticMask
             + ", vertices=" + vertexCount
+            + ", culledTargets=" + culledTargetCount
             + ", truncated=" + truncated
             + ", rebuilds=" + rebuilds
             + ", uploads=" + uploads

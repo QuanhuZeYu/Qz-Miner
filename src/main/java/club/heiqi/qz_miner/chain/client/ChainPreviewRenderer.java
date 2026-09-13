@@ -307,6 +307,8 @@ public class ChainPreviewRenderer {
         }
         if (upload == ChainPreviewRefreshDecision.Upload.TOPOLOGY) {
             active.uploadTopology(mesh);
+            // B2.4：剔除计数随拓扑上传累计（同代颜色刷新不重计）；lod=off 时 mesh 恒报 0
+            scaleCounters.recordCulled(mesh.getCulledTargetCount());
         }
         scaleCounters.record(upload, !mesh.isEmpty());
         uploadedGeneration = publication.getGeneration();
@@ -391,7 +393,10 @@ public class ChainPreviewRenderer {
                 settings.getColorPrimary(),
                 settings.getColorSecondary(),
                 settings.getColorRemote(),
-                settings.getColorTruncated()));
+                settings.getColorTruncated()),
+            ChainPreviewDrawPlan.Visuals.Lod.fromConfig(
+                settings.getLodId(),
+                settings.getLodMinAlpha()));
     }
 
     private static ChainPreviewDrawPlan.DepthChannel mapDepthChannel(String depthModeId) {

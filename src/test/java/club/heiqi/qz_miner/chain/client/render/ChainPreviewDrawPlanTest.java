@@ -98,6 +98,7 @@ public class ChainPreviewDrawPlanTest {
             7,
             -7,
             false,
+            -3,
             -1L,
             -2L);
 
@@ -109,6 +110,7 @@ public class ChainPreviewDrawPlanTest {
         Assert.assertEquals(0, plan.getVisibleIndexCount());
         Assert.assertNull(plan.getWaveEnds());
         Assert.assertEquals(0, plan.getVertexCount());
+        Assert.assertEquals(0, plan.getCulledTargetCount());
         Assert.assertEquals(0L, plan.getRebuilds());
         Assert.assertEquals(0L, plan.getUploads());
         Assert.assertEquals(5, plan.getOriginX());
@@ -138,6 +140,7 @@ public class ChainPreviewDrawPlanTest {
             0,
             25,
             false,
+            0,
             0L,
             0L);
 
