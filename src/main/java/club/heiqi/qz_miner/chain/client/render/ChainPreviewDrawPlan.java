@@ -41,6 +41,12 @@ public final class ChainPreviewDrawPlan {
     public static final float MAX_MIN_SCREEN_WIDTH_PX = 8.0F;
     public static final float MIN_FADE_SPAN = 0.001F;
 
+    /** B3.x 真描边：OUTLINE 描边壳段默认外扩宽度（物理像素；XRAY / OCCLUDE 不消费）。 */
+    public static final float OUTLINE_WIDTH_DEFAULT_PX = 1.5F;
+
+    /** 描边外扩宽度收窄上限（物理像素）。 */
+    public static final float MAX_OUTLINE_WIDTH_PX = 8.0F;
+
     private final int indexOffset;
     private final int indexCount;
     private final int quadCount;
@@ -296,6 +302,8 @@ public final class ChainPreviewDrawPlan {
         private final float fadeAlpha;
         private final Colors colors;
         private final Lod lod;
+        private final boolean outlineShell;
+        private final float outlineWidthPx;
 
         /**
          * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出）+ builtin 颜色，保留既有调用点签名。
@@ -382,6 +390,45 @@ public final class ChainPreviewDrawPlan {
                 float fadeAlpha,
                 Colors colors,
                 Lod lod) {
+            this(
+                barThickness,
+                minScreenWidthPx,
+                animationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel,
+                fadeAlpha,
+                colors,
+                lod,
+                false,
+                0.0F);
+        }
+
+        /**
+         * 完整构造（B3.x 追加描边壳两参）：{@code outlineShell=false, outlineWidthPx=0} 即非描边段。
+         *
+         * <p>规范化：{@code shell && widthPx > 0} 才算壳段，否则标志 false、宽度 0
+         * （NaN / 负值 / 关闭都收敛到同一形态，便于相等判定与后端分支）。</p>
+         *
+         * @param outlineShell   本段是否 OUTLINE 描边壳段
+         * @param outlineWidthPx 外扩宽度（物理像素）
+         */
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha,
+                Colors colors,
+                Lod lod,
+                boolean outlineShell,
+                float outlineWidthPx) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -393,6 +440,8 @@ public final class ChainPreviewDrawPlan {
             this.fadeAlpha = fadeAlpha;
             this.colors = colors == null ? Colors.BUILTIN : colors;
             this.lod = lod == null ? Lod.OFF : lod;
+            this.outlineShell = outlineShell && outlineWidthPx > 0.0F;
+            this.outlineWidthPx = this.outlineShell ? outlineWidthPx : 0.0F;
         }
 
         public float getBarThickness() {
@@ -539,6 +588,50 @@ public final class ChainPreviewDrawPlan {
             return Math.max(0.0F, Math.min(1.0F, alpha));
         }
 
+        /** @return 本段是否为 OUTLINE 描边壳段（B3.x；仅 OUTLINE 档首段为 true） */
+        public boolean isOutlineShell() {
+            return outlineShell;
+        }
+
+        /** @return 描边壳外扩宽度（物理像素）；非壳段恒 0 */
+        public float getOutlineWidthPx() {
+            return outlineWidthPx;
+        }
+
+        /**
+         * 派生：标记 / 取消描边壳段（B3.x 真描边）。
+         *
+         * <p>只改本对象的描边两参，其余字段原样复制；规范化口径与完整构造一致
+         * （{@code shell && widthPx > 0} 才算壳段，宽度收窄到 [0, {@link ChainPreviewDrawPlan#MAX_OUTLINE_WIDTH_PX}]）。
+         * 形态未变化时返回自身（零分配）。</p>
+         *
+         * @param shell   是否描边壳段
+         * @param widthPx 外扩宽度（物理像素）
+         * @return 派生视觉参数或自身
+         */
+        public Visuals withOutlinePass(boolean shell, float widthPx) {
+            float safeWidth = clampFinite(widthPx, 0.0F, MAX_OUTLINE_WIDTH_PX, 0.0F);
+            boolean nextShell = shell && safeWidth > 0.0F;
+            float nextWidth = nextShell ? safeWidth : 0.0F;
+            if (nextShell == outlineShell && nextWidth == outlineWidthPx) {
+                return this;
+            }
+            return new Visuals(
+                barThickness,
+                minScreenWidthPx,
+                animationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel,
+                fadeAlpha,
+                colors,
+                lod,
+                nextShell,
+                nextWidth);
+        }
+
         /** @return 收窄 NaN / 越界后的视觉参数；本就规范时返回自身 */
         public Visuals sanitized() {
             float safeThickness = clampFinite(
@@ -559,6 +652,11 @@ public final class ChainPreviewDrawPlan {
             DepthChannel safeChannel = depthChannel == null ? DepthChannel.XRAY : depthChannel;
             Colors safeColors = colors == null ? Colors.BUILTIN : colors;
             Lod safeLod = lod == null ? Lod.OFF : lod;
+            float safeOutlineWidth = clampFinite(outlineWidthPx, 0.0F, MAX_OUTLINE_WIDTH_PX, 0.0F);
+            boolean safeOutlineShell = outlineShell && safeOutlineWidth > 0.0F;
+            if (!safeOutlineShell) {
+                safeOutlineWidth = 0.0F;
+            }
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx
                     && safeAnimationU == animationU
@@ -569,7 +667,9 @@ public final class ChainPreviewDrawPlan {
                     && safeFadeAlpha == fadeAlpha
                     && safeChannel == depthChannel
                     && safeColors == colors
-                    && safeLod == lod) {
+                    && safeLod == lod
+                    && safeOutlineShell == outlineShell
+                    && safeOutlineWidth == outlineWidthPx) {
                 return this;
             }
             return new Visuals(
@@ -583,7 +683,9 @@ public final class ChainPreviewDrawPlan {
                 safeChannel,
                 safeFadeAlpha,
                 safeColors,
-                safeLod);
+                safeLod,
+                safeOutlineShell,
+                safeOutlineWidth);
         }
 
         @Override
@@ -604,6 +706,8 @@ public final class ChainPreviewDrawPlan {
                 && Float.compare(alphaEnd, that.alphaEnd) == 0
                 && Float.compare(fadeAlpha, that.fadeAlpha) == 0
                 && depthChannel == that.depthChannel
+                && outlineShell == that.outlineShell
+                && Float.compare(outlineWidthPx, that.outlineWidthPx) == 0
                 && colors.equals(that.colors)
                 && lod.equals(that.lod);
         }
@@ -619,6 +723,8 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + Float.floatToIntBits(alphaEnd);
             result = 31 * result + Float.floatToIntBits(fadeAlpha);
             result = 31 * result + (depthChannel == null ? 0 : depthChannel.hashCode());
+            result = 31 * result + (outlineShell ? 1 : 0);
+            result = 31 * result + Float.floatToIntBits(outlineWidthPx);
             result = 31 * result + colors.hashCode();
             result = 31 * result + lod.hashCode();
             return result;
@@ -633,6 +739,7 @@ public final class ChainPreviewDrawPlan {
                 + ", alpha=" + alphaStart + ".." + alphaEnd
                 + ", fadeAlpha=" + fadeAlpha
                 + ", depthChannel=" + depthChannel
+                + ", outlineShell=" + outlineShell + (outlineShell ? "@" + outlineWidthPx + "px" : "")
                 + ", " + colors
                 + ", " + lod
                 + '}';
@@ -881,6 +988,50 @@ public final class ChainPreviewDrawPlan {
     /** @return 视觉参数快照，永不为 null */
     public Visuals getVisuals() {
         return visuals;
+    }
+
+    /**
+     * 派生：把本计划切成描边壳段 / 主体段（B3.x 真描边）。
+     *
+     * <p>只替换 {@link Visuals} 的描边两参，其余字段（索引范围、origin、语义掩码、计数）原样保留；
+     * 描边形态未变化时返回自身（零分配）。XRAY / OCCLUDE 不调用本方法，逐字节等于现状。</p>
+     *
+     * @param shell   是否描边壳段
+     * @param widthPx 外扩宽度（物理像素）
+     * @return 派生计划或自身
+     */
+    public ChainPreviewDrawPlan withOutlinePass(boolean shell, float widthPx) {
+        Visuals derivedVisuals = visuals.withOutlinePass(shell, widthPx);
+        if (derivedVisuals == visuals) {
+            return this;
+        }
+        return new ChainPreviewDrawPlan(
+            indexOffset,
+            indexCount,
+            quadCount,
+            waveEnds,
+            waveVisible,
+            visibleIndexCount,
+            originX,
+            originY,
+            originZ,
+            derivedVisuals,
+            semanticMask,
+            vertexCount,
+            truncated,
+            culledTargetCount,
+            rebuilds,
+            uploads);
+    }
+
+    /** @return 本计划是否为 OUTLINE 描边壳段（B3.x） */
+    public boolean isOutlineShell() {
+        return visuals.isOutlineShell();
+    }
+
+    /** @return 描边壳外扩宽度（物理像素）；非壳段恒 0 */
+    public float getOutlineWidthPx() {
+        return visuals.getOutlineWidthPx();
     }
 
     /** @return 条柱粗细（方块坐标单位） */

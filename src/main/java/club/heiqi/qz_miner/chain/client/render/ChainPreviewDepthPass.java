@@ -9,12 +9,13 @@ import org.lwjgl.opengl.GL11;
  * <ul>
  *   <li>{@link Pass#XRAY}：单 pass，关深度测试 + depthMask(false) —— 与历史渲染逐字一致（默认档）。</li>
  *   <li>{@link Pass#OCCLUDE}：单 pass，开深度测试 + LEQUAL + depthMask(false) —— 被方块遮挡的条柱不可见。</li>
- *   <li>{@link Pass#OUTLINE}：两 pass —— 主体 pass（自遮挡正确）后接置顶 pass（关深度测试），
- *       全可见但保留深浅层次；两 pass 顺序固定（主体 → 置顶），不引入随机闪烁。</li>
+ *   <li>{@link Pass#OUTLINE}：两 pass —— B3.x 起为「描边壳 pass（关深度测试，沿用历史置顶配方，
+ *       全可见）→ 主体 pass（自遮挡正确）」；壳段在顶点阶段外扩 {@code outlineWidthPx}，主体覆盖中心
+ *       形成环带。段序固定（壳 → 主体），不引入随机闪烁；XRAY / OCCLUDE 逐字不变。</li>
  * </ul>
  *
- * <p>混合排序说明（T15 要求 3）：OUTLINE 的置顶 pass 会把已绘制的像素再混合一次，可见处会有叠色饱和；
- * 本轮接受该代价并登记（不做逐像素 pass 分组），下一批若需消除饱和再评估排序/深度预 pass。</p>
+ * <p>混合排序说明（T15 要求 3，B3.x 升级后口径变化一次）：壳段先画、主体后画，可见处主体覆盖壳段中心；
+ * 被完全遮挡的条柱呈现「外扩后的实心剪影」（与历史置顶段实心填充同性质，仅宽了外扩量）。</p>
  *
  * <p>pass 只依赖 plan 的 {@code getDepthChannel()}，不改拓扑；settings 引用比较保证 depthMode
  * 改动下一帧生效。</p>
@@ -93,11 +94,16 @@ public final class ChainPreviewDepthPass {
     /** OCCLUDE：被方块遮挡不可见（开深测 + LEQUAL + 不写深度）。 */
     public static final Stage OCCLUDE_STAGE = new Stage(true, false, GL11.GL_LEQUAL);
 
-    /** OUTLINE 主体 pass：自遮挡正确。 */
+    /** OUTLINE 主体 pass：自遮挡正确（段序末段）。 */
     public static final Stage OUTLINE_MAIN_STAGE = new Stage(true, false, GL11.GL_LEQUAL);
 
-    /** OUTLINE 置顶 pass：全可见（关深测）。 */
-    public static final Stage OUTLINE_OVERLAY_STAGE = new Stage(false, false, GL11.GL_LEQUAL);
+    /**
+     * OUTLINE 描边壳 pass（B3.x 段序首段）：沿用历史「置顶」配方（关深测 + 不写深度）—— 全可见。
+     */
+    public static final Stage OUTLINE_SHELL_STAGE = new Stage(false, false, GL11.GL_LEQUAL);
+
+    /** 历史名：等价于 {@link #OUTLINE_SHELL_STAGE}（B3.x 段序升级后壳段即原置顶段）。 */
+    public static final Stage OUTLINE_OVERLAY_STAGE = OUTLINE_SHELL_STAGE;
 
     private ChainPreviewDepthPass() {
     }
@@ -138,8 +144,22 @@ public final class ChainPreviewDepthPass {
             return OCCLUDE_STAGE;
         }
         if (pass == Pass.OUTLINE) {
-            return index >= 1 ? OUTLINE_OVERLAY_STAGE : OUTLINE_MAIN_STAGE;
+            return index >= 1 ? OUTLINE_MAIN_STAGE : OUTLINE_SHELL_STAGE;
         }
         return XRAY_STAGE;
+    }
+
+    /**
+     * 纯函数：某一 stage 是否为 OUTLINE 描边壳段（B3.x 真描边）。
+     *
+     * <p>越界口径与 {@link #stage} 一致：负索引按首段（壳）处理，index &gt;= 1 为主体段；
+     * 非 OUTLINE 档恒 false。</p>
+     *
+     * @param pass  pass 档位，null 按 {@link Pass#XRAY}
+     * @param index stage 序号
+     * @return 仅 OUTLINE 档 index &lt; 1 时为 true
+     */
+    public static boolean isOutlineShellStage(Pass pass, int index) {
+        return pass == Pass.OUTLINE && index < 1;
     }
 }

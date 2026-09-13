@@ -488,9 +488,14 @@ public class ChainPreviewRenderer {
                 plan.getOriginZ() - RenderManager.renderPosZ);
             ChainPreviewDepthPass.Pass pass = ChainPreviewDepthPass.select(plan.getDepthChannel());
             int stageCount = ChainPreviewDepthPass.stageCount(pass);
+            // B3.x 真描边：仅 OUTLINE 档派生一次壳段计划（XRAY / OCCLUDE 零分配、逐字节等于现状）
+            ChainPreviewDrawPlan shellPlan = pass == ChainPreviewDepthPass.Pass.OUTLINE
+                ? plan.withOutlinePass(true, ChainPreviewDrawPlan.OUTLINE_WIDTH_DEFAULT_PX)
+                : null;
             for (int stageIndex = 0; stageIndex < stageCount; stageIndex++) {
                 applyDepthStage(ChainPreviewDepthPass.stage(pass, stageIndex));
-                active.draw(plan);
+                active.draw(
+                    ChainPreviewDepthPass.isOutlineShellStage(pass, stageIndex) ? shellPlan : plan);
             }
         } finally {
             GL11.glPopMatrix();
