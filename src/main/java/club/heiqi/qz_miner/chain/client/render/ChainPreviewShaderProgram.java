@@ -47,10 +47,13 @@ public final class ChainPreviewShaderProgram {
 
     private static final int ATTRIB_POSITION = 0;
     private static final int ATTRIB_AUX = 1;
+    /** 外扩方向槽位的「请求」编号（T51）。编号本身不进入契约：实际槽位以运行时查询为准。 */
+    private static final int ATTRIB_DIRECTION = 2;
 
     /** T50 运行时解析出的属性槽位（链接后查询；-1 = 未解析或被优化掉）。 */
     private int positionAttributeLocation = -1;
     private int auxAttributeLocation = -1;
+    private int directionAttributeLocation = -1;
 
     private static final String MISSING_UNIFORM_PREFIX = "预览着色器缺少必备 uniform: ";
 
@@ -82,25 +85,29 @@ public final class ChainPreviewShaderProgram {
         "uColorSecondary",
         "uColorRemote",
         "uColorTruncated",
+        // T51：以下四项随「aDirection 位移」从能力型升为必备型——最小屏幕宽度与真描边现在
+        // 是活代码（不再被 if (false && …) 包住），编译器不会再优化掉它们；缺任一即无法算出
+        // 正确的外扩量，宁可判程序不可用回退 legacy，也不画出偏移错误的几何。
+        "uModelView",
+        "uPixelScale",
+        "uBarThickness",
+        "uMinScreenWidthPx",
+        "uOutlineWidthPx",
     };
 
     /**
      * 能力型 uniform：只被「按契约保留、但当前关闭」的分支引用（{@code if (false && …)} 或恒假路径）。
      *
      * <p>GLSL 规范允许编译器优化掉未被使用的 uniform ⇒ {@code glGetUniformLocation} 返回 -1。
-     * 在当前 shader 形态下这些 uniform <b>缺失是预期状态</b>，它精确对应「屏幕最小宽度 / 真描边
-     * 能力未启用」，画面回落到纯几何（与 legacy 逐值一致），因此不得据此判定程序不可用。</p>
+     * 这类 uniform 缺失是预期状态，不得据此判定程序不可用。</p>
      *
-     * <p>启用这些能力时它们会重新变成活引用、location 自动恢复；若届时清单或实现没跟上，
-     * {@link #getCapabilityReport()} 会显示能力仍为 off，可直接对账。</p>
+     * <p><b>T51 现状：清单为空。</b>原属本级的 uModelView / uPixelScale / uBarThickness /
+     * uMinScreenWidthPx 已随 aDirection 位移升为 {@link #REQUIRED_UNIFORMS}（否则位移量算错也没人发现）；
+     * uOutlineWidthPx 一直是活引用（描边壳段与主色分支都用它）。本级保留为空数组是为了让
+     * 「新 uniform 必须登记」的契约检查继续有明确落点：将来再出现「契约保留但当前关闭」的能力，
+     * 仍按同样方式登记在这里并出现在 {@link #getCapabilityReport()} 里。</p>
      */
-    private static final String[] CAPABILITY_UNIFORMS = {
-        "uMinScreenWidthPx",
-        "uPixelScale",
-        "uModelView",
-        "uBarThickness",
-        "uOutlineWidthPx",
-    };
+    private static final String[] CAPABILITY_UNIFORMS = {};
 
     private final Map<String, Integer> uniformLocations = new LinkedHashMap<String, Integer>();
     private final Set<String> missingUniforms = new HashSet<String>();
@@ -567,6 +574,7 @@ public final class ChainPreviewShaderProgram {
     private void bindAttributeLocations() {
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_POSITION, "aPos");
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_AUX, "aAux");
+        GL20.glBindAttribLocation(shaderProgramId, ATTRIB_DIRECTION, "aDirection");
     }
 
     /**
@@ -584,12 +592,16 @@ public final class ChainPreviewShaderProgram {
     private void resolveAttributeLocations() {
         positionAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aPos");
         auxAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aAux");
-        if (positionAttributeLocation < 0 || auxAttributeLocation < 0) {
+        directionAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aDirection");
+        if (positionAttributeLocation < 0 || auxAttributeLocation < 0 || directionAttributeLocation < 0) {
             throw new IllegalStateException("属性槽位解析失败：aPos=" + positionAttributeLocation
-                + ", aAux=" + auxAttributeLocation);
+                + ", aAux=" + auxAttributeLocation + ", aDirection=" + directionAttributeLocation);
         }
-        if (positionAttributeLocation == auxAttributeLocation) {
-            throw new IllegalStateException("aPos 与 aAux 落在同一槽位 " + positionAttributeLocation);
+        if (positionAttributeLocation == auxAttributeLocation
+                || positionAttributeLocation == directionAttributeLocation
+                || auxAttributeLocation == directionAttributeLocation) {
+            throw new IllegalStateException("属性槽位冲突：aPos=" + positionAttributeLocation
+                + ", aAux=" + auxAttributeLocation + ", aDirection=" + directionAttributeLocation);
         }
     }
 
@@ -601,6 +613,11 @@ public final class ChainPreviewShaderProgram {
     /** @return 顶点辅助属性（semanticClass / tubeEdge / appearOrder）的运行时槽位（>= 0；未就绪时为 -1）。 */
     public int getAuxAttributeLocation() {
         return auxAttributeLocation;
+    }
+
+    /** @return 外扩方向属性的运行时槽位（>= 0；未就绪时为 -1）。 */
+    public int getDirectionAttributeLocation() {
+        return directionAttributeLocation;
     }
 
 
@@ -617,6 +634,7 @@ public final class ChainPreviewShaderProgram {
         missingUniforms.clear();
         positionAttributeLocation = -1;
         auxAttributeLocation = -1;
+        directionAttributeLocation = -1;
     }
 
     private static void deleteShader(int shaderId) {

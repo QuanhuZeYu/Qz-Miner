@@ -67,20 +67,22 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     /** 顶点属性显式 stride（字节）：core profile 下不依赖 stride=0 的"紧凑"语义。 */
     private static final int POSITION_STRIDE_BYTES = 3 * 4;
     private static final int AUX_STRIDE_BYTES = 4;
+    private static final int DIRECTION_STRIDE_BYTES = 3 * 4;
 
     private final ChainPreviewShaderProgram program;
 
     /** 程序首次就绪的能力对账日志是否已输出（一次性）。 */
     private boolean programReadyReported;
     /** uModelView 缺失（被编译器优化掉）的一次性说明是否已输出。 */
-    private boolean capabilityMatrixMissingLogged;
 
     private int vao;
     private int vbo;
     private int abo;
+    private int dbo;
     private int ebo;
     private int vboCapacity;
     private int aboCapacity;
+    private int dboCapacity;
     private int eboCapacity;
     private int indexCount;
     private int vertexCount;
@@ -112,6 +114,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private FloatBuffer vertexStaging;
     private IntBuffer indexStaging;
     private ByteBuffer auxStaging;
+    private FloatBuffer directionStaging;
 
     /** buffer 分配 seam：默认走 LWJGL BufferUtils（native 支撑），测试可注入纯 JVM 实现。 */
     interface BufferAllocator {
@@ -154,6 +157,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      */
     private int attributePosition = -1;
     private int attributeAux = -1;
+    private int attributeDirection = -1;
 
     public ChainPreviewShaderBackend() {
         this(new ChainPreviewShaderProgram(), LWJGL_ALLOCATOR);
@@ -246,6 +250,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         float[] vertices = mesh.vertexArray();
         int[] indices = mesh.indexArray();
         byte[] aux = mesh.isAuxAvailable() ? mesh.auxArray() : null;
+        float[] directions = mesh.isDirectionAvailable() ? mesh.directionArray() : null;
         int vertexFloatCount = mesh.getVertexFloatCount();
 
         // plan 的索引语义恒为 mesh 的 quad 索引；shader EBO 在此处按 4→6 展开。
@@ -284,6 +289,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, vertexStaging);
 
         uploadAux(aux, vertexCount);
+        uploadDirections(directions, vertexCount);
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         int requiredEboSize = indexCount * 4;
@@ -343,6 +349,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             bindVertexLayout();
             GL20.glEnableVertexAttribArray(attributePosition);
             GL20.glEnableVertexAttribArray(attributeAux);
+            GL20.glEnableVertexAttribArray(attributeDirection);
             int primitive = GL11.GL_TRIANGLES;
             GL11.glDrawElements(
                 primitive,
@@ -351,6 +358,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                 (long) indexOffset * 4L);
             // attrib 的 enable 状态属于 VAO：必须在自绑 VAO 还绑定时成对关闭，
             // 否则关掉的是外部默认 VAO 的 attrib 数组（D1）。
+            GL20.glDisableVertexAttribArray(attributeDirection);
             GL20.glDisableVertexAttribArray(attributeAux);
             GL20.glDisableVertexAttribArray(attributePosition);
             GL30.glBindVertexArray(0);
@@ -569,15 +577,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 可以按规范把它优化掉（location = -1）。缺失 ⇒ 该能力关闭（已登记进 capabilityReport），
         // 但投影本身仍正确，不得据此作废整帧 —— 这是 2026-09-13 真机「shader 档什么都不画」的第二段原因。
         // 返回值仍被显式消费：一次性说明「哪个能力因此关闭」，避免再次静默。
-        boolean modelViewUploaded = program.setModelView(modelViewMatrix);
-        if (!modelViewUploaded && !capabilityMatrixMissingLogged) {
-            capabilityMatrixMissingLogged = true;
-            try {
-                MyMod.LOG.info("[ChainPreview] uModelView 不可用（GLSL 编译器已优化掉该 uniform）："
-                    + "屏幕最小宽度 / 深度换算能力关闭，其余功能不受影响");
-            } catch (Throwable ignored) {
-                // 诊断日志不得影响渲染帧。
-            }
+        // T51：uModelView 已进入硬必备清单——aDirection 位移要用它算「单位深度上的像素/世界单位」，
+        // 缺它位移量就是错的。上传失败即放弃本帧（与 uModelViewProjection 同口径），
+        // 不再像 T49 那样只记一条「该能力关闭」。
+        if (!program.setModelView(modelViewMatrix)) {
+            markMatrixSourceUntrusted("uModelView 未上传（location < 0 或 GL 失败）");
+            return false;
         }
 
         return true;
@@ -733,6 +738,44 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     /**
+     * 上传每顶点外扩方向（aDirection）。
+     *
+     * <p>写入纪律与 VBO / ABO / EBO 一致：<b>每次先 {@code glBufferData} 重新分配再
+     * {@code glBufferSubData}</b>——T49 真机实测证明本环境里「不前置 glBufferData 的
+     * glBufferSubData」会静默丢失，只有重分配那一次写入生效。方向流是每代全量重传，
+     * 语义不变，代价只是每代一次缓冲重分配。</p>
+     *
+     * <p>方向流缺失（网格来自未提供方向的路径 / 长度退化）时整段填零：零方向顶点在着色器里
+     * 恒等退化（{@code displaced = aPos}），与禁用最小宽度和描边逐值一致，是安全降级。</p>
+     */
+    private void uploadDirections(float[] directions, int vertexCount) {
+        int floats = vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX;
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
+        dboCapacity = calculateNewCapacity(floats * 4);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
+        if (directions != null && directions.length >= floats) {
+            directionStaging = prepareFloatBuffer(directionStaging, directions, floats);
+        } else {
+            directionStaging = prepareZeroFloatBuffer(directionStaging, floats);
+        }
+        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, directionStaging);
+    }
+
+    /** 全零 staging（方向流缺失时的降级）；复用同一缓冲，避免每代分配。 */
+    private FloatBuffer prepareZeroFloatBuffer(FloatBuffer buffer, int count) {
+        int required = Math.max(count, 1);
+        if (buffer == null || buffer.capacity() < required) {
+            buffer = allocator.floatBuffer(calculateElementCapacity(required));
+        }
+        buffer.clear();
+        for (int index = 0; index < count; index++) {
+            buffer.put(0.0F);
+        }
+        buffer.flip();
+        return buffer;
+    }
+
+    /**
      * 构造长度为 required 的「未定义」aAux 缓冲（全 0xFF）。
      *
      * <p>只有在无 aAux 流或流长不足时才走这里；容量不足时一次填充，之后复用，
@@ -823,15 +866,20 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL20.glVertexAttribPointer(attributePosition, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
+        GL20.glVertexAttribPointer(attributeDirection, 3, GL11.GL_FLOAT, false, DIRECTION_STRIDE_BYTES, 0L);
     }
 
-    /** T50：链接后取驱动分配的属性槽位；aPos / aAux 缺失即置后端不可用（绝不画错误空间的一帧）。 */
+    /** T50：链接后取驱动分配的属性槽位；任一必需属性缺失即置后端不可用（绝不画错误空间的一帧）。 */
     private void resolveAttributeBindings() {
         attributePosition = program.getPositionAttributeLocation();
         attributeAux = program.getAuxAttributeLocation();
-        if (attributePosition < 0 || attributeAux < 0 || attributePosition == attributeAux) {
+        attributeDirection = program.getDirectionAttributeLocation();
+        if (attributePosition < 0 || attributeAux < 0 || attributeDirection < 0
+                || attributePosition == attributeAux || attributePosition == attributeDirection
+                || attributeAux == attributeDirection) {
             throw new IllegalStateException("属性槽位非法：aPos=" + attributePosition
-                + ", aAux=" + attributeAux);
+                + ", aAux=" + attributeAux + ", aDirection=" + attributeDirection);
         }
     }
 
@@ -839,9 +887,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         vao = GL30.glGenVertexArrays();
         vbo = GL15.glGenBuffers();
         abo = GL15.glGenBuffers();
+        dbo = GL15.glGenBuffers();
         ebo = GL15.glGenBuffers();
         vboCapacity = INITIAL_CAPACITY;
         aboCapacity = INITIAL_CAPACITY;
+        dboCapacity = INITIAL_CAPACITY;
         eboCapacity = INITIAL_CAPACITY;
 
         GL30.glBindVertexArray(vao);
@@ -858,6 +908,13 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(attributeAux);
 
+        // 接口冻结 §A（T51 追加）：aDirection = 3 x float32，每顶点显式面方向；
+        // 多面共享顶点在建网格时合并为零向量（不外扩），避免把共享角点推向任一轴。
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
+        GL20.glVertexAttribPointer(attributeDirection, 3, GL11.GL_FLOAT, false, DIRECTION_STRIDE_BYTES, 0L);
+        GL20.glEnableVertexAttribArray(attributeDirection);
+
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
 
@@ -870,22 +927,27 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         int deletedVao = vao;
         int deletedVbo = vbo;
         int deletedAbo = abo;
+        int deletedDbo = dbo;
         int deletedEbo = ebo;
         boolean release = initialized
             || deletedVao != 0
             || deletedVbo != 0
             || deletedAbo != 0
+            || deletedDbo != 0
             || deletedEbo != 0;
         vao = 0;
         vbo = 0;
         abo = 0;
+        dbo = 0;
         ebo = 0;
         vboCapacity = 0;
         aboCapacity = 0;
+        dboCapacity = 0;
         eboCapacity = 0;
         vertexStaging = null;
         indexStaging = null;
         auxStaging = null;
+        directionStaging = null;
         if (!release) {
             return;
         }
@@ -898,11 +960,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL30.glDeleteVertexArrays(deletedVao);
             GL15.glDeleteBuffers(deletedVbo);
             GL15.glDeleteBuffers(deletedAbo);
+            GL15.glDeleteBuffers(deletedDbo);
             GL15.glDeleteBuffers(deletedEbo);
         } finally {
             // 颜色缓冲参数恒为 0：shader 路径不再持有 CBO（§A 修订 T51 移除了 aColor 顶点流）。
             previous.withoutDeletedBuffers(
-                deletedVao, deletedVbo, 0, deletedAbo, deletedEbo).restore();
+                deletedVao, deletedVbo, 0, deletedAbo, deletedDbo, deletedEbo).restore();
         }
     }
 

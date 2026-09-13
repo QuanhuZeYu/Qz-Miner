@@ -87,9 +87,9 @@ public class ChainPreviewShaderMatrixSourceTest {
         Assert.assertTrue("必须上传 uModelView", body.contains("setModelView(modelViewMatrix)"));
         Assert.assertTrue("硬矩阵 uModelViewProjection 未上传必须走同一失败出口（T48c-C 第 1 条）",
                 body.contains("uModelViewProjection 未上传") && body.contains("markMatrixSourceUntrusted"));
-        Assert.assertTrue("能力矩阵 uModelView 的上传结果必须被显式消费（不得静默忽略返回值）",
-                body.contains("boolean modelViewUploaded = program.setModelView(modelViewMatrix)")
-                        && body.contains("!modelViewUploaded"));
+        Assert.assertTrue("uModelView 未上传必须走同一失败出口（T51 起它是必备项：aDirection 位移要用它）",
+                body.contains("if (!program.setModelView(modelViewMatrix))")
+                        && body.contains("uModelView 未上传"));
 
         String untrusted = methodBody(BACKEND_PATH, "private void markMatrixSourceUntrusted(", "markMatrixSourceUntrusted");
         Assert.assertTrue("失败必须锁成一次性 unavailable", untrusted.contains("unavailable = true"));
@@ -146,19 +146,21 @@ public class ChainPreviewShaderMatrixSourceTest {
                 "uModelViewProjection", "uOriginRel", "uFadeAlpha", "uColorPrimary" }) {
             Assert.assertTrue("硬必备 uniform 必须包含 " + name + "（实际 " + names + "）", names.contains(name));
         }
-        // T49 分级：位移 / 描边专用 uniform 当前只被 if (false && …) 死块引用，编译器会把它们优化掉；
-        // 列为硬必备会让整个着色器后端被判不可用（真机表型：shader 档什么都不画），故归入能力型。
+        // T51：aDirection 位移把 uModelView / uPixelScale / uBarThickness / uMinScreenWidthPx 从能力型
+        // 升为硬必备——它们已是活代码（不再被 if (false && …) 包住），编译器不会优化掉；
+        // 缺任一都会让外扩量算错却照样出画面，属于「宁可回退 legacy 也不画错帧」的一类。
+        // uOutlineWidthPx 一直是活引用（描边壳段与主色分支），一并归必备。
+        for (String name : new String[] {
+                "uModelView", "uPixelScale", "uBarThickness", "uMinScreenWidthPx", "uOutlineWidthPx" }) {
+            Assert.assertTrue("位移 / 描边专用 uniform 必须升为硬必备：" + name + "（实际 " + names + "）",
+                    names.contains(name));
+        }
         java.lang.reflect.Field capabilityField =
                 ChainPreviewShaderProgram.class.getDeclaredField("CAPABILITY_UNIFORMS");
         capabilityField.setAccessible(true);
         String[] capability = (String[]) capabilityField.get(null);
-        java.util.List<String> capabilityNames = java.util.Arrays.asList(capability);
-        for (String name : new String[] {
-                "uModelView", "uPixelScale", "uMinScreenWidthPx", "uBarThickness", "uOutlineWidthPx" }) {
-            Assert.assertTrue("能力型 uniform 必须包含 " + name + "（实际 " + capabilityNames + "）",
-                    capabilityNames.contains(name));
-            Assert.assertFalse("能力型 uniform 不得同时出现在硬必备里：" + name, names.contains(name));
-        }
+        Assert.assertEquals("T51 后不存在「按契约保留但当前关闭」的 uniform，能力型清单必须为空",
+                0, capability.length);
     }
 
     /** 矩阵上传必须返回成功与否，且 location<0 时不得伪装成功。 */

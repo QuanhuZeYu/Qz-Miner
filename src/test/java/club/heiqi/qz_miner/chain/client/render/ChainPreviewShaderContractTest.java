@@ -63,14 +63,20 @@ public class ChainPreviewShaderContractTest {
     // ------------------------------------------------------------------ 接口冻结 §A/§F
 
     /**
-     * 顶点属性契约（接口冻结 §A 修订，T51）：只声明 aPos(3f) / aAux(4 通道)。
+     * 顶点属性契约（接口冻结 §A 修订，T51）：声明 aPos(3f) / aAux(4 通道) / aDirection(3f)。
      *
      * <p>原 §A 还包含「attribute 2 aColor 4 x float32（既有颜色流）」，但着色器从不读取它
      * （颜色由 aAux.semanticClass + uColor* 在顶点阶段决定），编译器因此把它整体优化掉
      * （{@code glGetAttribLocation} 返回 -1）。契约里"保留该槽"的写法与实现长期不符，
      * 还让后端每代白白上传一份 262 KB 级、永不被读取的颜色流。现已从契约与着色器中移除；
-     * 该流仅剩 legacy 固定管线消费（其逐顶点 α 是 CPU 烘焙值）。
-     * 槽位编号同样不再进入契约：GLSL 1.20 无 layout 限定符，属链接期事实，运行时解析。</p>
+     * 该流仅剩 legacy 固定管线消费（其逐顶点 α 是 CPU 烘焙值）。</p>
+     *
+     * <p>新增的 {@code aDirection} 是「屏幕最小宽度 / 真描边」所需的外扩轴向：Mesh 侧按面法线
+     * 逐顶点写入，多面共享顶点合并为零向量。着色器永不从 aPos 推断横向轴——那条路会把长条端点 /
+     * junction / 跨轴线段误判并推离原始几何。</p>
+     *
+     * <p>槽位编号一律不进入契约：GLSL 1.20 无 layout 限定符，属链接期事实，由
+     * ChainPreviewShaderProgram#resolveAttributeLocations 运行时解析。</p>
      */
     @Test
     public void declaresFrozenVertexAttributes() throws IOException {
@@ -78,9 +84,10 @@ public class ChainPreviewShaderContractTest {
         Map<String, String> attributes = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
                 .getAttributes();
 
-        Assert.assertEquals("必须恰好声明 §A 约定的两个属性", 2, attributes.size());
+        Assert.assertEquals("必须恰好声明 §A 约定的三个属性", 3, attributes.size());
         Assert.assertEquals("vec3", attributes.get("aPos"));
         Assert.assertEquals("vec4", attributes.get("aAux"));
+        Assert.assertEquals("vec3", attributes.get("aDirection"));
         Assert.assertNull("aColor 已从 shader 路径移除（§A 修订 T51）", attributes.get("aColor"));
     }
 
