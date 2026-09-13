@@ -65,14 +65,6 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private boolean visualRefreshPending;
     private boolean observing;
 
-    /**
-     * B0.3 消费门控：BuildTask 已产出但尚未被 {@link #pollPublication()} 取走的 publication。
-     *
-     * <p>临时补丁登记：修复"同帧重复重建 + 中间产物被单槽覆盖"。
-     * 删除条件 = B4.1 增量路径上线且差分测试通过后，随该次替换一并删除。</p>
-     */
-    private boolean publicationAwaitingConsumption;
-
     /** B4.1 第二步：当前代的增量装配会话（构建线程持有；代/lifecycle 变化时 dispose 另起）。 */
     private GenerationSession generationSession;
     private int generationSessionGeneration = Integer.MIN_VALUE;
@@ -152,7 +144,6 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         latestVisualState.revision);
                     publishedMesh = ChainPreviewMesh.EMPTY;
                     pendingPublication.set(new MeshPublication(publicationKey, ChainPreviewMesh.EMPTY));
-                    publicationAwaitingConsumption = false;
                     // Lead 必修项 L-a：换代必须清 LOD 滞回记忆（同一目标跨代存在也不得残留）。
                     meshBuilder.resetLodHysteresis();
                 }
@@ -168,7 +159,6 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 publishedKey = emptyKey;
                 publishedMesh = ChainPreviewMesh.EMPTY;
                 pendingPublication.set(new MeshPublication(emptyKey, ChainPreviewMesh.EMPTY));
-                publicationAwaitingConsumption = false;
             }
         }
         if (schedule) {
@@ -295,8 +285,6 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             if (publication == null) {
                 return null;
             }
-            // B0.3：单槽被取走即解除消费门控，并在确实还有待构建工作时唤醒 worker。
-            publicationAwaitingConsumption = false;
             boolean currentLifecycle = publication.key.lifecycleEpoch == lifecycleEpoch;
             boolean currentGeneration = publication.key.generation < 0
                 || latestChange == null
@@ -339,7 +327,6 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             publishedKey = emptyKey;
             publishedMesh = ChainPreviewMesh.EMPTY;
             pendingPublication.set(new MeshPublication(emptyKey, ChainPreviewMesh.EMPTY));
-            publicationAwaitingConsumption = false;
             // Lead 必修项 L-a：lifecycle/世界切换入口同样清 LOD 滞回记忆。
             meshBuilder.resetLodHysteresis();
             disposeGenerationSessionLocked();
@@ -358,7 +345,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             if (!lifecycleReady || latestChange == null || !latestChange.isActive()) {
                 return;
             }
-            if (currentTask != null || publicationAwaitingConsumption || !needsBuildLocked()) {
+            if (currentTask != null || !needsBuildLocked()) {
                 return;
             }
             task = new BuildTask(lifecycleEpoch);
@@ -414,8 +401,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             if (visualRefreshPending && pendingPublication.get() == null) {
                 promoteVisualRefreshLocked();
             }
-            // B0.3：未消费时不重排，避免空转任务；取走后由 pollPublication / 本方法任一窗口唤醒。
-            reschedule = allowReschedule && !publicationAwaitingConsumption && needsBuildLocked();
+            reschedule = allowReschedule && needsBuildLocked();
         }
         if (reschedule) {
             ensureWorker();
@@ -510,21 +496,14 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
 
             while (true) {
                 RenderChange desiredChange;
-                boolean awaitingConsumption;
                 synchronized (taskLock) {
                     if (currentTask != this || lifecycleEpoch != ownerEpoch) {
                         finish(false);
                         return ParallelTaskResult.TERMINATED;
                     }
                     desiredChange = latestChange;
-                    awaitingConsumption = publicationAwaitingConsumption;
                 }
                 if (desiredChange == null || !desiredChange.isActive()) {
-                    finish(true);
-                    return ParallelTaskResult.COMPLETED;
-                }
-                if (awaitingConsumption) {
-                    // B0.3：上一份 publication 未被消费，本帧不再重建拓扑（消费驱动，每帧至多一次重建）。
                     finish(true);
                     return ParallelTaskResult.COMPLETED;
                 }
@@ -610,7 +589,6 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         publishedMesh = mesh;
                         if (latestVisualState.revision == sessionKey.visualRevision) {
                             pendingPublication.set(new MeshPublication(sessionKey, mesh));
-                            publicationAwaitingConsumption = true;
                         }
                     }
                 }

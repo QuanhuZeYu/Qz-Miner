@@ -195,7 +195,7 @@ public class ChainPreviewRenderCacheTest {
     }
 
     @Test
-    public void unconsumedPublicationBlocksRebuildUntilPollConsumesIt() throws Exception {
+    public void unconsumedPublicationIsReplacedByNewerBuildWithoutAccumulation() throws Exception {
         ChainPreviewState state = new ChainPreviewState();
         RecordingScheduler scheduler = new RecordingScheduler();
         ChainPreviewRenderCache cache = cache(state, scheduler);
@@ -204,32 +204,22 @@ public class ChainPreviewRenderCacheTest {
         state.begin(new ChainTarget(0, 0, 0));
         state.addPreviewTarget(state.getGeneration(), new ChainTarget(0, 0, 0));
         Assert.assertEquals(1, scheduler.tasks.size());
-
         runCompleted(scheduler.tasks.get(0).task);
-        ChainPreviewRenderCache.MeshPublication first = cache.pollPublication();
-        Assert.assertNotNull(first);
-        Assert.assertEquals(1, first.getMesh().getBlockCount());
+        Assert.assertNotNull(cache.pollPublication());
 
-        // 消费后 redo 一次，并让产物停在单槽里不被取走
+        // 产出但故意不消费：单槽只保证"最新一份可被取走"，装配不得被阻止。
         state.addPreviewTarget(state.getGeneration(), new ChainTarget(1, 0, 0));
-        Assert.assertEquals("消费后才允许再次入队", 2, scheduler.tasks.size());
+        Assert.assertEquals("未消费不得阻止新的装配", 2, scheduler.tasks.size());
         runCompleted(scheduler.tasks.get(1).task);
-
-        // 门控生效：单槽未消费时，状态继续前进也不得入队新的拓扑重建
         state.addPreviewTarget(state.getGeneration(), new ChainTarget(2, 0, 0));
-        state.addPreviewTarget(state.getGeneration(), new ChainTarget(3, 0, 0));
-        Assert.assertEquals("未消费的 publication 必须阻止新入队", 2, scheduler.tasks.size());
-
-        // 取走后才恰好唤醒一次，并构建出包含最新目标的新产物
-        ChainPreviewRenderCache.MeshPublication blocked = cache.pollPublication();
-        Assert.assertNotNull(blocked);
-        Assert.assertEquals(2, blocked.getMesh().getBlockCount());
-        Assert.assertEquals("取走后恰好一次重建", 3, scheduler.tasks.size());
+        Assert.assertEquals("未消费仍可继续推进", 3, scheduler.tasks.size());
         runCompleted(scheduler.tasks.get(2).task);
-        ChainPreviewRenderCache.MeshPublication resumed = cache.pollPublication();
-        Assert.assertNotNull(resumed);
-        Assert.assertEquals(4, resumed.getMesh().getBlockCount());
-        Assert.assertEquals(3, scheduler.tasks.size());
+
+        ChainPreviewRenderCache.MeshPublication publication = cache.pollPublication();
+        Assert.assertNotNull(publication);
+        Assert.assertEquals("单槽只保留最新一份发布（覆盖而非堆积）", 3, publication.getMesh().getBlockCount());
+        Assert.assertNull("最新一份取走后单槽必须为空", cache.pollPublication());
+        Assert.assertEquals("无待构建工作不得产生空转任务", 3, scheduler.tasks.size());
     }
 
     @Test
