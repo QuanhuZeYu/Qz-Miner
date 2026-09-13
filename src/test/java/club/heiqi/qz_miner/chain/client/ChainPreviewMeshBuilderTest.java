@@ -102,6 +102,47 @@ public class ChainPreviewMeshBuilderTest {
     }
 
     @Test
+    public void builtinColorStreamStaysByteIdenticalAndAuxDoesNotSplitIt() {
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
+            Collections.singletonList(new ChainTarget(0, 0, 0)),
+            visuals(0.5D, 0.5D, 0.5D));
+
+        float[] expected = new float[64 * 4];
+        for (int offset = 0; offset < expected.length; offset += 4) {
+            expected[offset] = 0.25F;
+            expected[offset + 1] = 0.9F;
+            expected[offset + 2] = 1.0F;
+            expected[offset + 3] = 0.8F;
+        }
+        Assert.assertArrayEquals(expected, mesh.getColors(), 0.0F);
+        Assert.assertTrue(mesh.isAuxAvailable());
+        Assert.assertEquals(mesh.getVertexFloatCount() / 3 * 4, mesh.getAuxByteCount());
+        Assert.assertEquals(mesh.getVertexFloatCount() / 3 * 4, mesh.getColors().length);
+    }
+
+    @Test
+    public void explicitBarThicknessInjectionKeepsDefaultBaseline() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        ChainTarget target = new ChainTarget(0, 0, 0);
+        VisualParameters baseline = visuals(0.5D, 0.5D, 0.5D);
+
+        ChainPreviewMesh viaVisuals = builder.build(Collections.singletonList(target), baseline);
+        ChainPreviewMesh viaExplicit = builder.build(Collections.singletonList(target), baseline, 0.04F);
+        Assert.assertArrayEquals(viaVisuals.getVertices(), viaExplicit.getVertices(), 0.0F);
+
+        ChainPreviewMesh thick = builder.build(Collections.singletonList(target), baseline, 0.2F);
+        Assert.assertEquals(-0.1F, minimum(thick.getVertices(), 0), EPSILON);
+        Assert.assertEquals(1.1F, maximum(thick.getVertices(), 0), EPSILON);
+
+        Assert.assertEquals("注入不得改写调用方的视觉参数", 0.04F, baseline.getBarThickness(), 0.0F);
+        Assert.assertEquals(
+            "默认路径必须保持 0.045 基线厚度",
+            0.045F,
+            VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D).getBarThickness(),
+            0.0F);
+    }
+
+    @Test
     public void yieldedBuildResumesAcrossGeometryPhasesWithoutDuplication() {
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         java.util.List<ChainTarget> targets = Arrays.asList(

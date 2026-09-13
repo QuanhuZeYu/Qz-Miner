@@ -18,6 +18,16 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  *
  * <p>拓扑会在每个 target、可见边和 quad 前观察 {@link WorkGate}；视觉参数在 session
  * 创建时冻结，后续可独立替换距离效果而不改变 target/邻接算法。</p>
+ *
+ * <p>B0.7：target 先做有界去重（{@link #MAX_RENDER_TARGETS} 个唯一坐标）再占用配额，
+ * 重复 target 不再消耗配额，也不改变 {@code ChainPreviewState} 的计数语义。</p>
+ *
+ * <p>语义顶点流 aAux（顶点数 × {@link ChainPreviewMesh#AUX_BYTES_PER_VERTEX}）：x=semanticClass、
+ * y=tubeEdge、z/w=appearOrder（u16 小端）。appearOrder 为 target 进入预览集合的序号（0 起，
+ * 同代递增、跨代重置）；顶点按 {@link MeshVertexKey} 去重后，同一顶点的 appearOrder 取所有
+ * incident 写入者的最小值，无归属时写 0xFFFF。tubeEdge 取首写者：相邻链直通格点的 tube 相
+ * 顶点为 0..3（横截面象限槽位），junction 相与共享顶点为 {@link ChainPreviewMesh#AUX_UNDEFINED}。
+ * semanticClass 本轮恒写 255（目标分类尚未接线）。</p>
  */
 public class ChainPreviewMeshBuilder {
 
@@ -85,6 +95,20 @@ public class ChainPreviewMeshBuilder {
         return new BuildSession(targets, visuals);
     }
 
+    /**
+     * 显式注入 barThickness 的构建入口。
+     *
+     * <p>配置值由会话侧读取 settings 后以标量传入，Builder 不直连 Config；
+     * 其余视觉参数仍由 visuals 承载。</p>
+     */
+    public BuildSession begin(
+            Iterable<ChainTarget> previewTargets, VisualParameters visualParameters, float barThickness) {
+        VisualParameters visuals = visualParameters == null
+            ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
+            : visualParameters;
+        return begin(previewTargets, visuals.withBarThickness(barThickness));
+    }
+
     /** 相同 topology 的相机效果刷新只重建 color stream。 */
     public ColorBuildSession beginRecolor(ChainPreviewMesh mesh, VisualParameters visualParameters) {
         if (mesh == null || !mesh.isRecolorable()) {
@@ -99,6 +123,14 @@ public class ChainPreviewMeshBuilder {
     /** 同步便利入口，主要供纯 JVM 几何测试使用。 */
     public ChainPreviewMesh build(List<ChainTarget> previewTargets, VisualParameters visualParameters) {
         BuildSession session = begin(previewTargets, visualParameters);
+        session.advance(NEVER_YIELD);
+        return session.getMesh();
+    }
+
+    /** 显式 barThickness 的同步便利入口，主要供纯 JVM 几何测试使用。 */
+    public ChainPreviewMesh build(
+            List<ChainTarget> previewTargets, VisualParameters visualParameters, float barThickness) {
+        BuildSession session = begin(previewTargets, visualParameters, barThickness);
         session.advance(NEVER_YIELD);
         return session.getMesh();
     }
@@ -163,6 +195,16 @@ public class ChainPreviewMeshBuilder {
                 DEFAULT_BAR_THICKNESS);
         }
 
+        /** @return 只替换 barThickness 的不可变副本；配置注入用 */
+        public VisualParameters withBarThickness(float nextBarThickness) {
+            return new VisualParameters(
+                cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, nextBarThickness);
+        }
+
+        public float getBarThickness() {
+            return barThickness;
+        }
+
         float alphaFor(double centerX, double centerY, double centerZ) {
             double dx = centerX - cameraX;
             double dy = centerY - cameraY;
@@ -189,24 +231,25 @@ public class ChainPreviewMeshBuilder {
 
         private final Iterator<ChainTarget> targetIterator;
         private final VisualParameters visuals;
-        private final ChainTarget[] retainedTargets = new ChainTarget[MAX_RENDER_TARGETS];
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
         private final Set<GridEdge> edges = new LinkedHashSet<GridEdge>();
         private final Map<GridPoint, Integer> incidence = new LinkedHashMap<GridPoint, Integer>();
+        private final Map<GridPoint, Integer> junctionAppearOrders = new LinkedHashMap<GridPoint, Integer>();
         private final Map<MeshVertexKey, Integer> vertexIndices = new LinkedHashMap<MeshVertexKey, Integer>();
         private final FloatArrayBuilder vertices = new FloatArrayBuilder();
         private final FloatArrayBuilder colors = new FloatArrayBuilder();
         private final IntArrayBuilder indices = new IntArrayBuilder();
+        private final ByteArrayBuilder aux = new ByteArrayBuilder();
 
-        private int retainedCount;
-        private int retainedReadCursor;
         private int pointCursor;
         private int segmentCursor;
         private int visibleBlockCount;
         private int geometryPhase;
         private int currentFaceCursor;
         private int currentFaceCount;
+        private int currentAppearOrder = ChainPreviewMesh.APPEAR_ORDER_UNDEFINED;
+        private boolean currentFacesAreTube;
         private boolean truncated;
         private BlockPos currentPoint;
         private BlockPos meshOrigin;
@@ -242,25 +285,19 @@ public class ChainPreviewMeshBuilder {
                 if (target == null) {
                     continue;
                 }
-                if (retainedCount < retainedTargets.length) {
-                    retainedTargets[retainedCount++] = target;
-                } else {
-                    truncated = true;
-                }
-            }
-
-            while (retainedReadCursor < retainedCount) {
-                if (effectiveGate.shouldYield()) {
-                    return false;
-                }
-                ChainTarget target = retainedTargets[retainedReadCursor];
-                retainedReadCursor++;
                 BlockPos position = new BlockPos(target.getX(), target.getY(), target.getZ());
-                if (occupancy.add(position)) {
-                    if (meshOrigin == null) {
-                        meshOrigin = position;
-                    }
-                    positions.add(position);
+                if (occupancy.contains(position)) {
+                    // 重复 target 不占配额，也不进入拓扑。
+                    continue;
+                }
+                if (occupancy.size() >= MAX_RENDER_TARGETS) {
+                    truncated = true;
+                    break;
+                }
+                occupancy.add(position);
+                positions.add(position);
+                if (meshOrigin == null) {
+                    meshOrigin = position;
                 }
             }
 
@@ -269,7 +306,9 @@ public class ChainPreviewMeshBuilder {
                     if (effectiveGate.shouldYield()) {
                         return false;
                     }
-                    currentPoint = positions.get(pointCursor++);
+                    int appearOrder = pointCursor++;
+                    currentPoint = positions.get(appearOrder);
+                    currentAppearOrder = appearOrder;
                     currentSegments = buildVisibleSegments(currentPoint, occupancy);
                     segmentCursor = 0;
                     if (currentSegments.length > 0) {
@@ -281,7 +320,7 @@ public class ChainPreviewMeshBuilder {
                     if (effectiveGate.shouldYield()) {
                         return false;
                     }
-                    registerEdge(currentPoint, currentSegments[segmentCursor++]);
+                    registerEdge(currentPoint, currentSegments[segmentCursor++], currentAppearOrder);
                 }
                 currentPoint = null;
                 currentSegments = new LineSegment[0];
@@ -302,6 +341,11 @@ public class ChainPreviewMeshBuilder {
                         if (isStraight(mask)) {
                             continue;
                         }
+                        Integer appearOrder = junctionAppearOrders.get(entry.getKey());
+                        currentAppearOrder = appearOrder == null
+                            ? ChainPreviewMesh.APPEAR_ORDER_UNDEFINED
+                            : appearOrder.intValue();
+                        currentFacesAreTube = false;
                         currentCorners = junctionCorners(entry.getKey());
                         currentFaces = junctionFaces(mask);
                         currentFaceCursor = 0;
@@ -311,7 +355,7 @@ public class ChainPreviewMeshBuilder {
                         if (effectiveGate.shouldYield()) {
                             return false;
                         }
-                        appendFace(currentCorners, currentFaces[currentFaceCursor++]);
+                        appendCurrentFace();
                     }
                     clearCurrentGeometry();
                 }
@@ -325,6 +369,8 @@ public class ChainPreviewMeshBuilder {
                             return false;
                         }
                         GridEdge edge = edgeIterator.next();
+                        currentAppearOrder = edge.appearOrder;
+                        currentFacesAreTube = true;
                         currentCorners = tubeCorners(edge);
                         currentFaces = TUBE_FACES_BY_AXIS[edge.axis];
                         currentFaceCursor = 0;
@@ -334,7 +380,7 @@ public class ChainPreviewMeshBuilder {
                         if (effectiveGate.shouldYield()) {
                             return false;
                         }
-                        appendFace(currentCorners, currentFaces[currentFaceCursor++]);
+                        appendCurrentFace();
                     }
                     clearCurrentGeometry();
                 }
@@ -352,7 +398,8 @@ public class ChainPreviewMeshBuilder {
                 meshOrigin == null ? 0 : meshOrigin.y,
                 meshOrigin == null ? 0 : meshOrigin.z,
                 visibleBlockCount,
-                truncated);
+                truncated,
+                aux.exactArray());
             return true;
         }
 
@@ -368,19 +415,23 @@ public class ChainPreviewMeshBuilder {
             return mesh;
         }
 
-        private void registerEdge(BlockPos position, LineSegment segment) {
-            GridEdge edge = GridEdge.from(position, segment);
+        private void registerEdge(BlockPos position, LineSegment segment, int appearOrder) {
+            GridEdge edge = GridEdge.from(position, segment, appearOrder);
             if (!edges.add(edge)) {
                 return;
             }
-            addIncidence(edge.start, positiveDirection(edge.axis));
-            addIncidence(edge.end, negativeDirection(edge.axis));
+            addIncidence(edge.start, positiveDirection(edge.axis), appearOrder);
+            addIncidence(edge.end, negativeDirection(edge.axis), appearOrder);
         }
 
-        private void addIncidence(GridPoint point, int direction) {
+        private void addIncidence(GridPoint point, int direction, int appearOrder) {
             Integer current = incidence.get(point);
             int mask = current == null ? 0 : current.intValue();
             incidence.put(point, Integer.valueOf(mask | direction));
+            if (!junctionAppearOrders.containsKey(point)) {
+                // positions 按出现顺序处理，首次登记即该接头的最小 appearOrder。
+                junctionAppearOrders.put(point, Integer.valueOf(appearOrder));
+            }
         }
 
         private MeshVertexKey[] junctionCorners(GridPoint point) {
@@ -433,17 +484,26 @@ public class ChainPreviewMeshBuilder {
             return mask != null && !isStraight(mask.intValue());
         }
 
-        private void appendFace(MeshVertexKey[] corners, int face) {
+        private void appendCurrentFace() {
+            int slot = currentFaceCursor++;
+            int tubeEdge = currentFacesAreTube ? slot : ChainPreviewMesh.AUX_UNDEFINED;
+            appendFace(currentCorners, currentFaces[slot], tubeEdge, currentAppearOrder);
+        }
+
+        private void appendFace(MeshVertexKey[] corners, int face, int tubeEdge, int appearOrder) {
             int faceOffset = face * 4;
             for (int corner = 0; corner < 4; corner++) {
-                indices.add(vertexIndex(corners[CUBOID_QUAD_INDICES[faceOffset + corner]]));
+                indices.add(vertexIndex(
+                    corners[CUBOID_QUAD_INDICES[faceOffset + corner]], tubeEdge, appearOrder));
             }
         }
 
-        private int vertexIndex(MeshVertexKey key) {
+        private int vertexIndex(MeshVertexKey key, int tubeEdge, int appearOrder) {
             Integer existing = vertexIndices.get(key);
             if (existing != null) {
-                return existing.intValue();
+                int index = existing.intValue();
+                mergeAppearOrder(index, appearOrder);
+                return index;
             }
             int index = vertices.size() / 3;
             float halfThickness = visuals.barThickness * 0.5F;
@@ -459,8 +519,26 @@ public class ChainPreviewMeshBuilder {
             colors.add(BASE_GREEN);
             colors.add(BASE_BLUE);
             colors.add(alpha);
+            // 接口冻结 §A：语义类别尚未进入 Builder 输入，按「未确定」写入 255，由渲染端兜底主色。
+            aux.add((byte) ChainPreviewMesh.AUX_UNDEFINED);
+            aux.add((byte) tubeEdge);
+            aux.add((byte) (appearOrder & 0xFF));
+            aux.add((byte) ((appearOrder >>> 8) & 0xFF));
             vertexIndices.put(key, Integer.valueOf(index));
             return index;
+        }
+
+        /** 同一顶点的 appearOrder = 所有 incident 目标序号的最小值（后写命中同 key 时取 min）。 */
+        private void mergeAppearOrder(int vertexIndex, int appearOrder) {
+            if (appearOrder == ChainPreviewMesh.APPEAR_ORDER_UNDEFINED) {
+                return;
+            }
+            int offset = vertexIndex * ChainPreviewMesh.AUX_BYTES_PER_VERTEX;
+            int current = (aux.get(offset + 2) & 0xFF) | ((aux.get(offset + 3) & 0xFF) << 8);
+            if (current == ChainPreviewMesh.APPEAR_ORDER_UNDEFINED || appearOrder < current) {
+                aux.set(offset + 2, (byte) (appearOrder & 0xFF));
+                aux.set(offset + 3, (byte) ((appearOrder >>> 8) & 0xFF));
+            }
         }
 
         private void clearCurrentGeometry() {
@@ -719,8 +797,9 @@ public class ChainPreviewMeshBuilder {
         private final GridPoint start;
         private final GridPoint end;
         private final int axis;
+        private final int appearOrder;
 
-        private GridEdge(GridPoint first, GridPoint second) {
+        private GridEdge(GridPoint first, GridPoint second, int appearOrder) {
             if (first.compareTo(second) <= 0) {
                 start = first;
                 end = second;
@@ -737,9 +816,10 @@ public class ChainPreviewMeshBuilder {
             } else {
                 throw new IllegalArgumentException("grid edge endpoints must differ");
             }
+            this.appearOrder = appearOrder;
         }
 
-        private static GridEdge from(BlockPos position, LineSegment segment) {
+        private static GridEdge from(BlockPos position, LineSegment segment, int appearOrder) {
             int firstOffset = segment.start * 3;
             int secondOffset = segment.end * 3;
             GridPoint first = new GridPoint(
@@ -750,7 +830,7 @@ public class ChainPreviewMeshBuilder {
                 (long) position.x + (long) UNIT_CUBE_VERTICES[secondOffset],
                 (long) position.y + (long) UNIT_CUBE_VERTICES[secondOffset + 1],
                 (long) position.z + (long) UNIT_CUBE_VERTICES[secondOffset + 2]);
-            return new GridEdge(first, second);
+            return new GridEdge(first, second, appearOrder);
         }
 
         @Override
@@ -959,6 +1039,45 @@ public class ChainPreviewMeshBuilder {
             }
             int capacity = growCapacity(values.length, required);
             int[] grown = new int[capacity];
+            System.arraycopy(values, 0, grown, 0, size);
+            values = grown;
+        }
+    }
+
+    /** 语义顶点流构建器；{@link #exactArray()} 保证长度 == size。 */
+    private static final class ByteArrayBuilder {
+
+        private byte[] values = new byte[256];
+        private int size;
+
+        private void add(byte value) {
+            ensureCapacity(size + 1);
+            values[size++] = value;
+        }
+
+        private byte get(int index) {
+            return values[index];
+        }
+
+        private void set(int index, byte value) {
+            values[index] = value;
+        }
+
+        private byte[] exactArray() {
+            if (size == values.length) {
+                return values;
+            }
+            byte[] exact = new byte[size];
+            System.arraycopy(values, 0, exact, 0, size);
+            return exact;
+        }
+
+        private void ensureCapacity(int required) {
+            if (required <= values.length) {
+                return;
+            }
+            int capacity = growCapacity(values.length, required);
+            byte[] grown = new byte[capacity];
             System.arraycopy(values, 0, grown, 0, size);
             values = grown;
         }
