@@ -243,8 +243,8 @@ public final class ChainPreviewShaderMath {
      */
     public static final float MAX_OUTLINE_WIDTH_PX = ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX;
 
-    /** 描边外扩的世界量上限（格）；防止极近/极远视角下外扩把条柱推出方块。 */
-    public static final float MAX_OUTLINE_WORLD = 0.5F;
+    /** 横向半格：相邻条柱中心距 1 格，任一侧占用不得超过它。 */
+    public static final float HALF_TILE = 0.5F;
 
     /**
      * 描边宽度收敛（host 侧，与 GLSL 内防御性 clamp 同口径）。
@@ -269,12 +269,56 @@ public final class ChainPreviewShaderMath {
      * @param pixelsPerWorldUnit  横向「像素 / 世界单位」（= uPixelScale / depth × 横向投影）
      * @return 外扩的世界量；关闭时为 0
      */
-    public static float outlineWidenWorld(float widthPx, float pixelsPerWorldUnit) {
+    public static float outlineWidenWorld(float widthPx, float pixelsPerWorldUnit, float barThickness) {
         float px = outlineWidthPx(widthPx);
         if (px <= 0.0F || !(pixelsPerWorldUnit > 0.0F) || !isFinite(pixelsPerWorldUnit)) {
             return 0.0F;
         }
-        return Math.min(px / pixelsPerWorldUnit, MAX_OUTLINE_WORLD);
+        return Math.min(px / pixelsPerWorldUnit, maxOutlineWorld(barThickness));
+    }
+
+    /**
+     * 便捷重载：按 legacy 默认厚度 {@value #DEFAULT_BAR_THICKNESS} 取世界上界。
+     *
+     * <p><strong>厚度相关断言必须用三参版本</strong>——本重载把上界固定成默认厚度对应的
+     * {@code 0.455}，无法覆盖 {@code barThickness} 变化（例如 0.2 ⇒ 0.3、&ge;0.5 ⇒ 0）。
+     * 保留它只为兼容既有调用点。</p>
+     *
+     * @param widthPx            描边宽度（物理像素）
+     * @param pixelsPerWorldUnit 横向「像素 / 世界单位」
+     * @return 外扩的世界量
+     */
+    public static float outlineWidenWorld(float widthPx, float pixelsPerWorldUnit) {
+        return outlineWidenWorld(widthPx, pixelsPerWorldUnit, DEFAULT_BAR_THICKNESS);
+    }
+
+    /**
+     * 描边外扩的世界量上界：{@code max(0, 0.5 − barThickness)}（与 GLSL 逐式同形）。
+     *
+     * <p><strong>为什么不是固定 0.5</strong>：条柱自身已占用 {@code barThickness}，相邻条柱中心距
+     * 1 格，两侧同时外扩后间隙 = {@code 1 − 2×(barThickness + widen)}。固定 0.5 在默认厚度 0.045
+     * 下给出 {@code 1 − 2×0.545 = −0.09} 格（相邻条柱粘连）；取 {@code 0.5 − barThickness} 后
+     * 上界处间隙恰好为 0。</p>
+     *
+     * @param barThickness 条柱厚度（配置范围 0.005 ~ 0.2）；NaN 按最保守处理（0）
+     * @return &gt;= 0 的世界量上界
+     */
+    public static float maxOutlineWorld(float barThickness) {
+        if (Float.isNaN(barThickness)) {
+            return 0.0F;
+        }
+        return Math.max(0.0F, HALF_TILE - barThickness);
+    }
+
+    /**
+     * 相邻条柱两侧同时外扩后的间隙（数值断言用）：{@code 1 − 2×(barThickness + widen)}。
+     *
+     * @param barThickness 条柱厚度
+     * @param widenWorld   单侧外扩量（世界单位）
+     * @return 间隙（格）；负数表示重叠
+     */
+    public static float neighbourGap(float barThickness, float widenWorld) {
+        return 1.0F - 2.0F * (barThickness + widenWorld);
     }
 
     /**

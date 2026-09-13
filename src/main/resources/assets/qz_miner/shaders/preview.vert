@@ -20,6 +20,9 @@
  *   4) 语义颜色      —— 顶点按 semanticClass 选 uColor* 并写进 vColor.rgb（片元只做插值输出）
  *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
  *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
+ *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿横向轴外扩 uOutlineWidthPx（仅着色器路径）
+ *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
+ *        「两 pass 叠色」行为——固定管线做外扩必须改 CPU 几何，会破坏 B4.1 的增量/差分等价。
  *
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
  * 形状一致（d <= fadeStart → uMaxAlpha；d >= fadeEnd → uMinAlpha；之间按 t^2 插值），
@@ -175,11 +178,14 @@ void main(void) {
     // 只改顶点位移、不动拓扑与索引（与 B4.1 增量/差分等价相容）。
     // uOutlineWidthPx = 0 时整段不执行 ⇒ xray / occlude / OUTLINE 主体 pass 逐值等于现状。
     if (uOutlineWidthPx > 0.0 && lateralMagnitude > 0.0) {
-        // 宽度收敛（两侧同口径）：像素侧上限 8px，世界侧上限 0.5 格。
-        // 上游 host 也会收敛；此处是防御，保证异常 uniform 不会把条柱推出方块。
+        // 宽度收敛（与 Java 参考模型逐式同形）：
+        //   · 像素侧上限 8px（上游 host 也收敛，此处防御）；
+        //   · 世界侧上限 = 0.5 − uBarThickness。相邻条柱中心距 1 格，任一侧的
+        //     「条柱占用 + 外扩」不得超过半格，否则两侧同时外扩会重叠/粘连。
+        //     旧实现固定 0.5：默认厚度 0.045 时间隙 = 1 − 2×(0.045 + 0.5) = −0.09 格。
         float outlinePx = clamp(uOutlineWidthPx, 0.0, 8.0);
         float outlineWorld = outlinePx / pixelsPerWorldUnit;
-        outlineWorld = clamp(outlineWorld, 0.0, 0.5);
+        outlineWorld = clamp(outlineWorld, 0.0, max(0.0, 0.5 - uBarThickness));
         displaced = displaced + lateralAxis * outlineWorld;
     }
 
