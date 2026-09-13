@@ -50,6 +50,7 @@ public class ChainPreviewMesh {
     private final int originZ;
     private final int blockCount;
     private final boolean truncated;
+    private final int culledTargetCount;
 
     /**
      * 创建紧凑预览网格。
@@ -69,6 +70,18 @@ public class ChainPreviewMesh {
      * @param aux 语义顶点流；长度必须为顶点数 × {@link #AUX_BYTES_PER_VERTEX}，null 表示未启用
      */
     public ChainPreviewMesh(float[] vertices, float[] colors, int[] indices, int blockCount, byte[] aux) {
+        this(vertices, colors, indices, blockCount, aux, 0);
+    }
+
+    /**
+     * 创建带语义顶点流与 LOD 剔除计数的紧凑预览网格。
+     *
+     * @param aux 语义顶点流；长度必须为顶点数 × {@link #AUX_BYTES_PER_VERTEX}，null 表示未启用
+     * @param culledTargetCount 构建期因 LOD 剔除的目标数；纯诊断/plan 计数，不参与几何
+     */
+    public ChainPreviewMesh(
+            float[] vertices, float[] colors, int[] indices, int blockCount, byte[] aux,
+            int culledTargetCount) {
         this(
             vertices,
             vertices == null ? 0 : vertices.length,
@@ -81,6 +94,7 @@ public class ChainPreviewMesh {
             0,
             blockCount,
             false,
+            culledTargetCount,
             aux);
     }
 
@@ -96,6 +110,7 @@ public class ChainPreviewMesh {
             int originZ,
             int blockCount,
             boolean truncated,
+            int culledTargetCount,
             byte[] aux) {
         this.vertices = vertices == null ? new float[0] : vertices;
         this.vertexFloatCount = boundedCount(vertexFloatCount, this.vertices.length);
@@ -108,6 +123,7 @@ public class ChainPreviewMesh {
         this.originZ = originZ;
         this.blockCount = Math.max(0, blockCount);
         this.truncated = truncated;
+        this.culledTargetCount = Math.max(0, culledTargetCount);
         int vertexCount = this.vertexFloatCount / 3;
         int requiredAuxBytes = vertexCount * AUX_BYTES_PER_VERTEX;
         if (aux == null) {
@@ -188,6 +204,14 @@ public class ChainPreviewMesh {
         return truncated;
     }
 
+    /**
+     * @return 构建期因 LOD（alpha &lt;= lodMinAlpha）被剔除、未生成几何的目标（条柱）数；
+     *         lod=off 恒 0。仅作诊断与 plan 计数，不影响顶点/索引/aux 流
+     */
+    public int getCulledTargetCount() {
+        return culledTargetCount;
+    }
+
     public int getOriginX() {
         return originX;
     }
@@ -259,6 +283,7 @@ public class ChainPreviewMesh {
             originZ,
             blockCount,
             truncated,
+            culledTargetCount,
             aux);
     }
 

@@ -32,6 +32,13 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * 相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点为
  * {@link ChainPreviewMesh#AUX_UNDEFINED}；槽位 2/3 在「junction 相先于 tube 相」的首写策略下
  * 不可达（每端点 4 角点已被 junction 的两个面全覆盖），留待 B2.3/B3.x 再评估。
+ * <p>B2.4 LOD（lod=auto）：构建期按方块中心 alpha &lt;= lodMinAlpha 剔除远处散点目标，
+ * 双阈值 enter=lodMinAlpha / exit=lodMinAlpha+{@link VisualParameters#LOD_EXIT_ALPHA_MARGIN} 防抖；
+ * 剔除不占用 4096 配额，也不生成任何顶点/索引/aux。已知限制（本轮登记，不引入高风险改动）：
+ * (a) 剔除集合变化会重排 appearOrder（连续性不变、序号压缩），lod=auto + animation 开启时
+ * 生长窗口可能跳变一次；(b) 滞回记忆满 {@link #MAX_RENDER_TARGETS} 时整体清空，丢一次滞回。
+ * 超距合并/外壳档位（拓扑改写）未实现，下一批评估。</p>
+ *
  * semanticClass 由构建入口的类别载体按目标出现序号提供（id 冻结源 {@link ChainPreviewSemanticClass}，
  * 即接口冻结 §D 的 0..5 或 255 UNDEFINED），去重后与 appearOrder 同源、取最小 incident 目标；
  * 载体缺失/越界/非法值一律按 255 兜底并计数，见
@@ -42,6 +49,12 @@ public class ChainPreviewMeshBuilder {
     public static final int MAX_RENDER_TARGETS = 4096;
     /** debug 计数器：加载语义类别载体时按 255 兜底的目标准数（跨 session 累加）。 */
     private static final AtomicLong SEMANTIC_CLASS_FALLBACKS = new AtomicLong();
+    /**
+     * LOD 双阈值记忆：被剔除目标的位置，避免在 enter/exit 之间翻转闪烁。
+     * 仅构建线程访问，有界于 {@link #MAX_RENDER_TARGETS}；生命周期/换代可经
+     * {@link #resetLodHysteresis()} 清理。
+     */
+    private final Set<BlockPos> lodCulledPositions = new HashSet<BlockPos>();
     private static final float BASE_RED = 0.25F;
     private static final float BASE_GREEN = 0.9F;
     private static final float BASE_BLUE = 1.0F;
@@ -94,6 +107,25 @@ public class ChainPreviewMeshBuilder {
         }
     };
 
+    /**
+     * 清理 LOD 双阈值记忆（生命周期 / 换代时调用）；仅构建线程调用。
+     *
+     * <p>不清理也只会让「曾因远距被剔除的位置」多保留一次双阈值记忆（有界、不越界），
+     * 但生命周期入口显式清理更符合动态化与有界回收要求。</p>
+     */
+    public void resetLodHysteresis() {
+        lodCulledPositions.clear();
+    }
+
+    /**
+     * @return 当前 LOD 双阈值记忆中的位置数（诊断/测试用；仅构建线程读取）。
+     *         每次成功构建结束时会把记忆裁剪为「本轮实际剔除的位置」，因此不会跨代残留
+     *         未再出现的旧目标
+     */
+    public int getLodHysteresisMemorySize() {
+        return lodCulledPositions.size();
+    }
+
     /** 创建可跨 tick 恢复的 CPU build session。 */
     public BuildSession begin(Iterable<ChainTarget> previewTargets, VisualParameters visualParameters) {
         Iterable<ChainTarget> targets = previewTargets == null
@@ -102,7 +134,7 @@ public class ChainPreviewMeshBuilder {
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
-        return new BuildSession(targets, visuals, null);
+        return new BuildSession(targets, visuals, null, lodCulledPositions);
     }
 
     /**
@@ -134,7 +166,8 @@ public class ChainPreviewMeshBuilder {
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
-        return new BuildSession(targets, visuals.withBarThickness(barThickness), semanticClasses);
+        return new BuildSession(
+            targets, visuals.withBarThickness(barThickness), semanticClasses, lodCulledPositions);
     }
 
     /** 相同 topology 的相机效果刷新只重建 color stream。 */
@@ -190,6 +223,9 @@ public class ChainPreviewMeshBuilder {
     /** 相机相关效果的不可变输入，与条柱拓扑分离。 */
     public static final class VisualParameters {
 
+        /** LOD 双阈值退出侧余量：alpha >= lodMinAlpha + 余量 才恢复已剔除目标。 */
+        public static final float LOD_EXIT_ALPHA_MARGIN = 0.05F;
+
         private final double cameraX;
         private final double cameraY;
         private final double cameraZ;
@@ -198,6 +234,8 @@ public class ChainPreviewMeshBuilder {
         private final float maxAlpha;
         private final float minAlpha;
         private final float barThickness;
+        private final boolean lodEnabled;
+        private final float lodMinAlpha;
 
         public VisualParameters(
                 double cameraX,
@@ -208,6 +246,27 @@ public class ChainPreviewMeshBuilder {
                 float maxAlpha,
                 float minAlpha,
                 float barThickness) {
+            this(cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, barThickness,
+                false, 0.0F);
+        }
+
+        /**
+         * 携带 LOD 策略的完整构造。
+         *
+         * @param lodEnabled 是否启用构建期 LOD 剔除（clientPreviewLod=auto）；false 时逐字等于现状
+         * @param lodMinAlpha 剔除进入阈值（clientPreviewLodMinAlpha）
+         */
+        public VisualParameters(
+                double cameraX,
+                double cameraY,
+                double cameraZ,
+                double fadeStart,
+                double fadeEnd,
+                float maxAlpha,
+                float minAlpha,
+                float barThickness,
+                boolean lodEnabled,
+                float lodMinAlpha) {
             this.cameraX = cameraX;
             this.cameraY = cameraY;
             this.cameraZ = cameraZ;
@@ -216,6 +275,8 @@ public class ChainPreviewMeshBuilder {
             this.maxAlpha = clampAlpha(maxAlpha);
             this.minAlpha = clampAlpha(minAlpha);
             this.barThickness = Math.max(0.001F, Math.min(0.99F, barThickness));
+            this.lodEnabled = lodEnabled;
+            this.lodMinAlpha = clampAlpha(lodMinAlpha);
         }
 
         public static VisualParameters fromCurrentConfig(double cameraX, double cameraY, double cameraZ) {
@@ -233,11 +294,32 @@ public class ChainPreviewMeshBuilder {
         /** @return 只替换 barThickness 的不可变副本；配置注入用 */
         public VisualParameters withBarThickness(float nextBarThickness) {
             return new VisualParameters(
-                cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, nextBarThickness);
+                cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, nextBarThickness,
+                lodEnabled, lodMinAlpha);
+        }
+
+        /** @return 只替换 LOD 策略的不可变副本；会话侧从 settings 快照注入 */
+        public VisualParameters withLod(boolean nextLodEnabled, float nextLodMinAlpha) {
+            return new VisualParameters(
+                cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, barThickness,
+                nextLodEnabled, nextLodMinAlpha);
         }
 
         public float getBarThickness() {
             return barThickness;
+        }
+
+        public boolean isLodEnabled() {
+            return lodEnabled;
+        }
+
+        public float getLodMinAlpha() {
+            return lodMinAlpha;
+        }
+
+        /** @return 恢复已剔除目标的退出阈值（进入阈值 + {@link #LOD_EXIT_ALPHA_MARGIN}，钳制到 1） */
+        public float getLodExitAlpha() {
+            return Math.min(1.0F, lodMinAlpha + LOD_EXIT_ALPHA_MARGIN);
         }
 
         float alphaFor(double centerX, double centerY, double centerZ) {
@@ -267,6 +349,8 @@ public class ChainPreviewMeshBuilder {
         private final Iterator<ChainTarget> targetIterator;
         private final VisualParameters visuals;
         private final int[] semanticClasses;
+        private final Set<BlockPos> lodCulledPositions;
+        private final Set<BlockPos> lodCulledThisBuild;
         private final int[] positionSemanticClasses = new int[MAX_RENDER_TARGETS];
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
@@ -281,6 +365,7 @@ public class ChainPreviewMeshBuilder {
 
         private int targetReadCount;
         private int semanticClassFallbackCount;
+        private int culledTargetCount;
         private int pointCursor;
         private int segmentCursor;
         private int visibleBlockCount;
@@ -299,12 +384,20 @@ public class ChainPreviewMeshBuilder {
         private int[] currentFaces;
         private ChainPreviewMesh mesh;
 
-        private BuildSession(Iterable<ChainTarget> targets, VisualParameters visuals, int[] semanticClasses) {
+        private BuildSession(
+                Iterable<ChainTarget> targets,
+                VisualParameters visuals,
+                int[] semanticClasses,
+                Set<BlockPos> lodCulledPositions) {
             this.targetIterator = targets.iterator();
             this.visuals = visuals;
             this.semanticClasses = semanticClasses == null
                 ? null
                 : Arrays.copyOf(semanticClasses, semanticClasses.length);
+            this.lodCulledPositions = lodCulledPositions;
+            this.lodCulledThisBuild = visuals.isLodEnabled()
+                ? new HashSet<BlockPos>()
+                : null;
         }
 
         /**
@@ -329,6 +422,11 @@ public class ChainPreviewMeshBuilder {
                     continue;
                 }
                 BlockPos position = new BlockPos(target.getX(), target.getY(), target.getZ());
+                if (visuals.isLodEnabled() && shouldCullForLod(position)) {
+                    // LOD=auto：远处散点在构建期直接不生成几何，不占配额也不进入拓扑。
+                    culledTargetCount++;
+                    continue;
+                }
                 if (occupancy.contains(position)) {
                     // 重复 target 不占配额，也不进入拓扑；类别取首次出现（= 最小出现序号）。
                     continue;
@@ -443,7 +541,13 @@ public class ChainPreviewMeshBuilder {
                 meshOrigin == null ? 0 : meshOrigin.z,
                 visibleBlockCount,
                 truncated,
+                culledTargetCount,
                 aux.exactArray());
+            if (lodCulledThisBuild != null) {
+                // 成功构建结束（lod=auto）：把滞回记忆裁剪为「本轮实际仍被剔除的位置」，
+                // 换代/目标消失后不残留旧条目；lod=off 完全不触碰记忆。
+                lodCulledPositions.retainAll(lodCulledThisBuild);
+            }
             return true;
         }
 
@@ -465,6 +569,43 @@ public class ChainPreviewMeshBuilder {
          */
         public int getSemanticClassFallbackCount() {
             return semanticClassFallbackCount;
+        }
+
+        /**
+         * @return 本轮因 alpha &lt;= lodMinAlpha 被剔除的目标（条柱）数；lod=off 恒 0。
+         *         计数单位为「目标」，与 {@link ChainPreviewMesh#getCulledTargetCount()} 同源
+         */
+        public int getCulledTargetCount() {
+            return culledTargetCount;
+        }
+
+        /**
+         * LOD 双阈值判定：方块中心 alpha &lt;= enter 时剔除；已剔除目标必须 alpha &gt;=
+         * exit（enter + {@link VisualParameters#LOD_EXIT_ALPHA_MARGIN}）才恢复，
+         * 因此阈值附近来回不会闪烁。状态由 Builder 持有并跨 session 复用（仅构建线程）。
+         */
+        private boolean shouldCullForLod(BlockPos position) {
+            boolean alreadyCulled = lodCulledPositions.contains(position);
+            float alpha = visuals.alphaFor(
+                position.x + 0.5D, position.y + 0.5D, position.z + 0.5D);
+            if (alreadyCulled) {
+                if (alpha >= visuals.getLodExitAlpha()) {
+                    lodCulledPositions.remove(position);
+                    return false;
+                }
+                lodCulledThisBuild.add(position);
+                return true;
+            }
+            if (alpha > visuals.getLodMinAlpha()) {
+                return false;
+            }
+            if (lodCulledPositions.size() >= MAX_RENDER_TARGETS) {
+                // 有界保护：记忆满即清空（登记为已知限制：丢一次滞回），重新进入双阈值周期。
+                lodCulledPositions.clear();
+            }
+            lodCulledPositions.add(position);
+            lodCulledThisBuild.add(position);
+            return true;
         }
 
         /** 载体按原始目标流索引取值；越界/非法值经 {@link ChainPreviewSemanticClass#normalize(int)} 兜底并计数。 */
