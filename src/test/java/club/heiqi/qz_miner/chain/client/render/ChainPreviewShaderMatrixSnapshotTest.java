@@ -122,10 +122,17 @@ public class ChainPreviewShaderMatrixSnapshotTest {
                 identity(), identity(), identity(), 1.0D, 1.0F,
                 new double[] {0.0D, 0.0D, 0.0D}, 0.0F, 0.0F, new int[] {0, 0, 0}, 0, 0,
                 new float[] {1.0F, 2.0F, 3.0F}, new float[] {2.0F, 4.0F, 8.0F, 2.0F});
+        List<Float> printedClip = parseTuple(line, "anchorClip=");
+        Assert.assertEquals("anchorClip 必须打印 4 个值（含 w）——否则离线端无法复算 NDC", 4, printedClip.size());
         List<Float> ndc = parseTuple(line, "anchorNdc=");
         Assert.assertEquals("NDC.x = clip.x / clip.w", 1.0F, ndc.get(0).floatValue(), 1.0e-6F);
         Assert.assertEquals("NDC.y = clip.y / clip.w", 2.0F, ndc.get(1).floatValue(), 1.0e-6F);
         Assert.assertEquals("NDC.z = clip.z / clip.w", 4.0F, ndc.get(2).floatValue(), 1.0e-6F);
+        // 关键：NDC 必须能**从打印出来的 anchorClip** 复算（含 w）——这正是快照的用途。
+        Assert.assertEquals("离线复算 NDC.x = 打印的 clip.x / 打印的 clip.w",
+                1.0F, printedClip.get(0).floatValue() / printedClip.get(3).floatValue(), 1.0e-6F);
+        Assert.assertEquals("离线复算 NDC.y = 打印的 clip.y / 打印的 clip.w",
+                2.0F, printedClip.get(1).floatValue() / printedClip.get(3).floatValue(), 1.0e-6F);
     }
 
     /** 非法/缺失入参不得抛异常（诊断路径不得影响渲染帧）。 */

@@ -133,7 +133,7 @@ public final class ChainPreviewShaderMatrixSnapshot {
         text.append(", indexCount=").append(indexCount);
         text.append(", vertexCount=").append(vertexCount);
         text.append(", anchorLocal=").append(tuple(anchorLocal));
-        text.append(", anchorClip=").append(tuple(anchorClip));
+        text.append(", anchorClip=").append(tuple4(anchorClip));
         text.append(", anchorNdc=").append(tuple(ndc(anchorClip)));
         text.append('}');
         return text.toString();
@@ -177,6 +177,18 @@ public final class ChainPreviewShaderMatrixSnapshot {
             return "(0.000000,0.000000,0.000000)";
         }
         return "(" + fixed(values[0]) + "," + fixed(values[1]) + "," + fixed(values[2]) + ")";
+    }
+
+    /**
+     * 4 元组（{@code anchorClip} 用）：<b>必须含 w</b>，否则离线端无法从打印出来的裁剪坐标复算 NDC
+     * （NDC = xyz / w），快照也就失去「应落在哪 vs 实际落在哪」的可复算性。
+     */
+    private static String tuple4(float[] values) {
+        if (values == null || values.length < 4) {
+            return "(0.000000,0.000000,0.000000,0.000000)";
+        }
+        return "(" + fixed(values[0]) + "," + fixed(values[1]) + "," + fixed(values[2])
+                + "," + fixed(values[3]) + ")";
     }
 
     private static String fixed(double value) {
