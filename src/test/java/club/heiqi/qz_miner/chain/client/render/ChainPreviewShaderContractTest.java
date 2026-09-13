@@ -242,6 +242,40 @@ public class ChainPreviewShaderContractTest {
                 mainBody.indexOf("* vColor.rgb") >= 0);
     }
 
+    // ------------------------------------------------------------------ T48c-A 显式相机矩阵
+
+    /**
+     * T48c-A：顶点着色器不得再引用固定管线内建矩阵，必须改用显式 uniform。
+     *
+     * <p>真机（GTNH 2.9 + Angelica 2.2.10 的 GLSM 用生成着色器模拟固定管线 +
+     * {@code use_no_error_g_l_context=true}）下，内建 {@code gl_ModelViewProjectionMatrix} /
+     * {@code gl_ModelViewMatrix} 与真实相机矩阵失同步，整条预览链被画进错误空间
+     * （77px 窄竖条），且失败完全不可观测。因此这里把「源码里不再出现这两个名字」做成硬断言：
+     * 注释已由 {@link Glsl120StaticChecker#stripComments} 剔除，断言只针对真实代码。</p>
+     */
+    @Test
+    public void vertexStageUsesExplicitCameraMatricesOnly() throws IOException {
+        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
+        String code = Glsl120StaticChecker.stripComments(read(VERTEX_PATH), "preview.vert", ignored);
+        for (String builtin : new String[] {
+                "gl_ModelViewProjectionMatrix", "gl_ModelViewMatrix", "gl_ProjectionMatrix", "ftransform" }) {
+            Assert.assertFalse("不得再引用固定管线内建 " + builtin + "（真机环境下与真实相机矩阵失同步）",
+                    code.indexOf(builtin) >= 0);
+        }
+
+        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert");
+        Assert.assertEquals("MVP 必须是 mat4 uniform", "mat4", vertex.getUniforms().get("uModelViewProjection"));
+        Assert.assertEquals("modelview 必须是 mat4 uniform", "mat4", vertex.getUniforms().get("uModelView"));
+
+        String mainBody = vertex.body("main");
+        Assert.assertTrue("gl_Position 必须用显式 MVP 投影 displaced",
+                mainBody.indexOf("gl_Position = uModelViewProjection * vec4(displaced, 1.0)") >= 0);
+        Assert.assertTrue("深度必须取自显式 modelview",
+                mainBody.indexOf("-(uModelView * vec4(aPos, 1.0)).z") >= 0);
+        Assert.assertTrue("横向投影长度必须取自显式 modelview",
+                mainBody.indexOf("(uModelView * vec4(lateralAxis, 0.0)).xyz") >= 0);
+    }
+
     // ------------------------------------------------------------------ 校验器自证（负例）
 
     @Test

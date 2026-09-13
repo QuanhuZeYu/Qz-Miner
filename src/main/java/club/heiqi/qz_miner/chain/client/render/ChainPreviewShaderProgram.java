@@ -25,6 +25,13 @@ import org.lwjgl.opengl.GL20;
  * 所有 GL 异常在此处被捕获，绝不向渲染帧抛出。原因保存在 {@link #getLastFailureMessage()}，
  * 由后端写进 {@code describe()}。</p>
  *
+ * <p><strong>相机矩阵（T48c-A）</strong>：着色器不再依赖固定管线内建
+ * {@code gl_ModelViewProjectionMatrix} / {@code gl_ModelViewMatrix}（真机 GTNH 2.9 + Angelica
+ * GLSM 模拟固定管线 + no-error context 下内建数与真实相机矩阵失同步）。改由
+ * {@link #readCameraMatrices} 每帧从 {@code GL_PROJECTION_MATRIX} / {@code GL_MODELVIEW_MATRIX}
+ * 读回，后端在 CPU 侧相乘成 MVP 后经 {@link #setModelViewProjection} / {@link #setModelView}
+ * 上传；后端另做「modelview 平移列模长 ≈ |origin − renderPos|」自检，失败即一次性不可用并回退 legacy。</p>
+ *
  * <p>线程契约：所有方法只在渲染线程调用（GPU 资源释放必须走渲染线程）。</p>
  */
 public final class ChainPreviewShaderProgram {
@@ -217,6 +224,11 @@ public final class ChainPreviewShaderProgram {
     private int cachedViewportHeight = -1;
     private float cachedPixelScale;
     private boolean pixelScaleValid;
+    /** 相机矩阵回读缓冲（每帧复用，渲染线程单线程调用 ⇒ 零每帧分配）：投影 / modelview。 */
+    private FloatBuffer cameraProjectionBuffer;
+    private FloatBuffer cameraModelViewBuffer;
+    /** uModelView / uModelViewProjection 的列主序上传缓冲（每帧复用）。 */
+    private FloatBuffer matrixUploadBuffer;
 
     /**
      * 视口缓存诊断文本（describe 使用）。
@@ -228,10 +240,81 @@ public final class ChainPreviewShaderProgram {
                 + ", pixelScale=" + cachedPixelScale;
     }
 
+    /**
+     * 读取固定管线矩阵栈的投影矩阵与 modelview，供 CPU 侧相乘出 MVP（T48c-A）。
+     *
+     * <p><b>调用时机不可移动</b>：必须在 {@code ChainPreviewRenderer.drawPreview} 的
+     * {@code glTranslated(origin − renderPos)} <b>之后</b>（即真正的 draw 内）调用——那时栈上的
+     * modelview 才与被弃用的内建 {@code gl_ModelViewProjectionMatrix} 同义。读取不改写矩阵栈。</p>
+     *
+     * <p>失败（GL 不可用 / 上下文丢失 / native 缺失）返回 false，且<b>不</b>把本程序锁成不可用：
+     * 「矩阵来源是否可信 ⇒ 是否放弃绘制 ⇒ 是否回退 legacy」由后端统一裁决，程序层只回答
+     * 「读到了没有」。</p>
+     *
+     * @param outProjection 输出列主序投影矩阵（长度 &ge; 16）
+     * @param outModelView  输出列主序 modelview（长度 &ge; 16）
+     * @return 是否读取成功
+     */
+    public boolean readCameraMatrices(float[] outProjection, float[] outModelView) {
+        if (unavailable) {
+            return false;
+        }
+        if (!hasMatrixCapacity(outProjection) || !hasMatrixCapacity(outModelView)) {
+            return false;
+        }
+        try {
+            // 缓冲惰性创建：绝不能在 static 初始化里碰 BufferUtils（见 readPixelScale 的注释）。
+            if (cameraProjectionBuffer == null) {
+                cameraProjectionBuffer = BufferUtils.createFloatBuffer(ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
+                cameraModelViewBuffer = BufferUtils.createFloatBuffer(ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
+            }
+            readMatrix(GL11.GL_PROJECTION_MATRIX, cameraProjectionBuffer, outProjection);
+            readMatrix(GL11.GL_MODELVIEW_MATRIX, cameraModelViewBuffer, outModelView);
+            return true;
+        } catch (Throwable failure) {
+            // 读取失败不锁存：否则一次瞬时失败会永久失去着色器后端（回退决策属于后端契约）。
+            return false;
+        }
+    }
+
+    /** glGetFloat 回读一个列主序 4×4 矩阵：先归一化写入位置，再把 16 个元素取进数组。 */
+    private static void readMatrix(int pname, FloatBuffer buffer, float[] out) {
+        buffer.clear();
+        GL11.glGetFloat(pname, buffer);
+        buffer.position(0);
+        buffer.get(out, 0, ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
+    }
+
+    private static boolean hasMatrixCapacity(float[] matrix) {
+        return matrix != null && matrix.length >= ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS;
+    }
+
     // ---------------------------------------------------------------- uniform 设置
 
     public void setOriginRel(float x, float y, float z) {
         setUniform3f("uOriginRel", x, y, z);
+    }
+
+    /**
+     * 上传列主序 MVP（= 投影 × modelview），驱动 {@code gl_Position}（T48c-A）。
+     *
+     * <p>语义等价于固定管线内建 {@code gl_ModelViewProjectionMatrix}，但值由 CPU 侧显式算出：
+     * 在「固定管线由 Angelica GLSM 生成着色器模拟」的真机环境下内建数与真实相机矩阵失同步，
+     * 显式上传后可观测、可断言、可自检。</p>
+     *
+     * @param columnMajor 16 元素列主序矩阵；null 或长度不足静默忽略
+     */
+    public void setModelViewProjection(float[] columnMajor) {
+        setUniformMatrix4("uModelViewProjection", columnMajor);
+    }
+
+    /**
+     * 上传列主序 modelview（相机相对坐标），驱动横向偏移与深度换算（T48c-A）。
+     *
+     * @param columnMajor 16 元素列主序矩阵；null 或长度不足静默忽略
+     */
+    public void setModelView(float[] columnMajor) {
+        setUniformMatrix4("uModelView", columnMajor);
     }
 
     public void setPixelScale(float pixelScale) {
@@ -385,6 +468,28 @@ public final class ChainPreviewShaderProgram {
         }
         try {
             GL20.glUniform1f(location, value);
+        } catch (Throwable failure) {
+            unavailable = true;
+        }
+    }
+
+    private void setUniformMatrix4(String name, float[] columnMajor) {
+        if (!hasMatrixCapacity(columnMajor)) {
+            return;
+        }
+        int location = getUniformLocation(name);
+        if (location == -1) {
+            return;
+        }
+        try {
+            if (matrixUploadBuffer == null) {
+                matrixUploadBuffer = BufferUtils.createFloatBuffer(ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
+            }
+            matrixUploadBuffer.clear();
+            matrixUploadBuffer.put(columnMajor, 0, ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
+            matrixUploadBuffer.flip();
+            // transpose = false：数组已是 GL 约定的列主序，绝不能"顺手"转置。
+            GL20.glUniformMatrix4(location, false, matrixUploadBuffer);
         } catch (Throwable failure) {
             unavailable = true;
         }

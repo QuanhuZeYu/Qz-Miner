@@ -21,6 +21,9 @@
  *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
  *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
  *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿横向轴外扩 uOutlineWidthPx（仅着色器路径）
+ *   7) 相机矩阵       —— 一律走显式 uniform uModelViewProjection / uModelView（T48c-A）：
+ *                        真机（GLSM 模拟固定管线 + no-error context）内建矩阵与真实相机矩阵失同步，
+ *                        且失败不可观测；显式化后矩阵可读、可断言，后端可自检并回退 legacy
  *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
  *        「两 pass 叠色」行为——固定管线做外扩必须改 CPU 几何，会破坏 B4.1 的增量/差分等价。
  *
@@ -32,6 +35,14 @@
 attribute vec3 aPos;
 attribute vec4 aAux;
 attribute vec4 aColor;
+
+// 相机矩阵（T48c-A）：显式 uniform，由 Java 侧每帧从固定管线栈读取、CPU 相乘后上传。
+// 刻意不使用 gl_ModelViewProjectionMatrix / gl_ModelViewMatrix——在「固定管线由 Angelica GLSM
+// 用生成着色器模拟 + use_no_error_g_l_context=true」的真机环境下，这两个内建矩阵与真实相机矩阵
+// 失同步（整条预览链会被画进错误空间，表现为紧凑一束条柱），且失效时完全不可观测。
+// 显式上传后矩阵可读、可断言：后端用「modelview 平移列模长 ≈ |origin − renderPos|」自检来源。
+uniform mat4 uModelViewProjection; // 投影 × modelview（列主序，GL 约定）
+uniform mat4 uModelView;           // modelview；横向偏移与深度换算用
 
 uniform vec3 uOriginRel;         // meshOrigin - RenderManager.renderPos（相机相对，CPU 侧 double 相减）
 uniform float uPixelScale;       // projection[1][1] * viewportHeight * 0.5：单位深度上的像素/世界单位
@@ -138,7 +149,7 @@ void main(void) {
     float lateralMagnitude = 0.0;
     vec3 lateralAxis = vec3(0.0, 0.0, 0.0);
     if (uMinScreenWidthPx > 0.0 || uOutlineWidthPx > 0.0) {
-        float depth = max(1e-4, -(gl_ModelViewMatrix * vec4(aPos, 1.0)).z);
+        float depth = max(1e-4, -(uModelView * vec4(aPos, 1.0)).z);
         pixelPerUnitAtDepth = uPixelScale / depth;
 
         float magnitudeX = abs(aPos.x);
@@ -161,7 +172,7 @@ void main(void) {
     vec3 displaced = aPos;
     float pixelsPerWorldUnit = 1.0;
     if (lateralMagnitude > 0.0) {
-        float worldLateral = length((gl_ModelViewMatrix * vec4(lateralAxis, 0.0)).xyz);
+        float worldLateral = length((uModelView * vec4(lateralAxis, 0.0)).xyz);
         float projectedPerUnit = clamp(worldLateral, 0.05, 1.0);
         // 横向方向上的「像素 / 世界单位」——最小宽度与描边共用同一换算。
         pixelsPerWorldUnit = max(pixelPerUnitAtDepth * projectedPerUnit, 1e-6);
@@ -205,6 +216,7 @@ void main(void) {
 
     // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），
     // 使上面的横向钳制算完即丢——B2.1 最小宽度在 shader 路径静默失效。
-    // 只手写 MVP 乘法（ftransform 的等价语义），不引入额外 uniform。
-    gl_Position = gl_ModelViewProjectionMatrix * vec4(displaced, 1.0);
+    // MVP 来自显式 uniform（uModelViewProjection）；内建 gl_ModelViewProjectionMatrix 在真机
+    // 环境下与真实相机矩阵失同步，见文件头部 uniform 段与 §F 的能力差异登记。
+    gl_Position = uModelViewProjection * vec4(displaced, 1.0);
 }

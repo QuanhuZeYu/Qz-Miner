@@ -23,6 +23,14 @@ import org.lwjgl.opengl.GL30;
  * <p><strong>零 CPU 颜色上传</strong>：{@link #usesCpuColors()} 返回 false，颜色由 aAux 语义类别
  * + uniform 调色板在 GPU 侧决定；aColor 仍按接口冻结 §A 上传并作为顶点色参与距离淡出 alpha。</p>
  *
+ * <p><strong>显式相机矩阵 + 自检（T48c-A）</strong>：着色器不再读固定管线内建矩阵。每次 draw 在
+ * renderer 完成 {@code glTranslated(origin − renderPos)} 之后，用 {@code glGetFloatv} 取
+ * GL_PROJECTION_MATRIX / GL_MODELVIEW_MATRIX，CPU 侧相乘成 MVP 并上传 {@code uModelViewProjection}
+ * / {@code uModelView}；随后对 modelview 平移列做 {@code |平移列| ≈ |origin − renderPos|} 自检
+ * （真机下内建矩阵失同步时栈保持单位阵 ⇒ 模长 0 ⇒ 立即检出）。自检不通过 ⇒ 一次性
+ * {@code unavailable} ⇒ {@link #ensureReady()} 返回 false ⇒ renderer 既有的
+ * {@code ensureReadyBackend()} 永久回退 legacy：不新增回退机制，也绝不画错帧。</p>
+ *
  * <p><strong>GL 状态契约</strong>：帧级 pushAttrib / pushClientAttrib 与绑定围栏由 renderer 统一
  * 负责；本类内部除了 {@link #dispose()}（可能被帧外生命周期调用）以外不捕获绑定快照，也不改
  * 矩阵 / 混合 / 深度状态，只在 draw 内切换自己需要的程序与顶点属性槽位并恢复 attrib 1/2。
@@ -66,10 +74,15 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private String failureReason = "";
     private long drawFailures;
 
-    /** 当前拓扑的 meshOrigin（由 uploadTopology 缓存，plan 的 origin 与此恒等）。 */
-    private float originX;
-    private float originY;
-    private float originZ;
+    /** 相机矩阵回读 / 相乘缓冲（渲染线程复用，零每帧分配）。 */
+    private final float[] projectionMatrix = new float[ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS];
+    private final float[] modelViewMatrix = new float[ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS];
+    private final float[] modelViewProjectionMatrix = new float[ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS];
+    /** 最近一次自检的实际 / 期望模长（诊断用；未自检时为 NaN）。 */
+    private float matrixTranslationMagnitude = Float.NaN;
+    private double matrixExpectedMagnitude = Double.NaN;
+    /** 自检失败原因（一次性）；空串表示从未失败。 */
+    private String matrixSourceFailure = "";
 
     /** 同代最大出现序号（扫描 aAux 得到）；< 0 表示无 aAux（关闭生长比较），0 表示单目标。 */
     private float appearSpan = -1.0F;
@@ -142,13 +155,20 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         return false;
     }
 
+    /**
+     * 惰性初始化；<b>任一步失败（含 draw 期矩阵自检失败）之后恒返回 false</b>，不每帧重试。
+     *
+     * <p>两个分支的顺序不可交换：{@code unavailable} 必须先判。矩阵自检发生在 draw 内（只有那里
+     * 拿得到「已 glTranslated 的 modelview」），它只能把后端置为一次性不可用；renderer 下一帧经
+     * {@code ensureReadyBackend()} 读到 false 后走既有的一次性永久回退 legacy 路径。</p>
+     */
     @Override
     public boolean ensureReady() {
-        if (initialized) {
-            return true;
-        }
         if (unavailable) {
             return false;
+        }
+        if (initialized) {
+            return true;
         }
         try {
             if (!program.ensureReady()) {
@@ -197,9 +217,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         indexCount = mesh.getIndexCount();
         vertexCount = vertexFloatCount / 3;
-        originX = (float) mesh.getOriginX();
-        originY = (float) mesh.getOriginY();
-        originZ = (float) mesh.getOriginZ();
+        // 刻意不缓存 meshOrigin：uOriginRel 与自检期望值一律取 plan 的 origin（renderer 的
+        // glTranslated 与 legacy 后端都用 plan origin）。上传期缓存会在「同 mesh 换 plan」时
+        // 让两后端语义分叉（T48c-A）。
         appearSpan = maxAppearOrder(aux, vertexCount);
 
         GL30.glBindVertexArray(vao);
@@ -244,7 +264,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     @Override
     public void draw(ChainPreviewDrawPlan plan) {
-        if (!initialized || indexCount <= 0 || plan == null) {
+        if (!initialized || unavailable || indexCount <= 0 || plan == null) {
             return;
         }
         int visibleIndexCount = plan.getVisibleIndexCount();
@@ -264,7 +284,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             // GL_CURRENT_PROGRAM 不受 glPushAttrib 覆盖，必须显式保存 / 恢复（Lead 批准 +1 次查询）。
             previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
             program.use();
-            applyUniforms(plan);
+            if (!applyUniforms(plan)) {
+                // 相机矩阵来源不可信：本帧不画（绝不留错误空间的一帧）。后端已被置为一次性不可用，
+                // 下一帧由 renderer 既有的 ensureReadyBackend() 永久回退 legacy。
+                return;
+            }
 
             GL30.glBindVertexArray(vao);
             GL20.glEnableVertexAttribArray(0);
@@ -312,6 +336,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         unavailable = false;
         failureReason = "";
         drawFailures = 0L;
+        matrixSourceFailure = "";
+        matrixTranslationMagnitude = Float.NaN;
+        matrixExpectedMagnitude = Double.NaN;
     }
 
     @Override
@@ -329,6 +356,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             .append(", initialized=").append(initialized)
             .append(", unavailable=").append(unavailable)
             .append(", drawFailures=").append(drawFailures)
+            .append(", matrix=").append(describeMatrixSource())
             .append(", ").append(program.describePixelScaleCache())
             .append('}');
         if (!failureReason.isEmpty()) {
@@ -340,18 +368,42 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         return text.toString();
     }
 
+    /**
+     * 相机矩阵来源诊断：正常时给出「读到的平移列模长 / 期望模长」，自检失败时给出原因。
+     *
+     * <p>真机若再出现「画进错误空间」，这一行可直接读出矩阵栈是否被更新（T48c-A 的可观测性目标）。</p>
+     *
+     * @return describe 片段
+     */
+    private String describeMatrixSource() {
+        if (!matrixSourceFailure.isEmpty()) {
+            return "untrusted(" + matrixSourceFailure + ")";
+        }
+        if (Float.isNaN(matrixTranslationMagnitude)) {
+            return "unchecked";
+        }
+        return "translation=" + matrixTranslationMagnitude + "/expected=" + matrixExpectedMagnitude;
+    }
+
     // ---------------------------------------------------------------- 内部
 
     /**
-     * 逐帧 uniform：距离淡出曲线（与 CPU 端 alphaFor 同形）、最小宽度、生长与语义调色板。
+     * 逐帧 uniform：相机矩阵、距离淡出曲线（与 CPU 端 alphaFor 同形）、最小宽度、生长与调色板。
      *
-     * <p>相机相对原点在 CPU 侧用 double 相减，避免大坐标在 GPU 端相减丢精度。</p>
+     * <p>相机相对原点取 <b>plan 的 origin</b>（renderer 的 {@code glTranslated} 与 legacy 后端都用它），
+     * 在 CPU 侧用 double 相减，避免大坐标在 GPU 端相减丢精度。</p>
+     *
+     * @return 相机矩阵来源是否可信；false 表示本帧不得绘制（后端已置一次性不可用）
      */
-    private void applyUniforms(ChainPreviewDrawPlan plan) {
-        double originRelativeX = (double) originX - RenderManager.renderPosX;
-        double originRelativeY = (double) originY - RenderManager.renderPosY;
-        double originRelativeZ = (double) originZ - RenderManager.renderPosZ;
+    private boolean applyUniforms(ChainPreviewDrawPlan plan) {
+        double originRelativeX = (double) plan.getOriginX() - RenderManager.renderPosX;
+        double originRelativeY = (double) plan.getOriginY() - RenderManager.renderPosY;
+        double originRelativeZ = (double) plan.getOriginZ() - RenderManager.renderPosZ;
         program.setOriginRel((float) originRelativeX, (float) originRelativeY, (float) originRelativeZ);
+
+        if (!uploadCameraMatrices(originRelativeX, originRelativeY, originRelativeZ)) {
+            return false;
+        }
 
         program.setFadeCurve(
             plan.getFadeStartRadius(),
@@ -386,6 +438,62 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 调色板：builtin 档四槽都传精确基线常量 (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流
         // （不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）。
         applyColorPalette(plan);
+        return true;
+    }
+
+    /**
+     * 读取固定管线矩阵（只在 renderer 的 {@code glTranslated} 之后调用）→ CPU 4×4 相乘 → 上传
+     * {@code uModelView} / {@code uModelViewProjection}，并对 modelview 平移列做自检。
+     *
+     * <p>被弃用的内建 {@code gl_ModelViewProjectionMatrix} 在真机（Angelica GLSM 用生成着色器
+     * 模拟固定管线 + {@code use_no_error_g_l_context=true}）下与真实相机矩阵失同步，这是 T48c-A
+     * 的根因位点：显式矩阵让「实际用到的矩阵」可读、可断言、可自检。</p>
+     *
+     * @param originRelativeX 相机相对 origin X（已在 double 域算出，期望模长复用同一组值）
+     * @param originRelativeY 相机相对 origin Y
+     * @param originRelativeZ 相机相对 origin Z
+     * @return 矩阵来源是否可信
+     */
+    private boolean uploadCameraMatrices(double originRelativeX, double originRelativeY, double originRelativeZ) {
+        if (!program.readCameraMatrices(projectionMatrix, modelViewMatrix)) {
+            markMatrixSourceUntrusted("矩阵读取失败");
+            return false;
+        }
+        ChainPreviewShaderMatrixMath.multiply4x4(
+            modelViewProjectionMatrix, projectionMatrix, modelViewMatrix);
+
+        // 自检（纯数值，不额外查询 GL）：glTranslated 之后 modelview 的平移列 = R × (origin − renderPos)，
+        // 旋转不改变模长 ⇒ |平移列| 必须 ≈ |origin − renderPos|。矩阵栈没被驱动更新（保持单位阵）时
+        // 模长为 0，与期望值（通常 0.5~30 格）可区分——这正是真机表型的可检测形式。
+        double expected = ChainPreviewShaderMatrixMath.magnitude(
+            originRelativeX, originRelativeY, originRelativeZ);
+        float actual = ChainPreviewShaderMatrixMath.translationMagnitude(modelViewMatrix);
+        matrixTranslationMagnitude = actual;
+        matrixExpectedMagnitude = expected;
+        if (!ChainPreviewShaderMatrixMath.translationMatches(modelViewMatrix, expected)) {
+            markMatrixSourceUntrusted("FFP 矩阵栈平移列模长 " + actual + " 与期望 " + expected + " 不符");
+            return false;
+        }
+
+        program.setModelViewProjection(modelViewProjectionMatrix);
+        program.setModelView(modelViewMatrix);
+        return true;
+    }
+
+    /**
+     * 矩阵来源不可信 ⇒ 一次性不可用，<b>不新建回退机制</b>。
+     *
+     * <p>renderer 下一帧调用 {@link #ensureReady()} 拿到 false，随即走既有的一次性永久回退 legacy
+     * 路径（一次 WARN + describe 诊断）。失败只发生一次、不每帧重试，也绝不画错误空间。</p>
+     *
+     * @param reason 人类可读原因（同时写进 {@link #describe()}）
+     */
+    private void markMatrixSourceUntrusted(String reason) {
+        unavailable = true;
+        matrixSourceFailure = reason;
+        if (failureReason.isEmpty()) {
+            failureReason = reason;
+        }
     }
 
     /**

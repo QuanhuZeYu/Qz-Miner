@@ -469,10 +469,12 @@ public class ChainPreviewShaderGrowthWidthTest {
     public void glslProjectsTheDisplacedPosition() throws Exception {
         String body = methodBody(VERTEX_PATH, "void main(void)", "main");
         Assert.assertTrue("必须计算位移后的位置", body.contains("displaced"));
-        Assert.assertTrue("必须对 displaced 做投影",
-                body.contains("gl_ModelViewProjectionMatrix * vec4(displaced, 1.0)"));
+        Assert.assertTrue("必须对 displaced 做投影（显式 MVP，T48c-A）",
+                body.contains("uModelViewProjection * vec4(displaced, 1.0)"));
         Assert.assertFalse("不得再用 ftransform()（它会忽略 displaced，使最小宽度失效）",
                 body.contains("ftransform()"));
+        Assert.assertFalse("不得再用固定管线内建矩阵（真机 GLSM/no-error context 下失同步）",
+                body.contains("gl_ModelViewProjectionMatrix") || body.contains("gl_ModelViewMatrix"));
     }
 
     /** GLSL 的生长判据必须与参考模型同形（序号格之差 + 0xFFFF 放行 + u>=1 跳过）。 */
@@ -501,7 +503,7 @@ public class ChainPreviewShaderGrowthWidthTest {
     /** backend 必须把 u 与目标总数传进着色器，且 u>=1 时关闭逐顶点比较。 */
     @Test
     public void backendPassesProgressAndTotalTargets() throws Exception {
-        String body = methodBody(BACKEND_PATH, "private void applyUniforms(", "applyUniforms");
+        String body = methodBody(BACKEND_PATH, "private boolean applyUniforms(", "applyUniforms");
         Assert.assertTrue("必须读 plan 的 animationU", body.contains("plan.getAnimationU()"));
         Assert.assertTrue("必须把目标总数（maxOrder + 1）传给着色器", body.contains("appearSpan + 1.0F"));
         Assert.assertTrue("u>=1 必须走整段可见分支", body.contains("ANIMATION_COMPLETE"));
