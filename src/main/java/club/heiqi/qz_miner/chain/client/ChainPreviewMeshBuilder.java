@@ -447,6 +447,8 @@ public class ChainPreviewMeshBuilder {
 
         private int visibleBlockCount;
         private boolean overflowed;
+        /** 当前在飞的装配会话（构建线程内）；再次 beginRevision 或 dispose 后即被取代/丢弃。 */
+        private BuildSession activeRevision;
 
         private volatile boolean disposeRequested;
         private boolean disposed;
@@ -461,15 +463,17 @@ public class ChainPreviewMeshBuilder {
         }
 
         /**
-         * 追加/更新一代的目标快照，产出与「同时间序一次性全量装配」逐字节等价的新网格。
+         * 开始一次代内修订：把快照并入代级缓存（仅新增目标 + 26 邻域刷新可见段），
+         * 返回**可分片、可续跑**的装配会话。安全点与既有 {@link BuildSession#advance} 完全一致
+         * （按位置/句柄块检查 gate），避免大网格单次装配超帧预算；半装配状态不对外可见
+         * （只有 advance 返回 true 后 getMesh() 才可用）。再次调用本方法即开始新修订并取代旧会话。
          *
          * @param snapshotNewestFirst 当前完整快照，顺序同 {@code RenderSnapshot.getTargets()}（最新→最早）
          * @param semanticClasses 与快照同序的类别载体；null 表示全部 255
          * @param visuals 视觉参数（相机/淡出/LOD），构建线程只读
          * @param barThickness 显式条柱厚度
-         * @return 本代当前网格
          */
-        public ChainPreviewMesh extend(
+        public MeshBuildSession beginRevision(
                 List<ChainTarget> snapshotNewestFirst, int[] semanticClasses,
                 VisualParameters visuals, float barThickness) {
             if (consumeDisposeRequest()) {
@@ -478,6 +482,45 @@ public class ChainPreviewMeshBuilder {
             if (visuals == null) {
                 throw new IllegalArgumentException("visuals");
             }
+            mergeSnapshot(snapshotNewestFirst, semanticClasses, visuals);
+
+            BuildSession session;
+            if (positions.isEmpty()) {
+                session = builder.begin(
+                    Collections.<ChainTarget>emptyList(), visuals, barThickness, null);
+            } else if (visuals.isLodEnabled()) {
+                // LOD 剔除集合随相机/阈值变化，缓存不适用：本阶段回退全量可见段重算（登记边界）。
+                session = builder.beginWithOrigin(
+                    chronology, visuals.withBarThickness(barThickness), chronologyClasses.exactArray(),
+                    anchor.x, anchor.y, anchor.z);
+            } else {
+                PreparedTopology topology = new PreparedTopology(
+                    positions, occupancy, chronologyClasses.exactArray(), cachedSegments,
+                    visibleBlockCount, overflowed);
+                session = builder.beginPrepared(
+                    topology, visuals.withBarThickness(barThickness), anchor);
+            }
+            activeRevision = session;
+            return session;
+        }
+
+        /**
+         * 一次性入口（测试/参考用）：等价于 {@code beginRevision(...).advance(NEVER_YIELD)} + getMesh()。
+         * 生产路径请用 {@link #beginRevision} 的分片形态。
+         */
+        public ChainPreviewMesh extend(
+                List<ChainTarget> snapshotNewestFirst, int[] semanticClasses,
+                VisualParameters visuals, float barThickness) {
+            MeshBuildSession revision = beginRevision(
+                snapshotNewestFirst, semanticClasses, visuals, barThickness);
+            revision.advance(NEVER_YIELD);
+            mesh = revision.getMesh();
+            return mesh;
+        }
+
+        /** 把快照并入代级缓存：新增 unique 目标按时间序追加，锚点/重锚按契约更新。 */
+        private void mergeSnapshot(
+                List<ChainTarget> snapshotNewestFirst, int[] semanticClasses, VisualParameters visuals) {
             List<ChainTarget> snapshot = snapshotNewestFirst == null
                 ? Collections.<ChainTarget>emptyList()
                 : snapshotNewestFirst;
@@ -513,26 +556,6 @@ public class ChainPreviewMeshBuilder {
                 // Option A：只重算新增目标及其 26 邻域的可见段，其余复用缓存。
                 refreshVisibleSegments();
             }
-
-            BuildSession session;
-            if (positions.isEmpty()) {
-                session = builder.begin(
-                    Collections.<ChainTarget>emptyList(), visuals, barThickness, null);
-            } else if (visuals.isLodEnabled()) {
-                // LOD 剔除集合随相机/阈值变化，缓存不适用：本阶段回退全量可见段重算（登记边界）。
-                session = builder.beginWithOrigin(
-                    chronology, visuals.withBarThickness(barThickness), chronologyClasses.exactArray(),
-                    anchor.x, anchor.y, anchor.z);
-            } else {
-                PreparedTopology topology = new PreparedTopology(
-                    positions, occupancy, chronologyClasses.exactArray(), cachedSegments,
-                    visibleBlockCount, overflowed);
-                session = builder.beginPrepared(
-                    topology, visuals.withBarThickness(barThickness), anchor);
-            }
-            session.advance(NEVER_YIELD);
-            mesh = session.getMesh();
-            return mesh;
         }
 
         /**
@@ -642,6 +665,7 @@ public class ChainPreviewMeshBuilder {
                 return false;
             }
             disposeRequested = false;
+            activeRevision = null;
             chronology.clear();
             chronologyClasses.reset();
             knownPositions.clear();

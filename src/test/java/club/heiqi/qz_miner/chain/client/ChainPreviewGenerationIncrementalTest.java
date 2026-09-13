@@ -71,6 +71,54 @@ public class ChainPreviewGenerationIncrementalTest {
     }
 
     /**
+     * 可分片、可续跑的生产形态：大网格 beginRevision + 逐片 advance（gate 让出）必须能续跑，
+     * 最终结果与一次性 extend 逐字节等价；gate 恒不让出时一次完成。
+     */
+    @Test
+    public void chunkedRevisionYieldsAndResumesByteIdenticalToOneShot() {
+        List<ChainTarget> chronology = line(240);
+        List<ChainTarget> snapshot = new ArrayList<ChainTarget>(chronology);
+        Collections.reverse(snapshot);
+        int[] classes = classesFor(snapshot);
+
+        ChainPreviewMesh oneShot = new ChainPreviewMeshBuilder().beginGeneration()
+            .extend(snapshot, classes, visuals(), THICKNESS);
+
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        GenerationSession session = builder.beginGeneration();
+        ChainPreviewMeshBuilder.MeshBuildSession revision =
+            session.beginRevision(snapshot, classes, visuals(), THICKNESS);
+        int yields = 0;
+        boolean complete = false;
+        while (!complete) {
+            complete = revision.advance(new ChainPreviewMeshBuilder.WorkGate() {
+                private int checks;
+
+                @Override
+                public boolean shouldYield() {
+                    return ++checks > 3;
+                }
+            });
+            if (!complete) {
+                yields++;
+            }
+            Assert.assertTrue("让出次数必须有限，实际=" + yields, yields < 500_000);
+        }
+        ChainPreviewMesh chunked = revision.getMesh();
+        System.out.println("[t29-yield] yields=" + yields + " vertices=" + chunked.getVertexFloatCount());
+        Assert.assertTrue("大网格必须发生多次让出，实际=" + yields, yields > 0);
+        assertByteEqual("chunked", oneShot, chunked);
+
+        // gate 恒不让出（null）：一次完成，且与非增量路径语义一致。
+        ChainPreviewMeshBuilder immediateBuilder = new ChainPreviewMeshBuilder();
+        GenerationSession immediateSession = immediateBuilder.beginGeneration();
+        ChainPreviewMeshBuilder.MeshBuildSession immediate =
+            immediateSession.beginRevision(snapshot, classes, visuals(), THICKNESS);
+        Assert.assertTrue(immediate.advance(null));
+        assertByteEqual("immediate", oneShot, immediate.getMesh());
+    }
+
+    /**
      * 生产生命周期契约（阶段 B 冻结口径）：代内复用同一会话；世代变化 = dispose 旧会话 + 新建；
      * 新代锚点/序号从零开始，不携带上一代状态。
      */
