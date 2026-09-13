@@ -52,8 +52,16 @@ final class ChainPreviewShaderProbe {
     private int expectedVertexCount;
     private int expectedIndexCount;
     private int expectedFloatCount;
+    /** 前两个 quad 的 CPU 索引（展开后前 12 个三角形索引的期望来源）。 */
+    private final int[] expectedQuadIndices = new int[8];
+    /** CPU 侧顶点包围盒（minX,minY,minZ,maxX,maxY,maxZ；mesh 局部坐标）。 */
+    private final float[] cpuBounds = new float[6];
+    /** 顶点流总 float 数：用于回读整段 VBO 判「几何是否塌缩」。 */
+    private int expectedFullFloatCount;
     private boolean pending;
     private int reports;
+    /** EBO 展开后抽样的三角形索引个数（2 个 quad）。 */
+    private static final int TRIANGLE_INDEX_SAMPLE = 12;
 
     /** 回读缓冲（渲染线程惰性创建，零静态初始化）。 */
     private ByteBuffer readBuffer;
@@ -79,6 +87,13 @@ final class ChainPreviewShaderProbe {
         for (int index = 0; index < expectedIndexCount; index++) {
             expectedIndices[index] = quadIndices != null && index < quadIndices.length ? quadIndices[index] : -1;
         }
+        expectedFullFloatCount = Math.max(0, vertexFloatCount);
+        for (int index = 0; index < expectedQuadIndices.length; index++) {
+            expectedQuadIndices[index] = quadIndices != null && index < quadIndexCount && index < quadIndices.length
+                    ? quadIndices[index] : -1;
+        }
+        resetBounds(cpuBounds);
+        accumulateBounds(vertices, expectedFullFloatCount, cpuBounds);
         pending = true;
     }
 
@@ -135,34 +150,66 @@ final class ChainPreviewShaderProbe {
     }
 
     /**
-     * 回读 VBO / EBO 头部并与 CPU 期望逐项比对，只报第一处不一致。
+     * 回读整段顶点缓冲与 EBO 头部，判定「几何是否塌缩」：CPU 包围盒 vs GPU 包围盒、
+     * 顶点头部逐项比对、EBO 前 12 个三角形索引逐项比对。
+     *
+     * <p>为什么必须回读整段：真机表型是「整链塌缩成一个面」，只看首个顶点无法区分
+     * 「VBO 里的几何本身就塌了」与「投影把几何压平了」。</p>
      *
      * @param vbo 顶点缓冲句柄
      * @param ebo 索引缓冲句柄
      */
-    void reportData(int vbo, int ebo) {
-        String firstMismatch = "none";
-        float[] gpuVertices = new float[expectedVertexCount * 3];
-        int[] gpuIndices = new int[expectedIndexCount];
+    void reportData(int vbo, int ebo, int triangleIndexCount, int gpuVertexCount) {
+        float[] gpuBounds = new float[6];
+        resetBounds(gpuBounds);
+        boolean vertexHeadEqual = false;
+        boolean indexEqual = false;
+        String note = "ok";
         try {
             int previousArray = integerValue(GL15.GL_ARRAY_BUFFER_BINDING, 0);
             int previousElement = integerValue(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING, 0);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
-            ByteBuffer vertexBytes = readBuffer(expectedVertexCount * 3 * 4);
-            if (vertexBytes != null && expectedVertexCount > 0) {
+            ByteBuffer vertexBytes = readBuffer(expectedFullFloatCount * 4);
+            if (vertexBytes != null && expectedFullFloatCount >= 3) {
                 GL15.glGetBufferSubData(GL15.GL_ARRAY_BUFFER, 0L, vertexBytes);
                 vertexBytes.position(0);
-                for (int index = 0; index < gpuVertices.length; index++) {
-                    gpuVertices[index] = vertexBytes.asFloatBuffer().get(index);
+                java.nio.FloatBuffer floats = vertexBytes.asFloatBuffer();
+                accumulateBounds(floats, expectedFullFloatCount, gpuBounds);
+                vertexHeadEqual = true;
+                for (int index = 0; index < expectedVertexCount * 3; index++) {
+                    if (Float.compare(floats.get(index), expectedPositions[index]) != 0) {
+                        vertexHeadEqual = false;
+                        note = "positionHead[" + index + "] gpu=" + fixed(floats.get(index))
+                            + " cpu=" + fixed(expectedPositions[index]);
+                        break;
+                    }
                 }
             }
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
-            ByteBuffer indexBytes = readBuffer(expectedIndexCount * 4);
-            if (indexBytes != null && expectedIndexCount > 0) {
+            int scanCount = Math.max(TRIANGLE_INDEX_SAMPLE, triangleIndexCount);
+            ByteBuffer indexBytes = readBuffer(scanCount * 4);
+            if (indexBytes != null) {
                 GL15.glGetBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0L, indexBytes);
                 indexBytes.position(0);
-                for (int index = 0; index < gpuIndices.length; index++) {
-                    gpuIndices[index] = indexBytes.asIntBuffer().get(index);
+                java.nio.IntBuffer indices = indexBytes.asIntBuffer();
+                // 整段扫描：最大索引必须小于顶点数，否则 GPU 会读到越界顶点（未定义值 ⇒ 几何塌缩外观）。
+                indexMax = -1;
+                for (int index = 0; index < triangleIndexCount; index++) {
+                    int value = indices.get(index);
+                    if (value > indexMax) {
+                        indexMax = value;
+                    }
+                }
+                indexOutOfRange = indexMax >= gpuVertexCount;
+                int[] expectedTriangles = expandCpuQuads();
+                indexEqual = true;
+                for (int index = 0; index < expectedTriangles.length; index++) {
+                    int actual = indices.get(index);
+                    if (expectedTriangles[index] < 0 || actual != expectedTriangles[index]) {
+                        indexEqual = false;
+                        note = "indexEbo[" + index + "] gpu=" + actual + " cpu=" + expectedTriangles[index];
+                        break;
+                    }
                 }
             }
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArray);
@@ -171,26 +218,109 @@ final class ChainPreviewShaderProbe {
             log("data{readback-failed=" + failure.getClass().getSimpleName() + ": " + failure.getMessage() + "}");
             return;
         }
-        for (int index = 0; index < gpuVertices.length; index++) {
-            if (Float.compare(gpuVertices[index], expectedPositions[index]) != 0) {
-                firstMismatch = "positionVbo[" + index + "] gpu=" + fixed(gpuVertices[index])
-                    + " cpu=" + fixed(expectedPositions[index]);
+        boolean boundsMatch = boundsEqual(gpuBounds);
+        log("data{note=" + note
+            + ", vertexHeadEqual=" + vertexHeadEqual
+            + ", indexEboHeadEqual=" + indexEqual
+            + ", indexMax=" + indexMax
+            + ", indexOutOfRange=" + indexOutOfRange
+            + ", bboxCpu=" + boundsText(cpuBounds)
+            + ", bboxGpu=" + boundsText(gpuBounds)
+            + ", bboxEqual=" + boundsMatch
+            + ", vertices=" + (expectedFullFloatCount / 3) + "}");
+        // 结论行：把三类事实压成一条，真机一眼可判「是数据没上去，还是几何本身塌了，还是索引越界」。
+        log("verdict{geometry=" + (boundsEquivalent() ? "cpu-uncollapsed" : "cpu-collapsed")
+            + ", vbo=" + (boundsMatch ? "matches-cpu" : "MISMATCH")
+            + ", index=" + (indexOutOfRange ? "OUT-OF-RANGE" : "ok")
+            + ", head=" + (vertexHeadEqual ? "ok" : "mismatch")
+            + "}");
+    }
+
+    /** 包围盒清零（空集用 min > max 表示）。 */
+    private static void resetBounds(float[] bounds) {
+        bounds[0] = Float.MAX_VALUE;
+        bounds[1] = Float.MAX_VALUE;
+        bounds[2] = Float.MAX_VALUE;
+        bounds[3] = -Float.MAX_VALUE;
+        bounds[4] = -Float.MAX_VALUE;
+        bounds[5] = -Float.MAX_VALUE;
+    }
+
+    private static void accumulateBounds(float[] vertices, int floatCount, float[] bounds) {
+        for (int index = 0; index + 2 < floatCount; index += 3) {
+            accumulateVertex(bounds, vertices[index], vertices[index + 1], vertices[index + 2]);
+        }
+    }
+
+    private static void accumulateBounds(java.nio.FloatBuffer vertices, int floatCount, float[] bounds) {
+        for (int index = 0; index + 2 < floatCount; index += 3) {
+            accumulateVertex(bounds, vertices.get(index), vertices.get(index + 1), vertices.get(index + 2));
+        }
+    }
+
+    private static void accumulateVertex(float[] bounds, float x, float y, float z) {
+        bounds[0] = Math.min(bounds[0], x);
+        bounds[1] = Math.min(bounds[1], y);
+        bounds[2] = Math.min(bounds[2], z);
+        bounds[3] = Math.max(bounds[3], x);
+        bounds[4] = Math.max(bounds[4], y);
+        bounds[5] = Math.max(bounds[5], z);
+    }
+
+    private static String boundsText(float[] bounds) {
+        if (bounds[0] > bounds[3]) {
+            return "(empty)";
+        }
+        return "(" + fixed(bounds[0]) + "," + fixed(bounds[1]) + "," + fixed(bounds[2]) + ")..("
+            + fixed(bounds[3]) + "," + fixed(bounds[4]) + "," + fixed(bounds[5]) + ")";
+    }
+
+    /** 索引最大值（整段扫描；-1 表示未扫描）。 */
+    private int indexMax = -1;
+    /** 最大索引是否越界（>= 顶点数 ⇒ GPU 读到未定义顶点）。 */
+    private boolean indexOutOfRange;
+    /** CPU 几何是否自证未塌缩（跨度 > 1.5 格即视为正常规模）。 */
+    private boolean boundsEquivalent() {
+        if (cpuBounds[0] > cpuBounds[3]) {
+            return false;
+        }
+        return (cpuBounds[3] - cpuBounds[0]) > 1.5F || (cpuBounds[5] - cpuBounds[2]) > 1.5F;
+    }
+
+    /** GPU 侧包围盒是否与 CPU 侧一致（1e-4 容差；不一致即 VBO 内容不是这份几何）。 */
+    private boolean boundsEqual(float[] gpu) {
+        if (gpu[0] > gpu[3]) {
+            return false;
+        }
+        for (int index = 0; index < 6; index++) {
+            if (Math.abs(gpu[index] - cpuBounds[index]) > 1e-4F) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 前两个 quad 按后端同样的规则展开为三角形索引（[a,b,c, a,c,d]）。 */
+    private int[] expandCpuQuads() {
+        int[] triangles = new int[TRIANGLE_INDEX_SAMPLE];
+        int cursor = 0;
+        for (int quad = 0; quad < 2; quad++) {
+            int base = quad * 4;
+            int a = expectedQuadIndices[base];
+            int b = expectedQuadIndices[base + 1];
+            int c = expectedQuadIndices[base + 2];
+            int d = expectedQuadIndices[base + 3];
+            if (a < 0 || b < 0 || c < 0 || d < 0 || cursor + 6 > triangles.length) {
                 break;
             }
+            triangles[cursor++] = a;
+            triangles[cursor++] = b;
+            triangles[cursor++] = c;
+            triangles[cursor++] = a;
+            triangles[cursor++] = c;
+            triangles[cursor++] = d;
         }
-        if ("none".equals(firstMismatch)) {
-            for (int index = 0; index < gpuIndices.length; index++) {
-                if (gpuIndices[index] != expectedIndices[index]) {
-                    firstMismatch = "indexEbo[" + index + "] gpu=" + gpuIndices[index] + " cpu=" + expectedIndices[index];
-                    break;
-                }
-            }
-        }
-        log("data{firstMismatch=" + firstMismatch
-            + ", gpuVertex0=" + tuple3(gpuVertices, 0)
-            + ", gpuIndex0..3=" + ints(gpuIndices)
-            + ", cpuVertex0=" + tuple3(expectedPositions, 0)
-            + ", cpuIndex0..3=" + ints(expectedIndices) + "}");
+        return triangles;
     }
 
     void reportMatrix(float[] projection, float[] modelView, float[] mvp,

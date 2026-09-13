@@ -400,7 +400,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                 boundBufferSize(cbo, GL15.GL_ARRAY_BUFFER),
                 boundBufferSize(abo, GL15.GL_ARRAY_BUFFER),
                 boundBufferSize(ebo, GL15.GL_ELEMENT_ARRAY_BUFFER));
-            probe.reportData(vbo, ebo);
+            probe.reportData(vbo, ebo, indexCount, vertexCount);
             float viewYaw = 0.0F;
             float viewPitch = 0.0F;
             if (RenderManager.instance != null) {
