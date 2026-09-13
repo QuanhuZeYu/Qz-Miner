@@ -189,6 +189,42 @@ public final class ChainPreviewPresentationProjection {
             long configRevision,
             long objectGroupRevision,
             boolean truncationSignalEnabled) {
+        return sampleAndPublish(
+            previewState,
+            previewController,
+            phaseProjection,
+            worldIdentity,
+            lifecycleEpoch,
+            serverRoundId,
+            configRevision,
+            objectGroupRevision,
+            truncationSignalEnabled,
+            false,
+            0);
+    }
+
+    /**
+     * 扩展采样入口（B5.2）：额外携带执行进度开关与已执行计数。
+     *
+     * <p>开关与计数都由生产 ticker 从 {@link ChainPreviewExecutionProgress} 采样得到；
+     * 未接线的调用方继续走 9 参重载（等价 {@code executionProgressEnabled=false}、{@code executedCount=0}）。</p>
+     *
+     * @param executionProgressEnabled 执行进度开关（{@code clientPreviewExecutionProgress} 的投影位）
+     * @param executedCount 已执行目标数（同代单调不减；开关关闭时应传 0）
+     * @return 发布后的当前 header
+     */
+    public ChainPreviewPresentationHeader sampleAndPublish(
+            ChainPreviewState previewState,
+            ChainPreviewController previewController,
+            ClientPhaseProjection phaseProjection,
+            long worldIdentity,
+            long lifecycleEpoch,
+            long serverRoundId,
+            long configRevision,
+            long objectGroupRevision,
+            boolean truncationSignalEnabled,
+            boolean executionProgressEnabled,
+            int executedCount) {
         ChainPhase phase = phaseProjection == null ? ChainPhase.IDLE : phaseProjection.getCurrentPhase();
         int serverGeneration = phaseProjection == null ? 0 : phaseProjection.getCurrentGeneration();
         int previewGeneration = previewState == null ? 0 : previewState.getGeneration();
@@ -213,6 +249,7 @@ public final class ChainPreviewPresentationProjection {
             scannedCount,
             matchedCount,
             matchedCount,
+            executedCount,
             truncationReason,
             truncatedCount,
             totalCount,
@@ -225,6 +262,7 @@ public final class ChainPreviewPresentationProjection {
             configRevision,
             objectGroupRevision,
             truncationSignalEnabled,
+            executionProgressEnabled,
             0L));
     }
 

@@ -209,9 +209,9 @@ public class ChainPreviewPresentationProjectionTest {
 
     private static ChainPreviewPresentationHeader concurrentHeader(int seed) {
         return new ChainPreviewPresentationHeader(
-            ChainPhase.IDLE, 0, 0, false, false, 0, 0, 0,
+            ChainPhase.IDLE, 0, 0, false, false, 0, 0, 0, 0,
             ChainPreviewState.TruncationReason.NONE, 0, 0, ChainPreviewState.CancelReason.NONE,
-            false, seed, seed, 0L, 0L, 0L, 0L, false, 0L);
+            false, seed, seed, 0L, 0L, 0L, 0L, false, false, 0L);
     }
 
     @Test

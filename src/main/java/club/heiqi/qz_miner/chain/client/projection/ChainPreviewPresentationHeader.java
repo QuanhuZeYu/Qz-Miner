@@ -15,8 +15,11 @@ import cpw.mods.fml.relauncher.SideOnly;
  * objectGroupRevision / serverGeneration / previewGeneration）参与相等判定：任一变即视为新 header，
  * 订阅者据此重置本地缓存。</p>
  *
- * <p>字段数据源边界（如实标注）：{@code visibleCount} 本轮与 {@code matchedCount} 同源
- * （State 尚未细分「可见/已执行」；B5.2 引入配额/进度数据源后再拆字段）。{@code configRevision} 取自
+ * <p>字段数据源边界（如实标注）：{@code visibleCount} 仍与 {@code matchedCount} 同源（B5.2 只新增
+ * {@code executedCount}，不臆造「可见」维度）；{@code executedCount} 来自客户端世界采样 + 位置去重
+ * （{@code ChainPreviewExecutionProgress}，同代单调不减，换代/lifecycle/世界切换归零），
+ * {@code executionProgressEnabled} 是 {@code clientPreviewExecutionProgress} 的投影位。
+ * {@code configRevision} 取自
  * {@code ConfigBootstrap} 提交 epoch（无提交时 0=未接线）。{@code serverRoundId} 客户端当前
  * <b>无协议来源</b>（相位包不含 round 字段），恒 0=未接线；服务端代际失效由 phase 投影的
  * generation 覆盖，真接需协议扩展（下一批评估，本轮不扩协议）。</p>
@@ -32,6 +35,7 @@ public final class ChainPreviewPresentationHeader {
     private final int scannedCount;
     private final int matchedCount;
     private final int visibleCount;
+    private final int executedCount;
     private final ChainPreviewState.TruncationReason truncationReason;
     private final int truncatedCount;
     private final int totalCount;
@@ -44,6 +48,7 @@ public final class ChainPreviewPresentationHeader {
     private final long configRevision;
     private final long objectGroupRevision;
     private final boolean truncationSignalEnabled;
+    private final boolean executionProgressEnabled;
     private final long revision;
 
     /**
@@ -58,6 +63,7 @@ public final class ChainPreviewPresentationHeader {
             int scannedCount,
             int matchedCount,
             int visibleCount,
+            int executedCount,
             ChainPreviewState.TruncationReason truncationReason,
             int truncatedCount,
             int totalCount,
@@ -70,6 +76,7 @@ public final class ChainPreviewPresentationHeader {
             long configRevision,
             long objectGroupRevision,
             boolean truncationSignalEnabled,
+            boolean executionProgressEnabled,
             long revision) {
         this.phase = phase == null ? ChainPhase.IDLE : phase;
         this.serverGeneration = serverGeneration;
@@ -79,6 +86,7 @@ public final class ChainPreviewPresentationHeader {
         this.scannedCount = scannedCount;
         this.matchedCount = matchedCount;
         this.visibleCount = visibleCount;
+        this.executedCount = executedCount;
         this.truncationReason = truncationReason == null
                 ? ChainPreviewState.TruncationReason.NONE : truncationReason;
         this.truncatedCount = truncatedCount;
@@ -93,6 +101,7 @@ public final class ChainPreviewPresentationHeader {
         this.configRevision = configRevision;
         this.objectGroupRevision = objectGroupRevision;
         this.truncationSignalEnabled = truncationSignalEnabled;
+        this.executionProgressEnabled = executionProgressEnabled;
         this.revision = revision;
     }
 
@@ -131,9 +140,17 @@ public final class ChainPreviewPresentationHeader {
         return matchedCount;
     }
 
-    /** @return 可见目标数；本轮与 matchedCount 同源（执行进度属 B5.2） */
+    /** @return 可见目标数；仍与 matchedCount 同源（本类不臆造「可见」维度） */
     public int getVisibleCount() {
         return visibleCount;
+    }
+
+    /**
+     * @return 已执行目标数（客户端世界采样 + 位置去重）：同一预览代内单调不减，
+     *         换代 / lifecycle / 世界切换归零；开关关闭或无活动代时恒 0
+     */
+    public int getExecutedCount() {
+        return executedCount;
     }
 
     /** @return 截断原因；NONE 表示无截断 */
@@ -199,6 +216,14 @@ public final class ChainPreviewPresentationHeader {
         return truncationSignalEnabled;
     }
 
+    /**
+     * @return 执行进度开关（clientPreviewExecutionProgress 的投影位，供 HUD 零分配读取；
+     *         false = 不采样不计数，executedCount 恒 0）
+     */
+    public boolean isExecutionProgressEnabled() {
+        return executionProgressEnabled;
+    }
+
     /** @return header 自身单调递增 revision（每次发布 +1） */
     public long getRevision() {
         return revision;
@@ -219,6 +244,7 @@ public final class ChainPreviewPresentationHeader {
             && scannedCount == other.scannedCount
             && matchedCount == other.matchedCount
             && visibleCount == other.visibleCount
+            && executedCount == other.executedCount
             && truncatedCount == other.truncatedCount
             && totalCount == other.totalCount
             && remoteRequestPending == other.remoteRequestPending
@@ -229,6 +255,7 @@ public final class ChainPreviewPresentationHeader {
             && configRevision == other.configRevision
             && objectGroupRevision == other.objectGroupRevision
             && truncationSignalEnabled == other.truncationSignalEnabled
+            && executionProgressEnabled == other.executionProgressEnabled
             && phase == other.phase
             && truncationReason == other.truncationReason
             && cancelReason == other.cancelReason;
@@ -245,6 +272,7 @@ public final class ChainPreviewPresentationHeader {
             scannedCount,
             matchedCount,
             visibleCount,
+            executedCount,
             truncationReason,
             truncatedCount,
             totalCount,
@@ -257,6 +285,7 @@ public final class ChainPreviewPresentationHeader {
             configRevision,
             objectGroupRevision,
             truncationSignalEnabled,
+            executionProgressEnabled,
             nextRevision);
     }
 
@@ -279,6 +308,7 @@ public final class ChainPreviewPresentationHeader {
         result = 31 * result + scannedCount;
         result = 31 * result + matchedCount;
         result = 31 * result + visibleCount;
+        result = 31 * result + executedCount;
         result = 31 * result + truncationReason.hashCode();
         result = 31 * result + truncatedCount;
         result = 31 * result + totalCount;
@@ -291,6 +321,7 @@ public final class ChainPreviewPresentationHeader {
         result = 31 * result + (int) (configRevision ^ (configRevision >>> 32));
         result = 31 * result + (int) (objectGroupRevision ^ (objectGroupRevision >>> 32));
         result = 31 * result + (truncationSignalEnabled ? 1 : 0);
+        result = 31 * result + (executionProgressEnabled ? 1 : 0);
         result = 31 * result + (int) (revision ^ (revision >>> 32));
         return result;
     }
@@ -306,6 +337,7 @@ public final class ChainPreviewPresentationHeader {
             + ", scanned=" + scannedCount
             + ", matched=" + matchedCount
             + ", visible=" + visibleCount
+            + ", executed=" + executedCount
             + ", truncated=" + truncationReason + "/" + truncatedCount
             + ", total=" + totalCount
             + ", remotePending=" + remoteRequestPending + "#" + remoteRequestId
@@ -316,6 +348,7 @@ public final class ChainPreviewPresentationHeader {
             + ", configRev=" + configRevision
             + ", objectGroupRev=" + objectGroupRevision
             + ", truncationSignal=" + truncationSignalEnabled
+            + ", executionProgress=" + executionProgressEnabled
             + '}';
     }
 }
