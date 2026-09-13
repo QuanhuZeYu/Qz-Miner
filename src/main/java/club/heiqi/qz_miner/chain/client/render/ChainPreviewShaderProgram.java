@@ -59,17 +59,28 @@ public final class ChainPreviewShaderProgram {
      * 而后端的平移列自检读的是<b>驱动矩阵</b>（不是 uniform 值）⇒ <b>自检通过、画面全错</b>。
      * 链接完成后一次性校验即可封死这条通路。</p>
      *
-     * <p>只列「缺失必定导致画面错误」的 uniform。其余 uniform 有语义安全的关闭值
-     * （{@code uMinScreenWidthPx = 0} 关闭钳制、{@code uOutlineWidthPx = 0} 关闭描边、
-     * {@code uAnimProgress >= 1} 关闭生长等），缺失时静默跳过属安全退化，不列入必备。</p>
+     * <p>shader 主路径实际消费的 uniform 全部列入必备。这样一旦链接器优化掉、驱动未提供或
+     * uniform location 异常，后端会整体回退 legacy，而不是以默认零值继续绘制错误画面。</p>
      */
     private static final String[] REQUIRED_UNIFORMS = {
-        "uModelViewProjection", // 顶点最终变换：缺失 ⇒ 全部顶点塌到原点
-        "uModelView",           // 顶点真正引用了它（深度 + 横向投影），缺失 ⇒ 最小宽度/描边换算失真
-        "uOriginRel",           // 距离淡出基准：缺失 ⇒ 整链 alpha 曲线错
-        "uBarThickness",        // 横向退化判据：缺失 ⇒ 亚像素条柱被误加宽
-        "uFadeAlpha",           // 淡入淡出包络：缺失 ⇒ 依赖安全初值（1.0）才能正确
-        "uColorPrimary",        // 主色 / 兜底色：缺失 ⇒ 颜色全黑
+        "uModelViewProjection",
+        "uModelView",
+        "uOriginRel",
+        "uPixelScale",
+        "uFadeStart",
+        "uFadeEnd",
+        "uMinAlpha",
+        "uMaxAlpha",
+        "uAnimProgress",
+        "uAppearSpan",
+        "uMinScreenWidthPx",
+        "uBarThickness",
+        "uFadeAlpha",
+        "uOutlineWidthPx",
+        "uColorPrimary",
+        "uColorSecondary",
+        "uColorRemote",
+        "uColorTruncated",
     };
 
     private final Map<String, Integer> uniformLocations = new LinkedHashMap<String, Integer>();

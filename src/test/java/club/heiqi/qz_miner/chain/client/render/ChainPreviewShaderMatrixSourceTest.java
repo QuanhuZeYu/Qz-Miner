@@ -157,28 +157,6 @@ public class ChainPreviewShaderMatrixSourceTest {
         Assert.assertTrue("setModelViewProjection 必须把上传结果透出给后端", projection.contains("return setUniformMatrix4("));
     }
 
-    /** T48c-C/D：诊断快照必须一次性、受开关门控、且只在自检通过之后；T48c-D 补朝向字段与单次属性读取。 */
-    @Test
-    public void diagnosticSnapshotIsOneShotAndGated() throws Exception {
-        String body = methodBody(BACKEND_PATH, "private void reportMatrixSnapshot(", "reportMatrixSnapshot");
-        Assert.assertTrue("必须由 requested() 门控（属性关闭时零输出）",
-                body.contains("ChainPreviewShaderMatrixSnapshot.requested()"));
-        int latch = body.indexOf("matrixSnapshotReported = true");
-        int gate = body.indexOf("requested()");
-        Assert.assertTrue("必须无条件先锁存（属性只读一次：注释与实现对齐，T48c-D）", latch >= 0 && gate > latch);
-        Assert.assertTrue("必须锁存在输出之前（一次性）", latch < body.indexOf("MyMod.LOG.info("));
-        Assert.assertTrue("必须传视图朝向（离线复算朝向的唯一输入，T48c-D）",
-                body.contains("playerViewY") && body.contains("playerViewX"));
-        Assert.assertTrue("必须用固定格式器输出单行", body.contains("ChainPreviewShaderMatrixSnapshot.format("));
-        Assert.assertTrue("必须输出锚点顶点 CPU 投影", body.contains("transformPoint("));
-        Assert.assertTrue("异常不得影响渲染帧", body.contains("catch (Throwable ignored)"));
-
-        String upload = methodBody(BACKEND_PATH, "private boolean uploadCameraMatrices(", "uploadCameraMatrices");
-        int verdict = upload.indexOf("verifyCameraMatrices(");
-        int snapshot = upload.indexOf("reportMatrixSnapshot(plan)");
-        Assert.assertTrue("快照必须在自检之后（只在成功路径上）", verdict >= 0 && snapshot > verdict);
-    }
-
     /**
      * T48c-C 第 2 条的原版相机扭曲例外：传送门/反胃时 modelview 被施加非均匀缩放，
      * 无条件刚性判据会误判并永久回退（比原缺陷更重）。

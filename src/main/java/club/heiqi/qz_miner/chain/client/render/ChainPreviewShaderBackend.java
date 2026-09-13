@@ -4,7 +4,6 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
-import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
@@ -37,9 +36,7 @@ import org.lwjgl.opengl.GL30;
  * <p><strong>T48c-C 加固</strong>：① 程序链接后校验必备 uniform 的 location（缺失 ⇒ 程序不可用，
  * 见 {@link ChainPreviewShaderProgram}），并让矩阵上传返回成功与否 —— 堵住「uniform 缺失静默跳过 ⇒
  * shader 拿零矩阵、而自检读驱动矩阵照样通过」；② 自检扩展为「投影可信 + 线性部分刚性 + 平移列模长 +
- * 平移-线性一致性」（原版相机扭曲期间跳过后两项，见 {@link #vanillaCameraWarpActive()}）；
- * ③ {@code -Dqz_miner.preview.diagnostics=true} 时首次绘制输出一行
- * {@link ChainPreviewShaderMatrixSnapshot}，供桌面端离线复算。</p>
+ * 平移-线性一致性」（原版相机扭曲期间跳过后两项，见 {@link #vanillaCameraWarpActive()}）。</p>
  *
  * <p><strong>GL 状态契约</strong>：帧级 pushAttrib / pushClientAttrib 与绑定围栏由 renderer 统一
  * 负责；本类内部除了 {@link #dispose()}（可能被帧外生命周期调用）以外不捕获绑定快照，也不改
@@ -64,6 +61,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private static final float BUILTIN_COLOR_BLUE = ChainPreviewShaderMath.BUILTIN_COLOR_BLUE;
 
     private static final int INITIAL_CAPACITY = 16 * 1024;
+
+    /** 顶点属性显式 stride（字节）：core profile 下不依赖 stride=0 的"紧凑"语义。 */
+    private static final int POSITION_STRIDE_BYTES = 3 * 4;
+    private static final int COLOR_STRIDE_BYTES = 4 * 4;
+    private static final int AUX_STRIDE_BYTES = 4;
 
     private final ChainPreviewShaderProgram program;
 
@@ -93,16 +95,16 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private double matrixExpectedMagnitude = Double.NaN;
     /** 自检失败原因（一次性）；空串表示从未失败。 */
     private String matrixSourceFailure = "";
-    /** 锚点顶点（索引 0）的局部坐标：诊断快照用（上传期取一次，无每帧成本）。 */
-    private final float[] anchorLocal = new float[3];
-    /** 锚点顶点的 CPU 裁剪坐标（诊断快照时才计算）。 */
-    private final float[] anchorClip = new float[4];
-    /** 诊断快照是否已输出（一次性；默认属性关闭时恒为 false）。 */
-    private boolean matrixSnapshotReported;
-
     /** 同代最大出现序号（扫描 aAux 得到）；< 0 表示无 aAux（关闭生长比较），0 表示单目标。 */
     private float appearSpan = -1.0F;
 
+    /*
+     * shader 后端统一使用三角形。Mesh 和 ChainPreviewDrawPlan 继续以 quad 索引为
+     * 业务语义，在上传 EBO 时一次性展开为 [a,b,c, a,c,d]。不能在当前 Angelica GLSM +
+     * core profile 环境依赖 GL_QUADS；legacy 后端仍保留原始 quad 路径。
+     */
+    /** 三角形索引展开缓冲（渲染线程复用）。 */
+    private int[] triangleIndexScratch;
     private FloatBuffer vertexStaging;
     private FloatBuffer colorStaging;
     private IntBuffer indexStaging;
@@ -231,13 +233,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         int vertexFloatCount = mesh.getVertexFloatCount();
         int colorFloatCount = mesh.getColorFloatCount();
 
-        indexCount = mesh.getIndexCount();
+        // plan 的索引语义恒为 mesh 的 quad 索引；shader EBO 在此处按 4→6 展开。
+        int quadIndexCount = mesh.getIndexCount();
+        int uploadIndexCount = expandQuadsToTriangles(indices, quadIndexCount);
+        int[] uploadIndices = triangleIndexScratch;
+        indexCount = uploadIndexCount;
         vertexCount = vertexFloatCount / 3;
-        // 诊断锚点：网格索引 0 的顶点（局部坐标）。只在 uploadTopology 取一次，快照行里用它做
-        // 「应落在哪 vs 实际落在哪」的 CPU 复算基准（T48c-C）。
-        anchorLocal[0] = vertices.length >= 3 ? vertices[0] : 0.0F;
-        anchorLocal[1] = vertices.length >= 3 ? vertices[1] : 0.0F;
-        anchorLocal[2] = vertices.length >= 3 ? vertices[2] : 0.0F;
         // 刻意不缓存 meshOrigin：uOriginRel 与自检期望值一律取 plan 的 origin（renderer 的
         // glTranslated 与 legacy 后端都用 plan origin）。上传期缓存会在「同 mesh 换 plan」时
         // 让两后端语义分叉（T48c-A）。
@@ -271,7 +272,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             eboCapacity = calculateNewCapacity(requiredEboSize);
             GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
         }
-        indexStaging = prepareIntBuffer(indexStaging, indices, indexCount);
+        indexStaging = prepareIntBuffer(indexStaging, uploadIndices, uploadIndexCount);
         GL15.glBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0, indexStaging);
 
         GL30.glBindVertexArray(0);
@@ -293,6 +294,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             return;
         }
         int indexOffset = Math.max(0, plan.getIndexOffset());
+        // plan 仍以 quad 索引描述可见范围；shader EBO 已逐 quad 展开为 6 个三角形索引。
+        indexOffset = indexOffset / 4 * 6;
+        visibleIndexCount = visibleIndexCount / 4 * 6;
         if (indexOffset + visibleIndexCount > indexCount) {
             visibleIndexCount = indexCount - indexOffset;
             if (visibleIndexCount <= 0) {
@@ -312,11 +316,16 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             }
 
             GL30.glBindVertexArray(vao);
+            // 每帧显式重设属性布局：本环境是 core profile + GLSM，VAO 的 attrib 记录不保证
+            // 在外部渲染路径之后仍然有效（详见 bindVertexLayout 的 javadoc）。
+            int previousArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
+            bindVertexLayout();
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
+            int primitive = GL11.GL_TRIANGLES;
             GL11.glDrawElements(
-                GL11.GL_QUADS,
+                primitive,
                 visibleIndexCount,
                 GL11.GL_UNSIGNED_INT,
                 (long) indexOffset * 4L);
@@ -326,6 +335,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL20.glDisableVertexAttribArray(1);
             GL20.glDisableVertexAttribArray(0);
             GL30.glBindVertexArray(0);
+            // GL_ARRAY_BUFFER 绑定不属于 VAO，必须显式还原（本环境没有可用的固定管线围栏）。
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
         } catch (Throwable failure) {
             // 渲染帧不得因着色器路径抛异常：计数并让本帧静默结束，下一帧仍可绘制。
             drawFailures++;
@@ -360,10 +371,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         matrixSourceFailure = "";
         matrixTranslationMagnitude = Float.NaN;
         matrixExpectedMagnitude = Double.NaN;
-        anchorLocal[0] = 0.0F;
-        anchorLocal[1] = 0.0F;
-        anchorLocal[2] = 0.0F;
-        matrixSnapshotReported = false;
     }
 
     @Override
@@ -477,7 +484,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * 模拟固定管线 + {@code use_no_error_g_l_context=true}）下与真实相机矩阵失同步，这是 T48c-A
      * 的根因位点：显式矩阵让「实际用到的矩阵」可读、可断言、可自检。</p>
      *
-     * @param plan            当前 draw plan（origin/索引数供诊断快照离线复算）
+     * @param plan            当前 draw plan（用于读取 origin）
      * @param originRelativeX 相机相对 origin X（已在 double 域算出，期望模长复用同一组值）
      * @param originRelativeY 相机相对 origin Y
      * @param originRelativeZ 相机相对 origin Z
@@ -521,7 +528,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             return false;
         }
 
-        reportMatrixSnapshot(plan);
         return true;
     }
 
@@ -606,46 +612,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             pullback = VANILLA_THIRD_PERSON_DISTANCE_MAX;
         }
         return ChainPreviewShaderMatrixMath.TRANSLATION_DIRECTION_SLACK + pullback;
-    }
-
-    /**
-     * 诊断快照（默认关闭，{@code -Dqz_miner.preview.diagnostics=true} 时首次绘制打一行 INFO）。
-     *
-     * <p>一次性语义（与实现对齐）：首次调用<b>无条件</b>置位 {@code matrixSnapshotReported}
-     * （含属性关闭的情形）——{@code -D} 是 JVM 启动参数、运行期不会变化，所以属性总共只读一次，
-     * 之后每帧只剩一次布尔判断；属性关闭时零日志、零格式化开销。</p>
-     *
-     * @param plan 当前 draw plan（其 origin/索引数用于离线复算）
-     */
-    private void reportMatrixSnapshot(ChainPreviewDrawPlan plan) {
-        if (matrixSnapshotReported) {
-            return;
-        }
-        matrixSnapshotReported = true;
-        if (!ChainPreviewShaderMatrixSnapshot.requested()) {
-            return;
-        }
-        try {
-            ChainPreviewShaderMatrixMath.transformPoint(
-                anchorClip, modelViewProjectionMatrix, anchorLocal[0], anchorLocal[1], anchorLocal[2]);
-            MyMod.LOG.info(ChainPreviewShaderMatrixSnapshot.format(
-                projectionMatrix,
-                modelViewMatrix,
-                modelViewProjectionMatrix,
-                matrixExpectedMagnitude,
-                matrixTranslationMagnitude,
-                new double[] {RenderManager.renderPosX, RenderManager.renderPosY, RenderManager.renderPosZ},
-                // 视图朝向（vanilla 视图实体插值 yaw/pitch）：旋转类异常只能靠它与 P/MV 离线复算（T48c-D）。
-                RenderManager.instance.playerViewY,
-                RenderManager.instance.playerViewX,
-                new int[] {plan.getOriginX(), plan.getOriginY(), plan.getOriginZ()},
-                indexCount,
-                vertexCount,
-                anchorLocal,
-                anchorClip));
-        } catch (Throwable ignored) {
-            // 诊断日志与格式化异常不得影响渲染帧。
-        }
     }
 
     /**
@@ -758,6 +724,58 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         return (float) max;
     }
 
+    /**
+     * 把 quad 索引序列 {@code [a,b,c,d]} 展开为三角形序列 {@code [a,b,c, a,c,d]}（每 4 个产出 6 个）。
+     *
+     * <p>上传 shader EBO 时使用；写进 {@link #triangleIndexScratch} 并返回有效长度。</p>
+     *
+     * @param indices        源索引数组（至少 {@code quadIndexCount} 个元素）
+     * @param quadIndexCount 源索引数（恒为 4 的倍数）
+     * @return 展开后的三角形索引数（= {@code quadIndexCount / 4 * 6}）
+     */
+    private int expandQuadsToTriangles(int[] indices, int quadIndexCount) {
+        int triangles = quadIndexCount / 4 * 6;
+        if (triangleIndexScratch == null || triangleIndexScratch.length < triangles) {
+            triangleIndexScratch = new int[Math.max(triangles, 1)];
+        }
+        int source = 0;
+        int target = 0;
+        while (source + 3 < quadIndexCount) {
+            int a = indices[source];
+            int b = indices[source + 1];
+            int c = indices[source + 2];
+            int d = indices[source + 3];
+            triangleIndexScratch[target++] = a;
+            triangleIndexScratch[target++] = b;
+            triangleIndexScratch[target++] = c;
+            triangleIndexScratch[target++] = a;
+            triangleIndexScratch[target++] = c;
+            triangleIndexScratch[target++] = d;
+            source += 4;
+        }
+        return target;
+    }
+
+    /**
+     * 在当前绑定的 VAO 上重新声明三个顶点属性的 buffer / 格式 / stride / 偏移。
+     *
+     * <p><b>为什么必须每帧重设</b>：真机环境实测为 GL 4.6 <b>core profile</b>
+     * （{@code profileMask=1}）＋ Angelica GLSM ＋ lwjgl3ify。同一上下文里
+     * {@code glPushClientAttrib/glPopClientAttrib} 已被移除（返回 GL_INVALID_OPERATION，日志可见
+     * "GL fence popClientAttrib reported error 1282"），也就是说「客户端顶点数组状态由固定管线栈
+     * 保存/恢复」这个前提在该环境<b>不成立</b>。只依赖初始化时写入一次 VAO 的 attrib 记录，
+     * 会在外部渲染路径改动后读到非几何数据——真机表型正是「整链塌缩到瞄准方块的一个面上」。
+     * 本方法幂等，代价是每帧 3 次 {@code glVertexAttribPointer}；GL_ARRAY_BUFFER 绑定由调用方还原。</p>
+     */
+    private void bindVertexLayout() {
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
+        GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
+        GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
+        GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
+    }
+
     private void initializeGl() {
         vao = GL30.glGenVertexArrays();
         vbo = GL15.glGenBuffers();
@@ -773,18 +791,19 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, 0, 0);
+        // 接口冻结 §A：aPos = 3 x float32（相对 meshOrigin 的局部坐标）。
+        GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(0);
 
         // 接口冻结 §A：aAux = 4 x uint8 normalized（semanticClass / tubeEdge / appearOrder u16 LE）
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, 0, 0);
+        GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(1);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, 0, 0);
+        GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(2);
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);

@@ -8,7 +8,6 @@ val buildVersion = providers.environmentVariable("VERSION").orElse("5.3.1-dev").
 version = buildVersion
 extra["modVersion"] = buildVersion
 
-// GTNH 基线唯一真源：dependencies.gradle 的 elytraModpackVersion.setGtnhVersion(...) 单值声明（对齐 Qz-UILib）。
 // 不再存在 gradle/gtnh-baselines.json 基线清单与 verifyGtnhBaseline 校验任务，
 // CI/发布也不再传递 -Pqz.gtnh.expectedGregTechVersion / -Pelytra.manifest.version 覆盖。
 //

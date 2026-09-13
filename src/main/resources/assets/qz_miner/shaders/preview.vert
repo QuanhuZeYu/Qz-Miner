@@ -140,18 +140,22 @@ void main(void) {
         }
     }
 
-    // 2) 屏幕最小宽度 + 5) 亚像素柔化 + B3.x 描边：都只在「横向」偏移上作用，
-    //    保持条柱纵向长度不变。横向判据 = 三个轴上绝对偏移最小的那个；
-    //    由量级差零误判（厚度 vs 格线 0.5）。
-    //    两个消费方（最小宽度 / 描边）任一启用才计算——都关闭时这段完全不执行，
-    //    保证 xray / occlude 默认档逐值等于现状。
+    // 几何位置必须保持与 legacy 完全一致。aPos 已经是 MeshBuilder 生成的
+    // 条柱/连接块顶点，不能从其相对 origin 的绝对坐标猜测横向轴：长条端点、
+    // junction 和跨轴线段都会被误判，导致整面被推离原始几何。
+    // 屏幕最小宽度与描边暂不在 shader 顶点阶段改写拓扑几何；这些功能必须基于
+    // Mesh 明确提供的 tubeEdge/方向数据重新实现，不能用 aPos 近似替代。
+    vec3 displaced = aPos;
+
+    // 保留最小宽度/描边的契约算法，但在方向元数据接入前关闭几何位移。
+    // aPos 是世界局部坐标，不能可靠推断条柱横向轴；错误推断会把整面推离 Mesh。
+    // 后续启用条件应改为 Mesh 明确提供的方向/边数据，而不是删除这些接口。
     float pixelPerUnitAtDepth = 1.0;
     float lateralMagnitude = 0.0;
     vec3 lateralAxis = vec3(0.0, 0.0, 0.0);
-    if (uMinScreenWidthPx > 0.0 || uOutlineWidthPx > 0.0) {
+    if (false && (uMinScreenWidthPx > 0.0 || uOutlineWidthPx > 0.0)) {
         float depth = max(1e-4, -(uModelView * vec4(aPos, 1.0)).z);
         pixelPerUnitAtDepth = uPixelScale / depth;
-
         float magnitudeX = abs(aPos.x);
         float magnitudeY = abs(aPos.y);
         float magnitudeZ = abs(aPos.z);
@@ -159,8 +163,6 @@ void main(void) {
         if (lateralMagnitude <= 0.02 * max(uBarThickness, 1e-4)) {
             lateralAxis = vec3(0.0, 0.0, 0.0);
         } else if (magnitudeX <= magnitudeY && magnitudeX <= magnitudeZ) {
-            // 判据必须是「哪个轴的分量最小」，不能拿 lateralMagnitude（它本身就是最小值）
-            // 去和 magnitudeY/Z 比——那条件恒真，位移会永远沿 X 轴，把条柱推出方块。
             lateralAxis = vec3(sign(aPos.x), 0.0, 0.0);
         } else if (magnitudeY <= magnitudeZ) {
             lateralAxis = vec3(0.0, sign(aPos.y), 0.0);
@@ -168,15 +170,10 @@ void main(void) {
             lateralAxis = vec3(0.0, 0.0, sign(aPos.z));
         }
     }
-
-    vec3 displaced = aPos;
-    float pixelsPerWorldUnit = 1.0;
-    if (lateralMagnitude > 0.0) {
+    if (false && lateralMagnitude > 0.0) {
         float worldLateral = length((uModelView * vec4(lateralAxis, 0.0)).xyz);
         float projectedPerUnit = clamp(worldLateral, 0.05, 1.0);
-        // 横向方向上的「像素 / 世界单位」——最小宽度与描边共用同一换算。
         pixelsPerWorldUnit = max(pixelPerUnitAtDepth * projectedPerUnit, 1e-6);
-
         float lateralWidthPx = 2.0 * lateralMagnitude * pixelsPerWorldUnit;
         float widen = 1.0;
         if (uMinScreenWidthPx > 0.0) {
@@ -184,16 +181,7 @@ void main(void) {
         }
         displaced = aPos + lateralAxis * (lateralMagnitude * (widen - 1.0));
     }
-
-    // B3.x 真描边：沿横向轴再外扩 uOutlineWidthPx（物理像素 → 世界量）。
-    // 只改顶点位移、不动拓扑与索引（与 B4.1 增量/差分等价相容）。
-    // uOutlineWidthPx = 0 时整段不执行 ⇒ xray / occlude / OUTLINE 主体 pass 逐值等于现状。
     if (uOutlineWidthPx > 0.0 && lateralMagnitude > 0.0) {
-        // 宽度收敛（与 Java 参考模型逐式同形）：
-        //   · 像素侧上限 8px（上游 host 也收敛，此处防御）；
-        //   · 世界侧上限 = 0.5 − uBarThickness。相邻条柱中心距 1 格，任一侧的
-        //     「条柱占用 + 外扩」不得超过半格，否则两侧同时外扩会重叠/粘连。
-        //     旧实现固定 0.5：默认厚度 0.045 时间隙 = 1 − 2×(0.045 + 0.5) = −0.09 格。
         float outlinePx = clamp(uOutlineWidthPx, 0.0, 8.0);
         float outlineWorld = outlinePx / pixelsPerWorldUnit;
         outlineWorld = clamp(outlineWorld, 0.0, max(0.0, 0.5 - uBarThickness));
