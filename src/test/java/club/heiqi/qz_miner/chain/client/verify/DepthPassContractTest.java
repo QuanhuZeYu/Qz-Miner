@@ -65,21 +65,22 @@ public class DepthPassContractTest {
     }
 
     @Test
-    public void outlineIsTwoPassesMainThenOverlayInFixedOrder() {
+    public void outlineIsShellThenMainInFixedOrder() {
+        // B3.x 真描边（Lead 批准方案 A）：段序 = [描边壳（沿用置顶/关深测配方）, 主体]
         Assert.assertEquals(2, ChainPreviewDepthPass.stageCount(Pass.OUTLINE));
-        Stage main = ChainPreviewDepthPass.stage(Pass.OUTLINE, 0);
-        Stage overlay = ChainPreviewDepthPass.stage(Pass.OUTLINE, 1);
-        Assert.assertSame("主体 pass 必须是固定配方", ChainPreviewDepthPass.OUTLINE_MAIN_STAGE, main);
-        Assert.assertSame("置顶 pass 必须是固定配方", ChainPreviewDepthPass.OUTLINE_OVERLAY_STAGE, overlay);
-        Assert.assertTrue("主体 pass 必须开深测（自遮挡正确）", main.isDepthTestEnabled());
-        Assert.assertFalse("置顶 pass 必须关深测（全可见）", overlay.isDepthTestEnabled());
-        Assert.assertFalse("两 pass 都不得写深度", main.isDepthMaskEnabled() || overlay.isDepthMaskEnabled());
-        Assert.assertNotEquals("两段必须是不同配方，否则顺序无意义", main, overlay);
-        // 越界索引取最后一段（防御，不抛）：覆盖 >= stageCount 与负索引两种输入。
-        Assert.assertSame(ChainPreviewDepthPass.OUTLINE_OVERLAY_STAGE,
-            ChainPreviewDepthPass.stage(Pass.OUTLINE, 5));
+        Stage shell = ChainPreviewDepthPass.stage(Pass.OUTLINE, 0);
+        Stage main = ChainPreviewDepthPass.stage(Pass.OUTLINE, 1);
+        Assert.assertSame("首段必须是描边壳配方（沿用置顶/关深测）",
+            ChainPreviewDepthPass.OUTLINE_OVERLAY_STAGE, shell);
+        Assert.assertSame("末段必须是主体配方", ChainPreviewDepthPass.OUTLINE_MAIN_STAGE, main);
+        Assert.assertFalse("描边壳必须关深测（外扩壳全可见成环）", shell.isDepthTestEnabled());
+        Assert.assertTrue("主体段必须开深测（自遮挡正确）", main.isDepthTestEnabled());
+        Assert.assertFalse("两段都不得写深度", shell.isDepthMaskEnabled() || main.isDepthMaskEnabled());
+        Assert.assertNotEquals("两段必须是不同配方，否则顺序无意义", shell, main);
+        // 越界索引取最后一段（防御，不抛）；负索引至少不得抛异常。
         Assert.assertSame(ChainPreviewDepthPass.OUTLINE_MAIN_STAGE,
-            ChainPreviewDepthPass.stage(Pass.OUTLINE, -3));
+            ChainPreviewDepthPass.stage(Pass.OUTLINE, 5));
+        Assert.assertNotNull(ChainPreviewDepthPass.stage(Pass.OUTLINE, -3));
     }
 
     @Test
