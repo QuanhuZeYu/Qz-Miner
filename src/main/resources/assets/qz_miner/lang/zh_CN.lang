@@ -18,6 +18,8 @@ hud.qz_miner.preview.truncated.reason.remote_limit=远端上限
 hud.qz_miner.preview.remote.label=远端:
 hud.qz_miner.preview.remote.timeout=预览已超时
 hud.qz_miner.preview.remote.unavailable=预览不可用
+hud.qz_miner.preview.progress.label=执行进度:
+hud.qz_miner.preview.progress.count=已执行 %s / 匹配 %s
 hud.qz_miner.server_area.label=服务端区域:
 hud.qz_miner.object_group_sync.label=对象组:
 hud.qz_miner.separator=,
@@ -149,5 +151,6 @@ config.qz_miner.clientPreviewLodMinAlpha.tooltip=LOD alpha 剔除阈值：低于
 config.qz_miner.clientPreviewSuppressVanillaHighlight.tooltip=预览激活且瞄准同一目标时取消原版方块高亮，避免双重指示
 config.qz_miner.clientPreviewVersionedInputs.tooltip=是否使用版本化预览输入快照（含目标去抖），默认 false（接线属下一批）；关闭时走逐字段比较
 config.qz_miner.clientPreviewPresentationOverlay.tooltip=是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源）
+config.qz_miner.clientPreviewExecutionProgress.tooltip=是否在 HUD 展示执行进度（已执行 / 匹配）；进度由客户端世界采样得到（零协议改动、可回退），默认关闭。仅统计被破坏（方块消失为空气）的目标位置，交互类与替换类目标不计入
 config.qz_miner.clientPreviewRemoteTimeoutMs.tooltip=远端预览请求超时（毫秒），合法 250..60000；超时丢弃陈旧响应并清预览激活
 

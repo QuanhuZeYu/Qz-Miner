@@ -115,6 +115,8 @@ public class Config {
     public static boolean clientPreviewVersionedInputs = QzMinerConfigDefaults.CLIENT_PREVIEW_VERSIONED_INPUTS;
     /** 是否启用统一表现投影覆盖层。 */
     public static boolean clientPreviewPresentationOverlay = QzMinerConfigDefaults.CLIENT_PREVIEW_PRESENTATION_OVERLAY;
+    /** 是否在 HUD 展示执行进度（已执行 / 匹配，B5.2）。 */
+    public static boolean clientPreviewExecutionProgress = QzMinerConfigDefaults.CLIENT_PREVIEW_EXECUTION_PROGRESS;
     /** 远端预览请求超时（毫秒）。 */
     public static int clientPreviewRemoteTimeoutMs = QzMinerConfigDefaults.CLIENT_PREVIEW_REMOTE_TIMEOUT_MS;
 

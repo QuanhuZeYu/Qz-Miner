@@ -18,6 +18,8 @@ hud.qz_miner.preview.truncated.reason.remote_limit=remote limit
 hud.qz_miner.preview.remote.label=Remote:
 hud.qz_miner.preview.remote.timeout=preview timed out
 hud.qz_miner.preview.remote.unavailable=preview unavailable
+hud.qz_miner.preview.progress.label=Progress:
+hud.qz_miner.preview.progress.count=executed %s / matched %s
 hud.qz_miner.server_area.label=Server Area:
 hud.qz_miner.object_group_sync.label=Object Groups:
 hud.qz_miner.separator=,
@@ -149,5 +151,6 @@ config.qz_miner.clientPreviewLodMinAlpha.tooltip=LOD alpha cull threshold; bars 
 config.qz_miner.clientPreviewSuppressVanillaHighlight.tooltip=Suppress the vanilla block highlight when the preview is active on the same target, avoiding a double indicator
 config.qz_miner.clientPreviewVersionedInputs.tooltip=Whether to use the versioned preview input snapshot (including target debounce); default false (wired in a later batch); when disabled the per-field comparison path is used
 config.qz_miner.clientPreviewPresentationOverlay.tooltip=Whether to enable the unified presentation projection overlay (single source of truth for HUD truncation, progress and remote failures)
+config.qz_miner.clientPreviewExecutionProgress.tooltip=Whether the HUD shows execution progress (executed / matched); the progress comes from client-side world sampling (no protocol change, easy to revert), default off. Only destroyed targets (block turned to air) are counted; interaction and replacement targets are not
 config.qz_miner.clientPreviewRemoteTimeoutMs.tooltip=Remote preview request timeout in milliseconds, range 250..60000; on timeout stale responses are dropped and preview activation is cleared
 

@@ -63,8 +63,10 @@
   - `clientPreviewSuppressVanillaHighlight`：预览激活且瞄准同一目标时取消原版方块高亮，避免双重指示，默认 `false`。
   - `clientPreviewVersionedInputs`：是否使用版本化预览输入快照（含目标去抖），默认 `false`（接线属下一批）；关闭时走逐字段比较。
   - `clientPreviewPresentationOverlay`：是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源），默认 `false`。
+  - `clientPreviewExecutionProgress`：是否在 HUD 展示执行进度（已执行 / 匹配），默认 `false`；进度由**客户端世界采样**得到（零协议改动、可回退），开启后随投影 header 每 tick 更新。关闭时**不采样、不计数**（默认档零开销、行为不变）。采样口径如实标注：只统计「目标位置所在区块已加载且方块已消失为空气」的目标，因此破坏 / 采掘类模式准确，交互类与替换类目标不产生空气态、不计入。
   - `clientPreviewRemoteTimeoutMs`：远端预览请求超时（毫秒），默认 `5000`，合法 `250..60000`；超时丢弃陈旧响应并清预览激活。
   - 预览视觉参数的运行期读取面唯一：session-core 的 `ChainPreviewVisualSettings.fromConfig()` 聚合上表键位后随构建任务下发；渲染与几何路径不直连 `Config` 静态字段。
+  - **重复目标语义（B5.4 维持现状，仅文档化）**：`clientPreviewMaxTargetsHardCap` 的 4096 配额按**唯一坐标**占用——同一坐标重复进入预览只保留一次，不占配额、不进入拓扑、语义类别取首次出现（B0.7 去重先于配额）；而 `ChainPreviewState` 的计数与 HUD「预览已匹配」仍按**原始读取数**（重复调用计入 `matchedCount`，既有契约由 `ChainPreviewStateTest` 锁定）。两者口径不同是刻意的：网格侧关注几何唯一性与内存上界，HUD 侧关注上游实际送来的目标数；读取时不要把去重后的唯一数当作 HUD 数字，也不要把 HUD 原始数当作配额占用。`lod=auto` 的远处散点剔除同样不占配额。
 - 并行执行预算（`general` 段，服务端权威）：`parallelBudgetMode` 默认 `deadline`（沿用 `tickBudgetMs` 共享 soft deadline，等于基线行为），可选 `slice`；`parallelSliceBudgetMs` 默认 `4`，合法 `1..40`，仅 `slice` 档生效。
   - **命令层写入缺口（登记下一批）**：`/qzminer config set` 的写白名单当前仍只覆盖既有 9 个 `general.*` scalar 键（STRING/NUMBER/BOOLEAN）；这两个新键不在白名单内，需通过 YAML 权威或配置页修改。命令层的 CHOICE 写入支持（含白名单与校验）登记为下一批，与本轮实现无关。
 

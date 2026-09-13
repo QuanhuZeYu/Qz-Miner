@@ -15,6 +15,8 @@ final class PresentationHeaderTestSource implements QzMinerHudModel.Presentation
     private final ClientPhaseProjection phaseProjection;
     private final ChainPreviewPresentationProjection presentation = new ChainPreviewPresentationProjection();
     private boolean truncationSignalEnabled;
+    private boolean executionProgressEnabled;
+    private int executedCount;
 
     PresentationHeaderTestSource(ChainPreviewState preview, ClientPhaseProjection phaseProjection) {
         this.preview = preview;
@@ -26,10 +28,16 @@ final class PresentationHeaderTestSource implements QzMinerHudModel.Presentation
         this.truncationSignalEnabled = enabled;
     }
 
+    /** 设置执行进度投影位与已执行计数（B5.2；关闭时应传 0）。 */
+    void setExecutionProgress(boolean enabled, int executed) {
+        this.executionProgressEnabled = enabled;
+        this.executedCount = executed;
+    }
+
     @Override
     public ChainPreviewPresentationHeader current() {
         presentation.sampleAndPublish(preview, null, phaseProjection, 0L, 0L, 0L, 0L, 0L,
-                truncationSignalEnabled);
+                truncationSignalEnabled, executionProgressEnabled, executedCount);
         return presentation.currentHeader();
     }
 }

@@ -256,7 +256,8 @@ public final class QzMinerConfigSchema {
                         .range(1, 4096)
                         .label("clientPreviewMaxTargetsHardCap")
                         .helper("预览目标数量硬顶，合法 1..4096；实际取该值与 clientPreviewMaxTargets、"
-                                + "服务端 chainMaxBlocks 的较小值")
+                                + "服务端 chainMaxBlocks 的较小值。配额按唯一坐标去重后占用，"
+                                + "HUD 的预览已匹配仍是含重复的原始读取数")
                         .build()
                     .choice("clientPreviewLod")
                         .defaultValue(QzMinerConfigDefaults.CLIENT_PREVIEW_LOD)
@@ -285,6 +286,11 @@ public final class QzMinerConfigSchema {
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_PRESENTATION_OVERLAY))
                         .label("clientPreviewPresentationOverlay")
                         .helper("是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源）")
+                        .build()
+                    .bool("clientPreviewExecutionProgress")
+                        .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_EXECUTION_PROGRESS))
+                        .label("clientPreviewExecutionProgress")
+                        .helper("是否在 HUD 展示执行进度（已执行 / 匹配）；进度由客户端世界采样得到，默认关闭")
                         .build()
                     .number("clientPreviewRemoteTimeoutMs")
                         .defaultValue(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_REMOTE_TIMEOUT_MS))

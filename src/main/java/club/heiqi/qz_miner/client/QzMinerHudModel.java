@@ -281,6 +281,7 @@ public final class QzMinerHudModel {
 
         ChainPreviewPresentationHeader header = headerSource == null ? null : headerSource.current();
         appendPreviewMatchedLine(lines, header);
+        appendExecutionProgressLine(lines, header);
         appendTruncationLine(lines, header);
         appendRemoteFailureLine(lines, header);
 
@@ -332,6 +333,26 @@ public final class QzMinerHudModel {
                         String.valueOf(header.getTotalCount())), Tone.WARNING),
                 span("preview-truncated.reason",
                         ClientI18n.tr(truncationReasonKey(header.getTruncationReason())), Tone.WARNING))));
+    }
+
+    /**
+     * 执行进度行（B5.2）：header 开关打开时展示「已执行 x / 匹配 y」。
+     *
+     * <p>x 为客户端世界采样确认已破坏的目标位置数（同代单调不减，只统计方块消失为空气的目标）；
+     * y 用 header.matchedCount（与「预览已匹配」同源）。开关关闭（默认）不产出该行，
+     * 也不会有采样开销（采样由投影侧在开关关闭时短路）。</p>
+     */
+    private static void appendExecutionProgressLine(List<Line> lines, ChainPreviewPresentationHeader header) {
+        if (header == null || !header.isExecutionProgressEnabled()) {
+            return;
+        }
+        lines.add(new Line("preview-execution-progress", Arrays.asList(
+                labelSpan("preview-execution-progress.label", "hud.qz_miner.preview.progress.label"),
+                span("preview-execution-progress.count",
+                        ClientI18n.tr("hud.qz_miner.preview.progress.count",
+                                String.valueOf(header.getExecutedCount()),
+                                String.valueOf(header.getMatchedCount())),
+                        Tone.INFO))));
     }
 
     /**

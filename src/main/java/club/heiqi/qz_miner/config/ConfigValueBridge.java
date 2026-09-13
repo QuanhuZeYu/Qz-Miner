@@ -93,6 +93,7 @@ public final class ConfigValueBridge {
         Config.clientPreviewSuppressVanillaHighlight = snapshot.clientPreviewSuppressVanillaHighlight;
         Config.clientPreviewVersionedInputs = snapshot.clientPreviewVersionedInputs;
         Config.clientPreviewPresentationOverlay = snapshot.clientPreviewPresentationOverlay;
+        Config.clientPreviewExecutionProgress = snapshot.clientPreviewExecutionProgress;
         Config.clientPreviewRemoteTimeoutMs = snapshot.clientPreviewRemoteTimeoutMs;
     }
 }

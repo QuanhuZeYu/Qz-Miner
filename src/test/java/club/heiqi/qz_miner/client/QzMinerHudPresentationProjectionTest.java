@@ -141,6 +141,37 @@ public class QzMinerHudPresentationProjectionTest {
                 ids(window.currentModel()).contains("preview-truncated"));
     }
 
+    /** 执行进度行（B5.2）：投影开关关闭不展示，打开后按 executed/matched 映射。 */
+    @Test
+    public void executionProgressLineAppearsOnlyWhenProjectionSwitchIsOn() {
+        Fixture fixture = new Fixture();
+        QzMinerHudWindow window = fixture.newWindow();
+        int generation = fixture.beginPreview();
+        fixture.preview.addPreviewTarget(generation, new ChainTarget(3, 0, 0));
+        fixture.preview.addPreviewTarget(generation, new ChainTarget(4, 0, 0));
+
+        fixture.publish(false, false, 0);
+        window.refresh();
+        Assert.assertFalse("clientPreviewExecutionProgress 关闭时不得出现执行进度行",
+                ids(window.currentModel()).contains("preview-execution-progress"));
+        Assert.assertTrue("关闭时匹配行仍来自投影",
+                ids(window.currentModel()).contains("preview-matched"));
+
+        fixture.publish(false, true, 2);
+        window.refresh();
+        assertSpan(window.currentModel(), "preview-execution-progress", "preview-execution-progress.label",
+                ClientI18n.tr("hud.qz_miner.preview.progress.label") + " ", QzMinerHudModel.Tone.MUTED);
+        assertSpan(window.currentModel(), "preview-execution-progress", "preview-execution-progress.count",
+                ClientI18n.tr("hud.qz_miner.preview.progress.count", "2", "3"),
+                QzMinerHudModel.Tone.INFO);
+
+        fixture.publish(false, true, 0);
+        window.refresh();
+        assertSpan(window.currentModel(), "preview-execution-progress", "preview-execution-progress.count",
+                ClientI18n.tr("hud.qz_miner.preview.progress.count", "0", "3"),
+                QzMinerHudModel.Tone.INFO);
+    }
+
     /** 远端失败行：cancelReason 映射为中英文案，且不受截断开关影响；新一代清除。 */
     @Test
     public void remoteFailureLineMapsCancelReasonAndClearsOnNextGeneration() {
@@ -205,7 +236,9 @@ public class QzMinerHudPresentationProjectionTest {
                 "hud.qz_miner.preview.truncated.reason.remote_limit",
                 "hud.qz_miner.preview.remote.label",
                 "hud.qz_miner.preview.remote.timeout",
-                "hud.qz_miner.preview.remote.unavailable"
+                "hud.qz_miner.preview.remote.unavailable",
+                "hud.qz_miner.preview.progress.label",
+                "hud.qz_miner.preview.progress.count"
         };
         for (String key : keys) {
             Assert.assertTrue("zh 缺少 " + key, zh.containsKey(key));
@@ -290,8 +323,13 @@ public class QzMinerHudPresentationProjectionTest {
         }
 
         private void publish(boolean truncationSignalEnabled) {
+            publish(truncationSignalEnabled, false, 0);
+        }
+
+        private void publish(boolean truncationSignalEnabled, boolean executionProgressEnabled,
+                int executedCount) {
             projection.sampleAndPublish(preview, null, phaseProjection, 0L, 0L, 0L, 0L, 0L,
-                    truncationSignalEnabled);
+                    truncationSignalEnabled, executionProgressEnabled, executedCount);
         }
     }
 }

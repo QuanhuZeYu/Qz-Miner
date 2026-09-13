@@ -53,6 +53,7 @@ public final class PreviewConfigTooltips {
             "client.clientPreviewSuppressVanillaHighlight",
             "client.clientPreviewVersionedInputs",
             "client.clientPreviewPresentationOverlay",
+            "client.clientPreviewExecutionProgress",
             "client.clientPreviewRemoteTimeoutMs"
     };
 

@@ -89,6 +89,8 @@ public final class QzMinerConfigDefaults {
     public static final boolean CLIENT_PREVIEW_VERSIONED_INPUTS = false;
     /** 是否启用统一表现投影覆盖层。 */
     public static final boolean CLIENT_PREVIEW_PRESENTATION_OVERLAY = false;
+    /** 是否在 HUD 展示执行进度（已执行/匹配，B5.2 客户端世界采样；默认 off）。 */
+    public static final boolean CLIENT_PREVIEW_EXECUTION_PROGRESS = false;
     /** 远端预览请求超时（毫秒）。 */
     public static final int CLIENT_PREVIEW_REMOTE_TIMEOUT_MS = 5000;
 
@@ -150,6 +152,7 @@ public final class QzMinerConfigDefaults {
                 Boolean.valueOf(CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT));
         target.put("client.clientPreviewVersionedInputs", Boolean.valueOf(CLIENT_PREVIEW_VERSIONED_INPUTS));
         target.put("client.clientPreviewPresentationOverlay", Boolean.valueOf(CLIENT_PREVIEW_PRESENTATION_OVERLAY));
+        target.put("client.clientPreviewExecutionProgress", Boolean.valueOf(CLIENT_PREVIEW_EXECUTION_PROGRESS));
         target.put("client.clientPreviewRemoteTimeoutMs", Double.valueOf(CLIENT_PREVIEW_REMOTE_TIMEOUT_MS));
         target.put("client.objectGroups", objectGroups());
     }

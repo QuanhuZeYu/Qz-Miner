@@ -179,6 +179,9 @@ public final class LegacyCfgImporter {
             putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewPresentationOverlay",
                     "client.clientPreviewPresentationOverlay",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_PRESENTATION_OVERLAY);
+            putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewExecutionProgress",
+                    "client.clientPreviewExecutionProgress",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_EXECUTION_PROGRESS);
             putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewRemoteTimeoutMs",
                     "client.clientPreviewRemoteTimeoutMs",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_REMOTE_TIMEOUT_MS);
