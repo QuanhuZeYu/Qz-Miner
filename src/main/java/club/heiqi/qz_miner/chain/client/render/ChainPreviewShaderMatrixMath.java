@@ -263,9 +263,44 @@ public final class ChainPreviewShaderMatrixMath {
         double dotXY = (double) xx * yx + (double) xy * yy + (double) xz * yz;
         double dotXZ = (double) xx * zx + (double) xy * zy + (double) xz * zz;
         double dotYZ = (double) yx * zx + (double) yy * zy + (double) yz * zz;
-        return Math.abs(dotXY) <= RIGID_ORTHOGONALITY_TOLERANCE
-                && Math.abs(dotXZ) <= RIGID_ORTHOGONALITY_TOLERANCE
-                && Math.abs(dotYZ) <= RIGID_ORTHOGONALITY_TOLERANCE;
+        if (Math.abs(dotXY) > RIGID_ORTHOGONALITY_TOLERANCE
+                || Math.abs(dotXZ) > RIGID_ORTHOGONALITY_TOLERANCE
+                || Math.abs(dotYZ) > RIGID_ORTHOGONALITY_TOLERANCE) {
+            return false;
+        }
+        // 手性检查（T48c-D）：镜像（det = −1）同时满足「三列单位长度 + 两两正交」，却把右手相机系
+        // 翻成左手系 —— vanilla 世界相机只由旋转（det = +1）与平移组成，不可能出现。
+        // 传送门 / 反胃 warp 的 glScalef(1/f3, 1, 1) 因 1/f3 > 0 同样满足 det > 0，不会因此误伤。
+        // ⚠ 本检查与 verifyCameraMatrices 的 cameraWarpActive 豁免同生共死：若将来移除豁免，
+        //   必须在传送门状态下重新评估手性判据的误报面。
+        return determinant3x3(modelViewColumnMajor) > 0.0D;
+    }
+
+    /**
+     * 列主序矩阵左上 3×3 的行列式（手性判定用）。
+     *
+     * <p>行列式在转置下不变，故列主序/行主序取元素方式的差异不影响结果；只取上左 3×3，
+     * 平移列与投影行不参与。</p>
+     *
+     * @param columnMajor 列主序矩阵；null / 长度不足返回 0（视为退化）
+     * @return 3×3 行列式
+     */
+    public static double determinant3x3(float[] columnMajor) {
+        if (!isUsable(columnMajor)) {
+            return 0.0D;
+        }
+        double a00 = columnMajor[0];
+        double a10 = columnMajor[1];
+        double a20 = columnMajor[2];
+        double a01 = columnMajor[4];
+        double a11 = columnMajor[5];
+        double a21 = columnMajor[6];
+        double a02 = columnMajor[8];
+        double a12 = columnMajor[9];
+        double a22 = columnMajor[10];
+        return a00 * (a11 * a22 - a12 * a21)
+                - a01 * (a10 * a22 - a12 * a20)
+                + a02 * (a10 * a21 - a11 * a20);
     }
 
     private static boolean isUnitLength(float x, float y, float z) {

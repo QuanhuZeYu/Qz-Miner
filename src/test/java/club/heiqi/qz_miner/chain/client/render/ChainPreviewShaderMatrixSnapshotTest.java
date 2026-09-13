@@ -47,21 +47,24 @@ public class ChainPreviewShaderMatrixSnapshotTest {
         Assert.assertFalse(ChainPreviewShaderMatrixSnapshot.enabled(null));
     }
 
-    /** 默认关闭：属性未设时不输出；属性打开时只输出一次（第二次调用起恒 false）。 */
+    /**
+     * 默认关闭：属性未设时不请求；属性打开时请求。
+     *
+     * <p>「只输出一次」由后端的一次性标记负责（后端在首次绘制<b>无条件</b>置位 ⇒ 属性只读一次），
+     * 该接线由 {@code ChainPreviewShaderMatrixSourceTest} 的源码形状断言钉住。</p>
+     */
     @Test
-    public void reportIsOneShotAndDisabledByDefault() {
+    public void requestedFollowsPropertyOnly() {
         String previous = System.getProperty(PROPERTY);
         try {
             System.clearProperty(PROPERTY);
-            Assert.assertFalse("默认（属性未设）不得输出", ChainPreviewShaderMatrixSnapshot.shouldReport(false));
+            Assert.assertFalse("默认（属性未设）不得请求输出", ChainPreviewShaderMatrixSnapshot.requested());
 
             System.setProperty(PROPERTY, "true");
-            Assert.assertTrue("属性打开且未输出过 ⇒ 输出", ChainPreviewShaderMatrixSnapshot.shouldReport(false));
-            Assert.assertFalse("已输出过 ⇒ 永不再输出", ChainPreviewShaderMatrixSnapshot.shouldReport(true));
+            Assert.assertTrue("属性打开 ⇒ 请求输出", ChainPreviewShaderMatrixSnapshot.requested());
 
             System.setProperty(PROPERTY, "false");
-            Assert.assertFalse("属性为 false 时即便未输出过也不输出",
-                    ChainPreviewShaderMatrixSnapshot.shouldReport(false));
+            Assert.assertFalse("属性为 false 不得请求输出", ChainPreviewShaderMatrixSnapshot.requested());
         } finally {
             if (previous == null) {
                 System.clearProperty(PROPERTY);
@@ -78,7 +81,8 @@ public class ChainPreviewShaderMatrixSnapshotTest {
         Assert.assertTrue("必须以固定前缀开头: " + line, line.startsWith(ChainPreviewShaderMatrixSnapshot.PREFIX));
 
         String[] order = {"projection=[", "modelView=[", "modelViewProjection=[", "expected=", "actual=",
-                "renderPos=", "origin=", "indexCount=", "vertexCount=", "anchorLocal=", "anchorClip=", "anchorNdc="};
+                "renderPos=", "viewRotation=(", "origin=", "indexCount=", "vertexCount=", "anchorLocal=",
+                "anchorClip=", "anchorNdc="};
         int previous = -1;
         for (String field : order) {
             int at = line.indexOf(field);
@@ -89,6 +93,8 @@ public class ChainPreviewShaderMatrixSnapshotTest {
         Assert.assertTrue("必须以 } 收尾", line.endsWith("}"));
         Assert.assertTrue("期望/实际模长必须可读: " + line, line.contains("expected=4.079118") && line.contains("actual=4.079000"));
         Assert.assertTrue("renderPos 必须可读: " + line, line.contains("renderPos=(-68.620000,66.620000,267.480000)"));
+        Assert.assertTrue("viewRotation（离线复算朝向的唯一输入）必须可读: " + line,
+                line.contains("viewRotation=(45.000000,30.000000)"));
         Assert.assertTrue("origin 必须是整数口径: " + line, line.contains("origin=(-70,65,264)"));
         Assert.assertTrue("索引/顶点数必须可读: " + line, line.contains("indexCount=24") && line.contains("vertexCount=32"));
     }
@@ -101,7 +107,7 @@ public class ChainPreviewShaderMatrixSnapshotTest {
         float[] mvp = ramp(1.125F);
         String line = ChainPreviewShaderMatrixSnapshot.format(
                 projection, modelView, mvp, 4.079118D, 4.079F,
-                new double[] {1.0D, 2.0D, 3.0D}, new int[] {4, 5, 6}, 7, 8,
+                new double[] {1.0D, 2.0D, 3.0D}, 90.0F, -12.5F, new int[] {4, 5, 6}, 7, 8,
                 new float[] {0.0225F, 0.0F, 0.0225F}, new float[] {0.1F, 0.2F, 0.3F, 4.0F});
 
         assertRoundTrip(line, "projection", projection);
@@ -114,7 +120,7 @@ public class ChainPreviewShaderMatrixSnapshotTest {
     public void anchorNdcIsRecomputableFromClip() {
         String line = ChainPreviewShaderMatrixSnapshot.format(
                 identity(), identity(), identity(), 1.0D, 1.0F,
-                new double[] {0.0D, 0.0D, 0.0D}, new int[] {0, 0, 0}, 0, 0,
+                new double[] {0.0D, 0.0D, 0.0D}, 0.0F, 0.0F, new int[] {0, 0, 0}, 0, 0,
                 new float[] {1.0F, 2.0F, 3.0F}, new float[] {2.0F, 4.0F, 8.0F, 2.0F});
         List<Float> ndc = parseTuple(line, "anchorNdc=");
         Assert.assertEquals("NDC.x = clip.x / clip.w", 1.0F, ndc.get(0).floatValue(), 1.0e-6F);
@@ -126,10 +132,11 @@ public class ChainPreviewShaderMatrixSnapshotTest {
     @Test
     public void malformedInputsNeverThrow() {
         Assert.assertNotNull(ChainPreviewShaderMatrixSnapshot.format(
-                null, null, null, Double.NaN, Float.NaN, null, null, 0, 0, null, null));
+                null, null, null, Double.NaN, Float.NaN, null, 0.0F, 0.0F, null, 0, 0, null, null));
         Assert.assertNotNull(ChainPreviewShaderMatrixSnapshot.format(
                 new float[3], new float[2], new float[1], 1.0D, 1.0F,
-                new double[] {1.0D}, new int[] {1}, -1, -1, new float[] {1.0F}, new float[] {1.0F}));
+                new double[] {1.0D}, Float.NaN, Float.NaN, new int[] {1}, -1, -1,
+                new float[] {1.0F}, new float[] {1.0F}));
     }
 
     // ------------------------------------------------------------------ 辅助
@@ -137,7 +144,7 @@ public class ChainPreviewShaderMatrixSnapshotTest {
     private static String sample() {
         return ChainPreviewShaderMatrixSnapshot.format(
                 ramp(0.25F), ramp(-0.5F), ramp(1.125F), 4.079118D, 4.079F,
-                new double[] {-68.62D, 66.62D, 267.48D}, new int[] {-70, 65, 264}, 24, 32,
+                new double[] {-68.62D, 66.62D, 267.48D}, 45.0F, 30.0F, new int[] {-70, 65, 264}, 24, 32,
                 new float[] {0.0225F, 0.0F, 0.0225F}, new float[] {0.1F, 0.2F, 0.3F, 4.0F});
     }
 

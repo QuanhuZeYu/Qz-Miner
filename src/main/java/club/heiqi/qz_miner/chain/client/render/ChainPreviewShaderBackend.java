@@ -611,16 +611,20 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     /**
      * 诊断快照（默认关闭，{@code -Dqz_miner.preview.diagnostics=true} 时首次绘制打一行 INFO）。
      *
-     * <p>一次性：{@code matrixSnapshotReported} 一旦置位，后续调用只有一次布尔判断（属性关闭时同样
-     * 只有一次 {@code System.getProperty} 读取），不产生格式化与日志开销，更不进每帧路径。</p>
+     * <p>一次性语义（与实现对齐）：首次调用<b>无条件</b>置位 {@code matrixSnapshotReported}
+     * （含属性关闭的情形）——{@code -D} 是 JVM 启动参数、运行期不会变化，所以属性总共只读一次，
+     * 之后每帧只剩一次布尔判断；属性关闭时零日志、零格式化开销。</p>
      *
      * @param plan 当前 draw plan（其 origin/索引数用于离线复算）
      */
     private void reportMatrixSnapshot(ChainPreviewDrawPlan plan) {
-        if (!ChainPreviewShaderMatrixSnapshot.shouldReport(matrixSnapshotReported)) {
+        if (matrixSnapshotReported) {
             return;
         }
         matrixSnapshotReported = true;
+        if (!ChainPreviewShaderMatrixSnapshot.requested()) {
+            return;
+        }
         try {
             ChainPreviewShaderMatrixMath.transformPoint(
                 anchorClip, modelViewProjectionMatrix, anchorLocal[0], anchorLocal[1], anchorLocal[2]);
@@ -631,6 +635,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                 matrixExpectedMagnitude,
                 matrixTranslationMagnitude,
                 new double[] {RenderManager.renderPosX, RenderManager.renderPosY, RenderManager.renderPosZ},
+                // 视图朝向（vanilla 视图实体插值 yaw/pitch）：旋转类异常只能靠它与 P/MV 离线复算（T48c-D）。
+                RenderManager.instance.playerViewY,
+                RenderManager.instance.playerViewX,
                 new int[] {plan.getOriginX(), plan.getOriginY(), plan.getOriginZ()},
                 indexCount,
                 vertexCount,

@@ -421,6 +421,35 @@ public class ChainPreviewShaderMatrixMathTest {
                 ChainPreviewShaderMatrixMath.translationFollowsLinearPart(reversed, dx, dy, dz, Double.NaN));
     }
 
+    /** T48c-D：镜像（det = −1）必须被刚性判据拒绝，合法旋转 det = +1 通过。 */
+    @Test
+    public void rigidityRejectsMirroredLinearPart() {
+        Assert.assertTrue("yaw45 必须刚性", ChainPreviewShaderMatrixMath.linearPartIsRigid(rotationY(45.0F)));
+        Assert.assertEquals("合法旋转 det3 = +1", 1.0D,
+                ChainPreviewShaderMatrixMath.determinant3x3(rotationY(45.0F)), 1.0e-6D);
+        Assert.assertEquals("三轴复合旋转 det3 = +1", 1.0D,
+                ChainPreviewShaderMatrixMath.determinant3x3(multiply(rotationY(31.0F), rotationX(17.0F))), 1.0e-6D);
+
+        float[] mirror = identity();
+        mirror[0] = -1.0F;
+        Assert.assertEquals("镜像 det3 = −1", -1.0D, ChainPreviewShaderMatrixMath.determinant3x3(mirror), 1.0e-6D);
+        Assert.assertFalse("镜像必须判失败（右手相机系被翻成左手系）",
+                ChainPreviewShaderMatrixMath.linearPartIsRigid(mirror));
+        Assert.assertFalse("镜像 × 旋转同样必须判失败",
+                ChainPreviewShaderMatrixMath.linearPartIsRigid(multiply(mirror, rotationY(30.0F))));
+        Assert.assertEquals("null 的 det3 视为退化 0", 0.0D, ChainPreviewShaderMatrixMath.determinant3x3(null), 0.0D);
+
+        double dx = 1.38D;
+        double dy = -1.62D;
+        double dz = -3.48D;
+        float[] mirroredModelView = multiply(mirror, translate((float) dx, (float) dy, (float) dz));
+        Assert.assertEquals("镜像必须由刚性（手性）判据拦下",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.LINEAR_PART_NOT_RIGID,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+                        perspective(70.0F, 1.7778F, 0.05F, 512.0F), mirroredModelView,
+                        dx, dy, dz, false, 6.0D));
+    }
+
     // ------------------------------------------------------------------ 辅助
 
 

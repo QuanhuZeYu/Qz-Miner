@@ -41,23 +41,58 @@ public final class ChainPreviewShaderMatrixSnapshot {
     }
 
     /**
-     * 本次是否应当输出快照：开关打开且尚未输出过（一次性）。
+     * 本次会话是否请求输出快照：只读一次系统属性。
      *
-     * <p>纯函数（只读系统属性），因此「属性关闭时不输出」「只输出一次」两条契约都能在 headless 内断言。</p>
+     * <p>{@code -D} 是 JVM 启动参数、运行期不会变化，所以「只输出一次」由调用方的一次性标记负责
+     * ——调用方在<b>首次绘制时无条件置位</b>该标记（含属性关闭的情形），因此属性总共只被读一次，
+     * 之后每帧只剩一次布尔判断，默认关闭时零日志、零格式化开销。</p>
+     *
+     * @return 属性是否为 {@code true}
+     */
+    public static boolean requested() {
+        return enabled(System.getProperty(DIAGNOSTICS_PROPERTY));
+    }
+
+    /**
+     * 兼容入口（T48c-C 探针在用）：{@code !alreadyReported && requested()}。
+     *
+     * <p><b>删除条件</b>：{@code chain/client/verify/T48cC*.java} 迁移到 {@link #requested()} 之后即可删除
+     * —— 产品路径已改为「首次绘制无条件锁存 + {@link #requested()}」，本方法不再被产品代码使用。</p>
      *
      * @param alreadyReported 本次会话是否已经输出过
-     * @return 是否输出
+     * @return 是否应输出
      */
     public static boolean shouldReport(boolean alreadyReported) {
-        return !alreadyReported && enabled(System.getProperty(DIAGNOSTICS_PROPERTY));
+        return !alreadyReported && requested();
+    }
+
+    /**
+     * 兼容重载（T48c-C 探针在用）：不带视图朝向入参 ⇒ {@code viewRotation} 按 0/0 输出。
+     *
+     * <p><b>删除条件</b>：探针迁移到 13 参版本（含 {@code viewYaw}/{@code viewPitch}）后删除。</p>
+     *
+     * @see #format(float[], float[], float[], double, float, double[], float, float, int[], int, int, float[], float[])
+     */
+    public static String format(
+            float[] projection, float[] modelView, float[] modelViewProjection,
+            double expectedMagnitude, float actualMagnitude,
+            double[] renderPos, int[] origin, int indexCount, int vertexCount,
+            float[] anchorLocal, float[] anchorClip) {
+        return format(projection, modelView, modelViewProjection, expectedMagnitude, actualMagnitude,
+                renderPos, 0.0F, 0.0F, origin, indexCount, vertexCount, anchorLocal, anchorClip);
     }
 
     /**
      * 组装单行快照。
      *
      * <p>字段顺序固定（供离线脚本按位置解析）：projection → modelView → modelViewProjection →
-     * expected → actual → renderPos → origin → indexCount → vertexCount → anchorLocal →
-     * anchorClip → anchorNdc。</p>
+     * expected → actual → renderPos → viewRotation → origin → indexCount → vertexCount →
+     * anchorLocal → anchorClip → anchorNdc。</p>
+     *
+     * <p>{@code viewRotation} 取 {@code RenderManager.instance.playerViewY/playerViewX}
+     * （视图实体插值后的 yaw/pitch；第三人称反向视角下 yaw 已 +180，见 vanilla {@code RenderManager}）。
+     * 它是「离线复算朝向」的唯一输入：只有 P/MV 而没有朝向，无法判断一个合法但陈旧的旋转矩阵
+     * 是「当时就该这样」还是「错了」。</p>
      *
      * <p>非法/缺失入参不抛：矩阵按零矩阵输出、元组按 0 输出（诊断路径不得影响渲染帧）。</p>
      *
@@ -67,6 +102,8 @@ public final class ChainPreviewShaderMatrixSnapshot {
      * @param expectedMagnitude    期望平移列模长 {@code |origin − renderPos|}
      * @param actualMagnitude      实际平移列模长
      * @param renderPos            相机渲染位置 {x, y, z}
+     * @param viewYaw              视图 yaw（{@code RenderManager.instance.playerViewY}）
+     * @param viewPitch            视图 pitch（{@code RenderManager.instance.playerViewX}）
      * @param origin               mesh origin {x, y, z}（int）
      * @param indexCount           当前索引数
      * @param vertexCount          当前顶点数
@@ -77,7 +114,8 @@ public final class ChainPreviewShaderMatrixSnapshot {
     public static String format(
             float[] projection, float[] modelView, float[] modelViewProjection,
             double expectedMagnitude, float actualMagnitude,
-            double[] renderPos, int[] origin, int indexCount, int vertexCount,
+            double[] renderPos, float viewYaw, float viewPitch,
+            int[] origin, int indexCount, int vertexCount,
             float[] anchorLocal, float[] anchorClip) {
         StringBuilder text = new StringBuilder(512);
         text.append(PREFIX);
@@ -89,6 +127,7 @@ public final class ChainPreviewShaderMatrixSnapshot {
         text.append(", expected=").append(fixed(expectedMagnitude));
         text.append(", actual=").append(fixed(actualMagnitude));
         text.append(", renderPos=").append(tuple(renderPos));
+        text.append(", viewRotation=(").append(fixed(viewYaw)).append(',').append(fixed(viewPitch)).append(')');
         text.append(", origin=").append(origin == null || origin.length < 3
                 ? "(0,0,0)" : "(" + origin[0] + "," + origin[1] + "," + origin[2] + ")");
         text.append(", indexCount=").append(indexCount);
