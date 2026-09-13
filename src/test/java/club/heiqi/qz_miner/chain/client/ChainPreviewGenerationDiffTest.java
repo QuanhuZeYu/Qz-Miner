@@ -4,9 +4,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -28,6 +30,16 @@ public class ChainPreviewGenerationDiffTest {
 
     @Test
     public void fourteenShapesAreDifferentialEqual() {
+        List<List<List<ChainTarget>>> shapes = fourteenShapes();
+        for (int index = 0; index < shapes.size(); index++) {
+            List<List<ChainTarget>> batches = shapes.get(index);
+            assertDifferential(flatten(batches), batches, "shape#" + index);
+        }
+        Assert.assertEquals(14, shapes.size());
+    }
+
+    /** 14 组形状夹具（lod=off 与 lod=auto 差分共用）。 */
+    static List<List<List<ChainTarget>>> fourteenShapes() {
         List<List<List<ChainTarget>>> shapes = new ArrayList<List<List<ChainTarget>>>();
         shapes.add(batches(shape(new int[][] {{0, 0, 0}}), 1));
         shapes.add(batches(line(8), 3));
@@ -60,35 +72,161 @@ public class ChainPreviewGenerationDiffTest {
             {0, 0, 0}, {3, 0, 0}, {6, 0, 0}, {9, 0, 0}}), 2));
         shapes.add(batches(shape(new int[][] {
             {0, 0, 0}, {0, 0, 0}, {1, 0, 0}, {0, 0, 0}, {1, 0, 0}, {2, 0, 0}}), 2));
-
-        for (int index = 0; index < shapes.size(); index++) {
-            List<List<ChainTarget>> batches = shapes.get(index);
-            assertDifferential(flatten(batches), batches, "shape#" + index);
-        }
-        Assert.assertEquals(14, shapes.size());
+        return shapes;
     }
 
     @Test
     public void twoHundredRandomSequencesAreDifferentialEqual() {
         Random random = new Random(20260913L);
         for (int caseIndex = 0; caseIndex < 200; caseIndex++) {
-            List<List<ChainTarget>> batches = new ArrayList<List<ChainTarget>>();
-            int batchCount = 2 + random.nextInt(5);
-            for (int batchIndex = 0; batchIndex < batchCount; batchIndex++) {
-                int size = random.nextInt(9);
-                List<ChainTarget> batch = new ArrayList<ChainTarget>(size);
-                for (int targetIndex = 0; targetIndex < size; targetIndex++) {
-                    batch.add(new ChainTarget(
-                        random.nextInt(13) - 6,
-                        random.nextInt(9) - 4,
-                        random.nextInt(13) - 6));
-                }
-                batches.add(batch);
-            }
+            List<List<ChainTarget>> batches = randomBatches(random);
             List<ChainTarget> chronology = flatten(batches);
             Assert.assertFalse("随机序列不得为空", chronology.isEmpty());
             assertDifferential(chronology, batches, "random#" + caseIndex);
         }
+    }
+
+    // ---- B3.x lod=auto 增量差分：相机序列 + 与全量同一滞回状态机 ----
+
+    /**
+     * 相机距离序列（相机置于 {@code (0.5 - d, 0.5, 0.5)}，目标 x 中心距离 ≈ d + x）：
+     * 覆盖「alpha == enter 剔除 → 死区保持 → alpha >= exit 恢复 → 再次进入」全过程。
+     */
+    private static final int[] LOD_CAMERA_DISTANCES = {100, 100, 96, 99, 101, 90, 103, 100, 97};
+    private static final float LOD_MIN_ALPHA = 0.05F;
+
+    private static VisualParameters lodVisuals(int cameraDistance) {
+        return new VisualParameters(
+            0.5D - (double) cameraDistance, 0.5D, 0.5D,
+            0.0D, 100.0D, 1.0F, LOD_MIN_ALPHA, THICKNESS, true, LOD_MIN_ALPHA);
+    }
+
+    @Test
+    public void fourteenShapesUnderLodCameraSequenceAreDifferentialEqual() {
+        List<List<List<ChainTarget>>> shapes = fourteenShapes();
+        for (int index = 0; index < shapes.size(); index++) {
+            assertLodCameraSequenceDifferential(
+                flatten(shapes.get(index)), shapes.get(index), "lod-shape#" + index);
+        }
+    }
+
+    @Test
+    public void twoHundredRandomSequencesUnderLodCameraSequenceAreDifferentialEqual() {
+        Random random = new Random(20260913L);
+        for (int caseIndex = 0; caseIndex < 200; caseIndex++) {
+            List<List<ChainTarget>> batches = randomBatches(random);
+            List<ChainTarget> chronology = flatten(batches);
+            Assert.assertFalse("随机序列不得为空", chronology.isEmpty());
+            assertLodCameraSequenceDifferential(chronology, batches, "lod-random#" + caseIndex);
+        }
+    }
+
+    /** lod=auto <-> lod=off 交替（配置热切换）也必须逐步与全量逐字节一致。 */
+    @Test
+    public void lodModeSwitchSequenceIsDifferentialEqual() {
+        List<List<ChainTarget>> revisionBatches = batches(line(18), 3);
+        boolean[] lodModes = {true, true, false, true, false, false};
+        ChainPreviewMeshBuilder sessionBuilder = new ChainPreviewMeshBuilder();
+        ChainPreviewMeshBuilder referenceBuilder = new ChainPreviewMeshBuilder();
+        GenerationSession session = sessionBuilder.beginGeneration();
+        List<ChainTarget> accumulated = new ArrayList<ChainTarget>();
+        for (int revision = 0; revision < revisionBatches.size(); revision++) {
+            accumulated.addAll(revisionBatches.get(revision));
+            List<ChainTarget> chronology = uniqueOf(accumulated);
+            List<ChainTarget> snapshot = new ArrayList<ChainTarget>(accumulated);
+            Collections.reverse(snapshot);
+            boolean lodEnabled = lodModes[revision % lodModes.length];
+            VisualParameters visuals = lodEnabled
+                ? lodVisuals(LOD_CAMERA_DISTANCES[revision % LOD_CAMERA_DISTANCES.length])
+                : visuals();
+            ChainPreviewMesh incremental =
+                session.extend(snapshot, classesFor(snapshot), visuals, THICKNESS);
+            ChainPreviewMesh reference = referenceBuilder.buildWithOrigin(
+                new ArrayList<ChainTarget>(chronology), visuals, THICKNESS, classesFor(chronology),
+                chronology.get(0).getX(), chronology.get(0).getY(), chronology.get(0).getZ());
+
+            String label = "lod-switch#rev" + revision + "(lod=" + lodEnabled + ")";
+            assertMeshByteEqual(label, reference, incremental);
+            Assert.assertEquals(label + " 滞回记忆规模",
+                referenceBuilder.getLodHysteresisMemorySize(),
+                sessionBuilder.getLodHysteresisMemorySize());
+        }
+    }
+
+    /**
+     * lod=auto 相机序列差分：每个修订都与「同相机参数 + 同滞回记忆状态」的全量装配逐字节一致。
+     *
+     * <p>参考侧用**独立 builder** 保有独立但同步演化的滞回记忆（同一判定顺序 + 同一状态机），
+     * 因此每个修订的记忆规模也必须一致：增量不是另算一套剔除，而是复用同一状态机的判定结果。
+     * 参考目标用 unique 时间序（会话 chronology 口径），避免上游重复值影响剔除计数口径。</p>
+     */
+    private static void assertLodCameraSequenceDifferential(
+            List<ChainTarget> chronology, List<List<ChainTarget>> revisionBatches, String label) {
+        ChainPreviewMeshBuilder sessionBuilder = new ChainPreviewMeshBuilder();
+        ChainPreviewMeshBuilder referenceBuilder = new ChainPreviewMeshBuilder();
+        GenerationSession session = sessionBuilder.beginGeneration();
+        List<ChainTarget> accumulated = new ArrayList<ChainTarget>();
+        for (int revision = 0; revision < revisionBatches.size(); revision++) {
+            accumulated.addAll(revisionBatches.get(revision));
+            List<ChainTarget> uniqueChronology = uniqueOf(accumulated);
+            List<ChainTarget> snapshot = new ArrayList<ChainTarget>(accumulated);
+            Collections.reverse(snapshot);
+            VisualParameters visuals =
+                lodVisuals(LOD_CAMERA_DISTANCES[revision % LOD_CAMERA_DISTANCES.length]);
+            ChainPreviewMesh incremental =
+                session.extend(snapshot, classesFor(snapshot), visuals, THICKNESS);
+            if (uniqueChronology.isEmpty()) {
+                // 随机批次允许为空：空快照也必须走修订路径（无参考可比）。
+                Assert.assertTrue("空快照必须产出空网格", incremental.isEmpty());
+                continue;
+            }
+            ChainPreviewMesh reference = referenceBuilder.buildWithOrigin(
+                new ArrayList<ChainTarget>(uniqueChronology), visuals, THICKNESS,
+                classesFor(uniqueChronology),
+                uniqueChronology.get(0).getX(), uniqueChronology.get(0).getY(),
+                uniqueChronology.get(0).getZ());
+
+            String stepLabel = label + "#rev" + revision;
+            Assert.assertEquals(stepLabel + " anchorX",
+                uniqueChronology.get(0).getX(), session.getAnchorX());
+            assertMeshByteEqual(stepLabel, reference, incremental);
+            Assert.assertEquals(stepLabel + " 滞回记忆规模",
+                referenceBuilder.getLodHysteresisMemorySize(),
+                sessionBuilder.getLodHysteresisMemorySize());
+            assertGeometryEquivalent(reference, incremental, stepLabel);
+        }
+        Assert.assertEquals(label + " 目标总数",
+            uniqueOf(chronology).size(), session.getGenerationTargetCount());
+    }
+
+    /** 首次出现顺序去重（会话 chronology 口径）。 */
+    private static List<ChainTarget> uniqueOf(List<ChainTarget> targets) {
+        List<ChainTarget> unique = new ArrayList<ChainTarget>(targets.size());
+        Set<Long> seen = new HashSet<Long>();
+        for (ChainTarget target : targets) {
+            long key = ((long) target.getX() << 42) ^ ((long) target.getY() << 21) ^ target.getZ();
+            if (seen.add(Long.valueOf(key))) {
+                unique.add(target);
+            }
+        }
+        return unique;
+    }
+
+    private static List<List<ChainTarget>> randomBatches(Random random) {
+        List<List<ChainTarget>> batches = new ArrayList<List<ChainTarget>>();
+        int batchCount = 2 + random.nextInt(5);
+        for (int batchIndex = 0; batchIndex < batchCount; batchIndex++) {
+            int size = random.nextInt(9);
+            List<ChainTarget> batch = new ArrayList<ChainTarget>(size);
+            for (int targetIndex = 0; targetIndex < size; targetIndex++) {
+                batch.add(new ChainTarget(
+                    random.nextInt(13) - 6,
+                    random.nextInt(9) - 4,
+                    random.nextInt(13) - 6));
+            }
+            batches.add(batch);
+        }
+        return batches;
     }
 
     /** 增量视图（分批 extend）vs 全量视图（同时间序一次性装配）逐字节 + 几何等价。 */
@@ -118,18 +256,24 @@ public class ChainPreviewGenerationDiffTest {
         ChainPreviewMesh reference = builder.buildWithOrigin(
             chronology, visuals, THICKNESS, classesFor(chronology), anchorX, anchorY, anchorZ);
 
-        Assert.assertArrayEquals(label + " vertices", reference.getVertices(), incremental.getVertices(), 0.0F);
-        Assert.assertArrayEquals(label + " colors", reference.getColors(), incremental.getColors(), 0.0F);
-        Assert.assertArrayEquals(label + " indices", reference.getIndices(), incremental.getIndices());
-        Assert.assertArrayEquals(label + " aux", reference.getAux(), incremental.getAux());
-        Assert.assertEquals(label + " originX", reference.getOriginX(), incremental.getOriginX());
-        Assert.assertEquals(label + " originY", reference.getOriginY(), incremental.getOriginY());
-        Assert.assertEquals(label + " originZ", reference.getOriginZ(), incremental.getOriginZ());
-        Assert.assertEquals(label + " blockCount", reference.getBlockCount(), incremental.getBlockCount());
-        Assert.assertEquals(
-            label + " culled", reference.getCulledTargetCount(), incremental.getCulledTargetCount());
-        Assert.assertEquals(label + " truncated", reference.isTruncated(), incremental.isTruncated());
+        assertMeshByteEqual(label, reference, incremental);
         assertGeometryEquivalent(reference, incremental, label);
+    }
+
+    /** 逐字节 + plan 口径字段一致（vertices/colors/indices/aux/origin/blockCount/culled/truncated）。 */
+    static void assertMeshByteEqual(
+            String label, ChainPreviewMesh reference, ChainPreviewMesh actual) {
+        Assert.assertArrayEquals(label + " vertices", reference.getVertices(), actual.getVertices(), 0.0F);
+        Assert.assertArrayEquals(label + " colors", reference.getColors(), actual.getColors(), 0.0F);
+        Assert.assertArrayEquals(label + " indices", reference.getIndices(), actual.getIndices());
+        Assert.assertArrayEquals(label + " aux", reference.getAux(), actual.getAux());
+        Assert.assertEquals(label + " originX", reference.getOriginX(), actual.getOriginX());
+        Assert.assertEquals(label + " originY", reference.getOriginY(), actual.getOriginY());
+        Assert.assertEquals(label + " originZ", reference.getOriginZ(), actual.getOriginZ());
+        Assert.assertEquals(label + " blockCount", reference.getBlockCount(), actual.getBlockCount());
+        Assert.assertEquals(
+            label + " culled", reference.getCulledTargetCount(), actual.getCulledTargetCount());
+        Assert.assertEquals(label + " truncated", reference.isTruncated(), actual.isTruncated());
     }
 
     /** 顺序无关几何等价：顶点世界坐标多重集 + quad 多重集（顶点重映射后规范化）。 */

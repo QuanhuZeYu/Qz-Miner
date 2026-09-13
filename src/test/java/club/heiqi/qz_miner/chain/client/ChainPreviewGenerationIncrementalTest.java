@@ -171,6 +171,120 @@ public class ChainPreviewGenerationIncrementalTest {
             result[0] <= result[1]);
     }
 
+    /**
+     * B3.x lod=auto 下的增量收益（headless 计时，真机待验证）：同一目标集 + 相机缓慢推进
+     * （每修订只有阈值附近的少数目标翻转包含状态），代级增量 vs 同参数全量重建。
+     *
+     * <p>子场景登记：</p>
+     * <ul>
+     *   <li>边界翻转少（相机缓慢推进）：只重算「包含状态变化 + 26 邻域 + 新增槽位」的可见段，
+     *       收益来自跳过阈值以外全部槽位的邻域扫描；装配发射仍 O(网格)（与 lod=off 同一边界）。</li>
+     *   <li>剔除集合整体翻转（相机瞬移跨越阈值）：脏槽位接近全部，增量退化到 ≈ 全量（
+     *       {@link #headlessTimingLodThresholdFlipIsNearFullRebuild()} 实测并打印）。</li>
+     *   <li>超容量快照（缓存未覆盖全部 unique 目标）：仍走既有全量回退（登记子场景）。</li>
+     * </ul>
+     */
+    @Test
+    public void headlessTimingLodIncrementalVersusFullRebuild() {
+        measureLod(120, 20);
+        long[] result = measureLod(400, 20);
+        System.out.println("[t38-timing] lod incremental=" + result[0] + "ns full=" + result[1]
+            + "ns ratio=" + ((double) result[0] / Math.max(1L, result[1])));
+        Assert.assertTrue("lod=auto 增量不应慢于全量重建: incremental=" + result[0]
+            + "ns full=" + result[1] + "ns", result[0] <= result[1]);
+    }
+
+    /** 相机瞬移使大量槽位包含状态翻转：增量退化到接近全量（登记，仅打印数量级）。 */
+    @Test
+    public void headlessTimingLodThresholdFlipIsNearFullRebuild() {
+        long[] result = measureLodFlip(400, 40);
+        System.out.println("[t38-timing-flip] incremental=" + result[0] + "ns full=" + result[1]
+            + "ns ratio=" + ((double) result[0] / Math.max(1L, result[1])));
+        Assert.assertTrue("翻转场景不得出现明显回退（<3x 全量）: incremental=" + result[0]
+            + "ns full=" + result[1] + "ns", result[0] < 3L * Math.max(1L, result[1]));
+    }
+
+    /**
+     * 相机缓慢推进（每修订推进 1 格）：目标 x=0..(total-1)，fadeEnd=1000，
+     * 相机距 x=0 约 700 → 阈值边界落在目标链中段，每修订只有少数目标翻转。
+     */
+    private static long[] measureLod(int total, int batchSize) {
+        List<ChainTarget> all = line(total);
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        GenerationSession session = builder.beginGeneration();
+        ChainPreviewMeshBuilder referenceBuilder = new ChainPreviewMeshBuilder();
+        List<ChainTarget> accumulated = new ArrayList<ChainTarget>();
+        long incrementalNanos = 0L;
+        long fullNanos = 0L;
+        int revision = 0;
+        for (int start = 0; start < total; start += batchSize) {
+            int end = Math.min(total, start + batchSize);
+            accumulated.addAll(all.subList(start, end));
+            List<ChainTarget> snapshot = new ArrayList<ChainTarget>(accumulated);
+            Collections.reverse(snapshot);
+            // 每修订推进 4 格：跨越「alpha >= exit」恢复阈值，边界附近少数目标翻转包含状态。
+            VisualParameters visuals = lodVisuals(700 - revision * 4);
+            int[] snapshotClasses = classesFor(snapshot);
+
+            long incrementalStart = System.nanoTime();
+            session.extend(snapshot, snapshotClasses, visuals, THICKNESS);
+            long incrementalEnd = System.nanoTime();
+            incrementalNanos += incrementalEnd - incrementalStart;
+
+            int[] referenceClasses = classesFor(accumulated);
+            long fullStart = System.nanoTime();
+            referenceBuilder.buildWithOrigin(
+                new ArrayList<ChainTarget>(accumulated), visuals, THICKNESS, referenceClasses,
+                session.getAnchorX(), session.getAnchorY(), session.getAnchorZ());
+            long fullEnd = System.nanoTime();
+            fullNanos += fullEnd - fullStart;
+            revision++;
+        }
+        return new long[] {incrementalNanos, fullNanos};
+    }
+
+    /** 相机瞬移（700 <-> 1000）：包含状态整体翻转，脏槽位接近全部。 */
+    private static long[] measureLodFlip(int total, int batchSize) {
+        List<ChainTarget> all = line(total);
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        GenerationSession session = builder.beginGeneration();
+        ChainPreviewMeshBuilder referenceBuilder = new ChainPreviewMeshBuilder();
+        List<ChainTarget> accumulated = new ArrayList<ChainTarget>();
+        long incrementalNanos = 0L;
+        long fullNanos = 0L;
+        int revision = 0;
+        for (int start = 0; start < total; start += batchSize) {
+            int end = Math.min(total, start + batchSize);
+            accumulated.addAll(all.subList(start, end));
+            List<ChainTarget> snapshot = new ArrayList<ChainTarget>(accumulated);
+            Collections.reverse(snapshot);
+            VisualParameters visuals = lodVisuals((revision % 2 == 0) ? 700 : 1000);
+            int[] snapshotClasses = classesFor(snapshot);
+
+            long incrementalStart = System.nanoTime();
+            session.extend(snapshot, snapshotClasses, visuals, THICKNESS);
+            long incrementalEnd = System.nanoTime();
+            incrementalNanos += incrementalEnd - incrementalStart;
+
+            int[] referenceClasses = classesFor(accumulated);
+            long fullStart = System.nanoTime();
+            referenceBuilder.buildWithOrigin(
+                new ArrayList<ChainTarget>(accumulated), visuals, THICKNESS, referenceClasses,
+                session.getAnchorX(), session.getAnchorY(), session.getAnchorZ());
+            long fullEnd = System.nanoTime();
+            fullNanos += fullEnd - fullStart;
+            revision++;
+        }
+        return new long[] {incrementalNanos, fullNanos};
+    }
+
+    /** lod=auto 视觉参数：fadeEnd=1000 / enter=0.05 / exit=0.10，相机沿 -X 侧。 */
+    private static VisualParameters lodVisuals(int cameraDistance) {
+        return new VisualParameters(
+            0.5D - (double) cameraDistance, 0.5D, 0.5D,
+            0.0D, 1000.0D, 1.0F, 0.05F, THICKNESS, true, 0.05F);
+    }
+
     private static long[] measure(int total, int batchSize) {
         List<ChainTarget> all = line(total);
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();

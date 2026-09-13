@@ -107,6 +107,8 @@ public class ChainPreviewMeshBuilder {
         {0, 1, 4, 5},
         {2, 3, 4, 5}
     };
+    /** 空可见段（lod=auto 下被剔除槽位的占位；与 null「未计算」区分）。 */
+    private static final LineSegment[] NO_SEGMENTS = new LineSegment[0];
     private static final LineSegment[] COMPLETE_SEGMENTS = {
         new LineSegment(0, 1), new LineSegment(1, 2), new LineSegment(2, 3), new LineSegment(0, 3),
         new LineSegment(4, 5), new LineSegment(5, 6), new LineSegment(6, 7), new LineSegment(4, 7),
@@ -140,6 +142,57 @@ public class ChainPreviewMeshBuilder {
      */
     public int getLodHysteresisMemorySize() {
         return lodCulledPositions.size();
+    }
+
+    /**
+     * 构建线程：消费滞回记忆清理请求（主线程 volatile 置位）；返回是否实际清理。
+     *
+     * <p>{@link BuildSession} 与 {@link GenerationSession} 的 lod=auto 增量路径共用同一份语义，
+     * 避免出现两套滞回实现。</p>
+     */
+    private static boolean consumeLodReset(LodResetSignal signal, Set<BlockPos> memory) {
+        if (!signal.consume()) {
+            return false;
+        }
+        memory.clear();
+        return true;
+    }
+
+    /**
+     * 构建线程：LOD 双阈值判定（lod=auto），语义与 B2.4 完全一致——
+     * fresh 目标 alpha &lt;= enter 剔除；已在记忆中的目标必须 alpha &gt;= exit 才恢复；
+     * 记忆满 {@link #MAX_RENDER_TARGETS} 时整体清空（登记：丢一次滞回）。判定顺序由调用方的
+     * 目标顺序决定，增量路径必须按时间序逐个槽位判定，才能与全量扫描得到同一滞回状态。
+     *
+     * @param memory             滞回记忆（跨修订共享）
+     * @param visuals            当前视觉参数（alpha 曲线 + enter/exit 阈值）
+     * @param position           目标位置
+     * @param culledThisRevision 本轮实际仍被剔除的位置（供收尾裁剪记忆）
+     * @return true = 本轮剔除该目标
+     */
+    private static boolean decideLodCull(
+            Set<BlockPos> memory, VisualParameters visuals, BlockPos position,
+            Set<BlockPos> culledThisRevision) {
+        boolean alreadyCulled = memory.contains(position);
+        float alpha = visuals.alphaFor(position.x + 0.5D, position.y + 0.5D, position.z + 0.5D);
+        if (alreadyCulled) {
+            if (alpha >= visuals.getLodExitAlpha()) {
+                memory.remove(position);
+                return false;
+            }
+            culledThisRevision.add(position);
+            return true;
+        }
+        if (alpha > visuals.getLodMinAlpha()) {
+            return false;
+        }
+        if (memory.size() >= MAX_RENDER_TARGETS) {
+            // 有界保护：记忆满即清空（登记为已知限制：丢一次滞回），重新进入双阈值周期。
+            memory.clear();
+        }
+        memory.add(position);
+        culledThisRevision.add(position);
+        return true;
     }
 
     /**
@@ -454,7 +507,9 @@ public class ChainPreviewMeshBuilder {
      *
      * <p>缓存线程契约：positions/positionIndex/cachedSegments/occupancy 只归构建线程所有；
      * 缓存失效范围 = 新增目标 + 其 26 邻域（仅自身结果被替换）；{@link #dispose()} 释放全部缓存，
-     * 不跨代残留。lod=auto 时剔除集合随相机变化，本阶段回退全量可见段重算（登记为边界）。</p>
+     * 不跨代残留。lod=auto（B3.x）：逐槽位按时间序重判定剔除边界，只重算「包含状态变化 + 26 邻域 +
+     * 新增槽位」的可见段（被剔除槽位保留空段占位）；唯一仍走全量的子场景是**缓存未覆盖全部 unique 目标**
+     * （超容量快照）——此时无法在保等价下做增量，保持既有全量回退。</p>
      *
      * <p><b>增量语义（B4.2 更新，Lead 裁定）</b>：代内快照只增时走增量缓存；若快照收缩
      * （目标数减少 / 位置不再覆盖全部缓存槽位），则**释放整代缓存与 mesh 引用**并以该快照重建
@@ -501,6 +556,18 @@ public class ChainPreviewMeshBuilder {
 
         private int visibleBlockCount;
         private boolean overflowed;
+        /** B3.x：cachedSegments 是否已按某占用模式构建过（未构建过时无「模式切换」成本）。 */
+        private boolean segmentsBuilt;
+        /** B3.x：cachedSegments 当前依据的占用模式（false=全目标 lod=off；true=lod=auto 剔除后）。 */
+        private boolean segmentsBuiltForLod;
+        /** LOD 模式下逐槽位包含状态（与 positions 同序；有界 {@link #MAX_RENDER_TARGETS}，构建线程所有）。 */
+        private final boolean[] lodIncluded = new boolean[MAX_RENDER_TARGETS];
+        /** 本轮实际仍被剔除的位置（与全量路径 {@code lodCulledThisBuild} 同口径，用于收尾裁剪滞回记忆）。 */
+        private final Set<BlockPos> lodCulledThisRevision = new HashSet<BlockPos>();
+        /** 本轮需要重算可见段的槽位（构建线程所有，有界于 {@link #MAX_RENDER_TARGETS}）。 */
+        private final LinkedHashSet<Integer> lodDirty = new LinkedHashSet<Integer>();
+        /** LOD 视图的包含集占用（决策期使用；由 {@link PreparedTopology} 构造时拷贝，不跨修订持有）。 */
+        private final Set<BlockPos> lodOccupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
         /**
          * B4.2 容量峰值：构建线程写、任意线程读；不随修订/收缩回落，{@link #resetCapacityPeaks()} 或 dispose 归零。
          * {@code peakCacheEntries} 记六容器条目总数（每容器 ≤ MAX_RENDER_TARGETS，故 ≤ 6×上限）。
@@ -546,24 +613,35 @@ public class ChainPreviewMeshBuilder {
             if (visuals == null) {
                 throw new IllegalArgumentException("visuals");
             }
-            mergeSnapshot(snapshotNewestFirst, semanticClasses, visuals);
+            mergeSnapshot(snapshotNewestFirst, semanticClasses);
 
             BuildSession session;
             if (positions.isEmpty()) {
                 session = builder.begin(
                     Collections.<ChainTarget>emptyList(), visuals, barThickness, null);
+            } else if (visuals.isLodEnabled() && !overflowed) {
+                // B3.x：lod=auto 走代级缓存——逐槽位重判定剔除边界，仅脏槽位重算可见段。
+                session = beginLodRevision(visuals, barThickness);
             } else if (visuals.isLodEnabled()) {
-                // LOD 剔除集合随相机/阈值变化，缓存不适用：本阶段回退全量可见段重算（登记边界）。
+                // 缓存未覆盖全部 unique 目标（超容量）：保持既有全量回退（登记子场景）。
                 session = builder.beginWithOrigin(
                     chronology, visuals.withBarThickness(barThickness), chronologyClasses.exactArray(),
                     anchor.x, anchor.y, anchor.z);
             } else {
+                if (segmentsBuilt && segmentsBuiltForLod) {
+                    // lod=auto -> lod=off：旧段基于剔除后占用集，整代失效后按全目标重算。
+                    invalidateSegments();
+                }
+                refreshVisibleSegments();
+                segmentsBuilt = true;
+                segmentsBuiltForLod = false;
                 PreparedTopology topology = new PreparedTopology(
                     positions, occupancy, chronologyClasses.exactArray(), cachedSegments,
-                    visibleBlockCount, overflowed);
+                    visibleBlockCount, overflowed, 0);
                 session = builder.beginPrepared(
                     topology, visuals.withBarThickness(barThickness), anchor);
             }
+            recordCapacityPeaks(null);
             activeRevision = session;
             // B4.2：装配完成时（生产路径读取 getMesh）采样本代容量占用，不改变装配语义与安全点。
             return new CapacityTrackedRevision(session);
@@ -590,8 +668,7 @@ public class ChainPreviewMeshBuilder {
          * 缓存与 mesh 引用，再以本快照重建缓存与锚点（等价全新会话），避免陈旧条柱跨修订残留；
          * 重建只重跑一次（保证终止），上限仍是 {@link #MAX_RENDER_TARGETS}。</p>
          */
-        private void mergeSnapshot(
-                List<ChainTarget> snapshotNewestFirst, int[] semanticClasses, VisualParameters visuals) {
+        private void mergeSnapshot(List<ChainTarget> snapshotNewestFirst, int[] semanticClasses) {
             List<ChainTarget> snapshot = snapshotNewestFirst == null
                 ? Collections.<ChainTarget>emptyList()
                 : snapshotNewestFirst;
@@ -599,11 +676,6 @@ public class ChainPreviewMeshBuilder {
                 releaseGenerationCaches();
                 accumulateSnapshot(snapshot, semanticClasses);
             }
-            if (!visuals.isLodEnabled()) {
-                // Option A：只重算新增目标及其 26 邻域的可见段，其余复用缓存。
-                refreshVisibleSegments();
-            }
-            recordCapacityPeaks(null);
         }
 
         /**
@@ -669,11 +741,133 @@ public class ChainPreviewMeshBuilder {
             cachedSegments.clear();
             occupancy.clear();
             Arrays.fill(coveredSlots, false);
+            Arrays.fill(lodIncluded, false);
+            lodDirty.clear();
+            lodCulledThisRevision.clear();
+            lodOccupancy.clear();
+            segmentsBuilt = false;
+            segmentsBuiltForLod = false;
             visibleBlockCount = 0;
             overflowed = false;
             anchor = null;
             activeRevision = null;
             mesh = null;
+        }
+
+        /** 使整代可见段失效（占用模式切换 / 回收）：下一次构建整代重算，并清空包含状态位。 */
+        private void invalidateSegments() {
+            for (int slot = 0; slot < cachedSegments.size(); slot++) {
+                cachedSegments.set(slot, null);
+            }
+            visibleBlockCount = 0;
+            segmentsBuilt = false;
+            segmentsBuiltForLod = false;
+            Arrays.fill(lodIncluded, false);
+        }
+
+        /**
+         * lod=auto 的代级增量修订（B3.x）：逐槽位按**时间序**重判定剔除（与全量扫描共用同一滞回状态机），
+         * 只有「包含状态变化 + 其 26 邻域 + 新增槽位」重算可见段，其余槽位原样复用；被剔除目标不生成几何。
+         *
+         * <p>正确性依据：包含集合与全量路径相同（同一判定顺序 + 同一滞回记忆）；某槽位的可见段是
+         * 「自身 + 26 邻域包含状态」的函数，未变邻域复用结果可证明不变（18 个面/棱方向 ⊆ 26 邻域）。
+         * 剔除只改变占用集与包含位，不改缓存条目与容量上限。</p>
+         */
+        private BuildSession beginLodRevision(VisualParameters visuals, float barThickness) {
+            if (segmentsBuilt && !segmentsBuiltForLod) {
+                invalidateSegments();
+            }
+            // 与全量路径 advance 入口同语义：先消费主线程的滞回清理请求，再做本轮判定。
+            consumeLodReset(builder.lodHysteresisResetSignal, builder.lodCulledPositions);
+
+            lodDirty.clear();
+            lodCulledThisRevision.clear();
+            int culledCount = 0;
+            int includedCount = 0;
+            for (int slot = 0; slot < positions.size(); slot++) {
+                boolean culled = decideLodCull(
+                    builder.lodCulledPositions, visuals, positions.get(slot), lodCulledThisRevision);
+                boolean included = !culled;
+                if (included) {
+                    includedCount++;
+                } else {
+                    culledCount++;
+                }
+                if (included != lodIncluded[slot]) {
+                    lodIncluded[slot] = included;
+                    lodDirty.add(Integer.valueOf(slot));
+                }
+                if (cachedSegments.get(slot) == null) {
+                    lodDirty.add(Integer.valueOf(slot));
+                }
+            }
+
+            // 邻域扩展：可见段只依赖 18 个面/棱方向，26 邻域是安全超集（与 lod=off 脏集合口径一致）。
+            List<Integer> dirtySeeds = new ArrayList<Integer>(lodDirty);
+            for (Integer seed : dirtySeeds) {
+                BlockPos position = positions.get(seed.intValue());
+                for (int[] offset : NEIGHBOR_OFFSETS) {
+                    BlockPos neighbor = position.offset(offset[0], offset[1], offset[2]);
+                    if (neighbor == null) {
+                        continue;
+                    }
+                    Integer neighborSlot = positionIndex.get(neighbor);
+                    if (neighborSlot != null) {
+                        lodDirty.add(neighborSlot);
+                    }
+                }
+            }
+
+            if (!lodDirty.isEmpty()) {
+                // 无脏槽位 = 包含集与上一轮完全相同：占用集可直接复用，不做 O(n) 重建。
+                lodOccupancy.clear();
+                for (int slot = 0; slot < positions.size(); slot++) {
+                    if (lodIncluded[slot]) {
+                        lodOccupancy.add(positions.get(slot));
+                    }
+                }
+                for (Integer seed : lodDirty) {
+                    int slot = seed.intValue();
+                    if (!lodIncluded[slot]) {
+                        // 被剔除槽位保留空段占位（与 null「未计算」区分），避免每轮重复判脏。
+                        cachedSegments.set(slot, NO_SEGMENTS);
+                        continue;
+                    }
+                    cachedSegments.set(slot, buildVisibleSegments(positions.get(slot), lodOccupancy));
+                }
+            }
+
+            // 与全量路径收尾同口径：滞回记忆裁剪为「本轮实际仍被剔除的位置」。
+            builder.lodCulledPositions.retainAll(lodCulledThisRevision);
+
+            int[] classes = chronologyClasses.exactArray();
+            List<BlockPos> lodPositions = new ArrayList<BlockPos>(includedCount);
+            List<LineSegment[]> lodSegments = new ArrayList<LineSegment[]>(includedCount);
+            int[] lodClasses = new int[includedCount];
+            visibleBlockCount = 0;
+            for (int slot = 0; slot < positions.size(); slot++) {
+                if (!lodIncluded[slot]) {
+                    continue;
+                }
+                LineSegment[] segments = cachedSegments.get(slot);
+                if (segments == null) {
+                    segments = buildVisibleSegments(positions.get(slot), lodOccupancy);
+                    cachedSegments.set(slot, segments);
+                }
+                if (segments.length > 0) {
+                    visibleBlockCount++;
+                }
+                lodClasses[lodPositions.size()] = classes[slot];
+                lodPositions.add(positions.get(slot));
+                lodSegments.add(segments);
+            }
+            segmentsBuilt = true;
+            segmentsBuiltForLod = true;
+            PreparedTopology topology = new PreparedTopology(
+                lodPositions, lodOccupancy, lodClasses, lodSegments,
+                visibleBlockCount, false, culledCount);
+            return builder.beginPrepared(
+                topology, visuals.withBarThickness(barThickness), anchor);
         }
 
         /**
@@ -940,6 +1134,8 @@ public class ChainPreviewMeshBuilder {
         private final List<LineSegment[]> visibleSegments;
         private final int visibleBlockCount;
         private final boolean truncated;
+        /** 本轮 LOD 剔除的目标准数（lod=auto 增量视图；lod=off/全量回退为 0）。 */
+        private final int culledTargetCount;
 
         private PreparedTopology(
                 List<BlockPos> positions,
@@ -947,13 +1143,15 @@ public class ChainPreviewMeshBuilder {
                 int[] semanticClasses,
                 List<LineSegment[]> visibleSegments,
                 int visibleBlockCount,
-                boolean truncated) {
+                boolean truncated,
+                int culledTargetCount) {
             this.positions = positions;
             this.occupancy = occupancy;
             this.semanticClasses = semanticClasses;
             this.visibleSegments = visibleSegments;
             this.visibleBlockCount = visibleBlockCount;
             this.truncated = truncated;
+            this.culledTargetCount = Math.max(0, culledTargetCount);
         }
     }
 
@@ -1071,6 +1269,7 @@ public class ChainPreviewMeshBuilder {
             this.preparedTopology = topology;
             this.preparedSegments = topology.visibleSegments;
             this.truncated = topology.truncated;
+            this.culledTargetCount = topology.culledTargetCount;
             this.visibleBlockCount = topology.visibleBlockCount;
             this.positions.addAll(topology.positions);
             this.occupancy.addAll(topology.occupancy);
@@ -1240,11 +1439,7 @@ public class ChainPreviewMeshBuilder {
 
         /** 构建线程消费主线程的清理请求；返回是否实际清理。 */
         private boolean consumeLodHysteresisReset() {
-            if (!lodHysteresisResetSignal.consume()) {
-                return false;
-            }
-            lodCulledPositions.clear();
-            return true;
+            return consumeLodReset(lodHysteresisResetSignal, lodCulledPositions);
         }
 
         public boolean isComplete() {
@@ -1281,27 +1476,7 @@ public class ChainPreviewMeshBuilder {
          * 因此阈值附近来回不会闪烁。状态由 Builder 持有并跨 session 复用（仅构建线程）。
          */
         private boolean shouldCullForLod(BlockPos position) {
-            boolean alreadyCulled = lodCulledPositions.contains(position);
-            float alpha = visuals.alphaFor(
-                position.x + 0.5D, position.y + 0.5D, position.z + 0.5D);
-            if (alreadyCulled) {
-                if (alpha >= visuals.getLodExitAlpha()) {
-                    lodCulledPositions.remove(position);
-                    return false;
-                }
-                lodCulledThisBuild.add(position);
-                return true;
-            }
-            if (alpha > visuals.getLodMinAlpha()) {
-                return false;
-            }
-            if (lodCulledPositions.size() >= MAX_RENDER_TARGETS) {
-                // 有界保护：记忆满即清空（登记为已知限制：丢一次滞回），重新进入双阈值周期。
-                lodCulledPositions.clear();
-            }
-            lodCulledPositions.add(position);
-            lodCulledThisBuild.add(position);
-            return true;
+            return decideLodCull(lodCulledPositions, visuals, position, lodCulledThisBuild);
         }
 
         /** 载体按原始目标流索引取值；越界/非法值经 {@link ChainPreviewSemanticClass#normalize(int)} 兜底并计数。 */

@@ -167,6 +167,57 @@ public class ChainPreviewCapacityContractTest {
         Assert.assertTrue(session.getPeakVisibleSegmentCount() <= 12 * LIMIT);
     }
 
+    /** B3.x × B4.2：lod=auto 增量不改容量上限/峰值语义，收缩回收在 LOD 下同样释放重建。 */
+    @Test
+    public void lodAutoIncrementalKeepsCapacityAndShrinkSemantics() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        GenerationSession session = builder.beginGeneration();
+        VisualParameters lod = new VisualParameters(
+            0.5D - 700.0D, 0.5D, 0.5D, 0.0D, 1000.0D, 1.0F, 0.05F, THICKNESS, true, 0.05F);
+
+        List<ChainTarget> full = scattered(LIMIT, 0);
+        ChainPreviewMesh mesh = session.extend(newestFirst(full), null, lod, THICKNESS);
+        Assert.assertEquals(LIMIT, session.getCacheEntryCount());
+        Assert.assertEquals(LIMIT, session.getGenerationTargetCount());
+        Assert.assertTrue("lod=auto 不得破坏容量上限: " + session.getCacheEntryTotal(),
+            session.getCacheEntryTotal() <= 6 * LIMIT);
+        Assert.assertTrue("可见块数不得超过保留目标数", mesh.getBlockCount() <= LIMIT);
+        Assert.assertFalse("恰好上限不得置截断", mesh.isTruncated());
+        Assert.assertTrue("相机 700 距/fadeEnd 1000 必须剔除远端目标",
+            mesh.getCulledTargetCount() > 0);
+        Assert.assertTrue(session.getPeakRetainedTargetCount() >= LIMIT);
+
+        // 收缩回收：LOD 下同样释放整代缓存与 mesh 引用并按新快照重建。
+        List<ChainTarget> shrunk = scattered(3, 0);
+        ChainPreviewMesh shrunkMesh = session.extend(newestFirst(shrunk), null, lod, THICKNESS);
+        Assert.assertEquals(3, session.getCacheEntryCount());
+        Assert.assertEquals(3, session.getGenerationTargetCount());
+        Assert.assertEquals("收缩后近端目标必须可见", 3, shrunkMesh.getBlockCount());
+        Assert.assertEquals("收缩后锚点 = 新快照首个目标", 0, session.getAnchorX());
+        Assert.assertEquals(LIMIT, session.getPeakRetainedTargetCount());
+    }
+
+    /**
+     * 超容量 + lod=auto：缓存未覆盖全部 unique 目标（{@code isOverflowed()}），此时不做增量，
+     * 保持既有全量回退（登记子场景）；容量仍有界、剔除计数与几何与回退路径一致。
+     */
+    @Test
+    public void overCapacityLodAutoFallsBackButStaysBounded() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        GenerationSession session = builder.beginGeneration();
+        VisualParameters lod = new VisualParameters(
+            0.5D - 700.0D, 0.5D, 0.5D, 0.0D, 1000.0D, 1.0F, 0.05F, THICKNESS, true, 0.05F);
+        List<ChainTarget> tooMany = scattered(LIMIT + 8, 0);
+        ChainPreviewMesh mesh = session.extend(newestFirst(tooMany), null, lod, THICKNESS);
+        Assert.assertTrue(mesh.isTruncated() || session.isOverflowed());
+        Assert.assertTrue(session.isOverflowed());
+        Assert.assertEquals(LIMIT, session.getCacheEntryCount());
+        Assert.assertEquals(LIMIT, session.getGenerationTargetCount());
+        Assert.assertTrue(session.getCacheEntryTotal() <= 6 * LIMIT);
+        Assert.assertTrue("剔除计数必须有界: " + mesh.getCulledTargetCount(),
+            mesh.getCulledTargetCount() <= LIMIT);
+    }
+
     /** 峰值逐项取最大值、可 reset，且 reset 不影响缓存；交接进既有计数器通道。 */
     @Test
     public void peaksTrackMaximumsAndResetIndependently() {
