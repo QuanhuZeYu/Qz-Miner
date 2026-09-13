@@ -69,15 +69,15 @@ public class AuxStreamContractTest {
     }
 
     @Test
-    public void semanticClassIsUndefinedUntilB23WiresIt() {
-        // Lead 裁定 A：B2.3 不在本轮项内，语义类别为「未接线」，不得被当作语义有效的证据。
-        // 若 B2.3 落地后本断言失败，请同步更新本类与验收登记，不要直接放宽。
+    public void semanticClassWithoutCarrierFallsBackToUndefined() {
+        // B2.3 已接线（T16）：无类别载体的构建入口（2 参 build）必须整段写 UNDEFINED(255)；
+        // 携带载体的同序映射由 SemanticAuxMappingContractTest 独立覆盖。
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         ChainPreviewMesh mesh = builder.build(VerifyShapes.line(64), VISUALS);
         byte[] aux = mesh.getAux();
         for (int vertex = 0; vertex < mesh.getVertexFloatCount() / 3; vertex++) {
             Assert.assertEquals(
-                "B2.3 未接线：本轮 semanticClass 应为 UNDEFINED(255)",
+                "无载体时必须写 UNDEFINED(255)",
                 UNDEFINED_BYTE,
                 aux[vertex * 4] & 0xFF);
         }

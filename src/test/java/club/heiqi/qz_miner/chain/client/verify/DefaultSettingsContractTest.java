@@ -172,7 +172,7 @@ public class DefaultSettingsContractTest {
                 0.0F,
                 new ChainPreviewDrawPlan.Visuals(
                     0.045F, Float.NaN, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F,
-                    ChainPreviewDrawPlan.DepthChannel.XRAY).sanitized().getMinScreenWidthPx(),
+                    ChainPreviewDrawPlan.DepthChannel.XRAY, 1.0F).sanitized().getMinScreenWidthPx(),
                 0.0F);
             Assert.assertEquals(0.78F, settings.getAlphaStartValue(), 0.0F);
             Assert.assertEquals(0.15F, settings.getAlphaEndValue(), 0.0F);

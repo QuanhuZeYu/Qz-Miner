@@ -159,7 +159,7 @@ public class DrawPlanContractTest {
     public void sanitizedVisualsClampNaNNullAndOutOfRange() {
         ChainPreviewMesh mesh = fixedMesh();
         Visuals nan = new Visuals(
-            Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, null);
+            Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, null, 1.0F);
         ChainPreviewDrawPlan nanPlan = derive(mesh, 0, mesh.getIndexCount(), null, nan, 0L, 0L);
         // NaN / null 必须收敛到与配置默认逐值同源的 BASELINE（render-core D10 加固后的口径）。
         Assert.assertEquals(
@@ -175,7 +175,7 @@ public class DrawPlanContractTest {
         Assert.assertEquals(0.15F, nanPlan.getAlphaEnd(), 0.0F);
         Assert.assertEquals(DepthChannel.XRAY, nanPlan.getDepthChannel());
 
-        Visuals ranged = new Visuals(1.5F, -3.0F, 2.0F, 5.0F, 1.0F, 2.0F, -1.0F, DepthChannel.XRAY);
+        Visuals ranged = new Visuals(1.5F, -3.0F, 2.0F, 5.0F, 1.0F, 2.0F, -1.0F, DepthChannel.XRAY, 1.0F);
         ChainPreviewDrawPlan rangedPlan = derive(mesh, 0, mesh.getIndexCount(), null, ranged, 0L, 0L);
         Assert.assertEquals(0.99F, rangedPlan.getBarThickness(), 0.0F);
         Assert.assertEquals(0.0F, rangedPlan.getMinScreenWidthPx(), 0.0F);
@@ -244,7 +244,7 @@ public class DrawPlanContractTest {
     }
 
     private static Visuals visuals(float animationU) {
-        return new Visuals(0.045F, 0.0F, animationU, 2.0F, 6.0F, 0.78F, 0.15F, DepthChannel.XRAY);
+        return new Visuals(0.045F, 0.0F, animationU, 2.0F, 6.0F, 0.78F, 0.15F, DepthChannel.XRAY, 1.0F);
     }
 
     private static ChainPreviewMesh fixedMesh() {
