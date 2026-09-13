@@ -62,9 +62,25 @@ public final class ChainPreviewDrawPlan {
      */
     public static final class Visuals {
 
-        /** settings 缺失时的最后防线：与 B0.1 配置默认逐项同值。 */
+        /** 屏幕最小宽度基线默认（§E：0.0 = 不钳制）。 */
+        public static final float DEFAULT_MIN_SCREEN_WIDTH_PX = 0.0F;
+
+        /** 距离淡出基线默认（与 ChainPreviewVisualSettings 的 NaN 兜底逐值同源）。 */
+        public static final float DEFAULT_FADE_START_RADIUS = 2.0F;
+        public static final float DEFAULT_FADE_END_RADIUS = 6.0F;
+        public static final float DEFAULT_ALPHA_START = 0.78F;
+        public static final float DEFAULT_ALPHA_END = 0.15F;
+
+        /** settings 缺失 / 字段 NaN 时的最后防线：与 B0.1 配置默认逐项同值。 */
         public static final Visuals BASELINE = new Visuals(
-            DEFAULT_BAR_THICKNESS, 1.0F, ANIMATION_COMPLETE, 2.0F, 6.0F, 0.78F, 0.15F, DepthChannel.XRAY);
+            DEFAULT_BAR_THICKNESS,
+            DEFAULT_MIN_SCREEN_WIDTH_PX,
+            ANIMATION_COMPLETE,
+            DEFAULT_FADE_START_RADIUS,
+            DEFAULT_FADE_END_RADIUS,
+            DEFAULT_ALPHA_START,
+            DEFAULT_ALPHA_END,
+            DepthChannel.XRAY);
 
         private final float barThickness;
         private final float minScreenWidthPx;
@@ -171,16 +187,17 @@ public final class ChainPreviewDrawPlan {
             float safeThickness = clampFinite(
                 barThickness, MIN_BAR_THICKNESS, MAX_BAR_THICKNESS, DEFAULT_BAR_THICKNESS);
             float safeMinWidth = clampFinite(
-                minScreenWidthPx, 0.0F, MAX_MIN_SCREEN_WIDTH_PX, 0.0F);
+                minScreenWidthPx, 0.0F, MAX_MIN_SCREEN_WIDTH_PX, DEFAULT_MIN_SCREEN_WIDTH_PX);
             float safeAnimationU = clampFinite(animationU, 0.0F, ANIMATION_COMPLETE, ANIMATION_COMPLETE);
-            float safeFadeStart = clampFinite(fadeStartRadius, 0.0F, Float.MAX_VALUE, 0.0F);
+            float safeFadeStart = clampFinite(
+                fadeStartRadius, 0.0F, Float.MAX_VALUE, DEFAULT_FADE_START_RADIUS);
             float safeFadeEnd = clampFinite(
-                fadeEndRadius, safeFadeStart + MIN_FADE_SPAN, Float.MAX_VALUE, safeFadeStart + MIN_FADE_SPAN);
+                fadeEndRadius, safeFadeStart + MIN_FADE_SPAN, Float.MAX_VALUE, DEFAULT_FADE_END_RADIUS);
             if (safeFadeEnd < safeFadeStart + MIN_FADE_SPAN) {
                 safeFadeEnd = safeFadeStart + MIN_FADE_SPAN;
             }
-            float safeAlphaStart = clampFinite(alphaStart, 0.0F, 1.0F, 1.0F);
-            float safeAlphaEnd = clampFinite(alphaEnd, 0.0F, 1.0F, 0.0F);
+            float safeAlphaStart = clampFinite(alphaStart, 0.0F, 1.0F, DEFAULT_ALPHA_START);
+            float safeAlphaEnd = clampFinite(alphaEnd, 0.0F, 1.0F, DEFAULT_ALPHA_END);
             DepthChannel safeChannel = depthChannel == null ? DepthChannel.XRAY : depthChannel;
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx

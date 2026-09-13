@@ -53,6 +53,17 @@ public class ChainPreviewGlBindingsTest {
     }
 
     @Test
+    public void withoutDeletedBuffersAlsoClearsAuxBufferBinding() {
+        ChainPreviewGlBindings bindings = ChainPreviewGlBindings.capture(new RecordingAccess(7, 11, 13));
+
+        ChainPreviewGlBindings cleaned = bindings.withoutDeletedBuffers(0, 0, 0, 11, 0);
+
+        Assert.assertEquals(7, cleaned.getVertexArray());
+        Assert.assertEquals(0, cleaned.getArrayBuffer());
+        Assert.assertEquals(13, cleaned.getElementArrayBuffer());
+    }
+
+    @Test
     public void withoutDeletedHandlesColorBufferBinding() {
         ChainPreviewGlBindings bindings = ChainPreviewGlBindings.capture(new RecordingAccess(7, 11, 13));
 

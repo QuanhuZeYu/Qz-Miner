@@ -22,15 +22,34 @@ public class ChainPreviewScaleCountersTest {
     }
 
     @Test
-    public void resetClearsBothCounters() {
+    public void bindingCaptureCountsThreeIntegerReads() {
+        ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
+
+        Assert.assertEquals(0L, counters.getFrameCaptures());
+        Assert.assertEquals(0L, counters.getGlIntegerReads());
+
+        counters.recordBindingCapture();
+        counters.recordBindingCapture();
+
+        Assert.assertEquals(2L, counters.getFrameCaptures());
+        Assert.assertEquals(2L * ChainPreviewGlBindings.CAPTURED_QUERY_COUNT, counters.getGlIntegerReads());
+        Assert.assertEquals(6L, counters.getGlIntegerReads());
+        Assert.assertTrue(counters.describe().contains("preview.glIntegerReads=6"));
+    }
+
+    @Test
+    public void resetClearsAllCounters() {
         ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
         counters.recordTopologyUpload();
         counters.recordColorUpload();
+        counters.recordBindingCapture();
 
         counters.reset();
 
         Assert.assertEquals(0L, counters.getRebuilds());
         Assert.assertEquals(0L, counters.getUploads());
+        Assert.assertEquals(0L, counters.getFrameCaptures());
+        Assert.assertEquals(0L, counters.getGlIntegerReads());
     }
 
     @Test

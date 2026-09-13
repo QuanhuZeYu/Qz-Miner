@@ -20,6 +20,11 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
  *
  * <p>绑定围栏：帧内 upload / draw 由调用方帧级围栏统一捕获 / 恢复（0 次 glGetInteger）；
  * 只有帧外入口 {@link #dispose()} 自带一次捕获。</p>
+ *
+ * <p>能力要求（T8-D9 登记）：本后端与历史 ChainPreviewMeshCache 同源，使用 VAO（GL30）与
+ * glVertexAttribPointer（GL20）。无 GL20 / GL30 时 {@link #ensureReady()} 返回 false 并记录
+ * failure（见 {@link #describe()}），预览整体不可用；真正的无 VAO 固定管线回退路径属下一批
+ * （B4.3）评估，本轮不做。</p>
  */
 public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBackend {
 
@@ -68,7 +73,46 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
         } catch (Throwable failure) {
             initFailed = true;
             failureReason = failure.getClass().getSimpleName() + ": " + String.valueOf(failure.getMessage());
+            releaseGlObjects();
             return false;
+        }
+    }
+
+    /**
+     * 初始化中途失败时的静默释放（T8-D7）：句柄先清零，再尽力删除；
+     * 上下文失效时无法回收，交由 lifecycle dispose 兜底，不抛异常。
+     */
+    private void releaseGlObjects() {
+        int handleVao = vao;
+        int handleVbo = vbo;
+        int handleCbo = cbo;
+        int handleEbo = ebo;
+        vao = 0;
+        vbo = 0;
+        cbo = 0;
+        ebo = 0;
+        vboCapacity = 0;
+        cboCapacity = 0;
+        eboCapacity = 0;
+        vertexStaging = null;
+        colorStaging = null;
+        indexStaging = null;
+        initialized = false;
+        try {
+            if (handleVao != 0) {
+                GL30.glDeleteVertexArrays(handleVao);
+            }
+            if (handleVbo != 0) {
+                GL15.glDeleteBuffers(handleVbo);
+            }
+            if (handleCbo != 0) {
+                GL15.glDeleteBuffers(handleCbo);
+            }
+            if (handleEbo != 0) {
+                GL15.glDeleteBuffers(handleEbo);
+            }
+        } catch (Throwable ignored) {
+            // 上下文失效：句柄已清零，不再重复删除
         }
     }
 
@@ -204,7 +248,12 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
             return;
         }
 
-        ChainPreviewGlBindings previous = ChainPreviewGlBindings.capture();
+        ChainPreviewGlBindings previous;
+        try {
+            previous = ChainPreviewGlBindings.capture();
+        } catch (Throwable failure) {
+            previous = null;
+        }
         try {
             GL30.glBindVertexArray(0);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
@@ -213,8 +262,16 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
             GL15.glDeleteBuffers(deletedVbo);
             GL15.glDeleteBuffers(deletedCbo);
             GL15.glDeleteBuffers(deletedEbo);
+        } catch (Throwable ignored) {
+            // T8-D8：dispose 可能在帧围栏外调用（配置热切换），上下文失效不得逃逸渲染帧
         } finally {
-            previous.withoutDeleted(deletedVao, deletedVbo, deletedCbo, deletedEbo).restore();
+            if (previous != null) {
+                try {
+                    previous.withoutDeleted(deletedVao, deletedVbo, deletedCbo, deletedEbo).restore();
+                } catch (Throwable ignored) {
+                    // 恢复失败同上：句柄已清零，交由 lifecycle 兜底
+                }
+            }
         }
     }
 

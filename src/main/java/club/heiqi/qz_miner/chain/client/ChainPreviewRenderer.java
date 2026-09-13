@@ -10,7 +10,6 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlCapabilities;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewLegacyBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewRenderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
-import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -27,8 +26,10 @@ import org.lwjgl.opengl.GL11;
  * <p>每帧流程：采样相机 → 选择后端 → 取回 CPU publication → 帧级 GL 状态围栏内上传拓扑 /
  * 颜色并派生 {@link ChainPreviewDrawPlan} → 后端绘制。</p>
  *
- * <p>B0.4：GL 绑定围栏提升到帧级，每帧最多 3 次 glGetInteger（一次捕获、一次恢复）；
- * 矩阵模式不再单独查询，由 glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖。</p>
+ * <p>B0.4 口径：绑定捕获每帧 3 次 glGetInteger（一次捕获、一次恢复），矩阵模式不再单独查询
+ * （glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）；着色器路径另有每帧 1 次 GL_VIEWPORT
+ * 与 1 次 program 恢复回读，GL_PROJECTION_MATRIX 仅在 viewport 变化时读，这些不计入本口径，
+ * 由 T6 后端自行计数（T8-D3/D4）。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewRenderer {
@@ -129,6 +130,7 @@ public class ChainPreviewRenderer {
         }
 
         ChainPreviewGlBindings bindings = ChainPreviewGlBindings.capture();
+        scaleCounters.recordBindingCapture();
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         try {
             GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
@@ -291,9 +293,10 @@ public class ChainPreviewRenderer {
         return ChainPreviewDrawPlan.DepthChannel.XRAY;
     }
 
-    private static String configuredBackendId() {
-        PreviewRenderBackend configured = Config.clientPreviewRenderBackend;
-        return configured == null ? ChainPreviewBackendSelector.AUTO : configured.id();
+    /** 后端档位经 §H 读取面（ChainPreviewVisualSettings）获取，renderer 不再直连 Config（T8-D10）。 */
+    private String configuredBackendId() {
+        ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
+        return settings == null ? ChainPreviewBackendSelector.AUTO : settings.getRenderBackendId();
     }
 
     /** 执行绘制；状态与矩阵由帧级围栏恢复。 */
@@ -323,12 +326,43 @@ public class ChainPreviewRenderer {
         }
     }
 
-    /** 清理当前缓存的预览网格（空网格上传 = 清空索引，不触发 GL 初始化）。 */
+    /**
+     * 清理当前缓存的预览网格（空网格上传 = 清空索引）。
+     *
+     * <p>该路径可能在帧围栏之外被调用（预览未激活 / 世界为空 / 配置或生命周期早退），
+     * 因此自带绑定围栏（T8-D2b）；空网格上传按接口契约不得触碰 GL，围栏是防御后端违规的加固。</p>
+     */
     private void clearMesh() {
-        if (backend != null) {
+        if (backend == null) {
+            resetUploadState();
+            return;
+        }
+        ChainPreviewGlBindings bindings = captureQuietly();
+        try {
             backend.uploadTopology(ChainPreviewMesh.EMPTY);
+        } finally {
+            restoreQuietly(bindings);
         }
         resetUploadState();
+    }
+
+    private static ChainPreviewGlBindings captureQuietly() {
+        try {
+            return ChainPreviewGlBindings.capture();
+        } catch (Throwable failure) {
+            return null;
+        }
+    }
+
+    private static void restoreQuietly(ChainPreviewGlBindings bindings) {
+        if (bindings == null) {
+            return;
+        }
+        try {
+            bindings.restore();
+        } catch (Throwable ignored) {
+            // 上下文失效时围栏恢复失败不得逃逸渲染帧
+        }
     }
 
     private void resetUploadState() {

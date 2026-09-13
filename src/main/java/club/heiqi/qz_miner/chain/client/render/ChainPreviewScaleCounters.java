@@ -1,14 +1,18 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 /**
- * 预览规模计数器：拓扑重建与 GPU 上传次数（只允许在渲染线程递增）。
+ * 预览规模计数器：拓扑重建、GPU 上传与帧级 GL 回读（只允许在渲染线程递增）。
  *
- * <p>数值由 {@link ChainPreviewDrawPlan#derive} 快照进绘制计划，供 HUD / 真机验收读数。</p>
+ * <p>rebuilds / uploads 由 {@link ChainPreviewDrawPlan#derive} 快照进绘制计划，供 HUD / 真机验收读数；
+ * frameCaptures / glIntegerReads 是 B0.4 帧级围栏的自检口径（一次捕获 = 3 次 glGetInteger，
+ * 见 {@link ChainPreviewGlBindings#CAPTURED_QUERY_COUNT}），供诊断输出使用。</p>
  */
 public final class ChainPreviewScaleCounters {
 
     private long rebuilds;
     private long uploads;
+    private long frameCaptures;
+    private long glIntegerReads;
 
     /** 记录一次非空拓扑落地上传（一次重建 = 一次拓扑上传 + 一次上传）。 */
     public void recordTopologyUpload() {
@@ -21,6 +25,12 @@ public final class ChainPreviewScaleCounters {
         uploads++;
     }
 
+    /** 记录一次帧级绑定捕获（等价 3 次 glGetInteger）。 */
+    public void recordBindingCapture() {
+        frameCaptures++;
+        glIntegerReads += ChainPreviewGlBindings.CAPTURED_QUERY_COUNT;
+    }
+
     /** @return 累计非空拓扑上传次数 */
     public long getRebuilds() {
         return rebuilds;
@@ -31,9 +41,29 @@ public final class ChainPreviewScaleCounters {
         return uploads;
     }
 
+    /** @return 累计帧级绑定捕获次数 */
+    public long getFrameCaptures() {
+        return frameCaptures;
+    }
+
+    /** @return 累计 glGetInteger 回读次数（帧级围栏口径，不含后端自身回读） */
+    public long getGlIntegerReads() {
+        return glIntegerReads;
+    }
+
+    /** @return 诊断文本 */
+    public String describe() {
+        return "preview.rebuilds=" + rebuilds
+            + ", preview.uploads=" + uploads
+            + ", preview.frameCaptures=" + frameCaptures
+            + ", preview.glIntegerReads=" + glIntegerReads;
+    }
+
     /** 生命周期清理：计数归零。 */
     public void reset() {
         rebuilds = 0L;
         uploads = 0L;
+        frameCaptures = 0L;
+        glIntegerReads = 0L;
     }
 }

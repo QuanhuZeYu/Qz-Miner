@@ -4,6 +4,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
+import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 
 public class ChainPreviewDrawPlanTest {
 
@@ -31,7 +32,7 @@ public class ChainPreviewDrawPlanTest {
         Assert.assertEquals(5L, plan.getUploads());
 
         Assert.assertEquals(ChainPreviewDrawPlan.DEFAULT_BAR_THICKNESS, plan.getBarThickness(), 1.0E-6F);
-        Assert.assertEquals(1.0F, plan.getMinScreenWidthPx(), 1.0E-6F);
+        Assert.assertEquals(0.0F, plan.getMinScreenWidthPx(), 1.0E-6F);
         Assert.assertEquals(ChainPreviewDrawPlan.ANIMATION_COMPLETE, plan.getAnimationU(), 1.0E-6F);
         Assert.assertEquals(2.0F, plan.getFadeStartRadius(), 1.0E-6F);
         Assert.assertEquals(6.0F, plan.getFadeEndRadius(), 1.0E-6F);
@@ -116,8 +117,9 @@ public class ChainPreviewDrawPlanTest {
         Assert.assertEquals(ChainPreviewDrawPlan.DEFAULT_BAR_THICKNESS, plan.getBarThickness(), 1.0E-6F);
         Assert.assertEquals(0.0F, plan.getMinScreenWidthPx(), 1.0E-6F);
         Assert.assertEquals(ChainPreviewDrawPlan.ANIMATION_COMPLETE, plan.getAnimationU(), 1.0E-6F);
+        // fadeStart 输入 -1 属有限越界：收窄到下界 0，而不是走 NaN 兜底（NaN 兜底见 nanFallbacksAgreeWithBaselineVisuals）
         Assert.assertEquals(0.0F, plan.getFadeStartRadius(), 1.0E-6F);
-        Assert.assertEquals(ChainPreviewDrawPlan.MIN_FADE_SPAN, plan.getFadeEndRadius(), 1.0E-6F);
+        Assert.assertEquals(ChainPreviewDrawPlan.Visuals.DEFAULT_FADE_END_RADIUS, plan.getFadeEndRadius(), 1.0E-6F);
         Assert.assertEquals(1.0F, plan.getAlphaStart(), 1.0E-6F);
         Assert.assertEquals(0.0F, plan.getAlphaEnd(), 1.0E-6F);
         Assert.assertEquals(ChainPreviewDrawPlan.DepthChannel.XRAY, plan.getDepthChannel());
@@ -240,6 +242,43 @@ public class ChainPreviewDrawPlanTest {
             ChainPreviewDrawPlan.Visuals.alphaFor(5.0D, 5.0F, 3.0F, maxAlpha, minAlpha), 1.0E-5F);
         Assert.assertEquals(minAlpha,
             ChainPreviewDrawPlan.Visuals.alphaFor(10.0D, 5.0F, 3.0F, maxAlpha, minAlpha), 1.0E-5F);
+    }
+
+    /** BASELINE 必须与配置默认逐值同源（settings 的 NaN 兜底即这些默认值）。 */
+    @Test
+    public void baselineVisualsMatchConfigDefaults() {
+        ChainPreviewDrawPlan.Visuals baseline = ChainPreviewDrawPlan.Visuals.BASELINE;
+
+        Assert.assertEquals((float) QzMinerConfigDefaults.CLIENT_PREVIEW_BAR_THICKNESS,
+            baseline.getBarThickness(), 1.0E-6F);
+        Assert.assertEquals((float) QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX,
+            baseline.getMinScreenWidthPx(), 1.0E-6F);
+        Assert.assertEquals((float) QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_START_RADIUS,
+            baseline.getFadeStartRadius(), 1.0E-6F);
+        Assert.assertEquals((float) QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS,
+            baseline.getFadeEndRadius(), 1.0E-6F);
+        Assert.assertEquals((float) QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE,
+            baseline.getAlphaStart(), 1.0E-6F);
+        Assert.assertEquals((float) QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE,
+            baseline.getAlphaEnd(), 1.0E-6F);
+        Assert.assertEquals("xray", QzMinerConfigDefaults.CLIENT_PREVIEW_DEPTH_MODE);
+        Assert.assertEquals(ChainPreviewDrawPlan.DepthChannel.XRAY, baseline.getDepthChannel());
+    }
+
+    @Test
+    public void nanFallbacksAgreeWithBaselineVisuals() {
+        ChainPreviewDrawPlan.Visuals clamped = new ChainPreviewDrawPlan.Visuals(
+            Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, null).sanitized();
+        ChainPreviewDrawPlan.Visuals baseline = ChainPreviewDrawPlan.Visuals.BASELINE;
+
+        Assert.assertEquals(baseline.getBarThickness(), clamped.getBarThickness(), 1.0E-6F);
+        Assert.assertEquals(baseline.getMinScreenWidthPx(), clamped.getMinScreenWidthPx(), 1.0E-6F);
+        Assert.assertEquals(baseline.getAnimationU(), clamped.getAnimationU(), 1.0E-6F);
+        Assert.assertEquals(baseline.getFadeStartRadius(), clamped.getFadeStartRadius(), 1.0E-6F);
+        Assert.assertEquals(baseline.getFadeEndRadius(), clamped.getFadeEndRadius(), 1.0E-6F);
+        Assert.assertEquals(baseline.getAlphaStart(), clamped.getAlphaStart(), 1.0E-6F);
+        Assert.assertEquals(baseline.getAlphaEnd(), clamped.getAlphaEnd(), 1.0E-6F);
+        Assert.assertEquals(baseline.getDepthChannel(), clamped.getDepthChannel());
     }
 
     private static ChainPreviewDrawPlan.Visuals visuals(float animationU) {
