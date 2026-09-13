@@ -161,13 +161,18 @@ public class DrawPlanContractTest {
         Visuals nan = new Visuals(
             Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, null);
         ChainPreviewDrawPlan nanPlan = derive(mesh, 0, mesh.getIndexCount(), null, nan, 0L, 0L);
+        // NaN / null 必须收敛到与配置默认逐值同源的 BASELINE（render-core D10 加固后的口径）。
+        Assert.assertEquals(
+            "NaN 视觉参数必须收敛为 BASELINE",
+            Visuals.BASELINE,
+            nanPlan.getVisuals());
         Assert.assertEquals(ChainPreviewDrawPlan.DEFAULT_BAR_THICKNESS, nanPlan.getBarThickness(), 0.0F);
         Assert.assertEquals(0.0F, nanPlan.getMinScreenWidthPx(), 0.0F);
         Assert.assertEquals(ChainPreviewDrawPlan.ANIMATION_COMPLETE, nanPlan.getAnimationU(), 0.0F);
-        Assert.assertEquals(0.0F, nanPlan.getFadeStartRadius(), 0.0F);
-        Assert.assertTrue(nanPlan.getFadeEndRadius() > nanPlan.getFadeStartRadius());
-        Assert.assertEquals(1.0F, nanPlan.getAlphaStart(), 0.0F);
-        Assert.assertEquals(0.0F, nanPlan.getAlphaEnd(), 0.0F);
+        Assert.assertEquals(2.0F, nanPlan.getFadeStartRadius(), 0.0F);
+        Assert.assertEquals(6.0F, nanPlan.getFadeEndRadius(), 0.0F);
+        Assert.assertEquals(0.78F, nanPlan.getAlphaStart(), 0.0F);
+        Assert.assertEquals(0.15F, nanPlan.getAlphaEnd(), 0.0F);
         Assert.assertEquals(DepthChannel.XRAY, nanPlan.getDepthChannel());
 
         Visuals ranged = new Visuals(1.5F, -3.0F, 2.0F, 5.0F, 1.0F, 2.0F, -1.0F, DepthChannel.XRAY);
