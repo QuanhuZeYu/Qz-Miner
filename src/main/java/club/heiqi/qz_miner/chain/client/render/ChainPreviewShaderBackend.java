@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
@@ -73,6 +74,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private final ChainPreviewShaderProbe probe = new ChainPreviewShaderProbe();
     /** 探针用：几何上传代数（每次 uploadTopology 递增，便于把日志对到具体一份网格）。 */
     private int topologyGeneration;
+    /** 程序首次就绪的能力对账日志是否已输出（一次性）。 */
+    private boolean programReadyReported;
+    /** uModelView 缺失（被编译器优化掉）的一次性说明是否已输出。 */
+    private boolean capabilityMatrixMissingLogged;
 
     private int vao;
     private int vbo;
@@ -203,6 +208,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             initializeGl();
             initialized = true;
             failureReason = "";
+            reportProgramReady();
             return true;
         } catch (Throwable failure) {
             unavailable = true;
@@ -470,6 +476,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             .append(", drawFailures=").append(drawFailures)
             .append(", matrix=").append(describeMatrixSource())
             .append(", ").append(program.describePixelScaleCache())
+            .append(", ").append(program.getCapabilityReport())
             .append('}');
         if (!failureReason.isEmpty()) {
             text.append(" failure=").append(failureReason);
@@ -481,6 +488,26 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             text.append(" matrixUniforms=missing");
         }
         return text.toString();
+    }
+
+    /**
+     * T49：程序首次就绪时打一条 INFO，把「必备全齐 + 能力型缺失清单」落到真机日志。
+     *
+     * <p>为什么必须打：能力型 uniform 缺失是「该能力关闭」的正常表现，但若没有对账日志，
+     * 它与「shader 根本没生效」在观感上完全一样。一次性输出，常态零开销。</p>
+     */
+    private void reportProgramReady() {
+        if (programReadyReported) {
+            return;
+        }
+        programReadyReported = true;
+        try {
+            MyMod.LOG.info("[ChainPreview] shader program ready: requiredUniforms="
+                + ChainPreviewShaderProgram.requiredUniforms().length
+                + ", " + program.getCapabilityReport());
+        } catch (Throwable ignored) {
+            // 诊断日志不得影响渲染帧。
+        }
     }
 
     /**
@@ -599,13 +626,25 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             return false;
         }
 
-        boolean uploaded = program.setModelViewProjection(modelViewProjectionMatrix);
-        uploaded &= program.setModelView(modelViewMatrix);
-        if (!uploaded) {
-            // 必备 uniform 的 location 校验已在 ensureReady 里做；走到这里说明上传本身失败（GL 异常 /
-            // 参数非法）。矩阵没上传却继续绘制 ⇒ shader 拿上一帧或零矩阵，必须放弃本帧并回退（T48c-C）。
-            markMatrixSourceUntrusted("矩阵 uniform 未上传（location < 0 或 GL 失败）");
+        // 硬矩阵：uModelViewProjection 决定 gl_Position，缺它必然全错（顶点塌到原点，而后端自检读的是
+        // 驱动矩阵，查不出来）⇒ 上传失败即放弃本帧并回退（T48c-C）。
+        if (!program.setModelViewProjection(modelViewProjectionMatrix)) {
+            markMatrixSourceUntrusted("uModelViewProjection 未上传（location < 0 或 GL 失败）");
             return false;
+        }
+        // 能力矩阵：uModelView 当前只服务「屏幕最小宽度 / 深度换算」这些尚未启用的分支，GLSL 编译器
+        // 可以按规范把它优化掉（location = -1）。缺失 ⇒ 该能力关闭（已登记进 capabilityReport），
+        // 但投影本身仍正确，不得据此作废整帧 —— 这是 2026-09-13 真机「shader 档什么都不画」的第二段原因。
+        // 返回值仍被显式消费：一次性说明「哪个能力因此关闭」，避免再次静默。
+        boolean modelViewUploaded = program.setModelView(modelViewMatrix);
+        if (!modelViewUploaded && !capabilityMatrixMissingLogged) {
+            capabilityMatrixMissingLogged = true;
+            try {
+                MyMod.LOG.info("[ChainPreview] uModelView 不可用（GLSL 编译器已优化掉该 uniform）："
+                    + "屏幕最小宽度 / 深度换算能力关闭，其余功能不受影响");
+            } catch (Throwable ignored) {
+                // 诊断日志不得影响渲染帧。
+            }
         }
 
         return true;

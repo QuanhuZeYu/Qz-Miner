@@ -59,28 +59,44 @@ public final class ChainPreviewShaderProgram {
      * 而后端的平移列自检读的是<b>驱动矩阵</b>（不是 uniform 值）⇒ <b>自检通过、画面全错</b>。
      * 链接完成后一次性校验即可封死这条通路。</p>
      *
-     * <p>shader 主路径实际消费的 uniform 全部列入必备。这样一旦链接器优化掉、驱动未提供或
-     * uniform location 异常，后端会整体回退 legacy，而不是以默认零值继续绘制错误画面。</p>
+     * <p><b>清单分两级（T49）</b>：{@link #REQUIRED_UNIFORMS} 缺失即整体不可用；
+     * {@link #CAPABILITY_UNIFORMS} 缺失只登记「该能力关闭」。原先不分级时，把「按契约保留但当前
+     * 关闭」的分支所引用的 uniform 也当必备，会让整个着色器后端被判不可用——2026-09-13 真机
+     * 「shader 档什么都不画」正是这条：{@code if (false && …)} 死块里的 uModelView / uPixelScale /
+     * uMinScreenWidthPx 被 GLSL 编译器优化掉（规范允许），location = -1 ⇒ 校验抛异常 ⇒ 程序不可用。</p>
      */
     private static final String[] REQUIRED_UNIFORMS = {
         "uModelViewProjection",
-        "uModelView",
         "uOriginRel",
-        "uPixelScale",
         "uFadeStart",
         "uFadeEnd",
         "uMinAlpha",
         "uMaxAlpha",
         "uAnimProgress",
         "uAppearSpan",
-        "uMinScreenWidthPx",
-        "uBarThickness",
         "uFadeAlpha",
-        "uOutlineWidthPx",
         "uColorPrimary",
         "uColorSecondary",
         "uColorRemote",
         "uColorTruncated",
+    };
+
+    /**
+     * 能力型 uniform：只被「按契约保留、但当前关闭」的分支引用（{@code if (false && …)} 或恒假路径）。
+     *
+     * <p>GLSL 规范允许编译器优化掉未被使用的 uniform ⇒ {@code glGetUniformLocation} 返回 -1。
+     * 在当前 shader 形态下这些 uniform <b>缺失是预期状态</b>，它精确对应「屏幕最小宽度 / 真描边
+     * 能力未启用」，画面回落到纯几何（与 legacy 逐值一致），因此不得据此判定程序不可用。</p>
+     *
+     * <p>启用这些能力时它们会重新变成活引用、location 自动恢复；若届时清单或实现没跟上，
+     * {@link #getCapabilityReport()} 会显示能力仍为 off，可直接对账。</p>
+     */
+    private static final String[] CAPABILITY_UNIFORMS = {
+        "uMinScreenWidthPx",
+        "uPixelScale",
+        "uModelView",
+        "uBarThickness",
+        "uOutlineWidthPx",
     };
 
     private final Map<String, Integer> uniformLocations = new LinkedHashMap<String, Integer>();
@@ -95,6 +111,24 @@ public final class ChainPreviewShaderProgram {
     private String lastFailureMessage = "";
     /** 是否发生过矩阵 uniform 缺失（诊断用；正常路径恒为 false）。 */
     private boolean missingMatrices;
+
+    /** 能力型 uniform 的对账结果（缺失 ⇒ 对应能力关闭；见 {@link #CAPABILITY_UNIFORMS}）。 */
+    private String capabilityReport = "capabilities=unknown";
+
+    /** @return 能力型 uniform 的对账结果，供后端 describe() 与真机日志一眼可见。 */
+    public String getCapabilityReport() {
+        return capabilityReport;
+    }
+
+    /** @return 硬必备清单副本（包内可见，供契约测试对账「新 uniform 必须登记」）。 */
+    static String[] requiredUniforms() {
+        return REQUIRED_UNIFORMS.clone();
+    }
+
+    /** @return 能力型清单副本（包内可见，供契约测试对账「新 uniform 必须登记」）。 */
+    static String[] capabilityUniforms() {
+        return CAPABILITY_UNIFORMS.clone();
+    }
 
     /**
      * 惰性初始化：编译、链接、验证并绑定固定属性槽位。
@@ -477,6 +511,23 @@ public final class ChainPreviewShaderProgram {
         if (missing != null) {
             throw new IllegalStateException(MISSING_UNIFORM_PREFIX + missing);
         }
+        // 能力型：缺失不失败，只登记成能力状态。缺失 = 「这段能力当前关闭」的正常表现，
+        // 不是故障；把它当硬失败会让整个着色器后端不可用（真机表型：什么都不画）。
+        StringBuilder unavailable = null;
+        for (String name : CAPABILITY_UNIFORMS) {
+            if (getUniformLocation(name) >= 0) {
+                continue;
+            }
+            if (unavailable == null) {
+                unavailable = new StringBuilder();
+            } else {
+                unavailable.append(',');
+            }
+            unavailable.append(name);
+        }
+        capabilityReport = unavailable == null
+                ? "capabilities=all-available"
+                : "capabilities=enhanced-geometry:off(missing=" + unavailable + ')';
     }
 
     private void compileAndLink() {

@@ -15,44 +15,80 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderProgram;
 
 /**
- * T48c-C 必备 uniform 的「可达性」独立复核（task-49 增量复核，preview-verifier）。
+ * 必备 uniform 的「可达性」独立复核（T48c-C 初版，T49 按分级重写）。
  *
- * <p>Lead 复核项 1 的另一半是「<b>不误伤</b>」：{@code verifyRequiredUniforms()} 在缺 location 时会让
- * 程序不可用并永久回退 legacy。若某个必备名字其实<b>没在顶点着色器里被真正使用</b>，GLSL 编译器会把该
- * uniform 优化掉、location 恒为 -1 ⇒ <b>每次都白回退</b>（比原缺陷更重的静默失效）。</p>
+ * <p>被复核的风险：{@code verifyRequiredUniforms()} 在缺 location 时让程序整体不可用并永久回退 legacy。
+ * 若某个必备名字其实<b>没在顶点着色器里被真正使用</b>，GLSL 编译器会把该 uniform 优化掉、location 恒为 -1
+ * ⇒ <b>每次都白回退</b>（比原缺陷更重的静默失效）。</p>
  *
- * <p>这就是本类存在的理由：纯 JVM 内无法编译 GLSL，唯一可自动化的证据是「名字在 shader 源里同时出现在
- * uniform 声明与至少一处去注释后的使用」。因此本类是<b>静态一致性检查</b>，不是行为契约断言。</p>
+ * <p><b>T49 修正的漏洞</b>：初版只数「名字出现次数 >= 2（声明 + 至少一次引用）」，而
+ * {@code if (false && …)} 死块里的引用也被算了进去。被编译期常量门控的分支，其 uniform 引用对编译器
+ * 而言等于未使用 —— 所以初版会在真机「每次都白回退」时照样变绿。现在改为：</p>
+ * <ol>
+ *   <li><b>硬必备</b>（{@code REQUIRED_UNIFORMS}）：必须声明，且在死块之外至少被引用一次；</li>
+ *   <li><b>能力型</b>（{@code CAPABILITY_UNIFORMS}）：必须声明，允许只被死块引用（缺失 = 该能力关闭）；</li>
+ *   <li>两类不得重叠，且「只被死块引用的 uniform」必须全部登记为能力型 —— 这条把清单漂移变成红灯。</li>
+ * </ol>
  *
- * <p>反射说明：{@code REQUIRED_UNIFORMS} 是 private 静态常量，无公共读口；内部字段名变更需同步此处。
+ * <p>反射说明：两个清单都是 private 静态常量，无公共读口；内部字段名变更需同步此处。
  * 字段缺失会直接抛 {@code NoSuchFieldException} ⇒ 改名即红，不会静默跳过。</p>
  */
 public class T48cCRequiredUniformReachabilityTest {
 
     private static final String VERTEX_RESOURCE = "/assets/qz_miner/shaders/preview.vert";
 
-    /** 无此二者则 T48c-A 的「显式矩阵」整体失效，必须永久在列。 */
+    /** 无此二者则 T48c-A 的「显式矩阵」整体失效；必须落在「硬必备 ∪ 能力型」内。 */
     private static final String[] MATRIX_UNIFORMS = { "uModelViewProjection", "uModelView" };
 
     @Test
     public void everyRequiredUniformIsDeclaredAndActuallyUsedInVertexShader() throws Exception {
         String source = withoutComments(readResource(VERTEX_RESOURCE));
+        List<int[]> dead = deadRanges(source);
         List<String> required = requiredUniforms();
+        List<String> capability = capabilityUniforms();
 
-        Assert.assertFalse("必备 uniform 列表不得为空", required.isEmpty());
+        Assert.assertFalse("硬必备 uniform 列表不得为空", required.isEmpty());
         for (String name : required) {
-            Pattern declaration = Pattern.compile("uniform\\s+\\w+\\s+" + Pattern.quote(name) + "\\s*;");
-            Assert.assertTrue("必备 uniform " + name + " 必须在 preview.vert 中声明（去注释后）",
-                    declaration.matcher(source).find());
-
-            int occurrences = countOccurrences(source, name);
-            Assert.assertTrue("必备 uniform " + name + " 必须在声明之外被真正引用（否则会被 GLSL 优化掉、"
-                    + "location 恒为 -1 ⇒ 每次都白回退 legacy）；实际出现 " + occurrences + " 次",
-                    occurrences >= 2);
+            Assert.assertTrue("硬必备 uniform " + name + " 必须在 preview.vert 中声明（去注释后）",
+                    declarationPattern(name).matcher(source).find());
+            int live = countLiveOccurrences(source, name, dead);
+            Assert.assertTrue("硬必备 uniform " + name + " 必须在 if (false && …) 死块之外被真正引用"
+                    + "（否则会被 GLSL 优化掉、location 恒为 -1 ⇒ 整个着色器后端不可用）；实际存活引用 "
+                    + live + " 次。若它属于「按契约保留但当前关闭」的能力，应登记到 CAPABILITY_UNIFORMS。",
+                    live >= 1);
+        }
+        for (String name : capability) {
+            Assert.assertTrue("能力型 uniform " + name + " 必须在 preview.vert 中声明（去注释后）",
+                    declarationPattern(name).matcher(source).find());
+            Assert.assertFalse("能力型 uniform 不得同时登记为硬必备：" + name, required.contains(name));
         }
         for (String name : MATRIX_UNIFORMS) {
-            Assert.assertTrue("显式矩阵 uniform " + name + " 必须在必备列表内", required.contains(name));
+            Assert.assertTrue("显式矩阵 uniform " + name + " 必须在硬必备或能力型清单内",
+                    required.contains(name) || capability.contains(name));
         }
+    }
+
+    /** 只被死块引用的 uniform 必须全部登记为能力型（清单漂移 = 红灯）。 */
+    @Test
+    public void uniformsReferencedOnlyFromDeadCodeAreRegisteredAsCapability() throws Exception {
+        String source = withoutComments(readResource(VERTEX_RESOURCE));
+        List<int[]> dead = deadRanges(source);
+        List<String> onlyDead = new ArrayList<String>();
+        for (String name : declaredUniforms(source)) {
+            if (countLiveOccurrences(source, name, dead) == 0) {
+                onlyDead.add(name);
+            }
+        }
+        List<String> capability = capabilityUniforms();
+        List<String> unregistered = new ArrayList<String>();
+        for (String name : onlyDead) {
+            if (!capability.contains(name)) {
+                unregistered.add(name);
+            }
+        }
+        Assert.assertTrue("只被 if (false && …) 死块引用的 uniform（" + onlyDead
+                + "）必须登记为能力型，否则真机必然「白回退 / 程序不可用」；未登记：" + unregistered,
+                unregistered.isEmpty());
     }
 
     @Test
@@ -71,21 +107,116 @@ public class T48cCRequiredUniformReachabilityTest {
     public void requiredUniformsAreNotCommentOnly() throws Exception {
         String raw = readResource(VERTEX_RESOURCE);
         String stripped = withoutComments(raw);
-        for (String name : requiredUniforms()) {
-            Assert.assertTrue("注释里出现过的名字不得被误判为已声明", countOccurrences(stripped, name) <= countOccurrences(raw, name));
+        List<String> all = new ArrayList<String>(requiredUniforms());
+        all.addAll(capabilityUniforms());
+        for (String name : all) {
+            Assert.assertTrue("注释里出现过的名字不得被误判为已声明",
+                    countOccurrences(stripped, name) <= countOccurrences(raw, name));
         }
     }
 
-    /** 反射读必备 uniform 名单（内部字段名变更需同步此处）。 */
+    // ---------------------------------------------------------------- 内部
+
+    private static Pattern declarationPattern(String name) {
+        return Pattern.compile("uniform\\s+\\w+\\s+" + Pattern.quote(name) + "\\s*;");
+    }
+
+    /** 提取全部 uniform 声明名（去注释后的源码）。 */
+    private static List<String> declaredUniforms(String source) {
+        List<String> names = new ArrayList<String>();
+        Matcher matcher = Pattern.compile("uniform\\s+\\w+\\s+(\\w+)\\s*;").matcher(source);
+        while (matcher.find()) {
+            names.add(matcher.group(1));
+        }
+        return names;
+    }
+
+    /**
+     * {@code if (false && …) { … }} 的字符区间。
+     *
+     * <p>这些分支被编译期常量门控，GLSL 编译器对其中的 uniform 引用视作未使用（规范允许优化掉），
+     * 因此必须从「可达性」里剔除。</p>
+     */
+    private static List<int[]> deadRanges(String source) {
+        List<int[]> ranges = new ArrayList<int[]>();
+        Matcher matcher = Pattern.compile("if\\s*\\(\\s*false\\s*&&").matcher(source);
+        while (matcher.find()) {
+            int open = source.indexOf('(', matcher.start());
+            int conditionEnd = matchDelimiter(source, open, '(', ')');
+            if (conditionEnd < 0) {
+                continue;
+            }
+            int brace = source.indexOf('{', conditionEnd);
+            int blockEnd = matchDelimiter(source, brace, '{', '}');
+            if (brace < 0 || blockEnd < 0) {
+                continue;
+            }
+            ranges.add(new int[] { matcher.start(), blockEnd });
+        }
+        return ranges;
+    }
+
+    private static int matchDelimiter(String text, int openIndex, char open, char close) {
+        if (openIndex < 0) {
+            return -1;
+        }
+        int depth = 0;
+        for (int i = openIndex; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == open) {
+                depth++;
+            } else if (c == close) {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /** 统计「声明行之外、且不在死块内」的引用次数（这才是编译器眼中真正用到的引用）。 */
+    private static int countLiveOccurrences(String source, String name, List<int[]> deadRanges) {
+        int count = 0;
+        int index = source.indexOf(name);
+        while (index >= 0) {
+            int lineStart = source.lastIndexOf('\n', index) + 1;
+            int lineEnd = source.indexOf('\n', index);
+            String line = source.substring(lineStart, lineEnd < 0 ? source.length() : lineEnd);
+            boolean inDead = false;
+            for (int[] range : deadRanges) {
+                if (index >= range[0] && index <= range[1]) {
+                    inDead = true;
+                    break;
+                }
+            }
+            if (!line.trim().startsWith("uniform") && !inDead) {
+                count++;
+            }
+            index = source.indexOf(name, index + name.length());
+        }
+        return count;
+    }
+
+    /** 反射读硬必备名单（内部字段名变更需同步此处）。 */
     private static List<String> requiredUniforms() throws Exception {
-        Field field = ChainPreviewShaderProgram.class.getDeclaredField("REQUIRED_UNIFORMS");
+        return readUniformList("REQUIRED_UNIFORMS", "硬必备");
+    }
+
+    /** 反射读能力型名单（内部字段名变更需同步此处）。 */
+    private static List<String> capabilityUniforms() throws Exception {
+        return readUniformList("CAPABILITY_UNIFORMS", "能力型");
+    }
+
+    private static List<String> readUniformList(String fieldName, String label) throws Exception {
+        Field field = ChainPreviewShaderProgram.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         String[] names = (String[]) field.get(null);
-        Assert.assertNotNull("REQUIRED_UNIFORMS 不得为 null", names);
+        Assert.assertNotNull(label + " uniform 清单不得为 null：" + fieldName, names);
         List<String> list = new ArrayList<String>();
         for (String name : names) {
-            Assert.assertNotNull("必备 uniform 名不得为 null", name);
-            Assert.assertFalse("必备 uniform 名不得为空", name.trim().isEmpty());
+            Assert.assertNotNull(label + " uniform 名不得为 null", name);
+            Assert.assertFalse(label + " uniform 名不得为空", name.trim().isEmpty());
             list.add(name);
         }
         return list;

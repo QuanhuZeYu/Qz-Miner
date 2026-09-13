@@ -85,8 +85,11 @@ public class ChainPreviewShaderMatrixSourceTest {
                 body.contains("magnitude(") && body.contains("originRelativeX"));
         Assert.assertTrue("必须上传 uModelViewProjection", body.contains("setModelViewProjection(modelViewProjectionMatrix)"));
         Assert.assertTrue("必须上传 uModelView", body.contains("setModelView(modelViewMatrix)"));
-        Assert.assertTrue("矩阵未上传必须走同一失败出口（T48c-C 第 1 条）",
-                body.contains("矩阵 uniform 未上传") && body.contains("uploaded"));
+        Assert.assertTrue("硬矩阵 uModelViewProjection 未上传必须走同一失败出口（T48c-C 第 1 条）",
+                body.contains("uModelViewProjection 未上传") && body.contains("markMatrixSourceUntrusted"));
+        Assert.assertTrue("能力矩阵 uModelView 的上传结果必须被显式消费（不得静默忽略返回值）",
+                body.contains("boolean modelViewUploaded = program.setModelView(modelViewMatrix)")
+                        && body.contains("!modelViewUploaded"));
 
         String untrusted = methodBody(BACKEND_PATH, "private void markMatrixSourceUntrusted(", "markMatrixSourceUntrusted");
         Assert.assertTrue("失败必须锁成一次性 unavailable", untrusted.contains("unavailable = true"));
@@ -140,8 +143,21 @@ public class ChainPreviewShaderMatrixSourceTest {
         String[] required = (String[]) field.get(null);
         java.util.List<String> names = java.util.Arrays.asList(required);
         for (String name : new String[] {
-                "uModelViewProjection", "uModelView", "uOriginRel", "uBarThickness", "uFadeAlpha", "uColorPrimary" }) {
-            Assert.assertTrue("必备 uniform 必须包含 " + name + "（实际 " + names + "）", names.contains(name));
+                "uModelViewProjection", "uOriginRel", "uFadeAlpha", "uColorPrimary" }) {
+            Assert.assertTrue("硬必备 uniform 必须包含 " + name + "（实际 " + names + "）", names.contains(name));
+        }
+        // T49 分级：位移 / 描边专用 uniform 当前只被 if (false && …) 死块引用，编译器会把它们优化掉；
+        // 列为硬必备会让整个着色器后端被判不可用（真机表型：shader 档什么都不画），故归入能力型。
+        java.lang.reflect.Field capabilityField =
+                ChainPreviewShaderProgram.class.getDeclaredField("CAPABILITY_UNIFORMS");
+        capabilityField.setAccessible(true);
+        String[] capability = (String[]) capabilityField.get(null);
+        java.util.List<String> capabilityNames = java.util.Arrays.asList(capability);
+        for (String name : new String[] {
+                "uModelView", "uPixelScale", "uMinScreenWidthPx", "uBarThickness", "uOutlineWidthPx" }) {
+            Assert.assertTrue("能力型 uniform 必须包含 " + name + "（实际 " + capabilityNames + "）",
+                    capabilityNames.contains(name));
+            Assert.assertFalse("能力型 uniform 不得同时出现在硬必备里：" + name, names.contains(name));
         }
     }
 

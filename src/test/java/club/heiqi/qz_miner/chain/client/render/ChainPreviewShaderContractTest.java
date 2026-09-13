@@ -5,8 +5,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -102,6 +104,41 @@ public class ChainPreviewShaderContractTest {
                         && mainBody.indexOf("uAnimProgress * uAppearSpan - orderFloor") >= 0);
         Assert.assertFalse("uAnimSpan 已是死 uniform，必须删除（Lead 裁定第 2 条）",
                 vertex.getUniforms().containsKey("uAnimSpan"));
+    }
+
+    // ------------------------------------------------------------------ 清单对账（T49）
+
+    /**
+     * 着色器声明的每个 uniform 必须登记在 Java 侧清单（硬必备或能力型）里。
+     *
+     * <p>不登记 ⇒ 运行期无人对账：要么字段被编译器优化掉无人发现，要么把「按契约保留但当前关闭」
+     * 分支引用的 uniform 当必备，导致整个着色器后端被判不可用（2026-09-13 真机「shader 档什么都不画」）。
+     * 这条断言把「清单漂移」变成 CI 红灯。</p>
+     */
+    @Test
+    public void everyDeclaredUniformIsRegisteredForReadiness() throws IOException {
+        Set<String> registered = new HashSet<String>();
+        for (String name : ChainPreviewShaderProgram.requiredUniforms()) {
+            registered.add(name);
+        }
+        for (String name : ChainPreviewShaderProgram.capabilityUniforms()) {
+            registered.add(name);
+        }
+        List<String> unregistered = new ArrayList<String>();
+        collectUnregistered("preview.vert", VERTEX_PATH, registered, unregistered);
+        collectUnregistered("preview.frag", FRAGMENT_PATH, registered, unregistered);
+        Assert.assertTrue("着色器声明的 uniform 必须登记在必备或能力清单里：" + unregistered,
+                unregistered.isEmpty());
+    }
+
+    private static void collectUnregistered(String label, String path, Set<String> registered,
+            List<String> unregistered) throws IOException {
+        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
+        for (String name : GlslSourceScanner.of(read(path), ignored, label).getUniforms().keySet()) {
+            if (!registered.contains(name)) {
+                unregistered.add(label + ":" + name);
+            }
+        }
     }
 
     /** 语义调色板 uniform 必须声明在**顶点**着色器（选色在顶点阶段完成，F1）。 */
