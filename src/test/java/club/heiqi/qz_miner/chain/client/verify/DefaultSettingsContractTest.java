@@ -5,6 +5,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.client.ChainPreviewVisualSettings;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 import club.heiqi.qz_miner.config.PreviewAnimationMode;
 import club.heiqi.qz_miner.config.PreviewAnimationPhase;
 import club.heiqi.qz_miner.config.PreviewColorSource;
@@ -70,6 +71,7 @@ public class DefaultSettingsContractTest {
         try {
             applyDefaults();
             ChainPreviewVisualSettings settings = ChainPreviewVisualSettings.fromConfig();
+            Assert.assertEquals("auto", settings.getRenderBackendId());
             Assert.assertEquals(0.045F, settings.getBarThickness(), 0.0000001F);
             Assert.assertEquals(0.0F, settings.getMinScreenWidthPx(), 0.0F);
             Assert.assertEquals("xray", settings.getDepthModeId());
@@ -113,9 +115,13 @@ public class DefaultSettingsContractTest {
             Config.clientPreviewTruncationSignal = false;
             ChainPreviewVisualSettings fallback = ChainPreviewVisualSettings.fromConfig();
 
-            Assert.assertTrue(
-                "回退组合必须与默认档产出同一视觉快照（renderBackend 不进入快照）",
-                defaults.equals(fallback));
+            // 快照现已包含 renderBackendId（session-core 扩展），故唯一允许的差异就是它：
+            // 默认 auto vs 回退 legacy；其余视觉字段必须逐项相等。
+            Assert.assertEquals("auto", defaults.getRenderBackendId());
+            Assert.assertEquals("legacy", fallback.getRenderBackendId());
+            assertSameVisualFields(defaults, fallback);
+            Assert.assertFalse(
+                "除 renderBackend 外不得再有差异", defaults.equals(fallback));
             Assert.assertEquals(0.0F, fallback.getMinScreenWidthPx(), 0.0F);
             Assert.assertEquals("timer", fallback.getFadeModeId());
             Assert.assertEquals("off", fallback.getAnimationId());
@@ -155,12 +161,19 @@ public class DefaultSettingsContractTest {
             Assert.assertEquals("builtin", settings.getColorSourceId());
             Assert.assertEquals("off", settings.getLodId());
             Assert.assertEquals(0.045F, settings.getBarThickness(), 0.0000001F);
-            // minScreenWidthPx 的 NaN 兜底值仍为旧默认 1.0（ChainPreviewVisualSettings:136），
-            // 与 §E 新默认 0.0 及 draw plan sanitized 的 0.0 不一致，已上报 Lead 待裁决；
-            // 本探针只断言不抛异常且落在允许域内，裁决落地后再收紧为等值断言。
-            float safeMinWidth = settings.getMinScreenWidthPx();
-            Assert.assertTrue(
-                "NaN 兜底必须落在允许域 [0,8]：" + safeMinWidth, safeMinWidth >= 0.0F && safeMinWidth <= 8.0F);
+            // Lead 裁定：NaN 兜底必须与 §E 新默认及 draw plan sanitized 一致，均为 0.0（原本为旧默认 1.0）。
+            Assert.assertEquals(
+                "NaN → minScreenWidthPx 兜底必须为 0.0（与 draw plan sanitized 一致）",
+                0.0F,
+                settings.getMinScreenWidthPx(),
+                0.0F);
+            Assert.assertEquals(
+                "draw plan 层 NaN 兜底同样必须是 0.0（两层一致）",
+                0.0F,
+                new ChainPreviewDrawPlan.Visuals(
+                    0.045F, Float.NaN, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F,
+                    ChainPreviewDrawPlan.DepthChannel.XRAY).sanitized().getMinScreenWidthPx(),
+                0.0F);
             Assert.assertEquals(0.78F, settings.getAlphaStartValue(), 0.0F);
             Assert.assertEquals(0.15F, settings.getAlphaEndValue(), 0.0F);
             Assert.assertEquals(0.05F, settings.getLodMinAlpha(), 0.0000001F);
@@ -198,6 +211,34 @@ public class DefaultSettingsContractTest {
         Config.clientPreviewAlphaFadeEndRadius = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS;
         Config.clientPreviewAlphaStartValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE;
         Config.clientPreviewAlphaEndValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE;
+    }
+
+    /** 逐项比较除 renderBackendId 之外的视觉字段。 */
+    private static void assertSameVisualFields(
+            ChainPreviewVisualSettings expected, ChainPreviewVisualSettings actual) {
+        Assert.assertEquals(expected.getBarThickness(), actual.getBarThickness(), 0.0F);
+        Assert.assertEquals(expected.getMinScreenWidthPx(), actual.getMinScreenWidthPx(), 0.0F);
+        Assert.assertEquals(expected.getDepthModeId(), actual.getDepthModeId());
+        Assert.assertEquals(expected.getAnimationId(), actual.getAnimationId());
+        Assert.assertEquals(expected.getAnimationPhaseId(), actual.getAnimationPhaseId());
+        Assert.assertEquals(expected.getFadeModeId(), actual.getFadeModeId());
+        Assert.assertEquals(expected.getColorSourceId(), actual.getColorSourceId());
+        Assert.assertEquals(expected.getColorPrimary(), actual.getColorPrimary());
+        Assert.assertEquals(expected.getColorSecondary(), actual.getColorSecondary());
+        Assert.assertEquals(expected.getColorRemote(), actual.getColorRemote());
+        Assert.assertEquals(expected.getColorTruncated(), actual.getColorTruncated());
+        Assert.assertEquals(expected.getAnimationDurationMs(), actual.getAnimationDurationMs());
+        Assert.assertEquals(expected.getFadeRefreshDistance(), actual.getFadeRefreshDistance(), 0.0F);
+        Assert.assertEquals(expected.getFadeFallbackMs(), actual.getFadeFallbackMs());
+        Assert.assertEquals(expected.getAlphaFadeStartRadius(), actual.getAlphaFadeStartRadius(), 0.0F);
+        Assert.assertEquals(expected.getAlphaFadeEndRadius(), actual.getAlphaFadeEndRadius(), 0.0F);
+        Assert.assertEquals(expected.getAlphaStartValue(), actual.getAlphaStartValue(), 0.0F);
+        Assert.assertEquals(expected.getAlphaEndValue(), actual.getAlphaEndValue(), 0.0F);
+        Assert.assertEquals(expected.getLodId(), actual.getLodId());
+        Assert.assertEquals(expected.getLodMinAlpha(), actual.getLodMinAlpha(), 0.0F);
+        Assert.assertEquals(
+            expected.isTruncationSignalEnabled(), actual.isTruncationSignalEnabled());
+        Assert.assertEquals(expected.getMaxTargetsHardCap(), actual.getMaxTargetsHardCap());
     }
 
     /** 保护同 JVM 内其它配置测试：本类只改这些字段，用后原值恢复。 */
