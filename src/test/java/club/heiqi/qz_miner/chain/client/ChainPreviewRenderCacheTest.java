@@ -365,6 +365,165 @@ public class ChainPreviewRenderCacheTest {
         Assert.assertEquals("aAux.x 必须是真实 semanticClass", semanticClass, aux[0] & 0xFF);
     }
 
+    /**
+     * 逐步到达证据（真机 61 目标只显示 1 根的核对项 1）：每推进一次 renderRevision 都必须产出新 publication，
+     * 且最终 publication 必须是「61 目标那一份」，不得停留在首修订的 1 目标快照。
+     *
+     * <p>驱动口径：生产 executor **每个 tick 都给全新 yield 预算**，因此上面的 runAll/NeverYield 与
+     * {@link #productionPerTickYieldBudgetsPublishFullMesh} 的「每 tick 新实例」才是生产形态；
+     * 禁止用单调累加、永不重置的 yield 计数器驱动任务——预算耗尽后每次 run 入口即让出，会造出
+     * 「永久饿死 + 只剩空占位发布」的假象（真机链路上不存在该语义）。</p>
+     */
+    @Test
+    public void progressiveTargetsEveryRevisionPublishesAndFinalMeshHoldsAllTargets() throws Exception {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+
+        int generation = state.begin(new ChainTarget(0, 0, 0));
+        state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
+        Assert.assertNotNull(cache.pollPublication());
+        runCompleted(scheduler.tasks.get(0).task);
+        ChainPreviewRenderCache.MeshPublication initial = cache.pollPublication();
+        Assert.assertNotNull(initial);
+        Assert.assertEquals("首修订发布必须是 1 目标", 1, initial.getMesh().getBlockCount());
+
+        int publications = 0;
+        int lastBlocks = 0;
+        for (int index = 1; index < 61; index++) {
+            state.addPreviewTarget(generation, new ChainTarget(index * 3, 0, 0));
+            runAll(scheduler);
+            ChainPreviewRenderCache.MeshPublication publication = cache.pollPublication();
+            Assert.assertNotNull("修订 " + index + " 追加后必须产出新 publication", publication);
+            publications++;
+            lastBlocks = publication.getMesh().getBlockCount();
+            Assert.assertEquals("第 " + index + " 次追加的 publication 必须包含 "
+                + (index + 1) + " 个目标", index + 1, lastBlocks);
+        }
+        Assert.assertEquals("60 次追加必须产生 60 份新 publication", 60, publications);
+        Assert.assertEquals("最终 publication 必须是 61 目标那一份", 61, lastBlocks);
+        Assert.assertNull("不得残留过期 publication", cache.pollPublication());
+    }
+
+    /**
+     * 真机核对项 2：构建在「只有 1 个目标」时开始并 yield，挂起期间规划器追加到 61 个目标；
+     * 恢复后必须先发布挂起快照（1 目标，证明快照确实旧），再在同一个 runSlice 循环内重建到 61 目标，
+     * 不得把 publishedKey 错误追平到最终 revision 而停在 1 目标。
+     */
+    @Test
+    public void suspendedBuildOverManyRevisionsRebuildsToLatestBeforeCompletion() throws Exception {
+        final ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        final ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+
+        int generation = state.begin(new ChainTarget(0, 0, 0));
+        state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
+        Assert.assertNotNull(cache.pollPublication());
+
+        ParallelTickTask task = scheduler.tasks.get(0).task;
+        Assert.assertEquals("首个分片必须在只有 1 个目标时 yield",
+            ParallelTaskResult.YIELDED, task.run(new YieldAfterChecksControl(1)));
+        Assert.assertEquals("挂起快照必须只含 1 个目标", 1, state.getMatchedCount());
+
+        for (int index = 1; index < 61; index++) {
+            state.addPreviewTarget(generation, new ChainTarget(index * 3, 0, 0));
+        }
+        Assert.assertEquals("挂起期间追加后必须是 61 个目标", 61, state.getMatchedCount());
+
+        ParallelTickControl yieldAfterFirstPublish = new NeverYieldControl() {
+            @Override
+            public boolean shouldYield() {
+                return peekPendingMesh(cache) != null;
+            }
+        };
+        Assert.assertEquals("恢复后必须在发布第一份（旧快照）后停在安全点",
+            ParallelTaskResult.YIELDED, task.run(yieldAfterFirstPublish));
+        ChainPreviewMesh stale = peekPendingMesh(cache);
+        Assert.assertNotNull(stale);
+        Assert.assertEquals("第一份发布必须是挂起时的 1 目标快照", 1, stale.getBlockCount());
+
+        Assert.assertEquals("同一 runSlice 循环必须继续重建到最新 revision",
+            ParallelTaskResult.COMPLETED, task.run(new NeverYieldControl()));
+        ChainPreviewRenderCache.MeshPublication latest = cache.pollPublication();
+        Assert.assertNotNull(latest);
+        Assert.assertEquals("最终 publication 必须是 61 目标那一份", 61, latest.getMesh().getBlockCount());
+        Assert.assertNull(cache.pollPublication());
+    }
+
+    /**
+     * 生产形态核对（每 tick 预算重置）：executor 每个 tick 的 yield 预算都是新的，分片 yield 不得让重建
+     * 停在旧修订。若用「单调累加、永不重置」的 yield 计数器驱动，第二次 run 会在任何进展前就 yield，
+     * 造出「永久饿死 + 只有空占位发布」的假象——本用例用每 tick 全新预算排除该假象。
+     */
+    @Test
+    public void productionPerTickYieldBudgetsPublishFullMesh() throws Exception {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+
+        int generation = state.begin(new ChainTarget(0, 0, 0));
+        state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
+        for (int x = 1; x < 61; x++) {
+            state.addPreviewTarget(generation, new ChainTarget(x, 0, 0));
+        }
+        Assert.assertEquals(61, state.getMatchedCount());
+
+        List<ParallelTickTask> tasks = new ArrayList<ParallelTickTask>();
+        for (ScheduledTask scheduled : scheduler.tasks) {
+            tasks.add(scheduled.task);
+        }
+        Assert.assertFalse(tasks.isEmpty());
+        int ticks = 0;
+        for (ParallelTickTask task : tasks) {
+            ParallelTaskResult result;
+            do {
+                result = task.run(new YieldAfterChecksControl(2));
+                ticks++;
+            } while (result == ParallelTaskResult.YIELDED && ticks < 10000);
+            Assert.assertEquals("分片续跑必须最终完成", ParallelTaskResult.COMPLETED, result);
+        }
+
+        ChainPreviewRenderCache.MeshPublication publication = cache.pollPublication();
+        Assert.assertNotNull(publication);
+        Assert.assertEquals("每-tick 预算下最终 publication 必须是 61 目标",
+            61, publication.getMesh().getBlockCount());
+        Assert.assertFalse("不得停在空占位发布", publication.getMesh().isEmpty());
+    }
+
+    private static void runAll(RecordingScheduler scheduler) throws Exception {
+        List<ScheduledTask> pending = new ArrayList<ScheduledTask>(scheduler.tasks);
+        scheduler.tasks.clear();
+        for (ScheduledTask scheduled : pending) {
+            ParallelTaskResult result = scheduled.task.run(new NeverYieldControl());
+            if (result == ParallelTaskResult.YIELDED) {
+                scheduler.tasks.add(scheduled);
+            }
+        }
+    }
+
+    /** 只读查看待消费发布的网格（不消费单槽）。 */
+    private static ChainPreviewMesh peekPendingMesh(ChainPreviewRenderCache cache) {
+        try {
+            java.lang.reflect.Field field =
+                ChainPreviewRenderCache.class.getDeclaredField("pendingPublication");
+            field.setAccessible(true);
+            java.util.concurrent.atomic.AtomicReference<?> reference =
+                (java.util.concurrent.atomic.AtomicReference<?>) field.get(cache);
+            Object publication = reference.get();
+            if (publication == null) {
+                return null;
+            }
+            java.lang.reflect.Method mesh = publication.getClass().getDeclaredMethod("getMesh");
+            mesh.setAccessible(true);
+            return (ChainPreviewMesh) mesh.invoke(publication);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("peekPendingMesh failed", failure);
+        }
+    }
+
     private static ChainPreviewRenderCache cache(ChainPreviewState state, RecordingScheduler scheduler) {
         return new ChainPreviewRenderCache(state, new ChainPreviewMeshBuilder(), scheduler);
     }
