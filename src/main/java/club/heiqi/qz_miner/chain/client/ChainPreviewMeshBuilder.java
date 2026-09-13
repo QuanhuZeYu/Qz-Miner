@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.client;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -398,11 +399,20 @@ public class ChainPreviewMeshBuilder {
     }
 
     /**
-     * 代级增量会话（B4.1 第一步：锚点稳定 + 时间序装配）。
+     * 代级增量会话（B4.1：锚点稳定 + 时间序装配 + 26 邻域可见段缓存）。
      *
      * <p>目标按「首次出现」时间序累积；每次 {@link #extend} 接收当前完整快照（最新→最早），
-     * 反向取出新增目标追加到时间序尾部，并复用同一套 junction/tube 装配代码产出完整网格
-     * （26 邻域增量跳过属第二步，本步不做）。</p>
+     * 反向取出新增目标追加到时间序尾部，并复用同一套 junction/tube 装配代码产出完整网格。</p>
+     *
+     * <p>增量边界（Option A，Lead 裁定）：真正跳过的是**逐位置邻域扫描**
+     * （{@code buildVisibleSegments}，1 Hz 全量重建里最贵的一块）——新增目标只重算自身及
+     * 26 邻域的可见段，其余位置复用代级缓存；装配发射仍是 O(网格)，**不是**「成本 ∝ 新增目标数」。
+     * append-only 局部发射与「逐字节等价全量」不相容（共享面重算 / 全局顶点去重 / min-incident aux），
+     * 已作为独立项留待将来评估。</p>
+     *
+     * <p>缓存线程契约：positions/positionIndex/cachedSegments/occupancy 只归构建线程所有；
+     * 缓存失效范围 = 新增目标 + 其 26 邻域（仅自身结果被替换）；{@link #dispose()} 释放全部缓存，
+     * 不跨代残留。lod=auto 时剔除集合随相机变化，本阶段回退全量可见段重算（登记为边界）。</p>
      *
      * <p>锚点契约：meshOrigin = 代内首个目标，代内不变；新增目标与锚点 Chebyshev 距离超过
      * {@link #getReanchorDistance()} 时整代重锚（等效一次全量重建，锚点移到该目标）。</p>
@@ -419,6 +429,15 @@ public class ChainPreviewMeshBuilder {
         private final List<ChainTarget> chronology = new ArrayList<ChainTarget>();
         private final IntArrayBuilder chronologyClasses = new IntArrayBuilder();
         private final Set<BlockPos> knownPositions = new HashSet<BlockPos>();
+        /** Option A 代级缓存：与 chronology 同序的位置、位置索引、可见段与占用集。 */
+        private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
+        private final Map<BlockPos, Integer> positionIndex = new HashMap<BlockPos, Integer>();
+        private final List<LineSegment[]> cachedSegments =
+            new ArrayList<LineSegment[]>(MAX_RENDER_TARGETS);
+        private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
+
+        private int visibleBlockCount;
+        private boolean overflowed;
 
         private volatile boolean disposeRequested;
         private boolean disposed;
@@ -462,12 +481,17 @@ public class ChainPreviewMeshBuilder {
                 if (!knownPositions.add(position)) {
                     continue;
                 }
-                if (chronology.size() > MAX_RENDER_TARGETS) {
-                    // 超配额：装配阶段自会置 truncated，这里停止累积以保持内存有界。
+                if (positions.size() >= MAX_RENDER_TARGETS) {
+                    // 超配额：装配阶段按 truncated 语义只保留前 MAX 个；停止累积保持内存有界。
+                    overflowed = true;
                     break;
                 }
                 chronology.add(target);
                 chronologyClasses.add(semanticClassAt(semanticClasses, index));
+                positionIndex.put(position, Integer.valueOf(positions.size()));
+                positions.add(position);
+                cachedSegments.add(null);
+                occupancy.add(position);
                 if (anchor == null) {
                     anchor = position;
                 } else if (chebyshevDistance(anchor, position) > reanchorDistance) {
@@ -476,17 +500,69 @@ public class ChainPreviewMeshBuilder {
                 }
             }
 
+            if (!visuals.isLodEnabled()) {
+                // Option A：只重算新增目标及其 26 邻域的可见段，其余复用缓存。
+                refreshVisibleSegments();
+            }
+
             BuildSession session;
-            if (anchor == null) {
-                session = builder.begin(chronology, visuals, barThickness, chronologyClasses.exactArray());
-            } else {
+            if (positions.isEmpty()) {
+                session = builder.begin(
+                    Collections.<ChainTarget>emptyList(), visuals, barThickness, null);
+            } else if (visuals.isLodEnabled()) {
+                // LOD 剔除集合随相机/阈值变化，缓存不适用：本阶段回退全量可见段重算（登记边界）。
                 session = builder.beginWithOrigin(
                     chronology, visuals.withBarThickness(barThickness), chronologyClasses.exactArray(),
                     anchor.x, anchor.y, anchor.z);
+            } else {
+                PreparedTopology topology = new PreparedTopology(
+                    positions, occupancy, chronologyClasses.exactArray(), cachedSegments,
+                    visibleBlockCount, overflowed);
+                session = builder.beginPrepared(
+                    topology, visuals.withBarThickness(barThickness), anchor);
             }
             session.advance(NEVER_YIELD);
             mesh = session.getMesh();
             return mesh;
+        }
+
+        /**
+         * 刷新代级可见段缓存：只重算新增目标（缓存为 null 的位置）与其 26 邻域中已存在的位置，
+         * 其余位置的结果原样复用；同时增量维护 {@code visibleBlockCount}。
+         */
+        private void refreshVisibleSegments() {
+            LinkedHashSet<Integer> dirty = new LinkedHashSet<Integer>();
+            for (int index = 0; index < cachedSegments.size(); index++) {
+                if (cachedSegments.get(index) == null) {
+                    dirty.add(Integer.valueOf(index));
+                }
+            }
+            List<Integer> newlyAdded = new ArrayList<Integer>(dirty);
+            for (Integer index : newlyAdded) {
+                BlockPos position = positions.get(index.intValue());
+                for (int[] offset : NEIGHBOR_OFFSETS) {
+                    BlockPos neighbor = position.offset(offset[0], offset[1], offset[2]);
+                    if (neighbor == null) {
+                        continue;
+                    }
+                    Integer neighborIndex = positionIndex.get(neighbor);
+                    if (neighborIndex != null) {
+                        dirty.add(neighborIndex);
+                    }
+                }
+            }
+            for (Integer index : dirty) {
+                int slot = index.intValue();
+                LineSegment[] previous = cachedSegments.get(slot);
+                if (previous != null && previous.length > 0) {
+                    visibleBlockCount--;
+                }
+                LineSegment[] segments = buildVisibleSegments(positions.get(slot), occupancy);
+                cachedSegments.set(slot, segments);
+                if (segments.length > 0) {
+                    visibleBlockCount++;
+                }
+            }
         }
 
         /** 允许任意线程调用：只置位请求位；实际释放由构建线程在下次 {@link #extend} 入口完成。 */
@@ -560,6 +636,12 @@ public class ChainPreviewMeshBuilder {
             chronology.clear();
             chronologyClasses.reset();
             knownPositions.clear();
+            positions.clear();
+            positionIndex.clear();
+            cachedSegments.clear();
+            occupancy.clear();
+            visibleBlockCount = 0;
+            overflowed = false;
             anchor = null;
             mesh = null;
             reanchorCount = 0;
@@ -576,6 +658,58 @@ public class ChainPreviewMeshBuilder {
         }
     }
 
+    /** Option A：代级缓存的只读拓扑快照（构建线程内传递，不跨线程/不跨代）。 */
+    private static final class PreparedTopology {
+
+        private final List<BlockPos> positions;
+        private final Set<BlockPos> occupancy;
+        private final int[] semanticClasses;
+        private final List<LineSegment[]> visibleSegments;
+        private final int visibleBlockCount;
+        private final boolean truncated;
+
+        private PreparedTopology(
+                List<BlockPos> positions,
+                Set<BlockPos> occupancy,
+                int[] semanticClasses,
+                List<LineSegment[]> visibleSegments,
+                int visibleBlockCount,
+                boolean truncated) {
+            this.positions = positions;
+            this.occupancy = occupancy;
+            this.semanticClasses = semanticClasses;
+            this.visibleSegments = visibleSegments;
+            this.visibleBlockCount = visibleBlockCount;
+            this.truncated = truncated;
+        }
+    }
+
+    /** 内部：用代级缓存拓扑装配（Option A）；与全量路径共用同一套 junction/tube 装配代码。 */
+    private BuildSession beginPrepared(
+            PreparedTopology topology, VisualParameters visuals, BlockPos fixedOrigin) {
+        return new BuildSession(
+            topology, visuals, fixedOrigin, lodCulledPositions, lodHysteresisResetSignal);
+    }
+
+    /** 26 邻域偏移（增量缓存失效范围）。 */
+    private static final int[][] NEIGHBOR_OFFSETS = createNeighborOffsets();
+
+    private static int[][] createNeighborOffsets() {
+        int[][] offsets = new int[26][];
+        int cursor = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dy == 0 && dz == 0) {
+                        continue;
+                    }
+                    offsets[cursor++] = new int[] {dx, dy, dz};
+                }
+            }
+        }
+        return offsets;
+    }
+
     /** 可恢复构建：有界保留 target、去重世界边，再生成无内部端面的接头与管段。 */
     public static final class BuildSession implements MeshBuildSession {
 
@@ -587,6 +721,9 @@ public class ChainPreviewMeshBuilder {
         private final Set<BlockPos> lodCulledThisBuild;
         /** 显式锚点（代级会话/差分基线）；null = 既有一次性入口（首读目标）。 */
         private final BlockPos fixedOrigin;
+        /** Option A：代级缓存拓扑；非 null 时跳过目标采集与逐位置邻域扫描（仅 lod=off 使用）。 */
+        private final PreparedTopology preparedTopology;
+        private final List<LineSegment[]> preparedSegments;
         private final int[] positionSemanticClasses = new int[MAX_RENDER_TARGETS];
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
@@ -639,6 +776,35 @@ public class ChainPreviewMeshBuilder {
                 : null;
             this.fixedOrigin = fixedOrigin;
             this.meshOrigin = fixedOrigin;
+            this.preparedTopology = null;
+            this.preparedSegments = null;
+        }
+
+        /** Option A：用代级缓存拓扑直接进入装配阶段（跳过采集与邻域扫描）。 */
+        private BuildSession(
+                PreparedTopology topology,
+                VisualParameters visuals,
+                BlockPos fixedOrigin,
+                Set<BlockPos> lodCulledPositions,
+                LodResetSignal lodHysteresisResetSignal) {
+            this.targetIterator = Collections.<ChainTarget>emptyList().iterator();
+            this.visuals = visuals;
+            this.semanticClasses = null;
+            this.lodCulledPositions = lodCulledPositions;
+            this.lodHysteresisResetSignal = lodHysteresisResetSignal;
+            this.lodCulledThisBuild = null;
+            this.fixedOrigin = fixedOrigin;
+            this.meshOrigin = fixedOrigin;
+            this.preparedTopology = topology;
+            this.preparedSegments = topology.visibleSegments;
+            this.truncated = topology.truncated;
+            this.visibleBlockCount = topology.visibleBlockCount;
+            this.positions.addAll(topology.positions);
+            this.occupancy.addAll(topology.occupancy);
+            int classCount = Math.min(
+                topology.semanticClasses.length, this.positionSemanticClasses.length);
+            System.arraycopy(
+                topology.semanticClasses, 0, this.positionSemanticClasses, 0, classCount);
         }
 
         /**
@@ -693,11 +859,16 @@ public class ChainPreviewMeshBuilder {
                     int appearOrder = pointCursor++;
                     currentPoint = positions.get(appearOrder);
                     currentAppearOrder = appearOrder;
-                    currentSegments = buildVisibleSegments(currentPoint, occupancy);
-                    segmentCursor = 0;
-                    if (currentSegments.length > 0) {
-                        visibleBlockCount++;
+                    if (preparedSegments != null) {
+                        // Option A：复用代级缓存段（26 邻域内已重算），不再重复邻域扫描。
+                        currentSegments = preparedSegments.get(appearOrder);
+                    } else {
+                        currentSegments = buildVisibleSegments(currentPoint, occupancy);
+                        if (currentSegments.length > 0) {
+                            visibleBlockCount++;
+                        }
                     }
+                    segmentCursor = 0;
                 }
 
                 while (segmentCursor < currentSegments.length) {
