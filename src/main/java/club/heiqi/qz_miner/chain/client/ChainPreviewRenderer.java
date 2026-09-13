@@ -5,6 +5,7 @@ import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewAnimationClock;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendSelector;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewDepthPass;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewFadeController;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlBindings;
@@ -417,12 +418,10 @@ public class ChainPreviewRenderer {
         GL11.glFrontFace(GL11.GL_CCW);
         GL11.glCullFace(GL11.GL_BACK);
         GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDisable(GL11.GL_FOG);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glShadeModel(GL11.GL_SMOOTH);
-        GL11.glDepthMask(false);
         GL11.glMatrixMode(GL11.GL_MODELVIEW);
         GL11.glPushMatrix();
         try {
@@ -430,10 +429,29 @@ public class ChainPreviewRenderer {
                 plan.getOriginX() - RenderManager.renderPosX,
                 plan.getOriginY() - RenderManager.renderPosY,
                 plan.getOriginZ() - RenderManager.renderPosZ);
-            active.draw(plan);
+            ChainPreviewDepthPass.Pass pass = ChainPreviewDepthPass.select(plan.getDepthChannel());
+            int stageCount = ChainPreviewDepthPass.stageCount(pass);
+            for (int stageIndex = 0; stageIndex < stageCount; stageIndex++) {
+                applyDepthStage(ChainPreviewDepthPass.stage(pass, stageIndex));
+                active.draw(plan);
+            }
         } finally {
             GL11.glPopMatrix();
         }
+    }
+
+    /**
+     * 施加一档深度状态。XRAY 档的调用序列与历史完全一致（关深度测试 + depthMask(false)，
+     * 不设置 depthFunc）；深度分层只重选 pass，不改拓扑、不重建（T15）。
+     */
+    private static void applyDepthStage(ChainPreviewDepthPass.Stage stage) {
+        if (stage.isDepthTestEnabled()) {
+            GL11.glEnable(GL11.GL_DEPTH_TEST);
+            GL11.glDepthFunc(stage.getDepthFunc());
+        } else {
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+        }
+        GL11.glDepthMask(stage.isDepthMaskEnabled());
     }
 
     /**
