@@ -60,6 +60,13 @@ public class ChainPreviewController {
     private volatile int previewConcreteFace;
     private volatile ChainMode previewMode;
     private volatile ChainSubMode previewSubMode;
+    /** B1.2：当前已接受的输入快照（值相等即无需换 generation）。 */
+    private PreviewInputSnapshot currentInputSnapshot;
+    /** B1.2：仅目标抖动的稳定窗口（语义维度变化不进入本窗口）。 */
+    private final PreviewTargetDebounce targetDebounce = new PreviewTargetDebounce();
+
+    /** 目标抖动默认稳定窗口（tick）。 */
+    static final int TARGET_DEBOUNCE_TICKS = 2;
 
     public void register() {
         FMLCommonHandler.instance().bus().register(this);
@@ -154,11 +161,49 @@ public class ChainPreviewController {
                 .getAcceptedTunnelDirectionSource();
         int concreteFace = resolveConcreteFace(
                 selectedSubMode, acceptedSource, player, lookHit, target);
-        if (shouldRestartPreview(previewSeedWorld, world, currentTarget, target,
-                previewConcreteFace, concreteFace,
-                previewMode, selectedMode, previewSubMode, selectedSubMode)) {
-            startPreview(world, target, concreteFace, selectedMode, selectedSubMode);
+        // B1.2：零分配采样 + 快照判定——语义维度变化立即换 generation，仅目标抖动走 2 tick 窗口。
+        ChainPreviewVisualSettings inputSettings = ChainPreviewVisualSettings.current();
+        int inputRadius = getEffectivePreviewRadius();
+        int inputMaxTargets = getEffectivePreviewMaxTargets();
+        long inputConfigRevision = PreviewInputSnapshot.currentConfigRevision();
+        long inputObjectGroupRevision = PreviewInputSnapshot.currentObjectGroupRevision();
+        PreviewInputSnapshot currentSnapshot = currentInputSnapshot;
+        boolean semanticChanged = PreviewInputSnapshot.semanticIdentityDiffers(
+            currentSnapshot,
+            world,
+            concreteFace,
+            selectedMode,
+            selectedSubMode,
+            inputRadius,
+            inputMaxTargets,
+            inputSettings,
+            inputConfigRevision,
+            inputObjectGroupRevision);
+        boolean targetChanged = PreviewInputSnapshot.targetDiffers(currentSnapshot, target);
+        if (!semanticChanged && !targetChanged) {
+            targetDebounce.reset();
+            return;
         }
+        if (!semanticChanged) {
+            // 仅目标抖动：连续 TARGET_DEBOUNCE_TICKS 稳定后才换 generation（首 tick 由 current==null 走立即启动）。
+            if (!targetDebounce.shouldAccept(target, TARGET_DEBOUNCE_TICKS)) {
+                return;
+            }
+        } else {
+            targetDebounce.reset();
+        }
+        currentInputSnapshot = new PreviewInputSnapshot(
+            world,
+            target,
+            concreteFace,
+            selectedMode,
+            selectedSubMode,
+            inputRadius,
+            inputMaxTargets,
+            inputSettings,
+            inputConfigRevision,
+            inputObjectGroupRevision);
+        startPreview(world, target, concreteFace, selectedMode, selectedSubMode);
     }
 
     private void startPreview(
@@ -566,6 +611,9 @@ public class ChainPreviewController {
     }
 
     private void stopPreview() {
+        // B1.2：失活清空已接受快照与抖动窗口；下一次按键首 tick 立即重建（不延迟）。
+        currentInputSnapshot = null;
+        targetDebounce.reset();
         resetPreview(true);
     }
 
@@ -637,20 +685,21 @@ public class ChainPreviewController {
         return AxisAlignedTunnelDirection.resolveHitFaceOrLook(hit.sideHit, lookFace);
     }
 
-    /** 纯身份判定：同 origin 只要 world 或 concrete face 变化也必须换 generation。 */
-    static boolean shouldRestartPreview(
-            Object currentWorld,
-            Object nextWorld,
-            ChainTarget currentTarget,
-            ChainTarget nextTarget,
-            int currentFace,
-            int nextFace,
-            ChainMode currentMode,
-            ChainMode nextMode,
-            ChainSubMode currentSubMode,
-            ChainSubMode nextSubMode) {
-        return currentWorld != nextWorld || currentTarget == null || !currentTarget.equals(nextTarget)
-                || currentFace != nextFace || currentMode != nextMode || currentSubMode != nextSubMode;
+    /**
+     * B1.2 输入快照判定（契约入口）：快照不相等即需要换 generation，等价于 {@code !current.equals(next)}。
+     *
+     * <p>world / target / face / mode / subMode / radius / maxTargets / 视觉设置内容 /
+     * configRevision / objectGroupRevision 任一变化都返回 true。target 抖动的 2 tick 稳定窗口
+     * 由接线点保证（先判 {@link PreviewInputSnapshot#semanticIdentityDiffers} 与
+     * {@link PreviewInputSnapshot#targetDiffers}，再走 {@link PreviewTargetDebounce}），
+     * 契约入口本身不承担去抖语义。</p>
+     *
+     * @param current 当前已接受快照；null 表示无活动代（必须重建）
+     * @param next 本 tick 采样快照；null 保守判为需要重建
+     * @return 是否需要换 generation
+     */
+    static boolean shouldRestartPreview(PreviewInputSnapshot current, PreviewInputSnapshot next) {
+        return current == null || next == null || !current.equals(next);
     }
 
     static boolean shouldProjectOriginBeforeTraversal(ChainSubMode subMode) {

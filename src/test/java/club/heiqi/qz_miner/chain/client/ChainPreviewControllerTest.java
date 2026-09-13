@@ -70,21 +70,31 @@ public class ChainPreviewControllerTest {
         Object worldA = new Object();
         Object worldB = new Object();
         ChainTarget origin = new ChainTarget(1, 2, 3);
-        Assert.assertFalse(ChainPreviewController.shouldRestartPreview(
-                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2,
-                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_BASE));
-        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
-                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 3,
-                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_BASE));
-        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
-                worldA, worldB, origin, new ChainTarget(1, 2, 3), 2, 2,
-                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_BASE));
-        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
-                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2,
-                ChainMode.CHAIN, ChainMode.AREA, ChainSubMode.CHAIN_BASE, ChainSubMode.AREA_SAME_BLOCK));
-        Assert.assertTrue(ChainPreviewController.shouldRestartPreview(
-                worldA, worldA, origin, new ChainTarget(1, 2, 3), 2, 2,
-                ChainMode.CHAIN, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE));
+        ChainPreviewVisualSettings settings = ChainPreviewVisualSettings.current();
+        PreviewInputSnapshot base = inputSnapshot(
+            worldA, origin, 2, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, settings);
+
+        Assert.assertFalse("同 world/face/mode/subMode 的等价快照不得重建",
+            ChainPreviewController.shouldRestartPreview(base, inputSnapshot(
+                worldA, new ChainTarget(1, 2, 3), 2, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, settings)));
+        Assert.assertTrue("face 变化必须重建", ChainPreviewController.shouldRestartPreview(
+            base, inputSnapshot(worldA, new ChainTarget(1, 2, 3), 3, ChainMode.CHAIN,
+                ChainSubMode.CHAIN_BASE, settings)));
+        Assert.assertTrue("world 变化必须重建", ChainPreviewController.shouldRestartPreview(
+            base, inputSnapshot(worldB, new ChainTarget(1, 2, 3), 2, ChainMode.CHAIN,
+                ChainSubMode.CHAIN_BASE, settings)));
+        Assert.assertTrue("mode 变化必须重建", ChainPreviewController.shouldRestartPreview(
+            base, inputSnapshot(worldA, new ChainTarget(1, 2, 3), 2, ChainMode.AREA,
+                ChainSubMode.AREA_SAME_BLOCK, settings)));
+        Assert.assertTrue("subMode 变化必须重建", ChainPreviewController.shouldRestartPreview(
+            base, inputSnapshot(worldA, new ChainTarget(1, 2, 3), 2, ChainMode.CHAIN,
+                ChainSubMode.CHAIN_ORE, settings)));
+    }
+
+    private static PreviewInputSnapshot inputSnapshot(
+            Object world, ChainTarget target, int face, ChainMode mode, ChainSubMode subMode,
+            ChainPreviewVisualSettings settings) {
+        return new PreviewInputSnapshot(world, target, face, mode, subMode, 8, 4096, settings, 0L, 0L);
     }
 
     @Test
