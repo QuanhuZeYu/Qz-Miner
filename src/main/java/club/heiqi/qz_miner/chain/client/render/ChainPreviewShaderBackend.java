@@ -273,19 +273,21 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
         int requiredVboSize = vertexFloatCount * 4;
-        if (requiredVboSize > vboCapacity) {
-            vboCapacity = calculateNewCapacity(requiredVboSize);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
-        }
+        // T49：真机实测「不前置 glBufferData 的 glBufferSubData」会静默丢失——只有 vboCapacity
+        // 增长的那一次写入有效，后续写入后立即回读仍全 0（draw 期同样为 0）。本环境 GL 调用
+        // 会被 Angelica 的 GLSMRedirector 重写进 GLStateManager（它跟踪 boundVBO），继续逆向
+        // 其内部时序性价比低，改用已被证明有效的组合：每次上传先重新分配（buffer orphaning）
+        // 再写入。语义不变（本来就是全量重传），代价是每次上传一次缓冲重分配。
+        vboCapacity = calculateNewCapacity(requiredVboSize);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
         vertexStaging = prepareFloatBuffer(vertexStaging, vertices, vertexFloatCount);
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, vertexStaging);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
         int requiredCboSize = colorFloatCount * 4;
-        if (requiredCboSize > cboCapacity) {
-            cboCapacity = calculateNewCapacity(requiredCboSize);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
-        }
+        // T49：同 VBO，每次重新分配后再写入（见上方说明）。
+        cboCapacity = calculateNewCapacity(requiredCboSize);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
         colorStaging = prepareFloatBuffer(colorStaging, colors, colorFloatCount);
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, colorStaging);
 
@@ -293,10 +295,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         int requiredEboSize = indexCount * 4;
-        if (requiredEboSize > eboCapacity) {
-            eboCapacity = calculateNewCapacity(requiredEboSize);
-            GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
-        }
+        // T49：同 VBO/CBO/ABO，每次重新分配后再写入；EBO 此前看似正确其实是假阳性
+        // （前几个索引在不同几何间恰好相同），一并纳入同一策略。
+        eboCapacity = calculateNewCapacity(requiredEboSize);
+        GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
         indexStaging = prepareIntBuffer(indexStaging, uploadIndices, uploadIndexCount);
         GL15.glBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0, indexStaging);
 
@@ -808,10 +810,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, auxStaging);
             return;
         }
-        if (requiredAboSize > aboCapacity) {
-            aboCapacity = calculateNewCapacity(requiredAboSize);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
-        }
+        // T49：同 VBO，每次重新分配后再写入（见 uploadTopology 的说明）。
+        aboCapacity = calculateNewCapacity(requiredAboSize);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
         auxStaging = prepareByteBuffer(auxStaging, aux);
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, auxStaging);
     }
