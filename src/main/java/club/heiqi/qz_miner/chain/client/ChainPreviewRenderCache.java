@@ -25,6 +25,9 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
 
     static final long EFFECT_REFRESH_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(1L);
 
+    /** B1.3 signal 档的 fadeMode 稳定 id（接口冻结 §E）。 */
+    static final String SIGNAL_FADE_MODE_ID = "signal";
+
     interface TaskScheduler {
         ParallelTickSubscription schedule(ParallelTickTask task);
     }
@@ -50,6 +53,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private BuildTask currentTask;
     private ParallelTickSubscription taskSubscription;
     private long lastEffectRefreshNanos = Long.MIN_VALUE;
+    private long lastSettingsSampleNanos = Long.MIN_VALUE;
     private long lifecycleEpoch;
     private int fencedGeneration = Integer.MIN_VALUE;
     private boolean lifecycleReady = true;
@@ -160,7 +164,19 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     }
 
     /**
-     * RenderWorld 只采样相机；状态 targets 不在此读取。连续 active 时每秒至少请求一次效果刷新。
+     * RenderWorld 只采样相机；状态 targets 不在此读取。
+     *
+     * <p>B1.3 刷新触发：{@code fadeMode=timer}（默认，逐字等于历史行为）恒按
+     * {@link #EFFECT_REFRESH_INTERVAL_NANOS} 提升 visual revision；{@code fadeMode=signal} 改为
+     * 「相机位移 &gt;= clientPreviewFadeRefreshDistance 或距上次提升 &gt;= clientPreviewFadeFallbackMs」。</p>
+     *
+     * <p>每帧路径只做标量读写与纯函数判定（零分配）；视觉设置快照仍按既有 1 Hz 节奏采样，
+     * 不随 signal 档逐帧重建。generation / lifecycle / world 变化仍由状态信号立即失效。</p>
+     *
+     * <p><b>已知代价（登记）</b>：signal 档把 recolor 频率从固定 1 Hz 提高到「位移 &gt;= 阈值 或
+     * 兜底到期」，而 chain recolor 每次仍会新建一份颜色数组（Builder 的不可变 mesh 契约，
+     * 本轮明确不做原地复用，避免把新颜色写进渲染线程可能正在上传的数组）。大链路（如 4096 目标）
+     * 真机若观察到 GC 压力，下一批用双缓冲 + publication 上传完成回执来消除，不要在本轮改动。</p>
      */
     void refreshForCamera(double cameraX, double cameraY, double cameraZ, long nowNanos) {
         boolean schedule = false;
@@ -170,18 +186,36 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             latestCameraY = cameraY;
             latestCameraZ = cameraZ;
             // 后端档位热切换必须「下一帧生效」（接口冻结 §G）：每帧只做一次枚举引用比较（零分配），
-            // 引用变化才重建不可变快照；其余视觉键仍按既有 1 Hz 采样点刷新，不改刷新策略。
+            // 引用变化才重建不可变快照。
             PreviewRenderBackend configuredBackend = Config.clientPreviewRenderBackend;
             if (configuredBackend != lastConfiguredBackend) {
                 lastConfiguredBackend = configuredBackend;
                 visualSettings = ChainPreviewVisualSettings.fromConfig();
             }
-            boolean refreshDue = lastEffectRefreshNanos == Long.MIN_VALUE
-                || nowNanos - lastEffectRefreshNanos >= EFFECT_REFRESH_INTERVAL_NANOS;
+            // 视觉设置按既有 1 Hz 节奏采样（配置热更新通道），与 visual revision 提升解耦：
+            // signal 档可能逐帧提升 revision，但不得逐帧重建设置快照。
+            if (lastSettingsSampleNanos == Long.MIN_VALUE
+                    || nowNanos - lastSettingsSampleNanos >= EFFECT_REFRESH_INTERVAL_NANOS) {
+                lastSettingsSampleNanos = nowNanos;
+                visualSettings = ChainPreviewVisualSettings.fromConfig();
+            }
+
+            ChainPreviewVisualSettings sampled = visualSettings;
+            boolean refreshDue;
+            if (SIGNAL_FADE_MODE_ID.equals(sampled.getFadeModeId())) {
+                refreshDue = lastEffectRefreshNanos == Long.MIN_VALUE
+                    || ChainPreviewRefreshPolicy.isSignalRefreshDue(
+                        cameraDisplacementLocked(cameraX, cameraY, cameraZ),
+                        sampled.getFadeRefreshDistance(),
+                        (nowNanos - lastEffectRefreshNanos) / 1000000L,
+                        sampled.getFadeFallbackMs());
+            } else {
+                // timer（默认，等于现状）；gpu 档尚未接线（B5.3），一并保持固定 1 Hz 提升节奏。
+                refreshDue = lastEffectRefreshNanos == Long.MIN_VALUE
+                    || nowNanos - lastEffectRefreshNanos >= EFFECT_REFRESH_INTERVAL_NANOS;
+            }
             if (refreshDue) {
                 lastEffectRefreshNanos = nowNanos;
-                // 视觉设置按既有 1 Hz 采样点刷新（不改刷新策略），renderer 每帧零分配读取。
-                visualSettings = ChainPreviewVisualSettings.fromConfig();
                 if (currentTask != null || pendingPublication.get() != null) {
                     visualRefreshPending = true;
                 } else {
@@ -193,6 +227,15 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         if (schedule) {
             ensureWorker();
         }
+    }
+
+    /** @return 相对上次提升视觉 revision 的相机位移（格）；由 taskLock 保护 */
+    private double cameraDisplacementLocked(double cameraX, double cameraY, double cameraZ) {
+        VisualState snapshot = latestVisualState;
+        double dx = cameraX - snapshot.cameraX;
+        double dy = cameraY - snapshot.cameraY;
+        double dz = cameraZ - snapshot.cameraZ;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     boolean isPreviewActive() {
@@ -245,6 +288,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             lifecycleReady = false;
             lifecycleEpoch++;
             lastEffectRefreshNanos = Long.MIN_VALUE;
+            lastSettingsSampleNanos = Long.MIN_VALUE;
             visualRefreshPending = false;
             RenderChange change = latestChange;
             fencedGeneration = change == null ? Integer.MIN_VALUE : change.getGeneration();

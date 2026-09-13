@@ -8,6 +8,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.config.PreviewFadeMode;
 import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
@@ -277,6 +278,74 @@ public class ChainPreviewRenderCacheTest {
             Assert.assertEquals("后端热切换必须下一帧生效", "shader", refreshed.getRenderBackendId());
         } finally {
             Config.clientPreviewRenderBackend = original;
+        }
+    }
+
+    @Test
+    public void signalFadeModeRefreshesOnThresholdOrFallbackWhileTimerStaysOnOneHertz() throws Exception {
+        final long millis = 1000000L;
+        PreviewFadeMode originalFadeMode = Config.clientPreviewFadeMode;
+        try {
+            Config.clientPreviewFadeMode = PreviewFadeMode.SIGNAL;
+            ChainPreviewState state = new ChainPreviewState();
+            RecordingScheduler scheduler = new RecordingScheduler();
+            ChainPreviewRenderCache cache = cache(state, scheduler);
+            cache.observeState();
+            state.begin(new ChainTarget(0, 0, 0));
+            state.addPreviewTarget(state.getGeneration(), new ChainTarget(0, 0, 0));
+            cache.pollPublication();
+            runCompleted(scheduler.tasks.get(0).task);
+            Assert.assertNotNull(cache.pollPublication());
+            Assert.assertEquals(1, scheduler.tasks.size());
+            Assert.assertEquals("signal", cache.getVisualSettings().getFadeModeId());
+
+            long t0 = 1000000L;
+            cache.refreshForCamera(10.0D, 0.0D, 0.0D, t0);
+            Assert.assertEquals("首次刷新必须建立位移基准", 2, scheduler.tasks.size());
+            runCompleted(scheduler.tasks.get(1).task);
+            Assert.assertNotNull(cache.pollPublication());
+            Assert.assertEquals(2, scheduler.tasks.size());
+
+            ChainPreviewVisualSettings settingsBefore = cache.getVisualSettings();
+            cache.refreshForCamera(10.1D, 0.0D, 0.0D, t0 + 1L * millis);
+            Assert.assertEquals("位移不足且未超兜底不得刷新", 2, scheduler.tasks.size());
+            cache.refreshForCamera(10.1D, 0.0D, 0.0D, t0 + 249L * millis);
+            Assert.assertEquals("兜底未到不得刷新", 2, scheduler.tasks.size());
+            Assert.assertSame("刷新路径不得重建设置快照", settingsBefore, cache.getVisualSettings());
+
+            cache.refreshForCamera(10.61D, 0.0D, 0.0D, t0 + 250L * millis);
+            Assert.assertEquals("位移 0.61 格达标必须刷新", 3, scheduler.tasks.size());
+            runCompleted(scheduler.tasks.get(2).task);
+            Assert.assertNotNull(cache.pollPublication());
+            Assert.assertEquals(3, scheduler.tasks.size());
+
+            cache.refreshForCamera(10.61D, 0.0D, 0.0D, t0 + 499L * millis);
+            Assert.assertEquals("位移归零但兜底未到不得刷新", 3, scheduler.tasks.size());
+            cache.refreshForCamera(10.61D, 0.0D, 0.0D, t0 + 500L * millis);
+            Assert.assertEquals("兜底到期必须刷新", 4, scheduler.tasks.size());
+
+            Config.clientPreviewFadeMode = PreviewFadeMode.TIMER;
+            ChainPreviewState timerState = new ChainPreviewState();
+            RecordingScheduler timerScheduler = new RecordingScheduler();
+            ChainPreviewRenderCache timerCache = cache(timerState, timerScheduler);
+            timerCache.observeState();
+            timerState.begin(new ChainTarget(2, 0, 0));
+            timerState.addPreviewTarget(timerState.getGeneration(), new ChainTarget(2, 0, 0));
+            timerCache.pollPublication();
+            runCompleted(timerScheduler.tasks.get(0).task);
+            Assert.assertNotNull(timerCache.pollPublication());
+            Assert.assertEquals("timer", timerCache.getVisualSettings().getFadeModeId());
+
+            timerCache.refreshForCamera(0.0D, 0.0D, 0.0D, 0L);
+            Assert.assertEquals(2, timerScheduler.tasks.size());
+            runCompleted(timerScheduler.tasks.get(1).task);
+            Assert.assertNotNull(timerCache.pollPublication());
+            timerCache.refreshForCamera(100.0D, 0.0D, 0.0D, 500L * millis);
+            Assert.assertEquals("timer 档只看固定 1 Hz，不看位移", 2, timerScheduler.tasks.size());
+            timerCache.refreshForCamera(100.0D, 0.0D, 0.0D, 1000L * millis);
+            Assert.assertEquals("timer 档 1 Hz 到期必须刷新", 3, timerScheduler.tasks.size());
+        } finally {
+            Config.clientPreviewFadeMode = originalFadeMode;
         }
     }
 
