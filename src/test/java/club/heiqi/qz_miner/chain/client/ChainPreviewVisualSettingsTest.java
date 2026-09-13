@@ -58,7 +58,7 @@ public class ChainPreviewVisualSettingsTest {
             0);
 
         Assert.assertEquals(0.045F, settings.getBarThickness(), 1.0e-6F);
-        Assert.assertEquals("非法 minScreenWidthPx 回落默认 1.0", 1.0F, settings.getMinScreenWidthPx(), 1.0e-6F);
+        Assert.assertEquals("非法 minScreenWidthPx 回落基线档 0.0", 0.0F, settings.getMinScreenWidthPx(), 1.0e-6F);
         Assert.assertEquals(0, settings.getAnimationDurationMs());
         Assert.assertEquals(0.5F, settings.getFadeRefreshDistance(), 1.0e-6F);
         Assert.assertEquals(250, settings.getFadeFallbackMs());

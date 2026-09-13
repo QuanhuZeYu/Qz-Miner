@@ -24,6 +24,8 @@ public final class ChainPreviewVisualSettings {
     private static final float BAR_THICKNESS_MAX = 0.2F;
     /** 默认条柱粗细（= 历史硬编码 0.045）。 */
     private static final float BAR_THICKNESS_DEFAULT = 0.045F;
+    /** 最小屏幕宽度兜底（基线档：关闭）。 */
+    private static final float MIN_SCREEN_WIDTH_FALLBACK = 0.0F;
 
     private final float barThickness;
     private final float minScreenWidthPx;
@@ -98,7 +100,7 @@ public final class ChainPreviewVisualSettings {
             boolean truncationSignal,
             int maxTargetsHardCap) {
         this.barThickness = clampFloat(barThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT);
-        this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, 1.0F);
+        this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK);
         this.depthModeId = nonNull(depthModeId, PreviewDepthMode.defaultValue().id());
         this.animationId = nonNull(animationId, PreviewAnimationMode.defaultValue().id());
         this.animationPhaseId = nonNull(animationPhaseId, PreviewAnimationPhase.defaultValue().id());
@@ -133,7 +135,7 @@ public final class ChainPreviewVisualSettings {
     public static ChainPreviewVisualSettings fromConfig() {
         return new ChainPreviewVisualSettings(
             clampFloat(Config.clientPreviewBarThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT),
-            clampFloat(Config.clientPreviewMinScreenWidthPx, 0.0F, 8.0F, 1.0F),
+            clampFloat(Config.clientPreviewMinScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK),
             Config.clientPreviewDepthMode == null
                 ? PreviewDepthMode.defaultValue().id() : Config.clientPreviewDepthMode.id(),
             Config.clientPreviewAnimation == null
