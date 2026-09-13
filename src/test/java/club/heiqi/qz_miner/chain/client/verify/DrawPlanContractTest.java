@@ -204,6 +204,67 @@ public class DrawPlanContractTest {
     }
 
     @Test
+    public void fadeAlphaMultiplierIsRecordedWithoutDoubleScaling() {
+        Visuals base = visuals(1.0F);
+        Assert.assertEquals(1.0F, base.getFadeAlpha(), 0.0F);
+        Assert.assertSame("乘子未变化必须零分配返回自身", base, base.withFadeAlpha(1.0F));
+
+        Visuals half = base.withFadeAlpha(0.5F);
+        Assert.assertEquals(0.5F, half.getFadeAlpha(), 0.0F);
+        Assert.assertEquals("端点不得预乘淡入淡出乘子（避免 k²）", 0.78F, half.getAlphaStart(), 0.0F);
+        Assert.assertEquals(0.15F, half.getAlphaEnd(), 0.0F);
+        Assert.assertNotEquals("乘子参与值相等语义", base, half);
+        Assert.assertNotEquals(base.hashCode(), half.hashCode());
+
+        Assert.assertEquals("NaN → 1", 1.0F, base.withFadeAlpha(Float.NaN).getFadeAlpha(), 0.0F);
+        Assert.assertEquals("负值 → 0", 0.0F, base.withFadeAlpha(-1.0F).getFadeAlpha(), 0.0F);
+        Assert.assertEquals("超过 1 → 1", 1.0F, base.withFadeAlpha(2.0F).getFadeAlpha(), 0.0F);
+        Assert.assertEquals(
+            "自身已是 1 时 NaN 也必须零分配返回自身",
+            base,
+            base.withFadeAlpha(Float.NaN));
+    }
+
+    @Test
+    public void fadeAlphaScalingEquivalenceHoldsAcrossDistances() {
+        // 两条后端实现（端点缩放 vs 逐顶点乘子）等价的数学依据。
+        float[] multipliers = {0.0F, 0.25F, 0.5F, 0.78F, 1.0F};
+        float[] distances = {0.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 10.0F};
+        for (float multiplier : multipliers) {
+            for (float distance : distances) {
+                float scaledEndpoints = Visuals.alphaFor(
+                    distance, 2.0F, 6.0F, multiplier * 0.78F, multiplier * 0.15F);
+                float multiplied = multiplier
+                    * Visuals.alphaFor(distance, 2.0F, 6.0F, 0.78F, 0.15F);
+                Assert.assertEquals(
+                    "k=" + multiplier + " d=" + distance,
+                    multiplied,
+                    scaledEndpoints,
+                    0.000001F);
+            }
+        }
+    }
+
+    @Test
+    public void sanitizedClampsFadeAlpha() {
+        Assert.assertEquals(
+            1.0F,
+            new Visuals(0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, DepthChannel.XRAY, 2.5F)
+                .sanitized().getFadeAlpha(),
+            0.0F);
+        Assert.assertEquals(
+            1.0F,
+            new Visuals(0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, DepthChannel.XRAY, Float.NaN)
+                .sanitized().getFadeAlpha(),
+            0.0F);
+        Assert.assertEquals(
+            0.0F,
+            new Visuals(0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, DepthChannel.XRAY, -0.5F)
+                .sanitized().getFadeAlpha(),
+            0.0F);
+    }
+
+    @Test
     public void alphaForMatchesIndependentCurveAndAnchor() {
         float[] distances = {0.0F, 1.9F, 2.0F, 2.5F, 3.0F, 4.0F, 5.0F, 5.9F, 6.0F, 10.0F};
         for (float distance : distances) {
