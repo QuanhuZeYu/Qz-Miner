@@ -72,6 +72,8 @@ public class ChainPreviewRenderer {
     private boolean backendInUseReported;
     private String backendCreationFailure = "";
     private String lastUnavailableReason = "";
+    /** T49 开发锁：shader 未就绪报告的限频时间戳（纳秒；0 = 从未报过）。 */
+    private long shaderNotReadyLogNanos;
     private ChainPreviewVisualSettings lastVisualSettings;
     private ChainPreviewDrawPlan.Visuals visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
     private final ChainPreviewAnimationClock animationClock = new ChainPreviewAnimationClock();
@@ -116,6 +118,7 @@ public class ChainPreviewRenderer {
         backendInUseReported = false;
         backendCreationFailure = "";
         lastUnavailableReason = "";
+        shaderNotReadyLogNanos = 0L;
         lastVisualSettings = null;
         visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
         animationModeId = "";
@@ -333,6 +336,14 @@ public class ChainPreviewRenderer {
             reportBackendInUse(active);
             return active;
         }
+        // TODO(T49 开发锁) 拆除条件：着色器路径真机取证完成、且与 legacy 观感 A/B 通过。
+        // 开发期锁住 shader：未就绪就保持 shader（本帧不绘制）+ 限频报原因，禁止回退 legacy。
+        // 理由：回退会把 shader 路径的问题掩盖成「看起来正常」——T48c 已被这条回退链误导过一轮
+        // （docs/反馈层/errors/ERROR-20260913-preview-shader-undeclared-var-silent-fallback.md）。
+        if (ChainPreviewShaderBackend.ID.equals(active.id())) {
+            reportShaderNotReady(active);
+            return active;
+        }
         ChainPreviewOverlayPath.Decision legacy =
             overlay.planPath(ChainPreviewBackendSelector.LEGACY, true);
         ChainPreviewBackendReadiness.Action action =
@@ -366,6 +377,26 @@ public class ChainPreviewRenderer {
                 active.id(), lastConfiguredBackendId, overlay.describeCapabilities());
         } catch (Throwable ignored) {
             // 诊断日志异常不得影响渲染帧
+        }
+    }
+
+    /**
+     * T49 开发锁：shader 未就绪时的限频报告（每秒最多一条，含 {@code describe()} 全量状态）。
+     *
+     * <p>拆除条件同 {@link #ensureReadyBackend} 的 TODO：取证完成并 A/B 通过后，与开发锁一起删除，
+     * 恢复既有的「一次性永久回退 legacy」语义。</p>
+     */
+    private void reportShaderNotReady(ChainPreviewRenderBackend active) {
+        long now = System.nanoTime();
+        if (shaderNotReadyLogNanos != 0L && now - shaderNotReadyLogNanos < 1_000_000_000L) {
+            return;
+        }
+        shaderNotReadyLogNanos = now;
+        try {
+            MyMod.LOG.warn("[ChainPreview] DEV-LOCK shader not ready, legacy fallback suppressed: "
+                + active.describe());
+        } catch (Throwable ignored) {
+            // 诊断日志不得影响渲染帧。
         }
     }
 
