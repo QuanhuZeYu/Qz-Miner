@@ -102,6 +102,11 @@ public class ChainPreviewMeshBuilder {
         DIRECTION_X_NEGATIVE,
         DIRECTION_X_POSITIVE
     };
+    private static final float[][] FACE_NORMALS = {
+        {0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, -1.0F},
+        {0.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F},
+        {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}
+    };
     private static final int[][] TUBE_FACES_BY_AXIS = {
         {0, 1, 2, 3},
         {0, 1, 4, 5},
@@ -1206,6 +1211,7 @@ public class ChainPreviewMeshBuilder {
         private final FloatArrayBuilder colors = new FloatArrayBuilder();
         private final IntArrayBuilder indices = new IntArrayBuilder();
         private final ByteArrayBuilder aux = new ByteArrayBuilder();
+        private final FloatArrayBuilder directions = new FloatArrayBuilder();
 
         private int targetReadCount;
         private int semanticClassFallbackCount;
@@ -1427,7 +1433,8 @@ public class ChainPreviewMeshBuilder {
                 visibleBlockCount,
                 truncated,
                 culledTargetCount,
-                aux.exactArray());
+                aux.exactArray(),
+                directions.exactArray());
             if (lodCulledThisBuild != null) {
                 // 成功构建结束（lod=auto）：把滞回记忆裁剪为「本轮实际仍被剔除的位置」，
                 // 换代/目标消失后不残留旧条目；lod=off 完全不触碰记忆。
@@ -1590,17 +1597,19 @@ public class ChainPreviewMeshBuilder {
 
         private void appendFace(MeshVertexKey[] corners, int face, int tubeEdge, int appearOrder) {
             int faceOffset = face * 4;
+            float[] normal = FACE_NORMALS[face];
             for (int corner = 0; corner < 4; corner++) {
                 indices.add(vertexIndex(
-                    corners[CUBOID_QUAD_INDICES[faceOffset + corner]], tubeEdge, appearOrder));
+                    corners[CUBOID_QUAD_INDICES[faceOffset + corner]], tubeEdge, appearOrder, normal));
             }
         }
 
-        private int vertexIndex(MeshVertexKey key, int tubeEdge, int appearOrder) {
+        private int vertexIndex(MeshVertexKey key, int tubeEdge, int appearOrder, float[] normal) {
             Integer existing = vertexIndices.get(key);
             if (existing != null) {
                 int index = existing.intValue();
                 mergeAppearOrder(index, appearOrder);
+                mergeDirection(index, normal);
                 return index;
             }
             int index = vertices.size() / 3;
@@ -1611,6 +1620,9 @@ public class ChainPreviewMeshBuilder {
             vertices.add(x);
             vertices.add(y);
             vertices.add(z);
+            directions.add(normal[0]);
+            directions.add(normal[1]);
+            directions.add(normal[2]);
             float alpha = visuals.alphaFor(meshOrigin.x + (double) x, meshOrigin.y + (double) y,
                 meshOrigin.z + (double) z);
             colors.add(BASE_RED);
@@ -1624,6 +1636,19 @@ public class ChainPreviewMeshBuilder {
             aux.add((byte) ((appearOrder >>> 8) & 0xFF));
             vertexIndices.put(key, Integer.valueOf(index));
             return index;
+        }
+
+        private void mergeDirection(int vertexIndex, float[] normal) {
+            int offset = vertexIndex * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX;
+            float currentX = directions.get(offset);
+            float currentY = directions.get(offset + 1);
+            float currentZ = directions.get(offset + 2);
+            if ((currentX != normal[0] || currentY != normal[1] || currentZ != normal[2])
+                    && (currentX != 0.0F || currentY != 0.0F || currentZ != 0.0F)) {
+                directions.set(offset, 0.0F);
+                directions.set(offset + 1, 0.0F);
+                directions.set(offset + 2, 0.0F);
+            }
         }
 
         /**
@@ -1995,7 +2020,6 @@ public class ChainPreviewMeshBuilder {
             return result;
         }
     }
-
     private static int longHash(long value) {
         return (int) (value ^ (value >>> 32));
     }
@@ -2098,12 +2122,29 @@ public class ChainPreviewMeshBuilder {
             values[size++] = value;
         }
 
+        private float get(int index) {
+            return values[index];
+        }
+
+        private void set(int index, float value) {
+            values[index] = value;
+        }
+
         private int size() {
             return size;
         }
 
         private float[] backingArray() {
             return values;
+        }
+
+        private float[] exactArray() {
+            if (size == values.length) {
+                return values;
+            }
+            float[] exact = new float[size];
+            System.arraycopy(values, 0, exact, 0, size);
+            return exact;
         }
 
         private void ensureCapacity(int required) {

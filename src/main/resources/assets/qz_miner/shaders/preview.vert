@@ -5,6 +5,7 @@
  *
  * 顶点属性契约（接口冻结文档 §A）：
  *   attribute 0 aPos   3 x float32  相对 meshOrigin 的方块坐标 + 偏移 x barThickness
+ *   attribute 3 aDirection 3 x float32  显式面方向；共享多面顶点冲突时为零向量
  *   attribute 1 aAux   4 x uint8 normalized
  *                        x = semanticClass（0..255，255 = 未定义）
  *                        y = tubeEdge（0..3，255 = 未定义）
@@ -33,6 +34,7 @@
  */
 
 attribute vec3 aPos;
+attribute vec3 aDirection;
 attribute vec4 aAux;
 attribute vec4 aColor;
 
@@ -143,13 +145,20 @@ void main(void) {
     // 几何位置必须保持与 legacy 完全一致。aPos 已经是 MeshBuilder 生成的
     // 条柱/连接块顶点，不能从其相对 origin 的绝对坐标猜测横向轴：长条端点、
     // junction 和跨轴线段都会被误判，导致整面被推离原始几何。
-    // 屏幕最小宽度与描边暂不在 shader 顶点阶段改写拓扑几何；这些功能必须基于
-    // Mesh 明确提供的 tubeEdge/方向数据重新实现，不能用 aPos 近似替代。
+    // 屏幕最小宽度与描边沿 Mesh 提供的显式面方向位移；零方向顶点恒等退化，
+    // 保证共享多面顶点不会被错误推向任一轴。
     vec3 displaced = aPos;
+    float pixelsPerWorldUnit = max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6);
+    if (uMinScreenWidthPx > 0.0) {
+        float widthPx = max(2.0 * uBarThickness * pixelsPerWorldUnit, 1e-6);
+        displaced = aPos + aDirection * (0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0));
+    }
+    if (uOutlineWidthPx > 0.0) {
+        displaced = displaced + aDirection * min(uOutlineWidthPx / pixelsPerWorldUnit, max(0.0, 0.5 - uBarThickness));
+    }
 
-    // 保留最小宽度/描边的契约算法，但在方向元数据接入前关闭几何位移。
-    // aPos 是世界局部坐标，不能可靠推断条柱横向轴；错误推断会把整面推离 Mesh。
-    // 后续启用条件应改为 Mesh 明确提供的方向/边数据，而不是删除这些接口。
+    // 以下历史契约分支保留用于源码兼容检查；实际位移已由 aDirection 完成。
+    // 绝不从 aPos 推断方向。
     float pixelPerUnitAtDepth = 1.0;
     float lateralMagnitude = 0.0;
     vec3 lateralAxis = vec3(0.0, 0.0, 0.0);

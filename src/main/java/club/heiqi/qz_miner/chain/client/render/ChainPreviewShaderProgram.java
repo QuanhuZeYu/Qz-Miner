@@ -505,6 +505,7 @@ public final class ChainPreviewShaderProgram {
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_POSITION, "aPos");
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_AUX, "aAux");
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_COLOR, "aColor");
+        GL20.glBindAttribLocation(shaderProgramId, 3, "aDirection");
     }
 
     private void releaseResources() {
