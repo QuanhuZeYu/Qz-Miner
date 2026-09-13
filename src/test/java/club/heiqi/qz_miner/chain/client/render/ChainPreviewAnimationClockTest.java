@@ -106,6 +106,41 @@ public class ChainPreviewAnimationClockTest {
     }
 
     @Test
+    public void sameGenerationDurationChangeRestartsTimelineImmediately() {
+        ChainPreviewAnimationClock clock = new ChainPreviewAnimationClock();
+
+        Assert.assertEquals(0.0F, clock.advance(4, "wave", 1000, 0L), 1.0E-6F);
+        Assert.assertEquals(0.5F, clock.advance(4, "wave", 1000, 500_000_000L), 1.0E-6F);
+
+        // 同代把 duration 从 1000ms 改成 200ms：本帧即按新一轮从 0 重新计时
+        Assert.assertEquals(0.0F, clock.advance(4, "wave", 200, 600_000_000L), 1.0E-6F);
+        Assert.assertEquals(0.5F, clock.advance(4, "wave", 200, 700_000_000L), 1.0E-6F);
+        Assert.assertEquals(1.0F, clock.advance(4, "wave", 200, 800_000_000L), 1.0E-6F);
+    }
+
+    @Test
+    public void unchangedDurationDoesNotRestartTimeline() {
+        ChainPreviewAnimationClock clock = new ChainPreviewAnimationClock();
+
+        Assert.assertEquals(0.0F, clock.advance(4, "wave", 400, 0L), 1.0E-6F);
+        Assert.assertEquals(0.25F, clock.advance(4, "wave", 400, 100_000_000L), 1.0E-6F);
+        Assert.assertEquals(0.75F, clock.advance(4, "wave", 400, 300_000_000L), 1.0E-6F);
+        Assert.assertEquals(1.0F, clock.advance(4, "wave", 400, 400_000_000L), 1.0E-6F);
+    }
+
+    @Test
+    public void modeChangeBetweenFlowAndWaveRestartsTimeline() {
+        ChainPreviewAnimationClock clock = new ChainPreviewAnimationClock();
+
+        Assert.assertEquals(0.0F, clock.advance(5, "wave", 1000, 0L), 1.0E-6F);
+        Assert.assertEquals(0.5F, clock.advance(5, "wave", 1000, 500_000_000L), 1.0E-6F);
+
+        // wave -> flow 同代切换：同样按新一轮处理
+        Assert.assertEquals(0.0F, clock.advance(5, "flow", 1000, 600_000_000L), 1.0E-6F);
+        Assert.assertEquals(0.3F, clock.advance(5, "flow", 1000, 900_000_000L), 1.0E-6F);
+    }
+
+    @Test
     public void repeatedSameTimestampIsDeterministic() {
         ChainPreviewAnimationClock clock = new ChainPreviewAnimationClock();
         clock.advance(4, "wave", 400, 0L);

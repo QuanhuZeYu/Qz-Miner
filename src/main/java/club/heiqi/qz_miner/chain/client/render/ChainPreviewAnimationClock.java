@@ -3,7 +3,8 @@ package club.heiqi.qz_miner.chain.client.render;
 /**
  * 预览动画时钟：有界、零 per-frame 分配的标量状态机。
  *
- * <p>只依赖 {@link System#nanoTime()} 与「代级起点」：generation 变化即重新计时；
+ * <p>只依赖 {@link System#nanoTime()} 与「代级起点」：generation、动画档位（off↔flow↔wave）
+ * 或 durationMs 任一变化都按新一轮处理（重置起点、下一帧生效），语义与 generation 变化一致；
  * animation=off（或 null / 未知 id）恒返回 {@link #COMPLETE}；flow / wave 按 durationMs
  * 线性推进；掉帧只跳进不失控（完成度钳制到 [0,1]）；时钟回退 / 同帧重入不产生负值。</p>
  *
@@ -34,6 +35,8 @@ public final class ChainPreviewAnimationClock {
     private long startNanos;
     private long durationNanos;
     private boolean animating;
+    private String activeModeId = "";
+    private int activeDurationMs;
     private float animationU = COMPLETE;
 
     /**
@@ -41,7 +44,7 @@ public final class ChainPreviewAnimationClock {
      *
      * @param generation       当前预览代（变化即重置计时）
      * @param animationModeId  动画档位稳定 id：off / flow / wave（null 或未知按 off）
-     * @param durationMs       单代动画时长（毫秒；<= 0 立即完成）
+     * @param durationMs       单代动画时长（毫秒；&lt;= 0 立即完成；运行中变化按新一轮处理）
      * @param nowNanos         {@link System#nanoTime()} 采样值
      * @return 完成度 [0,1]；off 或 durationMs &lt;= 0 时恒 {@link #COMPLETE}
      */
@@ -50,14 +53,20 @@ public final class ChainPreviewAnimationClock {
         if (!shouldAnimate) {
             this.generation = generation;
             this.animating = false;
+            this.activeModeId = "";
+            this.activeDurationMs = 0;
             this.durationNanos = 0L;
             this.startNanos = 0L;
             this.animationU = COMPLETE;
             return COMPLETE;
         }
-        if (!animating || this.generation != generation) {
+        boolean timelineChanged = animating
+            && (activeDurationMs != durationMs || !activeModeId.equals(animationModeId));
+        if (!animating || this.generation != generation || timelineChanged) {
             this.generation = generation;
             this.animating = true;
+            this.activeModeId = animationModeId;
+            this.activeDurationMs = durationMs;
             this.durationNanos = (long) durationMs * NANOS_PER_MILLI;
             this.startNanos = nowNanos;
             this.animationU = START;
@@ -95,6 +104,8 @@ public final class ChainPreviewAnimationClock {
         startNanos = 0L;
         durationNanos = 0L;
         animating = false;
+        activeModeId = "";
+        activeDurationMs = 0;
         animationU = COMPLETE;
     }
 
