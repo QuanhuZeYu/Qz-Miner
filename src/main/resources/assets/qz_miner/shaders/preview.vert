@@ -15,7 +15,7 @@
  *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
  *   2) 屏幕最小宽度  —— 顶点侧沿横向偏移等比放大，与 glTranslated 相机相对坐标一致
  *   3) 逐波生长      —— 读 aAux 的 appearOrder 归一化后与 uAnimProgress 逐顶点比较（不要求索引有序）
- *   4) 语义颜色      —— 片元用 uniform 颜色，顶点只搬运 semanticClass
+ *   4) 语义颜色      —— 片元用 uniform 调制色（中性元 = 不调制），顶点只搬运 semanticClass 与基色
  *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
  *
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
@@ -115,9 +115,13 @@ void main(void) {
         displaced = aPos + lateralAxis * (lateralMagnitude * (widen - 1.0));
     }
 
-    // rgb 直接输出「基色 × alpha」（片元只做语义色替换，不再乘 alpha，避免双重衰减）。
+    // S1 修复：vColor.rgb 必须是非预乘基色，且**不参与片元最终颜色**。
+    // 共用混合是 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)（两后端共用）：
+    // 若此处预乘 alpha，片元输出该 rgb 会得到 rgb × alpha²（alpha=0.15 时 0.0225 vs 0.15）。
+    // 片元改用 uColor* 绝对色输出（Lead 裁定 S2），本处 rgb 仅作为属性契约的搬运
+    // （aColor 保持被读取），保留基色便于后续需要按顶点差色时不再改接口。
     float alpha = fade * growth;
-    vColor = vec4(aColor.rgb * alpha, alpha);
+    vColor = vec4(aColor.rgb, alpha);
     // 语义类别：255 = 未定义，片元选择器对 255 兜底主色（Lead 裁定）。
     vSemantic = auxChannel(aAux.x);
 

@@ -89,6 +89,63 @@ public class ChainPreviewShaderDistanceEquivalenceTest {
         Assert.assertEquals("中点必须满足 t^2 曲线", expectedMidpoint, midpoint, TOLERANCE);
     }
 
+    /**
+     * S1+S2 回归的数值判据：builtin 档下两条路径的混合源色必须逐位相等。
+     *
+     * <p>shader 路径 = 语义绝对色 × alpha（片元不再乘顶点基色）；legacy = 顶点基色 × alpha。
+     * builtin 档语义色精确等于基线常量 (0.25, 0.9, 1.0)，故两者必须逐位相同。
+     * 任一违规都会在这里立刻失败：预乘 alpha → alpha²；片元再乘顶点色 → 逐分量平方。</p>
+     */
+    @Test
+    public void builtinMixedSourceMatchesLegacyForEveryAlpha() {
+        for (int step = 0; step <= 100; step++) {
+            float alpha = step / 100.0F;
+            float[] legacy = ChainPreviewShaderMath.legacyMixedSource(
+                    ChainPreviewShaderMath.BUILTIN_COLOR_RED,
+                    ChainPreviewShaderMath.BUILTIN_COLOR_GREEN,
+                    ChainPreviewShaderMath.BUILTIN_COLOR_BLUE,
+                    alpha);
+            float[] shader = ChainPreviewShaderMath.shaderMixedSource(
+                    ChainPreviewShaderMath.BUILTIN_COLOR_RED,
+                    ChainPreviewShaderMath.BUILTIN_COLOR_GREEN,
+                    ChainPreviewShaderMath.BUILTIN_COLOR_BLUE,
+                    alpha);
+            Assert.assertArrayEquals("alpha=" + alpha + " 时两档混合源色必须逐位一致", legacy, shader, 0.0F);
+        }
+    }
+
+    /**
+     * Lead 要求的定点断言：builtin 档 shader 输出 RGB == legacy 常量 (0.25, 0.9, 1.0) × alpha，
+     * 且 RGB 既不被 alpha 乘两次、也不被自身平方（alpha=0.15 是远距最典型取值）。
+     */
+    @Test
+    public void builtinOutputEqualsLegacyConstantsAndIsNotSquared() {
+        float alpha = 0.15F;
+        float[] shader = ChainPreviewShaderMath.shaderMixedSource(
+                ChainPreviewShaderMath.BUILTIN_COLOR_RED,
+                ChainPreviewShaderMath.BUILTIN_COLOR_GREEN,
+                ChainPreviewShaderMath.BUILTIN_COLOR_BLUE,
+                alpha);
+
+        Assert.assertEquals("R = 0.25 × 0.15", 0.25F * 0.15F, shader[0], 0.0F);
+        Assert.assertEquals("G = 0.9 × 0.15", 0.9F * 0.15F, shader[1], 0.0F);
+        Assert.assertEquals("B = 1.0 × 0.15", 1.0F * 0.15F, shader[2], 0.0F);
+
+        Assert.assertNotEquals("R 不得退化为 alpha² 的 0.0225", 0.25F * alpha * alpha, shader[0], 1.0e-6F);
+        Assert.assertNotEquals("R 不得退化为基色平方的 0.25 × 0.25",
+                0.25F * 0.25F, shader[0] / alpha, 1.0e-6F);
+        Assert.assertNotEquals("G 不得退化为基色平方的 0.9 × 0.9",
+                0.9F * 0.9F, shader[1] / alpha, 1.0e-6F);
+    }
+
+    /** builtin 常量必须与 legacy CPU 侧 BASE_* 完全一致（0.25/0.9/1.0）。 */
+    @Test
+    public void builtinPaletteMatchesLegacyConstants() {
+        Assert.assertEquals(0.25F, ChainPreviewShaderMath.BUILTIN_COLOR_RED, 0.0F);
+        Assert.assertEquals(0.9F, ChainPreviewShaderMath.BUILTIN_COLOR_GREEN, 0.0F);
+        Assert.assertEquals(1.0F, ChainPreviewShaderMath.BUILTIN_COLOR_BLUE, 0.0F);
+    }
+
     /** fadeStart >= fadeEnd（配置被收窄成退化区间）时必须仍然单调、不除零。 */
     @Test
     public void degenerateFadeSpanStaysFinite() {

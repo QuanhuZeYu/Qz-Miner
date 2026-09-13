@@ -34,10 +34,16 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     public static final String ID = "shader";
 
-    /** 与 CPU 端 ChainPreviewMeshBuilder 的现状常量色一致（接口冻结 §D builtin 档）。 */
-    private static final float BUILTIN_RED = 0.25F;
-    private static final float BUILTIN_GREEN = 0.9F;
-    private static final float BUILTIN_BLUE = 1.0F;
+    /**
+     * builtin 档语义色 = legacy 精确基线常量 (0.25, 0.9, 1.0)。
+     *
+     * <p>刻意不用 0x40E6FF 的 8bit 量化值（量化后 R=0.25098…/G=0.90196…，与 legacy
+     * 有 ≤0.002 色差）。片元直接输出该绝对色，不再乘顶点基色——否则会二次乘色
+     * （0.25×0.25 = 0.0625、0.9×0.9 = 0.81），与「builtin 逐字节等于现状」冲突。</p>
+     */
+    private static final float BUILTIN_COLOR_RED = ChainPreviewShaderMath.BUILTIN_COLOR_RED;
+    private static final float BUILTIN_COLOR_GREEN = ChainPreviewShaderMath.BUILTIN_COLOR_GREEN;
+    private static final float BUILTIN_COLOR_BLUE = ChainPreviewShaderMath.BUILTIN_COLOR_BLUE;
 
     /** GLSL 侧生长过渡半宽（归一化序号单位）：约 1/32 代宽，避免硬切。 */
     private static final float ANIMATION_SPAN_NORMALIZED = 1.0F / 32.0F;
@@ -367,11 +373,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             program.setAnimation(clamp01(animationU), appearSpan, ANIMATION_SPAN_NORMALIZED);
         }
 
-        // builtin 档：四类同色，逐像素等于现状常量色（接口冻结 §D）。
-        // 语义类别目前恒为 255（未接线），片元选择器兜底主色；掩码门控在 B2.3 接入时再加。
-        float red = BUILTIN_RED;
-        float green = BUILTIN_GREEN;
-        float blue = BUILTIN_BLUE;
+        // builtin 档：四类同传精确基线常量，逐位等于 legacy 颜色流。
+        // 语义类别本轮恒为 255（未接线），片元选择器落到 uColorPrimary 兜底；
+        // B2.3 接线语义类别时，四色改由 config 提供（本方法的着色点不变）。
+        float red = BUILTIN_COLOR_RED;
+        float green = BUILTIN_COLOR_GREEN;
+        float blue = BUILTIN_COLOR_BLUE;
         program.setSemanticColor(0, red, green, blue);
         program.setSemanticColor(1, red, green, blue);
         program.setSemanticColor(2, red, green, blue);

@@ -151,6 +151,60 @@ public class ChainPreviewShaderContractTest {
                 vertex.getUniforms().containsKey("uPixelScale"));
     }
 
+    // ------------------------------------------------------------------ S1/S2 回归（Lead 冻结前裁定）
+
+    /**
+     * S1：顶点阶段不得预乘 alpha。
+     *
+     * <p>共用混合为 {@code GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA}，预乘后片元再输出 rgb
+     * 会得到 {@code rgb × alpha²}（alpha=0.15 → 0.0225 vs 0.15），远距条柱在 shader 档
+     * 几乎不可见，与 legacy 观感分叉。</p>
+     */
+    @Test
+    public void vertexStageDoesNotPremultiplyAlpha() throws IOException {
+        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
+        String mainBody = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("main");
+
+        Assert.assertTrue("vColor.rgb 必须来自顶点基色 aColor.rgb",
+                mainBody.indexOf("vColor = vec4(aColor.rgb,") >= 0);
+        Assert.assertFalse("顶点阶段不得把 alpha 乘进 rgb（预乘会让共用 blend 产生 alpha²）",
+                mainBody.indexOf("aColor.rgb * alpha") >= 0
+                        || mainBody.indexOf("aColor.rgb * ") >= 0);
+    }
+
+    /**
+     * S2：语义色 uniform 必须被主路径真实消费（不得留从不调用的死代码）。
+     */
+    @Test
+    public void semanticPaletteIsActuallyConsumedByFragmentMain() throws IOException {
+        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
+        GlslSourceScanner fragment = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag");
+        String mainBody = fragment.body("main");
+
+        Assert.assertTrue("主路径必须调用语义色选择器（否则 uColor* 全是死 uniform）",
+                GlslSourceScanner.countIdentifier(mainBody, "selectSemanticColor") > 0);
+        Assert.assertTrue("最终颜色必须直接取语义绝对色：gl_FragColor = vec4(selectSemanticColor(), vColor.a)",
+                mainBody.indexOf("vec4(selectSemanticColor(), vColor.a)") >= 0);
+        Assert.assertFalse("片元不得再乘顶点基色 vColor.rgb（会与语义色二次乘色：0.25→0.0625、0.9→0.81）",
+                mainBody.indexOf("selectSemanticColor() * vColor.rgb") >= 0);
+    }
+
+    /**
+     * S1+S2 的组合式：片元输出必须是非预乘的（语义色 × 基色 + 独立 alpha）。
+     */
+    @Test
+    public void fragmentOutputStaysNonPremultiplied() throws IOException {
+        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
+        String mainBody = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag").body("main");
+
+        Assert.assertTrue("alpha 通道必须直接取 vColor.a",
+                mainBody.indexOf("vColor.a)") >= 0);
+        Assert.assertFalse("rgb 不得乘 vColor.a（会变成预乘，混合后 alpha²）",
+                mainBody.indexOf("* vColor.a") >= 0);
+        Assert.assertFalse("rgb 不得乘 vColor.rgb（会与语义色二次乘色）",
+                mainBody.indexOf("* vColor.rgb") >= 0);
+    }
+
     // ------------------------------------------------------------------ 校验器自证（负例）
 
     @Test

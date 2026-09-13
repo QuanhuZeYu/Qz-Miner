@@ -177,6 +177,51 @@ public final class ChainPreviewShaderMath {
         return alpha <= FRAGMENT_DISCARD_ALPHA;
     }
 
+    /**
+     * legacy 路径的混合源色：固定管线用顶点色流直接作为 {@code gl_Color}，共用混合为
+     * {@code GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA}，故 src = 基色 × alpha。
+     *
+     * @param baseRed   顶点流基色 R
+     * @param baseGreen 顶点流基色 G
+     * @param baseBlue  顶点流基色 B
+     * @param alpha     顶点 alpha
+     * @return 混合源色 RGB
+     */
+    public static float[] legacyMixedSource(float baseRed, float baseGreen, float baseBlue, float alpha) {
+        return new float[] {baseRed * alpha, baseGreen * alpha, baseBlue * alpha};
+    }
+
+    /**
+     * shader 路径的混合源色：片元输出 {@code vec4(selectSemanticColor(), vColor.a)}，
+     * 即颜色完全由语义色 uniform 决定，顶点色只提供 alpha。
+     *
+     * <p>两条不可违反的性质：</p>
+     * <ol>
+     *   <li><b>不乘 alpha 到 rgb</b>：共用 blend 是 {@code SRC_ALPHA, ONE_MINUS_SRC_ALPHA}，
+     *       预乘会退化成 {@code rgb × alpha²}（alpha=0.15 → 0.0225 vs 0.15）；</li>
+     *   <li><b>不再乘顶点基色</b>：顶点流已是 (0.25, 0.9, 1.0)，再乘一次会得到
+     *       (0.0625, 0.81, 1.0) —— R 掉到 1/4，肉眼可见偏暗偏蓝。</li>
+     * </ol>
+     * builtin 档语义色精确等于基线常量，故本函数结果与 {@link #legacyMixedSource} 逐位相等。
+     *
+     * @param semanticRed   语义色 R（builtin 档 = 0.25F）
+     * @param semanticGreen 语义色 G（builtin 档 = 0.9F）
+     * @param semanticBlue  语义色 B（builtin 档 = 1.0F）
+     * @param alpha         顶点 alpha
+     * @return 混合源色 RGB
+     */
+    public static float[] shaderMixedSource(
+            float semanticRed, float semanticGreen, float semanticBlue, float alpha) {
+        return new float[] {semanticRed * alpha, semanticGreen * alpha, semanticBlue * alpha};
+    }
+
+    /** legacy 基线常量色 R（= ChainPreviewMeshBuilder.BASE_RED）。 */
+    public static final float BUILTIN_COLOR_RED = 0.25F;
+    /** legacy 基线常量色 G（= ChainPreviewMeshBuilder.BASE_GREEN）。 */
+    public static final float BUILTIN_COLOR_GREEN = 0.9F;
+    /** legacy 基线常量色 B（= ChainPreviewMeshBuilder.BASE_BLUE）。 */
+    public static final float BUILTIN_COLOR_BLUE = 1.0F;
+
     private static float clamp(float value, float min, float max) {
         return value < min ? min : (value > max ? max : value);
     }
