@@ -157,6 +157,11 @@ public class ChainPreviewMesh {
         return vertexFloatCount;
     }
 
+    /** @return 顶点数（= {@link #getVertexFloatCount()} / 3）；B4.2 容量峰值口径 */
+    public int getVertexCount() {
+        return vertexFloatCount / 3;
+    }
+
     public int getColorFloatCount() {
         return colorFloatCount;
     }

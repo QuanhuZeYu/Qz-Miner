@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
@@ -44,6 +45,14 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * 即接口冻结 §D 的 0..5 或 255 UNDEFINED），去重后与 appearOrder 同源、取最小 incident 目标；
  * 载体缺失/越界/非法值一律按 255 兜底并计数，见
  * {@link BuildSession#getSemanticClassFallbackCount()} 与 {@link #getSemanticClassFallbackTotal()}。</p>
+ *
+ * <p>B4.2 有界容量与峰值：唯一上限仍是 {@link #MAX_RENDER_TARGETS}（= clientPreviewMaxTargetsHardCap 的
+ * 默认/夹具上限 4096，不新造第二套上限语义）；超限走既有 truncated 语义（网格 {@code isTruncated()}
+ * 与会话 {@link GenerationSession#isOverflowed()} 同时可见），不做静默截断。顶点/索引/aux/可见边均为
+ * unique 目标的派生量，由 tests 断言其受 64×块数 / 288×块数 / 4×顶点 / 12×块数 的派生上界约束
+ * （即既有单条柱实测包络：64 顶点 / 288 索引 每块，见 {@code ChainPreviewMeshBuilderTest}）。
+ * 峰值由 {@link GenerationSession} 在构建线程采样，并经
+ * {@link GenerationSession#publishCapacityInto(ChainPreviewScaleCounters)} 交接进既有规模计数器通道。</p>
  */
 public class ChainPreviewMeshBuilder {
 
@@ -447,9 +456,10 @@ public class ChainPreviewMeshBuilder {
      * 缓存失效范围 = 新增目标 + 其 26 邻域（仅自身结果被替换）；{@link #dispose()} 释放全部缓存，
      * 不跨代残留。lod=auto 时剔除集合随相机变化，本阶段回退全量可见段重算（登记为边界）。</p>
      *
-     * <p><b>只增语义（已登记）</b>：生产侧 ChainPreviewState 同代目标只增（删除只能换代），
-     * 故本代级缓存不提供移除路径；若将来引入代内移除/收缩语义，必须同时补移除路径并把
-     * 「新增→移除→再新增」纳入差分覆盖。</p>
+     * <p><b>增量语义（B4.2 更新，Lead 裁定）</b>：代内快照只增时走增量缓存；若快照收缩
+     * （目标数减少 / 位置不再覆盖全部缓存槽位），则**释放整代缓存与 mesh 引用**并以该快照重建
+     * （等价全新会话：锚点 = 新快照首个目标，块数 = 新快照块数；「新增→移除→再新增」已纳入
+     * 差分覆盖）。原 B4.1「只增（已登记）」是当时条件，B4.2 引入容量/回收后条件已更新。</p>
      *
      * <p>锚点契约：meshOrigin = 代内首个目标，代内不变；新增目标与锚点 Chebyshev 距离超过
      * {@link #getReanchorDistance()} 时整代重锚（等效一次全量重建，锚点移到该目标）。</p>
@@ -474,6 +484,7 @@ public class ChainPreviewMeshBuilder {
         private final int reanchorDistance;
         private final List<ChainTarget> chronology = new ArrayList<ChainTarget>();
         private final IntArrayBuilder chronologyClasses = new IntArrayBuilder();
+        /** 已保留目标的去重集合（与 {@link #positionIndex} 键集合同步，B4.2 起有界于 {@link #MAX_RENDER_TARGETS}）。 */
         private final Set<BlockPos> knownPositions = new HashSet<BlockPos>();
         /** Option A 代级缓存：与 chronology 同序的位置、位置索引、可见段与占用集。 */
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
@@ -482,8 +493,24 @@ public class ChainPreviewMeshBuilder {
             new ArrayList<LineSegment[]>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
 
+        /**
+         * B4.2 收缩探测位图（只归构建线程所有，有界于 {@link #MAX_RENDER_TARGETS}）：
+         * 本次快照是否覆盖到每个缓存槽位；数组复用，不随修订分配。
+         */
+        private final boolean[] coveredSlots = new boolean[MAX_RENDER_TARGETS];
+
         private int visibleBlockCount;
         private boolean overflowed;
+        /**
+         * B4.2 容量峰值：构建线程写、任意线程读；不随修订/收缩回落，{@link #resetCapacityPeaks()} 或 dispose 归零。
+         * {@code peakCacheEntries} 记六容器条目总数（每容器 ≤ MAX_RENDER_TARGETS，故 ≤ 6×上限）。
+         */
+        private volatile int peakRetainedTargets;
+        private volatile int peakCacheEntries;
+        private volatile int peakVisibleSegments;
+        private volatile int peakVertexCount;
+        private volatile int peakIndexCount;
+        private volatile int peakAuxBytes;
         /** 当前在飞的装配会话（构建线程内）；再次 beginRevision 或 dispose 后即被取代/丢弃。 */
         private BuildSession activeRevision;
 
@@ -538,7 +565,8 @@ public class ChainPreviewMeshBuilder {
                     topology, visuals.withBarThickness(barThickness), anchor);
             }
             activeRevision = session;
-            return session;
+            // B4.2：装配完成时（生产路径读取 getMesh）采样本代容量占用，不改变装配语义与安全点。
+            return new CapacityTrackedRevision(session);
         }
 
         /**
@@ -555,25 +583,62 @@ public class ChainPreviewMeshBuilder {
             return mesh;
         }
 
-        /** 把快照并入代级缓存：新增 unique 目标按时间序追加，锚点/重锚按契约更新。 */
+        /**
+         * 把快照并入代级缓存：新增 unique 目标按时间序追加，锚点/重锚按契约更新。
+         *
+         * <p><b>B4.2 收缩回收</b>：若本快照已不再覆盖全部缓存位置（代内目标减少），先释放整代
+         * 缓存与 mesh 引用，再以本快照重建缓存与锚点（等价全新会话），避免陈旧条柱跨修订残留；
+         * 重建只重跑一次（保证终止），上限仍是 {@link #MAX_RENDER_TARGETS}。</p>
+         */
         private void mergeSnapshot(
                 List<ChainTarget> snapshotNewestFirst, int[] semanticClasses, VisualParameters visuals) {
             List<ChainTarget> snapshot = snapshotNewestFirst == null
                 ? Collections.<ChainTarget>emptyList()
                 : snapshotNewestFirst;
+            if (accumulateSnapshot(snapshot, semanticClasses)) {
+                releaseGenerationCaches();
+                accumulateSnapshot(snapshot, semanticClasses);
+            }
+            if (!visuals.isLodEnabled()) {
+                // Option A：只重算新增目标及其 26 邻域的可见段，其余复用缓存。
+                refreshVisibleSegments();
+            }
+            recordCapacityPeaks(null);
+        }
+
+        /**
+         * 单趟并入：追加新增 unique 目标，并探测收缩（本次快照是否覆盖到每个既有缓存槽位）。
+         *
+         * @return true 表示探测到收缩（存在缓存位置不在本快照中），调用方须先释放再重建
+         */
+        private boolean accumulateSnapshot(List<ChainTarget> snapshot, int[] semanticClasses) {
+            int cachedCount = positions.size();
+            Arrays.fill(coveredSlots, 0, cachedCount, false);
+            int coveredCount = 0;
             for (int index = snapshot.size() - 1; index >= 0; index--) {
                 ChainTarget target = snapshot.get(index);
                 if (target == null) {
                     continue;
                 }
                 BlockPos position = new BlockPos(target.getX(), target.getY(), target.getZ());
-                if (!knownPositions.add(position)) {
+                Integer cachedSlot = positionIndex.get(position);
+                if (cachedSlot != null) {
+                    // 已在缓存中的目标不重复累积；只登记收缩探测覆盖位。
+                    if (cachedSlot.intValue() < coveredSlots.length
+                            && !coveredSlots[cachedSlot.intValue()]) {
+                        coveredSlots[cachedSlot.intValue()] = true;
+                        coveredCount++;
+                    }
                     continue;
                 }
                 if (positions.size() >= MAX_RENDER_TARGETS) {
                     // 超配额：装配阶段按 truncated 语义只保留前 MAX 个；停止累积保持内存有界。
+                    // 此处不做 knownPositions 登记，避免超量快照把去重集合撑过上限。
                     overflowed = true;
                     break;
+                }
+                if (!knownPositions.add(position)) {
+                    continue;
                 }
                 chronology.add(target);
                 chronologyClasses.add(semanticClassAt(semanticClasses, index));
@@ -588,11 +653,27 @@ public class ChainPreviewMeshBuilder {
                     reanchorCount++;
                 }
             }
+            return cachedCount > 0 && coveredCount < cachedCount;
+        }
 
-            if (!visuals.isLodEnabled()) {
-                // Option A：只重算新增目标及其 26 邻域的可见段，其余复用缓存。
-                refreshVisibleSegments();
-            }
+        /**
+         * 释放代级缓存与 mesh 引用（构建线程调用）：与 {@link #dispose()} 的消费侧同口径，
+         * 但不改变会话可用性——收缩重建随后立即以新快照重建缓存与锚点。
+         */
+        private void releaseGenerationCaches() {
+            chronology.clear();
+            chronologyClasses.reset();
+            knownPositions.clear();
+            positions.clear();
+            positionIndex.clear();
+            cachedSegments.clear();
+            occupancy.clear();
+            Arrays.fill(coveredSlots, false);
+            visibleBlockCount = 0;
+            overflowed = false;
+            anchor = null;
+            activeRevision = null;
+            mesh = null;
         }
 
         /**
@@ -680,6 +761,99 @@ public class ChainPreviewMeshBuilder {
             return mesh;
         }
 
+        /**
+         * @return 代级容量的唯一上限；复用 {@link ChainPreviewMeshBuilder#MAX_RENDER_TARGETS}
+         *         （= clientPreviewMaxTargetsHardCap 的默认/夹具上限），不是第二套上限语义
+         */
+        public int getCapacityLimit() {
+            return MAX_RENDER_TARGETS;
+        }
+
+        /** @return 代级缓存当前保留的唯一目标数（= chronology / positions / occupancy 的条目数） */
+        public int getCacheEntryCount() {
+            return positions.size();
+        }
+
+        /**
+         * @return 代级缓存条目总数（B4.2 有界性口径）：六个容器
+         *         （chronology / knownPositions / positions / positionIndex / cachedSegments / occupancy）的条目和。
+         *         每个容器都 ≤ {@link #getCapacityLimit()}，因此总量 ≤ 6 × 上限；峰值即记此口径。
+         */
+        public int getCacheEntryTotal() {
+            return chronology.size() + knownPositions.size() + positions.size()
+                + positionIndex.size() + cachedSegments.size() + occupancy.size();
+        }
+
+        /** @return 代级缓存当前保留的可见段总数（可见边口径；派生上界 12 × 唯一目标数） */
+        public int getVisibleSegmentCount() {
+            int total = 0;
+            for (int index = 0; index < cachedSegments.size(); index++) {
+                LineSegment[] segments = cachedSegments.get(index);
+                if (segments != null) {
+                    total += segments.length;
+                }
+            }
+            return total;
+        }
+
+        /** @return 本代是否发生过容量超限（与产物 {@code isTruncated()} 同源，另可独立观察） */
+        public boolean isOverflowed() {
+            return overflowed;
+        }
+
+        /** @return 峰值：代内保留的唯一目标数（B4.2，构建线程写、任意线程读） */
+        public int getPeakRetainedTargetCount() {
+            return peakRetainedTargets;
+        }
+
+        /** @return 峰值：代级缓存条目总数（口径同 {@link #getCacheEntryTotal()}，B4.2） */
+        public int getPeakCacheEntryCount() {
+            return peakCacheEntries;
+        }
+
+        /** @return 峰值：代级可见段总数（B4.2） */
+        public int getPeakVisibleSegmentCount() {
+            return peakVisibleSegments;
+        }
+
+        /** @return 峰值：产物顶点数（B4.2） */
+        public int getPeakVertexCount() {
+            return peakVertexCount;
+        }
+
+        /** @return 峰值：产物索引数（B4.2） */
+        public int getPeakIndexCount() {
+            return peakIndexCount;
+        }
+
+        /** @return 峰值：产物 aux 字节数（B4.2） */
+        public int getPeakAuxBytes() {
+            return peakAuxBytes;
+        }
+
+        /** 容量峰值归零（只影响诊断读数，不影响缓存/网格）；{@link #dispose()} 消费时同样归零。 */
+        public void resetCapacityPeaks() {
+            peakRetainedTargets = 0;
+            peakCacheEntries = 0;
+            peakVisibleSegments = 0;
+            peakVertexCount = 0;
+            peakIndexCount = 0;
+            peakAuxBytes = 0;
+        }
+
+        /**
+         * 把本代容量峰值交接进既有规模计数器通道（B4.2）：逐项取最大值合并，不改动既有计数。
+         *
+         * <p>由消费方在自己的线程调用（renderer 读取构建产物处 / RenderCache 发布处）；
+         * null 为无操作。峰值在会话内以 volatile 读交接，不改变构建线程所有权。</p>
+         */
+        public void publishCapacityInto(ChainPreviewScaleCounters counters) {
+            if (counters == null) {
+                return;
+            }
+            counters.recordCapacity(peakVertexCount, peakIndexCount, peakAuxBytes, peakCacheEntries);
+        }
+
         private int semanticClassAt(int[] semanticClasses, int index) {
             if (semanticClasses == null) {
                 // 冻结口径：null = 未提供类别，不计降级（与 BuildSession.semanticClassAt 同口径）。
@@ -702,22 +876,51 @@ public class ChainPreviewMeshBuilder {
                 return false;
             }
             disposeRequested = false;
-            activeRevision = null;
-            chronology.clear();
-            chronologyClasses.reset();
-            knownPositions.clear();
-            positions.clear();
-            positionIndex.clear();
-            cachedSegments.clear();
-            occupancy.clear();
-            visibleBlockCount = 0;
-            overflowed = false;
-            anchor = null;
-            mesh = null;
+            releaseGenerationCaches();
+            resetCapacityPeaks();
             reanchorCount = 0;
             semanticClassFallbackCount = 0;
             disposed = true;
             return true;
+        }
+
+        /** 采样容量峰值（构建线程）：缓存条目 / 唯一目标 / 可见段 + 可选产物网格的三项。 */
+        private void recordCapacityPeaks(ChainPreviewMesh produced) {
+            peakRetainedTargets = Math.max(peakRetainedTargets, chronology.size());
+            peakCacheEntries = Math.max(peakCacheEntries, getCacheEntryTotal());
+            peakVisibleSegments = Math.max(peakVisibleSegments, getVisibleSegmentCount());
+            if (produced != null) {
+                peakVertexCount = Math.max(peakVertexCount, produced.getVertexCount());
+                peakIndexCount = Math.max(peakIndexCount, produced.getIndexCount());
+                peakAuxBytes = Math.max(peakAuxBytes, produced.getAuxByteCount());
+            }
+        }
+
+        /**
+         * 装配会话包装：只转发 {@link MeshBuildSession#advance} 并在 {@link MeshBuildSession#getMesh()}
+         * 采样容量峰值——不改变安全点、装配顺序或返回对象身份。
+         */
+        private final class CapacityTrackedRevision implements MeshBuildSession {
+
+            private final MeshBuildSession delegate;
+
+            private CapacityTrackedRevision(MeshBuildSession delegate) {
+                this.delegate = delegate;
+            }
+
+            @Override
+            public boolean advance(WorkGate gate) {
+                return delegate.advance(gate);
+            }
+
+            @Override
+            public ChainPreviewMesh getMesh() {
+                ChainPreviewMesh produced = delegate.getMesh();
+                if (produced != null) {
+                    recordCapacityPeaks(produced);
+                }
+                return produced;
+            }
         }
 
         private static int chebyshevDistance(BlockPos first, BlockPos second) {
