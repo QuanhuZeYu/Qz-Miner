@@ -15,7 +15,9 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewRefreshDecision;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewRenderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderBackend;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewVanillaHighlight;
 import club.heiqi.qz_miner.chain.client.render.WorldOverlayBackend;
+import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -114,6 +116,35 @@ public class ChainPreviewRenderer {
         fadeController.reset();
         scaleCounters.reset();
         resetUploadState();
+    }
+
+    /**
+     * B2.5 原版高亮协同：本帧是否需要抑制原版方块选择框（渲染线程；零分配、无 GL、不写状态）。
+     *
+     * <p>三条件：视觉快照开关（§H 读取面）→ 预览激活（renderCache）→ 瞄准方块与预览代 origin
+     * 坐标一致（controller 的 {@link ChainPreviewState#getOrigin()}；B4.1 后 draw plan 的 origin
+     * 是代内稳定锚点，不能作为匹配基准）。任一条件不满足 fail-open，原版行为逐字不变；
+     * 开关关闭时不再触碰 controller / state（默认档零开销）。</p>
+     *
+     * @param aimedX 瞄准方块 X
+     * @param aimedY 瞄准方块 Y
+     * @param aimedZ 瞄准方块 Z
+     * @return 是否抑制原版黑色选择框
+     */
+    public boolean shouldSuppressVanillaHighlight(int aimedX, int aimedY, int aimedZ) {
+        ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
+        boolean suppress = settings != null && settings.isSuppressVanillaHighlight();
+        boolean active = suppress && renderCache.isPreviewActive();
+        boolean match = false;
+        if (active) {
+            ChainPreviewController controller = ClientProxy.chainPreviewController;
+            ChainTarget origin = controller == null ? null : controller.getPreviewState().getOrigin();
+            if (origin != null) {
+                match = ChainPreviewVanillaHighlight.matchesOrigin(
+                    true, origin.getX(), origin.getY(), origin.getZ(), aimedX, aimedY, aimedZ);
+            }
+        }
+        return ChainPreviewVanillaHighlight.shouldSuppress(suppress, active, match);
     }
 
     /**
@@ -315,6 +346,8 @@ public class ChainPreviewRenderer {
     private void applyPublication(
             ChainPreviewRenderBackend active,
             ChainPreviewRenderCache.MeshPublication publication) {
+        // B4.2：把当前代装配会话的容量峰值交接进规模计数器通道（渲染线程、零分配、无 GL）
+        renderCache.publishCapacityInto(scaleCounters);
         ChainPreviewMesh mesh = publication.getMesh();
         boolean topologyChanged = mesh.isEmpty()
             || publication.getGeneration() != uploadedGeneration

@@ -51,6 +51,7 @@ public final class ChainPreviewVisualSettings {
     private final float lodMinAlpha;
     private final boolean truncationSignal;
     private final int maxTargetsHardCap;
+    private final boolean suppressVanillaHighlight;
 
     /** 最近一次发布的快照引用（零分配读取；volatile 读跨线程安全）。 */
     private static volatile ChainPreviewVisualSettings current;
@@ -129,6 +130,47 @@ public final class ChainPreviewVisualSettings {
             float lodMinAlpha,
             boolean truncationSignal,
             int maxTargetsHardCap) {
+        this(
+            barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
+            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
+            alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
+            maxTargetsHardCap, false);
+    }
+
+    /**
+     * 完整构造（T34 / B2.5 追加第 24 参：原版方块高亮抑制开关）。
+     *
+     * <p>其余字段语义、范围收窄与 {@code null} 兜底与 23 参构造完全一致；旧调用点保持原语义
+     * （未显式传入时按默认关闭 false）。</p>
+     *
+     * @param suppressVanillaHighlight 是否抑制原版方块选择框（B2.5；默认 false）
+     */
+    public ChainPreviewVisualSettings(
+            float barThickness,
+            float minScreenWidthPx,
+            String depthModeId,
+            String animationId,
+            String animationPhaseId,
+            String fadeModeId,
+            String colorSourceId,
+            String renderBackendId,
+            int colorPrimary,
+            int colorSecondary,
+            int colorRemote,
+            int colorTruncated,
+            int animationDurationMs,
+            float fadeRefreshDistance,
+            int fadeFallbackMs,
+            float alphaFadeStartRadius,
+            float alphaFadeEndRadius,
+            float alphaStartValue,
+            float alphaEndValue,
+            String lodId,
+            float lodMinAlpha,
+            boolean truncationSignal,
+            int maxTargetsHardCap,
+            boolean suppressVanillaHighlight) {
         this.barThickness = clampFloat(barThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT);
         this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK);
         this.depthModeId = nonNull(depthModeId, PreviewDepthMode.defaultValue().id());
@@ -155,6 +197,7 @@ public final class ChainPreviewVisualSettings {
         this.lodMinAlpha = clampFloat(lodMinAlpha, 0.0F, 1.0F, 0.05F);
         this.truncationSignal = truncationSignal;
         this.maxTargetsHardCap = clampInt(maxTargetsHardCap, 1, 4096, 4096);
+        this.suppressVanillaHighlight = suppressVanillaHighlight;
     }
 
     /**
@@ -195,7 +238,8 @@ public final class ChainPreviewVisualSettings {
                 ? PreviewLodMode.defaultValue().id() : Config.clientPreviewLod.id(),
             (float) Config.clientPreviewLodMinAlpha,
             Config.clientPreviewTruncationSignal,
-            Config.clientPreviewMaxTargetsHardCap);
+            Config.clientPreviewMaxTargetsHardCap,
+            Config.clientPreviewSuppressVanillaHighlight);
     }
 
     /** @return 条柱半厚（格） */
@@ -344,6 +388,13 @@ public final class ChainPreviewVisualSettings {
         return maxTargetsHardCap;
     }
 
+    /**
+     * @return 是否抑制原版方块选择框（B2.5 原版高亮协同；默认 false = 原版行为不变）
+     */
+    public boolean isSuppressVanillaHighlight() {
+        return suppressVanillaHighlight;
+    }
+
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ChainPreviewVisualSettings)) {
@@ -366,6 +417,7 @@ public final class ChainPreviewVisualSettings {
             && colorRemote == that.colorRemote
             && colorTruncated == that.colorTruncated
             && truncationSignal == that.truncationSignal
+            && suppressVanillaHighlight == that.suppressVanillaHighlight
             && depthModeId.equals(that.depthModeId)
             && animationId.equals(that.animationId)
             && animationPhaseId.equals(that.animationPhaseId)
@@ -400,6 +452,7 @@ public final class ChainPreviewVisualSettings {
         result = 31 * result + Float.floatToIntBits(lodMinAlpha);
         result = 31 * result + (truncationSignal ? 1 : 0);
         result = 31 * result + maxTargetsHardCap;
+        result = 31 * result + (suppressVanillaHighlight ? 1 : 0);
         return result;
     }
 
@@ -417,6 +470,7 @@ public final class ChainPreviewVisualSettings {
             + ", lod=" + lodId
             + ", truncationSignal=" + truncationSignal
             + ", maxTargetsHardCap=" + maxTargetsHardCap
+            + ", suppressVanillaHighlight=" + suppressVanillaHighlight
             + "}";
     }
 

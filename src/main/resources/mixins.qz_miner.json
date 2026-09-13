@@ -18,7 +18,8 @@
     "MixinBlockBaseOreLegacy"
   ],
   "client": [
-    "client.MixinPlayerControllerMPToolSwap"
+    "client.MixinPlayerControllerMPToolSwap",
+    "client.MixinRenderGlobalVanillaHighlight"
   ],
   "server": []
 }

@@ -12,6 +12,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.MeshBuildSession
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderChange;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderSnapshot;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.config.PreviewLodMode;
 import club.heiqi.qz_miner.config.PreviewRenderBackend;
@@ -274,6 +275,27 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     /** @return 当前视觉参数快照（volatile 读、零分配、非 null），供 renderer 每帧读取 */
     public ChainPreviewVisualSettings getVisualSettings() {
         return visualSettings;
+    }
+
+    /**
+     * B4.2：把当前代装配会话的容量峰值交接进调用方计数器（渲染线程；null 安全、零分配、无 GL）。
+     *
+     * <p>会话在构建线程采样峰值（volatile 读交接），本方法只做一次最大值合并：不重置会话峰值、
+     * 不改动既有计数、不触碰 GL；无会话 / counters 为 null 时无操作。</p>
+     *
+     * @param counters 目标规模计数器，可为 null
+     */
+    public void publishCapacityInto(ChainPreviewScaleCounters counters) {
+        if (counters == null) {
+            return;
+        }
+        GenerationSession session;
+        synchronized (taskLock) {
+            session = generationSession;
+        }
+        if (session != null) {
+            session.publishCapacityInto(counters);
+        }
     }
 
     MeshPublication pollPublication() {

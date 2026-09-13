@@ -74,6 +74,50 @@ public class ChainPreviewScaleCountersTest {
     }
 
     @Test
+    public void capacityPeaksTakePerFieldMaxAndResetWithLifecycle() {
+        ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
+
+        counters.recordCapacity(120, 60, 480, 7);
+        Assert.assertEquals(120L, counters.getPeakVertexCount());
+        Assert.assertEquals(60L, counters.getPeakIndexCount());
+        Assert.assertEquals(480L, counters.getPeakAuxBytes());
+        Assert.assertEquals(7L, counters.getPeakGenerationCacheEntries());
+
+        counters.recordCapacity(90, 200, 0, 3);
+        Assert.assertEquals("逐项取历史最大值", 120L, counters.getPeakVertexCount());
+        Assert.assertEquals(200L, counters.getPeakIndexCount());
+        Assert.assertEquals(480L, counters.getPeakAuxBytes());
+        Assert.assertEquals(7L, counters.getPeakGenerationCacheEntries());
+
+        counters.recordCapacity(-5, -1, -1, -9);
+        Assert.assertEquals("负值按 0，不拉低峰值", 120L, counters.getPeakVertexCount());
+        Assert.assertEquals(200L, counters.getPeakIndexCount());
+
+        Assert.assertTrue(counters.describe().contains("preview.peakVertices=120"));
+        Assert.assertTrue(counters.describe().contains("preview.peakIndices=200"));
+        Assert.assertTrue(counters.describe().contains("preview.peakAuxBytes=480"));
+        Assert.assertTrue(counters.describe().contains("preview.peakGenerationCacheEntries=7"));
+
+        counters.reset();
+        Assert.assertEquals(0L, counters.getPeakVertexCount());
+        Assert.assertEquals(0L, counters.getPeakIndexCount());
+        Assert.assertEquals(0L, counters.getPeakAuxBytes());
+        Assert.assertEquals(0L, counters.getPeakGenerationCacheEntries());
+    }
+
+    @Test
+    public void capacityPeakAcceptsNullMeshAsZero() {
+        ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
+
+        counters.recordCapacity(null, 4);
+
+        Assert.assertEquals(0L, counters.getPeakVertexCount());
+        Assert.assertEquals(0L, counters.getPeakIndexCount());
+        Assert.assertEquals(0L, counters.getPeakAuxBytes());
+        Assert.assertEquals(4L, counters.getPeakGenerationCacheEntries());
+    }
+
+    @Test
     public void counterSnapshotIsCarriedByDrawPlan() {
         ChainPreviewScaleCounters counters = new ChainPreviewScaleCounters();
         counters.recordTopologyUpload();
