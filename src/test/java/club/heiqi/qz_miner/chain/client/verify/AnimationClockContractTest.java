@@ -128,31 +128,68 @@ public class AnimationClockContractTest {
     }
 
     @Test
-    public void switchingModeOrDurationRestartsTimeline() {
+    public void durationOrModeChangeRestartsTimelineInSameGeneration() {
+        // Lead 新裁定（6ce6623）：同代内 durationMs 或档位变化，下一帧按新一轮处理（u 归 0 重新计时）。
         ChainPreviewAnimationClock clock = new ChainPreviewAnimationClock();
-        clock.advance(5, "wave", DURATION_MS, BASE);
-        clock.advance(5, "wave", DURATION_MS, BASE + 60 * NANOS_PER_MS);
-        // 已登记行为：同代内改 durationMs 不重启时间线（只按 generation 重启），
-        // 新时长在下一代/下次启动时生效——配置热改时长会有「本代不生效」的滞后，已上报 Lead。
         Assert.assertEquals(
-            "同代内 duration 变化不重启，按原时间线继续",
-            61.0F / 120.0F,
-            clock.advance(5, "wave", 300, BASE + 61 * NANOS_PER_MS),
+            ChainPreviewAnimationClock.START,
+            clock.advance(5, "wave", 1000, BASE),
+            0.0F);
+        Assert.assertEquals(
+            0.5F,
+            clock.advance(5, "wave", 1000, BASE + 500 * NANOS_PER_MS),
             0.0001F);
+
+        // 同代内 duration 1000 -> 200：变化那一帧必须重置为新时间线起点。
+        Assert.assertEquals(
+            "同代内时长变化必须重置时间线",
+            ChainPreviewAnimationClock.START,
+            clock.advance(5, "wave", 200, BASE + 501 * NANOS_PER_MS),
+            0.0F);
+        // duration 不变：不得重置，按新时间线继续推进。
+        Assert.assertEquals(
+            "duration 不变时不得重置（继续推进）",
+            0.25F,
+            clock.advance(5, "wave", 200, BASE + 551 * NANOS_PER_MS),
+            0.0001F);
+        Assert.assertEquals(
+            "新时长下推进到一半",
+            0.5F,
+            clock.advance(5, "wave", 200, BASE + 601 * NANOS_PER_MS),
+            0.0001F);
+        Assert.assertEquals(
+            "恰满新时长即完成",
+            ChainPreviewAnimationClock.COMPLETE,
+            clock.advance(5, "wave", 200, BASE + 701 * NANOS_PER_MS),
+            0.0F);
+
+        // 同代内档位变化（wave -> flow）同样按新一轮处理。
+        Assert.assertEquals(
+            "同代内档位变化必须重置时间线",
+            ChainPreviewAnimationClock.START,
+            clock.advance(5, "flow", 200, BASE + 702 * NANOS_PER_MS),
+            0.0F);
+        Assert.assertEquals(
+            "flow 按新时间线推进",
+            0.5F,
+            clock.advance(5, "flow", 200, BASE + 802 * NANOS_PER_MS),
+            0.0001F);
+
+        // off 档立即完成；再从 off 回到 wave 必须重新计时。
         Assert.assertEquals(
             "off 档立即回到完成",
             ChainPreviewAnimationClock.COMPLETE,
-            clock.advance(5, "off", 300, BASE + 62 * NANOS_PER_MS),
+            clock.advance(5, "off", 200, BASE + 803 * NANOS_PER_MS),
             0.0F);
         Assert.assertEquals(
             "回到 wave 档必须重新计时",
             ChainPreviewAnimationClock.START,
-            clock.advance(5, "wave", 300, BASE + 63 * NANOS_PER_MS),
+            clock.advance(5, "wave", 200, BASE + 804 * NANOS_PER_MS),
             0.0F);
         Assert.assertEquals(
             "重启后按新时长推进",
             0.5F,
-            clock.advance(5, "wave", 300, BASE + 63 * NANOS_PER_MS + 150 * NANOS_PER_MS),
+            clock.advance(5, "wave", 200, BASE + 904 * NANOS_PER_MS),
             0.0001F);
     }
 
