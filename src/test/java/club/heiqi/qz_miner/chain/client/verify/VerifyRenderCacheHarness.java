@@ -42,6 +42,7 @@ public final class VerifyRenderCacheHarness {
     private final ChainPreviewState state;
     private final Class<?> cacheType;
     private final List<ParallelTickTask> scheduled = new ArrayList<ParallelTickTask>();
+    private int scheduledTotal;
     private long tickId;
 
     public VerifyRenderCacheHarness(ChainPreviewState state) {
@@ -60,6 +61,7 @@ public final class VerifyRenderCacheHarness {
                     public Object invoke(Object proxy, Method method, Object[] arguments) {
                         if ("schedule".equals(method.getName()) && arguments != null && arguments.length == 1) {
                             scheduled.add((ParallelTickTask) arguments[0]);
+                            scheduledTotal++;
                             return new ParallelTickSubscription() {
                                 @Override
                                 public void unregister() {
@@ -82,6 +84,11 @@ public final class VerifyRenderCacheHarness {
     /** 注册到状态观察者（等价生产 observeState）。 */
     public void observe() {
         invoke("observeState");
+    }
+
+    /** @return 累计被调度的分片次数（用于断言「无待构建工作不得产生空转任务」）。 */
+    public int scheduledTotal() {
+        return scheduledTotal;
     }
 
     /** 跑完全部已调度分片（永不 yield，等价构建线程跑完整窗口）。 */

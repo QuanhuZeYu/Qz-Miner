@@ -110,8 +110,8 @@ public class ProductionOrderContractTest {
 
     @Test
     public void productionFullPathMustAlsoUseEarliestFirstOrder() {
-        // T29 修正目标：生产全量装配入口也必须「最早=0、最新=N-1」并锚定最早目标。
-        // 现状按处理序分配：生产序喂入时方向相反 -> 本断言先红。
+        // 72fd97e 已统一方向：公共 begin/build 按生产快照序解释输入、内部翻转为时间序装配，
+        // 故全量入口同样必须「最早=0、最新=N-1」并锚定最早目标（本例为回归锁）。
         List<ChainTarget> production = newestFirst(0, 3, 6);
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
             production, VISUALS, THICKNESS, null);

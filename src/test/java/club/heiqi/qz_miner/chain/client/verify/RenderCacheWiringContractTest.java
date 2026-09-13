@@ -95,8 +95,14 @@ public class RenderCacheWiringContractTest {
         Assert.assertEquals(3, third.mesh.getBlockCount());
     }
 
+    /**
+     * O-1（Lead 批准）：B0.3 临时消费门控已随 B4.1 替换删除——未消费不再阻塞装配，
+     * 单槽语义 = 「任一时刻至多一份、只保留最新一份可被取走」（覆盖推进=追帧，非错误）；
+     * 语义由 publishedKey 追平 + 增量 extend 替代。与 owner 的
+     * ChainPreviewRenderCacheTest.unconsumedPublicationIsReplacedByNewerBuildWithoutAccumulation 同口径。
+     */
     @Test
-    public void publicationGateKeepsSingleSlotUntilConsumed() {
+    public void publicationSlotKeepsLatestWithoutBlockingOrIdling() {
         ChainPreviewState state = new ChainPreviewState();
         VerifyRenderCacheHarness harness = new VerifyRenderCacheHarness(state);
         harness.observe();
@@ -107,44 +113,33 @@ public class RenderCacheWiringContractTest {
         Assert.assertNotNull("首次构建必须产出发布", first);
         Assert.assertEquals(1, first.mesh.getBlockCount());
 
-        // 产出但未消费：门控必须阻止新的拓扑构建（单槽不被覆盖）
-        StringBuilder trace = new StringBuilder();
-        trace.append("t0 first rev=").append(first.stateRevision)
-            .append(" blocks=").append(first.mesh.getBlockCount())
-            .append(" id=").append(System.identityHashCode(first.mesh));
-
+        // 产出但故意不消费：不得阻止新的装配（追帧语义）
+        int scheduledAfterFirst = harness.scheduledTotal();
         addTargets(state, generation, 3);
         harness.runUntilPublication(8);
-        VerifyRenderCacheHarness.Publication pending = harness.peekPublication();
-        Assert.assertNotNull("未消费时必须仍有待消费发布", pending);
-        trace.append(" | t1 add(3) rev=").append(pending.stateRevision)
-            .append(" blocks=").append(pending.mesh.getBlockCount())
-            .append(" id=").append(System.identityHashCode(pending.mesh));
+        Assert.assertTrue("未消费不得阻止新的装配调度",
+            harness.scheduledTotal() > scheduledAfterFirst);
+        VerifyRenderCacheHarness.Publication replaced = harness.peekPublication();
+        Assert.assertNotNull("未消费时必须仍有可取的发布", replaced);
+        Assert.assertEquals("未消费时槽内必须已被更新（覆盖推进）", 2, replaced.mesh.getBlockCount());
 
+        // 再推进一次：单槽只保留最新一份，不得堆积
         addTargets(state, generation, 6);
         harness.runUntilPublication(8);
-        VerifyRenderCacheHarness.Publication stillPending = harness.peekPublication();
-        Assert.assertNotNull(stillPending);
-        trace.append(" | t2 add(6) rev=").append(stillPending.stateRevision)
-            .append(" blocks=").append(stillPending.mesh.getBlockCount())
-            .append(" id=").append(System.identityHashCode(stillPending.mesh));
+        VerifyRenderCacheHarness.Publication latest = harness.peekPublication();
+        Assert.assertNotNull(latest);
+        Assert.assertEquals("单槽只保留最新一份发布（覆盖而非堆积）", 3, latest.mesh.getBlockCount());
 
-        // 未消费期间：新变更不得让单槽发布推进到更新状态（门控语义）
-        Assert.assertEquals("未消费期间不得推进单槽发布：" + trace,
-            pending.stateRevision, stillPending.stateRevision);
-        Assert.assertEquals("未消费期间内容不得推进：" + trace,
-            pending.mesh.getBlockCount(), stillPending.mesh.getBlockCount());
+        VerifyRenderCacheHarness.Publication consumed = harness.pollPublication();
+        Assert.assertNotNull("最新一份必须可被取走", consumed);
+        Assert.assertEquals(3, consumed.mesh.getBlockCount());
+        Assert.assertNull("最新一份取走后单槽必须为空", harness.pollPublication());
 
-        // 消费后必须能继续推进到最新状态
-        VerifyRenderCacheHarness.Publication consumedPending = harness.pollPublication();
-        Assert.assertNotNull("未消费的发布必须可被消费", consumedPending);
-        harness.runUntilPublication(8);
-        VerifyRenderCacheHarness.Publication advanced = harness.pollPublication();
-        Assert.assertNotNull("消费后必须能产出最新发布", advanced);
-        Assert.assertEquals("消费后发布必须推进到最新状态（3 个目标）",
-            3, advanced.mesh.getBlockCount());
-        Assert.assertTrue("消费后发布状态必须不早于已消费发布：" + trace,
-            advanced.stateRevision >= consumedPending.stateRevision);
+        // 消费后无空转：无待构建工作不得再调度/执行任务
+        int scheduledAfterConsumption = harness.scheduledTotal();
+        int executed = harness.runUntilPublication(4);
+        Assert.assertEquals("无待构建工作不得产生空转执行", 0, executed);
+        Assert.assertEquals("空闲期不得新增调度", scheduledAfterConsumption, harness.scheduledTotal());
     }
 
     @Test
