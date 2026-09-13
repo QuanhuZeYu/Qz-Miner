@@ -127,15 +127,9 @@ public final class ChainPreviewGlBindings {
      */
     public ChainPreviewGlBindings withoutDeletedBuffers(
             int deletedVao, int deletedVbo, int deletedCbo, int deletedAbo, int deletedEbo) {
-        return withoutDeletedBuffers(deletedVao, deletedVbo, deletedCbo, deletedAbo, 0, deletedEbo);
-    }
-
-    public ChainPreviewGlBindings withoutDeletedBuffers(
-            int deletedVao, int deletedVbo, int deletedCbo, int deletedAbo, int deletedDbo, int deletedEbo) {
         int safeArrayBuffer = arrayBuffer == deletedVbo
             || arrayBuffer == deletedCbo
-            || arrayBuffer == deletedAbo
-            || arrayBuffer == deletedDbo ? 0 : arrayBuffer;
+            || arrayBuffer == deletedAbo ? 0 : arrayBuffer;
         return new ChainPreviewGlBindings(
             vertexArray == deletedVao ? 0 : vertexArray,
             safeArrayBuffer,

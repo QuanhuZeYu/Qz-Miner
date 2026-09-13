@@ -66,7 +66,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private static final int POSITION_STRIDE_BYTES = 3 * 4;
     private static final int COLOR_STRIDE_BYTES = 4 * 4;
     private static final int AUX_STRIDE_BYTES = 4;
-    private static final int DIRECTION_STRIDE_BYTES = 3 * 4;
 
     private final ChainPreviewShaderProgram program;
 
@@ -74,12 +73,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private int vbo;
     private int cbo;
     private int abo;
-    private int dbo;
     private int ebo;
     private int vboCapacity;
     private int cboCapacity;
     private int aboCapacity;
-    private int dboCapacity;
     private int eboCapacity;
     private int indexCount;
     private int vertexCount;
@@ -112,7 +109,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private FloatBuffer colorStaging;
     private IntBuffer indexStaging;
     private ByteBuffer auxStaging;
-    private FloatBuffer directionStaging;
 
     /** buffer 分配 seam：默认走 LWJGL BufferUtils（native 支撑），测试可注入纯 JVM 实现。 */
     interface BufferAllocator {
@@ -234,7 +230,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         float[] colors = mesh.colorArray();
         int[] indices = mesh.indexArray();
         byte[] aux = mesh.isAuxAvailable() ? mesh.auxArray() : null;
-        float[] directions = mesh.isDirectionAvailable() ? mesh.directionArray() : null;
         int vertexFloatCount = mesh.getVertexFloatCount();
         int colorFloatCount = mesh.getColorFloatCount();
 
@@ -270,7 +265,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, colorStaging);
 
         uploadAux(aux, vertexCount);
-        uploadDirections(directions, vertexCount);
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         int requiredEboSize = indexCount * 4;
@@ -329,7 +323,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL20.glEnableVertexAttribArray(0);
             GL20.glEnableVertexAttribArray(1);
             GL20.glEnableVertexAttribArray(2);
-            GL20.glEnableVertexAttribArray(3);
             int primitive = GL11.GL_TRIANGLES;
             GL11.glDrawElements(
                 primitive,
@@ -341,7 +334,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL20.glDisableVertexAttribArray(2);
             GL20.glDisableVertexAttribArray(1);
             GL20.glDisableVertexAttribArray(0);
-            GL20.glDisableVertexAttribArray(3);
             GL30.glBindVertexArray(0);
             // GL_ARRAY_BUFFER 绑定不属于 VAO，必须显式还原（本环境没有可用的固定管线围栏）。
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
@@ -689,25 +681,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, auxStaging);
     }
 
-    private void uploadDirections(float[] directions, int vertexCount) {
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
-        int required = vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX * 4;
-        if (directions == null || directions.length < vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX) {
-            dboCapacity = calculateNewCapacity(required);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
-            FloatBuffer zero = prepareFloatBuffer(directionStaging, new float[vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX], vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX);
-            directionStaging = zero;
-            GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, directionStaging);
-            return;
-        }
-        if (required > dboCapacity) {
-            dboCapacity = calculateNewCapacity(required);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
-        }
-        directionStaging = prepareFloatBuffer(directionStaging, directions, vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX);
-        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, directionStaging);
-    }
-
     /**
      * 构造长度为 required 的「未定义」aAux 缓冲（全 0xFF）。
      *
@@ -801,8 +774,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
-        GL20.glVertexAttribPointer(3, 3, GL11.GL_FLOAT, false, DIRECTION_STRIDE_BYTES, 0L);
     }
 
     private void initializeGl() {
@@ -810,12 +781,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         vbo = GL15.glGenBuffers();
         cbo = GL15.glGenBuffers();
         abo = GL15.glGenBuffers();
-        dbo = GL15.glGenBuffers();
         ebo = GL15.glGenBuffers();
         vboCapacity = INITIAL_CAPACITY;
         cboCapacity = INITIAL_CAPACITY;
         aboCapacity = INITIAL_CAPACITY;
-        dboCapacity = INITIAL_CAPACITY;
         eboCapacity = INITIAL_CAPACITY;
 
         GL30.glBindVertexArray(vao);
@@ -831,11 +800,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
         GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(1);
-
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(3, 3, GL11.GL_FLOAT, false, DIRECTION_STRIDE_BYTES, 0L);
-        GL20.glEnableVertexAttribArray(3);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
@@ -853,31 +817,26 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         int deletedVbo = vbo;
         int deletedCbo = cbo;
         int deletedAbo = abo;
-        int deletedDbo = dbo;
         int deletedEbo = ebo;
         boolean release = initialized
             || deletedVao != 0
             || deletedVbo != 0
             || deletedCbo != 0
             || deletedAbo != 0
-            || deletedDbo != 0
             || deletedEbo != 0;
         vao = 0;
         vbo = 0;
         cbo = 0;
         abo = 0;
-        dbo = 0;
         ebo = 0;
         vboCapacity = 0;
         cboCapacity = 0;
         aboCapacity = 0;
-        dboCapacity = 0;
         eboCapacity = 0;
         vertexStaging = null;
         colorStaging = null;
         indexStaging = null;
         auxStaging = null;
-        directionStaging = null;
         if (!release) {
             return;
         }
@@ -891,11 +850,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL15.glDeleteBuffers(deletedVbo);
             GL15.glDeleteBuffers(deletedCbo);
             GL15.glDeleteBuffers(deletedAbo);
-            GL15.glDeleteBuffers(deletedDbo);
             GL15.glDeleteBuffers(deletedEbo);
         } finally {
             previous.withoutDeletedBuffers(
-                deletedVao, deletedVbo, deletedCbo, deletedAbo, deletedDbo, deletedEbo).restore();
+                deletedVao, deletedVbo, deletedCbo, deletedAbo, deletedEbo).restore();
         }
     }
 

@@ -60,18 +60,17 @@ public class ChainPreviewShaderContractTest {
 
     // ------------------------------------------------------------------ 接口冻结 §A/§F
 
-    /** 属性 0/1/2/3 与升级后的方向协议一致：aPos / aAux / aColor / aDirection。 */
+    /** 属性 0/1/2 与接口冻结 §A 一致：aPos(3f) / aAux(4 通道) / aColor(4f)。 */
     @Test
     public void declaresFrozenVertexAttributeTriple() throws IOException {
         List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
         Map<String, String> attributes = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
                 .getAttributes();
 
-        Assert.assertEquals("必须恰好声明方向协议约定的四个属性", 4, attributes.size());
+        Assert.assertEquals("必须恰好声明 §A 约定的三个属性", 3, attributes.size());
         Assert.assertEquals("vec3", attributes.get("aPos"));
         Assert.assertEquals("vec4", attributes.get("aAux"));
         Assert.assertEquals("vec4", attributes.get("aColor"));
-        Assert.assertEquals("vec3", attributes.get("aDirection"));
     }
 
     /**

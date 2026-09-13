@@ -23,9 +23,6 @@ public class ChainPreviewMesh {
     /** aAux 每顶点字节数：x=semanticClass、y=tubeEdge、z/w=appearOrder（u16 小端）。 */
     public static final int AUX_BYTES_PER_VERTEX = 4;
 
-    /** 每顶点显式外扩方向的 float 分量数（面法线，shader 属性 aDirection）。 */
-    public static final int DIRECTION_FLOATS_PER_VERTEX = 3;
-
     /**
      * aAux 中「未定义」的 8 位值（semanticClass / tubeEdge）；类别 id 的冻结源为
      * {@link ChainPreviewSemanticClass}（接口冻结 §D）。
@@ -45,8 +42,6 @@ public class ChainPreviewMesh {
     private final float[] colors;
     private final int colorFloatCount;
     private final byte[] aux;
-    private final float[] directions;
-    private final String directionDegradationReason;
     private final String auxDegradationReason;
     private final int[] indices;
     private final int indexCount;
@@ -87,13 +82,6 @@ public class ChainPreviewMesh {
     public ChainPreviewMesh(
             float[] vertices, float[] colors, int[] indices, int blockCount, byte[] aux,
             int culledTargetCount) {
-        this(vertices, colors, indices, blockCount, aux, culledTargetCount, null);
-    }
-
-    /** 创建带语义流与显式面方向流的网格。 */
-    public ChainPreviewMesh(
-            float[] vertices, float[] colors, int[] indices, int blockCount, byte[] aux,
-            int culledTargetCount, float[] directions) {
         this(
             vertices,
             vertices == null ? 0 : vertices.length,
@@ -107,8 +95,7 @@ public class ChainPreviewMesh {
             blockCount,
             false,
             culledTargetCount,
-            aux,
-            directions);
+            aux);
     }
 
     ChainPreviewMesh(
@@ -125,25 +112,6 @@ public class ChainPreviewMesh {
             boolean truncated,
             int culledTargetCount,
             byte[] aux) {
-        this(vertices, vertexFloatCount, colors, colorFloatCount, indices, indexCount, originX, originY,
-            originZ, blockCount, truncated, culledTargetCount, aux, null);
-    }
-
-    ChainPreviewMesh(
-            float[] vertices,
-            int vertexFloatCount,
-            float[] colors,
-            int colorFloatCount,
-            int[] indices,
-            int indexCount,
-            int originX,
-            int originY,
-            int originZ,
-            int blockCount,
-            boolean truncated,
-            int culledTargetCount,
-            byte[] aux,
-            float[] directions) {
         this.vertices = vertices == null ? new float[0] : vertices;
         this.vertexFloatCount = boundedCount(vertexFloatCount, this.vertices.length);
         this.colors = colors == null ? new float[0] : colors;
@@ -158,19 +126,6 @@ public class ChainPreviewMesh {
         this.culledTargetCount = Math.max(0, culledTargetCount);
         int vertexCount = this.vertexFloatCount / 3;
         int requiredAuxBytes = vertexCount * AUX_BYTES_PER_VERTEX;
-        int requiredDirectionFloats = vertexCount * DIRECTION_FLOATS_PER_VERTEX;
-        if (directions == null) {
-            this.directions = null;
-            this.directionDegradationReason = null;
-        } else if (directions.length != requiredDirectionFloats) {
-            this.directions = null;
-            this.directionDegradationReason = "aDirection length " + directions.length
-                + " != vertexCount(" + vertexCount + ") * " + DIRECTION_FLOATS_PER_VERTEX
-                + " = " + requiredDirectionFloats;
-        } else {
-            this.directions = directions;
-            this.directionDegradationReason = null;
-        }
         if (aux == null) {
             this.aux = null;
             this.auxDegradationReason = null;
@@ -220,22 +175,6 @@ public class ChainPreviewMesh {
      */
     public byte[] getAux() {
         return aux == null ? null : Arrays.copyOf(aux, aux.length);
-    }
-
-    public float[] getDirections() {
-        return directions == null ? null : Arrays.copyOf(directions, directions.length);
-    }
-
-    public int getDirectionFloatCount() {
-        return directions == null ? 0 : directions.length;
-    }
-
-    public boolean isDirectionAvailable() {
-        return directions != null;
-    }
-
-    public String getDirectionDegradationReason() {
-        return directionDegradationReason;
     }
 
     public int getAuxByteCount() {
@@ -336,10 +275,6 @@ public class ChainPreviewMesh {
         return aux;
     }
 
-    public float[] directionArray() {
-        return directions;
-    }
-
     ChainPreviewMesh withColors(float[] nextColors, int nextColorFloatCount) {
         return new ChainPreviewMesh(
             vertices,
@@ -354,8 +289,7 @@ public class ChainPreviewMesh {
             blockCount,
             truncated,
             culledTargetCount,
-            aux,
-            directions);
+            aux);
     }
 
     private static int boundedCount(int count, int arrayLength) {
