@@ -8,6 +8,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlBindings;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlCapabilities;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewLegacyBackend;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewRefreshDecision;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewRenderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderBackend;
@@ -218,29 +219,27 @@ public class ChainPreviewRenderer {
         return fallback;
     }
 
-    /** 拓扑 / 颜色上传：同 generation + 同 stateRevision 只走颜色流。 */
+    /**
+     * 拓扑 / 颜色上传分派：拓扑变化走拓扑重传；同 generation + 同 stateRevision 时只有消费
+     * CPU 颜色流的后端才走颜色上传——shader 后端颜色由 GPU uniform 计算，同代刷新零上传，
+     * 不得退化为整份拓扑重传（B2.3 若需要 CPU 侧颜色，让该后端 usesCpuColors() 返回 true 即可）。
+     */
     private void applyPublication(
             ChainPreviewRenderBackend active,
             ChainPreviewRenderCache.MeshPublication publication) {
         ChainPreviewMesh mesh = publication.getMesh();
-        boolean colorOnly = !mesh.isEmpty()
-            && publication.getGeneration() == uploadedGeneration
-            && publication.getStateRevision() == uploadedStateRevision;
-        if (colorOnly) {
-            if (!active.uploadColors(mesh)) {
-                active.uploadTopology(mesh);
-                if (!mesh.isEmpty()) {
-                    scaleCounters.recordTopologyUpload();
-                }
-            } else {
-                scaleCounters.recordColorUpload();
-            }
-        } else {
-            active.uploadTopology(mesh);
-            if (!mesh.isEmpty()) {
-                scaleCounters.recordTopologyUpload();
-            }
+        boolean topologyChanged = mesh.isEmpty()
+            || publication.getGeneration() != uploadedGeneration
+            || publication.getStateRevision() != uploadedStateRevision;
+        ChainPreviewRefreshDecision.Upload upload =
+            ChainPreviewRefreshDecision.begin(topologyChanged, active.usesCpuColors());
+        if (upload == ChainPreviewRefreshDecision.Upload.COLORS && !active.uploadColors(mesh)) {
+            upload = ChainPreviewRefreshDecision.fallback(upload);
         }
+        if (upload == ChainPreviewRefreshDecision.Upload.TOPOLOGY) {
+            active.uploadTopology(mesh);
+        }
+        scaleCounters.record(upload, !mesh.isEmpty());
         uploadedGeneration = publication.getGeneration();
         uploadedStateRevision = publication.getStateRevision();
         activeMesh = mesh;

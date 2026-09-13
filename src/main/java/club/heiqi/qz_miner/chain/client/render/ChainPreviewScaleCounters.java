@@ -25,6 +25,23 @@ public final class ChainPreviewScaleCounters {
         uploads++;
     }
 
+    /**
+     * 按同代刷新决策记录计数（GL 无关，与 renderer 分派共用，保证 headless 断言覆盖生产路径）：
+     * TOPOLOGY 仅在非空网格时计一次重建 + 一次上传，COLORS 计一次上传，NONE 不计。
+     *
+     * @param upload       同代刷新决策结果
+     * @param nonEmptyMesh 本次上传的网格是否非空（空网格 = 清空，不计重建）
+     */
+    public void record(ChainPreviewRefreshDecision.Upload upload, boolean nonEmptyMesh) {
+        if (upload == ChainPreviewRefreshDecision.Upload.TOPOLOGY) {
+            if (nonEmptyMesh) {
+                recordTopologyUpload();
+            }
+        } else if (upload == ChainPreviewRefreshDecision.Upload.COLORS) {
+            recordColorUpload();
+        }
+    }
+
     /** 记录一次帧级绑定捕获（等价 3 次 glGetInteger）。 */
     public void recordBindingCapture() {
         frameCaptures++;
