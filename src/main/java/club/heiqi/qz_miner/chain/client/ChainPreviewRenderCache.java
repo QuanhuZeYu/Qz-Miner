@@ -65,6 +65,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private boolean lifecycleReady = true;
     private boolean visualRefreshPending;
     private boolean observing;
+    /** 只读诊断：最近一次渲染线程交接的规模计数器（未接线时 null → 诊断行打 -1）。 */
+    private volatile ChainPreviewScaleCounters lastScaleCounters;
 
     /** B4.1 第二步：当前代的增量装配会话（构建线程持有；代/lifecycle 变化时 dispose 另起）。 */
     private GenerationSession generationSession;
@@ -257,6 +259,49 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         return semanticClasses;
     }
 
+    /** 诊断开关的系统属性名（默认关闭；每次成功发布读一次，便于运行中开启，不新增用户可见配置键）。 */
+    static final String DIAGNOSTICS_PROPERTY = "qz_miner.preview.diagnostics";
+
+    /** @return 诊断开关是否打开（{@code -Dqz_miner.preview.diagnostics=true}） */
+    static boolean previewDiagnosticsEnabled() {
+        return Boolean.getBoolean(DIAGNOSTICS_PROPERTY);
+    }
+
+    /**
+     * 诊断行格式（headless 契约；纯格式化，无副作用）。
+     *
+     * <p>分流用途：{@code matched} 远大于 {@code uniquePositions} ⇒ 上游把同一坐标重复投喂，
+     * 几何合法地只有一根；两值相等而 {@code meshBlockCount} 偏小 ⇒ 问题在装配/绘制侧。</p>
+     */
+    static String formatPreviewDiagnostics(long generation, long revision, int matched, int stateTargetCount,
+            int uniquePositions, int meshBlockCount, int meshIndexCount, long uploads, long rebuilds) {
+        return "previewDiag gen=" + generation
+            + " rev=" + revision
+            + " matched=" + matched
+            + " stateTargetCount=" + stateTargetCount
+            + " uniquePositions=" + uniquePositions
+            + " meshBlockCount=" + meshBlockCount
+            + " meshIndexCount=" + meshIndexCount
+            + " uploads=" + uploads
+            + " rebuilds=" + rebuilds;
+    }
+
+    /** 输出一行诊断（只在开关打开时由构建线程调用；全部读数走既有只读访问器）。 */
+    private void logPreviewDiagnostics(long generation, long revision, int stateTargetCount,
+            int meshBlockCount, int meshIndexCount) {
+        ChainPreviewScaleCounters counters = lastScaleCounters;
+        MyMod.LOG.info(formatPreviewDiagnostics(
+            generation,
+            revision,
+            state.getMatchedCount(),
+            stateTargetCount,
+            state.getUniqueTargetCount(),
+            meshBlockCount,
+            meshIndexCount,
+            counters == null ? -1L : counters.getUploads(),
+            counters == null ? -1L : counters.getRebuilds()));
+    }
+
     /** @return 相对上次提升视觉 revision 的相机位移（格）；由 taskLock 保护 */
     private double cameraDisplacementLocked(double cameraX, double cameraY, double cameraZ) {
         VisualState snapshot = latestVisualState;
@@ -289,6 +334,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         if (counters == null) {
             return;
         }
+        // 只读诊断出口需要 uploads/rebuilds；本方法本就由渲染线程每次 applyPublication 调用一次。
+        lastScaleCounters = counters;
         GenerationSession session;
         synchronized (taskLock) {
             session = generationSession;
@@ -490,6 +537,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
         private final long ownerEpoch;
         private MeshBuildSession session;
         private BuildKey sessionKey;
+        /** 本次装配快照的目标读取数（含重复坐标；诊断用，不参与任何行为判定）。 */
+        private int sessionTargetCount;
         private boolean finished;
 
         private BuildTask(long ownerEpoch) {
@@ -570,6 +619,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                                 visuals.revision);
                             session = meshBuilder.beginRecolor(
                                 publishedMesh, visuals.toVisualParameters(settingsSnapshot));
+                            sessionTargetCount = publishedMesh.getBlockCount();
                         }
                     }
                     if (session == null) {
@@ -583,6 +633,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                             snapshot.getGeneration(),
                             snapshot.getRevision(),
                             visuals.revision);
+                        sessionTargetCount = snapshot.getTargetCount();
                         // B4.1 第二步：按代复用 GenerationSession 做增量装配（代内 extend 累积）。
                         session = generationExtendSession(snapshot, visuals, settingsSnapshot);
                     }
@@ -598,6 +649,12 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                     return ParallelTaskResult.YIELDED;
                 }
 
+                boolean diagnosticsPublished = false;
+                long diagnosticsGeneration = 0L;
+                long diagnosticsRevision = 0L;
+                int diagnosticsMeshBlocks = 0;
+                int diagnosticsMeshIndices = 0;
+                int diagnosticsTargetCount = 0;
                 synchronized (taskLock) {
                     RenderChange currentChange = latestChange;
                     if (currentTask == this
@@ -611,11 +668,29 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         publishedMesh = mesh;
                         if (latestVisualState.revision == sessionKey.visualRevision) {
                             pendingPublication.set(new MeshPublication(sessionKey, mesh));
+                            if (previewDiagnosticsEnabled()) {
+                                diagnosticsPublished = true;
+                                diagnosticsGeneration = sessionKey.generation;
+                                diagnosticsRevision = sessionKey.stateRevision;
+                                diagnosticsMeshBlocks = mesh.getBlockCount();
+                                diagnosticsMeshIndices = mesh.getIndexCount();
+                                diagnosticsTargetCount = sessionTargetCount;
+                            }
                         }
                     }
                 }
                 session = null;
                 sessionKey = null;
+                sessionTargetCount = 0;
+                // 真机故障自证出口：默认关闭（-Dqz_miner.preview.diagnostics=true 才输出），不改任何行为。
+                if (diagnosticsPublished) {
+                    logPreviewDiagnostics(
+                        diagnosticsGeneration,
+                        diagnosticsRevision,
+                        diagnosticsTargetCount,
+                        diagnosticsMeshBlocks,
+                        diagnosticsMeshIndices);
+                }
 
                 if (control.shouldYield()) {
                     return ParallelTaskResult.YIELDED;

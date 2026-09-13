@@ -493,6 +493,39 @@ public class ChainPreviewRenderCacheTest {
         Assert.assertFalse("不得停在空占位发布", publication.getMesh().isEmpty());
     }
 
+    /** 诊断行格式契约：四组关键读数必须齐全且顺序固定（真机分流用）。 */
+    @Test
+    public void previewDiagnosticsLineCarriesAllRequiredNumbers() {
+        String line = ChainPreviewRenderCache.formatPreviewDiagnostics(7L, 42L, 61, 61, 1, 1, 24, 3L, 2L);
+        Assert.assertEquals(
+            "previewDiag gen=7 rev=42 matched=61 stateTargetCount=61 uniquePositions=1"
+                + " meshBlockCount=1 meshIndexCount=24 uploads=3 rebuilds=2",
+            line);
+        Assert.assertFalse("已接线读数不得出现 -1 占位", line.contains("=-1"));
+    }
+
+    /** 默认关闭：系统属性未设置时不输出诊断；显式打开才生效（不新增用户可见配置键）。 */
+    @Test
+    public void previewDiagnosticsStayOffUnlessSystemPropertyEnabled() {
+        String property = ChainPreviewRenderCache.DIAGNOSTICS_PROPERTY;
+        Assert.assertEquals("qz_miner.preview.diagnostics", property);
+        String previous = System.getProperty(property);
+        try {
+            System.clearProperty(property);
+            Assert.assertFalse("默认必须关闭", ChainPreviewRenderCache.previewDiagnosticsEnabled());
+            System.setProperty(property, "true");
+            Assert.assertTrue("属性打开即开启", ChainPreviewRenderCache.previewDiagnosticsEnabled());
+            System.setProperty(property, "false");
+            Assert.assertFalse("属性 false 必须关闭", ChainPreviewRenderCache.previewDiagnosticsEnabled());
+        } finally {
+            if (previous == null) {
+                System.clearProperty(property);
+            } else {
+                System.setProperty(property, previous);
+            }
+        }
+    }
+
     private static void runAll(RecordingScheduler scheduler) throws Exception {
         List<ScheduledTask> pending = new ArrayList<ScheduledTask>(scheduler.tasks);
         scheduler.tasks.clear();

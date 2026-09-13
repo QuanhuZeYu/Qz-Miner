@@ -235,6 +235,26 @@ public class ChainPreviewStateTest {
             state.captureRenderSnapshot().getSemanticClasses()[0]);
     }
 
+    /**
+     * 真机分流口径：matchedCount 记录每次读取（含重复坐标），uniqueTargetCount 按坐标去重。
+     * 若上游把同一坐标投喂 61 次，会出现 matched=61 / unique=1 —— HUD 正常但几何合法地只有 1 根。
+     */
+    @Test
+    public void matchedCountKeepsReadsWhileUniqueTargetCountDeduplicatesPositions() {
+        ChainPreviewState state = new ChainPreviewState();
+        int generation = state.begin(new ChainTarget(0, 0, 0));
+        for (int index = 0; index < 61; index++) {
+            Assert.assertTrue(state.addPreviewTarget(generation, new ChainTarget(0, 0, 0)));
+        }
+        Assert.assertEquals("matchedCount 记录每次读取（含重复坐标）", 61, state.getMatchedCount());
+        Assert.assertEquals("唯一坐标数必须为 1", 1, state.getUniqueTargetCount());
+        Assert.assertEquals("快照读取数同样含重复", 61, state.captureRenderSnapshot().getTargetCount());
+
+        Assert.assertTrue(state.addPreviewTarget(generation, new ChainTarget(1, 0, 0)));
+        Assert.assertEquals(62, state.getMatchedCount());
+        Assert.assertEquals(2, state.getUniqueTargetCount());
+    }
+
     private static List<ChainTarget> collect(Iterable<ChainTarget> targets) {
         List<ChainTarget> result = new ArrayList<ChainTarget>();
         for (ChainTarget target : targets) {

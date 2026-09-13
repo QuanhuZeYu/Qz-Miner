@@ -140,6 +140,17 @@ public class ChainPreviewState {
         return matchedCount.get();
     }
 
+    /**
+     * @return 本代按坐标去重的唯一目标数（{@code previewTargetSet.size()}）；与
+     *         {@link #getMatchedCount()}（每次 add 的读取数，含重复坐标）对照，可判定
+     *         「61 次 matched 是否落在少数唯一坐标」这一真机分流口径
+     */
+    public int getUniqueTargetCount() {
+        synchronized (renderStateLock) {
+            return previewTargetSet.size();
+        }
+    }
+
     /** @return 本代目标被上限截断的原因；NONE 表示未发生上限截断 */
     public TruncationReason getTruncationReason() {
         return truncationReason;
