@@ -102,7 +102,11 @@ public final class ChainPreviewDrawPlan {
             /** 颜色来源稳定 id：配置色。 */
             public static final String SOURCE_CONFIG = "config";
 
-            /** §D builtin 基线常量 (0.25, 0.90, 1.00) 的 0xRRGGBB 量化值。 */
+            /**
+             * §D builtin 基线常量 (0.25, 0.90, 1.00) 的 0xRRGGBB 量化值（本值仅用于值相等 / 诊断口径，
+             * 与精确 float 常量并非逐位相等：64/255≈0.25098、230/255≈0.90196）；
+             * 像素路径（shader uniform / legacy 颜色流）请使用精确常量 0.25F/0.9F/1.0F，不要反量化本值。
+             */
             public static final int BUILTIN_RGB = 0x40E6FF;
 
             /** 全类别 + 全字段基线常量色。 */
