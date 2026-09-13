@@ -14,7 +14,8 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderMatrixMath.Matr
  * 期望结论由我自己的独立实现（Python）先复算一遍再落地，不引用施工方断言。</p>
  *
  * <p><b>标【漏过】的用例是刻意的</b>：它们断言「当前语义=放行」，把残余风险锁在测试里，
- * 使将来收紧判据时会立刻红（而不是让「以为拦住了」的错觉留在报告里）。</p>
+ * 使将来收紧判据时会立刻红（而不是让「以为拦住了」的错觉留在报告里）。
+ * 收紧落地后**pivot 为「已拦」并保留原意注释**：镜像一条已在 T48c-D 由 det(L) &gt; 0 手性检查关闭。</p>
  *
  * <p>矩阵约定与实现一致：列主序 float[16]；线性部分在列 0/1/2，平移列在下标 12/13/14。</p>
  */
@@ -75,6 +76,29 @@ public class T48cCVerdictBoundaryContractTest {
     }
 
     @Test
+    public void handednessGateBlocksMirrorsButKeepsLegalCamerasAndWarp() {
+        float[] rotation = rotation(37.0D, -21.0D);
+        float[] mirror = mirrorX();
+
+        Assert.assertEquals("合法旋转 det 必须为 +1", 1.0D,
+                ChainPreviewShaderMatrixMath.determinant3x3(rotation), 1.0e-6D);
+        Assert.assertTrue("合法旋转（det=+1）必须仍判刚性", ChainPreviewShaderMatrixMath.linearPartIsRigid(rotation));
+        Assert.assertEquals("镜像 det 必须为 -1", -1.0D,
+                ChainPreviewShaderMatrixMath.determinant3x3(mirror), 1.0e-6D);
+        Assert.assertFalse("镜像（det=-1）必须判非刚性", ChainPreviewShaderMatrixMath.linearPartIsRigid(mirror));
+
+        // 传送门 warp: glScalef(1/f3,1,1) 的 det = 1/f3 > 0（此处 2I ⇒ det=+8）
+        // ⇒ 手性判据本身不误伤 warp；真正会拒绝它的是刚性长度判据，而 warp 状态整体跳过刚性。
+        float[] warpScale = scale(2.0D);
+        Assert.assertTrue("warp 的非均匀缩放 det > 0，不得被手性检查误杀",
+                ChainPreviewShaderMatrixMath.determinant3x3(warpScale) > 0.0D);
+        assertVerdict("warp + 镜像：豁免期间手性不参与 ⇒ 放行（登记：与 warp 豁免同生共死）",
+                MatrixVerdict.TRUSTWORTHY, perspective(),
+                translation(mirror, matvec3(rotation, new double[] { D[0], D[1] - 1.62D, D[2] })),
+                D, true, FIRST_PERSON_SLACK);
+    }
+
+    @Test
     public void projectionDeterminantGateActuallyFires() {
         // [0][0]、[1][1] 均 > 0，仅把 [2][3]（列主序 14）置 0 ⇒ det = m[0]*m[5]*m[14] = 0。
         // 若行列式判据形同虚设，这条会退化为 TRUSTWORTHY（模长/刚性都合法）。
@@ -132,10 +156,11 @@ public class T48cCVerdictBoundaryContractTest {
         // 【漏过 2】陈旧一帧（旋转差 1 度）：刚性、模长、残差全在容差内。
         assertVerdict("【漏过】陈旧一帧（yaw 差 1 度）", MatrixVerdict.TRUSTWORTHY, perspective(),
                 camera(rotation(38.0D, -21.0D), new double[] { 0.0D, 1.62D, 0.0D }), D, false, FIRST_PERSON_SLACK);
-        // 【漏过 3】镜像（det = -1）：三列仍单位长度且两两正交 ⇒ 刚性判据看不出（最小补法：det(L) > 0）。
-        assertVerdict("【漏过】镜像 det=-1", MatrixVerdict.TRUSTWORTHY, perspective(),
-                camera(new float[] { -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },
-                        new double[] { 0.0D, 1.62D, 0.0D }), D, false, FIRST_PERSON_SLACK);
+        // 【已关闭 · T48c-D】镜像（det = -1）：三列仍单位长度且两两正交，T48c-C 时会漏过；
+        // 现由 linearPartIsRigid 末尾的 determinant3x3(L) > 0 手性检查拦下。
+        // 本条是「现状锁」用例：收紧判据后**pivot 到「已拦」**（而不是删除），语义变更必须在此留痕。
+        assertVerdict("【已拦 · T48c-D】镜像 det=-1", MatrixVerdict.LINEAR_PART_NOT_RIGID, perspective(),
+                camera(mirrorX(), new double[] { 0.0D, 1.62D, 0.0D }), D, false, FIRST_PERSON_SLACK);
         // 【漏过 5】陈旧投影：只查形态（有限 / 对角为正 / 非退化），不查与相机 FOV、视口的一致性
         //          ⇒ far/near/fov 全错但形态合法的投影仍通过（最小补法：与 CPU 侧 FOV/aspect 期望比对）。
         float[] staleProjection = perspective();
@@ -179,6 +204,13 @@ public class T48cCVerdictBoundaryContractTest {
                 m[col * 4 + row] = (float) r[row][col];
             }
         }
+        return m;
+    }
+
+    /** 镜像（det = -1）：x 轴取反。 */
+    private static float[] mirrorX() {
+        float[] m = identity();
+        m[0] = -1.0F;
         return m;
     }
 
