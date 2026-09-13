@@ -7,6 +7,7 @@ import club.heiqi.qz_miner.config.PreviewColorSource;
 import club.heiqi.qz_miner.config.PreviewDepthMode;
 import club.heiqi.qz_miner.config.PreviewFadeMode;
 import club.heiqi.qz_miner.config.PreviewLodMode;
+import club.heiqi.qz_miner.config.PreviewRenderBackend;
 
 /**
  * 连锁预览视觉参数的不可变快照（Lead 裁决：全项目唯一读取 clientPreview* 视觉键的入口）。
@@ -34,6 +35,7 @@ public final class ChainPreviewVisualSettings {
     private final String animationPhaseId;
     private final String fadeModeId;
     private final String colorSourceId;
+    private final String renderBackendId;
     private final int colorPrimary;
     private final int colorSecondary;
     private final int colorRemote;
@@ -60,6 +62,7 @@ public final class ChainPreviewVisualSettings {
      * @param animationPhaseId 动画相位稳定 id
      * @param fadeModeId 淡出刷新档位稳定 id
      * @param colorSourceId 颜色来源稳定 id
+     * @param renderBackendId 后端档位稳定 id（auto / shader / legacy）
      * @param colorPrimary 主模式颜色 0xRRGGBB
      * @param colorSecondary 子模式颜色 0xRRGGBB
      * @param colorRemote 远端预测颜色 0xRRGGBB
@@ -84,6 +87,7 @@ public final class ChainPreviewVisualSettings {
             String animationPhaseId,
             String fadeModeId,
             String colorSourceId,
+            String renderBackendId,
             int colorPrimary,
             int colorSecondary,
             int colorRemote,
@@ -106,6 +110,8 @@ public final class ChainPreviewVisualSettings {
         this.animationPhaseId = nonNull(animationPhaseId, PreviewAnimationPhase.defaultValue().id());
         this.fadeModeId = nonNull(fadeModeId, PreviewFadeMode.defaultValue().id());
         this.colorSourceId = nonNull(colorSourceId, PreviewColorSource.defaultValue().id());
+        this.renderBackendId = PreviewRenderBackend.fromId(renderBackendId) == null
+            ? PreviewRenderBackend.defaultValue().id() : renderBackendId;
         this.colorPrimary = clampColor(colorPrimary);
         this.colorSecondary = clampColor(colorSecondary);
         this.colorRemote = clampColor(colorRemote);
@@ -146,6 +152,8 @@ public final class ChainPreviewVisualSettings {
                 ? PreviewFadeMode.defaultValue().id() : Config.clientPreviewFadeMode.id(),
             Config.clientPreviewColorSource == null
                 ? PreviewColorSource.defaultValue().id() : Config.clientPreviewColorSource.id(),
+            Config.clientPreviewRenderBackend == null
+                ? PreviewRenderBackend.defaultValue().id() : Config.clientPreviewRenderBackend.id(),
             Config.clientPreviewColorPrimary,
             Config.clientPreviewColorSecondary,
             Config.clientPreviewColorRemote,
@@ -197,6 +205,11 @@ public final class ChainPreviewVisualSettings {
     /** @return 颜色来源稳定 id（builtin / config） */
     public String getColorSourceId() {
         return colorSourceId;
+    }
+
+    /** @return 后端档位稳定 id（auto / shader / legacy） */
+    public String getRenderBackendId() {
+        return renderBackendId;
     }
 
     /** @return 主模式颜色 0xRRGGBB */
@@ -327,6 +340,7 @@ public final class ChainPreviewVisualSettings {
             && animationPhaseId.equals(that.animationPhaseId)
             && fadeModeId.equals(that.fadeModeId)
             && colorSourceId.equals(that.colorSourceId)
+            && renderBackendId.equals(that.renderBackendId)
             && lodId.equals(that.lodId);
     }
 
@@ -339,6 +353,7 @@ public final class ChainPreviewVisualSettings {
         result = 31 * result + animationPhaseId.hashCode();
         result = 31 * result + fadeModeId.hashCode();
         result = 31 * result + colorSourceId.hashCode();
+        result = 31 * result + renderBackendId.hashCode();
         result = 31 * result + colorPrimary;
         result = 31 * result + colorSecondary;
         result = 31 * result + colorRemote;
@@ -365,6 +380,7 @@ public final class ChainPreviewVisualSettings {
             + ", animation=" + animationId + "/" + animationPhaseId
             + ", fadeMode=" + fadeModeId
             + ", colorSource=" + colorSourceId
+            + ", backend=" + renderBackendId
             + ", alphaFade=" + alphaFadeStartRadius + ".." + alphaFadeEndRadius
             + " (" + alphaStartValue + "->" + alphaEndValue + ")"
             + ", lod=" + lodId

@@ -3,11 +3,13 @@ package club.heiqi.qz_miner.chain.client;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.MeshBuildSession;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderChange;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderSnapshot;
+import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
@@ -37,6 +39,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     private volatile RenderChange latestChange;
     private volatile VisualState latestVisualState = new VisualState(0L, 0.0D, 0.0D, 0.0D);
     private volatile ChainPreviewVisualSettings visualSettings = ChainPreviewVisualSettings.fromConfig();
+    private PreviewRenderBackend lastConfiguredBackend;
     private double latestCameraX;
     private double latestCameraY;
     private double latestCameraZ;
@@ -166,6 +169,13 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             latestCameraX = cameraX;
             latestCameraY = cameraY;
             latestCameraZ = cameraZ;
+            // 后端档位热切换必须「下一帧生效」（接口冻结 §G）：每帧只做一次枚举引用比较（零分配），
+            // 引用变化才重建不可变快照；其余视觉键仍按既有 1 Hz 采样点刷新，不改刷新策略。
+            PreviewRenderBackend configuredBackend = Config.clientPreviewRenderBackend;
+            if (configuredBackend != lastConfiguredBackend) {
+                lastConfiguredBackend = configuredBackend;
+                visualSettings = ChainPreviewVisualSettings.fromConfig();
+            }
             boolean refreshDue = lastEffectRefreshNanos == Long.MIN_VALUE
                 || nowNanos - lastEffectRefreshNanos >= EFFECT_REFRESH_INTERVAL_NANOS;
             if (refreshDue) {

@@ -6,7 +6,9 @@ import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 import club.heiqi.qz_miner.parallel.ParallelTickStage;
@@ -246,6 +248,36 @@ public class ChainPreviewRenderCacheTest {
         Assert.assertEquals("无待构建工作时消费不得产生空转任务", 1, scheduler.tasks.size());
         Assert.assertNull(cache.pollPublication());
         Assert.assertEquals(1, scheduler.tasks.size());
+    }
+
+    @Test
+    public void backendIdReferenceChangeRefreshesSnapshotOnNextFrameWithoutRebuildWhenUnchanged() {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        PreviewRenderBackend original = Config.clientPreviewRenderBackend;
+        try {
+            Config.clientPreviewRenderBackend = PreviewRenderBackend.LEGACY;
+            ChainPreviewRenderCache cache = cache(state, scheduler);
+            Assert.assertEquals("legacy", cache.getVisualSettings().getRenderBackendId());
+
+            cache.refreshForCamera(0.0D, 0.0D, 0.0D, 1000000L);
+            ChainPreviewVisualSettings before = cache.getVisualSettings();
+            Assert.assertEquals("legacy", before.getRenderBackendId());
+
+            cache.refreshForCamera(0.0D, 0.0D, 0.0D, 1000001L);
+            Assert.assertSame(
+                "后端引用未变且未到 1 Hz 采样点时不得重建快照",
+                before,
+                cache.getVisualSettings());
+
+            Config.clientPreviewRenderBackend = PreviewRenderBackend.SHADER;
+            cache.refreshForCamera(0.0D, 0.0D, 0.0D, 1000002L);
+            ChainPreviewVisualSettings refreshed = cache.getVisualSettings();
+            Assert.assertNotSame(before, refreshed);
+            Assert.assertEquals("后端热切换必须下一帧生效", "shader", refreshed.getRenderBackendId());
+        } finally {
+            Config.clientPreviewRenderBackend = original;
+        }
     }
 
     private static ChainPreviewRenderCache cache(ChainPreviewState state, RecordingScheduler scheduler) {

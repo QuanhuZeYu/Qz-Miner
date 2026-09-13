@@ -4,6 +4,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.Config;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 
 /** 视觉设置快照（§H 唯一配置读取面）的不可变、兜底与曲线同源契约。 */
 public class ChainPreviewVisualSettingsTest {
@@ -29,6 +30,7 @@ public class ChainPreviewVisualSettingsTest {
             Config.clientPreviewMaxTargetsHardCap, settings.getMaxTargetsHardCap());
         Assert.assertEquals(
             (float) Config.clientPreviewAlphaStartValue, settings.getAlphaStartValue(), 1.0e-6F);
+        Assert.assertEquals(Config.clientPreviewRenderBackend.id(), settings.getRenderBackendId());
     }
 
     @Test
@@ -36,6 +38,7 @@ public class ChainPreviewVisualSettingsTest {
         ChainPreviewVisualSettings settings = new ChainPreviewVisualSettings(
             Float.NaN,
             Float.POSITIVE_INFINITY,
+            null,
             null,
             null,
             null,
@@ -72,6 +75,55 @@ public class ChainPreviewVisualSettingsTest {
         Assert.assertEquals(0.15F, settings.getAlphaEndValue(), 1.0e-6F);
         Assert.assertNotNull(settings.getDepthModeId());
         Assert.assertNotNull(settings.getLodId());
+        Assert.assertEquals("非法后端 id 回落默认 auto", "auto", settings.getRenderBackendId());
+    }
+
+    @Test
+    public void nanAndOutOfRangeMinScreenWidthMatchesDrawPlanSanitized() {
+        Assert.assertEquals("NaN 必须回落基线 0.0",
+            0.0F, settingsWithMinScreenWidth(Float.NaN).getMinScreenWidthPx(), 0.0F);
+        Assert.assertEquals("负值收窄到 0.0",
+            0.0F, settingsWithMinScreenWidth(-5.0F).getMinScreenWidthPx(), 0.0F);
+        Assert.assertEquals("越界上界收窄到 8.0",
+            8.0F, settingsWithMinScreenWidth(100.0F).getMinScreenWidthPx(), 0.0F);
+        Assert.assertEquals("settings 与 draw plan sanitized 必须同口径（NaN）",
+            drawPlanMinScreenWidth(Float.NaN),
+            settingsWithMinScreenWidth(Float.NaN).getMinScreenWidthPx(),
+            0.0F);
+        Assert.assertEquals("settings 与 draw plan sanitized 必须同口径（越界）",
+            drawPlanMinScreenWidth(100.0F),
+            settingsWithMinScreenWidth(100.0F).getMinScreenWidthPx(),
+            0.0F);
+    }
+
+    @Test
+    public void invalidRenderBackendIdFallsBackToDefaultAuto() {
+        Assert.assertEquals("auto", settingsWithBackendId(null).getRenderBackendId());
+        Assert.assertEquals("auto", settingsWithBackendId("bogus").getRenderBackendId());
+        Assert.assertEquals("legacy", settingsWithBackendId("legacy").getRenderBackendId());
+        Assert.assertEquals("shader", settingsWithBackendId("shader").getRenderBackendId());
+    }
+
+    private static ChainPreviewVisualSettings settingsWithMinScreenWidth(float minScreenWidthPx) {
+        return new ChainPreviewVisualSettings(
+            0.045F, minScreenWidthPx, "xray", "off", "order", "timer", "builtin", "auto",
+            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
+            "off", 0.05F, false, 4096);
+    }
+
+    private static ChainPreviewVisualSettings settingsWithBackendId(String renderBackendId) {
+        return new ChainPreviewVisualSettings(
+            0.045F, 0.0F, "xray", "off", "order", "timer", "builtin", renderBackendId,
+            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
+            "off", 0.05F, false, 4096);
+    }
+
+    private static float drawPlanMinScreenWidth(float minScreenWidthPx) {
+        ChainPreviewDrawPlan.Visuals raw = new ChainPreviewDrawPlan.Visuals(
+            0.045F, minScreenWidthPx, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F, ChainPreviewDrawPlan.DepthChannel.XRAY);
+        return ChainPreviewDrawPlan.derive(
+            ChainPreviewMesh.EMPTY,
+            0, 0, null, raw, ChainPreviewDrawPlan.SEMANTIC_MASK_ALL, 0, 0, 0, 0L, 0L).getMinScreenWidthPx();
     }
 
     @Test
