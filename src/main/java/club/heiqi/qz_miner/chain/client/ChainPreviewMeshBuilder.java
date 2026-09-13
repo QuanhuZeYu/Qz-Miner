@@ -51,10 +51,12 @@ public class ChainPreviewMeshBuilder {
     private static final AtomicLong SEMANTIC_CLASS_FALLBACKS = new AtomicLong();
     /**
      * LOD 双阈值记忆：被剔除目标的位置，避免在 enter/exit 之间翻转闪烁。
-     * 仅构建线程访问，有界于 {@link #MAX_RENDER_TARGETS}；生命周期/换代可经
-     * {@link #resetLodHysteresis()} 清理。
+     * **只归构建线程所有**（无锁），有界于 {@link #MAX_RENDER_TARGETS}；
+     * 生命周期/换代经 {@link #resetLodHysteresis()} 置位请求，由构建线程消费后清理。
      */
     private final Set<BlockPos> lodCulledPositions = new HashSet<BlockPos>();
+    /** 清理请求位：主线程置位、构建线程消费；避免主线程直接触碰构建线程的集合。 */
+    private final LodResetSignal lodHysteresisResetSignal = new LodResetSignal();
     private static final float BASE_RED = 0.25F;
     private static final float BASE_GREEN = 0.9F;
     private static final float BASE_BLUE = 1.0F;
@@ -108,19 +110,21 @@ public class ChainPreviewMeshBuilder {
     };
 
     /**
-     * 清理 LOD 双阈值记忆（生命周期 / 换代时调用）；仅构建线程调用。
+     * 请求清理 LOD 双阈值记忆（生命周期 / 换代时调用）。
      *
-     * <p>不清理也只会让「曾因远距被剔除的位置」多保留一次双阈值记忆（有界、不越界），
-     * 但生命周期入口显式清理更符合动态化与有界回收要求。</p>
+     * <p>线程契约：本方法可能由主线程调用，因此**只置位 volatile 请求位后立即返回**，
+     * 不触碰 {@link #lodCulledPositions}；集合只归构建线程所有，由构建线程在分片开始与
+     * 构建结束时消费该位并实际清理：置位后的下一次构建分片生效，未置位不清，重复置位幂等。
+     * 每秒相机刷新重建 session 不会触发本方法，滞回记忆按设计保留。</p>
      */
     public void resetLodHysteresis() {
-        lodCulledPositions.clear();
+        lodHysteresisResetSignal.request();
     }
 
     /**
-     * @return 当前 LOD 双阈值记忆中的位置数（诊断/测试用；仅构建线程读取）。
-     *         每次成功构建结束时会把记忆裁剪为「本轮实际剔除的位置」，因此不会跨代残留
-     *         未再出现的旧目标
+     * @return 当前 LOD 双阈值记忆中的位置数（诊断/测试用；**仅构建线程读取**，
+     *         只在没有并发构建分片时调用）。每次成功构建结束时会把记忆裁剪为
+     *         「本轮实际剔除的位置」，因此不会跨代残留未再出现的旧目标
      */
     public int getLodHysteresisMemorySize() {
         return lodCulledPositions.size();
@@ -134,7 +138,8 @@ public class ChainPreviewMeshBuilder {
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
-        return new BuildSession(targets, visuals, null, lodCulledPositions);
+        return new BuildSession(
+            targets, visuals, null, lodCulledPositions, lodHysteresisResetSignal);
     }
 
     /**
@@ -167,7 +172,8 @@ public class ChainPreviewMeshBuilder {
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
         return new BuildSession(
-            targets, visuals.withBarThickness(barThickness), semanticClasses, lodCulledPositions);
+            targets, visuals.withBarThickness(barThickness), semanticClasses,
+            lodCulledPositions, lodHysteresisResetSignal);
     }
 
     /** 相同 topology 的相机效果刷新只重建 color stream。 */
@@ -350,6 +356,7 @@ public class ChainPreviewMeshBuilder {
         private final VisualParameters visuals;
         private final int[] semanticClasses;
         private final Set<BlockPos> lodCulledPositions;
+        private final LodResetSignal lodHysteresisResetSignal;
         private final Set<BlockPos> lodCulledThisBuild;
         private final int[] positionSemanticClasses = new int[MAX_RENDER_TARGETS];
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
@@ -388,13 +395,15 @@ public class ChainPreviewMeshBuilder {
                 Iterable<ChainTarget> targets,
                 VisualParameters visuals,
                 int[] semanticClasses,
-                Set<BlockPos> lodCulledPositions) {
+                Set<BlockPos> lodCulledPositions,
+                LodResetSignal lodHysteresisResetSignal) {
             this.targetIterator = targets.iterator();
             this.visuals = visuals;
             this.semanticClasses = semanticClasses == null
                 ? null
                 : Arrays.copyOf(semanticClasses, semanticClasses.length);
             this.lodCulledPositions = lodCulledPositions;
+            this.lodHysteresisResetSignal = lodHysteresisResetSignal;
             this.lodCulledThisBuild = visuals.isLodEnabled()
                 ? new HashSet<BlockPos>()
                 : null;
@@ -408,6 +417,7 @@ public class ChainPreviewMeshBuilder {
         @Override
         public boolean advance(WorkGate gate) {
             WorkGate effectiveGate = gate == null ? NEVER_YIELD : gate;
+            consumeLodHysteresisReset();
             if (mesh != null) {
                 return true;
             }
@@ -548,6 +558,16 @@ public class ChainPreviewMeshBuilder {
                 // 换代/目标消失后不残留旧条目；lod=off 完全不触碰记忆。
                 lodCulledPositions.retainAll(lodCulledThisBuild);
             }
+            consumeLodHysteresisReset();
+            return true;
+        }
+
+        /** 构建线程消费主线程的清理请求；返回是否实际清理。 */
+        private boolean consumeLodHysteresisReset() {
+            if (!lodHysteresisResetSignal.consume()) {
+                return false;
+            }
+            lodCulledPositions.clear();
             return true;
         }
 
@@ -1317,6 +1337,25 @@ public class ChainPreviewMeshBuilder {
     /** @return 累计按 255 兜底的目标准数（debug 计数器；null 载体不计入） */
     public static long getSemanticClassFallbackTotal() {
         return SEMANTIC_CLASS_FALLBACKS.get();
+    }
+
+    /** 主线程置位、构建线程消费的无锁请求位（volatile 布尔，不做同步块）。 */
+    private static final class LodResetSignal {
+
+        private volatile boolean requested;
+
+        private void request() {
+            requested = true;
+        }
+
+        /** @return 本次是否消费到未处理的请求；消费即复位，重复置位幂等 */
+        private boolean consume() {
+            if (!requested) {
+                return false;
+            }
+            requested = false;
+            return true;
+        }
     }
 
     private static int growCapacity(int current, int required) {

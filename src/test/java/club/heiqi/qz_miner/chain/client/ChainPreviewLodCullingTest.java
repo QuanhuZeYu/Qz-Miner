@@ -147,12 +147,89 @@ public class ChainPreviewLodCullingTest {
             java.util.Collections.singletonList(target), hysteresisVisuals(9.6D, true, 0.05F));
         Assert.assertEquals("无历史记忆时中间区保留", 0, fresh.getCulledTargetCount());
 
-        // 生命周期/换代清理后，中间区目标重新可保留。
+        // 生命周期/换代清理：主线程只置位，构建线程在下一分片消费后才清集合。
         builder.resetLodHysteresis();
-        Assert.assertEquals("resetLodHysteresis 必须清空滞回记忆", 0, builder.getLodHysteresisMemorySize());
         ChainPreviewMesh afterReset = builder.build(
             java.util.Collections.singletonList(target), hysteresisVisuals(9.6D, true, 0.05F));
-        Assert.assertEquals("resetLodHysteresis 必须清除双阈值记忆", 0, afterReset.getCulledTargetCount());
+        Assert.assertEquals(
+            "置位后下一次构建分片必须消费并清空记忆", 0, afterReset.getCulledTargetCount());
+        Assert.assertEquals(0, builder.getLodHysteresisMemorySize());
+    }
+
+    @Test
+    public void resetRequestIsConsumedByNextBuildShardOnly() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        ChainTarget target = new ChainTarget(0, 0, 0);
+
+        builder.build(java.util.Collections.singletonList(target), hysteresisVisuals(9.9D, true, 0.05F));
+        Assert.assertEquals(1, builder.getLodHysteresisMemorySize());
+
+        builder.resetLodHysteresis();
+        builder.resetLodHysteresis();
+        Assert.assertEquals(
+            "重复置位幂等：消费前不得改变集合", 1, builder.getLodHysteresisMemorySize());
+
+        // 首次分片开始时消费请求：中间区目标按无记忆判定并保留。
+        ChainPreviewMesh consumed = builder.build(
+            java.util.Collections.singletonList(target), hysteresisVisuals(9.6D, true, 0.05F));
+        Assert.assertEquals(0, consumed.getCulledTargetCount());
+        Assert.assertEquals(0, builder.getLodHysteresisMemorySize());
+    }
+
+    @Test
+    public void unrequestedResetKeepsHysteresisAcrossBuilds() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        ChainTarget target = new ChainTarget(0, 0, 0);
+
+        builder.build(java.util.Collections.singletonList(target), hysteresisVisuals(9.9D, true, 0.05F));
+        Assert.assertEquals(1, builder.getLodHysteresisMemorySize());
+
+        // 未置位时不得清理：同一目标在 enter/exit 之间继续保持剔除。
+        ChainPreviewMesh again = builder.build(
+            java.util.Collections.singletonList(target), hysteresisVisuals(9.6D, true, 0.05F));
+        Assert.assertEquals(1, again.getCulledTargetCount());
+        Assert.assertEquals(1, builder.getLodHysteresisMemorySize());
+    }
+
+    @Test
+    public void concurrentResetRequestsDoNotCorruptBuildShards() throws Exception {
+        final ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        final ChainTarget target = new ChainTarget(0, 0, 0);
+
+        builder.build(java.util.Collections.singletonList(target), hysteresisVisuals(9.9D, true, 0.05F));
+        Assert.assertEquals(1, builder.getLodHysteresisMemorySize());
+
+        final java.util.concurrent.atomic.AtomicBoolean stop =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+        Thread requester = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!stop.get()) {
+                    builder.resetLodHysteresis();
+                }
+            }
+        }, "lod-reset-requester");
+        requester.setDaemon(true);
+        requester.start();
+        try {
+            for (int round = 0; round < 200; round++) {
+                ChainPreviewMesh mesh = builder.build(
+                    java.util.Collections.singletonList(target),
+                    hysteresisVisuals(9.9D, true, 0.05F));
+                int culled = mesh.getCulledTargetCount();
+                Assert.assertTrue("并发置位下构建结果必须仍然合法", culled == 0 || culled == 1);
+                Assert.assertEquals("剔除与几何必须一致", culled == 0 ? 1 : 0, mesh.getBlockCount());
+            }
+        } finally {
+            stop.set(true);
+            requester.join(5000L);
+        }
+
+        // 线程退出后再验证一次：无残留请求、构建仍正常。
+        ChainPreviewMesh finalMesh = builder.build(
+            java.util.Collections.singletonList(target), hysteresisVisuals(9.9D, true, 0.05F));
+        Assert.assertEquals(1, finalMesh.getCulledTargetCount());
+        Assert.assertEquals(1, builder.getLodHysteresisMemorySize());
     }
 
     @Test
