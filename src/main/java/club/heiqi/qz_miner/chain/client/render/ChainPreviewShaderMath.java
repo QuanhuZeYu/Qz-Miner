@@ -238,6 +238,56 @@ public final class ChainPreviewShaderMath {
     }
 
     /**
+     * 描边宽度像素上限：**单一真源在 plan**（{@link ChainPreviewDrawPlan#MAX_OUTLINE_WIDTH_PX}），
+     * 本处只是给参考模型一个稳定入口，避免两处各写一份 8.0F 而漂移。
+     */
+    public static final float MAX_OUTLINE_WIDTH_PX = ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX;
+
+    /** 描边外扩的世界量上限（格）；防止极近/极远视角下外扩把条柱推出方块。 */
+    public static final float MAX_OUTLINE_WORLD = 0.5F;
+
+    /**
+     * 描边宽度收敛（host 侧，与 GLSL 内防御性 clamp 同口径）。
+     *
+     * @param requestedPx 请求宽度（物理像素）；NaN 或 &lt;= 0 视为关闭
+     * @return [0, {@link #MAX_OUTLINE_WIDTH_PX}] 的宽度；关闭时精确为 0
+     */
+    public static float outlineWidthPx(float requestedPx) {
+        if (Float.isNaN(requestedPx) || !(requestedPx > 0.0F)) {
+            return 0.0F;
+        }
+        return Math.min(requestedPx, MAX_OUTLINE_WIDTH_PX);
+    }
+
+    /**
+     * 描边外扩量（世界单位），与 {@code preview.vert} 的换算逐式同形。
+     *
+     * <p>{@code widthPx <= 0}（默认档 / xray / occlude / OUTLINE 主体 pass）必须返回<b>精确 0</b>，
+     * 这样顶点位移恒等、逐值等于现状。</p>
+     *
+     * @param widthPx             描边宽度（物理像素）
+     * @param pixelsPerWorldUnit  横向「像素 / 世界单位」（= uPixelScale / depth × 横向投影）
+     * @return 外扩的世界量；关闭时为 0
+     */
+    public static float outlineWidenWorld(float widthPx, float pixelsPerWorldUnit) {
+        float px = outlineWidthPx(widthPx);
+        if (px <= 0.0F || !(pixelsPerWorldUnit > 0.0F) || !isFinite(pixelsPerWorldUnit)) {
+            return 0.0F;
+        }
+        return Math.min(px / pixelsPerWorldUnit, MAX_OUTLINE_WORLD);
+    }
+
+    /**
+     * 描边是否启用（默认档判据）。
+     *
+     * @param widthPx 描边宽度
+     * @return true 仅当收敛后宽度 &gt; 0
+     */
+    public static boolean isOutlineEnabled(float widthPx) {
+        return outlineWidthPx(widthPx) > 0.0F;
+    }
+
+    /**
      * 类别 → 调色板下标，与 {@code preview.vert} 的 {@code previewSemanticColor()} 逐条对应。
      *
      * <p>映射（接口冻结 §D 类别表，task-16 冻结）：

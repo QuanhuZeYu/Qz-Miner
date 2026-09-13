@@ -232,7 +232,8 @@ public class ChainPreviewShaderSemanticColorTest {
         Assert.assertTrue("类别 3 必须走 uColorTruncated", vertex.contains("return uColorTruncated;"));
         Assert.assertTrue("其余类别必须兜底 uColorPrimary", vertex.contains("return uColorPrimary;"));
         Assert.assertTrue("顶点必须把选中的颜色写进 vColor.rgb",
-                vertex.contains("vColor = vec4(previewSemanticColor(semanticClass), alpha)"));
+                vertex.contains("vec3 color = previewSemanticColor(auxChannel(aAux.x));")
+                        && vertex.contains("vColor = vec4(color, alpha);"));
 
         String fragment = stripComments(read(FRAGMENT_PATH));
         Assert.assertTrue("片元必须直接输出插值后的 vColor.rgb",

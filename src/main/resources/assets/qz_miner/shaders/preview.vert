@@ -42,6 +42,8 @@ uniform float uMinScreenWidthPx; // 0 = 关闭屏幕最小宽度钳制
 uniform float uBarThickness;
 uniform float uFadeAlpha;        // 淡入淡出包络（B3.2）[0,1]；1 = 完全不透明（默认档）
                                  // 宿主每帧显式置 1，避免 uniform 未设时默认 0 导致整链透明
+uniform float uOutlineWidthPx;   // 真描边（B3.x）外扩宽度（物理像素）；0 = 关闭描边
+                                 // xray / occlude 与 OUTLINE 主体 pass 都必须为 0 ⇒ 逐值等于现状
 
 // 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表）。
 // builtin 档四色都是精确基线常量 (0.25, 0.9, 1.0) ⇒ 输出逐字节等于现状。
@@ -124,12 +126,15 @@ void main(void) {
         }
     }
 
-    // 2) 屏幕最小宽度 + 5) 亚像素柔化：只在「横向」偏移上放大，保持条柱纵向长度不变。
-    //    横向判据 = 三个轴上绝对偏移最小的那个；由量级差零误判（厚度 vs 格线 0.5）。
+    // 2) 屏幕最小宽度 + 5) 亚像素柔化 + B3.x 描边：都只在「横向」偏移上作用，
+    //    保持条柱纵向长度不变。横向判据 = 三个轴上绝对偏移最小的那个；
+    //    由量级差零误判（厚度 vs 格线 0.5）。
+    //    两个消费方（最小宽度 / 描边）任一启用才计算——都关闭时这段完全不执行，
+    //    保证 xray / occlude 默认档逐值等于现状。
     float pixelPerUnitAtDepth = 1.0;
     float lateralMagnitude = 0.0;
     vec3 lateralAxis = vec3(0.0, 0.0, 0.0);
-    if (uMinScreenWidthPx > 0.0) {
+    if (uMinScreenWidthPx > 0.0 || uOutlineWidthPx > 0.0) {
         float depth = max(1e-4, -(gl_ModelViewMatrix * vec4(aPos, 1.0)).z);
         pixelPerUnitAtDepth = uPixelScale / depth;
 
@@ -151,13 +156,31 @@ void main(void) {
     }
 
     vec3 displaced = aPos;
-    float lateralWidthPx = 0.0;
+    float pixelsPerWorldUnit = 1.0;
     if (lateralMagnitude > 0.0) {
         float worldLateral = length((gl_ModelViewMatrix * vec4(lateralAxis, 0.0)).xyz);
         float projectedPerUnit = clamp(worldLateral, 0.05, 1.0);
-        lateralWidthPx = 2.0 * lateralMagnitude * pixelPerUnitAtDepth * projectedPerUnit;
-        float widen = clamp(uMinScreenWidthPx / max(lateralWidthPx, 1e-6), 1.0, 64.0);
+        // 横向方向上的「像素 / 世界单位」——最小宽度与描边共用同一换算。
+        pixelsPerWorldUnit = max(pixelPerUnitAtDepth * projectedPerUnit, 1e-6);
+
+        float lateralWidthPx = 2.0 * lateralMagnitude * pixelsPerWorldUnit;
+        float widen = 1.0;
+        if (uMinScreenWidthPx > 0.0) {
+            widen = clamp(uMinScreenWidthPx / max(lateralWidthPx, 1e-6), 1.0, 64.0);
+        }
         displaced = aPos + lateralAxis * (lateralMagnitude * (widen - 1.0));
+    }
+
+    // B3.x 真描边：沿横向轴再外扩 uOutlineWidthPx（物理像素 → 世界量）。
+    // 只改顶点位移、不动拓扑与索引（与 B4.1 增量/差分等价相容）。
+    // uOutlineWidthPx = 0 时整段不执行 ⇒ xray / occlude / OUTLINE 主体 pass 逐值等于现状。
+    if (uOutlineWidthPx > 0.0 && lateralMagnitude > 0.0) {
+        // 宽度收敛（两侧同口径）：像素侧上限 8px，世界侧上限 0.5 格。
+        // 上游 host 也会收敛；此处是防御，保证异常 uniform 不会把条柱推出方块。
+        float outlinePx = clamp(uOutlineWidthPx, 0.0, 8.0);
+        float outlineWorld = outlinePx / pixelsPerWorldUnit;
+        outlineWorld = clamp(outlineWorld, 0.0, 0.5);
+        displaced = displaced + lateralAxis * outlineWorld;
     }
 
     // 颜色与 alpha：vColor.rgb 是「语义类别色」（非预乘），alpha 单独传给混合。
@@ -166,8 +189,13 @@ void main(void) {
     // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）。
     // uFadeAlpha = 1 时与启用动画前逐值一致（乘 1 不改变结果）。
     float alpha = fade * growth * uFadeAlpha;
-    float semanticClass = auxChannel(aAux.x);
-    vColor = vec4(previewSemanticColor(semanticClass), alpha);
+    // 描边 pass 用主色（outline 轮廓统一色，不参与语义分类）；其余情况按 semanticClass 取色。
+    // 取色仍在顶点阶段（F1），alpha 包络 fade × growth × uFadeAlpha 不受描边分支影响。
+    vec3 color = previewSemanticColor(auxChannel(aAux.x));
+    if (uOutlineWidthPx > 0.0) {
+        color = uColorPrimary;
+    }
+    vColor = vec4(color, alpha);
 
     // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），
     // 使上面的横向钳制算完即丢——B2.1 最小宽度在 shader 路径静默失效。

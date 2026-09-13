@@ -378,6 +378,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 默认档 getFadeAlpha() == 1 ⇒ 逐值等于启用动画前（乘 1 不改变结果）。
         program.setFadeAlpha(plan.getFadeAlpha());
 
+        // B3.x 真描边：只有 OUTLINE 的**描边壳段**传非 0 宽度。
+        // xray（默认）/ occlude / OUTLINE 主体段一律 0 ⇒ 顶点位移矩阵恒等，逐值等于现状。
+        float outlineWidthPx = plan.isOutlineShell() ? plan.getOutlineWidthPx() : 0.0F;
+        program.setOutlineWidthPx(ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx));
+
         // 调色板：builtin 档四槽都传精确基线常量 (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流
         // （不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）。
         applyColorPalette(plan);

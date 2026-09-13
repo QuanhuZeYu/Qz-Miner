@@ -181,10 +181,12 @@ public class ChainPreviewShaderContractTest {
         List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
         String mainBody = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("main");
 
-        Assert.assertTrue("vColor.rgb 必须是语义类别色（顶点选色，F1）",
-                mainBody.indexOf("vColor = vec4(previewSemanticColor(semanticClass), alpha)") >= 0);
+        Assert.assertTrue("vColor.rgb 必须来自顶点选色（F1）",
+                mainBody.indexOf("vec3 color = previewSemanticColor(auxChannel(aAux.x));") >= 0);
+        Assert.assertTrue("vColor 的 rgb/alpha 必须分开写（rgb 不含 alpha）",
+                mainBody.indexOf("vColor = vec4(color, alpha);") >= 0);
         Assert.assertFalse("顶点阶段不得把 alpha 乘进 rgb（预乘会让共用 blend 产生 alpha²）",
-                mainBody.indexOf("previewSemanticColor(semanticClass) * alpha") >= 0);
+                mainBody.indexOf("color * alpha") >= 0);
     }
 
     /**
@@ -198,7 +200,8 @@ public class ChainPreviewShaderContractTest {
         String fragmentMain = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag").body("main");
 
         Assert.assertTrue("顶点必须把选好的语义色写进 vColor.rgb",
-                vertexMain.indexOf("vColor = vec4(previewSemanticColor(semanticClass), alpha)") >= 0);
+                vertexMain.indexOf("vec3 color = previewSemanticColor(auxChannel(aAux.x));") >= 0
+                        && vertexMain.indexOf("vColor = vec4(color, alpha);") >= 0);
         Assert.assertTrue("片元必须直接输出插值后的 vColor.rgb",
                 fragmentMain.indexOf("gl_FragColor = vec4(vColor.rgb, vColor.a)") >= 0);
         Assert.assertFalse("片元不得再乘 vColor.a（会变成预乘）", fragmentMain.indexOf("* vColor.a") >= 0);
@@ -220,7 +223,7 @@ public class ChainPreviewShaderContractTest {
         Assert.assertTrue("顶点主路径必须调用语义色选择器（否则 uColor* 全是死 uniform）",
                 GlslSourceScanner.countIdentifier(vertexMain, "previewSemanticColor") > 0);
         Assert.assertTrue("选中颜色必须写进 vColor.rgb",
-                vertexMain.indexOf("vColor = vec4(previewSemanticColor(semanticClass), alpha)") >= 0);
+                vertexMain.indexOf("vColor = vec4(color, alpha);") >= 0);
     }
 
     /**

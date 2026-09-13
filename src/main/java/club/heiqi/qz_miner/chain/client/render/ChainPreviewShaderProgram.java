@@ -265,6 +265,18 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
+     * 设置真描边外扩宽度（B3.x）。
+     *
+     * <p>{@code 0} 表示关闭描边（xray / occlude / OUTLINE 主体段），此时顶点位移矩阵恒等，
+     * 与启用本功能前逐值一致。宽度在 host 侧已收敛到 [0, MAX_OUTLINE_WIDTH_PX]。</p>
+     *
+     * @param outlineWidthPx 物理像素宽度；非正数视为关闭
+     */
+    public void setOutlineWidthPx(float outlineWidthPx) {
+        setUniform1f("uOutlineWidthPx", ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx));
+    }
+
+    /**
      * 设置淡入淡出包络（B3.2）。
      *
      * <p>{@code fadeAlpha = 1} 表示完全不透明，与启用动画前逐值一致。宿主必须每帧显式设置：
