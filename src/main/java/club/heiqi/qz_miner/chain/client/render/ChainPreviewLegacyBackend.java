@@ -20,7 +20,9 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
  * builtin 常量色 + 距离 α。</p>
  *
  * <p>绑定围栏：帧内 upload / draw 由调用方帧级围栏统一捕获 / 恢复（0 次 glGetInteger）；
- * 只有帧外入口 {@link #dispose()} 自带一次捕获。</p>
+ * 只有帧外入口 {@link #dispose()} 自带一次捕获。T26 / B4.3 起所有捕获 / 恢复动作都走
+ * {@link ChainPreviewGlFences}（{@link WorldOverlayBackend#glAccess()} 注入），本类不再自己写
+ * try / finally 恢复模板。</p>
  *
  * <p>能力要求（T8-D9 登记）：本后端与历史 ChainPreviewMeshCache 同源，使用 VAO（GL30）与
  * glVertexAttribPointer（GL20）。无 GL20 / GL30 时 {@link #ensureReady()} 返回 false 并记录
@@ -58,6 +60,22 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
     private boolean fadeTextureHasImage;
     private boolean fadeTextureUnavailable;
     private String fadeTextureFailure = "";
+    private final ChainPreviewGlFences.Access glAccess;
+
+    /** 生产构造：使用 {@link ChainPreviewGlFences#LWJGL} 状态访问点。 */
+    public ChainPreviewLegacyBackend() {
+        this(ChainPreviewGlFences.LWJGL);
+    }
+
+    /**
+     * 注入构造：GL 状态访问点由 {@link WorldOverlayBackend#glAccess()} 统一提供，
+     * 使帧内纹理乘子围栏与 dispose 绑定围栏和 renderer 帧级围栏共用同一实现。
+     *
+     * @param glAccess GL 状态访问点，null 时兜底 LWJGL
+     */
+    public ChainPreviewLegacyBackend(ChainPreviewGlFences.Access glAccess) {
+        this.glAccess = glAccess == null ? ChainPreviewGlFences.LWJGL : glAccess;
+    }
 
     @Override
     public String id() {
@@ -241,18 +259,11 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
         }
 
         boolean fadeRequested = shouldApplyFadeModulation(plan.getFadeAlpha());
-        boolean textureStateCaptured = false;
-        boolean previousTextureEnabled = false;
-        int previousTextureBinding = 0;
+        ChainPreviewGlFences.Texture textureFence = null;
         if (fadeRequested) {
-            try {
-                previousTextureEnabled = GL11.glGetBoolean(GL11.GL_TEXTURE_2D);
-                previousTextureBinding = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
-                textureStateCaptured = true;
-            } catch (Throwable captureFailure) {
-                // 无法安全读取纹理状态：降级为无过渡，不冒险改状态
-                fadeRequested = false;
-            }
+            textureFence = ChainPreviewGlFences.Texture.captureIfRequested(true, glAccess);
+            // 无法安全读取纹理状态：降级为无过渡，不冒险改状态
+            fadeRequested = textureFence.isActive();
         }
         try {
             if (fadeRequested) {
@@ -277,25 +288,12 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
             GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
             GL20.glDisableVertexAttribArray(0);
         } finally {
-            if (textureStateCaptured) {
+            if (textureFence != null) {
                 // T18-L1：GL_TEXTURE_BINDING_2D 不受 glPushAttrib 覆盖，必须显式恢复到进入前状态；
-                // enable 状态一并恢复，异常路径同样执行（finally）。
-                try {
-                    restoreTextureState(previousTextureEnabled, previousTextureBinding);
-                } catch (Throwable ignored) {
-                    // 上下文失效：不得逃逸渲染帧
-                }
+                // enable 状态一并恢复，异常路径同样执行（finally）；配对逻辑见 ChainPreviewGlFences.Texture
+                textureFence.close();
             }
         }
-    }
-
-    private static void restoreTextureState(boolean enabled, int binding) {
-        if (enabled) {
-            GL11.glEnable(GL11.GL_TEXTURE_2D);
-        } else {
-            GL11.glDisable(GL11.GL_TEXTURE_2D);
-        }
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, binding);
     }
 
     @Override
@@ -334,12 +332,8 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
             return;
         }
 
-        ChainPreviewGlBindings previous;
-        try {
-            previous = ChainPreviewGlBindings.capture();
-        } catch (Throwable failure) {
-            previous = null;
-        }
+        ChainPreviewGlBindings.Access bindingAccess = ChainPreviewGlFences.bindingsQuietly(glAccess);
+        ChainPreviewGlBindings previous = ChainPreviewGlFences.captureBindingsQuietly(bindingAccess);
         try {
             GL30.glBindVertexArray(0);
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
@@ -354,13 +348,12 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
         } catch (Throwable ignored) {
             // T8-D8：dispose 可能在帧围栏外调用（配置热切换），上下文失效不得逃逸渲染帧
         } finally {
-            if (previous != null) {
-                try {
-                    previous.withoutDeleted(deletedVao, deletedVbo, deletedCbo, deletedEbo).restore();
-                } catch (Throwable ignored) {
-                    // 恢复失败同上：句柄已清零，交由 lifecycle 兜底
-                }
-            }
+            // 恢复失败静默：句柄已清零，交由 lifecycle 兜底
+            ChainPreviewGlFences.restoreBindingsQuietly(
+                previous == null
+                    ? null
+                    : previous.withoutDeleted(deletedVao, deletedVbo, deletedCbo, deletedEbo),
+                bindingAccess);
         }
     }
 

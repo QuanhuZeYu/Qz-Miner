@@ -75,6 +75,49 @@ public class ChainPreviewGlCapabilitiesTest {
     }
 
     @Test
+    public void probeSeparatesShaderAndLegacyPathSupport() {
+        ChainPreviewGlCapabilities full = ChainPreviewGlCapabilities.probe(true, "3.3", "4.60", 16, true);
+        Assert.assertTrue(full.isShaderSupported());
+        Assert.assertTrue(full.isLegacySupported());
+
+        ChainPreviewGlCapabilities legacyOnly = ChainPreviewGlCapabilities.probe(true, "2.1", "1.10", 16, true);
+        Assert.assertFalse(legacyOnly.isShaderSupported());
+        Assert.assertTrue(legacyOnly.isLegacySupported());
+
+        ChainPreviewGlCapabilities noVao = ChainPreviewGlCapabilities.probe(true, "3.3", "4.60", 16, false);
+        Assert.assertTrue(noVao.isShaderSupported());
+        Assert.assertFalse("无 VAO 不得假定 legacy 可用（T26 / B4.3）", noVao.isLegacySupported());
+
+        Assert.assertFalse(ChainPreviewGlCapabilities.probe(false, "2.1", "1.20", 16, true)
+            .isLegacySupported());
+        Assert.assertFalse(ChainPreviewGlCapabilities.probe(true, "2.1", "1.20", 1, true)
+            .isLegacySupported());
+        Assert.assertFalse(ChainPreviewGlCapabilities.UNSUPPORTED.isLegacySupported());
+
+        Assert.assertTrue(ChainPreviewGlCapabilities.probe(true, "2.1", "1.20", 2, true)
+            .describe()
+            .contains("legacySupported=true"));
+    }
+
+    @Test
+    public void detectDetailedNeverThrowsAndReportsFailureReason() {
+        ChainPreviewGlCapabilities.ProbeResult result = ChainPreviewGlCapabilities.detectDetailed();
+        Assert.assertNotNull(result);
+        Assert.assertNotNull(result.getCapabilities());
+        Assert.assertNotNull(result.getFailureReason());
+        Assert.assertEquals(result.isFailure(), !result.getFailureReason().isEmpty());
+        Assert.assertFalse(result.getCapabilities().describe().isEmpty());
+        Assert.assertNotNull(ChainPreviewGlCapabilities.detect());
+
+        ChainPreviewGlCapabilities.ProbeResult failed = ChainPreviewGlCapabilities.ProbeResult.failure(
+            ChainPreviewGlCapabilities.UNSUPPORTED, "");
+        Assert.assertTrue(failed.isFailure());
+        Assert.assertEquals("unspecified", failed.getFailureReason());
+        Assert.assertFalse(ChainPreviewGlCapabilities.ProbeResult.success(
+            ChainPreviewGlCapabilities.UNSUPPORTED).isFailure());
+    }
+
+    @Test
     public void describeContainsProbeValues() {
         String text = ChainPreviewGlCapabilities.probe(true, "2.1", "1.20", 16, true).describe();
         Assert.assertTrue(text.contains("2.1"));

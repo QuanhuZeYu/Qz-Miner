@@ -8,19 +8,21 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendSelector;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDepthPass;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewFadeController;
-import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlBindings;
-import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlCapabilities;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlFences;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewLegacyBackend;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewOverlayPath;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewRefreshDecision;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewRenderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderBackend;
+import club.heiqi.qz_miner.chain.client.render.WorldOverlayBackend;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
+import net.minecraftforge.client.event.TextureStitchEvent;
 import net.minecraftforge.common.MinecraftForge;
 
 import org.lwjgl.opengl.GL11;
@@ -39,6 +41,11 @@ import org.lwjgl.opengl.GL11;
  * （glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）；着色器路径另有每帧 1 次 GL_VIEWPORT
  * 与 1 次 program 恢复回读，GL_PROJECTION_MATRIX 仅在 viewport 变化时读，这些不计入本口径，
  * 由 T6 后端自行计数（T8-D3/D4）。</p>
+ *
+ * <p>T26 / B4.3：GL 状态恢复、能力探测缓存、线程契约与资源重载令牌统一收敛到
+ * {@link WorldOverlayBackend}；renderer 只消费其决策（{@link ChainPreviewOverlayPath}），
+ * 并在能力不足（无 VAO / 无 GL20 / 探测失败）时显式降级不绘制 + 一次性诊断。
+ * 默认档（xray / legacy / auto）的 GL 调用序列与历史逐条一致。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewRenderer {
@@ -48,13 +55,14 @@ public class ChainPreviewRenderer {
 
     private final ChainPreviewRenderCache renderCache;
     private final ChainPreviewScaleCounters scaleCounters = new ChainPreviewScaleCounters();
+    private final WorldOverlayBackend overlay;
 
     private ChainPreviewRenderBackend backend;
-    private ChainPreviewGlCapabilities capabilities;
     private String lastConfiguredBackendId;
     private boolean shaderAttemptFailed;
     private boolean shaderFallbackReported;
     private String backendCreationFailure = "";
+    private String lastUnavailableReason = "";
     private ChainPreviewVisualSettings lastVisualSettings;
     private ChainPreviewDrawPlan.Visuals visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
     private final ChainPreviewAnimationClock animationClock = new ChainPreviewAnimationClock();
@@ -75,6 +83,7 @@ public class ChainPreviewRenderer {
             throw new IllegalArgumentException("renderCache");
         }
         this.renderCache = renderCache;
+        this.overlay = new WorldOverlayBackend(scaleCounters);
     }
 
     /**
@@ -91,11 +100,12 @@ public class ChainPreviewRenderer {
     public void disposeForLifecycle() {
         renderCache.resetForLifecycle();
         disposeBackend();
-        capabilities = null;
+        overlay.resetForLifecycle();
         lastConfiguredBackendId = null;
         shaderAttemptFailed = false;
         shaderFallbackReported = false;
         backendCreationFailure = "";
+        lastUnavailableReason = "";
         lastVisualSettings = null;
         visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
         animationModeId = "";
@@ -127,6 +137,7 @@ public class ChainPreviewRenderer {
             return;
         }
 
+        handleOverlayResourceReload();
         refreshVisualSettings();
         boolean previewActive = renderCache.isPreviewActive();
         if (previewActive && fadeController.isRetiring()) {
@@ -159,28 +170,21 @@ public class ChainPreviewRenderer {
             return;
         }
 
-        ChainPreviewGlBindings bindings = ChainPreviewGlBindings.capture();
-        scaleCounters.recordBindingCapture();
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        try {
-            GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
-            try {
-                active = ensureReadyBackend(active);
-                if (publication != null) {
-                    applyPublication(active, publication);
-                }
-                float fadeAlpha = fadeController.advance(
-                    true, uploadedGeneration, fadeEnabled(), animationDurationMs, nowNanos);
-                ChainPreviewDrawPlan plan = buildDrawPlan(fadeAlpha);
-                if (plan.getIndexCount() > 0) {
-                    drawPreview(active, plan);
-                }
-            } finally {
-                GL11.glPopClientAttrib();
+        try (ChainPreviewGlFences.Frame frame = overlay.beginFrame()) {
+            active = ensureReadyBackend(active);
+            if (active == null) {
+                // shader 初始化失败且 legacy 能力不足：本帧显式降级
+                return;
             }
-        } finally {
-            GL11.glPopAttrib();
-            bindings.restore();
+            if (publication != null) {
+                applyPublication(active, publication);
+            }
+            float fadeAlpha = fadeController.advance(
+                true, uploadedGeneration, fadeEnabled(), animationDurationMs, nowNanos);
+            ChainPreviewDrawPlan plan = buildDrawPlan(fadeAlpha);
+            if (plan.getIndexCount() > 0) {
+                drawPreview(active, plan);
+            }
         }
     }
 
@@ -202,30 +206,20 @@ public class ChainPreviewRenderer {
             clearMesh();
             return;
         }
-        ChainPreviewGlBindings bindings = ChainPreviewGlBindings.capture();
-        scaleCounters.recordBindingCapture();
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        try {
-            GL11.glPushClientAttrib(GL11.GL_CLIENT_VERTEX_ARRAY_BIT);
-            try {
-                ChainPreviewDrawPlan plan = buildDrawPlan(fadeAlpha);
-                if (plan.getIndexCount() > 0) {
-                    drawPreview(backend, plan);
-                }
-            } finally {
-                GL11.glPopClientAttrib();
+        try (ChainPreviewGlFences.Frame frame = overlay.beginFrame()) {
+            ChainPreviewDrawPlan plan = buildDrawPlan(fadeAlpha);
+            if (plan.getIndexCount() > 0) {
+                drawPreview(backend, plan);
             }
-        } finally {
-            GL11.glPopAttrib();
-            bindings.restore();
         }
     }
 
-    /** 后端选择（纯函数决策 + 惰性创建；能力探测每 lifecycle 一次）。 */
+    /**
+     * 后端选择（纯函数决策 + 惰性创建；能力探测每 lifecycle 一次，缓存与线程契约见
+     * {@link WorldOverlayBackend}）。无 VAO / 无 GL20 / 探测失败时 legacy 不再被假定可用：
+     * 决策直接给出不可用，本帧已释放后端并返回 null（调用方清空绘制）。
+     */
     private ChainPreviewRenderBackend selectBackend() {
-        if (capabilities == null) {
-            capabilities = ChainPreviewGlCapabilities.detect();
-        }
         String configured = configuredBackendId();
         if (lastConfiguredBackendId != null && !lastConfiguredBackendId.equals(configured)) {
             shaderAttemptFailed = false;
@@ -235,7 +229,17 @@ public class ChainPreviewRenderer {
         }
         lastConfiguredBackendId = configured;
 
-        String selected = ChainPreviewBackendSelector.select(configured, capabilities, shaderAttemptFailed);
+        ChainPreviewOverlayPath.Decision decision = overlay.planPath(configured, shaderAttemptFailed);
+        if (!decision.isUsable()) {
+            reportPathUnavailable(decision);
+            disposeBackend();
+            animationClock.reset();
+            fadeController.reset();
+            return null;
+        }
+        lastUnavailableReason = "";
+
+        String selected = decision.getBackendId();
         if (backend != null && selected.equals(backend.id())) {
             return backend;
         }
@@ -246,7 +250,14 @@ public class ChainPreviewRenderer {
         if (created == null) {
             reportShaderFallback(selected, configured);
             shaderAttemptFailed = true;
-            created = createBackend(ChainPreviewBackendSelector.LEGACY);
+            ChainPreviewOverlayPath.Decision legacy =
+                overlay.planPath(ChainPreviewBackendSelector.LEGACY, shaderAttemptFailed);
+            if (!legacy.isUsable()) {
+                // shader 创建失败且 legacy 能力不足：显式降级，不创建必然失败的后端
+                reportPathUnavailable(legacy);
+                return null;
+            }
+            created = createBackend(legacy.getBackendId());
         }
         backend = created;
         return backend;
@@ -259,7 +270,8 @@ public class ChainPreviewRenderer {
      */
     private ChainPreviewRenderBackend createBackend(String id) {
         if (ChainPreviewBackendSelector.LEGACY.equals(id)) {
-            return new ChainPreviewLegacyBackend();
+            // T26：legacy 的纹理乘子 / dispose 绑定围栏共用封装的 GL 状态访问点
+            return new ChainPreviewLegacyBackend(overlay.glAccess());
         }
         try {
             return ChainPreviewShaderBackend.create();
@@ -280,10 +292,17 @@ public class ChainPreviewRenderer {
         }
         reportShaderFallback(active.id(), lastConfiguredBackendId);
         shaderAttemptFailed = true;
-        active.dispose();
+        overlay.dispose(active);
         animationClock.reset();
         fadeController.reset();
-        ChainPreviewRenderBackend fallback = createBackend(ChainPreviewBackendSelector.LEGACY);
+        ChainPreviewOverlayPath.Decision legacy =
+            overlay.planPath(ChainPreviewBackendSelector.LEGACY, shaderAttemptFailed);
+        if (!legacy.isUsable()) {
+            reportPathUnavailable(legacy);
+            backend = null;
+            return null;
+        }
+        ChainPreviewRenderBackend fallback = createBackend(legacy.getBackendId());
         backend = fallback;
         return fallback;
     }
@@ -468,36 +487,13 @@ public class ChainPreviewRenderer {
     private void clearMesh() {
         animationClock.reset();
         fadeController.reset();
-        if (backend == null) {
+        ChainPreviewRenderBackend active = backend;
+        if (active == null) {
             resetUploadState();
             return;
         }
-        ChainPreviewGlBindings bindings = captureQuietly();
-        try {
-            backend.uploadTopology(ChainPreviewMesh.EMPTY);
-        } finally {
-            restoreQuietly(bindings);
-        }
+        overlay.clearMesh(active);
         resetUploadState();
-    }
-
-    private static ChainPreviewGlBindings captureQuietly() {
-        try {
-            return ChainPreviewGlBindings.capture();
-        } catch (Throwable failure) {
-            return null;
-        }
-    }
-
-    private static void restoreQuietly(ChainPreviewGlBindings bindings) {
-        if (bindings == null) {
-            return;
-        }
-        try {
-            bindings.restore();
-        } catch (Throwable ignored) {
-            // 上下文失效时围栏恢复失败不得逃逸渲染帧
-        }
     }
 
     private void resetUploadState() {
@@ -508,9 +504,50 @@ public class ChainPreviewRenderer {
 
     private void disposeBackend() {
         if (backend != null) {
-            backend.dispose();
+            overlay.dispose(backend);
             backend = null;
         }
+    }
+
+    /**
+     * 帧内消费资源重载信号：只作废后端 / 上传状态 / 失败记忆，真正的重建推迟到下一次后端选择
+     * （惰性，T26）——不跨代、不跨世界保留 GL 对象，也不在资源重载事件里做任何 GL 操作。
+     */
+    private void handleOverlayResourceReload() {
+        if (!overlay.consumeResourceReload()) {
+            return;
+        }
+        disposeBackend();
+        animationClock.reset();
+        fadeController.reset();
+        resetUploadState();
+        lastConfiguredBackendId = null;
+        shaderAttemptFailed = false;
+        shaderFallbackReported = false;
+        backendCreationFailure = "";
+        lastUnavailableReason = "";
+        MyMod.LOG.debug("[ChainPreview] overlay cache invalidated ({}), rebuild deferred to next frame",
+            overlay.getLastResourceReason());
+    }
+
+    /**
+     * 纹理图集重载（F3+T / 资源包切换）即资源重载信号：只作废缓存，不做 GL 操作（T26）。
+     *
+     * @param event 纹理缝合事件
+     */
+    @SubscribeEvent
+    public void onTextureStitch(TextureStitchEvent.Post event) {
+        overlay.markResourcesDirty("textureStitch");
+    }
+
+    /** 显式降级诊断：原因变化时一次性告警（无 VAO / 无 GL20 / 能力探测失败 / 无可用路径）。 */
+    private void reportPathUnavailable(ChainPreviewOverlayPath.Decision decision) {
+        String reason = decision == null ? "unknown" : decision.getReason();
+        if (reason.equals(lastUnavailableReason)) {
+            return;
+        }
+        lastUnavailableReason = reason;
+        MyMod.LOG.warn("[ChainPreview] preview overlay unavailable: " + reason + "; " + overlay.describe());
     }
 
     private void reportShaderFallback(String selectedId, String configured) {
@@ -522,6 +559,6 @@ public class ChainPreviewRenderer {
             + " (configured=" + configured
             + ", selected=" + selectedId
             + (backendCreationFailure.isEmpty() ? "" : ", creationFailure=" + backendCreationFailure)
-            + ", caps=" + (capabilities == null ? "null" : capabilities.describe()) + ")");
+            + ", caps=" + overlay.describeCapabilities() + ")");
     }
 }
