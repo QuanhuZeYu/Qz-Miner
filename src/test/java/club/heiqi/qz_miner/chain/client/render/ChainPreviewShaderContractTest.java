@@ -91,12 +91,17 @@ public class ChainPreviewShaderContractTest {
         Assert.assertTrue("必须读取出现序号高字节 aAux.w",
                 GlslSourceScanner.countIdentifier(mainBody, "aAux.w") > 0);
         Assert.assertTrue("必须存在生长进度 uniform", vertex.getUniforms().containsKey("uAnimProgress"));
-        Assert.assertTrue("必须存在生长序号归一化分母 uniform（目标总数）",
+        Assert.assertTrue("必须存在目标总数 uniform",
                 vertex.getUniforms().containsKey("uAppearSpan"));
         Assert.assertTrue("生长必须被 uAnimProgress < 1.0 门控（=1 时整段绘制）",
                 mainBody.indexOf("uAnimProgress < 1.0") >= 0);
-        Assert.assertTrue("0xFFFF（未定义序号）必须退出生长比较，不得被当成最大序号",
+        Assert.assertTrue("0xFFFF（未定义序号）必须走「已出现」分支，不得被当成最大序号",
                 mainBody.indexOf("appearOrder < 65535.0") >= 0);
+        Assert.assertTrue("判据必须是序号格之差（cell 式，Lead 裁定方案 a）",
+                mainBody.indexOf("floor(min(appearOrder, uAppearSpan))") >= 0
+                        && mainBody.indexOf("uAnimProgress * uAppearSpan - orderFloor") >= 0);
+        Assert.assertFalse("uAnimSpan 已是死 uniform，必须删除（Lead 裁定第 2 条）",
+                vertex.getUniforms().containsKey("uAnimSpan"));
     }
 
     /** 片元颜色必须来自 uniform（语义色），并且语义主色与 255 未定义都要落到同一兜底。 */

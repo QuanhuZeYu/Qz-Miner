@@ -64,7 +64,7 @@ public class ChainPreviewShaderFallbackTest {
         program.setFadeCurve(1.0F, 2.0F, 0.1F, 0.9F);
         program.setMinScreenWidthPx(1.0F);
         program.setBarThickness(0.045F);
-        program.setAnimation(1.0F, 0.0F, 0.0F);
+        program.setAnimation(1.0F, 0.0F);
         program.setSemanticColor(0, 0.25F, 0.9F, 1.0F);
         program.dispose();
     }
@@ -118,57 +118,45 @@ public class ChainPreviewShaderFallbackTest {
         };
         Assert.assertEquals(250.0F, ChainPreviewShaderBackend.maxAppearOrder(aux, 4), 0.0F);
         Assert.assertEquals("越界顶点不得读取", 5.0F, ChainPreviewShaderBackend.maxAppearOrder(aux, 2), 0.0F);
-        Assert.assertEquals("无 aAux 时必须返回 0（关闭生长）",
-                0.0F, ChainPreviewShaderBackend.maxAppearOrder(null, 10), 0.0F);
-        Assert.assertEquals("空数组安全", 0.0F, ChainPreviewShaderBackend.maxAppearOrder(new byte[0], 0), 0.0F);
+        Assert.assertEquals("无 aAux 必须返回 -1（区分「无序号信息」与「单目标」）",
+                -1.0F, ChainPreviewShaderBackend.maxAppearOrder(null, 10), 0.0F);
+        Assert.assertEquals("空数组安全且视为无序号信息",
+                -1.0F, ChainPreviewShaderBackend.maxAppearOrder(new byte[0], 0), 0.0F);
     }
 
     // ------------------------------------------------------------------ 机制开关的恒等性
+    // 生长与最小宽度的完整行为契约见 ChainPreviewShaderGrowthWidthTest（task-11）；
+    // 这里只保留「开关关闭时恒等」的最小回归面，避免同一语义两处断言漂移。
 
     /** minScreenWidthPx=0（本轮默认）必须严格恒等，不得留下任何加宽残差。 */
     @Test
     public void minScreenWidthDisabledIsExactIdentity() {
-        Assert.assertEquals(1.0F, ChainPreviewShaderMath.lateralWiden(0.0F, 0.0225F, 900.0F, 1.0F), 0.0F);
-        Assert.assertEquals(1.0F, ChainPreviewShaderMath.lateralWiden(-1.0F, 0.0225F, 900.0F, 1.0F), 0.0F);
-        Assert.assertEquals("横向偏移为 0 时也不得加宽",
-                1.0F, ChainPreviewShaderMath.lateralWiden(1.0F, 0.0F, 900.0F, 1.0F), 0.0F);
+        float[] position = {0.0225F, 0.0225F, 0.0225F};
+        Assert.assertArrayEquals("px=0 必须逐值恒等", position,
+                ChainPreviewShaderMath.lateralClamp(0.0F, position[0], position[1], position[2], 900.0F, 1.0F),
+                0.0F);
+        Assert.assertArrayEquals("负值同样视为关闭", position,
+                ChainPreviewShaderMath.lateralClamp(-1.0F, position[0], position[1], position[2], 900.0F, 1.0F),
+                0.0F);
     }
 
-    /** 亚像素场景才加宽，且加宽倍数必须被上限截断（防远距离爆宽）。 */
-    @Test
-    public void minScreenWidthWidensSubpixelBarsWithinCap() {
-        float halfThickness = 0.0225F;
-        float pixelPerUnitAtDepth = 900.0F;
-        Assert.assertTrue("已够宽时不得加宽",
-                ChainPreviewShaderMath.lateralWiden(1.0F, halfThickness, 10.0F, 1.0F) > 1.0F);
-        Assert.assertEquals("极窄时必须被 64 倍上限截断",
-                64.0F, ChainPreviewShaderMath.lateralWiden(8.0F, halfThickness, 0.001F, 1.0F), 1.0e-4F);
-        float widen = ChainPreviewShaderMath.lateralWiden(1.0F, halfThickness, 1.0F, 1.0F);
-        Assert.assertTrue(widen >= 1.0F);
-    }
-
-    /** 生长权重：关闭时恒 1；开启后必须随进度单调不减且 clamp 到 [0,1]。 */
+    /** 生长关闭 / u>=1 / 无序号信息时都必须整段可见。 */
     @Test
     public void growthWeightIsClampedAndMonotonic() {
-        Assert.assertEquals("生长关闭时必须恒等（对应 uAnimSpan<=0）",
-                1.0F, ChainPreviewShaderMath.growthWeight(false, 0.0F, 0.5F, 0.0F), 0.0F);
-        Assert.assertEquals("过渡带中点必须为 0.5（进度正好到达该序号的顶点）",
-                0.5F, ChainPreviewShaderMath.growthWeight(true, 0.5F, 0.5F, 0.03125F), 1.0e-6F);
-        Assert.assertEquals("滞后超过过渡带宽即完全可见",
-                1.0F, ChainPreviewShaderMath.growthWeight(true, 0.6F, 0.5F, 0.03125F), 1.0e-6F);
-        Assert.assertEquals("序号远未到，权重应为 0",
-                0.0F, ChainPreviewShaderMath.growthWeight(true, 0.1F, 0.9F, 0.03125F), 0.0F);
+        Assert.assertEquals("生长关闭时必须恒等",
+                1.0F, ChainPreviewShaderMath.growthWeight(false, 0.0F, 0.5F, 256.0F), 0.0F);
+        Assert.assertEquals("u>=1 必须整段可见",
+                1.0F, ChainPreviewShaderMath.growthWeight(true, 1.0F, 255.0F, 256.0F), 0.0F);
+        Assert.assertEquals("无 aAux 序号信息（total<=0）必须恒等",
+                1.0F, ChainPreviewShaderMath.growthWeight(true, 0.0F, 10.0F, 0.0F), 0.0F);
         Assert.assertEquals("0xFFFF 未定义序号必须恒可见",
                 1.0F, ChainPreviewShaderMath.growthWeight(
-                        true, 0.0F, (float) ChainPreviewMesh.APPEAR_ORDER_UNDEFINED, 4096.0F, 0.03125F),
-                0.0F);
-        Assert.assertEquals("无 aAux 序号信息（max<=0）必须恒可见",
-                1.0F, ChainPreviewShaderMath.growthWeight(true, 0.0F, 10.0F, 0.0F, 0.03125F), 0.0F);
+                        true, 0.0F, (float) ChainPreviewMesh.APPEAR_ORDER_UNDEFINED, 4096.0F), 0.0F);
 
         float previous = -1.0F;
         for (int step = 0; step <= 100; step++) {
             float progress = step / 100.0F;
-            float weight = ChainPreviewShaderMath.growthWeight(true, progress, 0.5F, 0.03125F);
+            float weight = ChainPreviewShaderMath.growthWeight(true, progress, 128.0F, 256.0F);
             Assert.assertTrue("权重必须在 [0,1]", weight >= 0.0F && weight <= 1.0F);
             Assert.assertTrue("权重必须随进度单调不减", weight >= previous - 1.0e-6F);
             previous = weight;

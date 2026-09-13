@@ -45,9 +45,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private static final float BUILTIN_COLOR_GREEN = ChainPreviewShaderMath.BUILTIN_COLOR_GREEN;
     private static final float BUILTIN_COLOR_BLUE = ChainPreviewShaderMath.BUILTIN_COLOR_BLUE;
 
-    /** GLSL 侧生长过渡半宽（归一化序号单位）：约 1/32 代宽，避免硬切。 */
-    private static final float ANIMATION_SPAN_NORMALIZED = 1.0F / 32.0F;
-
     private static final int INITIAL_CAPACITY = 16 * 1024;
 
     private final ChainPreviewShaderProgram program;
@@ -74,8 +71,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private float originY;
     private float originZ;
 
-    /** 同代最大出现序号（扫描 aAux 得到）；0 表示无 aAux 或无归属序号。 */
-    private float appearSpan;
+    /** 同代最大出现序号（扫描 aAux 得到）；< 0 表示无 aAux（关闭生长比较），0 表示单目标。 */
+    private float appearSpan = -1.0F;
 
     private FloatBuffer vertexStaging;
     private FloatBuffer colorStaging;
@@ -184,7 +181,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         if (mesh == null || mesh.isEmpty()) {
             indexCount = 0;
             vertexCount = 0;
-            appearSpan = 0.0F;
+            appearSpan = -1.0F;
             return;
         }
         if (!ensureReady()) {
@@ -304,7 +301,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     public void dispose() {
         indexCount = 0;
         vertexCount = 0;
-        appearSpan = 0.0F;
+        appearSpan = -1.0F;
         program.dispose();
         try {
             releaseGl();
@@ -366,11 +363,15 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         program.setPixelScale(program.readPixelScale());
 
         float animationU = plan.getAnimationU();
-        if (animationU >= ChainPreviewDrawPlan.ANIMATION_COMPLETE || appearSpan <= 0.0F) {
-            // 本轮 plan 恒 animationU=1：整段可见，shader 不读 appearOrder（B3.x 只改取值）。
-            program.setAnimation(1.0F, 0.0F, 0.0F);
+        // 序号总数语义（T13-D1）：appearSpan 是「最大出现序号」，单目标时为 0，
+        // 若拿它当关闭条件会把 1 个目标的链路误判成「关闭生长」而立即全显。
+        // 真正表示「无序号信息」的是 aux 缺失（appearSpan < 0），而不是序号为 0。
+        float orderCount = appearSpan >= 0.0F ? appearSpan + 1.0F : 0.0F;
+        if (animationU >= ChainPreviewDrawPlan.ANIMATION_COMPLETE || orderCount <= 0.0F) {
+            // u >= 1（或无语义序号）：整段可见，shader 完全不读 appearOrder，无逐顶点分支开销。
+            program.setAnimation(1.0F, 0.0F);
         } else {
-            program.setAnimation(clamp01(animationU), appearSpan, ANIMATION_SPAN_NORMALIZED);
+            program.setAnimation(clamp01(animationU), orderCount);
         }
 
         // builtin 档：四类同传精确基线常量，逐位等于 legacy 颜色流。
@@ -433,8 +434,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * <p>只在 uploadTopology 时执行一次（代级），不在每帧路径上。0xFFFF 视为未定义不参与。</p>
      */
     static float maxAppearOrder(byte[] aux, int vertexCount) {
-        if (aux == null) {
-            return 0.0F;
+        if (aux == null || aux.length < ChainPreviewMesh.AUX_BYTES_PER_VERTEX) {
+            // 无 aAux 或长度不足一个顶点：视为「无序号信息」（-1）。
+            // 不能返回 0——那会被当成「单目标」，让退化 mesh 误入生长路径。
+            return -1.0F;
         }
         int limit = Math.min(vertexCount, aux.length / ChainPreviewMesh.AUX_BYTES_PER_VERTEX);
         int max = 0;

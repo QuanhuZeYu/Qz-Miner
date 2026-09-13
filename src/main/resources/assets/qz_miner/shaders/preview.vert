@@ -33,9 +33,8 @@ uniform float uFadeStart;
 uniform float uFadeEnd;
 uniform float uMinAlpha;
 uniform float uMaxAlpha;
-uniform float uAnimProgress;     // [0,1]；>= 1 表示整段可见（跳过 appearOrder 比较）
-uniform float uAppearSpan;       // 同代最大出现序号（= 目标总数），序号归一化分母
-uniform float uAnimSpan;         // 生长的归一化过渡半宽（<= 0 时关闭生长）
+uniform float uAnimProgress;     // (出现序号 / 目标总数)；>= 1 表示整段可见（跳过 appearOrder 比较）
+uniform float uAppearSpan;       // 同代目标总数（序号归一化分母），<= 0 时关闭生长比较
 uniform float uMinScreenWidthPx; // 0 = 关闭屏幕最小宽度钳制
 uniform float uBarThickness;
 
@@ -69,15 +68,19 @@ void main(void) {
         fade = fadeAlpha(length(cameraRelative));
     }
 
-    // 3) 逐波生长：逐顶点比较 appearOrder / 最大序号 <= uAnimProgress，不要求索引有序（Lead 裁定）。
-    //    uAnimProgress >= 1 时整段可见，完全不读 appearOrder；0xFFFF（未定义）不进比较。
+    // 3) 逐波生长：逐顶点比较 order <= round(uAnimProgress * 目标总数)，不要求索引有序（Lead 裁定）。
+    //    判据落在「出现序号的一格」内：u=0 时全隐（order=0 的顶点也要等 u 超过 1/total），
+    //    u 从 0→1 时可见顶点数单调递增。整式在 u∈[0,1] 上单调不减，故不存在「先显后隐」。
+    //    uAnimProgress >= 1 时整段可见，完全不读 appearOrder（避免逐顶点分支拖慢整段绘制）。
+    //    0xFFFF（未定义序号）按「已出现」处理，避免无归属顶点在任意进度下出现空洞。
     float growth = 1.0;
-    if (uAnimProgress < 1.0 && uAppearSpan > 0.0 && uAnimSpan > 0.0) {
+    if (uAnimProgress < 1.0 && uAppearSpan > 0.0) {
         appearOrder = auxChannel(aAux.z) + auxChannel(aAux.w) * 256.0;
         if (appearOrder < 65535.0) {
-            // uAnimSpan = 归一化过渡半宽：进度到达该序号后正好 0.5，再落后 uAnimSpan 即完全可见。
-            float orderNormalized = min(appearOrder / uAppearSpan, 1.0);
-            growth = clamp((uAnimProgress - orderNormalized + uAnimSpan) / (2.0 * uAnimSpan), 0.0, 1.0);
+            // 判据：orderFloor <= u × 目标总数 ⟺ order <= round(u × 总数)。
+            // 用「序号格」而非「归一化相等」避免 float 边界抖动；u=0 时恒 0（全隐）。
+            float orderFloor = floor(min(appearOrder, uAppearSpan));
+            growth = clamp(uAnimProgress * uAppearSpan - orderFloor, 0.0, 1.0);
         }
     }
 
@@ -96,9 +99,11 @@ void main(void) {
         lateralMagnitude = min(magnitudeX, min(magnitudeY, magnitudeZ));
         if (lateralMagnitude <= 0.02 * max(uBarThickness, 1e-4)) {
             lateralAxis = vec3(0.0, 0.0, 0.0);
-        } else if (lateralMagnitude <= magnitudeY && lateralMagnitude <= magnitudeZ) {
+        } else if (magnitudeX <= magnitudeY && magnitudeX <= magnitudeZ) {
+            // 判据必须是「哪个轴的分量最小」，不能拿 lateralMagnitude（它本身就是最小值）
+            // 去和 magnitudeY/Z 比——那条件恒真，位移会永远沿 X 轴，把条柱推出方块。
             lateralAxis = vec3(sign(aPos.x), 0.0, 0.0);
-        } else if (lateralMagnitude <= magnitudeZ) {
+        } else if (magnitudeY <= magnitudeZ) {
             lateralAxis = vec3(0.0, sign(aPos.y), 0.0);
         } else {
             lateralAxis = vec3(0.0, 0.0, sign(aPos.z));
@@ -125,5 +130,8 @@ void main(void) {
     // 语义类别：255 = 未定义，片元选择器对 255 兜底主色（Lead 裁定）。
     vSemantic = auxChannel(aAux.x);
 
-    gl_Position = ftransform();
+    // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），
+    // 使上面的横向钳制算完即丢——B2.1 最小宽度在 shader 路径静默失效。
+    // 只手写 MVP 乘法（ftransform 的等价语义），不引入额外 uniform。
+    gl_Position = gl_ModelViewProjectionMatrix * vec4(displaced, 1.0);
 }

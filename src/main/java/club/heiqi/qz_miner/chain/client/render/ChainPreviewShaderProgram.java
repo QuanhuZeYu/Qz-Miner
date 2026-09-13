@@ -246,14 +246,12 @@ public final class ChainPreviewShaderProgram {
     /**
      * 设置生长参数。
      *
-     * @param animationProgress 同代出现序号归一化进度 [0,1]；>= 1 表示整段可见（跳过 appearOrder 比较）
-     * @param appearSpan        同代最大出现序号（目标总数），序号归一化分母；&lt;= 0 表示无序号信息（关闭生长）
-     * @param animationSpan     归一化过渡半宽；&lt;= 0 表示关闭生长
+     * @param animationProgress 出现序号归一化进度 [0,1]；>= 1 表示整段可见（跳过 appearOrder 比较）
+     * @param totalTargets      同代目标总数（序号归一化分母）；&lt;= 0 表示无序号信息（关闭生长比较）
      */
-    public void setAnimation(float animationProgress, float appearSpan, float animationSpan) {
+    public void setAnimation(float animationProgress, float totalTargets) {
         setUniform1f("uAnimProgress", animationProgress);
-        setUniform1f("uAppearSpan", appearSpan);
-        setUniform1f("uAnimSpan", animationSpan);
+        setUniform1f("uAppearSpan", totalTargets);
     }
 
     public void setMinScreenWidthPx(float minScreenWidthPx) {
