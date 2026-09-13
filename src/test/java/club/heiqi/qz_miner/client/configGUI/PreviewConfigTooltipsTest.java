@@ -71,7 +71,7 @@ public class PreviewConfigTooltipsTest {
                 }));
     }
 
-    /** 只覆盖本批 25 个路径：新键共享同一代理渲染器，旧键仍走类型默认渲染器。 */
+    /** 只覆盖 {@link PreviewConfigTooltips#paths()} 列出的路径：新键共享同一代理渲染器，旧键仍走类型默认渲染器。 */
     @Test
     public void installOverridesExactlyTheNewSchemaPaths() {
         ConfigSchema schema = QzMinerConfigSchema.create();
@@ -83,7 +83,7 @@ public class PreviewConfigTooltipsTest {
             }
         });
         String[] paths = PreviewConfigTooltips.paths();
-        Assert.assertEquals(26, paths.length);
+        Assert.assertEquals(27, paths.length);
         for (String path : paths) {
             Assert.assertNotNull("schema 缺少新键 " + path, schema.field(path));
         }

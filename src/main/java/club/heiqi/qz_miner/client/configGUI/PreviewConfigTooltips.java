@@ -12,9 +12,10 @@ import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
  * 新增配置键的配置页 tooltip 本地化（中英对称）。
  *
  * <p>UILib 4.10 配置页把 {@link FieldSpec#helper()} 当字面量渲染，没有语言表通道。本类为
- * 本轮新增的 25 个配置键注册「代理渲染器」：只把 helper（tooltip）替换为语言键
+ * 预览相关的新增配置键注册「代理渲染器」：只把 helper（tooltip）替换为语言键
  * {@code config.qz_miner.<键名>.tooltip} 的当前语言文本，其余（label / 控件 / 约束 / 信号）
- * 完全交给原 {@link FieldRenderer} 处理；语言键缺失时回退 Schema 中文 helper，不改变任何旧字段。</p>
+ * 完全交给原 {@link FieldRenderer} 处理；语言键缺失时回退 Schema 中文 helper，不改变任何旧字段。
+ * 受覆盖的路径集合以 {@link #paths()} 为唯一事实源（新增键时同步该数组与两个语言文件）。</p>
  *
  * <p><b>删除条件</b>：UILib 配置页支持 label/helper 的 i18n（或 {@link FieldSpec} 增加语言键字段）后，
  * 删除本类与 {@code QzMinerConfigGUI} 中的 install 调用，只保留语言文件条目。</p>
@@ -54,6 +55,7 @@ public final class PreviewConfigTooltips {
             "client.clientPreviewVersionedInputs",
             "client.clientPreviewPresentationOverlay",
             "client.clientPreviewExecutionProgress",
+            "client.clientPreviewBackendDiagnostics",
             "client.clientPreviewRemoteTimeoutMs"
     };
 

@@ -1,5 +1,6 @@
 package club.heiqi.qz_miner.chain.client.projection;
 
+import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 import cpw.mods.fml.relauncher.Side;
@@ -49,6 +50,13 @@ public final class ChainPreviewPresentationHeader {
     private final long objectGroupRevision;
     private final boolean truncationSignalEnabled;
     private final boolean executionProgressEnabled;
+    /**
+     * 预览后端诊断快照（{@code clientPreviewBackendDiagnostics} 的投影位，Q4）。
+     *
+     * <p>合成一个不可变值对象而不是三个裸字段：header 有「字段数必须有界（O(1) 结构）」的契约断言，
+     * 而且这三项本就是同一件事。关闭时恒为 {@code ChainPreviewBackendDiagnostics.DISABLED}。</p>
+     */
+    private final ChainPreviewBackendDiagnostics backendDiagnostics;
     private final long revision;
 
     /**
@@ -77,6 +85,7 @@ public final class ChainPreviewPresentationHeader {
             long objectGroupRevision,
             boolean truncationSignalEnabled,
             boolean executionProgressEnabled,
+            ChainPreviewBackendDiagnostics backendDiagnostics,
             long revision) {
         this.phase = phase == null ? ChainPhase.IDLE : phase;
         this.serverGeneration = serverGeneration;
@@ -102,6 +111,8 @@ public final class ChainPreviewPresentationHeader {
         this.objectGroupRevision = objectGroupRevision;
         this.truncationSignalEnabled = truncationSignalEnabled;
         this.executionProgressEnabled = executionProgressEnabled;
+        this.backendDiagnostics = backendDiagnostics == null
+                ? ChainPreviewBackendDiagnostics.DISABLED : backendDiagnostics;
         this.revision = revision;
     }
 
@@ -224,6 +235,26 @@ public final class ChainPreviewPresentationHeader {
         return executionProgressEnabled;
     }
 
+    /** @return 预览后端诊断快照（Q4；{@code isEnabled()} 为 false 时 HUD 不产出诊断行） */
+    public ChainPreviewBackendDiagnostics getBackendDiagnostics() {
+        return backendDiagnostics;
+    }
+
+    /** @return 预览后端诊断开关（clientPreviewBackendDiagnostics 的投影位；false = HUD 不产出该行） */
+    public boolean isBackendDiagnosticsEnabled() {
+        return backendDiagnostics.isEnabled();
+    }
+
+    /** @return 当前生效后端 id（{@code shader} / {@code legacy}）；空串 = 尚未判定 */
+    public String getActiveBackendId() {
+        return backendDiagnostics.getActiveBackendId();
+    }
+
+    /** @return 一次性回退原因；空串 = 未发生回退 */
+    public String getBackendFallbackReason() {
+        return backendDiagnostics.getFallbackReason();
+    }
+
     /** @return header 自身单调递增 revision（每次发布 +1） */
     public long getRevision() {
         return revision;
@@ -256,6 +287,7 @@ public final class ChainPreviewPresentationHeader {
             && objectGroupRevision == other.objectGroupRevision
             && truncationSignalEnabled == other.truncationSignalEnabled
             && executionProgressEnabled == other.executionProgressEnabled
+            && backendDiagnostics.equals(other.backendDiagnostics)
             && phase == other.phase
             && truncationReason == other.truncationReason
             && cancelReason == other.cancelReason;
@@ -286,6 +318,7 @@ public final class ChainPreviewPresentationHeader {
             objectGroupRevision,
             truncationSignalEnabled,
             executionProgressEnabled,
+            backendDiagnostics,
             nextRevision);
     }
 

@@ -8,6 +8,7 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.client.projection.ChainPreviewExecutionProgress;
 import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationHeader;
@@ -241,7 +242,7 @@ public class ExecutionProgressBehaviorContractTest {
         state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
         ChainPreviewPresentationProjection projection = new ChainPreviewPresentationProjection();
         ChainPreviewPresentationHeader withProgress = projection.sampleAndPublish(
-            state, null, null, WORLD, LIFECYCLE, 0L, 1L, 2L, true, true, 5);
+            state, null, null, WORLD, LIFECYCLE, 0L, 1L, 2L, true, true, 5, ChainPreviewBackendDiagnostics.DISABLED);
         Assert.assertEquals("header 必须透传 executedCount", 5, withProgress.getExecutedCount());
         Assert.assertTrue("header 必须透传开关位", withProgress.isExecutionProgressEnabled());
 
@@ -253,7 +254,7 @@ public class ExecutionProgressBehaviorContractTest {
             }
         });
         ChainPreviewPresentationHeader advanced = projection.sampleAndPublish(
-            state, null, null, WORLD, LIFECYCLE, 0L, 1L, 2L, true, true, 6);
+            state, null, null, WORLD, LIFECYCLE, 0L, 1L, 2L, true, true, 6, ChainPreviewBackendDiagnostics.DISABLED);
         Assert.assertNotSame("仅计数变化也必须发布新 revision", withProgress, advanced);
         Assert.assertEquals(6, advanced.getExecutedCount());
         Assert.assertEquals(1, notifications[0]);

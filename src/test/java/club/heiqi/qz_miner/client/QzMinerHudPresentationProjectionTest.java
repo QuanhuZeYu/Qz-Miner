@@ -14,6 +14,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.CancelReason;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.TruncationReason;
@@ -305,6 +306,9 @@ public class QzMinerHudPresentationProjectionTest {
         private final ChainPreviewState preview = new ChainPreviewState();
         private final ChainPreviewPresentationProjection projection =
                 new ChainPreviewPresentationProjection();
+        private boolean backendDiagnosticsEnabled;
+        private String activeBackendId = "";
+        private String backendFallbackReason = "";
 
         private Fixture() {
             state.setChainKeyPressed(true);
@@ -326,10 +330,19 @@ public class QzMinerHudPresentationProjectionTest {
             publish(truncationSignalEnabled, false, 0);
         }
 
+        /** 设置后端诊断投影位（Q4）；默认关闭，既有断言因此逐字不变。 */
+        private void publishBackendDiagnostics(boolean enabled, String backendId, String fallbackReason) {
+            this.backendDiagnosticsEnabled = enabled;
+            this.activeBackendId = backendId == null ? "" : backendId;
+            this.backendFallbackReason = fallbackReason == null ? "" : fallbackReason;
+        }
+
         private void publish(boolean truncationSignalEnabled, boolean executionProgressEnabled,
                 int executedCount) {
             projection.sampleAndPublish(preview, null, phaseProjection, 0L, 0L, 0L, 0L, 0L,
-                    truncationSignalEnabled, executionProgressEnabled, executedCount);
+                    truncationSignalEnabled, executionProgressEnabled, executedCount,
+                    ChainPreviewBackendDiagnostics.of(
+                            backendDiagnosticsEnabled, activeBackendId, backendFallbackReason));
         }
     }
 }

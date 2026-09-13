@@ -115,6 +115,7 @@ public final class ConfigSemanticValidator {
         putBoolean(typed, errors, draft, "client.clientPreviewVersionedInputs");
         putBoolean(typed, errors, draft, "client.clientPreviewPresentationOverlay");
         putBoolean(typed, errors, draft, "client.clientPreviewExecutionProgress");
+        putBoolean(typed, errors, draft, "client.clientPreviewBackendDiagnostics");
         putIntNumber(typed, errors, draft, "client.clientPreviewRemoteTimeoutMs", 250, 60000);
         putObjectGroups(typed, errors, draft);
 
@@ -389,6 +390,7 @@ public final class ConfigSemanticValidator {
         public final boolean clientPreviewVersionedInputs;
         public final boolean clientPreviewPresentationOverlay;
         public final boolean clientPreviewExecutionProgress;
+        public final boolean clientPreviewBackendDiagnostics;
         public final int clientPreviewRemoteTimeoutMs;
         public final ObjectGroupRuleSet objectGroups;
 
@@ -444,6 +446,8 @@ public final class ConfigSemanticValidator {
             clientPreviewPresentationOverlay = ((Boolean) typed.get("client.clientPreviewPresentationOverlay"))
                     .booleanValue();
             clientPreviewExecutionProgress = ((Boolean) typed.get("client.clientPreviewExecutionProgress"))
+                    .booleanValue();
+            clientPreviewBackendDiagnostics = ((Boolean) typed.get("client.clientPreviewBackendDiagnostics"))
                     .booleanValue();
             clientPreviewRemoteTimeoutMs = exactInt(typed, "client.clientPreviewRemoteTimeoutMs");
             objectGroups = (ObjectGroupRuleSet) typed.get("client.objectGroups");

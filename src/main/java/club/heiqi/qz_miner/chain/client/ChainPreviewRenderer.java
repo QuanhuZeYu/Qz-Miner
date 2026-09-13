@@ -71,6 +71,15 @@ public class ChainPreviewRenderer {
     /** T48c-B：后端首次「就绪使用」只报一次（真机一眼可见跑的是 shader 还是 legacy）。 */
     private boolean backendInUseReported;
     private String backendCreationFailure = "";
+    /**
+     * 后端诊断快照（渲染线程写、客户端 tick 线程只读）。
+     *
+     * <p>用 volatile String 引用发布：写入只在状态真正变化时发生（后端首次就绪 / 回退 / 路径不可用），
+     * 读取方每 tick 直接取引用，稳态零分配、零锁。这是 HUD 诊断行（Q4）的唯一数据面，
+     * 不让 HUD 触碰渲染线程的后端对象。</p>
+     */
+    private volatile String activeBackendIdSnapshot = "";
+    private volatile String backendFallbackReasonSnapshot = "";
     private String lastUnavailableReason = "";
     private ChainPreviewVisualSettings lastVisualSettings;
     private ChainPreviewDrawPlan.Visuals visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
@@ -116,6 +125,8 @@ public class ChainPreviewRenderer {
         backendInUseReported = false;
         backendCreationFailure = "";
         lastUnavailableReason = "";
+        activeBackendIdSnapshot = "";
+        backendFallbackReasonSnapshot = "";
         lastVisualSettings = null;
         visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
         animationModeId = "";
@@ -361,12 +372,23 @@ public class ChainPreviewRenderer {
             return;
         }
         backendInUseReported = true;
+        activeBackendIdSnapshot = active.id() == null ? "" : active.id();
         try {
             MyMod.LOG.info("[ChainPreview] backend in use: id={}, configured={}, caps=[{}]",
                 active.id(), lastConfiguredBackendId, overlay.describeCapabilities());
         } catch (Throwable ignored) {
             // 诊断日志异常不得影响渲染帧
         }
+    }
+
+    /** @return 当前生效后端 id（空串 = 尚未判定）；跨线程只读快照，供 HUD 诊断行采样 */
+    public String describeActiveBackendId() {
+        return activeBackendIdSnapshot;
+    }
+
+    /** @return 一次性回退原因（空串 = 未发生回退）；跨线程只读快照，供 HUD 诊断行采样 */
+    public String describeBackendFallbackReason() {
+        return backendFallbackReasonSnapshot;
     }
 
     /**
@@ -617,6 +639,7 @@ public class ChainPreviewRenderer {
             return;
         }
         lastUnavailableReason = reason;
+        backendFallbackReasonSnapshot = reason;
         MyMod.LOG.warn("[ChainPreview] preview overlay unavailable: " + reason + "; " + overlay.describe());
     }
 
@@ -634,6 +657,9 @@ public class ChainPreviewRenderer {
         shaderFallbackReported = true;
         // 回退后允许下一帧再报一次「backend in use: legacy」
         backendInUseReported = false;
+        // 诊断快照：回退目标恒为 legacy；原因取本次回退分类（HUD 诊断行读它）。
+        activeBackendIdSnapshot = ChainPreviewBackendSelector.LEGACY;
+        backendFallbackReasonSnapshot = reason == null ? "" : reason;
         MyMod.LOG.warn("[ChainPreview] shader backend unavailable, fallback to legacy"
             + " (configured=" + configured
             + ", selected=" + selectedId

@@ -117,6 +117,8 @@ public class Config {
     public static boolean clientPreviewPresentationOverlay = QzMinerConfigDefaults.CLIENT_PREVIEW_PRESENTATION_OVERLAY;
     /** 是否在 HUD 展示执行进度（已执行 / 匹配，B5.2）。 */
     public static boolean clientPreviewExecutionProgress = QzMinerConfigDefaults.CLIENT_PREVIEW_EXECUTION_PROGRESS;
+    /** 是否在 HUD 展示预览后端诊断（当前生效后端 id 与一次性回退原因，默认关闭）。 */
+    public static boolean clientPreviewBackendDiagnostics = QzMinerConfigDefaults.CLIENT_PREVIEW_BACKEND_DIAGNOSTICS;
     /** 远端预览请求超时（毫秒）。 */
     public static int clientPreviewRemoteTimeoutMs = QzMinerConfigDefaults.CLIENT_PREVIEW_REMOTE_TIMEOUT_MS;
 

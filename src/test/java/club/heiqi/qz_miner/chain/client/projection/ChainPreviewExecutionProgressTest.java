@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
@@ -281,12 +282,12 @@ public class ChainPreviewExecutionProgressTest {
         });
 
         ChainPreviewPresentationHeader first = projection.sampleAndPublish(
-            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, true, 0);
+            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, true, 0, ChainPreviewBackendDiagnostics.DISABLED);
         Assert.assertEquals(0, first.getExecutedCount());
         Assert.assertTrue(first.isExecutionProgressEnabled());
 
         ChainPreviewPresentationHeader second = projection.sampleAndPublish(
-            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, true, 1);
+            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, true, 1, ChainPreviewBackendDiagnostics.DISABLED);
         Assert.assertNotSame("仅 executedCount 变化必须发布新 revision", first, second);
         Assert.assertTrue("revision 必须递增", second.getRevision() > first.getRevision());
         Assert.assertEquals(1, second.getExecutedCount());
@@ -296,12 +297,12 @@ public class ChainPreviewExecutionProgressTest {
         Assert.assertEquals("订阅者必须收到两次发布", 2, notifications[0]);
 
         ChainPreviewPresentationHeader unchanged = projection.sampleAndPublish(
-            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, true, 1);
+            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, true, 1, ChainPreviewBackendDiagnostics.DISABLED);
         Assert.assertSame("内容不变不得重复发布", second, unchanged);
         Assert.assertEquals(2, notifications[0]);
 
         ChainPreviewPresentationHeader toggled = projection.sampleAndPublish(
-            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, false, 1);
+            state, null, null, WORLD, LIFECYCLE, 0L, 0L, 0L, false, false, 1, ChainPreviewBackendDiagnostics.DISABLED);
         Assert.assertNotSame("开关位变化必须发布", second, toggled);
         Assert.assertFalse(toggled.isExecutionProgressEnabled());
     }

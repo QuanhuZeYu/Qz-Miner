@@ -3,7 +3,9 @@ package club.heiqi.qz_miner.chain.client.projection;
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
+import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.client.ChainPreviewVisualSettings;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
@@ -55,6 +57,8 @@ public final class ChainPreviewPresentationTicker {
     /** 世界探针缓存：同一世界实例复用（避免每 tick 重建探针对象）。 */
     private World probeWorld;
     private ChainPreviewExecutionProgress.WorldProbe worldProbe;
+    /** 最近一次发布的后端诊断（值未变时复用同一实例，稳态零分配）。 */
+    private ChainPreviewBackendDiagnostics lastBackendDiagnostics = ChainPreviewBackendDiagnostics.DISABLED;
 
     /**
      * @param projection 待采样的投影实例
@@ -116,6 +120,7 @@ public final class ChainPreviewPresentationTicker {
             lifecycleEpoch,
             executionProgressEnabled,
             minecraft.thePlayer == null ? null : minecraft.thePlayer.getUniqueID());
+        ChainPreviewBackendDiagnostics backendDiagnostics = currentBackendDiagnostics();
         return projection.sampleAndPublish(
             previewState,
             controller,
@@ -127,7 +132,32 @@ public final class ChainPreviewPresentationTicker {
             objectGroupRevision(),
             ChainPreviewVisualSettings.current().isTruncationSignalEnabled(),
             executionProgressEnabled,
-            executionProgress.getExecutedCount());
+            executionProgress.getExecutedCount(),
+            backendDiagnostics);
+    }
+
+    /**
+     * 采样预览后端诊断（Q4）：开关关闭时恒返回 {@link ChainPreviewBackendDiagnostics#DISABLED}，
+     * 且不触碰渲染线程对象；打开时读渲染线程发布的 volatile 快照。
+     *
+     * <p>零分配口径：值与上次相同时复用上一实例（{@code equals} 值语义），
+     * 只在「后端切换 / 首次就绪 / 回退 / 路径不可用」时重建。</p>
+     */
+    private ChainPreviewBackendDiagnostics currentBackendDiagnostics() {
+        if (!Config.clientPreviewBackendDiagnostics) {
+            lastBackendDiagnostics = ChainPreviewBackendDiagnostics.DISABLED;
+            return lastBackendDiagnostics;
+        }
+        ChainPreviewRenderer previewRenderer = ClientProxy.chainPreviewRenderer;
+        String activeBackendId = previewRenderer == null ? "" : previewRenderer.describeActiveBackendId();
+        String fallbackReason = previewRenderer == null ? "" : previewRenderer.describeBackendFallbackReason();
+        ChainPreviewBackendDiagnostics next =
+            ChainPreviewBackendDiagnostics.of(true, activeBackendId, fallbackReason);
+        if (next.equals(lastBackendDiagnostics)) {
+            return lastBackendDiagnostics;
+        }
+        lastBackendDiagnostics = next;
+        return next;
     }
 
     /** @return 该世界的采样探针（同一世界实例复用） */

@@ -56,6 +56,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewVersionedInputs", "false"},
             {"client.clientPreviewPresentationOverlay", "false"},
             {"client.clientPreviewExecutionProgress", "false"},
+            {"client.clientPreviewBackendDiagnostics", "false"},
             {"client.clientPreviewRemoteTimeoutMs", "5000.0"}
     };
 
@@ -320,7 +321,8 @@ public class PreviewConfigSurfaceTest {
         }
         if (leaf.equals("clientPreviewSuppressVanillaHighlight") || leaf.equals("clientPreviewVersionedInputs")
                 || leaf.equals("clientPreviewPresentationOverlay")
-                || leaf.equals("clientPreviewExecutionProgress")) {
+                || leaf.equals("clientPreviewExecutionProgress")
+                || leaf.equals("clientPreviewBackendDiagnostics")) {
             return Boolean.TRUE.equals(staticDefault(leaf)) ? Boolean.FALSE : Boolean.TRUE;
         }
         if (leaf.equals("clientPreviewTruncationSignal")) {

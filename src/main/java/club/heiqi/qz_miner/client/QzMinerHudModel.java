@@ -282,6 +282,7 @@ public final class QzMinerHudModel {
         ChainPreviewPresentationHeader header = headerSource == null ? null : headerSource.current();
         appendPreviewMatchedLine(lines, header);
         appendExecutionProgressLine(lines, header);
+        appendBackendDiagnosticsLine(lines, header);
         appendTruncationLine(lines, header);
         appendRemoteFailureLine(lines, header);
 
@@ -353,6 +354,33 @@ public final class QzMinerHudModel {
                                 String.valueOf(header.getExecutedCount()),
                                 String.valueOf(header.getMatchedCount())),
                         Tone.INFO))));
+    }
+
+    /**
+     * 预览后端诊断行（Q4）：{@code clientPreviewBackendDiagnostics} 打开且后端 id 已知时展示
+     * 「当前生效后端」；发生过回退时追加原因片段。
+     *
+     * <p>数据来自生产 ticker 采样的渲染线程快照（{@code ChainPreviewRenderer.describe*}），
+     * 本类不接触渲染线程对象。开关关闭（默认）或 id 未知时不产出该行——与
+     * {@link #appendExecutionProgressLine} 同一门控形态，常态零观感变化。</p>
+     */
+    private static void appendBackendDiagnosticsLine(List<Line> lines, ChainPreviewPresentationHeader header) {
+        if (header == null || !header.isBackendDiagnosticsEnabled()) {
+            return;
+        }
+        String backendId = header.getActiveBackendId();
+        if (backendId.isEmpty()) {
+            return;
+        }
+        List<Span> spans = new ArrayList<Span>(3);
+        spans.add(labelSpan("preview-backend.label", "hud.qz_miner.preview.backend.label"));
+        spans.add(span("preview-backend.id", backendId, Tone.INFO));
+        String fallbackReason = header.getBackendFallbackReason();
+        if (!fallbackReason.isEmpty()) {
+            spans.add(span("preview-backend.fallback",
+                    ClientI18n.tr("hud.qz_miner.preview.backend.fallback", fallbackReason), Tone.WARNING));
+        }
+        lines.add(new Line("preview-backend", spans));
     }
 
     /**

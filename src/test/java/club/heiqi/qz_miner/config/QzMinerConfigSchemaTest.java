@@ -82,6 +82,7 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientPreviewVersionedInputs", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewPresentationOverlay", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewExecutionProgress", FieldType.BOOLEAN, Boolean.FALSE},
+                {"client.clientPreviewBackendDiagnostics", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewRemoteTimeoutMs", FieldType.NUMBER, Double.valueOf(5000.0D)},
                 {"client.objectGroups", FieldType.STRUCTURED_LIST, objectGroups}
         };

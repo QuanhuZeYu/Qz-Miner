@@ -4,6 +4,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
@@ -200,7 +201,8 @@ public final class ChainPreviewPresentationProjection {
             objectGroupRevision,
             truncationSignalEnabled,
             false,
-            0);
+            0,
+            ChainPreviewBackendDiagnostics.DISABLED);
     }
 
     /**
@@ -211,6 +213,8 @@ public final class ChainPreviewPresentationProjection {
      *
      * @param executionProgressEnabled 执行进度开关（{@code clientPreviewExecutionProgress} 的投影位）
      * @param executedCount 已执行目标数（同代单调不减；开关关闭时应传 0）
+     * @param backendDiagnostics 预览后端诊断快照（{@code clientPreviewBackendDiagnostics} 的投影位，
+     *                           关闭时传 {@link ChainPreviewBackendDiagnostics#DISABLED}）
      * @return 发布后的当前 header
      */
     public ChainPreviewPresentationHeader sampleAndPublish(
@@ -224,7 +228,8 @@ public final class ChainPreviewPresentationProjection {
             long objectGroupRevision,
             boolean truncationSignalEnabled,
             boolean executionProgressEnabled,
-            int executedCount) {
+            int executedCount,
+            ChainPreviewBackendDiagnostics backendDiagnostics) {
         ChainPhase phase = phaseProjection == null ? ChainPhase.IDLE : phaseProjection.getCurrentPhase();
         int serverGeneration = phaseProjection == null ? 0 : phaseProjection.getCurrentGeneration();
         int previewGeneration = previewState == null ? 0 : previewState.getGeneration();
@@ -263,6 +268,7 @@ public final class ChainPreviewPresentationProjection {
             objectGroupRevision,
             truncationSignalEnabled,
             executionProgressEnabled,
+            backendDiagnostics,
             0L));
     }
 
