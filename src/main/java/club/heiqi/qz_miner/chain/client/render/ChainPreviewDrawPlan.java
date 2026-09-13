@@ -13,6 +13,10 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
  *
  * <p>规模计数器语义：{@code rebuilds} = 渲染器发出的非空拓扑上传次数；
  * {@code uploads} = 拓扑 + 颜色流上传尝试次数（自渲染器创建起单调递增）。</p>
+ *
+ * <p>分配口径（T13-D4）：本类是每帧新建的短生命周期不可变对象；动画期间每帧 1 个 plan +
+ * 1 个 {@link Visuals} 快照（{@link Visuals#withAnimationU} 在 u 未变化时返回自身）。
+ * 为保持「纯数据 + 不可变」契约不做可变复用；动画 off / 完成后该路径零分配。</p>
  */
 public final class ChainPreviewDrawPlan {
 
@@ -121,6 +125,25 @@ public final class ChainPreviewDrawPlan {
         /** @return 动画完成度 [0,1] */
         public float getAnimationU() {
             return animationU;
+        }
+
+        /**
+         * @param nextAnimationU 本帧动画完成度
+         * @return 仅替换动画完成度的新快照；u 相同返回自身（零分配）
+         */
+        public Visuals withAnimationU(float nextAnimationU) {
+            if (Float.compare(animationU, nextAnimationU) == 0) {
+                return this;
+            }
+            return new Visuals(
+                barThickness,
+                minScreenWidthPx,
+                nextAnimationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -458,10 +481,11 @@ public final class ChainPreviewDrawPlan {
     /**
      * @return 波尾独占索引上界的副本；null = 未启用逐波生长
      *
-     * <p>限定：{@code waveEnds} 只有在「索引顺序 == appearOrder 顺序」时才可用于 legacy
-     * 按波段绘制。当前网格先写 junction 相、后写 tube 相，索引顺序不等于出现顺序，
-     * 因此 legacy 路径一律不生成波表、整体绘制（Lead 裁定 2026-09-13；排序索引副本留 B3.3 评估）。
-     * shader 路径按 aAux 逐顶点 appearOrder 比较，不依赖本字段。</p>
+     * <p><b>索引段波表未启用</b>：当前网格先写 junction 相、后写 tube 相，索引顺序 != appearOrder
+     * 顺序，索引段无法表达逐波；逐波生长由 shader 侧按 aAux 的 appearOrder 逐顶点比较实现，
+     * plan 只提供 {@code animationU} 一个输入（Lead 裁定 2026-09-13）。
+     * {@code waveEnds} 保留字段仅为未来「索引有序」场景；legacy 路径一律整体绘制，
+     * 不生成排序索引副本。填充本字段会同时改变 {@code visibleIndexCount}，与逐顶点生长冲突。</p>
      */
     public int[] getWaveEnds() {
         return waveEnds == null ? null : waveEnds.clone();

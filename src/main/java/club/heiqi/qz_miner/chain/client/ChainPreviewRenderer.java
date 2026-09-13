@@ -3,6 +3,7 @@ package club.heiqi.qz_miner.chain.client;
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewAnimationClock;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendSelector;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlBindings;
@@ -50,6 +51,9 @@ public class ChainPreviewRenderer {
     private String backendCreationFailure = "";
     private ChainPreviewVisualSettings lastVisualSettings;
     private ChainPreviewDrawPlan.Visuals visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
+    private final ChainPreviewAnimationClock animationClock = new ChainPreviewAnimationClock();
+    private String animationModeId = "";
+    private int animationDurationMs;
 
     private int uploadedGeneration = -1;
     private long uploadedStateRevision = -1L;
@@ -87,6 +91,9 @@ public class ChainPreviewRenderer {
         backendCreationFailure = "";
         lastVisualSettings = null;
         visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
+        animationModeId = "";
+        animationDurationMs = 0;
+        animationClock.reset();
         scaleCounters.reset();
         resetUploadState();
     }
@@ -175,6 +182,7 @@ public class ChainPreviewRenderer {
             return backend;
         }
         disposeBackend();
+        animationClock.reset();
         ChainPreviewRenderBackend created = createBackend(selected);
         if (created == null) {
             reportShaderFallback(selected, configured);
@@ -214,6 +222,7 @@ public class ChainPreviewRenderer {
         reportShaderFallback(active.id(), lastConfiguredBackendId);
         shaderAttemptFailed = true;
         active.dispose();
+        animationClock.reset();
         ChainPreviewRenderBackend fallback = createBackend(ChainPreviewBackendSelector.LEGACY);
         backend = fallback;
         return fallback;
@@ -248,10 +257,10 @@ public class ChainPreviewRenderer {
     /**
      * 派生本帧 draw plan。
      *
-     * <p>动画未实现（B3.1 时钟 / B3.3 逐波属下一批）：本轮恒 {@code animationU = 1}、
-     * {@code waveEnds = null}，是登记在案的未交付项，不代表默认档已实现动画。
-     * 索引顺序不等于 appearOrder 顺序，legacy 无法用索引段表达逐波，
-     * wave 生长走 shader 的逐顶点 appearOrder 比较（T2b）；legacy 路径整体绘制。</p>
+     * <p>{@code animationU} 由 {@link ChainPreviewAnimationClock} 逐帧产出（off 恒 1、
+     * flow / wave 按 duration 线性、掉帧钳制到 1）。{@code waveEnds} 恒为 null：索引顺序
+     * != appearOrder 顺序，索引段无法表达逐波，本轮不生成索引段波表；逐波生长由 shader
+     * 按 aAux 逐顶点 appearOrder 比较实现（T11），legacy 路径整体绘制。</p>
      */
     private ChainPreviewDrawPlan buildDrawPlan() {
         ChainPreviewMesh mesh = activeMesh == null ? ChainPreviewMesh.EMPTY : activeMesh;
@@ -269,16 +278,31 @@ public class ChainPreviewRenderer {
             scaleCounters.getUploads());
     }
 
-    /** 视觉参数快照：settings 引用未变时零分配复用。 */
+    /**
+     * 视觉参数快照：settings 引用未变时复用基快照，动画完成度逐帧由时钟覆盖；
+     * u 未变化（例如 off / 已完成档）时 {@link ChainPreviewDrawPlan.Visuals#withAnimationU}
+     * 返回自身，零分配。
+     */
     private ChainPreviewDrawPlan.Visuals currentVisuals() {
         ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
         if (settings != lastVisualSettings) {
             lastVisualSettings = settings;
-            visuals = settings == null
-                ? ChainPreviewDrawPlan.Visuals.BASELINE
-                : visualsFromSettings(settings);
+            if (settings == null) {
+                visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
+                animationModeId = "";
+                animationDurationMs = 0;
+            } else {
+                visuals = visualsFromSettings(settings);
+                animationModeId = settings.getAnimationId();
+                animationDurationMs = settings.getAnimationDurationMs();
+            }
         }
-        return visuals;
+        float animationU = animationClock.advance(
+            uploadedGeneration,
+            animationModeId,
+            animationDurationMs,
+            System.nanoTime());
+        return visuals.withAnimationU(animationU);
     }
 
     private static ChainPreviewDrawPlan.Visuals visualsFromSettings(ChainPreviewVisualSettings settings) {
@@ -343,6 +367,7 @@ public class ChainPreviewRenderer {
      * 因此自带绑定围栏（T8-D2b）；空网格上传按接口契约不得触碰 GL，围栏是防御后端违规的加固。</p>
      */
     private void clearMesh() {
+        animationClock.reset();
         if (backend == null) {
             resetUploadState();
             return;

@@ -266,6 +266,23 @@ public class ChainPreviewDrawPlanTest {
     }
 
     @Test
+    public void withAnimationUReusesUnchangedInstanceAndOnlyReplacesProgress() {
+        ChainPreviewDrawPlan.Visuals base = ChainPreviewDrawPlan.Visuals.BASELINE;
+
+        Assert.assertSame(base, base.withAnimationU(base.getAnimationU()));
+
+        ChainPreviewDrawPlan.Visuals half = base.withAnimationU(0.5F);
+        Assert.assertEquals(0.5F, half.getAnimationU(), 1.0E-6F);
+        Assert.assertEquals(base.getBarThickness(), half.getBarThickness(), 1.0E-6F);
+        Assert.assertEquals(base.getMinScreenWidthPx(), half.getMinScreenWidthPx(), 1.0E-6F);
+        Assert.assertEquals(base.getFadeStartRadius(), half.getFadeStartRadius(), 1.0E-6F);
+        Assert.assertEquals(base.getFadeEndRadius(), half.getFadeEndRadius(), 1.0E-6F);
+        Assert.assertEquals(base.getAlphaStart(), half.getAlphaStart(), 1.0E-6F);
+        Assert.assertEquals(base.getAlphaEnd(), half.getAlphaEnd(), 1.0E-6F);
+        Assert.assertEquals(base.getDepthChannel(), half.getDepthChannel());
+    }
+
+    @Test
     public void nanFallbacksAgreeWithBaselineVisuals() {
         ChainPreviewDrawPlan.Visuals clamped = new ChainPreviewDrawPlan.Visuals(
             Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, null).sanitized();
