@@ -25,8 +25,10 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * <p>语义顶点流 aAux（顶点数 × {@link ChainPreviewMesh#AUX_BYTES_PER_VERTEX}）：x=semanticClass、
  * y=tubeEdge、z/w=appearOrder（u16 小端）。appearOrder 为 target 进入预览集合的序号（0 起，
  * 同代递增、跨代重置）；顶点按 {@link MeshVertexKey} 去重后，同一顶点的 appearOrder 取所有
- * incident 写入者的最小值，无归属时写 0xFFFF。tubeEdge 取首写者：相邻链直通格点的 tube 相
- * 顶点为 0..3（横截面象限槽位），junction 相与共享顶点为 {@link ChainPreviewMesh#AUX_UNDEFINED}。
+ * incident 写入者的最小值，无归属时写 0xFFFF。tubeEdge 取首写者，本轮实测可达 {0, 1, 255}：
+ * 相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点为
+ * {@link ChainPreviewMesh#AUX_UNDEFINED}；槽位 2/3 在「junction 相先于 tube 相」的首写策略下
+ * 不可达（每端点 4 角点已被 junction 的两个面全覆盖），留待 B2.3/B3.x 再评估。
  * semanticClass 本轮恒写 255（目标分类尚未接线）。</p>
  */
 public class ChainPreviewMeshBuilder {
@@ -486,6 +488,8 @@ public class ChainPreviewMeshBuilder {
 
         private void appendCurrentFace() {
             int slot = currentFaceCursor++;
+            // slot = TUBE_FACES_BY_AXIS[axis] 下标（横截面象限槽位）；本轮实测仅 0/1 会被首写，
+            // 2/3 数值域合法但不可达（见类 javadoc）。
             int tubeEdge = currentFacesAreTube ? slot : ChainPreviewMesh.AUX_UNDEFINED;
             appendFace(currentCorners, currentFaces[slot], tubeEdge, currentAppearOrder);
         }

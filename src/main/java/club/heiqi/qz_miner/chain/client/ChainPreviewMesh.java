@@ -7,10 +7,16 @@ import java.util.concurrent.atomic.AtomicLong;
  * 预览条柱网格的不可变 CPU 数据。
  *
  * <p>aAux 布局见 {@link #AUX_BYTES_PER_VERTEX}。顶点按几何 key 去重后，appearOrder 取
- * 所有 incident 写入者的最小值，semanticClass / tubeEdge 取首写者。tubeEdge 可达范围：
- * 相邻链直通格点的 tube 相顶点为 0..3（横截面象限槽位），junction 相与共享顶点保留
- * {@link #AUX_UNDEFINED}；长度不符时语义流降级为不可用，原因见
- * {@link #getAuxDegradationReason()} 与 {@link #getAuxDegradedMeshCount()}。</p>
+ * 所有 incident 写入者的最小值，semanticClass / tubeEdge 取首写者。</p>
+ *
+ * <p>tubeEdge 本轮实测可达集合为 {0, 1, 255}（verifier 独立双向量化：line(64) = 0:508 /
+ * 1:508 / 255:56）：相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点保留
+ * {@link #AUX_UNDEFINED}。槽位 2/3 在当前「junction 相先于 tube 相」的首写策略下不可达——
+ * 每个管段端点的 4 个角点已被 junction 的两个面全部覆盖，2/3 永不首写；四象限齐备性留待
+ * B2.3/B3.x 再评估（已登记为已知限制，本轮不调整首写策略）。</p>
+ *
+ * <p>长度不符时语义流降级为不可用，原因见 {@link #getAuxDegradationReason()} 与
+ * {@link #getAuxDegradedMeshCount()}。</p>
  */
 public class ChainPreviewMesh {
 

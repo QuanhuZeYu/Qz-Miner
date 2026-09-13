@@ -67,11 +67,13 @@ public class ChainPreviewSemanticStreamTest {
                     order);
             } else {
                 quadrantOwned++;
+                // 本轮实测 tube 首写只落在 {0,1}；断言保持值域口径（⊆ {0..3, 255}），
+                // 便于 B2.3/B3.x 调整首写策略后无需改写探针。
                 Assert.assertTrue("tube 横截面象限槽位必须在 0..3", tubeEdge <= 3);
             }
         }
         Assert.assertTrue("相邻链必须存在 junction 相顶点（255）", junctionOwned > 0);
-        Assert.assertTrue("相邻链直通格点的 tube 相顶点必须带 0..3 象限", quadrantOwned > 0);
+        Assert.assertTrue("相邻链直通格点的 tube 相顶点必须带象限值", quadrantOwned > 0);
         assertAppearOrders(mesh, chain.size());
     }
 
