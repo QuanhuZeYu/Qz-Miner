@@ -8,6 +8,8 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewController;
 import club.heiqi.qz_miner.chain.client.ClientCuboidSelectionState;
 import club.heiqi.qz_miner.chain.client.CuboidSelectionRenderer;
 import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationProjection;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationTicker;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjectionSubscriber;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
@@ -104,6 +106,8 @@ public class ClientProxy extends CommonProxy {
     public static ChainPreviewRenderer chainPreviewRenderer;
     /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
     public static ClientPhaseProjection clientPhaseProjection;
+    /** B1.1：预览表现投影单例；HUD/诊断经 ChainPreviewPresentationProjection.installed() 只读。 */
+    public static ChainPreviewPresentationProjection chainPreviewPresentationProjection;
     /** 服务端 ACK 唯一写入的双点选区投影。 */
     public static ClientCuboidSelectionState clientCuboidSelectionState;
     public static CuboidSelectionRenderer cuboidSelectionRenderer;
@@ -137,6 +141,11 @@ public class ClientProxy extends CommonProxy {
         AutoToolSwapHooks.install(autoToolSwapAdapter);
         chainPreviewRenderer = new ChainPreviewRenderer(chainPreviewController.getPreviewState());
         chainPreviewRenderer.register();
+        // B1.1：表现投影装配——单例 install + 每客户端 tick END 采样一次（O(1) header）。
+        chainPreviewPresentationProjection = new ChainPreviewPresentationProjection();
+        chainPreviewPresentationProjection.bindMainThread(Thread.currentThread());
+        ChainPreviewPresentationProjection.install(chainPreviewPresentationProjection);
+        new ChainPreviewPresentationTicker(chainPreviewPresentationProjection).register();
         cuboidSelectionRenderer = new CuboidSelectionRenderer();
         cuboidSelectionRenderer.register();
         connectionListener = new ClientConnectionListener();

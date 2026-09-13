@@ -2,6 +2,8 @@ package club.heiqi.qz_miner.client;
 
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationProjection;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationTicker;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
@@ -477,6 +479,15 @@ public class ClientConnectionListener {
         runCleanupStep("phase", new Runnable() { @Override public void run() {
             if (cleanupActions != null) cleanupActions.clearPhase();
             else if (ClientProxy.clientPhaseProjection != null) ClientProxy.clientPhaseProjection.clear();
+        }});
+        // B1.1：表现投影失效——epoch 自增并丢 header（保留实例，重连后自动恢复采样）
+        runCleanupStep("preview-presentation", new Runnable() { @Override public void run() {
+            ChainPreviewPresentationTicker.bumpLifecycleEpoch();
+            ChainPreviewPresentationProjection installedProjection =
+                ChainPreviewPresentationProjection.installed();
+            if (installedProjection != null) {
+                installedProjection.clear();
+            }
         }});
         // 防旧 phase 在 cleanup 后仍 drain 回写投影；不清订阅
         runCleanupStep("event-pending", new Runnable() { @Override public void run() {

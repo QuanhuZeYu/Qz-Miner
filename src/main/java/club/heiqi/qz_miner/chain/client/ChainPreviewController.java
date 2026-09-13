@@ -407,6 +407,16 @@ public class ChainPreviewController {
         return Math.max(1L, (long) Config.clientPreviewRemoteTimeoutMs);
     }
 
+    /** @return 是否存在在途远端预览请求（仅客户端主线程读取，B1.1 表现投影采样用） */
+    public boolean isRemotePreviewPending() {
+        return remotePreviewRequest.isPending();
+    }
+
+    /** @return 在途远端预览请求 id；无在途请求时为 0（仅客户端主线程读取） */
+    public int getRemotePreviewRequestId() {
+        return remotePreviewRequest.getPendingRequestId();
+    }
+
     /**
      * 应用 LootGames 扫雷预览结果。
      *

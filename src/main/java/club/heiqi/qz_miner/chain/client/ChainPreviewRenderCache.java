@@ -191,6 +191,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             if (configuredBackend != lastConfiguredBackend) {
                 lastConfiguredBackend = configuredBackend;
                 visualSettings = ChainPreviewVisualSettings.fromConfig();
+                ChainPreviewVisualSettings.publish(visualSettings);
             }
             // 视觉设置按既有 1 Hz 节奏采样（配置热更新通道），与 visual revision 提升解耦：
             // signal 档可能逐帧提升 revision，但不得逐帧重建设置快照。
@@ -198,6 +199,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                     || nowNanos - lastSettingsSampleNanos >= EFFECT_REFRESH_INTERVAL_NANOS) {
                 lastSettingsSampleNanos = nowNanos;
                 visualSettings = ChainPreviewVisualSettings.fromConfig();
+                ChainPreviewVisualSettings.publish(visualSettings);
             }
 
             ChainPreviewVisualSettings sampled = visualSettings;

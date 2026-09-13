@@ -104,6 +104,27 @@ public class ChainPreviewVisualSettingsTest {
         Assert.assertEquals("shader", settingsWithBackendId("shader").getRenderBackendId());
     }
 
+    @Test
+    public void currentSnapshotUsesPublishedInstanceAndPublishRejectsNull() {
+        ChainPreviewVisualSettings published = new ChainPreviewVisualSettings(
+            0.1F, 2.0F, "xray", "off", "order", "timer", "builtin", "legacy",
+            0x112233, 0x445566, 0x778899, 0xAABBCC, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
+            "off", 0.05F, true, 4096);
+        ChainPreviewVisualSettings before = ChainPreviewVisualSettings.current();
+        try {
+            Assert.assertNotNull("current() 必须初始化出非 null 快照", before);
+            ChainPreviewVisualSettings.publish(published);
+            Assert.assertSame("current() 必须是零分配的引用读取",
+                published, ChainPreviewVisualSettings.current());
+            Assert.assertTrue(ChainPreviewVisualSettings.current().isTruncationSignalEnabled());
+            ChainPreviewVisualSettings.publish(null);
+            Assert.assertSame("null 发布不得覆盖当前快照",
+                published, ChainPreviewVisualSettings.current());
+        } finally {
+            ChainPreviewVisualSettings.publish(before);
+        }
+    }
+
     private static ChainPreviewVisualSettings settingsWithMinScreenWidth(float minScreenWidthPx) {
         return new ChainPreviewVisualSettings(
             0.045F, minScreenWidthPx, "xray", "off", "order", "timer", "builtin", "auto",

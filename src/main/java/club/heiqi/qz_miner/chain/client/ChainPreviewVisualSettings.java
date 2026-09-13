@@ -52,6 +52,32 @@ public final class ChainPreviewVisualSettings {
     private final boolean truncationSignal;
     private final int maxTargetsHardCap;
 
+    /** 最近一次发布的快照引用（零分配读取；volatile 读跨线程安全）。 */
+    private static volatile ChainPreviewVisualSettings current;
+
+    /**
+     * @return 最近一次发布的设置快照（零分配 volatile 读）；未发布时用 {@link #fromConfig()} 初始化一次
+     */
+    public static ChainPreviewVisualSettings current() {
+        ChainPreviewVisualSettings snapshot = current;
+        if (snapshot == null) {
+            snapshot = fromConfig();
+            current = snapshot;
+        }
+        return snapshot;
+    }
+
+    /**
+     * 发布新快照（配置提交或既有 1 Hz 采样点调用）。对象不可变，跨线程读取安全。
+     *
+     * @param settings 新快照，null 忽略
+     */
+    public static void publish(ChainPreviewVisualSettings settings) {
+        if (settings != null) {
+            current = settings;
+        }
+    }
+
     /**
      * 显式构造。
      *
