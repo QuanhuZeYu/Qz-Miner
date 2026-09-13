@@ -383,7 +383,14 @@ public class ChainPreviewRenderer {
             settings.getAlphaFadeEndRadius(),
             settings.getAlphaStartValue(),
             settings.getAlphaEndValue(),
-            mapDepthChannel(settings.getDepthModeId()));
+            mapDepthChannel(settings.getDepthModeId()),
+            1.0F,
+            ChainPreviewDrawPlan.Visuals.Colors.fromConfig(
+                settings.getColorSourceId(),
+                settings.getColorPrimary(),
+                settings.getColorSecondary(),
+                settings.getColorRemote(),
+                settings.getColorTruncated()));
     }
 
     private static ChainPreviewDrawPlan.DepthChannel mapDepthChannel(String depthModeId) {

@@ -87,6 +87,124 @@ public final class ChainPreviewDrawPlan {
             DepthChannel.XRAY,
             1.0F);
 
+        /**
+         * 语义颜色面（不可变）：由 renderer 从 ChainPreviewVisualSettings 经
+         * {@link #fromConfig(String, int, int, int, int)} 映射后填入，shader 只读 plan。
+         *
+         * <p>{@code builtin} 档四色一律取 §D 基线常量 (0.25, 0.90, 1.00)（quantize 后 = 0x40E6FF），
+         * 与 legacy CPU 颜色流逐位一致；{@code config} 档按位取配置色；null / 未知 sourceId 兜底 builtin。</p>
+         */
+        public static final class Colors {
+
+            /** 颜色来源稳定 id：内置基线色。 */
+            public static final String SOURCE_BUILTIN = "builtin";
+
+            /** 颜色来源稳定 id：配置色。 */
+            public static final String SOURCE_CONFIG = "config";
+
+            /** §D builtin 基线常量 (0.25, 0.90, 1.00) 的 0xRRGGBB 量化值。 */
+            public static final int BUILTIN_RGB = 0x40E6FF;
+
+            /** 全类别 + 全字段基线常量色。 */
+            public static final Colors BUILTIN =
+                new Colors(SOURCE_BUILTIN, BUILTIN_RGB, BUILTIN_RGB, BUILTIN_RGB, BUILTIN_RGB);
+
+            private final String sourceId;
+            private final int primary;
+            private final int secondary;
+            private final int remote;
+            private final int truncated;
+
+            /**
+             * 纯映射：{@code config} 档取配置色并按 0xFFFFFF 收窄；其余（builtin / null / 未知）一律基线常量。
+             *
+             * @param sourceId        颜色来源 id
+             * @param primary         主模式颜色 0xRRGGBB
+             * @param secondary       子模式颜色 0xRRGGBB
+             * @param remote          远端预测颜色 0xRRGGBB
+             * @param truncated       截断颜色 0xRRGGBB
+             * @return 归一化颜色面
+             */
+            public static Colors fromConfig(
+                    String sourceId, int primary, int secondary, int remote, int truncated) {
+                if (SOURCE_CONFIG.equals(sourceId)) {
+                    return new Colors(
+                        SOURCE_CONFIG,
+                        primary & 0xFFFFFF,
+                        secondary & 0xFFFFFF,
+                        remote & 0xFFFFFF,
+                        truncated & 0xFFFFFF);
+                }
+                return BUILTIN;
+            }
+
+            public Colors(
+                    String sourceId, int primary, int secondary, int remote, int truncated) {
+                this.sourceId = SOURCE_CONFIG.equals(sourceId) ? SOURCE_CONFIG : SOURCE_BUILTIN;
+                this.primary = primary & 0xFFFFFF;
+                this.secondary = secondary & 0xFFFFFF;
+                this.remote = remote & 0xFFFFFF;
+                this.truncated = truncated & 0xFFFFFF;
+            }
+
+            /** @return 归一化来源 id：config / builtin */
+            public String getSourceId() {
+                return sourceId;
+            }
+
+            public int getPrimary() {
+                return primary;
+            }
+
+            public int getSecondary() {
+                return secondary;
+            }
+
+            public int getRemote() {
+                return remote;
+            }
+
+            public int getTruncated() {
+                return truncated;
+            }
+
+            @Override
+            public boolean equals(Object other) {
+                if (this == other) {
+                    return true;
+                }
+                if (!(other instanceof Colors)) {
+                    return false;
+                }
+                Colors that = (Colors) other;
+                return primary == that.primary
+                    && secondary == that.secondary
+                    && remote == that.remote
+                    && truncated == that.truncated
+                    && sourceId.equals(that.sourceId);
+            }
+
+            @Override
+            public int hashCode() {
+                int result = sourceId.hashCode();
+                result = 31 * result + primary;
+                result = 31 * result + secondary;
+                result = 31 * result + remote;
+                result = 31 * result + truncated;
+                return result;
+            }
+
+            @Override
+            public String toString() {
+                return "Colors{" + sourceId
+                    + ", primary=0x" + Integer.toHexString(primary)
+                    + ", secondary=0x" + Integer.toHexString(secondary)
+                    + ", remote=0x" + Integer.toHexString(remote)
+                    + ", truncated=0x" + Integer.toHexString(truncated)
+                    + '}';
+            }
+        }
+
         private final float barThickness;
         private final float minScreenWidthPx;
         private final float animationU;
@@ -96,9 +214,10 @@ public final class ChainPreviewDrawPlan {
         private final float alphaEnd;
         private final DepthChannel depthChannel;
         private final float fadeAlpha;
+        private final Colors colors;
 
         /**
-         * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出），保留既有调用点签名。
+         * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出）+ builtin 颜色，保留既有调用点签名。
          */
         public Visuals(
                 float barThickness,
@@ -118,7 +237,8 @@ public final class ChainPreviewDrawPlan {
                 alphaStart,
                 alphaEnd,
                 depthChannel,
-                1.0F);
+                1.0F,
+                Colors.BUILTIN);
         }
 
         public Visuals(
@@ -131,6 +251,30 @@ public final class ChainPreviewDrawPlan {
                 float alphaEnd,
                 DepthChannel depthChannel,
                 float fadeAlpha) {
+            this(
+                barThickness,
+                minScreenWidthPx,
+                animationU,
+                fadeStartRadius,
+                fadeEndRadius,
+                alphaStart,
+                alphaEnd,
+                depthChannel,
+                fadeAlpha,
+                Colors.BUILTIN);
+        }
+
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha,
+                Colors colors) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -140,6 +284,7 @@ public final class ChainPreviewDrawPlan {
             this.alphaEnd = alphaEnd;
             this.depthChannel = depthChannel;
             this.fadeAlpha = fadeAlpha;
+            this.colors = colors == null ? Colors.BUILTIN : colors;
         }
 
         public float getBarThickness() {
@@ -172,7 +317,8 @@ public final class ChainPreviewDrawPlan {
                 alphaStart,
                 alphaEnd,
                 depthChannel,
-                fadeAlpha);
+                fadeAlpha,
+                colors);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -206,6 +352,11 @@ public final class ChainPreviewDrawPlan {
             return fadeAlpha;
         }
 
+        /** @return 语义颜色面，永不为 null */
+        public Colors getColors() {
+            return colors;
+        }
+
         /**
          * 记录全局淡入淡出乘子（{@link #getAlphaStart()}/{@link #getAlphaEnd()} 保持原值）。
          *
@@ -230,7 +381,8 @@ public final class ChainPreviewDrawPlan {
                 alphaStart,
                 alphaEnd,
                 depthChannel,
-                safeMultiplier);
+                safeMultiplier,
+                colors);
         }
 
         /** @return 深度通道，永不为 null */
@@ -290,6 +442,7 @@ public final class ChainPreviewDrawPlan {
             float safeAlphaEnd = clampFinite(alphaEnd, 0.0F, 1.0F, DEFAULT_ALPHA_END);
             float safeFadeAlpha = clampFinite(fadeAlpha, 0.0F, 1.0F, 1.0F);
             DepthChannel safeChannel = depthChannel == null ? DepthChannel.XRAY : depthChannel;
+            Colors safeColors = colors == null ? Colors.BUILTIN : colors;
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx
                     && safeAnimationU == animationU
@@ -298,7 +451,8 @@ public final class ChainPreviewDrawPlan {
                     && safeAlphaStart == alphaStart
                     && safeAlphaEnd == alphaEnd
                     && safeFadeAlpha == fadeAlpha
-                    && safeChannel == depthChannel) {
+                    && safeChannel == depthChannel
+                    && safeColors == colors) {
                 return this;
             }
             return new Visuals(
@@ -310,7 +464,8 @@ public final class ChainPreviewDrawPlan {
                 safeAlphaStart,
                 safeAlphaEnd,
                 safeChannel,
-                safeFadeAlpha);
+                safeFadeAlpha,
+                safeColors);
         }
 
         @Override
@@ -330,7 +485,8 @@ public final class ChainPreviewDrawPlan {
                 && Float.compare(alphaStart, that.alphaStart) == 0
                 && Float.compare(alphaEnd, that.alphaEnd) == 0
                 && Float.compare(fadeAlpha, that.fadeAlpha) == 0
-                && depthChannel == that.depthChannel;
+                && depthChannel == that.depthChannel
+                && colors.equals(that.colors);
         }
 
         @Override
@@ -344,6 +500,7 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + Float.floatToIntBits(alphaEnd);
             result = 31 * result + Float.floatToIntBits(fadeAlpha);
             result = 31 * result + (depthChannel == null ? 0 : depthChannel.hashCode());
+            result = 31 * result + colors.hashCode();
             return result;
         }
 
@@ -356,6 +513,7 @@ public final class ChainPreviewDrawPlan {
                 + ", alpha=" + alphaStart + ".." + alphaEnd
                 + ", fadeAlpha=" + fadeAlpha
                 + ", depthChannel=" + depthChannel
+                + ", " + colors
                 + '}';
         }
     }
@@ -633,9 +791,36 @@ public final class ChainPreviewDrawPlan {
         return visuals.getFadeAlpha();
     }
 
-    /** @return 远端 α（生效值：已含全局淡入淡出乘子） */
+    /** @return 远端 α（距离淡出端点；全局乘子见 {@link #getFadeAlpha()}） */
     public float getAlphaEnd() {
         return visuals.getAlphaEnd();
+    }
+
+    /**
+     * @return 颜色来源归一化 id：{@code config} / {@code builtin}（null 与未知值兜底 builtin）
+     */
+    public String getColorSourceId() {
+        return visuals.getColors().getSourceId();
+    }
+
+    /** @return 主模式颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    public int getColorPrimary() {
+        return visuals.getColors().getPrimary();
+    }
+
+    /** @return 子模式颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    public int getColorSecondary() {
+        return visuals.getColors().getSecondary();
+    }
+
+    /** @return 远端预测颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    public int getColorRemote() {
+        return visuals.getColors().getRemote();
+    }
+
+    /** @return 截断颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    public int getColorTruncated() {
+        return visuals.getColors().getTruncated();
     }
 
     /** @return 语义类别位掩码 */
