@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.chain.client;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,7 +30,7 @@ public class ChainPreviewBuilderSemanticClassTest {
             ChainPreviewSemanticClass.TRUNCATED,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL};
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
-            chain(4), visuals(), 0.045F, carrier);
+            production(chain(4)), visuals(), 0.045F, production(carrier));
 
         assertClassFollowsOrder(mesh, carrier);
         Assert.assertTrue("至少出现两种类别，避免断言平凡通过", distinctClasses(mesh) >= 2);
@@ -40,7 +41,7 @@ public class ChainPreviewBuilderSemanticClassTest {
         int[] carrier = {ChainPreviewSemanticClass.REMOTE_PREDICTED,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL};
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
-            chain(2), visuals(), 0.045F, carrier);
+            production(chain(2)), visuals(), 0.045F, production(carrier));
 
         // x = 1.0 直通格点由目标 0 与目标 1 共享 → order 取 0，类别必须取目标 0 的 REMOTE(2)。
         int shared = 0;
@@ -68,7 +69,8 @@ public class ChainPreviewBuilderSemanticClassTest {
             ChainPreviewSemanticClass.SUB_MODE_LOCAL};
 
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
-            Arrays.asList(first, first, second), visuals(), 0.045F, carrier);
+            production(Arrays.asList(first, first, second)), visuals(), 0.045F,
+            production(carrier));
 
         assertBlockClass(mesh, 0, ChainPreviewSemanticClass.TRUNCATED);
         assertBlockClass(mesh, 2, ChainPreviewSemanticClass.SUB_MODE_LOCAL);
@@ -83,7 +85,7 @@ public class ChainPreviewBuilderSemanticClassTest {
             ChainPreviewSemanticClass.PRIMARY_LOCAL};
 
         BuildSession session = new ChainPreviewMeshBuilder().begin(
-            scattered(4), visuals(), 0.045F, carrier);
+            production(scattered(4)), visuals(), 0.045F, production(carrier));
         Assert.assertTrue(session.advance(null));
         ChainPreviewMesh mesh = session.getMesh();
 
@@ -103,7 +105,7 @@ public class ChainPreviewBuilderSemanticClassTest {
             ChainPreviewSemanticClass.EXECUTED};
 
         BuildSession session = new ChainPreviewMeshBuilder().begin(
-            scattered(4), visuals(), 0.045F, carrier);
+            production(scattered(4)), visuals(), 0.045F, production(carrier));
         Assert.assertTrue(session.advance(null));
         ChainPreviewMesh mesh = session.getMesh();
 
@@ -131,13 +133,16 @@ public class ChainPreviewBuilderSemanticClassTest {
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         int[] carrier = {ChainPreviewSemanticClass.REMOTE_PREDICTED,
             ChainPreviewSemanticClass.PRIMARY_LOCAL};
-        ChainPreviewMesh first = builder.build(chain(2), visuals(), 0.045F, carrier);
-        ChainPreviewMesh second = builder.build(chain(2), visuals(), 0.045F, carrier);
+        ChainPreviewMesh first = builder.build(
+            production(chain(2)), visuals(), 0.045F, production(carrier));
+        ChainPreviewMesh second = builder.build(
+            production(chain(2)), visuals(), 0.045F, production(carrier));
         Assert.assertArrayEquals("同输入重建必须逐字节一致", first.getAux(), second.getAux());
 
         int[] other = {ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.TRUNCATED};
-        ChainPreviewMesh third = builder.build(chain(2), visuals(), 0.045F, other);
+        ChainPreviewMesh third = builder.build(
+            production(chain(2)), visuals(), 0.045F, production(other));
         assertClassFollowsOrder(third, other);
         Assert.assertFalse("上一代类别不得泄漏",
             containsClass(third, ChainPreviewSemanticClass.REMOTE_PREDICTED));
@@ -160,6 +165,22 @@ public class ChainPreviewBuilderSemanticClassTest {
             Assert.assertTrue(colors[offset + 3] >= 0.2F && colors[offset + 3] <= 0.8F);
         }
         Assert.assertTrue("类别必须实际分叉，颜色流仍保持基线", distinctClasses(mesh) >= 2);
+    }
+
+    /** 生产快照序（最新→最早）：公共 begin/build 入口的喂入语义（内部翻转为时间序装配）。 */
+    private static List<ChainTarget> production(List<ChainTarget> chronological) {
+        List<ChainTarget> reversed = new ArrayList<ChainTarget>(chronological);
+        Collections.reverse(reversed);
+        return reversed;
+    }
+
+    /** 与目标一起翻转的类别载体（保持「类别跟随目标」）。 */
+    private static int[] production(int[] chronological) {
+        int[] reversed = new int[chronological.length];
+        for (int index = 0; index < chronological.length; index++) {
+            reversed[index] = chronological[chronological.length - 1 - index];
+        }
+        return reversed;
     }
 
     private static List<ChainTarget> chain(int count) {

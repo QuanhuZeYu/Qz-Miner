@@ -166,7 +166,8 @@ public class ChainPreviewMeshBuilderTest {
     }
 
     @Test
-    public void renderMeshCapacityKeepsNewestSnapshotPrefixAndBoundsIteration() {
+    public void renderMeshCapacityBoundsIterationAndAnchorsEarliestTarget() {
+        // 喂入序 = 生产快照序（最新→最早）：列表由大到小；装配翻转为时间序（最早=0）。
         java.util.List<ChainTarget> targets = new java.util.ArrayList<ChainTarget>();
         int totalTargets = ChainPreviewMeshBuilder.MAX_RENDER_TARGETS + 100;
         for (int index = 0; index < totalTargets; index++) {
@@ -183,8 +184,11 @@ public class ChainPreviewMeshBuilderTest {
         ChainPreviewMesh mesh = session.getMesh();
         Assert.assertTrue(mesh.isTruncated());
         Assert.assertEquals(ChainPreviewMeshBuilder.MAX_RENDER_TARGETS, mesh.getBlockCount());
-        Assert.assertEquals(ChainPreviewMeshBuilder.MAX_RENDER_TARGETS + 1, targetsRead[0]);
-        Assert.assertEquals((totalTargets - 1) * 2, mesh.getOriginX());
+        // 方向统一（B4.1 第二步）：装配需从「最早」开始，因此必须读完整快照后再裁剪
+        // （上游目标数本身有 MAX_RENDER_TARGETS 硬顶，读取仍有界）；保留 MAX 个 + 置 truncated。
+        Assert.assertEquals(totalTargets, targetsRead[0]);
+        // 契约变更（Lead 批准）：meshOrigin = 代内首个（最早）目标，不再是「最新目标」。
+        Assert.assertEquals(0, mesh.getOriginX());
         Assert.assertEquals(
             ChainPreviewMeshBuilder.MAX_RENDER_TARGETS * 12 * 6 * 4,
             mesh.getIndexCount());

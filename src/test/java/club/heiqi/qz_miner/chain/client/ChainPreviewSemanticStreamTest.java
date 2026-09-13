@@ -45,7 +45,7 @@ public class ChainPreviewSemanticStreamTest {
 
     @Test
     public void adjacentChainJunctionOrderIsMinIncidentTargetAndTubeQuadrantsAppear() {
-        List<ChainTarget> chain = blocks(4);
+        List<ChainTarget> chain = production(blocks(4));
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(chain, visuals());
 
         float[] vertices = mesh.getVertices();
@@ -103,7 +103,7 @@ public class ChainPreviewSemanticStreamTest {
         for (int index = 0; index < 292; index++) {
             targets.add(new ChainTarget(index * 2, 0, 0));
         }
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(targets, visuals());
+        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(production(targets), visuals());
 
         Assert.assertTrue(assertBlockOrderBytes(mesh, 2, (byte) 0x01, (byte) 0x00) > 0);
         Assert.assertTrue(assertBlockOrderBytes(mesh, 291 * 2, (byte) 0x23, (byte) 0x01) > 0);
@@ -126,7 +126,8 @@ public class ChainPreviewSemanticStreamTest {
     @Test
     public void isolatedBlocksMapAppearOrderByCollectionIndex() {
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
-            Arrays.asList(new ChainTarget(0, 0, 0), new ChainTarget(2, 0, 0), new ChainTarget(4, 0, 0)),
+            production(Arrays.asList(
+                new ChainTarget(0, 0, 0), new ChainTarget(2, 0, 0), new ChainTarget(4, 0, 0))),
             visuals());
 
         assertDefinedAppearOrders(mesh);
@@ -198,6 +199,13 @@ public class ChainPreviewSemanticStreamTest {
         Assert.assertTrue(mesh.isAuxAvailable());
         Assert.assertNull(mesh.getAuxDegradationReason());
         Assert.assertFalse(mesh.isTruncated());
+    }
+
+    /** 生产快照序（最新→最早）：公共 begin/build 入口的喂入语义（内部翻转为时间序装配）。 */
+    private static List<ChainTarget> production(List<ChainTarget> chronological) {
+        List<ChainTarget> reversed = new ArrayList<ChainTarget>(chronological);
+        Collections.reverse(reversed);
+        return reversed;
     }
 
     private static List<ChainTarget> blocks(int count) {

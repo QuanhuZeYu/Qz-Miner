@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.client;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -81,7 +82,7 @@ public class ChainPreviewLodCullingTest {
             ChainPreviewSemanticClass.REMOTE_PREDICTED};
 
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
-            scattered(13), distanceVisuals(true, 0.05F), 0.045F, carrier);
+            production(scattered(13)), distanceVisuals(true, 0.05F), 0.045F, production(carrier));
 
         // 相机在原点侧：d=0/2/4 三个目标 alpha > 0.05 保留，其余 10 个 alpha=0 被剔除。
         Assert.assertEquals(10, mesh.getCulledTargetCount());
@@ -330,6 +331,22 @@ public class ChainPreviewLodCullingTest {
     private static VisualParameters hysteresisVisuals(double distance, boolean lodEnabled, float enter) {
         return new VisualParameters(
             0.5D + distance, 0.5D, 0.5D, 0.0D, 10.0D, 1.0F, 0.0F, 0.045F, lodEnabled, enter);
+    }
+
+    /** 生产快照序（最新→最早）：公共 begin/build 入口的喂入语义（内部翻转为时间序装配）。 */
+    private static List<ChainTarget> production(List<ChainTarget> chronological) {
+        List<ChainTarget> reversed = new ArrayList<ChainTarget>(chronological);
+        Collections.reverse(reversed);
+        return reversed;
+    }
+
+    /** 与目标一起翻转的类别载体（保持「类别跟随目标」）。 */
+    private static int[] production(int[] chronological) {
+        int[] reversed = new int[chronological.length];
+        for (int index = 0; index < chronological.length; index++) {
+            reversed[index] = chronological[chronological.length - 1 - index];
+        }
+        return reversed;
     }
 
     private static List<ChainTarget> scattered(int count) {

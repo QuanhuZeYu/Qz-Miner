@@ -133,11 +133,17 @@ public class ChainPreviewMeshBuilder {
         return lodCulledPositions.size();
     }
 
-    /** 创建可跨 tick 恢复的 CPU build session。 */
+    /**
+     * 创建可跨 tick 恢复的 CPU build session。
+     *
+     * <p><b>方向统一（B4.1 第二步）</b>：输入按**生产快照序（最新→最早）**解释，
+     * 装配按**时间序（最早→最新）**进行；meshOrigin = 代内首个（最早）目标，
+     * 顶点/aux 顺序与 {@link GenerationSession} 一致，避免出现方向相反的第二真相源。
+     * 本入口与生产同序、保留用于测试/参考，不再是生产装配路径（生产走
+     * {@link GenerationSession#beginRevision} 分片形态）。</p>
+     */
     public BuildSession begin(Iterable<ChainTarget> previewTargets, VisualParameters visualParameters) {
-        Iterable<ChainTarget> targets = previewTargets == null
-            ? Collections.<ChainTarget>emptyList()
-            : previewTargets;
+        List<ChainTarget> targets = productionOrder(previewTargets);
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
@@ -149,7 +155,7 @@ public class ChainPreviewMeshBuilder {
      * 显式注入 barThickness 的构建入口。
      *
      * <p>配置值由会话侧读取 settings 后以标量传入，Builder 不直连 Config；
-     * 其余视觉参数仍由 visuals 承载。</p>
+     * 其余视觉参数仍由 visuals 承载。输入方向同 {@link #begin(Iterable, VisualParameters)}。</p>
      */
     public BuildSession begin(
             Iterable<ChainTarget> previewTargets, VisualParameters visualParameters, float barThickness) {
@@ -159,8 +165,9 @@ public class ChainPreviewMeshBuilder {
     /**
      * 携带目标语义类别的构建入口（B2.3）。
      *
-     * <p>semanticClasses 与 previewTargets 的迭代顺序严格同序：索引 i 即第 i 个被读取目标的
-     * 出现序号（{@code RenderSnapshot.getTargets()} 为最新→最早）。取值见接口冻结 §D：
+     * <p>semanticClasses 与 previewTargets 的**喂入顺序**严格同序：索引 i 即第 i 个喂入目标
+     * （{@code RenderSnapshot.getTargets()} 为最新→最早）。装配时目标与类别数组一起翻转为
+     * 时间序，因此类别始终跟随其目标，不因方向统一而错位。取值见接口冻结 §D：
      * 0 PRIMARY_LOCAL / 1 SUB_MODE_LOCAL / 2 REMOTE_PREDICTED / 3 TRUNCATED / 4 DEFERRED /
      * 5 EXECUTED / 255 UNDEFINED。传 null 表示未提供类别（全部按 255，不计降级）；数组短于
      * 目标数或元素非法时仅对应目标按 255 兜底并计数，前面的类别绝不错位。</p>
@@ -168,15 +175,38 @@ public class ChainPreviewMeshBuilder {
     public BuildSession begin(
             Iterable<ChainTarget> previewTargets, VisualParameters visualParameters,
             float barThickness, int[] semanticClasses) {
-        Iterable<ChainTarget> targets = previewTargets == null
-            ? Collections.<ChainTarget>emptyList()
-            : previewTargets;
+        List<ChainTarget> targets = productionOrder(previewTargets);
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
         return new BuildSession(
-            targets, visuals.withBarThickness(barThickness), semanticClasses,
+            targets, visuals.withBarThickness(barThickness), productionOrder(semanticClasses),
             lodCulledPositions, lodHysteresisResetSignal, null);
+    }
+
+    /** @return 按生产快照序（最新→最早）喂入的目标，翻转为时间序（最早→最新）列表 */
+    private static List<ChainTarget> productionOrder(Iterable<ChainTarget> previewTargets) {
+        if (previewTargets == null) {
+            return Collections.<ChainTarget>emptyList();
+        }
+        List<ChainTarget> ordered = new ArrayList<ChainTarget>();
+        for (ChainTarget target : previewTargets) {
+            ordered.add(target);
+        }
+        Collections.reverse(ordered);
+        return ordered;
+    }
+
+    /** @return 与目标一起翻转的类别载体（索引仍对应翻转后的目标）；null 原样返回 */
+    private static int[] productionOrder(int[] semanticClasses) {
+        if (semanticClasses == null) {
+            return null;
+        }
+        int[] reversed = new int[semanticClasses.length];
+        for (int index = 0; index < semanticClasses.length; index++) {
+            reversed[index] = semanticClasses[semanticClasses.length - 1 - index];
+        }
+        return reversed;
     }
 
     /**
@@ -194,7 +224,10 @@ public class ChainPreviewMeshBuilder {
         return new GenerationSession(this, reanchorDistance);
     }
 
-    /** 内部：显式锚点的构建入口；代级会话与差分基线共用同一套装配代码。 */
+    /**
+     * 内部：显式锚点 + **按给定顺序**（时间序，不再翻转）的构建入口；
+     * 代级会话与差分基线共用同一套装配代码。调用方保证列表已是时间序。
+     */
     BuildSession beginWithOrigin(
             Iterable<ChainTarget> previewTargets, VisualParameters visualParameters,
             int[] semanticClasses, int originX, int originY, int originZ) {

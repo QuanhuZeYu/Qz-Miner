@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.chain.client;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -30,7 +31,7 @@ public class ChainPreviewUniqueQuotaTest {
         ChainTarget third = new ChainTarget(4, 0, 0);
 
         ChainPreviewMesh mesh = builder.build(
-            Arrays.asList(first, first, second, first, third, second),
+            production(Arrays.asList(first, first, second, first, third, second)),
             visuals());
 
         Assert.assertFalse(mesh.isTruncated());
@@ -56,7 +57,7 @@ public class ChainPreviewUniqueQuotaTest {
 
         final int[] targetsRead = {0};
         BuildSession session = new ChainPreviewMeshBuilder().begin(
-            counted(targets, targetsRead), visuals());
+            production(counted(targets, targetsRead)), visuals());
         Assert.assertTrue(session.advance(null));
         ChainPreviewMesh mesh = session.getMesh();
 
@@ -79,7 +80,7 @@ public class ChainPreviewUniqueQuotaTest {
 
         final int[] targetsRead = {0};
         BuildSession session = new ChainPreviewMeshBuilder().begin(
-            counted(targets, targetsRead), visuals());
+            production(counted(targets, targetsRead)), visuals());
         Assert.assertTrue(session.advance(null));
         ChainPreviewMesh mesh = session.getMesh();
 
@@ -87,6 +88,16 @@ public class ChainPreviewUniqueQuotaTest {
         Assert.assertTrue(mesh.isTruncated());
         Assert.assertEquals(ChainPreviewMeshBuilder.MAX_RENDER_TARGETS, mesh.getBlockCount());
         assertAppearOrders(mesh, ChainPreviewMeshBuilder.MAX_RENDER_TARGETS);
+    }
+
+    /** 生产快照序（最新→最早）：公共 begin/build 入口的喂入语义。 */
+    private static List<ChainTarget> production(Iterable<ChainTarget> chronological) {
+        List<ChainTarget> reversed = new ArrayList<ChainTarget>();
+        for (ChainTarget target : chronological) {
+            reversed.add(target);
+        }
+        Collections.reverse(reversed);
+        return reversed;
     }
 
     private static VisualParameters visuals() {
