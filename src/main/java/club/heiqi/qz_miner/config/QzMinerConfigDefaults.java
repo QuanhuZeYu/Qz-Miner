@@ -31,6 +31,67 @@ public final class QzMinerConfigDefaults {
     public static final double CLIENT_PREVIEW_ALPHA_START_VALUE = 0.78D;
     public static final double CLIENT_PREVIEW_ALPHA_END_VALUE = 0.15D;
 
+    /** 并行执行预算档位（general 段，服务端权威）：deadline = 基线行为。 */
+    public static final String PARALLEL_BUDGET_MODE_DEADLINE = "deadline";
+    /** 并行执行预算档位：独立分片预算。 */
+    public static final String PARALLEL_BUDGET_MODE_SLICE = "slice";
+    /** 并行执行预算档位默认（等于基线行为）。 */
+    public static final String PARALLEL_BUDGET_MODE = PARALLEL_BUDGET_MODE_DEADLINE;
+    /** slice 档每 tick 并行分片预算（毫秒），仅 slice 档生效。 */
+    public static final int PARALLEL_SLICE_BUDGET_MS = 4;
+    /** 合法并行预算档位（Schema options 与语义校验共用的稳定顺序）。 */
+    public static final java.util.List<String> PARALLEL_BUDGET_MODES = java.util.Collections.unmodifiableList(
+            java.util.Arrays.asList(PARALLEL_BUDGET_MODE_DEADLINE, PARALLEL_BUDGET_MODE_SLICE));
+
+    // ---- 连锁预览观感档位（client 段，接口冻结 §E）----
+
+    /** 预览渲染后端：auto 能力探测通过用 shader，否则 legacy。 */
+    public static final String CLIENT_PREVIEW_RENDER_BACKEND = PreviewRenderBackend.defaultValue().id();
+    /** 预览条柱粗细（方块坐标偏移缩放）。 */
+    public static final double CLIENT_PREVIEW_BAR_THICKNESS = 0.045D;
+    /** 预览颜色来源：builtin 与历史行为逐字节一致。 */
+    public static final String CLIENT_PREVIEW_COLOR_SOURCE = PreviewColorSource.defaultValue().id();
+    /** 主模式本地预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_PRIMARY = 0x40E6FF;
+    /** 子模式本地预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_SECONDARY = 0x40E6FF;
+    /** 远端预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_REMOTE = 0x40E6FF;
+    /** 截断目标颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_TRUNCATED = 0x40E6FF;
+    /** 深度通道：xray 等于历史行为。 */
+    public static final String CLIENT_PREVIEW_DEPTH_MODE = PreviewDepthMode.defaultValue().id();
+    /** 预览动画：本轮默认 off（逐波生长接线属下一批 B3.1/B3.3）。 */
+    public static final String CLIENT_PREVIEW_ANIMATION = PreviewAnimationMode.defaultValue().id();
+    /** 单代动画时长（毫秒）。 */
+    public static final int CLIENT_PREVIEW_ANIMATION_DURATION_MS = 120;
+    /** 动画相位来源：order 用出现序号。 */
+    public static final String CLIENT_PREVIEW_ANIMATION_PHASE = PreviewAnimationPhase.defaultValue().id();
+    /** 距离淡出刷新模式：本轮默认 timer（signal 接线属下一批 B1.3）。 */
+    public static final String CLIENT_PREVIEW_FADE_MODE = PreviewFadeMode.defaultValue().id();
+    /** signal 档相机位移阈值（格）。 */
+    public static final double CLIENT_PREVIEW_FADE_REFRESH_DISTANCE = 0.5D;
+    /** signal 档无位移时的兜底刷新间隔（毫秒）。 */
+    public static final int CLIENT_PREVIEW_FADE_FALLBACK_MS = 250;
+    /** 条柱屏幕最小宽度（像素）；0 表示不钳制（本轮默认；接线属下一批 B2.1）。 */
+    public static final double CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX = 0.0D;
+    /** 预览被上限截断时是否给出可见提示（本轮默认 false；展示接线属下一批 B1.1）。 */
+    public static final boolean CLIENT_PREVIEW_TRUNCATION_SIGNAL = false;
+    /** 预览目标数量硬顶。 */
+    public static final int CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP = 4096;
+    /** 极端规模 LOD：off 等于历史行为。 */
+    public static final String CLIENT_PREVIEW_LOD = PreviewLodMode.defaultValue().id();
+    /** LOD alpha 剔除阈值。 */
+    public static final double CLIENT_PREVIEW_LOD_MIN_ALPHA = 0.05D;
+    /** 预览激活时是否取消同目标的原版方块高亮。 */
+    public static final boolean CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT = false;
+    /** 是否使用版本化预览输入快照（含目标去抖；本轮默认 false；接线属下一批 B1.2）。 */
+    public static final boolean CLIENT_PREVIEW_VERSIONED_INPUTS = false;
+    /** 是否启用统一表现投影覆盖层。 */
+    public static final boolean CLIENT_PREVIEW_PRESENTATION_OVERLAY = false;
+    /** 远端预览请求超时（毫秒）。 */
+    public static final int CLIENT_PREVIEW_REMOTE_TIMEOUT_MS = 5000;
+
     /** alpha fade 终点相对起点的最小间隔（与历史 load 语义一致）。 */
     public static final double ALPHA_FADE_MIN_SPAN = 0.001D;
 
@@ -52,6 +113,8 @@ public final class QzMinerConfigDefaults {
         target.put("general.tickBudgetMs", Double.valueOf(TICK_BUDGET_MS));
         target.put("general.enableUnlimitedOreFortune", Boolean.valueOf(ENABLE_UNLIMITED_ORE_FORTUNE));
         target.put("general.enableFortuneForPlacedOre", Boolean.valueOf(ENABLE_FORTUNE_FOR_PLACED_ORE));
+        target.put("general.parallelBudgetMode", PARALLEL_BUDGET_MODE);
+        target.put("general.parallelSliceBudgetMs", Double.valueOf(PARALLEL_SLICE_BUDGET_MS));
         target.put("client.clientEnablePreviewRender", Boolean.valueOf(CLIENT_ENABLE_PREVIEW_RENDER));
         target.put("client.tunnelDirectionSource", CLIENT_TUNNEL_DIRECTION_SOURCE);
         target.put("client.autoToolSwapEnabled", Boolean.valueOf(CLIENT_AUTO_TOOL_SWAP_ENABLED));
@@ -64,6 +127,30 @@ public final class QzMinerConfigDefaults {
                 Double.valueOf(CLIENT_PREVIEW_ALPHA_FADE_END_RADIUS));
         target.put("client.clientPreviewAlphaStartValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_START_VALUE));
         target.put("client.clientPreviewAlphaEndValue", Double.valueOf(CLIENT_PREVIEW_ALPHA_END_VALUE));
+        target.put("client.clientPreviewRenderBackend", CLIENT_PREVIEW_RENDER_BACKEND);
+        target.put("client.clientPreviewBarThickness", Double.valueOf(CLIENT_PREVIEW_BAR_THICKNESS));
+        target.put("client.clientPreviewColorSource", CLIENT_PREVIEW_COLOR_SOURCE);
+        target.put("client.clientPreviewColorPrimary", Double.valueOf(CLIENT_PREVIEW_COLOR_PRIMARY));
+        target.put("client.clientPreviewColorSecondary", Double.valueOf(CLIENT_PREVIEW_COLOR_SECONDARY));
+        target.put("client.clientPreviewColorRemote", Double.valueOf(CLIENT_PREVIEW_COLOR_REMOTE));
+        target.put("client.clientPreviewColorTruncated", Double.valueOf(CLIENT_PREVIEW_COLOR_TRUNCATED));
+        target.put("client.clientPreviewDepthMode", CLIENT_PREVIEW_DEPTH_MODE);
+        target.put("client.clientPreviewAnimation", CLIENT_PREVIEW_ANIMATION);
+        target.put("client.clientPreviewAnimationDurationMs", Double.valueOf(CLIENT_PREVIEW_ANIMATION_DURATION_MS));
+        target.put("client.clientPreviewAnimationPhase", CLIENT_PREVIEW_ANIMATION_PHASE);
+        target.put("client.clientPreviewFadeMode", CLIENT_PREVIEW_FADE_MODE);
+        target.put("client.clientPreviewFadeRefreshDistance", Double.valueOf(CLIENT_PREVIEW_FADE_REFRESH_DISTANCE));
+        target.put("client.clientPreviewFadeFallbackMs", Double.valueOf(CLIENT_PREVIEW_FADE_FALLBACK_MS));
+        target.put("client.clientPreviewMinScreenWidthPx", Double.valueOf(CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX));
+        target.put("client.clientPreviewTruncationSignal", Boolean.valueOf(CLIENT_PREVIEW_TRUNCATION_SIGNAL));
+        target.put("client.clientPreviewMaxTargetsHardCap", Double.valueOf(CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP));
+        target.put("client.clientPreviewLod", CLIENT_PREVIEW_LOD);
+        target.put("client.clientPreviewLodMinAlpha", Double.valueOf(CLIENT_PREVIEW_LOD_MIN_ALPHA));
+        target.put("client.clientPreviewSuppressVanillaHighlight",
+                Boolean.valueOf(CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT));
+        target.put("client.clientPreviewVersionedInputs", Boolean.valueOf(CLIENT_PREVIEW_VERSIONED_INPUTS));
+        target.put("client.clientPreviewPresentationOverlay", Boolean.valueOf(CLIENT_PREVIEW_PRESENTATION_OVERLAY));
+        target.put("client.clientPreviewRemoteTimeoutMs", Double.valueOf(CLIENT_PREVIEW_REMOTE_TIMEOUT_MS));
         target.put("client.objectGroups", objectGroups());
     }
 

@@ -47,6 +47,8 @@ public final class ConfigValueBridge {
         Config.tickBudgetMs = snapshot.tickBudgetMs;
         Config.enableUnlimitedOreFortune = snapshot.enableUnlimitedOreFortune;
         Config.enableFortuneForPlacedOre = snapshot.enableFortuneForPlacedOre;
+        Config.parallelBudgetMode = snapshot.parallelBudgetMode;
+        Config.parallelSliceBudgetMs = snapshot.parallelSliceBudgetMs;
     }
 
     /**
@@ -69,5 +71,28 @@ public final class ConfigValueBridge {
         Config.clientPreviewAlphaFadeEndRadius = snapshot.clientPreviewAlphaFadeEndRadius;
         Config.clientPreviewAlphaStartValue = snapshot.clientPreviewAlphaStartValue;
         Config.clientPreviewAlphaEndValue = snapshot.clientPreviewAlphaEndValue;
+        Config.clientPreviewRenderBackend = snapshot.clientPreviewRenderBackend;
+        Config.clientPreviewBarThickness = snapshot.clientPreviewBarThickness;
+        Config.clientPreviewColorSource = snapshot.clientPreviewColorSource;
+        Config.clientPreviewColorPrimary = snapshot.clientPreviewColorPrimary;
+        Config.clientPreviewColorSecondary = snapshot.clientPreviewColorSecondary;
+        Config.clientPreviewColorRemote = snapshot.clientPreviewColorRemote;
+        Config.clientPreviewColorTruncated = snapshot.clientPreviewColorTruncated;
+        Config.clientPreviewDepthMode = snapshot.clientPreviewDepthMode;
+        Config.clientPreviewAnimation = snapshot.clientPreviewAnimation;
+        Config.clientPreviewAnimationDurationMs = snapshot.clientPreviewAnimationDurationMs;
+        Config.clientPreviewAnimationPhase = snapshot.clientPreviewAnimationPhase;
+        Config.clientPreviewFadeMode = snapshot.clientPreviewFadeMode;
+        Config.clientPreviewFadeRefreshDistance = snapshot.clientPreviewFadeRefreshDistance;
+        Config.clientPreviewFadeFallbackMs = snapshot.clientPreviewFadeFallbackMs;
+        Config.clientPreviewMinScreenWidthPx = snapshot.clientPreviewMinScreenWidthPx;
+        Config.clientPreviewTruncationSignal = snapshot.clientPreviewTruncationSignal;
+        Config.clientPreviewMaxTargetsHardCap = snapshot.clientPreviewMaxTargetsHardCap;
+        Config.clientPreviewLod = snapshot.clientPreviewLod;
+        Config.clientPreviewLodMinAlpha = snapshot.clientPreviewLodMinAlpha;
+        Config.clientPreviewSuppressVanillaHighlight = snapshot.clientPreviewSuppressVanillaHighlight;
+        Config.clientPreviewVersionedInputs = snapshot.clientPreviewVersionedInputs;
+        Config.clientPreviewPresentationOverlay = snapshot.clientPreviewPresentationOverlay;
+        Config.clientPreviewRemoteTimeoutMs = snapshot.clientPreviewRemoteTimeoutMs;
     }
 }

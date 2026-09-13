@@ -115,3 +115,31 @@ config.qz_miner.object_group.list.move_bottom=置底
 config.qz_miner.object_group.list.duplicate=复制
 config.qz_miner.object_group.parse.global=整体配置存在结构问题
 config.qz_miner.object_group.picker.unavailable=方块选择器不可用
+
+# 配置页 tooltip（并行预算 + 连锁预览观感档位）
+config.qz_miner.parallelBudgetMode.tooltip=并行执行预算档位：deadline 沿用 tickBudgetMs 共享 deadline（默认，等于现状）；slice 改为每 tick 独立分片预算，主线程不再等满 deadline
+config.qz_miner.parallelSliceBudgetMs.tooltip=slice 档每 tick 的并行分片预算（毫秒），合法 1..40；deadline 档不生效
+config.qz_miner.clientPreviewRenderBackend.tooltip=预览渲染后端：auto 能力探测通过用 shader、否则 legacy（默认）；shader 档探测失败仍回退 legacy 并记录诊断；legacy 恒为固定管线
+config.qz_miner.clientPreviewBarThickness.tooltip=预览条柱粗细（方块坐标偏移缩放），默认 0.045，合法 0.005..0.2
+config.qz_miner.clientPreviewColorSource.tooltip=预览颜色来源：builtin 内置常量色（默认，与历史逐字节一致）；config 使用下方四个 RGB 键的语义配色
+config.qz_miner.clientPreviewColorPrimary.tooltip=主模式本地预测颜色（0xRRGGBB），默认 0x40E6FF
+config.qz_miner.clientPreviewColorSecondary.tooltip=子模式本地预测颜色（0xRRGGBB），默认 0x40E6FF
+config.qz_miner.clientPreviewColorRemote.tooltip=远端预测颜色（0xRRGGBB），默认 0x40E6FF
+config.qz_miner.clientPreviewColorTruncated.tooltip=截断目标颜色（0xRRGGBB），默认 0x40E6FF
+config.qz_miner.clientPreviewDepthMode.tooltip=深度通道：xray 恒可见（默认，等于现状）；occlude 参与深度测试；outline 主体遮挡 + 置顶轮廓
+config.qz_miner.clientPreviewAnimation.tooltip=预览动画：off 关闭（默认，等于本轮基线）；flow 整体流动；wave 按出现顺序逐波生长（接线属下一批）
+config.qz_miner.clientPreviewAnimationDurationMs.tooltip=单代动画时长（毫秒），0 表示瞬时完成，合法 0..2000
+config.qz_miner.clientPreviewAnimationPhase.tooltip=动画相位来源：order 用出现序号（默认）；hash 用坐标 + 代次稳定哈希
+config.qz_miner.clientPreviewFadeMode.tooltip=距离淡出刷新：timer 1 Hz 兜底（默认，等于现状）；signal 相机变更信号驱动（接线属下一批）；gpu 由着色器逐帧计算
+config.qz_miner.clientPreviewFadeRefreshDistance.tooltip=signal 档相机位移阈值（格）：位移达到该值才提升 visual revision，合法 0..8
+config.qz_miner.clientPreviewFadeFallbackMs.tooltip=signal 档无位移时的兜底刷新间隔（毫秒），合法 50..5000
+config.qz_miner.clientPreviewMinScreenWidthPx.tooltip=条柱在屏幕上的最小宽度（像素），默认 0 表示不钳制（等于现状；接线属下一批），合法 0..8
+config.qz_miner.clientPreviewTruncationSignal.tooltip=预览被目标上限截断时是否给出可见提示，默认 false（HUD 文案接线属下一批）
+config.qz_miner.clientPreviewMaxTargetsHardCap.tooltip=预览目标数量硬顶，合法 1..4096；实际取该值与 clientPreviewMaxTargets、服务端 chainMaxBlocks 的较小值
+config.qz_miner.clientPreviewLod.tooltip=极端规模 LOD：off 关闭（默认，等于历史行为）；auto 按距离合并并做 alpha 剔除
+config.qz_miner.clientPreviewLodMinAlpha.tooltip=LOD alpha 剔除阈值：低于该值的条柱不参与构建，合法 0..1
+config.qz_miner.clientPreviewSuppressVanillaHighlight.tooltip=预览激活且瞄准同一目标时取消原版方块高亮，避免双重指示
+config.qz_miner.clientPreviewVersionedInputs.tooltip=是否使用版本化预览输入快照（含目标去抖），默认 false（接线属下一批）；关闭时走逐字段比较
+config.qz_miner.clientPreviewPresentationOverlay.tooltip=是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源）
+config.qz_miner.clientPreviewRemoteTimeoutMs.tooltip=远端预览请求超时（毫秒），合法 250..60000；超时丢弃陈旧响应并清预览激活
+

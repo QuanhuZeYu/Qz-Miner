@@ -79,6 +79,9 @@ public final class ConfigSemanticValidator {
                 QzMinerConfigDefaults.TICK_BUDGET_MIN_MS, QzMinerConfigDefaults.TICK_BUDGET_MAX_MS);
         putBoolean(typed, errors, draft, "general.enableUnlimitedOreFortune");
         putBoolean(typed, errors, draft, "general.enableFortuneForPlacedOre");
+        putChoice(typed, errors, draft, "general.parallelBudgetMode",
+                QzMinerConfigDefaults.PARALLEL_BUDGET_MODES.toArray(new String[0]));
+        putIntNumber(typed, errors, draft, "general.parallelSliceBudgetMs", 1, 40);
         putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
         putTunnelDirectionSource(typed, errors, draft);
         putBoolean(typed, errors, draft, "client.autoToolSwapEnabled");
@@ -89,6 +92,29 @@ public final class ConfigSemanticValidator {
         putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaFadeEndRadius", 0.0D, Double.MAX_VALUE);
         putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaStartValue", 0.0D, 1.0D);
         putDoubleNumber(typed, errors, draft, "client.clientPreviewAlphaEndValue", 0.0D, 1.0D);
+        putChoice(typed, errors, draft, "client.clientPreviewRenderBackend", PreviewRenderBackend.ids());
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewBarThickness", 0.005D, 0.2D);
+        putChoice(typed, errors, draft, "client.clientPreviewColorSource", PreviewColorSource.ids());
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorPrimary", 0, 0xFFFFFF);
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorSecondary", 0, 0xFFFFFF);
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorRemote", 0, 0xFFFFFF);
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorTruncated", 0, 0xFFFFFF);
+        putChoice(typed, errors, draft, "client.clientPreviewDepthMode", PreviewDepthMode.ids());
+        putChoice(typed, errors, draft, "client.clientPreviewAnimation", PreviewAnimationMode.ids());
+        putIntNumber(typed, errors, draft, "client.clientPreviewAnimationDurationMs", 0, 2000);
+        putChoice(typed, errors, draft, "client.clientPreviewAnimationPhase", PreviewAnimationPhase.ids());
+        putChoice(typed, errors, draft, "client.clientPreviewFadeMode", PreviewFadeMode.ids());
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewFadeRefreshDistance", 0.0D, 8.0D);
+        putIntNumber(typed, errors, draft, "client.clientPreviewFadeFallbackMs", 50, 5000);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewMinScreenWidthPx", 0.0D, 8.0D);
+        putBoolean(typed, errors, draft, "client.clientPreviewTruncationSignal");
+        putIntNumber(typed, errors, draft, "client.clientPreviewMaxTargetsHardCap", 1, 4096);
+        putChoice(typed, errors, draft, "client.clientPreviewLod", PreviewLodMode.ids());
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewLodMinAlpha", 0.0D, 1.0D);
+        putBoolean(typed, errors, draft, "client.clientPreviewSuppressVanillaHighlight");
+        putBoolean(typed, errors, draft, "client.clientPreviewVersionedInputs");
+        putBoolean(typed, errors, draft, "client.clientPreviewPresentationOverlay");
+        putIntNumber(typed, errors, draft, "client.clientPreviewRemoteTimeoutMs", 250, 60000);
         putObjectGroups(typed, errors, draft);
 
         validateCrossFields(typed, errors);
@@ -180,6 +206,32 @@ public final class ConfigSemanticValidator {
             return;
         }
         typed.put(path, raw);
+    }
+
+    /**
+     * 读取 CHOICE 字段：必须是字符串且命中允许 id；未知值报错，不夹取、不回落。
+     *
+     * @param typed  已解析 typed 值
+     * @param errors 错误表
+     * @param draft  只读草稿视图
+     * @param path   字段全路径
+     * @param allowedIds 允许的稳定 id（顺序无关）
+     */
+    private static void putChoice(Map<String, Object> typed, Map<String, String> errors, DraftView draft,
+            String path, String[] allowedIds) {
+        Object raw = draft.getDraft(path);
+        if (!(raw instanceof String)) {
+            errors.put(path, path + " must be CHOICE, got " + typeName(raw));
+            return;
+        }
+        String value = (String) raw;
+        for (String id : allowedIds) {
+            if (id.equals(value)) {
+                typed.put(path, value);
+                return;
+            }
+        }
+        errors.put(path, path + " has unknown choice " + value);
     }
 
     private static void putIntNumber(Map<String, Object> typed, Map<String, String> errors,
@@ -301,6 +353,8 @@ public final class ConfigSemanticValidator {
         public final int tickBudgetMs;
         public final boolean enableUnlimitedOreFortune;
         public final boolean enableFortuneForPlacedOre;
+        public final String parallelBudgetMode;
+        public final int parallelSliceBudgetMs;
         public final boolean clientEnablePreviewRender;
         public final TunnelDirectionSource tunnelDirectionSource;
         public final boolean autoToolSwapEnabled;
@@ -311,6 +365,29 @@ public final class ConfigSemanticValidator {
         public final double clientPreviewAlphaFadeEndRadius;
         public final double clientPreviewAlphaStartValue;
         public final double clientPreviewAlphaEndValue;
+        public final PreviewRenderBackend clientPreviewRenderBackend;
+        public final double clientPreviewBarThickness;
+        public final PreviewColorSource clientPreviewColorSource;
+        public final int clientPreviewColorPrimary;
+        public final int clientPreviewColorSecondary;
+        public final int clientPreviewColorRemote;
+        public final int clientPreviewColorTruncated;
+        public final PreviewDepthMode clientPreviewDepthMode;
+        public final PreviewAnimationMode clientPreviewAnimation;
+        public final int clientPreviewAnimationDurationMs;
+        public final PreviewAnimationPhase clientPreviewAnimationPhase;
+        public final PreviewFadeMode clientPreviewFadeMode;
+        public final double clientPreviewFadeRefreshDistance;
+        public final int clientPreviewFadeFallbackMs;
+        public final double clientPreviewMinScreenWidthPx;
+        public final boolean clientPreviewTruncationSignal;
+        public final int clientPreviewMaxTargetsHardCap;
+        public final PreviewLodMode clientPreviewLod;
+        public final double clientPreviewLodMinAlpha;
+        public final boolean clientPreviewSuppressVanillaHighlight;
+        public final boolean clientPreviewVersionedInputs;
+        public final boolean clientPreviewPresentationOverlay;
+        public final int clientPreviewRemoteTimeoutMs;
         public final ObjectGroupRuleSet objectGroups;
 
         ValidatedSnapshot(Map<String, Object> typed) {
@@ -323,6 +400,8 @@ public final class ConfigSemanticValidator {
             tickBudgetMs = exactInt(typed, "general.tickBudgetMs");
             enableUnlimitedOreFortune = ((Boolean) typed.get("general.enableUnlimitedOreFortune")).booleanValue();
             enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
+            parallelBudgetMode = (String) typed.get("general.parallelBudgetMode");
+            parallelSliceBudgetMs = exactInt(typed, "general.parallelSliceBudgetMs");
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
             tunnelDirectionSource = (TunnelDirectionSource) typed.get("client.tunnelDirectionSource");
             autoToolSwapEnabled = ((Boolean) typed.get("client.autoToolSwapEnabled")).booleanValue();
@@ -333,6 +412,36 @@ public final class ConfigSemanticValidator {
             clientPreviewAlphaFadeEndRadius = number(typed, "client.clientPreviewAlphaFadeEndRadius");
             clientPreviewAlphaStartValue = number(typed, "client.clientPreviewAlphaStartValue");
             clientPreviewAlphaEndValue = number(typed, "client.clientPreviewAlphaEndValue");
+            clientPreviewRenderBackend = PreviewRenderBackend.fromId(
+                    (String) typed.get("client.clientPreviewRenderBackend"));
+            clientPreviewBarThickness = number(typed, "client.clientPreviewBarThickness");
+            clientPreviewColorSource = PreviewColorSource.fromId(
+                    (String) typed.get("client.clientPreviewColorSource"));
+            clientPreviewColorPrimary = exactInt(typed, "client.clientPreviewColorPrimary");
+            clientPreviewColorSecondary = exactInt(typed, "client.clientPreviewColorSecondary");
+            clientPreviewColorRemote = exactInt(typed, "client.clientPreviewColorRemote");
+            clientPreviewColorTruncated = exactInt(typed, "client.clientPreviewColorTruncated");
+            clientPreviewDepthMode = PreviewDepthMode.fromId((String) typed.get("client.clientPreviewDepthMode"));
+            clientPreviewAnimation = PreviewAnimationMode.fromId((String) typed.get("client.clientPreviewAnimation"));
+            clientPreviewAnimationDurationMs = exactInt(typed, "client.clientPreviewAnimationDurationMs");
+            clientPreviewAnimationPhase = PreviewAnimationPhase.fromId(
+                    (String) typed.get("client.clientPreviewAnimationPhase"));
+            clientPreviewFadeMode = PreviewFadeMode.fromId((String) typed.get("client.clientPreviewFadeMode"));
+            clientPreviewFadeRefreshDistance = number(typed, "client.clientPreviewFadeRefreshDistance");
+            clientPreviewFadeFallbackMs = exactInt(typed, "client.clientPreviewFadeFallbackMs");
+            clientPreviewMinScreenWidthPx = number(typed, "client.clientPreviewMinScreenWidthPx");
+            clientPreviewTruncationSignal = ((Boolean) typed.get("client.clientPreviewTruncationSignal"))
+                    .booleanValue();
+            clientPreviewMaxTargetsHardCap = exactInt(typed, "client.clientPreviewMaxTargetsHardCap");
+            clientPreviewLod = PreviewLodMode.fromId((String) typed.get("client.clientPreviewLod"));
+            clientPreviewLodMinAlpha = number(typed, "client.clientPreviewLodMinAlpha");
+            clientPreviewSuppressVanillaHighlight = ((Boolean) typed
+                    .get("client.clientPreviewSuppressVanillaHighlight")).booleanValue();
+            clientPreviewVersionedInputs = ((Boolean) typed.get("client.clientPreviewVersionedInputs"))
+                    .booleanValue();
+            clientPreviewPresentationOverlay = ((Boolean) typed.get("client.clientPreviewPresentationOverlay"))
+                    .booleanValue();
+            clientPreviewRemoteTimeoutMs = exactInt(typed, "client.clientPreviewRemoteTimeoutMs");
             objectGroups = (ObjectGroupRuleSet) typed.get("client.objectGroups");
         }
 

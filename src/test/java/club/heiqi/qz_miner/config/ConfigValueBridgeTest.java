@@ -16,7 +16,7 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
 /**
- * Authority → 静态字段：全 19 个 runtime 字段 + 非法值不 round。
+ * Authority → 静态字段：既有 19 个 runtime 字段 + 非法值不 round（本轮新增键由 PreviewConfigSurfaceTest 覆盖）。
  */
 public class ConfigValueBridgeTest {
 

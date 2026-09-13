@@ -46,8 +46,12 @@ public class QzMinerConfigGUI extends McScreenBridge {
         // 惰性持有者把该 registry 带进 renderer：render 发生在 ConfigScreen 构造期，届时已冻结。
         final Registry[] editorRegistry = new Registry[1];
         return ConfigUI.buildScreen(manager, input,
-                registry -> registry.registerPath(ObjectGroupEditorState.PATH,
-                        new ObjectGroupEditorFieldRenderer(() -> editorRegistry[0])),
+                registry -> {
+                    registry.registerPath(ObjectGroupEditorState.PATH,
+                            new ObjectGroupEditorFieldRenderer(() -> editorRegistry[0]));
+                    // 本轮新增配置键的 tooltip 走语言文件（UILib 配置页无 label/helper i18n 通道）
+                    PreviewConfigTooltips.install(registry);
+                },
                 policy -> { },
                 editors -> {
                     editorRegistry[0] = editors;

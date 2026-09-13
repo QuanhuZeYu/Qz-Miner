@@ -113,6 +113,75 @@ public final class LegacyCfgImporter {
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewAlphaEndValue",
                     "client.clientPreviewAlphaEndValue",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewRenderBackend",
+                    "client.clientPreviewRenderBackend",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_RENDER_BACKEND);
+            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewBarThickness",
+                    "client.clientPreviewBarThickness",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_BAR_THICKNESS);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewColorSource",
+                    "client.clientPreviewColorSource",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SOURCE);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorPrimary",
+                    "client.clientPreviewColorPrimary",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_PRIMARY);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorSecondary",
+                    "client.clientPreviewColorSecondary",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SECONDARY);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorRemote",
+                    "client.clientPreviewColorRemote",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_REMOTE);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorTruncated",
+                    "client.clientPreviewColorTruncated",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_TRUNCATED);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewDepthMode",
+                    "client.clientPreviewDepthMode",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_DEPTH_MODE);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewAnimation",
+                    "client.clientPreviewAnimation",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewAnimationDurationMs",
+                    "client.clientPreviewAnimationDurationMs",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION_DURATION_MS);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewAnimationPhase",
+                    "client.clientPreviewAnimationPhase",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION_PHASE);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewFadeMode",
+                    "client.clientPreviewFadeMode",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_MODE);
+            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewFadeRefreshDistance",
+                    "client.clientPreviewFadeRefreshDistance",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_REFRESH_DISTANCE);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewFadeFallbackMs",
+                    "client.clientPreviewFadeFallbackMs",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_FALLBACK_MS);
+            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewMinScreenWidthPx",
+                    "client.clientPreviewMinScreenWidthPx",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX);
+            putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewTruncationSignal",
+                    "client.clientPreviewTruncationSignal",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewMaxTargetsHardCap",
+                    "client.clientPreviewMaxTargetsHardCap",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP);
+            putString(values, configuration, CATEGORY_CLIENT, "clientPreviewLod",
+                    "client.clientPreviewLod",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_LOD);
+            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewLodMinAlpha",
+                    "client.clientPreviewLodMinAlpha",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_LOD_MIN_ALPHA);
+            putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewSuppressVanillaHighlight",
+                    "client.clientPreviewSuppressVanillaHighlight",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT);
+            putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewVersionedInputs",
+                    "client.clientPreviewVersionedInputs",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_VERSIONED_INPUTS);
+            putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewPresentationOverlay",
+                    "client.clientPreviewPresentationOverlay",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_PRESENTATION_OVERLAY);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewRemoteTimeoutMs",
+                    "client.clientPreviewRemoteTimeoutMs",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_REMOTE_TIMEOUT_MS);
 
             return ImportResult.ok(values);
         } catch (RuntimeException e) {

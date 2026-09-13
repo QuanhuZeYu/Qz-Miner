@@ -248,7 +248,7 @@ public class ConfigSemanticValidatorTest {
         void mutate(DraftBuffer draft);
     }
 
-    /** 全 19 个 runtime static 的值对象（对象组规则仍由 ValidatedSnapshot 承载）。 */
+    /** 既有 19 个 runtime static 的值对象（本轮新增键由 PreviewConfigSurfaceTest 覆盖；对象组规则仍由 ValidatedSnapshot 承载）。 */
     private static final class RuntimeState {
         private final List<Object> values;
 
