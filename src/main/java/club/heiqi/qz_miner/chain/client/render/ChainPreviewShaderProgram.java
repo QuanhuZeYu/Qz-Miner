@@ -49,6 +49,11 @@ public final class ChainPreviewShaderProgram {
     private static final int ATTRIB_AUX = 1;
     private static final int ATTRIB_COLOR = 2;
 
+    /** T50 运行时解析出的属性槽位（链接后查询；-1 = 未解析或被优化掉）。 */
+    private int positionAttributeLocation = -1;
+    private int auxAttributeLocation = -1;
+    private int colorAttributeLocation = -1;
+
     private static final String MISSING_UNIFORM_PREFIX = "预览着色器缺少必备 uniform: ";
 
     /**
@@ -158,6 +163,8 @@ public final class ChainPreviewShaderProgram {
             setFadeAlpha(1.0F);
             // 必备 uniform 校验放在最后：缺失即抛 ⇒ 由下方 catch 收敛为「程序不可用」⇒ 后端一次性回退。
             verifyRequiredUniforms();
+            // T50：属性槽位同样必须问驱动要，不能假设 0/1/2（原因见 resolveAttributeLocations）。
+            resolveAttributeLocations();
             return true;
         } catch (Throwable failure) {
             // 编译 / 链接 / 验证失败，甚至 LWJGL native 不可用（UnsatisfiedLinkError /
@@ -551,11 +558,60 @@ public final class ChainPreviewShaderProgram {
         }
     }
 
-    /** 固定属性槽位，与接口冻结 §A 的 attribute 0/1/2 一一对应。 */
+    /**
+     * 请求固定属性槽位（接口冻结 §A 的 attribute 0/1/2）。
+     *
+     * <p><b>这只是「请求」，不是「事实」</b>：真机实测（Angelica GLSM + lwjgl3ify + core profile）
+     * 下本调用返回成功却不生效，驱动把 {@code aPos} 分到了槽位 1、{@code aAux} 分到了槽位 2
+     * （GLSL 1.20 兼容档里 {@code gl_Vertex} 占住槽位 0 之后的默认分配），而 {@code aColor}
+     * 因为着色器从不读取它被整体优化掉（location = -1）。因此槽位一律以
+     * {@link #resolveAttributeLocations()} 的查询结果为准，本方法只作为「请求」保留。</p>
+     */
     private void bindAttributeLocations() {
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_POSITION, "aPos");
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_AUX, "aAux");
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_COLOR, "aColor");
+    }
+
+    /**
+     * T50：链接后向驱动查询三个属性的真实槽位。
+     *
+     * <p><b>为什么必须查询</b>：{@code glBindAttribLocation} 在本环境实测不生效（无报错、无
+     * Unmapped 警告，但查询结果是 1/2/-1）。此前 Java 侧把顶点数据写死在槽位 0、aux 写死在 1，
+     * 于是 GPU 把 <b>aux 的 uint8 字节值当作顶点坐标</b>读——所有顶点落进 [0,1]³ 的小盒子，
+     * 屏幕上就是「瞄准方块上的一小块色斑」，而数据回读、绑定回读、矩阵回读全部自洽。
+     * 这是「离线全绿、真机错位」的最后一层，只有把槽位当运行时事实才能根治。</p>
+     *
+     * <p>{@code aPos} / {@code aAux} 缺一不可：缺失即抛，由 {@code ensureReady} 收敛为
+     * 「程序不可用」⇒ 后端一次性回退 legacy，绝不留错误空间的一帧。
+     * {@code aColor} 允许为 -1（着色器不消费 CPU 颜色流，编译器会把它优化掉）。</p>
+     */
+    private void resolveAttributeLocations() {
+        positionAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aPos");
+        auxAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aAux");
+        colorAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aColor");
+        if (positionAttributeLocation < 0 || auxAttributeLocation < 0) {
+            throw new IllegalStateException("属性槽位解析失败：aPos=" + positionAttributeLocation
+                + ", aAux=" + auxAttributeLocation);
+        }
+        if (positionAttributeLocation == auxAttributeLocation) {
+            throw new IllegalStateException("aPos 与 aAux 落在同一槽位 " + positionAttributeLocation);
+        }
+    }
+
+    /** @return 顶点位置属性的运行时槽位（>= 0；未就绪时为 -1）。 */
+    public int getPositionAttributeLocation() {
+        return positionAttributeLocation;
+    }
+
+    /** @return 顶点辅助属性（semanticClass / tubeEdge / appearOrder）的运行时槽位（>= 0；未就绪时为 -1）。 */
+    public int getAuxAttributeLocation() {
+        return auxAttributeLocation;
+    }
+
+    /** @return 颜色属性的运行时槽位；-1 表示被编译器优化掉（着色器不消费该流）。 */
+    public int getColorAttributeLocation() {
+        return colorAttributeLocation;
     }
 
     private void releaseResources() {
@@ -569,6 +625,9 @@ public final class ChainPreviewShaderProgram {
         }
         uniformLocations.clear();
         missingUniforms.clear();
+        positionAttributeLocation = -1;
+        auxAttributeLocation = -1;
+        colorAttributeLocation = -1;
     }
 
     private static void deleteShader(int shaderId) {

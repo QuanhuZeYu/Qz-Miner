@@ -69,13 +69,62 @@ public class ChainPreviewShaderFenceTest {
                 firstDisable < unbind);
     }
 
-    /** 关闭的属性必须覆盖启用过的全部槽位（0/1/2），否则残留 enable 泄漏到外部 VAO。 */
+    /**
+     * 关闭的属性必须覆盖启用过的全部槽位，否则残留 enable 泄漏到外部 VAO。
+     *
+     * <p><b>T50 修订</b>：本测试原先断言字面量 {@code (0)/(1)/(2)}——那正是被真机证伪的假设。
+     * 驱动把 {@code aPos} 分到槽位 1、{@code aAux} 分到槽位 2（{@code glBindAttribLocation}
+     * 无错返回却不生效），于是硬编码 0/1/2 让 GPU 拿 aux 字节当坐标读。槽位改为运行时解析后，
+     * 本测试改断言「两侧调用集合相等」——它守的纪律（成对）不变，且不再把错误的槽位固化下来。</p>
+     */
     @Test
     public void drawDisablesEveryAttributeItEnabled() throws IOException {
         String body = methodBody(BACKEND_PATH, "public void draw(", "void draw(ChainPreviewDrawPlan plan)");
-        for (String slot : new String[] {"(0)", "(1)", "(2)"}) {
-            Assert.assertTrue("必须启用 attrib " + slot, body.contains("glEnableVertexAttribArray" + slot));
-            Assert.assertTrue("必须关闭 attrib " + slot, body.contains("glDisableVertexAttribArray" + slot));
+        java.util.Set<String> enabled = callArguments(body, "glEnableVertexAttribArray(");
+        java.util.Set<String> disabled = callArguments(body, "glDisableVertexAttribArray(");
+        Assert.assertFalse("draw 必须启用属性数组", enabled.isEmpty());
+        Assert.assertEquals("每个 enable 的槽位都必须有对应的 disable（且不得多关）", enabled, disabled);
+    }
+
+    /**
+     * T50 防回归：属性指针的槽位必须来自运行时查询，不得写死 0/1/2。
+     *
+     * <p>真机根因就是「假设 aPos=0 / aAux=1」：驱动实际分配 1/2，于是顶点坐标从 aux 字节读，
+     * 几何整体塌进 [0,1]³——而数据、绑定、矩阵回读全部自洽，离线一片绿。
+     * 这条断言把「槽位是请求还是事实」的区别固定在代码里。</p>
+     */
+    @Test
+    public void attributePointersUseRuntimeResolvedSlots() throws IOException {
+        for (String signature : new String[] {"private void initializeGl()", "private void bindVertexLayout()"}) {
+            String body = methodBody(BACKEND_PATH, signature, signature);
+            java.util.Set<String> slots = callArguments(body, "glVertexAttribPointer(");
+            Assert.assertFalse("必须存在 glVertexAttribPointer: " + signature, slots.isEmpty());
+            for (String slot : slots) {
+                Assert.assertTrue("属性槽位必须是运行时解析值而不是字面量：" + signature + " -> " + slot,
+                        slot.startsWith("attributePosition") || slot.startsWith("attributeAux")
+                                || slot.startsWith("attributeColor"));
+            }
+            Assert.assertTrue("绑定必须先取运行时槽位：" + signature,
+                    body.contains("attributePosition") && body.contains("attributeAux"));
+        }
+    }
+
+    /** 收集某次调用在方法体内出现过的第一实参（原样文本，去空白）。 */
+    private static java.util.Set<String> callArguments(String body, String callPrefix) {
+        java.util.Set<String> args = new java.util.TreeSet<String>();
+        int from = 0;
+        while (true) {
+            int at = body.indexOf(callPrefix, from);
+            if (at < 0) {
+                return args;
+            }
+            int open = at + callPrefix.length();
+            int close = body.indexOf(')', open);
+            if (close < 0) {
+                return args;
+            }
+            args.add(body.substring(open, close).trim());
+            from = close;
         }
     }
 

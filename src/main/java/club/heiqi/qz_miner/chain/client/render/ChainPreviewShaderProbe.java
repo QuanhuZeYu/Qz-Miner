@@ -157,7 +157,8 @@ final class ChainPreviewShaderProbe {
             + ", matrixTrusted=" + matrixTrusted + "}");
     }
 
-    void reportBindings(int expectedVao, int expectedEbo, int expectedVbo, int expectedCbo, int expectedAbo) {
+    void reportBindings(int expectedVao, int expectedEbo, int expectedVbo, int expectedCbo, int expectedAbo,
+                        int positionSlot, int auxSlot, int colorSlot) {
         Integer vaoBound = integer(GL30.GL_VERTEX_ARRAY_BINDING);
         Integer eboBound = integer(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING);
         Integer arrayBound = integer(GL15.GL_ARRAY_BUFFER_BINDING);
@@ -165,8 +166,17 @@ final class ChainPreviewShaderProbe {
         text.append("vaoBound=").append(vaoBound).append("/expected=").append(expectedVao);
         text.append(", eboBound=").append(eboBound).append("/expected=").append(expectedEbo);
         text.append(", arrayBufferBound=").append(arrayBound);
-        for (int slot = 0; slot < 4; slot++) {
-            text.append(", a").append(slot).append("={buf=").append(attribInt(slot, GL15.GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING))
+        // T50：按驱动分配的真实槽位报告——硬编码 0..3 会在槽位错位时打印出「一切正常」的假象。
+        int[] probeSlots = new int[] {positionSlot, auxSlot, colorSlot, -1};
+        String[] probeNames = new String[] {"aPos@", "aAux@", "aColor@", "unused@"};
+        for (int probeIndex = 0; probeIndex < probeSlots.length; probeIndex++) {
+            int slot = probeSlots[probeIndex];
+            text.append(", ").append(probeNames[probeIndex]).append(slot).append("={");
+            if (slot < 0) {
+                text.append("optimized-out}");
+                continue;
+            }
+            text.append("buf=").append(attribInt(slot, GL15.GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING))
                 .append(",enabled=").append(attribInt(slot, GL20.GL_VERTEX_ATTRIB_ARRAY_ENABLED))
                 .append(",size=").append(attribInt(slot, GL20.GL_VERTEX_ATTRIB_ARRAY_SIZE))
                 .append(",type=").append(attribInt(slot, GL20.GL_VERTEX_ATTRIB_ARRAY_TYPE))

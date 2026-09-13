@@ -151,6 +151,18 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     private final BufferAllocator allocator;
 
+    /**
+     * T50 运行时属性槽位（链接后查询得到；0/1/2 只是「请求」而非事实）。
+     *
+     * <p>真机实测：{@code glBindAttribLocation} 无错返回却不生效，驱动把 {@code aPos} 分到槽位 1、
+     * {@code aAux} 分到槽位 2、{@code aColor} 因未被着色器读取而整体优化掉（-1）。此前按 0/1/2
+     * 硬编码写指针，等于让 GPU 把 <b>aux 的 uint8 字节值当顶点坐标</b>读——几何整体落进 [0,1]³，
+     * 而数据/绑定/矩阵回读全部自洽，只剩画面上「瞄准方块上的一小块色斑」。</p>
+     */
+    private int attributePosition = -1;
+    private int attributeAux = -1;
+    private int attributeColor = -1;
+
     public ChainPreviewShaderBackend() {
         this(new ChainPreviewShaderProgram(), LWJGL_ALLOCATOR);
     }
@@ -205,6 +217,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                         ? "着色器程序不可用" : program.getLastFailureMessage();
                 return false;
             }
+            // T50：槽位必须在写 VAO 之前解析——绑错槽位就是「顶点数据永远读不到」。
+            resolveAttributeBindings();
             initializeGl();
             initialized = true;
             failureReason = "";
@@ -358,9 +372,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             // 在外部渲染路径之后仍然有效（详见 bindVertexLayout 的 javadoc）。
             int previousArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             bindVertexLayout();
-            GL20.glEnableVertexAttribArray(0);
-            GL20.glEnableVertexAttribArray(1);
-            GL20.glEnableVertexAttribArray(2);
+            GL20.glEnableVertexAttribArray(attributePosition);
+            GL20.glEnableVertexAttribArray(attributeAux);
+            if (attributeColor >= 0) {
+                GL20.glEnableVertexAttribArray(attributeColor);
+            }
             // T49 探针：本帧绘制输入自证（属性布局 / 容量 / 数据回读 / 矩阵 / uniform 回读）。
             // 位置在此处是刻意的：VAO 已绑定且布局已重设，正是 DrawElements 即将消费的状态。
             // T50：探针同时做「首帧全量取证」与「稳态取样」——首帧必然停在动画起点（正常也只会
@@ -389,9 +405,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             }
             // attrib 的 enable 状态属于 VAO：必须在自绑 VAO 还绑定时成对关闭，
             // 否则关掉的是外部默认 VAO 的 attrib 数组（D1）。
-            GL20.glDisableVertexAttribArray(2);
-            GL20.glDisableVertexAttribArray(1);
-            GL20.glDisableVertexAttribArray(0);
+            if (attributeColor >= 0) {
+                GL20.glDisableVertexAttribArray(attributeColor);
+            }
+            GL20.glDisableVertexAttribArray(attributeAux);
+            GL20.glDisableVertexAttribArray(attributePosition);
             GL30.glBindVertexArray(0);
             // GL_ARRAY_BUFFER 绑定不属于 VAO，必须显式还原（本环境没有可用的固定管线围栏）。
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
@@ -426,7 +444,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             probe.reportContext(topologyGeneration, vao, vbo, cbo, abo, ebo,
                 vertexCount, indexCount, visibleIndexCount, indexOffset, plan.getIndexOffset(),
                 matrixSourceFailure.isEmpty());
-            probe.reportBindings(vao, ebo, vbo, cbo, abo);
+            probe.reportBindings(vao, ebo, vbo, cbo, abo,
+                attributePosition, attributeAux, attributeColor);
             probe.reportBuffers(
                 boundBufferSize(vbo, GL15.GL_ARRAY_BUFFER),
                 boundBufferSize(cbo, GL15.GL_ARRAY_BUFFER),
@@ -950,11 +969,24 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      */
     private void bindVertexLayout() {
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
-        GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
-        GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
+        GL20.glVertexAttribPointer(attributePosition, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
-        GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
+        GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
+        if (attributeColor >= 0) {
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
+            GL20.glVertexAttribPointer(attributeColor, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
+        }
+    }
+
+    /** T50：链接后取驱动分配的属性槽位；aPos / aAux 缺失即置后端不可用（绝不画错误空间的一帧）。 */
+    private void resolveAttributeBindings() {
+        attributePosition = program.getPositionAttributeLocation();
+        attributeAux = program.getAuxAttributeLocation();
+        attributeColor = program.getColorAttributeLocation();
+        if (attributePosition < 0 || attributeAux < 0 || attributePosition == attributeAux) {
+            throw new IllegalStateException("属性槽位非法：aPos=" + attributePosition
+                + ", aAux=" + attributeAux + ", aColor=" + attributeColor);
+        }
     }
 
     private void initializeGl() {
@@ -972,20 +1004,24 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
-        // 接口冻结 §A：aPos = 3 x float32（相对 meshOrigin 的局部坐标）。
-        GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
-        GL20.glEnableVertexAttribArray(0);
+        // 接口冻结 §A：aPos = 3 x float32（相对 meshOrigin 的局部坐标）。槽位取运行时解析值。
+        GL20.glVertexAttribPointer(attributePosition, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
+        GL20.glEnableVertexAttribArray(attributePosition);
 
         // 接口冻结 §A：aAux = 4 x uint8 normalized（semanticClass / tubeEdge / appearOrder u16 LE）
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(1, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
-        GL20.glEnableVertexAttribArray(1);
+        GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
+        GL20.glEnableVertexAttribArray(attributeAux);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, cbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, cboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(2, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
-        GL20.glEnableVertexAttribArray(2);
+        // 着色器从不读取 aColor（颜色由 aAux + uniform 调色板在顶点阶段决定），编译器会把它整体
+        // 优化掉：此时 location = -1，绝不能拿它当槽位写指针（旧代码写死 2 恰好覆盖了 aAux）。
+        if (attributeColor >= 0) {
+            GL20.glVertexAttribPointer(attributeColor, 4, GL11.GL_FLOAT, false, COLOR_STRIDE_BYTES, 0L);
+            GL20.glEnableVertexAttribArray(attributeColor);
+        }
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
@@ -994,6 +1030,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     private void releaseGl() {
+        attributePosition = -1;
+        attributeAux = -1;
+        attributeColor = -1;
         int deletedVao = vao;
         int deletedVbo = vbo;
         int deletedCbo = cbo;
