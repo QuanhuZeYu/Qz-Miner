@@ -65,21 +65,30 @@ public class PreviewInputSnapshotTest {
     public void settingsContentChangeRestartsWhileRebuiltEqualSnapshotDoesNot() {
         Object world = new Object();
         ChainTarget target = new ChainTarget(5, 5, 5);
-        PreviewInputSnapshot base = snapshot(world, target, 0, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, SETTINGS, 0L, 0L);
-
+        ChainPreviewVisualSettings previousCurrent = ChainPreviewVisualSettings.current();
+        ChainPreviewVisualSettings fresh = ChainPreviewVisualSettings.fromConfig();
         ChainPreviewVisualSettings equalCopy = ChainPreviewVisualSettings.fromConfig();
-        Assert.assertEquals("fromConfig 内容必须等于 current（值语义）", SETTINGS, equalCopy);
-        Assert.assertFalse("1 Hz 重建但内容相同不得触发重建", ChainPreviewController.shouldRestartPreview(
-            base, snapshot(world, target, 0, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, equalCopy, 0L, 0L)));
+        try {
+            ChainPreviewVisualSettings.publish(fresh);
+            Assert.assertNotSame("fromConfig 每次返回新实例", fresh, equalCopy);
+            Assert.assertEquals("同配置两次 fromConfig 内容必须相等（值语义）", fresh, equalCopy);
 
-        ChainPreviewVisualSettings changed = new ChainPreviewVisualSettings(
-            0.1F, 0.0F, "xray", "off", "order", "timer", "builtin", "auto",
-            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
-            "off", 0.05F, false, 4096);
-        Assert.assertNotEquals(SETTINGS, changed);
-        Assert.assertTrue("视觉设置内容变化必须重建（按住连锁键改配置即重建）",
-            ChainPreviewController.shouldRestartPreview(
-                base, snapshot(world, target, 0, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, changed, 0L, 0L)));
+            PreviewInputSnapshot base = snapshot(
+                world, target, 0, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, fresh, 0L, 0L);
+            Assert.assertFalse("1 Hz 重建但内容相同不得触发重建", ChainPreviewController.shouldRestartPreview(
+                base, snapshot(world, target, 0, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, equalCopy, 0L, 0L)));
+
+            ChainPreviewVisualSettings changed = new ChainPreviewVisualSettings(
+                0.1F, 0.0F, "xray", "off", "order", "timer", "builtin", "auto",
+                0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
+                "off", 0.05F, false, 4096);
+            Assert.assertNotEquals(fresh, changed);
+            Assert.assertTrue("视觉设置内容变化必须重建（按住连锁键改配置即重建）",
+                ChainPreviewController.shouldRestartPreview(
+                    base, snapshot(world, target, 0, ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, changed, 0L, 0L)));
+        } finally {
+            ChainPreviewVisualSettings.publish(previousCurrent);
+        }
     }
 
     @Test

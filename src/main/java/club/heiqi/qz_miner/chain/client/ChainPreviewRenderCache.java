@@ -1,14 +1,18 @@
 package club.heiqi.qz_miner.chain.client;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.GenerationSession;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.MeshBuildSession;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderChange;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderSnapshot;
+import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.config.PreviewLodMode;
 import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
@@ -68,6 +72,11 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
      * 删除条件 = B4.1 增量路径上线且差分测试通过后，随该次替换一并删除。</p>
      */
     private boolean publicationAwaitingConsumption;
+
+    /** B4.1 第二步：当前代的增量装配会话（构建线程持有；代/lifecycle 变化时 dispose 另起）。 */
+    private GenerationSession generationSession;
+    private int generationSessionGeneration = Integer.MIN_VALUE;
+    private long generationSessionLifecycleEpoch = Long.MIN_VALUE;
 
     static ChainPreviewRenderCache createProduction(ChainPreviewState state) {
         return new ChainPreviewRenderCache(
@@ -150,6 +159,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 schedule = true;
             } else {
                 visualRefreshPending = false;
+                disposeGenerationSessionLocked();
                 BuildKey emptyKey = new BuildKey(
                     lifecycleEpoch,
                     change.getGeneration(),
@@ -332,6 +342,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             publicationAwaitingConsumption = false;
             // Lead 必修项 L-a：lifecycle/世界切换入口同样清 LOD 滞回记忆。
             meshBuilder.resetLodHysteresis();
+            disposeGenerationSessionLocked();
             subscription = taskSubscription;
             currentTask = null;
             taskSubscription = null;
@@ -418,6 +429,52 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             latestCameraY,
             latestCameraZ);
         visualRefreshPending = false;
+    }
+
+    /**
+     * B4.1 第二步：按代取（或新建）增量装配会话。
+     *
+     * <p>代内复用同一会话（保留增量缓存与 LOD 滞回）；世代变化 / lifecycle 变化时 dispose 旧会话
+     * 并新建（等效一次全量重建）。会话切换只发生在构建线程；dispose 仅置 volatile 位，
+     * 由构建线程下次 extend 入口消费。</p>
+     */
+    private MeshBuildSession generationExtendSession(
+            RenderSnapshot snapshot,
+            VisualState visuals,
+            ChainPreviewVisualSettings settingsSnapshot) {
+        GenerationSession session;
+        synchronized (taskLock) {
+            int generation = snapshot.getGeneration();
+            if (generationSession == null
+                    || generationSessionGeneration != generation
+                    || generationSessionLifecycleEpoch != lifecycleEpoch) {
+                disposeGenerationSessionLocked();
+                generationSession = meshBuilder.beginGeneration();
+                generationSessionGeneration = generation;
+                generationSessionLifecycleEpoch = lifecycleEpoch;
+            }
+            session = generationSession;
+        }
+        List<ChainTarget> targets = new ArrayList<ChainTarget>(snapshot.getTargetCount());
+        for (ChainTarget target : snapshot.getTargets()) {
+            targets.add(target);
+        }
+        // 可分片、可续跑：安全点与既有 BuildSession.advance 一致；再次 beginRevision 取代旧会话。
+        return session.beginRevision(
+            targets,
+            semanticClassesFor(snapshot),
+            visuals.toVisualParameters(settingsSnapshot),
+            settingsSnapshot.getBarThickness());
+    }
+
+    /** 释放当前代会话（持 taskLock 调用；dispose 只置位，构建线程下次 extend 消费）。 */
+    private void disposeGenerationSessionLocked() {
+        if (generationSession != null) {
+            generationSession.dispose();
+            generationSession = null;
+            generationSessionGeneration = Integer.MIN_VALUE;
+            generationSessionLifecycleEpoch = Long.MIN_VALUE;
+        }
     }
 
     private final class BuildTask implements ParallelTickTask {
@@ -525,11 +582,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                             snapshot.getGeneration(),
                             snapshot.getRevision(),
                             visuals.revision);
-                        session = meshBuilder.begin(
-                            snapshot.getTargets(),
-                            visuals.toVisualParameters(settingsSnapshot),
-                            settingsSnapshot.getBarThickness(),
-                            semanticClassesFor(snapshot));
+                        // B4.1 第二步：按代复用 GenerationSession 做增量装配（代内 extend 累积）。
+                        session = generationExtendSession(snapshot, visuals, settingsSnapshot);
                     }
                 }
 
