@@ -3,8 +3,8 @@ package club.heiqi.qz_miner.client;
 import java.util.Collections;
 import java.util.List;
 
-import club.heiqi.qz_miner.ClientProxy;
-import club.heiqi.qz_miner.chain.client.ChainPreviewState;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationHeader;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationProjection;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.uilib.ui.hud.api.HudWindowFactory;
@@ -87,9 +87,26 @@ public final class QzMinerHudWindow implements HudWindowFactory {
     /** 常启信号：HUD 卡片只读展示、不参与命中，表面绑定恒取 idle 档。 */
     private static final ReadableSignal<Boolean> ALWAYS_ENABLED = () -> Boolean.TRUE;
 
+    /**
+     * 生产 header 端口：读装配单例 {@link ChainPreviewPresentationProjection#installed()} 的当前 header。
+     *
+     * <p>每 tick 两次 volatile 读（单例 + header）+ O(1) 读取，零分配；不订阅、不直连
+     * {@code ChainPreviewState}（投影装配与生命周期归 session-core）。未装配返回 null，
+     * HUD 不出预览行也不抛异常。</p>
+     */
+    private static final QzMinerHudModel.PresentationHeaderSource INSTALLED_PROJECTION_SOURCE =
+            new QzMinerHudModel.PresentationHeaderSource() {
+                @Override
+                public ChainPreviewPresentationHeader current() {
+                    ChainPreviewPresentationProjection projection =
+                            ChainPreviewPresentationProjection.installed();
+                    return projection == null ? null : projection.currentHeader();
+                }
+            };
+
     private final ChainClientState clientState;
     private final ClientPhaseProjection phaseProjection;
-    private final QzMinerHudModel.PreviewStateSource previewStateSource;
+    private final QzMinerHudModel.PresentationHeaderSource headerSource;
 
     /** 显示模型 signal：内容唯一真值，由宿主帧末 flush 物化。 */
     private final Signal<QzMinerHudModel> model = Signal.create(QzMinerHudModel.EMPTY);
@@ -127,7 +144,7 @@ public final class QzMinerHudWindow implements HudWindowFactory {
                 public QzMinerHudModel get() {
                     model.get();
                     return QzMinerHudModel.translateForPreview(
-                            clientState, phaseProjection, previewStateSource);
+                            clientState, phaseProjection, headerSource);
                 }
             };
 
@@ -146,20 +163,14 @@ public final class QzMinerHudWindow implements HudWindowFactory {
      * @param phaseProjection 客户端阶段投影
      */
     public QzMinerHudWindow(ChainClientState clientState, ClientPhaseProjection phaseProjection) {
-        this(clientState, phaseProjection, new QzMinerHudModel.PreviewStateSource() {
-            @Override
-            public ChainPreviewState current() {
-                return ClientProxy.chainPreviewController == null
-                        ? null : ClientProxy.chainPreviewController.getPreviewState();
-            }
-        });
+        this(clientState, phaseProjection, INSTALLED_PROJECTION_SOURCE);
     }
 
     QzMinerHudWindow(ChainClientState clientState, ClientPhaseProjection phaseProjection,
-            QzMinerHudModel.PreviewStateSource previewStateSource) {
+            QzMinerHudModel.PresentationHeaderSource headerSource) {
         this.clientState = clientState;
         this.phaseProjection = phaseProjection;
-        this.previewStateSource = previewStateSource;
+        this.headerSource = headerSource;
     }
 
     /**
@@ -168,7 +179,8 @@ public final class QzMinerHudWindow implements HudWindowFactory {
      * <p>值不变时不写 signal；写侧不 flush，物化交给宿主帧管线（4.9 单一收口）。</p>
      */
     public void refresh() {
-        QzMinerHudModel next = QzMinerHudModel.translate(clientState, phaseProjection, previewStateSource);
+        QzMinerHudModel next = QzMinerHudModel.translate(
+                clientState, phaseProjection, headerSource);
         if (next.equals(published)) {
             return;
         }

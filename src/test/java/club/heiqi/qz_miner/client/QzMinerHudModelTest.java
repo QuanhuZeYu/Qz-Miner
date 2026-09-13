@@ -70,8 +70,8 @@ public class QzMinerHudModelTest {
         Assert.assertEquals("preview-matched", ids.get(ids.size() - 2));
         Assert.assertEquals("server-area", ids.get(ids.size() - 1));
 
-        fixture.state.setPreviewActive(false);
-        Assert.assertFalse(ids(fixture.model()).contains("preview-matched"));
+        fixture.preview.clear();
+        Assert.assertFalse("预览代清理后投影不再报告活动预览", ids(fixture.model()).contains("preview-matched"));
         fixture.state.setSelectedMode(ChainMode.CHAIN);
         Assert.assertFalse(ids(fixture.model()).contains("server-area"));
     }
@@ -258,13 +258,8 @@ public class QzMinerHudModelTest {
         private final ChainClientState state = new ChainClientState();
         private final ClientPhaseProjection projection = new ClientPhaseProjection();
         private final ChainPreviewState preview = new ChainPreviewState();
-        private final QzMinerHudModel.PreviewStateSource source =
-                new QzMinerHudModel.PreviewStateSource() {
-                    @Override
-                    public ChainPreviewState current() {
-                        return preview;
-                    }
-                };
+        private final PresentationHeaderTestSource source =
+                new PresentationHeaderTestSource(preview, projection);
         private int generation = 1;
 
         private QzMinerHudModel model() {

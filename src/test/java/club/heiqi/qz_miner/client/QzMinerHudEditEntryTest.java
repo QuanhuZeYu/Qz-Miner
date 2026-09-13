@@ -10,7 +10,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import club.heiqi.qz_miner.chain.client.ChainPreviewState;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationHeader;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.mode.ChainModeBootstrap;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
@@ -47,9 +47,9 @@ public class QzMinerHudEditEntryTest {
         HudEditService.getInstance().clear();
         ChatActionService.getInstance().clear();
         window = new QzMinerHudWindow(new ChainClientState(), new ClientPhaseProjection(),
-                new QzMinerHudModel.PreviewStateSource() {
+                new QzMinerHudModel.PresentationHeaderSource() {
                     @Override
-                    public ChainPreviewState current() {
+                    public ChainPreviewPresentationHeader current() {
                         return null;
                     }
                 });

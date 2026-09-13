@@ -248,7 +248,7 @@ public class QzMinerHudWindowTest {
         Assert.assertEquals(ClientI18n.tr("hud.qz_miner.server_area.label") + " ",
                 rows.get(rows.size() - 1).__getChildren().get(0).getText());
 
-        fixture.state.setPreviewActive(false);
+        fixture.preview.clear();
         fixture.window.refresh();
         runtime.flush();
         Assert.assertEquals(7, rowsOf(cardOf(content)).size());
@@ -320,13 +320,9 @@ public class QzMinerHudWindowTest {
         private final ChainClientState state = new ChainClientState();
         private final ClientPhaseProjection projection = new ClientPhaseProjection();
         private final ChainPreviewState preview = new ChainPreviewState();
-        private final QzMinerHudWindow window = new QzMinerHudWindow(state, projection,
-                new QzMinerHudModel.PreviewStateSource() {
-                    @Override
-                    public ChainPreviewState current() {
-                        return preview;
-                    }
-                });
+        private final PresentationHeaderTestSource source =
+                new PresentationHeaderTestSource(preview, projection);
+        private final QzMinerHudWindow window = new QzMinerHudWindow(state, projection, source);
         private int generation = 1;
 
         private void openGate(ChainPhase phase) {

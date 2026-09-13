@@ -51,7 +51,7 @@
   - `clientPreviewDepthMode`：深度通道，默认 `xray`（恒可见，等于历史）；可选 `occlude`（参与深度测试）/ `outline`（主体遮挡 + 置顶轮廓）。只改绘制通道，不改拓扑。
   - `clientPreviewAnimation`：预览动画，默认 `off`（等于基线行为）；可选 `flow`（整体流动）/ `wave`（按出现顺序逐波生长，接线属下一批）。
   - `clientPreviewAnimationDurationMs`：单代动画时长（毫秒），默认 `120`，合法 `0..2000`（`0` 瞬时完成）。
-  - `clientPreviewAnimationPhase`：相位来源，默认 `order`（出现序号）；可选 `hash`（坐标 + 代次稳定哈希）。
+  - `clientPreviewAnimationPhase`：相位来源，默认 `order`（出现序号）；可选 `hash`（坐标 + 代次稳定哈希）。**预留档：本轮未接线**——渲染路径只读 `animationId` / `animationDurationMs`，改此键只会触发一次重建而观感零变化；「保留出现顺序」由 `animation=wave` 体现，hash 相位留待后续评估。
   - `clientPreviewFadeMode`：距离淡出刷新，默认 `timer`（1 Hz 兜底，等于现状）；可选 `signal`（相机变更信号驱动，消除 1 Hz 台阶，接线属下一批）/ `gpu`（着色器逐帧计算）。
   - `clientPreviewFadeRefreshDistance`：`signal` 档相机位移阈值（格），默认 `0.5`，合法 `0..8`；达到阈值才提升 visual revision。
   - `clientPreviewFadeFallbackMs`：`signal` 档无位移时的兜底刷新间隔（毫秒），默认 `250`，合法 `50..5000`。

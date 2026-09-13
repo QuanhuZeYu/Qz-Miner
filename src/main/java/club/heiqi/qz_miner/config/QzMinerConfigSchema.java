@@ -217,7 +217,8 @@ public final class QzMinerConfigSchema {
                         .defaultValue(QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION_PHASE)
                         .options(PreviewAnimationPhase.ids())
                         .label("clientPreviewAnimationPhase")
-                        .helper("动画相位来源：order 用出现序号（默认）；hash 用坐标 + 代次稳定哈希")
+                        .helper("动画相位来源：order 用出现序号（默认）；hash 用坐标 + 代次稳定哈希"
+                                + "（预留档：本轮未接线，改此键观感不变）")
                         .build()
                     .choice("clientPreviewFadeMode")
                         .defaultValue(QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_MODE)

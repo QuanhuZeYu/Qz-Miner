@@ -5,7 +5,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import club.heiqi.qz_miner.chain.client.ChainPreviewState;
+import club.heiqi.qz_miner.chain.client.ChainPreviewState.CancelReason;
+import club.heiqi.qz_miner.chain.client.ChainPreviewState.TruncationReason;
+import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationHeader;
 import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeDefinition;
@@ -164,14 +166,18 @@ public final class QzMinerHudModel {
     }
 
     /**
-     * 预览状态端口：隔离 HUD 模型与预览渲染控制器的生命周期。
+     * 表现投影 header 端口（B1.1）：HUD 只消费投影发布的不可变 O(1) header。
+     *
+     * <p>装配点未安装投影（{@code ChainPreviewPresentationProjection.installed() == null}）或
+     * 尚未发布 header 时返回 null：HUD 不出任何预览行，也不抛异常。</p>
      */
-    public interface PreviewStateSource {
+    public interface PresentationHeaderSource {
         /**
-         * @return 当前预览状态；无预览时 null
+         * @return 当前 header；未装配 / 未发布时 null
          */
-        ChainPreviewState current();
+        ChainPreviewPresentationHeader current();
     }
+
 
     /** 空模型：显示门关闭（渲染层据此产生零尺寸内容树 → 宿主整窗隐藏）。 */
     public static final QzMinerHudModel EMPTY = new QzMinerHudModel(Collections.<Line>emptyList());
@@ -185,17 +191,17 @@ public final class QzMinerHudModel {
     /**
      * 把连锁客户端状态翻译为显示模型（纯函数，headless 可测）。
      *
-     * @param clientState        客户端连锁状态
-     * @param phaseProjection    客户端阶段投影
-     * @param previewStateSource 预览状态端口
+     * @param clientState    客户端连锁状态
+     * @param phaseProjection 客户端阶段投影
+     * @param headerSource   表现投影 header 端口（未装配返回 null 的降级实现）
      * @return 不可变显示模型；显示门关闭时为 {@link #EMPTY}
      */
     public static QzMinerHudModel translate(ChainClientState clientState,
-            ClientPhaseProjection phaseProjection, PreviewStateSource previewStateSource) {
+            ClientPhaseProjection phaseProjection, PresentationHeaderSource headerSource) {
         if (!isDisplayGateOpen(clientState, phaseProjection)) {
             return EMPTY;
         }
-        return new QzMinerHudModel(buildLines(clientState, phaseProjection, previewStateSource));
+        return new QzMinerHudModel(buildLines(clientState, phaseProjection, headerSource));
     }
 
     /**
@@ -206,14 +212,14 @@ public final class QzMinerHudModel {
      * 预览若照搬显示门就永远零尺寸（不可见、不可命中、不可拖动），编辑入口失去意义。
      * 本方法只服务 UILib 编辑期预览；{@link #translate} 的显示门语义不变。</p>
      *
-     * @param clientState        客户端连锁状态
-     * @param phaseProjection    客户端阶段投影
-     * @param previewStateSource 预览状态端口
+     * @param clientState    客户端连锁状态
+     * @param phaseProjection 客户端阶段投影
+     * @param headerSource   表现投影 header 端口（未装配返回 null 的降级实现）
      * @return 当前设置下的显示模型（行集合恒非空）
      */
     public static QzMinerHudModel translateForPreview(ChainClientState clientState,
-            ClientPhaseProjection phaseProjection, PreviewStateSource previewStateSource) {
-        return new QzMinerHudModel(buildLines(clientState, phaseProjection, previewStateSource));
+            ClientPhaseProjection phaseProjection, PresentationHeaderSource headerSource) {
+        return new QzMinerHudModel(buildLines(clientState, phaseProjection, headerSource));
     }
 
     /** 显示门：连锁键按下，或阶段处于 PLANNING/RUNNING/FINISHING。 */
@@ -228,7 +234,7 @@ public final class QzMinerHudModel {
 
     /** 行集合构建：显示门之外的翻译逻辑由 HUD 与编辑预览共用。 */
     private static List<Line> buildLines(ChainClientState clientState,
-            ClientPhaseProjection phaseProjection, PreviewStateSource previewStateSource) {
+            ClientPhaseProjection phaseProjection, PresentationHeaderSource headerSource) {
         ChainPhase phase = phaseProjection.getCurrentPhase();
         List<Line> lines = new ArrayList<Line>();
         ChainMode selectedMode = clientState.getSelectedMode();
@@ -273,20 +279,10 @@ public final class QzMinerHudModel {
                 span("object-group-sync.count-suffix", ClientI18n.tr("hud.qz_miner.count.suffix"),
                         Tone.MUTED))));
 
-        ChainPreviewState previewState = clientState.isPreviewActive() ? previewStateSource.current() : null;
-        if (previewState != null) {
-            String stateText = previewState.isCompleted()
-                    ? ClientI18n.tr("hud.qz_miner.preview.completed")
-                    : ClientI18n.tr("hud.qz_miner.preview.calculating");
-            lines.add(new Line("preview-matched", Arrays.asList(
-                    labelSpan("preview-matched.label", "hud.qz_miner.preview_matched.label"),
-                    span("preview-matched.value", String.valueOf(previewState.getMatchedCount()), Tone.INFO),
-                    span("preview-matched.unit", ClientI18n.tr("hud.qz_miner.blocks.unit"), Tone.MUTED),
-                    span("preview-matched.separator", ClientI18n.tr("hud.qz_miner.separator") + " ",
-                            Tone.MUTED),
-                    span("preview-matched.state", stateText,
-                            previewState.isCompleted() ? Tone.SUCCESS : Tone.WARNING))));
-        }
+        ChainPreviewPresentationHeader header = headerSource == null ? null : headerSource.current();
+        appendPreviewMatchedLine(lines, header);
+        appendTruncationLine(lines, header);
+        appendRemoteFailureLine(lines, header);
 
         if (modeDefinition != null && modeDefinition.shouldShowAreaInfo()) {
             int[] dimensions = resolveAreaDimensions(clientState, modeDefinition, selectedSubMode);
@@ -301,6 +297,75 @@ public final class QzMinerHudModel {
                     span("server-area.unit", ClientI18n.tr("hud.qz_miner.volume.unit"), Tone.MUTED))));
         }
         return lines;
+    }
+
+    /** 「预览已匹配」行：来自投影 header 的 matched/previewCompleted（不读 ChainPreviewState）。 */
+    private static void appendPreviewMatchedLine(List<Line> lines, ChainPreviewPresentationHeader header) {
+        if (header == null || !header.isPreviewActive()) {
+            return;
+        }
+        boolean completed = header.isPreviewCompleted();
+        lines.add(new Line("preview-matched", Arrays.asList(
+                labelSpan("preview-matched.label", "hud.qz_miner.preview_matched.label"),
+                span("preview-matched.value", String.valueOf(header.getMatchedCount()), Tone.INFO),
+                span("preview-matched.unit", ClientI18n.tr("hud.qz_miner.blocks.unit"), Tone.MUTED),
+                span("preview-matched.separator", ClientI18n.tr("hud.qz_miner.separator") + " ", Tone.MUTED),
+                span("preview-matched.state",
+                        ClientI18n.tr(completed
+                                ? "hud.qz_miner.preview.completed" : "hud.qz_miner.preview.calculating"),
+                        completed ? Tone.SUCCESS : Tone.WARNING))));
+    }
+
+    /**
+     * 截断行：header 报告截断且投影位 {@code truncationSignalEnabled}
+     * （{@code clientPreviewTruncationSignal}，随 header 每 tick 采样）打开时才展示。
+     */
+    private static void appendTruncationLine(List<Line> lines, ChainPreviewPresentationHeader header) {
+        if (header == null || !header.isTruncationSignalEnabled()
+                || header.getTruncationReason() == TruncationReason.NONE) {
+            return;
+        }
+        lines.add(new Line("preview-truncated", Arrays.asList(
+                labelSpan("preview-truncated.label", "hud.qz_miner.preview.truncated.label"),
+                span("preview-truncated.count", ClientI18n.tr("hud.qz_miner.preview.truncated.count",
+                        String.valueOf(header.getMatchedCount()),
+                        String.valueOf(header.getTotalCount())), Tone.WARNING),
+                span("preview-truncated.reason",
+                        ClientI18n.tr(truncationReasonKey(header.getTruncationReason())), Tone.WARNING))));
+    }
+
+    /**
+     * 远端失败行：{@code cancelReason} 非 NONE 时展示。
+     *
+     * <p>与截断开关无关——失败反馈是 B0.6 的独立语义；取消会令预览失活但保留原因，
+     * 故本行不要求 {@code previewActive}。显示门仍由 {@link #translate} 统一把关。</p>
+     */
+    private static void appendRemoteFailureLine(List<Line> lines, ChainPreviewPresentationHeader header) {
+        if (header == null || header.getCancelReason() == CancelReason.NONE) {
+            return;
+        }
+        lines.add(new Line("preview-remote-failure", Arrays.asList(
+                labelSpan("preview-remote-failure.label", "hud.qz_miner.preview.remote.label"),
+                span("preview-remote-failure.reason",
+                        ClientI18n.tr(cancelReasonKey(header.getCancelReason())), Tone.WARNING))));
+    }
+
+    /** 截断原因 → 语言键（调用方保证 reason != NONE）。 */
+    private static String truncationReasonKey(TruncationReason reason) {
+        if (reason == TruncationReason.HARD_CAP) {
+            return "hud.qz_miner.preview.truncated.reason.hard_cap";
+        }
+        if (reason == TruncationReason.REMOTE_LIMIT) {
+            return "hud.qz_miner.preview.truncated.reason.remote_limit";
+        }
+        return "hud.qz_miner.preview.truncated.reason.max_targets";
+    }
+
+    /** 取消原因 → 语言键（调用方保证 reason != NONE）。 */
+    private static String cancelReasonKey(CancelReason reason) {
+        return reason == CancelReason.REMOTE_UNAVAILABLE
+                ? "hud.qz_miner.preview.remote.unavailable"
+                : "hud.qz_miner.preview.remote.timeout";
     }
 
     /** @return 不可变行列表（渲染顺序即声明顺序） */
