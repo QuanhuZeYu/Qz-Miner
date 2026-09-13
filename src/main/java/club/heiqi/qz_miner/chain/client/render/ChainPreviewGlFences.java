@@ -51,6 +51,19 @@ public final class ChainPreviewGlFences {
 
         /** 绑定 GL_TEXTURE_2D 纹理。 */
         void setTextureBinding2d(int binding);
+
+        /**
+         * 消费一次 GL 错误码（T48c-B 诊断用）。
+         *
+         * <p>默认实现返回 0（GL_NO_ERROR）＝不做检查：既有假实现零破坏。
+         * 返回非 0 时由 {@link Frame} 记录「阶段名 + 错误码」并一次性 WARN，
+         * 不改变任何控制流语义。</p>
+         *
+         * @return glGetError 结果；0 = GL_NO_ERROR
+         */
+        default int consumeGlError() {
+            return 0;
+        }
     }
 
     /** LWJGL 实现（渲染线程内使用）。 */
@@ -82,6 +95,11 @@ public final class ChainPreviewGlFences {
         }
 
         @Override
+        public int consumeGlError() {
+            return GL11.glGetError();
+        }
+
+        @Override
         public boolean isTexture2dEnabled() {
             return GL11.glGetBoolean(GL11.GL_TEXTURE_2D);
         }
@@ -106,7 +124,84 @@ public final class ChainPreviewGlFences {
         }
     };
 
+    /** 一次性围栏诊断：已 WARN 过的阶段（阶段名 → 仅首报）。 */
+    private static final java.util.Set<String> FENCE_ERROR_REPORTED_PHASES =
+        new java.util.HashSet<String>();
+    private static final Object FENCE_ERROR_LOCK = new Object();
+    private static String lastFenceErrorPhase = "";
+    private static int lastFenceErrorCode;
+
     private ChainPreviewGlFences() {
+    }
+
+    /**
+     * 记录一次围栏阶段的 GL 错误（T48c-B）：同一阶段只 WARN 一次，不改语义。
+     *
+     * @param phase     阶段名（pushAttrib / pushClientAttrib / popClientAttrib / popAttrib）
+     * @param errorCode glGetError 结果（0 = 无错误，忽略）
+     */
+    static void noteFenceGlError(String phase, int errorCode) {
+        if (errorCode == 0 || phase == null || phase.isEmpty()) {
+            return;
+        }
+        String message;
+        synchronized (FENCE_ERROR_LOCK) {
+            lastFenceErrorPhase = phase;
+            lastFenceErrorCode = errorCode;
+            if (!FENCE_ERROR_REPORTED_PHASES.add(phase)) {
+                return;
+            }
+            message = "[ChainPreview] GL fence " + phase + " reported error "
+                + errorCode + " (0x" + Integer.toHexString(errorCode) + ")"
+                + "; push/pop semantics unchanged";
+        }
+        try {
+            club.heiqi.qz_miner.MyMod.LOG.warn(message);
+        } catch (Throwable ignored) {
+            // 日志异常不得影响渲染帧
+        }
+    }
+
+    /** @return 最近一次观测到错误的围栏阶段名；无则空串（诊断 / 测试用） */
+    public static String getLastFenceErrorPhase() {
+        synchronized (FENCE_ERROR_LOCK) {
+            return lastFenceErrorPhase;
+        }
+    }
+
+    /** @return 最近一次观测到的 GL 错误码；无则 0（诊断 / 测试用） */
+    public static int getLastFenceErrorCode() {
+        synchronized (FENCE_ERROR_LOCK) {
+            return lastFenceErrorCode;
+        }
+    }
+
+    /** @return 已一次性上报的阶段数（诊断 / 测试用） */
+    public static int getFenceErrorReportCount() {
+        synchronized (FENCE_ERROR_LOCK) {
+            return FENCE_ERROR_REPORTED_PHASES.size();
+        }
+    }
+
+    /** 测试用：清空一次性诊断状态（同一阶段可再次上报）。 */
+    static void resetFenceErrorDiagnosticsForTest() {
+        synchronized (FENCE_ERROR_LOCK) {
+            FENCE_ERROR_REPORTED_PHASES.clear();
+            lastFenceErrorPhase = "";
+            lastFenceErrorCode = 0;
+        }
+    }
+
+    /** 静默消费一次 GL 错误并记录阶段（异常不得逃逸）。 */
+    private static void consumeGlErrorQuietly(Access access, String phase) {
+        if (access == null) {
+            return;
+        }
+        try {
+            noteFenceGlError(phase, access.consumeGlError());
+        } catch (Throwable ignored) {
+            // 诊断本身不得影响渲染帧
+        }
     }
 
     /**
@@ -232,6 +327,8 @@ public final class ChainPreviewGlFences {
             try {
                 access.pushAllAttribs();
                 pushedAllAttribs = true;
+                // T48c-B：属性栈已删除的上下文会在此报 1282（core-like），一次性 WARN 留证
+                consumeGlErrorQuietly(access, "pushAttrib");
             } catch (Throwable pushFailure) {
                 if (failure.isEmpty()) {
                     failure = describe(pushFailure);
@@ -241,6 +338,7 @@ public final class ChainPreviewGlFences {
                 try {
                     access.pushClientVertexArrayAttribs();
                     pushedClientAttribs = true;
+                    consumeGlErrorQuietly(access, "pushClientAttrib");
                 } catch (Throwable pushFailure) {
                     if (failure.isEmpty()) {
                         failure = describe(pushFailure);
@@ -266,6 +364,7 @@ public final class ChainPreviewGlFences {
             if (pushedClientAttribs) {
                 try {
                     access.popClientAttribs();
+                    consumeGlErrorQuietly(access, "popClientAttrib");
                 } catch (Throwable ignored) {
                     // 上下文失效：状态栈弹出失败不阻断绑定恢复
                 }
@@ -273,6 +372,7 @@ public final class ChainPreviewGlFences {
             if (pushedAllAttribs) {
                 try {
                     access.popAttribs();
+                    consumeGlErrorQuietly(access, "popAttrib");
                 } catch (Throwable ignored) {
                     // 同上
                 }

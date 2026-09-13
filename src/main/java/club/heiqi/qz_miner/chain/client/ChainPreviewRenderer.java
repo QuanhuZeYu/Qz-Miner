@@ -4,6 +4,7 @@ import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewAnimationClock;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendReadiness;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendSelector;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDepthPass;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
@@ -39,15 +40,19 @@ import org.lwjgl.opengl.GL11;
  * 淡入、预览结束进入 retiring 保留最后一份网格淡出；off 档无过渡、结束立即清空，逐字等于历史行为。
  * 全局乘子经 plan 的 alpha 端点（shader 路径）与 1×1 白纹理 × GL_MODULATE（legacy 路径）施加。</p>
  *
- * <p>B0.4 口径：绑定捕获每帧 3 次 glGetInteger（一次捕获、一次恢复），矩阵模式不再单独查询
- * （glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）；着色器路径另有每帧 1 次 GL_VIEWPORT
- * 与 1 次 program 恢复回读，GL_PROJECTION_MATRIX 仅在 viewport 变化时读，这些不计入本口径，
- * 由 T6 后端自行计数（T8-D3/D4）。</p>
+ * <p>B0.4 口径（T48c-A 起更新）：绑定捕获每帧 3 次 glGetInteger（一次捕获、一次恢复），
+ * 矩阵模式不再单独查询（glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）。着色器路径
+ * 不再依赖固定管线内建矩阵：每次 draw 经 {@code ChainPreviewShaderProgram#readCameraMatrices}
+ * 回读 GL_PROJECTION_MATRIX 与 GL_MODELVIEW_MATRIX 各 1 次 glGetFloat —— XRAY / OCCLUDE 每帧
+ * 2 次，OUTLINE 两段 pass 每帧最多 4 次，legacy 路径 0 次。另有每次 draw 1 次
+ * GL_CURRENT_PROGRAM 恢复回读、以及按 viewport 变化缓存的 GL_VIEWPORT 回读；这些都不计入
+ * 帧级围栏口径，由后端自行计数（T8-D3/D4）。</p>
  *
  * <p>T26 / B4.3：GL 状态恢复、能力探测缓存、线程契约与资源重载令牌统一收敛到
  * {@link WorldOverlayBackend}；renderer 只消费其决策（{@link ChainPreviewOverlayPath}），
  * 并在能力不足（无 VAO / 无 GL20 / 探测失败）时显式降级不绘制 + 一次性诊断。
- * 默认档（xray / legacy / auto）的 GL 调用序列与历史逐条一致。</p>
+ * 默认档（xray / legacy / auto）的绘制语义与历史一致；着色器路径的相机矩阵来源自 T48c-A
+ * 起改为显式 uniform（见上），并带平移列数值自检 + 一次性永久回退（T48c-B）。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewRenderer {
@@ -63,6 +68,8 @@ public class ChainPreviewRenderer {
     private String lastConfiguredBackendId;
     private boolean shaderAttemptFailed;
     private boolean shaderFallbackReported;
+    /** T48c-B：后端首次「就绪使用」只报一次（真机一眼可见跑的是 shader 还是 legacy）。 */
+    private boolean backendInUseReported;
     private String backendCreationFailure = "";
     private String lastUnavailableReason = "";
     private ChainPreviewVisualSettings lastVisualSettings;
@@ -106,6 +113,7 @@ public class ChainPreviewRenderer {
         lastConfiguredBackendId = null;
         shaderAttemptFailed = false;
         shaderFallbackReported = false;
+        backendInUseReported = false;
         backendCreationFailure = "";
         lastUnavailableReason = "";
         lastVisualSettings = null;
@@ -279,7 +287,7 @@ public class ChainPreviewRenderer {
         fadeController.reset();
         ChainPreviewRenderBackend created = createBackend(selected);
         if (created == null) {
-            reportShaderFallback(selected, configured);
+            reportShaderFallback(selected, configured, "create-failed");
             shaderAttemptFailed = true;
             ChainPreviewOverlayPath.Decision legacy =
                 overlay.planPath(ChainPreviewBackendSelector.LEGACY, shaderAttemptFailed);
@@ -313,29 +321,52 @@ public class ChainPreviewRenderer {
         }
     }
 
-    /** 帧内惰性初始化；shader 初始化失败当帧起回退 legacy，不每帧重试。 */
+    /**
+     * 帧内惰性初始化；shader 初始化失败当帧起回退 legacy，不每帧重试。
+     *
+     * <p>T48c-B：回退动作由纯函数 {@link ChainPreviewBackendReadiness#onNotReady} 决定；
+     * legacy 未就绪保持既有行为，shader 未就绪且 legacy 可用 ⇒ 一次性永久回退，
+     * 两者都不可用 ⇒ 显式降级不绘制。</p>
+     */
     private ChainPreviewRenderBackend ensureReadyBackend(ChainPreviewRenderBackend active) {
         if (active.ensureReady()) {
+            reportBackendInUse(active);
             return active;
         }
-        if (ChainPreviewBackendSelector.LEGACY.equals(active.id())) {
-            return active;
-        }
-        reportShaderFallback(active.id(), lastConfiguredBackendId);
-        shaderAttemptFailed = true;
-        overlay.dispose(active);
-        animationClock.reset();
-        fadeController.reset();
         ChainPreviewOverlayPath.Decision legacy =
-            overlay.planPath(ChainPreviewBackendSelector.LEGACY, shaderAttemptFailed);
-        if (!legacy.isUsable()) {
+            overlay.planPath(ChainPreviewBackendSelector.LEGACY, true);
+        ChainPreviewBackendReadiness.Action action =
+            ChainPreviewBackendReadiness.onNotReady(active.id(), legacy.isUsable());
+        if (action == ChainPreviewBackendReadiness.Action.KEEP_ACTIVE) {
+            return active;
+        }
+        if (action == ChainPreviewBackendReadiness.Action.NO_USABLE_PATH) {
             reportPathUnavailable(legacy);
             backend = null;
             return null;
         }
+        reportShaderFallback(active.id(), lastConfiguredBackendId, "ensureReady-failed");
+        shaderAttemptFailed = true;
+        overlay.dispose(active);
+        animationClock.reset();
+        fadeController.reset();
         ChainPreviewRenderBackend fallback = createBackend(legacy.getBackendId());
         backend = fallback;
         return fallback;
+    }
+
+    /** 后端首次就绪使用的一次性 INFO 日志（真机可一眼判断实际后端）。 */
+    private void reportBackendInUse(ChainPreviewRenderBackend active) {
+        if (backendInUseReported) {
+            return;
+        }
+        backendInUseReported = true;
+        try {
+            MyMod.LOG.info("[ChainPreview] backend in use: id={}, configured={}, caps=[{}]",
+                active.id(), lastConfiguredBackendId, overlay.describeCapabilities());
+        } catch (Throwable ignored) {
+            // 诊断日志异常不得影响渲染帧
+        }
     }
 
     /**
@@ -562,6 +593,7 @@ public class ChainPreviewRenderer {
         lastConfiguredBackendId = null;
         shaderAttemptFailed = false;
         shaderFallbackReported = false;
+        backendInUseReported = false;
         backendCreationFailure = "";
         lastUnavailableReason = "";
         MyMod.LOG.debug("[ChainPreview] overlay cache invalidated ({}), rebuild deferred to next frame",
@@ -588,14 +620,24 @@ public class ChainPreviewRenderer {
         MyMod.LOG.warn("[ChainPreview] preview overlay unavailable: " + reason + "; " + overlay.describe());
     }
 
-    private void reportShaderFallback(String selectedId, String configured) {
+    /**
+     * 一次性回退 WARN（T48c-B：含原因串，真机一眼可见「是否回退 + 为什么」）。
+     *
+     * @param selectedId 尝试使用但不可用的后端 id
+     * @param configured 当前配置档位
+     * @param reason     回退原因（create-failed / ensureReady-failed）
+     */
+    private void reportShaderFallback(String selectedId, String configured, String reason) {
         if (shaderFallbackReported) {
             return;
         }
         shaderFallbackReported = true;
+        // 回退后允许下一帧再报一次「backend in use: legacy」
+        backendInUseReported = false;
         MyMod.LOG.warn("[ChainPreview] shader backend unavailable, fallback to legacy"
             + " (configured=" + configured
             + ", selected=" + selectedId
+            + ", reason=" + reason
             + (backendCreationFailure.isEmpty() ? "" : ", creationFailure=" + backendCreationFailure)
             + ", caps=" + overlay.describeCapabilities() + ")");
     }

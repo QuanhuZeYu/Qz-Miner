@@ -16,6 +16,9 @@ final class ChainPreviewTestGlAccess implements ChainPreviewGlFences.Access, Cha
 
     boolean failBindingAccess;
     boolean failQueries;
+    boolean failConsumeGlError;
+    /** consumeGlError 注入队列（逐次弹出；空 = 0/GL_NO_ERROR）。 */
+    final java.util.ArrayDeque<Integer> glErrors = new java.util.ArrayDeque<Integer>();
     boolean failClientPush;
     boolean failAllPop;
     boolean failTextureRead;
@@ -129,5 +132,14 @@ final class ChainPreviewTestGlAccess implements ChainPreviewGlFences.Access, Cha
     @Override
     public void setTextureBinding2d(int binding) {
         events.add("texBind:" + binding);
+    }
+
+    @Override
+    public int consumeGlError() {
+        if (failConsumeGlError) {
+            throw new IllegalStateException("glGetError failure");
+        }
+        Integer next = glErrors.poll();
+        return next == null ? 0 : next.intValue();
     }
 }

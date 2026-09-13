@@ -214,6 +214,9 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
         }
         indexStaging = prepareIntBuffer(indexStaging, indices, indexCount);
         GL15.glBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0, indexStaging);
+
+        // T48c-B：与 shader 后端对称，上传收尾解绑 VAO（帧围栏仍负责恢复进入前绑定）
+        unbindVertexArrayQuietly(glAccess);
     }
 
     @Override
@@ -234,6 +237,7 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
         }
         colorStaging = prepareFloatBuffer(colorStaging, colors, colorFloatCount);
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, colorStaging);
+        unbindVertexArrayQuietly(glAccess);
         return true;
     }
 
@@ -468,6 +472,26 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
+    }
+
+    /**
+     * T48c-B：上传收尾解绑 VAO（与 shader 后端的 glBindVertexArray(0) 对称）。
+     *
+     * <p>今日所有上传路径都在帧围栏内，解绑只是契约对齐；访问点不可用 / 上下文失效时静默，
+     * 不改变上传语义。</p>
+     *
+     * @param access GL 状态访问点，可为 null
+     */
+    static void unbindVertexArrayQuietly(ChainPreviewGlFences.Access access) {
+        ChainPreviewGlBindings.Access bindingAccess = ChainPreviewGlFences.bindingsQuietly(access);
+        if (bindingAccess == null) {
+            return;
+        }
+        try {
+            bindingAccess.bindVertexArray(0);
+        } catch (Throwable ignored) {
+            // 上下文失效：解绑失败不得逃逸渲染帧
+        }
     }
 
     private static int calculateNewCapacity(int requiredSize) {
