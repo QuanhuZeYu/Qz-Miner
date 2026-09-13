@@ -9,6 +9,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.MeshBuildSession
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderChange;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState.RenderSnapshot;
+import club.heiqi.qz_miner.config.PreviewLodMode;
 import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.parallel.ParallelTaskResult;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
@@ -143,6 +144,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                     publishedMesh = ChainPreviewMesh.EMPTY;
                     pendingPublication.set(new MeshPublication(publicationKey, ChainPreviewMesh.EMPTY));
                     publicationAwaitingConsumption = false;
+                    // Lead 必修项 L-a：换代必须清 LOD 滞回记忆（同一目标跨代存在也不得残留）。
+                    meshBuilder.resetLodHysteresis();
                 }
                 schedule = true;
             } else {
@@ -327,6 +330,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             publishedMesh = ChainPreviewMesh.EMPTY;
             pendingPublication.set(new MeshPublication(emptyKey, ChainPreviewMesh.EMPTY));
             publicationAwaitingConsumption = false;
+            // Lead 必修项 L-a：lifecycle/世界切换入口同样清 LOD 滞回记忆。
+            meshBuilder.resetLodHysteresis();
             subscription = taskSubscription;
             currentTask = null;
             taskSubscription = null;
@@ -634,6 +639,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
          * @return 冻结本次视觉 revision 的视觉参数（只在构建时构造，不在每帧路径上）
          */
         private VisualParameters toVisualParameters(ChainPreviewVisualSettings settings) {
+            // B2.4：LOD 档位经 settings 快照注入（lod=off 时逐字等于现状）。
+            boolean lodEnabled = PreviewLodMode.AUTO.id().equals(settings.getLodId());
             return new VisualParameters(
                 cameraX,
                 cameraY,
@@ -642,7 +649,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 settings.getAlphaFadeEndRadius(),
                 settings.getAlphaStartValue(),
                 settings.getAlphaEndValue(),
-                settings.getBarThickness());
+                settings.getBarThickness())
+                .withLod(lodEnabled, settings.getLodMinAlpha());
         }
     }
 

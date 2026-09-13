@@ -218,7 +218,12 @@ public final class ChainPreviewVisualSettings {
         return animationId;
     }
 
-    /** @return 动画相位稳定 id（order / hash） */
+    /**
+     * @return 动画相位稳定 id（order / hash）
+     *
+     * <p><b>登记（假旋钮）</b>：当前没有任何生产消费者——渲染路径只读 animationId 与
+     * animationDurationMs；该字段按接口冻结 §E 保留键位，B3.1 动画时钟接入后才生效。</p>
+     */
     public String getAnimationPhaseId() {
         return animationPhaseId;
     }

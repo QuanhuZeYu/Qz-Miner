@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.client.projection;
 
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewController;
@@ -32,8 +33,11 @@ import cpw.mods.fml.relauncher.SideOnly;
  * revision 并通知全部订阅者，订阅者据此重置本地缓存。全部字段不变时不发布（零通知）。</p>
  *
  * <h3>生命周期</h3>
- * <p>断线/世界卸载时由装配点调用 {@link #clear()}（丢弃当前 header，保留订阅）或
- * {@link #clearSubscriptions()}（连通订阅者一起摘除）；{@link Subscription#unsubscribe()} 幂等。</p>
+ * <p>断线/世界卸载时由装配点调用 {@link #clear()}（丢弃当前 header、revision 水位重置、订阅者保留），
+ * 使 HUD 自动降级并在重连后的下一 tick 恢复；{@link #clearSubscriptions()} 连通订阅者一起摘除；
+ * {@link Subscription#unsubscribe()} 幂等。{@link #uninstall} 仅用于测试/进程退出——生产 cleanup
+ * <b>不</b> uninstall（ClientProxy.init 只在客户端启动执行一次，uninstall 会让重连后的 HUD 永久读不到
+ * 投影实例）。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class ChainPreviewPresentationProjection {
@@ -59,7 +63,8 @@ public final class ChainPreviewPresentationProjection {
 
     private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<Listener>();
     private volatile ChainPreviewPresentationHeader currentHeader;
-    private long publishedRevision;
+    /** 发布 revision 水位：原子自增，保证 checkThread 仅告警时也不出现重复 revision / 丢通知。 */
+    private final AtomicLong publishedRevision = new AtomicLong();
     private volatile Thread mainThread;
 
     /**
@@ -152,7 +157,7 @@ public final class ChainPreviewPresentationProjection {
         if (existing != null && existing.sameContent(candidate)) {
             return existing;
         }
-        ChainPreviewPresentationHeader published = candidate.withRevision(++publishedRevision);
+        ChainPreviewPresentationHeader published = candidate.withRevision(publishedRevision.incrementAndGet());
         currentHeader = published;
         notifyListeners(published);
         return published;
@@ -227,7 +232,7 @@ public final class ChainPreviewPresentationProjection {
     public void clear() {
         checkThread("clear");
         currentHeader = null;
-        publishedRevision = 0L;
+        publishedRevision.set(0L);
     }
 
     /** 生命周期清理：摘除全部订阅者（断线/世界卸载时由装配点调用）。 */

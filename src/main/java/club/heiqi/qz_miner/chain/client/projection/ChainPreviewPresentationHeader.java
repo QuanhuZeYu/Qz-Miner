@@ -16,8 +16,10 @@ import cpw.mods.fml.relauncher.SideOnly;
  * 订阅者据此重置本地缓存。</p>
  *
  * <p>字段数据源边界（如实标注）：{@code visibleCount} 本轮与 {@code matchedCount} 同源
- * （State 尚未细分「可见/已执行」，执行进度属 B5.2）；{@code configRevision}/{@code serverRoundId}
- * 的客户端来源待装配接线，未接线时由调用方传 0。</p>
+ * （State 尚未细分「可见/已执行」；B5.2 引入配额/进度数据源后再拆字段）。{@code configRevision} 取自
+ * {@code ConfigBootstrap} 提交 epoch（无提交时 0=未接线）。{@code serverRoundId} 客户端当前
+ * <b>无协议来源</b>（相位包不含 round 字段），恒 0=未接线；服务端代际失效由 phase 投影的
+ * generation 覆盖，真接需协议扩展（下一批评估，本轮不扩协议）。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class ChainPreviewPresentationHeader {

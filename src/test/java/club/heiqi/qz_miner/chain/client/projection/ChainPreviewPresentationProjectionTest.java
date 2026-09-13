@@ -179,6 +179,42 @@ public class ChainPreviewPresentationProjectionTest {
     }
 
     @Test
+    public void concurrentProjectNeverRepeatsRevision() throws Exception {
+        final ChainPreviewPresentationProjection projection = new ChainPreviewPresentationProjection();
+        final int threads = 4;
+        final int perThread = 25;
+        final List<Long> revisions = java.util.Collections.synchronizedList(new ArrayList<Long>());
+        Thread[] workers = new Thread[threads];
+        for (int index = 0; index < threads; index++) {
+            final int threadIndex = index;
+            workers[index] = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    for (int step = 0; step < perThread; step++) {
+                        ChainPreviewPresentationHeader published = projection.project(
+                            concurrentHeader(threadIndex * perThread + step + 1));
+                        revisions.add(Long.valueOf(published.getRevision()));
+                    }
+                }
+            });
+            workers[index].start();
+        }
+        for (Thread worker : workers) {
+            worker.join(10000L);
+        }
+        Assert.assertEquals(threads * perThread, revisions.size());
+        Assert.assertEquals("并发发布不得出现重复 revision",
+            revisions.size(), new java.util.HashSet<Long>(revisions).size());
+    }
+
+    private static ChainPreviewPresentationHeader concurrentHeader(int seed) {
+        return new ChainPreviewPresentationHeader(
+            ChainPhase.IDLE, 0, 0, false, false, 0, 0, 0,
+            ChainPreviewState.TruncationReason.NONE, 0, 0, ChainPreviewState.CancelReason.NONE,
+            false, seed, seed, 0L, 0L, 0L, 0L, false, 0L);
+    }
+
+    @Test
     public void installedSingletonInstallAndUninstallAreExplicitAndMismatchSafe() {
         ChainPreviewPresentationProjection first = new ChainPreviewPresentationProjection();
         ChainPreviewPresentationProjection second = new ChainPreviewPresentationProjection();
