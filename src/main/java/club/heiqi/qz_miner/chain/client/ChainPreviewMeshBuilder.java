@@ -47,6 +47,8 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 public class ChainPreviewMeshBuilder {
 
     public static final int MAX_RENDER_TARGETS = 4096;
+    /** 代级重锚距离默认值（格，Chebyshev）：新增目标距锚点超过该值时整代重锚。 */
+    public static final int DEFAULT_REANCHOR_DISTANCE = 256;
     /** debug 计数器：加载语义类别载体时按 255 兜底的目标准数（跨 session 累加）。 */
     private static final AtomicLong SEMANTIC_CLASS_FALLBACKS = new AtomicLong();
     /**
@@ -139,7 +141,7 @@ public class ChainPreviewMeshBuilder {
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
         return new BuildSession(
-            targets, visuals, null, lodCulledPositions, lodHysteresisResetSignal);
+            targets, visuals, null, lodCulledPositions, lodHysteresisResetSignal, null);
     }
 
     /**
@@ -173,7 +175,53 @@ public class ChainPreviewMeshBuilder {
             : visualParameters;
         return new BuildSession(
             targets, visuals.withBarThickness(barThickness), semanticClasses,
-            lodCulledPositions, lodHysteresisResetSignal);
+            lodCulledPositions, lodHysteresisResetSignal, null);
+    }
+
+    /**
+     * 创建代级增量会话（B4.1 第一步：锚点稳定 + 时间序装配；26 邻域增量跳过属第二步）。
+     *
+     * <p>与既有一次性 {@code begin/build} 入口相互独立：本入口的代内装配顺序为时间序
+     * （最早→最新），meshOrigin = 代内首个目标且代内稳定，超重锚距离时整代重锚。</p>
+     */
+    public GenerationSession beginGeneration() {
+        return new GenerationSession(this, DEFAULT_REANCHOR_DISTANCE);
+    }
+
+    /** @param reanchorDistance 重锚距离（格，Chebyshev），钳制到 >=1 */
+    public GenerationSession beginGeneration(int reanchorDistance) {
+        return new GenerationSession(this, reanchorDistance);
+    }
+
+    /** 内部：显式锚点的构建入口；代级会话与差分基线共用同一套装配代码。 */
+    BuildSession beginWithOrigin(
+            Iterable<ChainTarget> previewTargets, VisualParameters visualParameters,
+            int[] semanticClasses, int originX, int originY, int originZ) {
+        Iterable<ChainTarget> targets = previewTargets == null
+            ? Collections.<ChainTarget>emptyList()
+            : previewTargets;
+        VisualParameters visuals = visualParameters == null
+            ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
+            : visualParameters;
+        return new BuildSession(
+            targets, visuals, semanticClasses, lodCulledPositions, lodHysteresisResetSignal,
+            new BlockPos(originX, originY, originZ));
+    }
+
+    /**
+     * 差分基线入口：把 {@code orderedTargets} 按给定顺序（时间序）一次性全量装配，
+     * 并使用显式锚点，供差分测试与 {@link GenerationSession} 对照。
+     */
+    ChainPreviewMesh buildWithOrigin(
+            List<ChainTarget> orderedTargets, VisualParameters visualParameters,
+            float barThickness, int[] semanticClasses, int originX, int originY, int originZ) {
+        VisualParameters visuals = (visualParameters == null
+            ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
+            : visualParameters).withBarThickness(barThickness);
+        BuildSession session = beginWithOrigin(
+            orderedTargets, visuals, semanticClasses, originX, originY, originZ);
+        session.advance(NEVER_YIELD);
+        return session.getMesh();
     }
 
     /** 相同 topology 的相机效果刷新只重建 color stream。 */
@@ -349,6 +397,185 @@ public class ChainPreviewMeshBuilder {
         }
     }
 
+    /**
+     * 代级增量会话（B4.1 第一步：锚点稳定 + 时间序装配）。
+     *
+     * <p>目标按「首次出现」时间序累积；每次 {@link #extend} 接收当前完整快照（最新→最早），
+     * 反向取出新增目标追加到时间序尾部，并复用同一套 junction/tube 装配代码产出完整网格
+     * （26 邻域增量跳过属第二步，本步不做）。</p>
+     *
+     * <p>锚点契约：meshOrigin = 代内首个目标，代内不变；新增目标与锚点 Chebyshev 距离超过
+     * {@link #getReanchorDistance()} 时整代重锚（等效一次全量重建，锚点移到该目标）。</p>
+     *
+     * <p>线程契约：会话状态只归构建线程所有；{@link #dispose()} 可能由主线程调用，只置位
+     * volatile 请求位，实际释放与后续拒绝由构建线程在下次 {@link #extend} 入口消费，不跨代残留。</p>
+     *
+     * <p>appearOrder：时间序装配下最早的保留目标得到序号 0（符合「保留出现顺序」）。</p>
+     */
+    public static final class GenerationSession {
+
+        private final ChainPreviewMeshBuilder builder;
+        private final int reanchorDistance;
+        private final List<ChainTarget> chronology = new ArrayList<ChainTarget>();
+        private final IntArrayBuilder chronologyClasses = new IntArrayBuilder();
+        private final Set<BlockPos> knownPositions = new HashSet<BlockPos>();
+
+        private volatile boolean disposeRequested;
+        private boolean disposed;
+        private BlockPos anchor;
+        private ChainPreviewMesh mesh;
+        private int reanchorCount;
+        private int semanticClassFallbackCount;
+
+        private GenerationSession(ChainPreviewMeshBuilder builder, int reanchorDistance) {
+            this.builder = builder;
+            this.reanchorDistance = Math.max(1, reanchorDistance);
+        }
+
+        /**
+         * 追加/更新一代的目标快照，产出与「同时间序一次性全量装配」逐字节等价的新网格。
+         *
+         * @param snapshotNewestFirst 当前完整快照，顺序同 {@code RenderSnapshot.getTargets()}（最新→最早）
+         * @param semanticClasses 与快照同序的类别载体；null 表示全部 255
+         * @param visuals 视觉参数（相机/淡出/LOD），构建线程只读
+         * @param barThickness 显式条柱厚度
+         * @return 本代当前网格
+         */
+        public ChainPreviewMesh extend(
+                List<ChainTarget> snapshotNewestFirst, int[] semanticClasses,
+                VisualParameters visuals, float barThickness) {
+            if (consumeDisposeRequest()) {
+                throw new IllegalStateException("GenerationSession disposed");
+            }
+            if (visuals == null) {
+                throw new IllegalArgumentException("visuals");
+            }
+            List<ChainTarget> snapshot = snapshotNewestFirst == null
+                ? Collections.<ChainTarget>emptyList()
+                : snapshotNewestFirst;
+            for (int index = snapshot.size() - 1; index >= 0; index--) {
+                ChainTarget target = snapshot.get(index);
+                if (target == null) {
+                    continue;
+                }
+                BlockPos position = new BlockPos(target.getX(), target.getY(), target.getZ());
+                if (!knownPositions.add(position)) {
+                    continue;
+                }
+                if (chronology.size() > MAX_RENDER_TARGETS) {
+                    // 超配额：装配阶段自会置 truncated，这里停止累积以保持内存有界。
+                    break;
+                }
+                chronology.add(target);
+                chronologyClasses.add(semanticClassAt(semanticClasses, index));
+                if (anchor == null) {
+                    anchor = position;
+                } else if (chebyshevDistance(anchor, position) > reanchorDistance) {
+                    anchor = position;
+                    reanchorCount++;
+                }
+            }
+
+            BuildSession session;
+            if (anchor == null) {
+                session = builder.begin(chronology, visuals, barThickness, chronologyClasses.exactArray());
+            } else {
+                session = builder.beginWithOrigin(
+                    chronology, visuals.withBarThickness(barThickness), chronologyClasses.exactArray(),
+                    anchor.x, anchor.y, anchor.z);
+            }
+            session.advance(NEVER_YIELD);
+            mesh = session.getMesh();
+            return mesh;
+        }
+
+        /** 允许任意线程调用：只置位请求位；实际释放由构建线程在下次 {@link #extend} 入口完成。 */
+        public void dispose() {
+            disposeRequested = true;
+        }
+
+        /** @return 是否已请求或完成释放（构建线程读取为权威值） */
+        public boolean isDisposed() {
+            return disposed || disposeRequested;
+        }
+
+        /** @return 代内累积的唯一目标数（仅构建线程读取） */
+        public int getGenerationTargetCount() {
+            return chronology.size();
+        }
+
+        public int getReanchorDistance() {
+            return reanchorDistance;
+        }
+
+        /** @return 本代已发生的重锚次数（仅构建线程读取） */
+        public int getReanchorCount() {
+            return reanchorCount;
+        }
+
+        /** @return 累积期类别载体缺失/非法而按 255 兜底的目标准数 */
+        public int getSemanticClassFallbackCount() {
+            return semanticClassFallbackCount;
+        }
+
+        public int getAnchorX() {
+            return anchor == null ? 0 : anchor.x;
+        }
+
+        public int getAnchorY() {
+            return anchor == null ? 0 : anchor.y;
+        }
+
+        public int getAnchorZ() {
+            return anchor == null ? 0 : anchor.z;
+        }
+
+        /** @return 最近一次 {@link #extend} 产出的网格；尚未构建时为 null */
+        public ChainPreviewMesh getMesh() {
+            return mesh;
+        }
+
+        private int semanticClassAt(int[] semanticClasses, int index) {
+            if (semanticClasses == null) {
+                // 冻结口径：null = 未提供类别，不计降级（与 BuildSession.semanticClassAt 同口径）。
+                return ChainPreviewSemanticClass.UNDEFINED;
+            }
+            if (index >= semanticClasses.length) {
+                semanticClassFallbackCount++;
+                return ChainPreviewSemanticClass.UNDEFINED;
+            }
+            int value = semanticClasses[index];
+            int normalized = ChainPreviewSemanticClass.normalize(value);
+            if (normalized != value) {
+                semanticClassFallbackCount++;
+            }
+            return normalized;
+        }
+
+        private boolean consumeDisposeRequest() {
+            if (!disposeRequested) {
+                return false;
+            }
+            disposeRequested = false;
+            chronology.clear();
+            chronologyClasses.reset();
+            knownPositions.clear();
+            anchor = null;
+            mesh = null;
+            reanchorCount = 0;
+            semanticClassFallbackCount = 0;
+            disposed = true;
+            return true;
+        }
+
+        private static int chebyshevDistance(BlockPos first, BlockPos second) {
+            long dx = Math.abs((long) first.x - (long) second.x);
+            long dy = Math.abs((long) first.y - (long) second.y);
+            long dz = Math.abs((long) first.z - (long) second.z);
+            return (int) Math.max(dx, Math.max(dy, dz));
+        }
+    }
+
     /** 可恢复构建：有界保留 target、去重世界边，再生成无内部端面的接头与管段。 */
     public static final class BuildSession implements MeshBuildSession {
 
@@ -358,6 +585,8 @@ public class ChainPreviewMeshBuilder {
         private final Set<BlockPos> lodCulledPositions;
         private final LodResetSignal lodHysteresisResetSignal;
         private final Set<BlockPos> lodCulledThisBuild;
+        /** 显式锚点（代级会话/差分基线）；null = 既有一次性入口（首读目标）。 */
+        private final BlockPos fixedOrigin;
         private final int[] positionSemanticClasses = new int[MAX_RENDER_TARGETS];
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
@@ -396,7 +625,8 @@ public class ChainPreviewMeshBuilder {
                 VisualParameters visuals,
                 int[] semanticClasses,
                 Set<BlockPos> lodCulledPositions,
-                LodResetSignal lodHysteresisResetSignal) {
+                LodResetSignal lodHysteresisResetSignal,
+                BlockPos fixedOrigin) {
             this.targetIterator = targets.iterator();
             this.visuals = visuals;
             this.semanticClasses = semanticClasses == null
@@ -407,6 +637,8 @@ public class ChainPreviewMeshBuilder {
             this.lodCulledThisBuild = visuals.isLodEnabled()
                 ? new HashSet<BlockPos>()
                 : null;
+            this.fixedOrigin = fixedOrigin;
+            this.meshOrigin = fixedOrigin;
         }
 
         /**
@@ -1282,6 +1514,20 @@ public class ChainPreviewMeshBuilder {
 
         private int[] backingArray() {
             return values;
+        }
+
+        /** @return 长度恰为 size 的数组（代级类序列按值传递用） */
+        private int[] exactArray() {
+            if (size == values.length) {
+                return values;
+            }
+            int[] exact = new int[size];
+            System.arraycopy(values, 0, exact, 0, size);
+            return exact;
+        }
+
+        private void reset() {
+            size = 0;
         }
 
         private void ensureCapacity(int required) {
