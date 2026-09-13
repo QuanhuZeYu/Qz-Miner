@@ -66,6 +66,7 @@
   - `clientPreviewRemoteTimeoutMs`：远端预览请求超时（毫秒），默认 `5000`，合法 `250..60000`；超时丢弃陈旧响应并清预览激活。
   - 预览视觉参数的运行期读取面唯一：session-core 的 `ChainPreviewVisualSettings.fromConfig()` 聚合上表键位后随构建任务下发；渲染与几何路径不直连 `Config` 静态字段。
 - 并行执行预算（`general` 段，服务端权威）：`parallelBudgetMode` 默认 `deadline`（沿用 `tickBudgetMs` 共享 soft deadline，等于基线行为），可选 `slice`；`parallelSliceBudgetMs` 默认 `4`，合法 `1..40`，仅 `slice` 档生效。
+  - **命令层写入缺口（登记下一批）**：`/qzminer config set` 的写白名单当前仍只覆盖既有 9 个 `general.*` scalar 键（STRING/NUMBER/BOOLEAN）；这两个新键不在白名单内，需通过 YAML 权威或配置页修改。命令层的 CHOICE 写入支持（含白名单与校验）登记为下一批，与本轮实现无关。
 
 ## 5.3 联机版本边界
 
