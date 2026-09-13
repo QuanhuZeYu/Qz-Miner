@@ -10,6 +10,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlCapabilities;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewLegacyBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewRenderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
+import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderBackend;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -45,6 +46,7 @@ public class ChainPreviewRenderer {
     private String lastConfiguredBackendId;
     private boolean shaderAttemptFailed;
     private boolean shaderFallbackReported;
+    private String backendCreationFailure = "";
     private ChainPreviewVisualSettings lastVisualSettings;
     private ChainPreviewDrawPlan.Visuals visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
 
@@ -81,6 +83,7 @@ public class ChainPreviewRenderer {
         lastConfiguredBackendId = null;
         shaderAttemptFailed = false;
         shaderFallbackReported = false;
+        backendCreationFailure = "";
         lastVisualSettings = null;
         visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
         scaleCounters.reset();
@@ -161,6 +164,7 @@ public class ChainPreviewRenderer {
         if (lastConfiguredBackendId != null && !lastConfiguredBackendId.equals(configured)) {
             shaderAttemptFailed = false;
             shaderFallbackReported = false;
+            backendCreationFailure = "";
             disposeBackend();
         }
         lastConfiguredBackendId = configured;
@@ -181,14 +185,21 @@ public class ChainPreviewRenderer {
     }
 
     /**
-     * 后端工厂：T2a 只落地 legacy；shader 分档在 T2b 换成直接调用
-     * ChainPreviewShaderBackend.create()（不用反射）。
+     * 后端工厂：legacy 直连创建；shader 走同包静态入口
+     * {@link ChainPreviewShaderBackend#create()}，任何加载 / 构造 / 静态初始化异常都在此
+     * 收敛为 null，由调用方当帧回退 legacy 并做一次性诊断（不每帧重试）。
      */
     private ChainPreviewRenderBackend createBackend(String id) {
         if (ChainPreviewBackendSelector.LEGACY.equals(id)) {
             return new ChainPreviewLegacyBackend();
         }
-        return null;
+        try {
+            return ChainPreviewShaderBackend.create();
+        } catch (Throwable failure) {
+            backendCreationFailure = failure.getClass().getSimpleName()
+                + ": " + String.valueOf(failure.getMessage());
+            return null;
+        }
     }
 
     /** 帧内惰性初始化；shader 初始化失败当帧起回退 legacy，不每帧重试。 */
@@ -386,6 +397,7 @@ public class ChainPreviewRenderer {
         MyMod.LOG.warn("[ChainPreview] shader backend unavailable, fallback to legacy"
             + " (configured=" + configured
             + ", selected=" + selectedId
+            + (backendCreationFailure.isEmpty() ? "" : ", creationFailure=" + backendCreationFailure)
             + ", caps=" + (capabilities == null ? "null" : capabilities.describe()) + ")");
     }
 }
