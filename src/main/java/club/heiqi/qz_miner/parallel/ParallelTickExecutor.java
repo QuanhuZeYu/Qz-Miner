@@ -30,11 +30,15 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * 当前实现使用有界线程池，核心线程数为 1，最大线程数为 20，
  * 目的是稳定线程名并减少 Hodgepodge 对异步世界读取的重复告警噪声。
+ *
+ * <p>窗口预算由 {@link ParallelBudgetMode} 档位决定：deadline 档等于基线
+ * （窗口预算 = {@code Config.tickBudgetMs}）；slice 档对客户端 stage 使用独立的
+ * 小预算（{@code Config.parallelSliceBudgetMs}），并且主线程不再为「已经让出的任务」
+ * 等满窗口 deadline。两个档位都不改变窗口关闭后的 worker 屏障等待语义，
+ * 也不引入取消/强杀。</p>
  */
 public final class ParallelTickExecutor {
 
-    private static final long MIN_TICK_BUDGET_MILLIS = 1L;
-    private static final long MAX_TICK_BUDGET_MILLIS = 40L;
     private static final int CORE_WORKER_THREADS = 1;
     private static final int MAX_WORKER_THREADS = 20;
     private static final long WORKER_KEEP_ALIVE_SECONDS = 30L;
@@ -168,7 +172,7 @@ public final class ParallelTickExecutor {
     public void beginStage(ParallelTickStage stage) {
         long tickId = tickCounter.incrementAndGet();
         long startNanoTime = System.nanoTime();
-        long deadlineNanoTime = startNanoTime + getConfiguredTickBudgetNanos();
+        long deadlineNanoTime = startNanoTime + getConfiguredWindowBudgetNanos(stage);
 
         stateLock.lock();
         try {
@@ -177,6 +181,7 @@ public final class ParallelTickExecutor {
                 throw new IllegalStateException("Parallel tick stage already active: " + stage);
             }
             window.tickId = tickId;
+            window.scheduledTasks = 0;
             window.context = new ParallelTickContext(
                 tickId,
                 startNanoTime,
@@ -222,7 +227,12 @@ public final class ParallelTickExecutor {
     }
 
     /**
-     * 只在该 stage 仍有并行任务时保留窗口；任务提前完成时不为空闲 deadline 强制占满 Tick。
+     * 在该 stage 仍有可推进工作（或基线语义下仍有注册任务）时让出主线程。
+     *
+     * <p>决策完全交给 {@link ParallelBudgetPolicy}：deadline 档等价基线（等到窗口 deadline
+     * 或任务清空），slice 档在「没有活跃分片且每个注册任务都已获得本 tick 调度机会」时立即
+     * 返回，不再为已经让出的任务空耗墙钟。本方法只负责 park，不关闭窗口，也不参与
+     * {@link #endStage(ParallelTickStage)} 的 worker 屏障。</p>
      */
     private void waitForAvailableWindow(ParallelTickStage stage) {
         ParallelTickContext snapshot;
@@ -237,21 +247,50 @@ public final class ParallelTickExecutor {
             stateLock.unlock();
         }
 
-        long remainingNanos = snapshot.getDeadlineNanoTime() - System.nanoTime();
-        while (remainingNanos > 0L && !getTasks(stage).isEmpty()) {
+        boolean sliceActive = usesSliceBudget(stage);
+        while (true) {
+            boolean shouldWait;
+            stateLock.lock();
+            try {
+                WindowState window = getWindow(stage);
+                shouldWait = ParallelBudgetPolicy.shouldMainThreadWait(
+                    sliceActive,
+                    getTasks(stage).size(),
+                    window.activeWorkers,
+                    window.scheduledTasks,
+                    System.nanoTime(),
+                    snapshot.getDeadlineNanoTime());
+            } finally {
+                stateLock.unlock();
+            }
+            if (!shouldWait) {
+                return;
+            }
+
+            long remainingNanos = snapshot.getDeadlineNanoTime() - System.nanoTime();
+            if (remainingNanos <= 0L) {
+                return;
+            }
             LockSupport.parkNanos(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(1L)));
             if (Thread.currentThread().isInterrupted()) {
                 Thread.currentThread().interrupt();
                 return;
             }
-            remainingNanos = snapshot.getDeadlineNanoTime() - System.nanoTime();
         }
     }
 
-    private long getConfiguredTickBudgetNanos() {
-        long configuredBudgetMillis = Math.max(MIN_TICK_BUDGET_MILLIS,
-            Math.min(MAX_TICK_BUDGET_MILLIS, Config.tickBudgetMs));
-        return TimeUnit.MILLISECONDS.toNanos(configuredBudgetMillis);
+    /** @return 本 stage 是否使用 slice 档并行让出预算（仅客户端 stage 且档位为 slice）。 */
+    private static boolean usesSliceBudget(ParallelTickStage stage) {
+        return ParallelBudgetPolicy.usesSliceBudget(
+            ParallelBudgetMode.fromId(Config.parallelBudgetMode), stage);
+    }
+
+    /** @return 本次窗口冻结的并行预算纳秒数（档位与 stage 共同决定）。 */
+    private long getConfiguredWindowBudgetNanos(ParallelTickStage stage) {
+        return ParallelBudgetPolicy.windowBudgetNanos(
+            usesSliceBudget(stage),
+            Config.tickBudgetMs,
+            Config.parallelSliceBudgetMs);
     }
 
     /**
@@ -315,6 +354,8 @@ public final class ParallelTickExecutor {
         private long tickId;
         private ParallelTickContext context;
         private int activeWorkers;
+        /** 本窗口已获得过调度机会的注册任务数（slice 档主线程提前返回判定用）。 */
+        private int scheduledTasks;
     }
 
     private final class RegisteredTask implements Runnable {
@@ -327,6 +368,8 @@ public final class ParallelTickExecutor {
         private volatile ParallelTaskState state = ParallelTaskState.REGISTERED;
         private volatile Future<?> future;
         private long observedTickId = -1L;
+        /** 本任务最近获得调度机会的窗口 tickId（受 stateLock 保护）。 */
+        private long scheduledTickId = Long.MIN_VALUE;
 
         private RegisteredTask(String name, ParallelTickStage stage, ParallelTickTask task) {
             this.name = name;
@@ -434,7 +477,7 @@ public final class ParallelTickExecutor {
 
         private void runSlicesInCurrentTick(ParallelTickContext context) {
             while (running && active) {
-                if (!enterWorker(context)) {
+                if (!enterWorker(this, context)) {
                     return;
                 }
 
@@ -528,7 +571,7 @@ public final class ParallelTickExecutor {
         }
     }
 
-    private boolean enterWorker(ParallelTickContext context) {
+    private boolean enterWorker(RegisteredTask task, ParallelTickContext context) {
         stateLock.lock();
         try {
             WindowState window = getWindow(context.getStage());
@@ -541,6 +584,10 @@ public final class ParallelTickExecutor {
             }
 
             window.activeWorkers++;
+            if (task.scheduledTickId != window.tickId) {
+                task.scheduledTickId = window.tickId;
+                window.scheduledTasks++;
+            }
             return true;
         } finally {
             stateLock.unlock();
