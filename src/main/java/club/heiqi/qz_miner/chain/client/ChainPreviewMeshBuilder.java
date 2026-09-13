@@ -1,6 +1,7 @@
 package club.heiqi.qz_miner.chain.client;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -9,6 +10,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
@@ -29,11 +32,16 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * 相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点为
  * {@link ChainPreviewMesh#AUX_UNDEFINED}；槽位 2/3 在「junction 相先于 tube 相」的首写策略下
  * 不可达（每端点 4 角点已被 junction 的两个面全覆盖），留待 B2.3/B3.x 再评估。
- * semanticClass 本轮恒写 255（目标分类尚未接线）。</p>
+ * semanticClass 由构建入口的类别载体按目标出现序号提供（id 冻结源 {@link ChainPreviewSemanticClass}，
+ * 即接口冻结 §D 的 0..5 或 255 UNDEFINED），去重后与 appearOrder 同源、取最小 incident 目标；
+ * 载体缺失/越界/非法值一律按 255 兜底并计数，见
+ * {@link BuildSession#getSemanticClassFallbackCount()} 与 {@link #getSemanticClassFallbackTotal()}。</p>
  */
 public class ChainPreviewMeshBuilder {
 
     public static final int MAX_RENDER_TARGETS = 4096;
+    /** debug 计数器：加载语义类别载体时按 255 兜底的目标准数（跨 session 累加）。 */
+    private static final AtomicLong SEMANTIC_CLASS_FALLBACKS = new AtomicLong();
     private static final float BASE_RED = 0.25F;
     private static final float BASE_GREEN = 0.9F;
     private static final float BASE_BLUE = 1.0F;
@@ -94,7 +102,7 @@ public class ChainPreviewMeshBuilder {
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
-        return new BuildSession(targets, visuals);
+        return new BuildSession(targets, visuals, null);
     }
 
     /**
@@ -105,10 +113,28 @@ public class ChainPreviewMeshBuilder {
      */
     public BuildSession begin(
             Iterable<ChainTarget> previewTargets, VisualParameters visualParameters, float barThickness) {
+        return begin(previewTargets, visualParameters, barThickness, null);
+    }
+
+    /**
+     * 携带目标语义类别的构建入口（B2.3）。
+     *
+     * <p>semanticClasses 与 previewTargets 的迭代顺序严格同序：索引 i 即第 i 个被读取目标的
+     * 出现序号（{@code RenderSnapshot.getTargets()} 为最新→最早）。取值见接口冻结 §D：
+     * 0 PRIMARY_LOCAL / 1 SUB_MODE_LOCAL / 2 REMOTE_PREDICTED / 3 TRUNCATED / 4 DEFERRED /
+     * 5 EXECUTED / 255 UNDEFINED。传 null 表示未提供类别（全部按 255，不计降级）；数组短于
+     * 目标数或元素非法时仅对应目标按 255 兜底并计数，前面的类别绝不错位。</p>
+     */
+    public BuildSession begin(
+            Iterable<ChainTarget> previewTargets, VisualParameters visualParameters,
+            float barThickness, int[] semanticClasses) {
+        Iterable<ChainTarget> targets = previewTargets == null
+            ? Collections.<ChainTarget>emptyList()
+            : previewTargets;
         VisualParameters visuals = visualParameters == null
             ? VisualParameters.fromCurrentConfig(0.0D, 0.0D, 0.0D)
             : visualParameters;
-        return begin(previewTargets, visuals.withBarThickness(barThickness));
+        return new BuildSession(targets, visuals.withBarThickness(barThickness), semanticClasses);
     }
 
     /** 相同 topology 的相机效果刷新只重建 color stream。 */
@@ -132,7 +158,14 @@ public class ChainPreviewMeshBuilder {
     /** 显式 barThickness 的同步便利入口，主要供纯 JVM 几何测试使用。 */
     public ChainPreviewMesh build(
             List<ChainTarget> previewTargets, VisualParameters visualParameters, float barThickness) {
-        BuildSession session = begin(previewTargets, visualParameters, barThickness);
+        return build(previewTargets, visualParameters, barThickness, null);
+    }
+
+    /** 携带语义类别的同步便利入口，主要供纯 JVM 几何测试使用。 */
+    public ChainPreviewMesh build(
+            List<ChainTarget> previewTargets, VisualParameters visualParameters,
+            float barThickness, int[] semanticClasses) {
+        BuildSession session = begin(previewTargets, visualParameters, barThickness, semanticClasses);
         session.advance(NEVER_YIELD);
         return session.getMesh();
     }
@@ -233,6 +266,8 @@ public class ChainPreviewMeshBuilder {
 
         private final Iterator<ChainTarget> targetIterator;
         private final VisualParameters visuals;
+        private final int[] semanticClasses;
+        private final int[] positionSemanticClasses = new int[MAX_RENDER_TARGETS];
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
         private final Set<GridEdge> edges = new LinkedHashSet<GridEdge>();
@@ -244,6 +279,8 @@ public class ChainPreviewMeshBuilder {
         private final IntArrayBuilder indices = new IntArrayBuilder();
         private final ByteArrayBuilder aux = new ByteArrayBuilder();
 
+        private int targetReadCount;
+        private int semanticClassFallbackCount;
         private int pointCursor;
         private int segmentCursor;
         private int visibleBlockCount;
@@ -262,9 +299,12 @@ public class ChainPreviewMeshBuilder {
         private int[] currentFaces;
         private ChainPreviewMesh mesh;
 
-        private BuildSession(Iterable<ChainTarget> targets, VisualParameters visuals) {
+        private BuildSession(Iterable<ChainTarget> targets, VisualParameters visuals, int[] semanticClasses) {
             this.targetIterator = targets.iterator();
             this.visuals = visuals;
+            this.semanticClasses = semanticClasses == null
+                ? null
+                : Arrays.copyOf(semanticClasses, semanticClasses.length);
         }
 
         /**
@@ -284,12 +324,13 @@ public class ChainPreviewMeshBuilder {
                     return false;
                 }
                 ChainTarget target = targetIterator.next();
+                int semanticClass = semanticClassAt(targetReadCount++);
                 if (target == null) {
                     continue;
                 }
                 BlockPos position = new BlockPos(target.getX(), target.getY(), target.getZ());
                 if (occupancy.contains(position)) {
-                    // 重复 target 不占配额，也不进入拓扑。
+                    // 重复 target 不占配额，也不进入拓扑；类别取首次出现（= 最小出现序号）。
                     continue;
                 }
                 if (occupancy.size() >= MAX_RENDER_TARGETS) {
@@ -297,6 +338,7 @@ public class ChainPreviewMeshBuilder {
                     break;
                 }
                 occupancy.add(position);
+                positionSemanticClasses[positions.size()] = semanticClass;
                 positions.add(position);
                 if (meshOrigin == null) {
                     meshOrigin = position;
@@ -417,6 +459,46 @@ public class ChainPreviewMeshBuilder {
             return mesh;
         }
 
+        /**
+         * @return 因载体缺失、越界或元素非法而按 255 兜底的目标准数；构建期即可观察，
+         *         用于确认「长度不一致」没有被静默错位吞掉
+         */
+        public int getSemanticClassFallbackCount() {
+            return semanticClassFallbackCount;
+        }
+
+        /** 载体按原始目标流索引取值；越界/非法值经 {@link ChainPreviewSemanticClass#normalize(int)} 兜底并计数。 */
+        private int semanticClassAt(int targetIndex) {
+            if (semanticClasses == null) {
+                return ChainPreviewSemanticClass.UNDEFINED;
+            }
+            if (targetIndex >= semanticClasses.length) {
+                recordSemanticClassFallback();
+                return ChainPreviewSemanticClass.UNDEFINED;
+            }
+            int value = semanticClasses[targetIndex];
+            int normalized = ChainPreviewSemanticClass.normalize(value);
+            if (normalized != value) {
+                recordSemanticClassFallback();
+            }
+            return normalized;
+        }
+
+        private void recordSemanticClassFallback() {
+            semanticClassFallbackCount++;
+            SEMANTIC_CLASS_FALLBACKS.incrementAndGet();
+        }
+
+        /** 顶点类别与 appearOrder 同源：取最小 incident 目标（即该出现序号）的类别。 */
+        private int semanticClassForOrder(int appearOrder) {
+            if (appearOrder == ChainPreviewMesh.APPEAR_ORDER_UNDEFINED
+                    || appearOrder < 0
+                    || appearOrder >= positions.size()) {
+                return ChainPreviewSemanticClass.UNDEFINED;
+            }
+            return positionSemanticClasses[appearOrder];
+        }
+
         private void registerEdge(BlockPos position, LineSegment segment, int appearOrder) {
             GridEdge edge = GridEdge.from(position, segment, appearOrder);
             if (!edges.add(edge)) {
@@ -523,8 +605,8 @@ public class ChainPreviewMeshBuilder {
             colors.add(BASE_GREEN);
             colors.add(BASE_BLUE);
             colors.add(alpha);
-            // 接口冻结 §A：语义类别尚未进入 Builder 输入，按「未确定」写入 255，由渲染端兜底主色。
-            aux.add((byte) ChainPreviewMesh.AUX_UNDEFINED);
+            // 接口冻结 §A/§D：semanticClass 与 appearOrder 同源（最小 incident 目标）。
+            aux.add((byte) semanticClassForOrder(appearOrder));
             aux.add((byte) tubeEdge);
             aux.add((byte) (appearOrder & 0xFF));
             aux.add((byte) ((appearOrder >>> 8) & 0xFF));
@@ -532,7 +614,10 @@ public class ChainPreviewMeshBuilder {
             return index;
         }
 
-        /** 同一顶点的 appearOrder = 所有 incident 目标序号的最小值（后写命中同 key 时取 min）。 */
+        /**
+         * 同一顶点的 appearOrder 与 semanticClass 取所有 incident 目标序号的最小值对应的目标
+         * （后写命中同 key 时取 min 更新，类别随序号一起更新）。
+         */
         private void mergeAppearOrder(int vertexIndex, int appearOrder) {
             if (appearOrder == ChainPreviewMesh.APPEAR_ORDER_UNDEFINED) {
                 return;
@@ -540,6 +625,7 @@ public class ChainPreviewMeshBuilder {
             int offset = vertexIndex * ChainPreviewMesh.AUX_BYTES_PER_VERTEX;
             int current = (aux.get(offset + 2) & 0xFF) | ((aux.get(offset + 3) & 0xFF) << 8);
             if (current == ChainPreviewMesh.APPEAR_ORDER_UNDEFINED || appearOrder < current) {
+                aux.set(offset, (byte) semanticClassForOrder(appearOrder));
                 aux.set(offset + 2, (byte) (appearOrder & 0xFF));
                 aux.set(offset + 3, (byte) ((appearOrder >>> 8) & 0xFF));
             }
@@ -1085,6 +1171,11 @@ public class ChainPreviewMeshBuilder {
             System.arraycopy(values, 0, grown, 0, size);
             values = grown;
         }
+    }
+
+    /** @return 累计按 255 兜底的目标准数（debug 计数器；null 载体不计入） */
+    public static long getSemanticClassFallbackTotal() {
+        return SEMANTIC_CLASS_FALLBACKS.get();
     }
 
     private static int growCapacity(int current, int required) {

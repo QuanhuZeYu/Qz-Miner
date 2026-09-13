@@ -6,8 +6,8 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * 预览条柱网格的不可变 CPU 数据。
  *
- * <p>aAux 布局见 {@link #AUX_BYTES_PER_VERTEX}。顶点按几何 key 去重后，appearOrder 取
- * 所有 incident 写入者的最小值，semanticClass / tubeEdge 取首写者。</p>
+ * <p>aAux 布局见 {@link #AUX_BYTES_PER_VERTEX}。顶点按几何 key 去重后，appearOrder 与
+ * semanticClass 取所有 incident 写入者的最小值对应的目标（两者同源），tubeEdge 取首写者。</p>
  *
  * <p>tubeEdge 本轮实测可达集合为 {0, 1, 255}（verifier 独立双向量化：line(64) = 0:508 /
  * 1:508 / 255:56）：相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点保留
@@ -23,7 +23,10 @@ public class ChainPreviewMesh {
     /** aAux 每顶点字节数：x=semanticClass、y=tubeEdge、z/w=appearOrder（u16 小端）。 */
     public static final int AUX_BYTES_PER_VERTEX = 4;
 
-    /** aAux 中「未定义」的 8 位值（semanticClass / tubeEdge）。 */
+    /**
+     * aAux 中「未定义」的 8 位值（semanticClass / tubeEdge）；类别 id 的冻结源为
+     * {@link ChainPreviewSemanticClass}（接口冻结 §D）。
+     */
     public static final int AUX_UNDEFINED = 255;
 
     /** appearOrder 的「未定义」16 位值。 */
