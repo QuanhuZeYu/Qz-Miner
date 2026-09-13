@@ -86,6 +86,22 @@ public final class VerifyRenderCacheHarness {
         invoke("observeState");
     }
 
+    /** 注入视觉设置快照（等价生产 1 Hz 采样路径；内部字段名变更需同步此处）。 */
+    public void setVisualSettings(club.heiqi.qz_miner.chain.client.ChainPreviewVisualSettings settings) {
+        try {
+            java.lang.reflect.Field field = cacheType.getDeclaredField("visualSettings");
+            field.setAccessible(true);
+            field.set(cache, settings);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("无法注入 visualSettings", failure);
+        }
+    }
+
+    /** @return 被驱动的缓存实例（仅用于反射读取内部状态，测试包内使用）。 */
+    public Object cache() {
+        return cache;
+    }
+
     /** @return 累计被调度的分片次数（用于断言「无待构建工作不得产生空转任务」）。 */
     public int scheduledTotal() {
         return scheduledTotal;

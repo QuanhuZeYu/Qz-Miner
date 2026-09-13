@@ -133,14 +133,15 @@ public class TrueIncrementalLocalityContractTest {
         ChainPreviewMesh afterShrink = extend(session, shrunk);
         GenerationSession fresh = new ChainPreviewMeshBuilder().beginGeneration();
         ChainPreviewMesh freshMesh = extend(fresh, shrunk);
-        // 同代收缩语义：ChainPreviewState 无移除 API（删除只能经换代表达），故当前为「代内累积」。
-        // 若 T29 引入移除语义，这里应变为「收缩后 == 全新会话」——两者都不得产生残留或幽灵几何
-        // （下面的回归等价断言用「与全新会话的几何差集为空」的后半段覆盖）。
-        Assert.assertTrue("收缩不得让几何小于同快照全新会话: fresh=" + freshMesh.getBlockCount()
-            + " actual=" + afterShrink.getBlockCount(),
-            afterShrink.getBlockCount() >= freshMesh.getBlockCount());
-        Assert.assertEquals("代内累积语义下可见块数必须保持不变（移除需换代）",
-            fromFull.getBlockCount(), afterShrink.getBlockCount());
+        // B4.2 新契约：快照收缩 → 释放整代缓存 + mesh 引用并按新快照重建，等价全新会话。
+        Assert.assertArrayEquals("收缩后必须与同快照全新会话逐字节一致",
+            freshMesh.vertexArray(), afterShrink.vertexArray(), 0.0F);
+        Assert.assertArrayEquals(freshMesh.indexArray(), afterShrink.indexArray());
+        Assert.assertArrayEquals(freshMesh.auxArray(), afterShrink.auxArray());
+        Assert.assertEquals("锚点必须等于新快照首个目标", freshMesh.getOriginX(), afterShrink.getOriginX());
+        Assert.assertEquals("块数必须等于新快照块数", freshMesh.getBlockCount(), afterShrink.getBlockCount());
+        Assert.assertEquals("缓存条目必须只含新快照", shrunk.size(), session.getCacheEntryCount());
+        Assert.assertEquals("代内目标数必须只含新快照", shrunk.size(), session.getGenerationTargetCount());
 
         // 再新增回原集合：同样必须与全新会话一致
         ChainPreviewMesh afterRegrow = extend(session, full);

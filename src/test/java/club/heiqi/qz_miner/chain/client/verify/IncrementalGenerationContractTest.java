@@ -224,14 +224,22 @@ public class IncrementalGenerationContractTest {
         Assert.assertTrue(quota.getGenerationTargetCount() >= 4096);
         assertEquivalent("quota", quota, beyond, null);
 
-        // 快照收缩：本步语义为「代内累积」，已见目标不会被移除（换代表达删除）
+        // B4.2 新契约：快照收缩（位置不再全覆盖）→ 释放整代缓存与 mesh 引用，按新快照重建，
+        // 等价全新会话（锚点 = 新快照首个目标；旧「代内累积」语义作废）。
         GenerationSession shrink = new ChainPreviewMeshBuilder().beginGeneration();
         extend(shrink, VerifyShapes.line(5), null);
-        ChainPreviewMesh before = shrink.getMesh();
-        int blocksBefore = before.getBlockCount();
-        extend(shrink, VerifyShapes.line(2), null);
-        Assert.assertEquals("同代内快照收缩不得移除已见目标（已知语义）", blocksBefore, shrink.getMesh().getBlockCount());
-        assertEquivalent("shrink_accumulate_only", shrink, VerifyShapes.line(5), null);
+        ChainPreviewMesh afterShrink = extend(shrink, VerifyShapes.line(2), null);
+        GenerationSession fresh = new ChainPreviewMeshBuilder().beginGeneration();
+        ChainPreviewMesh freshMesh = extend(fresh, VerifyShapes.line(2), null);
+        Assert.assertArrayEquals("收缩后必须与同快照全新会话逐字节一致",
+            freshMesh.vertexArray(), afterShrink.vertexArray(), 0.0F);
+        Assert.assertArrayEquals(freshMesh.indexArray(), afterShrink.indexArray());
+        Assert.assertArrayEquals(freshMesh.auxArray(), afterShrink.auxArray());
+        Assert.assertEquals("锚点必须等于新快照首个目标", freshMesh.getOriginX(), afterShrink.getOriginX());
+        Assert.assertEquals("块数必须等于新快照块数", freshMesh.getBlockCount(), afterShrink.getBlockCount());
+        Assert.assertEquals("缓存条目必须只含新快照", 2, shrink.getCacheEntryCount());
+        Assert.assertEquals("代内目标数必须只含新快照", 2, shrink.getGenerationTargetCount());
+        assertEquivalent("shrink_equivalent_to_fresh", shrink, VerifyShapes.line(2), null);
     }
 
     @Test
