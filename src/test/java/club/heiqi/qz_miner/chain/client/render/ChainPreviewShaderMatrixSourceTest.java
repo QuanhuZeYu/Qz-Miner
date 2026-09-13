@@ -26,6 +26,8 @@ public class ChainPreviewShaderMatrixSourceTest {
 
     private static final String BACKEND_PATH =
             "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
+    private static final String PROGRAM_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderProgram.java";
 
     /** 自检失败（一次性 unavailable）之后 ensureReady 必须一直返回 false，renderer 据此永久回退。 */
     @Test
@@ -75,13 +77,16 @@ public class ChainPreviewShaderMatrixSourceTest {
         Assert.assertTrue("必须从程序层读回投影/modelview", body.contains("readCameraMatrices(projectionMatrix, modelViewMatrix)"));
         Assert.assertTrue("必须在 CPU 侧相乘出 MVP（列主序，投影 × modelview）",
                 body.contains("multiply4x4(") && body.contains("modelViewProjectionMatrix, projectionMatrix, modelViewMatrix"));
-        Assert.assertTrue("自检必须用平移列模长不变量",
-                body.contains("translationMagnitude(modelViewMatrix)")
-                        && body.contains("translationMatches(modelViewMatrix, expected)"));
+        Assert.assertTrue("自检必须用加固后的总判据（T48c-C）",
+                body.contains("verifyCameraMatrices(") && body.contains("translationMagnitude(modelViewMatrix)"));
+        Assert.assertTrue("不得再只查平移列模长（投影/刚性/方向三类漏过已登记）",
+                body.contains("MatrixVerdict.TRUSTWORTHY"));
         Assert.assertTrue("期望值必须是 |origin − renderPos| 的模长",
                 body.contains("magnitude(") && body.contains("originRelativeX"));
         Assert.assertTrue("必须上传 uModelViewProjection", body.contains("setModelViewProjection(modelViewProjectionMatrix)"));
         Assert.assertTrue("必须上传 uModelView", body.contains("setModelView(modelViewMatrix)"));
+        Assert.assertTrue("矩阵未上传必须走同一失败出口（T48c-C 第 1 条）",
+                body.contains("矩阵 uniform 未上传") && body.contains("uploaded"));
 
         String untrusted = methodBody(BACKEND_PATH, "private void markMatrixSourceUntrusted(", "markMatrixSourceUntrusted");
         Assert.assertTrue("失败必须锁成一次性 unavailable", untrusted.contains("unavailable = true"));
@@ -112,6 +117,75 @@ public class ChainPreviewShaderMatrixSourceTest {
         Assert.assertTrue("必须存在 unavailable 分支", unavailable >= 0);
         Assert.assertTrue("必须存在 initialized 分支", initialized >= 0);
         Assert.assertTrue("unavailable 必须先于 initialized 判定", unavailable < initialized);
+    }
+
+    /**
+     * T48c-C 第 1 条：必备 uniform 缺失必须让程序不可用，而不是静默拿零矩阵绘制。
+     *
+     * <p>真机后果：{@code uModelViewProjection} 若缺失，shader 用默认零矩阵把顶点全塌到原点，
+     * 而后端的自检读的是<b>驱动矩阵</b>（不是 uniform 值）⇒ 自检照样通过 ⇒「自检通过、画面全错」。</p>
+     */
+    @Test
+    public void requiredUniformsAreValidatedAfterLink() throws Exception {
+        String ensureReady = methodBody(PROGRAM_PATH, "public boolean ensureReady()", "ensureReady");
+        Assert.assertTrue("链接完成后必须校验必备 uniform", ensureReady.contains("verifyRequiredUniforms()"));
+        Assert.assertTrue("校验必须在 compileAndLink() 之后", ensureReady.indexOf("compileAndLink()") < ensureReady.indexOf("verifyRequiredUniforms()"));
+
+        String verify = methodBody(PROGRAM_PATH, "private void verifyRequiredUniforms()", "verifyRequiredUniforms");
+        Assert.assertTrue("缺失必须走失败（抛异常 ⇒ 收敛为程序不可用）", verify.contains("throw new IllegalStateException"));
+        Assert.assertTrue("原因必须带缺失名单", verify.contains("missing"));
+
+        java.lang.reflect.Field field = ChainPreviewShaderProgram.class.getDeclaredField("REQUIRED_UNIFORMS");
+        field.setAccessible(true);
+        String[] required = (String[]) field.get(null);
+        java.util.List<String> names = java.util.Arrays.asList(required);
+        for (String name : new String[] {
+                "uModelViewProjection", "uModelView", "uOriginRel", "uBarThickness", "uFadeAlpha", "uColorPrimary" }) {
+            Assert.assertTrue("必备 uniform 必须包含 " + name + "（实际 " + names + "）", names.contains(name));
+        }
+    }
+
+    /** 矩阵上传必须返回成功与否，且 location<0 时不得伪装成功。 */
+    @Test
+    public void matrixUploadReportsFailureInsteadOfSilentSkip() throws Exception {
+        String upload = methodBody(PROGRAM_PATH, "private boolean setUniformMatrix4(", "setUniformMatrix4");
+        Assert.assertTrue("location<0 必须返回 false", upload.contains("return false"));
+        Assert.assertTrue("必须记录「矩阵 uniform 缺失」（诊断可观测）", upload.contains("missingMatrices = true"));
+        Assert.assertTrue("成功后必须返回 true", upload.contains("return true"));
+
+        String projection = methodBody(PROGRAM_PATH, "public boolean setModelViewProjection(", "setModelViewProjection");
+        Assert.assertTrue("setModelViewProjection 必须把上传结果透出给后端", projection.contains("return setUniformMatrix4("));
+    }
+
+    /** T48c-C 第 3 条：诊断快照必须一次性、受开关门控、且只在自检通过之后。 */
+    @Test
+    public void diagnosticSnapshotIsOneShotAndGated() throws Exception {
+        String body = methodBody(BACKEND_PATH, "private void reportMatrixSnapshot(", "reportMatrixSnapshot");
+        Assert.assertTrue("必须由 shouldReport 门控（属性关闭时不输出）", body.contains("shouldReport(matrixSnapshotReported)"));
+        Assert.assertTrue("必须先置位再输出（一次性）", body.indexOf("matrixSnapshotReported = true") < body.indexOf("MyMod.LOG.info("));
+        Assert.assertTrue("必须用固定格式器输出单行", body.contains("ChainPreviewShaderMatrixSnapshot.format("));
+        Assert.assertTrue("必须输出锚点顶点 CPU 投影", body.contains("transformPoint("));
+        Assert.assertTrue("异常不得影响渲染帧", body.contains("catch (Throwable ignored)"));
+
+        String upload = methodBody(BACKEND_PATH, "private boolean uploadCameraMatrices(", "uploadCameraMatrices");
+        int verdict = upload.indexOf("verifyCameraMatrices(");
+        int snapshot = upload.indexOf("reportMatrixSnapshot(plan)");
+        Assert.assertTrue("快照必须在自检之后（只在成功路径上）", verdict >= 0 && snapshot > verdict);
+    }
+
+    /**
+     * T48c-C 第 2 条的原版相机扭曲例外：传送门/反胃时 modelview 被施加非均匀缩放，
+     * 无条件刚性判据会误判并永久回退（比原缺陷更重）。
+     */
+    @Test
+    public void vanillaCameraWarpExceptionIsWired() throws Exception {
+        String warp = methodBody(BACKEND_PATH, "private static boolean vanillaCameraWarpActive()", "vanillaCameraWarpActive");
+        Assert.assertTrue("必须读 timeInPortal", warp.contains("player.timeInPortal"));
+        Assert.assertTrue("必须读 prevTimeInPortal（覆盖首末过渡帧）", warp.contains("player.prevTimeInPortal"));
+        Assert.assertTrue("取不到客户端状态必须安全退化", warp.contains("catch (Throwable failure)"));
+
+        String upload = methodBody(BACKEND_PATH, "private boolean uploadCameraMatrices(", "uploadCameraMatrices");
+        Assert.assertTrue("扭曲状态必须传进总判据", upload.contains("vanillaCameraWarpActive()"));
     }
 
     /** 程序层的矩阵 API 在任何环境下都必须安全退化：非法入参返回 false、绝不抛。 */

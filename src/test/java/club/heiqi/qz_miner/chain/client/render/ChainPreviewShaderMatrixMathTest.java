@@ -241,7 +241,188 @@ public class ChainPreviewShaderMatrixMathTest {
                 Math.abs(floatSubtracted - expected) > 1.0e-3D);
     }
 
+    // ------------------------------------------------------------------ T48c-C 自检加固
+
+    /**
+     * 刚性判据：合法旋转（含平移）通过；线性塌缩 / 2× 缩放 / 非均匀缩放 / 剪切 必须失败。
+     *
+     * <p>注意阈值口径：均匀缩放 s 的检出阈值是 {@code |s − 1| > 2%}（判据是列长），
+     * 而 preview-verifier 给的 {@code |s² − 1|} 是 LᵀL 口径——两者等价于同一条边界的不同表达。</p>
+     */
+    @Test
+    public void linearPartRigiditySeparatesRotationsFromDegenerateForms() {
+        Assert.assertTrue("单位阵是合法旋转", ChainPreviewShaderMatrixMath.linearPartIsRigid(identity()));
+        Assert.assertTrue("yaw 旋转 + 平移必须刚性", ChainPreviewShaderMatrixMath.linearPartIsRigid(
+                multiply(rotationY(45.0F), translate(1.2F, -2.3F, 3.4F))));
+        Assert.assertTrue("三轴旋转复合仍必须刚性", ChainPreviewShaderMatrixMath.linearPartIsRigid(
+                multiply(multiply(rotationY(31.0F), rotationX(17.0F)), translate(0.5F, 0.5F, 0.5F))));
+
+        Assert.assertFalse("线性塌缩必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(scale(0.0F)));
+        Assert.assertFalse("2× 缩放必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(scale(2.0F)));
+        Assert.assertFalse("0.5× 缩放必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(scale(0.5F)));
+        Assert.assertFalse("非均匀缩放 (1,1,0.1) 必须失败",
+                ChainPreviewShaderMatrixMath.linearPartIsRigid(nonUniformScale(1.0F, 1.0F, 0.1F)));
+        Assert.assertFalse("剪切（列非正交）必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(shear()));
+        Assert.assertFalse("1.03× 均匀缩放超出 2% 容差必须失败",
+                ChainPreviewShaderMatrixMath.linearPartIsRigid(scale(1.03F)));
+        Assert.assertTrue("1.015× 均匀缩放仍在容差内（阈值口径登记）",
+                ChainPreviewShaderMatrixMath.linearPartIsRigid(scale(1.015F)));
+
+        float[] withNan = identity();
+        withNan[5] = Float.NaN;
+        Assert.assertFalse("线性部分含 NaN 必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(withNan));
+        Assert.assertFalse("null 必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(null));
+        Assert.assertFalse("长度不足必须失败", ChainPreviewShaderMatrixMath.linearPartIsRigid(new float[15]));
+    }
+
+    /** 刚性判据的容差必须远高于浮点地板（verifier 实测纯旋转 |LᵀL−I| ≤ 6.7e-16），否则真机会误回退。 */
+    @Test
+    public void rigidityToleranceIsFarAboveFloatFloor() {
+        Assert.assertTrue("长度容差必须 ≥ 1e-4（浮点地板 6.7e-16 之上留足余量）",
+                ChainPreviewShaderMatrixMath.RIGID_LENGTH_TOLERANCE >= 1.0e-4F);
+        Assert.assertTrue("正交容差必须 ≥ 1e-4", ChainPreviewShaderMatrixMath.RIGID_ORTHOGONALITY_TOLERANCE >= 1.0e-4F);
+        Assert.assertTrue("容差必须小于 0.1（否则塌缩/缩放漏检）",
+                ChainPreviewShaderMatrixMath.RIGID_LENGTH_TOLERANCE <= 0.1F
+                        && ChainPreviewShaderMatrixMath.RIGID_ORTHOGONALITY_TOLERANCE <= 0.1F);
+    }
+
+    /** 投影判据：透视与正交都通过；非有限 / [0][0] 或 [1][1] ≤ 0 / 退化行列式必须失败。 */
+    @Test
+    public void projectionSanityRejectsDegenerateMatrices() {
+        Assert.assertTrue("透视投影必须通过",
+                ChainPreviewShaderMatrixMath.projectionIsSane(perspective(70.0F, 1.7778F, 0.05F, 512.0F)));
+        Assert.assertTrue("正交投影也是合法形态（刻意不检查 [3][2] == -1）",
+                ChainPreviewShaderMatrixMath.projectionIsSane(ortho(-10.0F, 10.0F, -10.0F, 10.0F, 0.05F, 512.0F)));
+
+        Assert.assertFalse("全零矩阵必须失败", ChainPreviewShaderMatrixMath.projectionIsSane(new float[16]));
+        float[] nanProjection = perspective(70.0F, 1.7778F, 0.05F, 512.0F);
+        nanProjection[10] = Float.NaN;
+        Assert.assertFalse("含 NaN 必须失败", ChainPreviewShaderMatrixMath.projectionIsSane(nanProjection));
+        float[] infiniteProjection = perspective(70.0F, 1.7778F, 0.05F, 512.0F);
+        infiniteProjection[5] = Float.POSITIVE_INFINITY;
+        Assert.assertFalse("含 Inf 必须失败", ChainPreviewShaderMatrixMath.projectionIsSane(infiniteProjection));
+        Assert.assertFalse("[0][0] ≤ 0 必须失败", ChainPreviewShaderMatrixMath.projectionIsSane(mirroredProjection()));
+        Assert.assertFalse("退化（两列相同）必须失败",
+                ChainPreviewShaderMatrixMath.projectionIsSane(singularProjection()));
+        Assert.assertFalse("null 必须失败", ChainPreviewShaderMatrixMath.projectionIsSane(null));
+    }
+
+    /** 行列式：已知值与独立实现（LU）互证（离线验算 3000 组随机矩阵最大差 4.5e-13）。 */
+    @Test
+    public void determinantMatchesKnownValues() {
+        Assert.assertEquals("单位阵 det = 1", 1.0D, ChainPreviewShaderMatrixMath.determinant4x4(identity()), 0.0D);
+        Assert.assertEquals("2× 均匀缩放 det = 8", 8.0D, ChainPreviewShaderMatrixMath.determinant4x4(scale(2.0F)), 1.0e-12D);
+        Assert.assertEquals("塌缩 det = 0", 0.0D, ChainPreviewShaderMatrixMath.determinant4x4(scale(0.0F)), 0.0D);
+        Assert.assertEquals("退化矩阵 det = 0", 0.0D,
+                ChainPreviewShaderMatrixMath.determinant4x4(singularProjection()), 1.0e-12D);
+        Assert.assertEquals("透视投影 det 与离线复算一致（-0.114738）",
+                -0.114738D, ChainPreviewShaderMatrixMath.determinant4x4(perspective(70.0F, 1.7778F, 0.05F, 512.0F)), 1.0e-5D);
+        Assert.assertEquals("null 视为退化", 0.0D, ChainPreviewShaderMatrixMath.determinant4x4(null), 0.0D);
+    }
+
+    /**
+     * 平移-线性一致性：正确矩阵残差为 0；平移反向 / 被搬到远端轴向必须被拦；
+     * 「不可判定」（相机相对原点非有限）放行；单位阵 + 平移=d 属登记盲区（自洽）。
+     */
+    @Test
+    public void translationDirectionConsistencyCatchesRelocatedTranslation() {
+        double dx = 1.38D;
+        double dy = -1.62D;
+        double dz = -3.48D;
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        float[] correct = multiply(rotationY(37.0F), translate((float) dx, (float) dy, (float) dz));
+        Assert.assertEquals("正确矩阵（R·T(d)）残差必须为 0",
+                0.0D, ChainPreviewShaderMatrixMath.translationResidual(correct, dx, dy, dz), 1.0e-5D);
+        Assert.assertTrue("正确矩阵必须通过",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(correct, dx, dy, dz, 6.0D));
+
+        float[] reversed = multiply(rotationY(37.0F), translate((float) -dx, (float) -dy, (float) -dz));
+        Assert.assertFalse("平移反向（残差 2|d| ≈ 8.16 > 6）必须被拦",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(reversed, dx, dy, dz, 6.0D));
+
+        float[] farAxis = identity();
+        farAxis[12] = (float) (12.0D * distance);
+        Assert.assertFalse("平移被搬到远端轴向（残差 ≫ 6）必须被拦",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(farAxis, dx, dy, dz, 6.0D));
+
+        Assert.assertTrue("相机相对原点非有限 ⇒ 不可判定，放行",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(correct, Double.NaN, dy, dz, 6.0D));
+        Assert.assertFalse("矩阵非法 ⇒ 失败闭合",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(null, dx, dy, dz, 6.0D));
+        Assert.assertTrue("登记盲区：单位阵线性 + 平移 = d 自洽（无独立朝向来源时不可判别）",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(
+                        translate((float) dx, (float) dy, (float) dz), dx, dy, dz, 6.0D));
+    }
+
+    /** 总自检真值表：每类加固失败给出对应结论；相机扭曲期间跳过刚性/方向两项但保留模长判据。 */
+    @Test
+    public void verdictTableCoversEveryHardeningClass() {
+        double dx = 1.38D;
+        double dy = -1.62D;
+        double dz = -3.48D;
+        float[] projection = perspective(70.0F, 1.7778F, 0.05F, 512.0F);
+        float[] correct = multiply(rotationY(37.0F), translate((float) dx, (float) dy, (float) dz));
+
+        Assert.assertEquals(ChainPreviewShaderMatrixMath.MatrixVerdict.TRUSTWORTHY,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(projection, correct, dx, dy, dz, false, 6.0D));
+        Assert.assertEquals("线性塌缩",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.LINEAR_PART_NOT_RIGID,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+                        projection, multiply(scale(0.0F), translate((float) dx, (float) dy, (float) dz)),
+                        dx, dy, dz, false, 6.0D));
+        Assert.assertEquals("2× 缩放",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.LINEAR_PART_NOT_RIGID,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+                        projection, multiply(scale(2.0F), translate((float) dx, (float) dy, (float) dz)),
+                        dx, dy, dz, false, 6.0D));
+        Assert.assertEquals("单位阵（真机表型）⇒ 模长判据拦截",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.TRANSLATION_MISMATCH,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(projection, identity(), dx, dy, dz, false, 6.0D));
+        Assert.assertEquals("投影含 NaN ⇒ 投影判据拦截",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.PROJECTION_UNTRUSTED,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+                        new float[16], correct, dx, dy, dz, false, 6.0D));
+        Assert.assertEquals("平移反向 ⇒ 方向判据拦截",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.TRANSLATION_DIRECTION_MISMATCH,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+                        projection, multiply(rotationY(37.0F), translate((float) -dx, (float) -dy, (float) -dz)),
+                        dx, dy, dz, false, 6.0D));
+
+        Assert.assertEquals("相机扭曲期间：非刚性但模长正确 ⇒ 放行（避免误永久回退）",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.TRUSTWORTHY,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+                        projection, multiply(scale(0.9F), translate((float) dx, (float) dy, (float) dz)),
+                        dx, dy, dz, true, 6.0D));
+        Assert.assertEquals("相机扭曲期间：单位阵仍必须被模长判据拦截",
+                ChainPreviewShaderMatrixMath.MatrixVerdict.TRANSLATION_MISMATCH,
+                ChainPreviewShaderMatrixMath.verifyCameraMatrices(projection, identity(), dx, dy, dz, true, 6.0D));
+    }
+
+    /**
+     * 方向容差必须可调（第三人称拉回预算）：同一矩阵在 6.0 下判失败、在 10.0 下放行。
+     *
+     * <p>依据：{@code orientCamera} 的第三人称拉回（默认 4.0 格）会原样进入平移列残差，
+     * 用第一人称的 6.0 去卡第三人称会把正常相机判成不一致。</p>
+     */
+    @Test
+    public void directionSlackCoversThirdPersonPullbackBudget() {
+        double dx = 1.38D;
+        double dy = -1.62D;
+        double dz = -3.48D;
+        float[] reversed = multiply(rotationY(37.0F), translate((float) -dx, (float) -dy, (float) -dz));
+        double residual = ChainPreviewShaderMatrixMath.translationResidual(reversed, dx, dy, dz);
+        Assert.assertEquals("反向平移残差 = 2|d|", 2.0D * Math.sqrt(dx * dx + dy * dy + dz * dz), residual, 1.0e-5D);
+        Assert.assertFalse("第一人称容差 6.0 下必须判失败",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(reversed, dx, dy, dz, 6.0D));
+        Assert.assertTrue("第三人称预算（6+4=10）下必须放行（避免误永久回退）",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(reversed, dx, dy, dz, 10.0D));
+        Assert.assertTrue("容差非有限 ⇒ 不可判定，放行",
+                ChainPreviewShaderMatrixMath.translationFollowsLinearPart(reversed, dx, dy, dz, Double.NaN));
+    }
+
     // ------------------------------------------------------------------ 辅助
+
 
     private static void fill(Random random, float[] matrix) {
         for (int i = 0; i < matrix.length; i++) {
@@ -320,4 +501,69 @@ public class ChainPreviewShaderMatrixMathTest {
         matrix[14] = (2.0F * far * near) / (near - far);
         return matrix;
     }
+
+    private static float[] rotationX(float degrees) {
+        double radians = Math.toRadians(degrees);
+        float cos = (float) Math.cos(radians);
+        float sin = (float) Math.sin(radians);
+        float[] matrix = identity();
+        // 列主序：列 1 = (0, cos, sin)、列 2 = (0, -sin, cos)。
+        matrix[5] = cos;
+        matrix[6] = sin;
+        matrix[9] = -sin;
+        matrix[10] = cos;
+        return matrix;
+    }
+
+    private static float[] scale(float factor) {
+        float[] matrix = identity();
+        matrix[0] = factor;
+        matrix[5] = factor;
+        matrix[10] = factor;
+        return matrix;
+    }
+
+    private static float[] nonUniformScale(float x, float y, float z) {
+        float[] matrix = identity();
+        matrix[0] = x;
+        matrix[5] = y;
+        matrix[10] = z;
+        return matrix;
+    }
+
+    /** 列 0 与列 1 不正交的剪切矩阵（det = 1 ⇒ 只能靠正交性检出）。 */
+    private static float[] shear() {
+        float[] matrix = identity();
+        matrix[4] = 0.5F;
+        return matrix;
+    }
+
+    private static float[] mirroredProjection() {
+        float[] matrix = perspective(70.0F, 1.7778F, 0.05F, 512.0F);
+        matrix[0] = -matrix[0];
+        return matrix;
+    }
+
+    private static float[] singularProjection() {
+        float[] matrix = new float[16];
+        matrix[0] = 0.5F;
+        matrix[1] = 0.5F;
+        matrix[4] = 0.5F;
+        matrix[5] = 0.5F;
+        matrix[10] = 1.0F;
+        matrix[15] = 1.0F;
+        return matrix;
+    }
+
+    private static float[] ortho(float left, float right, float bottom, float top, float near, float far) {
+        float[] matrix = identity();
+        matrix[0] = 2.0F / (right - left);
+        matrix[5] = 2.0F / (top - bottom);
+        matrix[10] = -2.0F / (far - near);
+        matrix[12] = -(right + left) / (right - left);
+        matrix[13] = -(top + bottom) / (top - bottom);
+        matrix[14] = -(far + near) / (far - near);
+        return matrix;
+    }
 }
+

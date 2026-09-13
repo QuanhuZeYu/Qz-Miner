@@ -4,7 +4,10 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.renderer.entity.RenderManager;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
@@ -30,6 +33,13 @@ import org.lwjgl.opengl.GL30;
  * （真机下内建矩阵失同步时栈保持单位阵 ⇒ 模长 0 ⇒ 立即检出）。自检不通过 ⇒ 一次性
  * {@code unavailable} ⇒ {@link #ensureReady()} 返回 false ⇒ renderer 既有的
  * {@code ensureReadyBackend()} 永久回退 legacy：不新增回退机制，也绝不画错帧。</p>
+ *
+ * <p><strong>T48c-C 加固</strong>：① 程序链接后校验必备 uniform 的 location（缺失 ⇒ 程序不可用，
+ * 见 {@link ChainPreviewShaderProgram}），并让矩阵上传返回成功与否 —— 堵住「uniform 缺失静默跳过 ⇒
+ * shader 拿零矩阵、而自检读驱动矩阵照样通过」；② 自检扩展为「投影可信 + 线性部分刚性 + 平移列模长 +
+ * 平移-线性一致性」（原版相机扭曲期间跳过后两项，见 {@link #vanillaCameraWarpActive()}）；
+ * ③ {@code -Dqz_miner.preview.diagnostics=true} 时首次绘制输出一行
+ * {@link ChainPreviewShaderMatrixSnapshot}，供桌面端离线复算。</p>
  *
  * <p><strong>GL 状态契约</strong>：帧级 pushAttrib / pushClientAttrib 与绑定围栏由 renderer 统一
  * 负责；本类内部除了 {@link #dispose()}（可能被帧外生命周期调用）以外不捕获绑定快照，也不改
@@ -83,6 +93,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private double matrixExpectedMagnitude = Double.NaN;
     /** 自检失败原因（一次性）；空串表示从未失败。 */
     private String matrixSourceFailure = "";
+    /** 锚点顶点（索引 0）的局部坐标：诊断快照用（上传期取一次，无每帧成本）。 */
+    private final float[] anchorLocal = new float[3];
+    /** 锚点顶点的 CPU 裁剪坐标（诊断快照时才计算）。 */
+    private final float[] anchorClip = new float[4];
+    /** 诊断快照是否已输出（一次性；默认属性关闭时恒为 false）。 */
+    private boolean matrixSnapshotReported;
 
     /** 同代最大出现序号（扫描 aAux 得到）；< 0 表示无 aAux（关闭生长比较），0 表示单目标。 */
     private float appearSpan = -1.0F;
@@ -217,6 +233,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         indexCount = mesh.getIndexCount();
         vertexCount = vertexFloatCount / 3;
+        // 诊断锚点：网格索引 0 的顶点（局部坐标）。只在 uploadTopology 取一次，快照行里用它做
+        // 「应落在哪 vs 实际落在哪」的 CPU 复算基准（T48c-C）。
+        anchorLocal[0] = vertices.length >= 3 ? vertices[0] : 0.0F;
+        anchorLocal[1] = vertices.length >= 3 ? vertices[1] : 0.0F;
+        anchorLocal[2] = vertices.length >= 3 ? vertices[2] : 0.0F;
         // 刻意不缓存 meshOrigin：uOriginRel 与自检期望值一律取 plan 的 origin（renderer 的
         // glTranslated 与 legacy 后端都用 plan origin）。上传期缓存会在「同 mesh 换 plan」时
         // 让两后端语义分叉（T48c-A）。
@@ -339,6 +360,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         matrixSourceFailure = "";
         matrixTranslationMagnitude = Float.NaN;
         matrixExpectedMagnitude = Double.NaN;
+        anchorLocal[0] = 0.0F;
+        anchorLocal[1] = 0.0F;
+        anchorLocal[2] = 0.0F;
+        matrixSnapshotReported = false;
     }
 
     @Override
@@ -364,6 +389,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         }
         if (program.isUnavailable() && !program.getLastFailureMessage().isEmpty()) {
             text.append(" shaderFailure=").append(program.getLastFailureMessage());
+        }
+        if (program.hasMissingMatrixUniforms()) {
+            text.append(" matrixUniforms=missing");
         }
         return text.toString();
     }
@@ -401,7 +429,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         double originRelativeZ = (double) plan.getOriginZ() - RenderManager.renderPosZ;
         program.setOriginRel((float) originRelativeX, (float) originRelativeY, (float) originRelativeZ);
 
-        if (!uploadCameraMatrices(originRelativeX, originRelativeY, originRelativeZ)) {
+        if (!uploadCameraMatrices(plan, originRelativeX, originRelativeY, originRelativeZ)) {
             return false;
         }
 
@@ -449,12 +477,15 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * 模拟固定管线 + {@code use_no_error_g_l_context=true}）下与真实相机矩阵失同步，这是 T48c-A
      * 的根因位点：显式矩阵让「实际用到的矩阵」可读、可断言、可自检。</p>
      *
+     * @param plan            当前 draw plan（origin/索引数供诊断快照离线复算）
      * @param originRelativeX 相机相对 origin X（已在 double 域算出，期望模长复用同一组值）
      * @param originRelativeY 相机相对 origin Y
      * @param originRelativeZ 相机相对 origin Z
      * @return 矩阵来源是否可信
      */
-    private boolean uploadCameraMatrices(double originRelativeX, double originRelativeY, double originRelativeZ) {
+    private boolean uploadCameraMatrices(
+            ChainPreviewDrawPlan plan,
+            double originRelativeX, double originRelativeY, double originRelativeZ) {
         if (!program.readCameraMatrices(projectionMatrix, modelViewMatrix)) {
             markMatrixSourceUntrusted("矩阵读取失败");
             return false;
@@ -462,22 +493,152 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         ChainPreviewShaderMatrixMath.multiply4x4(
             modelViewProjectionMatrix, projectionMatrix, modelViewMatrix);
 
-        // 自检（纯数值，不额外查询 GL）：glTranslated 之后 modelview 的平移列 = R × (origin − renderPos)，
-        // 旋转不改变模长 ⇒ |平移列| 必须 ≈ |origin − renderPos|。矩阵栈没被驱动更新（保持单位阵）时
-        // 模长为 0，与期望值（通常 0.5~30 格）可区分——这正是真机表型的可检测形式。
+        // 自检（纯数值，不额外查询 GL）：T48c-C 加固后为四项 —— 投影可信（有限 / [0][0]、[1][1] > 0 /
+        // 行列式非退化）→ 线性部分刚性（三列单位长度且两两正交，挡塌缩与 2× 缩放）→ 平移列模长
+        // （挡单位阵/陈旧平移）→ 平移-线性一致性（挡「平移被搬到别的轴」）。原版相机扭曲期间
+        // （传送门 / 反胃）modelview 合法地非刚性，见 vanillaCameraWarpActive()。
+        boolean cameraWarpActive = vanillaCameraWarpActive();
         double expected = ChainPreviewShaderMatrixMath.magnitude(
             originRelativeX, originRelativeY, originRelativeZ);
         float actual = ChainPreviewShaderMatrixMath.translationMagnitude(modelViewMatrix);
         matrixTranslationMagnitude = actual;
         matrixExpectedMagnitude = expected;
-        if (!ChainPreviewShaderMatrixMath.translationMatches(modelViewMatrix, expected)) {
-            markMatrixSourceUntrusted("FFP 矩阵栈平移列模长 " + actual + " 与期望 " + expected + " 不符");
+        ChainPreviewShaderMatrixMath.MatrixVerdict verdict = ChainPreviewShaderMatrixMath.verifyCameraMatrices(
+            projectionMatrix, modelViewMatrix,
+            originRelativeX, originRelativeY, originRelativeZ,
+            cameraWarpActive, translationDirectionSlack());
+        if (verdict != ChainPreviewShaderMatrixMath.MatrixVerdict.TRUSTWORTHY) {
+            markMatrixSourceUntrusted(describeVerdict(verdict, actual, expected));
             return false;
         }
 
-        program.setModelViewProjection(modelViewProjectionMatrix);
-        program.setModelView(modelViewMatrix);
+        boolean uploaded = program.setModelViewProjection(modelViewProjectionMatrix);
+        uploaded &= program.setModelView(modelViewMatrix);
+        if (!uploaded) {
+            // 必备 uniform 的 location 校验已在 ensureReady 里做；走到这里说明上传本身失败（GL 异常 /
+            // 参数非法）。矩阵没上传却继续绘制 ⇒ shader 拿上一帧或零矩阵，必须放弃本帧并回退（T48c-C）。
+            markMatrixSourceUntrusted("矩阵 uniform 未上传（location < 0 或 GL 失败）");
+            return false;
+        }
+
+        reportMatrixSnapshot(plan);
         return true;
+    }
+
+    /**
+     * 自检结论 → 诊断文本。
+     *
+     * @param verdict  结论（非 TRUSTWORTHY）
+     * @param actual   实测平移列模长
+     * @param expected 期望平移列模长
+     * @return 人类可读原因
+     */
+    private static String describeVerdict(
+            ChainPreviewShaderMatrixMath.MatrixVerdict verdict, float actual, double expected) {
+        switch (verdict) {
+            case PROJECTION_UNTRUSTED:
+                return "投影矩阵不可信（非有限 / [0][0] 或 [1][1] <= 0 / 行列式退化）";
+            case LINEAR_PART_NOT_RIGID:
+                return "modelview 线性部分非刚性（长度或正交性超容差）";
+            case TRANSLATION_MISMATCH:
+                return "FFP 矩阵栈平移列模长 " + actual + " 与期望 " + expected + " 不符";
+            case TRANSLATION_DIRECTION_MISMATCH:
+                return "平移列与线性部分 × 相机相对原点不一致（平移方向异常）";
+            default:
+                return "矩阵来源不可信";
+        }
+    }
+
+    /**
+     * 原版相机扭曲（下界传送门 / 反胃药水）是否生效。
+     *
+     * <p>{@code EntityPlayerSP.timeInPortal > 0} 时 {@code EntityRenderer.setupCameraTransform:710-712}
+     * 会对 modelview 施加 {@code glRotatef → glScalef(1/f3, 1, 1) → glRotatef}</p>，即<b>非均匀缩放</b>
+     * ⇒ 线性部分合法地非刚性、平移-线性一致性也不再成立（被缩放）。此时跳过刚性/方向两项判据，
+     * 否则会把正常相机状态判成不可用并<b>永久回退</b> legacy（误判代价比原缺陷更重）。
+     *
+     * <p>取 {@code timeInPortal} 与 {@code prevTimeInPortal} 的较大者：渲染用的是两者的插值，
+     * 只看当前值会漏掉首末过渡帧（{@code EntityPlayerSP:136} 每 tick 同步 prev）。</p>
+     *
+     * @return 是否处于原版相机扭曲状态；取不到客户端状态时按 false（保持既有严格度）
+     */
+    private static boolean vanillaCameraWarpActive() {
+        try {
+            Minecraft minecraft = Minecraft.getMinecraft();
+            EntityPlayerSP player = minecraft == null ? null : minecraft.thePlayer;
+            if (player == null) {
+                return false;
+            }
+            return player.timeInPortal > 0.0F || player.prevTimeInPortal > 0.0F;
+        } catch (Throwable failure) {
+            // 客户端状态不可读（生命周期早期 / 非客户端线程）不得影响渲染帧。
+            return false;
+        }
+    }
+
+    /** vanilla 第三人称相机拉回上限（{@code EntityRenderer.thirdPersonDistance} 默认 4.0F，且为 private）。 */
+    private static final float VANILLA_THIRD_PERSON_DISTANCE_MAX = 4.0F;
+
+    /**
+     * 平移方向一致性容差：第一人称 {@link ChainPreviewShaderMatrixMath#TRANSLATION_DIRECTION_SLACK}
+     * （6.0 格），第三人称再加 vanilla 拉回上限 4.0 格。
+     *
+     * <p>为什么第三人称要放宽：{@code orientCamera} 会把相机沿视线拉回
+     * {@code thirdPersonDistance}（默认 4.0，{@code EntityRenderer:575/629}），这段相机空间平移
+     * 会原样进入 modelview 的平移列 ⇒ 残差 ≈ 拉回距离 + bob + 眼位偏移。若统一用 6.0，
+     * 拉回距离被宿主/模组推大时会把正常相机判成不一致并<b>永久回退</b> legacy（比原缺陷更轻但仍
+     * 属误判）；第一人称则保持 6.0 的判别力。</p>
+     *
+     * <p>{@code thirdPersonDistance} 是 private 字段无法读取，且渲染用的是它的插值
+     * {@code thirdPersonDistanceTemp}；这里用默认上限 4.0 作为预算。读不到客户端状态时按第三人称
+     * （更宽松）处理——误判代价不对称。</p>
+     *
+     * @return 方向一致性容差（格）
+     */
+    private static double translationDirectionSlack() {
+        double pullback;
+        try {
+            Minecraft minecraft = Minecraft.getMinecraft();
+            boolean thirdPerson = minecraft != null && minecraft.gameSettings != null
+                    && minecraft.gameSettings.thirdPersonView > 0;
+            pullback = thirdPerson ? VANILLA_THIRD_PERSON_DISTANCE_MAX : 0.0D;
+        } catch (Throwable failure) {
+            pullback = VANILLA_THIRD_PERSON_DISTANCE_MAX;
+        }
+        return ChainPreviewShaderMatrixMath.TRANSLATION_DIRECTION_SLACK + pullback;
+    }
+
+    /**
+     * 诊断快照（默认关闭，{@code -Dqz_miner.preview.diagnostics=true} 时首次绘制打一行 INFO）。
+     *
+     * <p>一次性：{@code matrixSnapshotReported} 一旦置位，后续调用只有一次布尔判断（属性关闭时同样
+     * 只有一次 {@code System.getProperty} 读取），不产生格式化与日志开销，更不进每帧路径。</p>
+     *
+     * @param plan 当前 draw plan（其 origin/索引数用于离线复算）
+     */
+    private void reportMatrixSnapshot(ChainPreviewDrawPlan plan) {
+        if (!ChainPreviewShaderMatrixSnapshot.shouldReport(matrixSnapshotReported)) {
+            return;
+        }
+        matrixSnapshotReported = true;
+        try {
+            ChainPreviewShaderMatrixMath.transformPoint(
+                anchorClip, modelViewProjectionMatrix, anchorLocal[0], anchorLocal[1], anchorLocal[2]);
+            MyMod.LOG.info(ChainPreviewShaderMatrixSnapshot.format(
+                projectionMatrix,
+                modelViewMatrix,
+                modelViewProjectionMatrix,
+                matrixExpectedMagnitude,
+                matrixTranslationMagnitude,
+                new double[] {RenderManager.renderPosX, RenderManager.renderPosY, RenderManager.renderPosZ},
+                new int[] {plan.getOriginX(), plan.getOriginY(), plan.getOriginZ()},
+                indexCount,
+                vertexCount,
+                anchorLocal,
+                anchorClip));
+        } catch (Throwable ignored) {
+            // 诊断日志与格式化异常不得影响渲染帧。
+        }
     }
 
     /**

@@ -49,6 +49,29 @@ public final class ChainPreviewShaderProgram {
     private static final int ATTRIB_AUX = 1;
     private static final int ATTRIB_COLOR = 2;
 
+    private static final String MISSING_UNIFORM_PREFIX = "预览着色器缺少必备 uniform: ";
+
+    /**
+     * 必备 uniform：链接后 location 为 -1 即视为程序不可用（T48c-C）。
+     *
+     * <p>为什么必须硬失败：{@link #setUniformMatrix4} / {@link #setUniform1f} 对 missing 的 uniform 是
+     * 「静默跳过上传」。若 {@code uModelViewProjection} 因链接/优化行为缺失，shader 会拿默认零矩阵绘制，
+     * 而后端的平移列自检读的是<b>驱动矩阵</b>（不是 uniform 值）⇒ <b>自检通过、画面全错</b>。
+     * 链接完成后一次性校验即可封死这条通路。</p>
+     *
+     * <p>只列「缺失必定导致画面错误」的 uniform。其余 uniform 有语义安全的关闭值
+     * （{@code uMinScreenWidthPx = 0} 关闭钳制、{@code uOutlineWidthPx = 0} 关闭描边、
+     * {@code uAnimProgress >= 1} 关闭生长等），缺失时静默跳过属安全退化，不列入必备。</p>
+     */
+    private static final String[] REQUIRED_UNIFORMS = {
+        "uModelViewProjection", // 顶点最终变换：缺失 ⇒ 全部顶点塌到原点
+        "uModelView",           // 顶点真正引用了它（深度 + 横向投影），缺失 ⇒ 最小宽度/描边换算失真
+        "uOriginRel",           // 距离淡出基准：缺失 ⇒ 整链 alpha 曲线错
+        "uBarThickness",        // 横向退化判据：缺失 ⇒ 亚像素条柱被误加宽
+        "uFadeAlpha",           // 淡入淡出包络：缺失 ⇒ 依赖安全初值（1.0）才能正确
+        "uColorPrimary",        // 主色 / 兜底色：缺失 ⇒ 颜色全黑
+    };
+
     private final Map<String, Integer> uniformLocations = new LinkedHashMap<String, Integer>();
     private final Set<String> missingUniforms = new HashSet<String>();
 
@@ -59,6 +82,8 @@ public final class ChainPreviewShaderProgram {
     private int vertexShaderId;
     private int fragmentShaderId;
     private String lastFailureMessage = "";
+    /** 是否发生过矩阵 uniform 缺失（诊断用；正常路径恒为 false）。 */
+    private boolean missingMatrices;
 
     /**
      * 惰性初始化：编译、链接、验证并绑定固定属性槽位。
@@ -86,6 +111,8 @@ public final class ChainPreviewShaderProgram {
             compileAndLink();
             // 安全初值：uniform 未赋值时为 0，会让 uFadeAlpha 把整链 alpha 归零。
             setFadeAlpha(1.0F);
+            // 必备 uniform 校验放在最后：缺失即抛 ⇒ 由下方 catch 收敛为「程序不可用」⇒ 后端一次性回退。
+            verifyRequiredUniforms();
             return true;
         } catch (Throwable failure) {
             // 编译 / 链接 / 验证失败，甚至 LWJGL native 不可用（UnsatisfiedLinkError /
@@ -303,18 +330,20 @@ public final class ChainPreviewShaderProgram {
      * 显式上传后可观测、可断言、可自检。</p>
      *
      * @param columnMajor 16 元素列主序矩阵；null 或长度不足静默忽略
+     * @return 是否真的上传成功（location &lt; 0 / 参数非法 / GL 失败都返回 false ⇒ 调用方必须放弃本帧）
      */
-    public void setModelViewProjection(float[] columnMajor) {
-        setUniformMatrix4("uModelViewProjection", columnMajor);
+    public boolean setModelViewProjection(float[] columnMajor) {
+        return setUniformMatrix4("uModelViewProjection", columnMajor);
     }
 
     /**
      * 上传列主序 modelview（相机相对坐标），驱动横向偏移与深度换算（T48c-A）。
      *
      * @param columnMajor 16 元素列主序矩阵；null 或长度不足静默忽略
+     * @return 是否真的上传成功（location &lt; 0 / 参数非法 / GL 失败都返回 false）
      */
-    public void setModelView(float[] columnMajor) {
-        setUniformMatrix4("uModelView", columnMajor);
+    public boolean setModelView(float[] columnMajor) {
+        return setUniformMatrix4("uModelView", columnMajor);
     }
 
     public void setPixelScale(float pixelScale) {
@@ -414,6 +443,31 @@ public final class ChainPreviewShaderProgram {
 
     // ---------------------------------------------------------------- 内部
 
+    /**
+     * 校验必备 uniform 的 location；缺失即抛 {@link IllegalStateException}。
+     *
+     * <p>由 {@link #ensureReady()} 统一收敛：异常 ⇒ {@code unavailable = true} + 原因进
+     * {@link #getLastFailureMessage()} ⇒ 后端 ensureReady() 返回 false ⇒ renderer 既有的一次性永久
+     * 回退 legacy（不新增回退机制）。失败只判一次，不每帧重试。</p>
+     */
+    private void verifyRequiredUniforms() {
+        StringBuilder missing = null;
+        for (String name : REQUIRED_UNIFORMS) {
+            if (getUniformLocation(name) >= 0) {
+                continue;
+            }
+            if (missing == null) {
+                missing = new StringBuilder();
+            } else {
+                missing.append(", ");
+            }
+            missing.append(name);
+        }
+        if (missing != null) {
+            throw new IllegalStateException(MISSING_UNIFORM_PREFIX + missing);
+        }
+    }
+
     private void compileAndLink() {
         vertexShaderId = ShaderProgramSupport.compileShader(
                 ShaderProgramSupport.readText(getClass(), VERTEX_RESOURCE, READ_ERROR_PREFIX),
@@ -473,13 +527,22 @@ public final class ChainPreviewShaderProgram {
         }
     }
 
-    private void setUniformMatrix4(String name, float[] columnMajor) {
+    /**
+     * 上传列主序 4×4 uniform。
+     *
+     * <p>{@code location < 0} 时返回 false 而不是静默成功：矩阵是「缺失即画面全错」的必备 uniform，
+     * 调用方（后端）必须据此放弃本帧并回退，而不是发出一帧零矩阵的绘制（T48c-C）。</p>
+     *
+     * @return 是否上传成功
+     */
+    private boolean setUniformMatrix4(String name, float[] columnMajor) {
         if (!hasMatrixCapacity(columnMajor)) {
-            return;
+            return false;
         }
         int location = getUniformLocation(name);
         if (location == -1) {
-            return;
+            missingMatrices = true;
+            return false;
         }
         try {
             if (matrixUploadBuffer == null) {
@@ -490,9 +553,23 @@ public final class ChainPreviewShaderProgram {
             matrixUploadBuffer.flip();
             // transpose = false：数组已是 GL 约定的列主序，绝不能"顺手"转置。
             GL20.glUniformMatrix4(location, false, matrixUploadBuffer);
+            return true;
         } catch (Throwable failure) {
             unavailable = true;
+            return false;
         }
+    }
+
+    /**
+     * 是否发生过「矩阵 uniform 缺失导致未上传」。
+     *
+     * <p>正常情况下不可能为 true（{@link #verifyRequiredUniforms()} 已把缺失挡在 ensureReady 之外），
+     * 保留它是为了让「矩阵未上传」这件事在诊断上可观测，而不是静默画一帧零矩阵。</p>
+     *
+     * @return 是否发生过未上传
+     */
+    public boolean hasMissingMatrixUniforms() {
+        return missingMatrices;
     }
 
     private void setUniform3f(String name, float x, float y, float z) {
