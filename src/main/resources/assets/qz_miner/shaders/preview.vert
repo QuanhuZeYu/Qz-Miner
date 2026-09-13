@@ -150,6 +150,9 @@ void main(void) {
     // 保留最小宽度/描边的契约算法，但在方向元数据接入前关闭几何位移。
     // aPos 是世界局部坐标，不能可靠推断条柱横向轴；错误推断会把整面推离 Mesh。
     // 后续启用条件应改为 Mesh 明确提供的方向/边数据，而不是删除这些接口。
+    // T49：该声明在 5d2e0008 被误删（使用点仍在），导致 GLSL 编译失败并被回退链吞成「观感正常」。
+    // GLSL 对 if (false && …) 不做死代码豁免，被关掉的语句同样要过语义检查——声明必须保留。
+    float pixelsPerWorldUnit = 1.0;
     float pixelPerUnitAtDepth = 1.0;
     float lateralMagnitude = 0.0;
     vec3 lateralAxis = vec3(0.0, 0.0, 0.0);
