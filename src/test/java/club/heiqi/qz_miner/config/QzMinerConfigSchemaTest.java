@@ -75,7 +75,8 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientPreviewFadeFallbackMs", FieldType.NUMBER, Double.valueOf(250.0D)},
                 {"client.clientPreviewMinScreenWidthPx", FieldType.NUMBER, Double.valueOf(0.0D)},
                 {"client.clientPreviewOutlineWidthPx", FieldType.NUMBER, Double.valueOf(1.5D)},
-                {"client.clientPreviewFaceShading", FieldType.BOOLEAN, Boolean.FALSE},
+                // 观感默认上调（用户裁定 2026-09-14）：面明暗默认开启，与历史"接线前观感"不同
+                {"client.clientPreviewFaceShading", FieldType.BOOLEAN, Boolean.TRUE},
                 {"client.clientPreviewTruncationSignal", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewMaxTargetsHardCap", FieldType.NUMBER, Double.valueOf(4096.0D)},
                 {"client.clientPreviewLod", FieldType.CHOICE, "off"},

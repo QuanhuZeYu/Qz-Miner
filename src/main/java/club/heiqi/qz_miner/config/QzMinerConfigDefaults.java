@@ -84,13 +84,20 @@ public final class QzMinerConfigDefaults {
      */
     public static final double CLIENT_PREVIEW_OUTLINE_WIDTH_PX = 1.5D;
     /**
-     * 面朝向烘焙明暗（view-independent face shading）；默认 false。
+     * 面朝向烘焙明暗（view-independent face shading）；默认 true。
      *
-     * <p>默认 false = 逐字节等于接线前观感（legacy 颜色流不乘系数、shader 不进入乘色分支）；
-     * 开启后两个后端使用同一张「面法线 → 亮度系数」表，都是「字面常量 × 同一 palette 常量」的
-     * 单次 IEEE 单精度乘法 ⇒ 逐位一致。</p>
+     * <p>两个后端使用同一张「面法线 → 亮度系数」表，都是「字面常量 × 同一 palette 常量」的
+     * 单次 IEEE 单精度乘法 ⇒ 逐位一致。它只乘一个亮度系数：不动几何、不动拓扑、不改可见集合，
+     * 因此被选为唯一上调的观感默认（用户裁定 2026-09-14：默认档需要体积感）。</p>
+     *
+     * <p><b>与其它默认值的性质差异</b>：本项曾默认 false（"逐字节等于接线前观感"），
+     * 上调属**观感变更**而非等价接线——查询"默认值是否等于历史行为"时本项是例外。</p>
+     *
+     * <p><b>实机验证状态</b>：面明暗路径此前只在关闭态下过真机（preview.vert「实机验证记录」
+     * 两条都是"面朝向明暗关"）。默认开启后必须真机确认一次「无异常且观感可接受」，
+     * 确认后才在 preview.vert 追加标记行。</p>
      */
-    public static final boolean CLIENT_PREVIEW_FACE_SHADING = false;
+    public static final boolean CLIENT_PREVIEW_FACE_SHADING = true;
     /** 预览被上限截断时是否给出可见提示（本轮默认 false；展示接线属下一批 B1.1）。 */
     public static final boolean CLIENT_PREVIEW_TRUNCATION_SIGNAL = false;
     /** 预览目标数量硬顶。 */

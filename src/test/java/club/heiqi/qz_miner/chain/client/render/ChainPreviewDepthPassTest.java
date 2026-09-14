@@ -85,6 +85,47 @@ public class ChainPreviewDepthPassTest {
         Assert.assertFalse(ChainPreviewDepthPass.isOutlineShellStage(ChainPreviewDepthPass.Pass.OCCLUDE, 99));
     }
 
+    /**
+     * 修复回归锁：描边宽度为 0 时 OUTLINE 不得再走 2 段。
+     *
+     * <p>壳与主体在宽度 0 时是同一份几何（{@code Visuals} 把 {@code outlineShell} 判为 false），
+     * 若 stage 仍按 2 段执行，同一处会被 alpha 混合两次（0.78 → 0.9516），
+     * 表现为「配置写 0 = 关闭描边、实际把预览画得更实」。收敛后只有 1 段且关深测，
+     * 保留 OUTLINE 的「全可见」语义。</p>
+     */
+    @Test
+    public void outlineWithZeroStrokeWidthCollapsesToSingleXrayPass() {
+        ChainPreviewDepthPass.Pass zero = ChainPreviewDepthPass.resolvePass(
+            ChainPreviewDrawPlan.DepthChannel.OUTLINE, 0.0F);
+        Assert.assertEquals("宽度 0 的 OUTLINE 必须收敛为单遍",
+            ChainPreviewDepthPass.Pass.XRAY, zero);
+        Assert.assertEquals("收敛后只画一段（修复前为 2 段叠色）",
+            1, ChainPreviewDepthPass.stageCount(zero));
+        Assert.assertEquals("该段沿用置顶配方，保留 OUTLINE 的全可见语义",
+            ChainPreviewDepthPass.XRAY_STAGE, ChainPreviewDepthPass.stage(zero, 0));
+
+        Assert.assertEquals("NaN 不得留下两遍叠色的逃逸路径",
+            ChainPreviewDepthPass.Pass.XRAY,
+            ChainPreviewDepthPass.resolvePass(ChainPreviewDrawPlan.DepthChannel.OUTLINE, Float.NaN));
+        Assert.assertEquals("负宽度同样收敛",
+            ChainPreviewDepthPass.Pass.XRAY,
+            ChainPreviewDepthPass.resolvePass(ChainPreviewDrawPlan.DepthChannel.OUTLINE, -1.0F));
+
+        ChainPreviewDepthPass.Pass stroked = ChainPreviewDepthPass.resolvePass(
+            ChainPreviewDrawPlan.DepthChannel.OUTLINE, 1.5F);
+        Assert.assertEquals("正宽度仍是真描边档", ChainPreviewDepthPass.Pass.OUTLINE, stroked);
+        Assert.assertEquals("真描边必须保留壳 → 主体两段", 2,
+            ChainPreviewDepthPass.stageCount(stroked));
+
+        Assert.assertEquals("宽度不影响其它档位", ChainPreviewDepthPass.Pass.OCCLUDE,
+            ChainPreviewDepthPass.resolvePass(ChainPreviewDrawPlan.DepthChannel.OCCLUDE, 0.0F));
+        Assert.assertEquals(ChainPreviewDepthPass.Pass.XRAY,
+            ChainPreviewDepthPass.resolvePass(ChainPreviewDrawPlan.DepthChannel.XRAY, 1.5F));
+        Assert.assertEquals("null 通道仍兜底 xray",
+            ChainPreviewDepthPass.Pass.XRAY,
+            ChainPreviewDepthPass.resolvePass(null, 1.5F));
+    }
+
     @Test
     public void stageIndexOutOfRangeIsDefensiveAndNeverThrows() {
         Assert.assertEquals("越界索引返回该档最后一次绘制的配方（主体）",

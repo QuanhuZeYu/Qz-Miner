@@ -49,7 +49,8 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewFadeFallbackMs", "250.0"},
             {"client.clientPreviewMinScreenWidthPx", "0.0"},
             {"client.clientPreviewOutlineWidthPx", "1.5"},
-            {"client.clientPreviewFaceShading", "false"},
+            // 观感默认上调（用户裁定 2026-09-14）：面明暗默认开启
+            {"client.clientPreviewFaceShading", "true"},
             {"client.clientPreviewTruncationSignal", "false"},
             {"client.clientPreviewMaxTargetsHardCap", "4096.0"},
             {"client.clientPreviewLod", "off"},

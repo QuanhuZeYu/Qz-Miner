@@ -89,7 +89,13 @@ public final class ChainPreviewDrawPlan {
         public static final float DEFAULT_ALPHA_START = 0.78F;
         public static final float DEFAULT_ALPHA_END = 0.15F;
 
-        /** settings 缺失 / 字段 NaN 时的最后防线：与 B0.1 配置默认逐项同值。 */
+        /**
+         * settings 缺失 / 字段 NaN 时的最后防线：除 faceShading 外与配置默认逐项同值。
+         *
+         * <p>faceShading 是刻意的例外：本兜底路径的语义是「拿不到配置」，保持关闭才等于历史
+         * 观感；配置默认虽已上调为开启（见 QzMinerConfigDefaults），但「读不到配置」不等于
+         * 「用户选择了开启」。</p>
+         */
         public static final Visuals BASELINE = new Visuals(
             DEFAULT_BAR_THICKNESS,
             DEFAULT_MIN_SCREEN_WIDTH_PX,
@@ -1050,8 +1056,13 @@ public final class ChainPreviewDrawPlan {
      * 描边形态未变化时返回自身（零分配）。XRAY / OCCLUDE 不调用本方法，逐字节等于现状。</p>
      *
      * <p>壳段判定即 {@code shell && widthPx > 0}：renderer 只在 OUTLINE 档调用，
-     * 宽度取 §H 读取面（配置 {@code client.clientPreviewOutlineWidthPx}），
-     * 因此宽度 0（默认）收敛为非壳段 = 关闭描边，无需新增绘制段或改动 stage 划分。</p>
+     * 宽度取 §H 读取面（配置 {@code client.clientPreviewOutlineWidthPx}）。</p>
+     *
+     * <p><b>本方法只把「本计划」标记为非壳段，不会改变 stage 划分</b>——OUTLINE 档仍是 2 段
+     * （{@link ChainPreviewDepthPass#stageCount}）。宽度 0 的收敛发生在档位解析处：
+     * {@link ChainPreviewDepthPass#resolvePass} 把 OUTLINE 降为单遍 XRAY，否则同一几何会被
+     * 两段各画一遍而叠色。此前本注释称「宽度 0 收敛为非壳段即关闭描边、无需改动 stage 划分」，
+     * 漏掉了 stage 仍为 2 这一点，与实现不符。</p>
      *
      * @param shell   是否描边壳段
      * @param widthPx 外扩宽度（物理像素；&lt;= 0 / NaN 收敛为非壳段）

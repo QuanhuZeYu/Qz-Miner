@@ -12,7 +12,6 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
-import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 
 /**
  * 面朝向明暗（view-independent face shading）契约。
@@ -20,7 +19,8 @@ import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
  * <p>本项最大的工程价值是「两侧逐位一致」：legacy 颜色流与 shader 顶点色都是
  * 「同一个十进制字面常量 × 同一 palette 常量」的单次 IEEE 单精度乘法。因此测试分三层：</p>
  * <ol>
- *   <li><b>关闭档逐位等于现状</b>：默认 false 时颜色流 R/G/B 与基线常量逐位相等（不执行乘法）；</li>
+ *   <li><b>关闭档逐位等于现状</b>：显式传 false 时颜色流 R/G/B 与基线常量逐位相等（不执行乘法）；
+ *       （配置默认值已上调为开启，故本档只论证"关闭时的等价性"，不再论证"默认即关闭"）；</li>
  *   <li><b>开启档逐面精确</b>：每个顶点的颜色必须等于「基色 × 独立复算系数」，用
  *       {@code Float.floatToIntBits} 比较（不是误差范围内相等）；</li>
  *   <li><b>两侧同源</b>：Java 侧 {@link ChainPreviewMeshBuilder#faceShading} 的返回值必须逐位等于
@@ -49,11 +49,15 @@ public class ChainPreviewFaceShadingTest {
                 false, 0.0F, faceShading));
     }
 
-    /** 关闭档（默认）：颜色流必须逐位等于基线常量，且不得有任何乘法残差。 */
+    /**
+     * 关闭档：颜色流必须逐位等于基线常量，且不得有任何乘法残差。
+     *
+     * <p>只断言**显式关闭**的行为，不断言配置默认值——默认值已上调为开启（用户裁定 2026-09-14），
+     * 其快照由 {@code QzMinerConfigSchemaTest} / {@code PreviewConfigSurfaceTest} 的默认值表覆盖，
+     * 两处职责不重叠。</p>
+     */
     @Test
-    public void disabledByDefaultKeepsBaselineColorStreamBitIdentical() {
-        Assert.assertFalse("配置默认值必须关闭（默认值不得超前于实现）",
-            QzMinerConfigDefaults.CLIENT_PREVIEW_FACE_SHADING);
+    public void disabledKeepsBaselineColorStreamBitIdentical() {
         Assert.assertFalse("DrawPlan 基线档必须关闭",
             ChainPreviewDrawPlan.Visuals.BASELINE.isFaceShadingEnabled());
         Assert.assertFalse("VisualParameters 简化构造必须关闭",

@@ -11,7 +11,9 @@ import org.lwjgl.opengl.GL11;
  *   <li>{@link Pass#OCCLUDE}：单 pass，开深度测试 + LEQUAL + depthMask(false) —— 被方块遮挡的条柱不可见。</li>
  *   <li>{@link Pass#OUTLINE}：两 pass —— B3.x 起为「描边壳 pass（关深度测试，沿用历史置顶配方，
  *       全可见）→ 主体 pass（自遮挡正确）」；壳段在顶点阶段外扩 {@code outlineWidthPx}，主体覆盖中心
- *       形成环带。段序固定（壳 → 主体），不引入随机闪烁；XRAY / OCCLUDE 逐字不变。</li>
+ *       形成环带。段序固定（壳 → 主体），不引入随机闪烁；XRAY / OCCLUDE 逐字不变。
+ *       <b>宽度收敛</b>：{@code outlineWidthPx <= 0} 时壳与主体是同一份几何，两段等于把同一处
+ *       混合两次（叠色），故 {@link #resolvePass} 把 OUTLINE 降为单遍 XRAY——见该方法的推导。</li>
  * </ul>
  *
  * <p>混合排序说明（T15 要求 3，B3.x 升级后口径变化一次）：壳段先画、主体后画，可见处主体覆盖壳段中心；
@@ -122,6 +124,33 @@ public final class ChainPreviewDepthPass {
             return Pass.OUTLINE;
         }
         return Pass.XRAY;
+    }
+
+    /**
+     * 纯函数：结合真描边宽度决定**实际执行**档。
+     *
+     * <p>OUTLINE 档相对 XRAY 唯一多出来的就是描边壳段：壳沿面法线外扩 {@code outlineWidthPx}
+     * 后才与主体形成环带，两段的几何才不同。宽度为 0（或 NaN / 负值）时无外扩 ⇒ 壳段与主体
+     * 是<b>同一份几何</b>，此时仍按 {@link #stageCount} 的 2 段执行，只会让同一处 alpha
+     * 混合两次（0.78 → 0.9516），表现为「配置写着 0 = 关闭描边，实际却把预览画得更实」。
+     * 故此处收敛为 {@link Pass#XRAY} 单遍：保留 OUTLINE 的「全可见」语义，去掉无意义的第二遍。</p>
+     *
+     * <p>收敛到 XRAY 而不是 OCCLUDE：调用方选的是 OUTLINE（要穿墙可见性），不是 OCCLUDE；
+     * 关掉描边不应顺带把可见性改成「被遮挡即不可见」。</p>
+     *
+     * <p>{@code !(outlineWidthPx > 0.0F)} 的写法同时覆盖 NaN——NaN 参与 &gt; 比较恒 false，
+     * 因此也会收敛为单遍，不会留下两遍叠色的逃逸路径。</p>
+     *
+     * @param channel        plan 的深度通道
+     * @param outlineWidthPx 真描边外扩宽度（物理像素；&lt;= 0 / NaN 视为关闭）
+     * @return 实际执行的 pass，永不为 null
+     */
+    public static Pass resolvePass(ChainPreviewDrawPlan.DepthChannel channel, float outlineWidthPx) {
+        Pass pass = select(channel);
+        if (pass == Pass.OUTLINE && !(outlineWidthPx > 0.0F)) {
+            return Pass.XRAY;
+        }
+        return pass;
     }
 
     /**

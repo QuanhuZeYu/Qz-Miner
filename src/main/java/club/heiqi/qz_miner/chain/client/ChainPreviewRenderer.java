@@ -552,11 +552,15 @@ public class ChainPreviewRenderer {
                 plan.getOriginX() - RenderManager.renderPosX,
                 plan.getOriginY() - RenderManager.renderPosY,
                 plan.getOriginZ() - RenderManager.renderPosZ);
-            ChainPreviewDepthPass.Pass pass = ChainPreviewDepthPass.select(plan.getDepthChannel());
+            // 描边宽度参与档位解析：宽度 0 时 OUTLINE 收敛为单遍 XRAY（推导见
+            // ChainPreviewDepthPass.resolvePass）——否则壳段与主体几何相同，stage 仍按
+            // 2 段执行，同一处被混合两次（alpha 0.78 → 0.9516）。
+            ChainPreviewDepthPass.Pass pass = ChainPreviewDepthPass.resolvePass(
+                plan.getDepthChannel(),
+                outlineWidthPx);
             int stageCount = ChainPreviewDepthPass.stageCount(pass);
             // B3.x 真描边：仅 OUTLINE 档派生一次壳段计划（XRAY / OCCLUDE 零分配、逐字节等于现状）；
-            // 外扩宽度取 §H 读取面（配置 clientPreviewOutlineWidthPx）：0 = 关闭，
-            // withOutlinePass 收敛为非壳段，壳段 stage 落到主体绘制
+            // 外扩宽度取 §H 读取面（配置 clientPreviewOutlineWidthPx），进到这里必然 > 0。
             ChainPreviewDrawPlan shellPlan = pass == ChainPreviewDepthPass.Pass.OUTLINE
                 ? plan.withOutlinePass(true, outlineWidthPx)
                 : null;

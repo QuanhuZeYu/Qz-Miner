@@ -27,7 +27,9 @@
  *   3) 逐波生长      —— 读 aAux 的 appearOrder 归一化后与 uAnimProgress 逐顶点比较（不要求索引有序）
  *   4) 语义颜色      —— 顶点按 semanticClass 选 uColor* 并写进 vColor.rgb（片元只做插值输出）
  *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
- *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
+ *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha；**本轮未实现**（本表是落点规划，
+ *                        只有标了版本号的条目才代表已有代码；第 5 项至今无对应分支，
+ *                        远处细线不做 alpha 收敛——需要时另立一项，勿按已实现读）
  *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿面法线外扩 uOutlineWidthPx，且只使用最小宽度未占用的
  *                        剩余预算（仅着色器路径；预算耗尽时精确为 0）
  *   7) 面朝向明暗（face shading）—— 顶点按 aDirection.xyz 查表乘进 color；**默认关闭**（uFaceShading=0），
