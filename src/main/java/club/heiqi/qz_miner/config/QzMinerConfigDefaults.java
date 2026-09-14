@@ -83,6 +83,14 @@ public final class QzMinerConfigDefaults {
      * 取值区间与着色器内 {@code clamp(uOutlineWidthPx, 0.0, 8.0)} 一致。</p>
      */
     public static final double CLIENT_PREVIEW_OUTLINE_WIDTH_PX = 1.5D;
+    /**
+     * 面朝向烘焙明暗（view-independent face shading）；默认 false。
+     *
+     * <p>默认 false = 逐字节等于接线前观感（legacy 颜色流不乘系数、shader 不进入乘色分支）；
+     * 开启后两个后端使用同一张「面法线 → 亮度系数」表，都是「字面常量 × 同一 palette 常量」的
+     * 单次 IEEE 单精度乘法 ⇒ 逐位一致。</p>
+     */
+    public static final boolean CLIENT_PREVIEW_FACE_SHADING = false;
     /** 预览被上限截断时是否给出可见提示（本轮默认 false；展示接线属下一批 B1.1）。 */
     public static final boolean CLIENT_PREVIEW_TRUNCATION_SIGNAL = false;
     /** 预览目标数量硬顶。 */
@@ -160,6 +168,7 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewFadeFallbackMs", Double.valueOf(CLIENT_PREVIEW_FADE_FALLBACK_MS));
         target.put("client.clientPreviewMinScreenWidthPx", Double.valueOf(CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX));
         target.put("client.clientPreviewOutlineWidthPx", Double.valueOf(CLIENT_PREVIEW_OUTLINE_WIDTH_PX));
+        target.put("client.clientPreviewFaceShading", Boolean.valueOf(CLIENT_PREVIEW_FACE_SHADING));
         target.put("client.clientPreviewTruncationSignal", Boolean.valueOf(CLIENT_PREVIEW_TRUNCATION_SIGNAL));
         target.put("client.clientPreviewMaxTargetsHardCap", Double.valueOf(CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP));
         target.put("client.clientPreviewLod", CLIENT_PREVIEW_LOD);

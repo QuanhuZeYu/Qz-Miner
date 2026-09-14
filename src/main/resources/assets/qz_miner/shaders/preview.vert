@@ -21,13 +21,16 @@
  *
  * 功能优先级与落点（接口冻结文档 §F）：
  *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
- *   2) 屏幕最小宽度  —— 顶点侧沿横向偏移等比放大，与 glTranslated 相机相对坐标一致
+ *   2) 屏幕最小宽度  —— 顶点侧沿面法线 aDirection 外扩，把条柱的屏幕投影宽抬到 uMinScreenWidthPx 像素；
+ *                        世界空间位移与真描边共用同一上界口径（见下与 ChainPreviewShaderMath.maxWidenWorld）
  *   3) 逐波生长      —— 读 aAux 的 appearOrder 归一化后与 uAnimProgress 逐顶点比较（不要求索引有序）
  *   4) 语义颜色      —— 顶点按 semanticClass 选 uColor* 并写进 vColor.rgb（片元只做插值输出）
  *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
  *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
- *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿横向轴外扩 uOutlineWidthPx（仅着色器路径）
- *   7) 相机矩阵       —— 一律走显式 uniform uModelViewProjection / uModelView（T48c-A）：
+ *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿面法线外扩 uOutlineWidthPx（仅着色器路径）
+ *   7) 面朝向明暗（face shading）—— 顶点按 aDirection.xyz 查表乘进 color；**默认关闭**（uFaceShading=0），
+ *                        开启后与 legacy 颜色流用同一张亮度表（字面常量 × 同一 palette 常量）
+ *   8) 相机矩阵       —— 一律走显式 uniform uModelViewProjection / uModelView（T48c-A）：
  *                        真机（GLSM 模拟固定管线 + no-error context）内建矩阵与真实相机矩阵失同步，
  *                        且失败不可观测；显式化后矩阵可读、可断言，后端可自检并回退 legacy
  *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
@@ -65,6 +68,8 @@ uniform float uFadeAlpha;        // 淡入淡出包络（B3.2）[0,1]；1 = 完�
                                  // 宿主每帧显式置 1，避免 uniform 未设时默认 0 导致整链透明
 uniform float uOutlineWidthPx;   // 真描边（B3.x）外扩宽度（物理像素）；0 = 关闭描边
                                  // xray / occlude 与 OUTLINE 主体 pass 都必须为 0 ⇒ 逐值等于现状
+uniform float uFaceShading;      // 面朝向明暗（face shading）开关：0 = 关闭（默认，等于接线前观感），1 = 开启
+                                 // 关闭时必须**完全不进入乘色分支**，保证逐字节等于现状
 
 // 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表）。
 // builtin 档四色都是精确基线常量 (0.25, 0.9, 1.0) ⇒ 输出逐字节等于现状。
@@ -107,6 +112,35 @@ vec3 previewSemanticColor(float semanticClass) {
         return uColorTruncated;
     }
     return uColorPrimary;
+}
+
+/**
+ * 面朝向亮度系数（view-independent face shading）：与 Java 侧
+ * club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder#faceShading 同表、同判定顺序。
+ *
+ * 取值（顶 1.00 / +Z 0.90 / −Z 0.84 / ±X 0.78 / 底 0.72）与 Java 侧逐字相同：两侧都是
+ * 「同一个十进制字面常量 × 同一 palette 常量」的单次 IEEE 单精度乘法，故结果逐位一致。
+ * 系数一旦改成表达式（mix / lerp / 点积），这条性质立即失效——两侧会因运算顺序分叉。
+ *
+ * 零方向 / 未定义方向返回 1.0：不得压暗无方向顶点（T51 后顶点按面分裂，正常路径不产生）。
+ */
+float faceShading(vec3 normal) {
+    if (normal.y > 0.5) {
+        return 1.00;
+    }
+    if (normal.y < -0.5) {
+        return 0.72;
+    }
+    if (normal.z > 0.5) {
+        return 0.90;
+    }
+    if (normal.z < -0.5) {
+        return 0.84;
+    }
+    if (normal.x > 0.5 || normal.x < -0.5) {
+        return 0.78;
+    }
+    return 1.00;
 }
 
 /** 与 CPU 端同形的 quadratic 距离淡出。 */
@@ -154,12 +188,22 @@ void main(void) {
     // 保证共享多面顶点不会被错误推向任一轴。
     vec3 displaced = aPos;
     float pixelsPerWorldUnit = max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6);
+    // 世界空间位移上界（A2）：**与真描边同一口径**，单一真源是 ChainPreviewShaderMath.maxWidenWorld。
+    // 推导（接口冻结 §L / F-1 独立复算）：条柱自身厚度 t 与单侧外扩量 w 共同计入相邻条柱的占用，
+    // 中心距 1 格时既有口径的间隙式 1 - 2(t + w) 在上界处恰好为 0；而真实几何到达半径
+    // t/2 + w = 0.5 - t/2 < 0.5，比「不越出自身方块」更保守。不用固定 0.5 是因为默认厚度下
+    // 相邻条柱会重叠 0.09 格。上界把它收敛到 0.955 格总宽（t=0.045），仍不粘连。
+    float maxWidenWorld = max(0.0, 0.5 - uBarThickness);
     if (uMinScreenWidthPx > 0.0) {
-        float widthPx = max(2.0 * uBarThickness * pixelsPerWorldUnit, 1e-6);
-        displaced = aPos + aDirection.xyz * (0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0));
+        // A1 修复：条柱的屏幕投影宽 = **总厚度** × pixelsPerWorldUnit。
+        // 旧式写 2.0 * uBarThickness 把激活阈值抬到 2t×ppwu、位移量减半，
+        // 于是配置 minW 只能交付 minW/2 像素（8px 档实测约 4px，Python 复算见
+        // temp/qz-miner-minwidth-a1a2-recheck.py）。
+        float widthPx = max(uBarThickness * pixelsPerWorldUnit, 1e-6);
+        displaced = aPos + aDirection.xyz * min(0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0), maxWidenWorld);
     }
     if (uOutlineWidthPx > 0.0) {
-        displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, max(0.0, 0.5 - uBarThickness));
+        displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, maxWidenWorld);
     }
 
     // 历史做法（从 aPos 的绝对值近似横向轴）已彻底移除：横向轴只认 Mesh 显式提供的 aDirection。
@@ -168,6 +212,11 @@ void main(void) {
     // 被关掉的语句同样要过语义检查，于是占位块能顺带护住 uniform 的声明与链接检查。该理由
     // 已被取代：上面的活跃位移实打实引用了 uModelView / uPixelScale / uBarThickness，
     // 保护作用由活跃分支承担，占位块遂删除（它同时是「读起来像在用 lateralAxis」的误导源）。
+    //
+    // 未决点登记（A2 报告项）：最小宽度与真描边各自都以上式为上界，但**叠加**（OUTLINE 壳段
+    // 同时 uMinScreenWidthPx > 0）时联合位移可达 2×(0.5 - t)，t=0.045 时单侧到达 0.9325 格，
+    // 会越出自身方块并使相邻条柱重叠。描边上界是 Lead 裁定并被测试钉死，本批不擅改其口径；
+    // 联合上界（例如让描边上界让位 max(0.0, 0.5 - uBarThickness - minWidthWiden)）留待 Lead 裁定。
     //
     // 教训保留：T49 曾因误删 pixelsPerWorldUnit 声明导致 GLSL 编译失败，再被回退链吞成
     // 「观感正常」。改动本段后必须过 glslang 闸门，且必须确认上方位移在真机上生效。
@@ -183,6 +232,11 @@ void main(void) {
     vec3 color = previewSemanticColor(auxChannel(aAux.x));
     if (uOutlineWidthPx > 0.0) {
         color = uColorPrimary;
+    }
+    // 面朝向明暗：门控关闭（默认，uFaceShading = 0）时整段不执行 ⇒ 输出逐字节等于现状。
+    // 开启时乘的是与 legacy 颜色流同一张表的同一组字面常量（见 faceShading 函数）。
+    if (uFaceShading > 0.5) {
+        color = color * faceShading(aDirection.xyz);
     }
     vColor = vec4(color, alpha);
 

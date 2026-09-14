@@ -161,6 +161,9 @@ public final class LegacyCfgImporter {
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewOutlineWidthPx",
                     "client.clientPreviewOutlineWidthPx",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX);
+            putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewFaceShading",
+                    "client.clientPreviewFaceShading",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_FACE_SHADING);
             putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewTruncationSignal",
                     "client.clientPreviewTruncationSignal",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL);

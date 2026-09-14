@@ -20,11 +20,11 @@ public final class ChainPreviewShaderMath {
     /** 淡出曲线的分母下限，与 GLSL 的 {@code max(uFadeEnd - uFadeStart, 1e-4)} 一致。 */
     private static final float FADE_SPAN_EPSILON = 1e-4F;
 
-    /** 横向投影长度下限，与 GLSL 的 {@code clamp(worldLateral, 0.05, 1.0)} 一致。 */
-    private static final float MIN_LATERAL_PROJECTION = 0.05F;
+    /** 像素 / 世界单位的下限，与 GLSL 的 {@code max(..., 1e-6)} 一致。 */
+    private static final float PIXELS_PER_UNIT_EPSILON = 1e-6F;
 
-    /** 横向放大上限，与 GLSL 的 {@code clamp(..., 1.0, 64.0)} 一致。 */
-    private static final float MAX_LATERAL_WIDEN = 64.0F;
+    /** 深度下限，与 GLSL 的 {@code max(1e-4, depth)} 一致。 */
+    private static final float DEPTH_EPSILON = 1e-4F;
 
     /** 片元丢弃阈值，与 GLSL 的 {@code vColor.a <= 0.0039} 一致。 */
     private static final float FRAGMENT_DISCARD_ALPHA = 0.0039F;
@@ -243,7 +243,7 @@ public final class ChainPreviewShaderMath {
      */
     public static final float MAX_OUTLINE_WIDTH_PX = ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX;
 
-    /** 横向半格：相邻条柱中心距 1 格，任一侧占用不得超过它。 */
+    /** 半格：相邻条柱中心距 1 格，任一侧占用不得超过它（沿面法线的外扩受同一约束）。 */
     public static final float HALF_TILE = 0.5F;
 
     /**
@@ -274,7 +274,7 @@ public final class ChainPreviewShaderMath {
         if (px <= 0.0F || !(pixelsPerWorldUnit > 0.0F) || !isFinite(pixelsPerWorldUnit)) {
             return 0.0F;
         }
-        return Math.min(px / pixelsPerWorldUnit, maxOutlineWorld(barThickness));
+        return Math.min(px / pixelsPerWorldUnit, maxWidenWorld(barThickness));
     }
 
     /**
@@ -283,6 +283,8 @@ public final class ChainPreviewShaderMath {
      * <p><strong>厚度相关断言必须用三参版本</strong>——本重载把上界固定成默认厚度对应的
      * {@code 0.455}，无法覆盖 {@code barThickness} 变化（例如 0.2 ⇒ 0.3、&ge;0.5 ⇒ 0）。
      * 保留它只为兼容既有调用点。</p>
+     *
+     * <p>上界口径见 {@link #maxWidenWorld(float)}（最小宽度与描边共用）。</p>
      *
      * @param widthPx            描边宽度（物理像素）
      * @param pixelsPerWorldUnit 横向「像素 / 世界单位」
@@ -293,17 +295,35 @@ public final class ChainPreviewShaderMath {
     }
 
     /**
-     * 描边外扩的世界量上界：{@code max(0, 0.5 − barThickness)}（与 GLSL 逐式同形）。
+     * 沿面法线位移的世界量上界：{@code max(0, 0.5 − barThickness)}（与 GLSL 逐式同形）。
      *
-     * <p><strong>为什么不是固定 0.5</strong>：条柱自身已占用 {@code barThickness}，相邻条柱中心距
-     * 1 格，两侧同时外扩后间隙 = {@code 1 − 2×(barThickness + widen)}。固定 0.5 在默认厚度 0.045
-     * 下给出 {@code 1 − 2×0.545 = −0.09} 格（相邻条柱粘连）；取 {@code 0.5 − barThickness} 后
-     * 上界处间隙恰好为 0。</p>
+     * <p><strong>本方法是「外扩世界量上界」的单一真源</strong>：真描边
+     * （{@link #outlineWidenWorld(float, float, float)}）与屏幕最小宽度
+     * （{@link #minWidthWidenWorld(float, float, float)}）共用同一口径，两者在
+     * {@code preview.vert} 里都以同式 {@code max(0.0, 0.5 - uBarThickness)} 收窄。
+     * 原方法名 {@code maxOutlineWorld} 已随最小宽度接入同一上界而改名。</p>
+     *
+     * <p><strong>为什么是 {@code 0.5 − t} 而不是固定 0.5</strong>：条柱自身已占用
+     * {@code barThickness}，相邻条柱中心距 1 格，既有口径把外扩量与整厚一起计入间隙
+     * {@code 1 − 2×(t + w)}。固定 0.5 在默认厚度 0.045 下给出 {@code 1 − 2×0.545 = −0.09} 格
+     * （相邻条柱粘连）；取 {@code 0.5 − t} 后上界处该式恰好为 0。</p>
+     *
+     * <p><strong>为什么是完整 {@code t} 而不是半厚 {@code t/2}</strong>：几何上单侧到达半径是
+     * {@code t/2 + w}，故「不越出自身方块」的自然上界是 {@code 0.5 − t/2}。既有口径取
+     * {@code 0.5 − t}，对应到达 {@code 0.5 − t/2 < 0.5}、真实间隙
+     * {@code 1 − 2×(t/2 + w) = t > 0} —— 比自然上界更保守（留了半个厚度的余量），
+     * 且表达式仍只依赖一个既有 uniform。这是接口冻结 §L 第 138 行的 Lead 裁定与 F-1 独立复算
+     * （{@code OutlineStrokeBoundsContractTest#expandedNeighborBarsMustNotOverlapForAnyThickness}）
+     * 的结果，不得自行改回 {@code 0.5} 或另立半厚口径。</p>
+     *
+     * <p><strong>未决点登记</strong>：最小宽度与真描边各自受本上界约束，但两者叠加
+     * （OUTLINE 壳段同时开最小宽度）时联合位移可达 {@code 2×(0.5 − t)}，会越出方块并使相邻条柱
+     * 重叠。联合上界需要 Lead 裁定，本类不私自定义。</p>
      *
      * @param barThickness 条柱厚度（配置范围 0.005 ~ 0.2）；NaN 按最保守处理（0）
      * @return &gt;= 0 的世界量上界
      */
-    public static float maxOutlineWorld(float barThickness) {
+    public static float maxWidenWorld(float barThickness) {
         if (Float.isNaN(barThickness)) {
             return 0.0F;
         }
@@ -483,106 +503,89 @@ public final class ChainPreviewShaderMath {
     }
 
     /**
-     * 屏幕最小宽度对应的横向放大倍数（GLSL {@code widen}）。
+     * 像素 / 世界单位换算：与 {@code preview.vert} 的
+     * {@code max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6)} 同形。
      *
-     * <p>与 {@link #lateralClamp} 共享同一条数学：本方法回答「放大几倍」，
-     * {@code lateralClamp} 回答「位移后的坐标」。两者都必须在 px&lt;=0 时恒等返回 1，
-     * 否则「关闭效果 = 严格恒等」的契约会被破坏。</p>
-     *
-     * @param minScreenWidthPx    目标最小屏幕宽度（px）；&lt;= 0 表示关闭
-     * @param lateralMagnitude    顶点横向偏移量（世界单位，= halfThickness）
-     * @param pixelPerUnitAtDepth 单位深度上的像素/世界单位
-     * @param lateralProjection   横向单位向量在相机空间的投影长度（0..1）
-     * @return 放大倍数，恒 &gt;= 1
+     * @param pixelScale uPixelScale（单位深度上的像素 / 世界单位）
+     * @param depth      顶点在相机空间的深度（{@code -(uModelView * vec4(aPos, 1)).z}）
+     * @return 该顶点处的像素 / 世界单位，恒 &gt;= 1e-6
      */
-    public static float lateralWiden(
-            float minScreenWidthPx, float lateralMagnitude, float pixelPerUnitAtDepth, float lateralProjection) {
-        if (!(minScreenWidthPx > 0.0F) || !(lateralMagnitude > 0.0F)) {
-            return 1.0F;
-        }
-        float projectedPerUnit = clamp(lateralProjection, MIN_LATERAL_PROJECTION, 1.0F);
-        float lateralWidthPx = 2.0F * lateralMagnitude * pixelPerUnitAtDepth * projectedPerUnit;
-        if (!(lateralWidthPx > 0.0F) || !isFinite(lateralWidthPx)) {
-            return 1.0F;
-        }
-        return clamp(minScreenWidthPx / lateralWidthPx, 1.0F, MAX_LATERAL_WIDEN);
+    public static float pixelsPerWorldUnit(float pixelScale, float depth) {
+        return Math.max(pixelScale / Math.max(DEPTH_EPSILON, depth), PIXELS_PER_UNIT_EPSILON);
     }
 
     /**
-     * 屏幕最小宽度钳制：与 {@code preview.vert} 的横向放大逐式同形。
+     * 屏幕最小宽度：沿面法线的世界位移量（与 {@code preview.vert} 逐式同形）。
      *
-     * @param minScreenWidthPx    目标最小屏幕宽度（px）；<= 0 表示关闭（严格恒等）
-     * @param positionX           相对 meshOrigin 的 X
-     * @param positionY           相对 meshOrigin 的 Y
-     * @param positionZ           相对 meshOrigin 的 Z
-     * @param pixelPerUnitAtDepth 单位深度上的像素/世界单位（= uPixelScale / depth）
-     * @param lateralProjection   横向单位向量在相机空间的投影长度（0..1）
-     * @param barThickness        条柱厚度（与 GLSL 的 uBarThickness 同源，用于退化判据）
-     * @return 钳制后的局部坐标（长度 3）；px<=0 时逐值等于输入
+     * <p>GLSL 侧：{@code min(0.5 * uBarThickness * max(0.0, uMinScreenWidthPx
+     * / max(uBarThickness * pixelsPerWorldUnit, 1e-6) - 1.0), maxWidenWorld)}。</p>
+     *
+     * <p><b>为什么基准是「总厚度 × 像素密度」</b>：条柱的屏幕投影宽就是
+     * {@code barThickness × pixelsPerWorldUnit}（厚度是总厚，不是半厚）。本式把投影宽等比放大到
+     * {@code minScreenWidthPx}（倍数 {@code k}），半厚 {@code t/2} 随之移到 {@code (t/2) × k}，
+     * 故单侧位移 {@code (t/2)(k − 1)}，两侧合计正好补齐到目标像素宽。曾经写成
+     * {@code 2.0 * uBarThickness} 的版本会让激活阈值翻倍、位移减半（配置 8px 只交付 4px），
+     * 已由 Python 独立复算证伪（见工作站 temp/qz-miner-minwidth-a1a2-recheck.py）。</p>
+     *
+     * <p><b>世界上界</b>：与真描边同口径（{@link #maxWidenWorld(float)}）。像素 / 世界单位很小时
+     * 位移必须收敛——无上界时 {@code ppwu=0.01, t=0.045, minW=8} 会单侧外扩约 400 格。</p>
+     *
+     * @param minScreenWidthPx   目标最小屏幕宽度（像素）；&lt;= 0 表示关闭（精确返回 0）
+     * @param barThickness       条柱厚度（总厚，GLSL {@code uBarThickness}）
+     * @param pixelsPerWorldUnit 像素 / 世界单位
+     * @return 沿面法线的单侧位移量（世界单位）；关闭或输入非法时为 0
      */
-    public static float[] lateralClamp(
-            float minScreenWidthPx,
-            float positionX, float positionY, float positionZ,
-            float pixelPerUnitAtDepth, float lateralProjection, float barThickness) {
-        float[] original = {positionX, positionY, positionZ};
-        if (!(minScreenWidthPx > 0.0F)) {
-            return original;
+    public static float minWidthWidenWorld(
+            float minScreenWidthPx, float barThickness, float pixelsPerWorldUnit) {
+        if (!(minScreenWidthPx > 0.0F) || !(barThickness > 0.0F) || !isFinite(barThickness)) {
+            return 0.0F;
         }
-
-        float magnitudeX = Math.abs(positionX);
-        float magnitudeY = Math.abs(positionY);
-        float magnitudeZ = Math.abs(positionZ);
-        float lateralMagnitude = Math.min(magnitudeX, Math.min(magnitudeY, magnitudeZ));
-        // T13-D2：与 GLSL 同形的退化判据（preview.vert 的 lateralMagnitude <= 0.02 × thickness）。
-        // 低于该量级的偏移不是「条柱半厚度」而是格线残留，放大它只会把顶点推出方块。
-        if (lateralMagnitude <= 0.02F * Math.max(barThickness, 1e-4F)) {
-            return original;
+        if (!(pixelsPerWorldUnit > 0.0F) || !isFinite(pixelsPerWorldUnit)) {
+            return 0.0F;
         }
-
-        float axisX = 0.0F;
-        float axisY = 0.0F;
-        float axisZ = 0.0F;
-        // 判据必须是「哪个轴的分量最小」。此前拿 lateralMagnitude（它本身就是三轴最小值）
-        // 去和 magnitudeY/Z 比，条件恒真 ⇒ 位移永远沿 X 轴，远距时把条柱推出方块。
-        if (magnitudeX <= magnitudeY && magnitudeX <= magnitudeZ) {
-            axisX = sign(positionX);
-        } else if (magnitudeY <= magnitudeZ) {
-            axisY = sign(positionY);
-        } else {
-            axisZ = sign(positionZ);
-        }
-
-        float projectedPerUnit = clamp(lateralProjection, MIN_LATERAL_PROJECTION, 1.0F);
-        float lateralWidthPx = 2.0F * lateralMagnitude * pixelPerUnitAtDepth * projectedPerUnit;
-        float widen = clamp(minScreenWidthPx / Math.max(lateralWidthPx, 1e-6F), 1.0F, MAX_LATERAL_WIDEN);
-        float delta = lateralMagnitude * (widen - 1.0F);
-        return new float[] {positionX + axisX * delta, positionY + axisY * delta, positionZ + axisZ * delta};
+        float widthPx = Math.max(barThickness * pixelsPerWorldUnit, PIXELS_PER_UNIT_EPSILON);
+        float widen = Math.max(0.0F, minScreenWidthPx / widthPx - 1.0F);
+        return Math.min(0.5F * barThickness * widen, maxWidenWorld(barThickness));
     }
 
     /**
-     * {@link #lateralClamp} 的便捷重载：使用 legacy 基线厚度 0.045（= ChainPreviewMeshBuilder 默认）。
+     * 顶点位移后的局部坐标：与 {@code preview.vert} 的 {@code main()} 逐式同形。
      *
-     * @param minScreenWidthPx    目标最小屏幕宽度（px）
-     * @param positionX           相对 meshOrigin 的 X
-     * @param positionY           相对 meshOrigin 的 Y
-     * @param positionZ           相对 meshOrigin 的 Z
-     * @param pixelPerUnitAtDepth 单位深度上的像素/世界单位
-     * @param lateralProjection   横向单位向量在相机空间的投影长度
-     * @return 钳制后的局部坐标
+     * <p>这是「参考模型 = 真机跑的东西」的落地形态：测试不再断言「从 aPos 猜横向轴」的旧模型
+     * （那条实现已随 T51 删除），而是断言与 GLSL 同序的两次位移——先按最小屏幕宽度从 {@code aPos}
+     * 沿 {@code aDirection.xyz} 外扩，再把描边量加到结果上；两处各自以 {@code > 0} 独立门控。
+     * 零方向顶点（{@code aDirection = 0}）两项位移都乘 0 ⇒ 恒等退化。</p>
+     *
+     * @param positionX          相对 meshOrigin 的 X（GLSL aPos.x）
+     * @param positionY          相对 meshOrigin 的 Y
+     * @param positionZ          相对 meshOrigin 的 Z
+     * @param directionX         该顶点的显式面法线 X（GLSL aDirection.x；零向量表示不位移）
+     * @param directionY         面法线 Y
+     * @param directionZ         面法线 Z
+     * @param pixelsPerWorldUnit 像素 / 世界单位
+     * @param minScreenWidthPx   目标最小屏幕宽度（像素）；&lt;= 0 关闭
+     * @param barThickness       条柱厚度
+     * @param outlineWidthPx     描边外扩宽度（像素）；&lt;= 0 关闭（非壳段传 0）
+     * @return 位移后的局部坐标（长度 3）；两项都关闭时逐值等于输入
      */
-    public static float[] lateralClamp(
-            float minScreenWidthPx,
+    public static float[] displaceVertex(
             float positionX, float positionY, float positionZ,
-            float pixelPerUnitAtDepth, float lateralProjection) {
-        return lateralClamp(minScreenWidthPx, positionX, positionY, positionZ,
-                pixelPerUnitAtDepth, lateralProjection, DEFAULT_BAR_THICKNESS);
-    }
-
-    private static float sign(float value) {
-        if (value > 0.0F) {
-            return 1.0F;
+            float directionX, float directionY, float directionZ,
+            float pixelsPerWorldUnit, float minScreenWidthPx, float barThickness, float outlineWidthPx) {
+        float[] displaced = {positionX, positionY, positionZ};
+        if (minScreenWidthPx > 0.0F) {
+            float widen = minWidthWidenWorld(minScreenWidthPx, barThickness, pixelsPerWorldUnit);
+            displaced[0] = positionX + directionX * widen;
+            displaced[1] = positionY + directionY * widen;
+            displaced[2] = positionZ + directionZ * widen;
         }
-        return value < 0.0F ? -1.0F : 0.0F;
+        if (outlineWidthPx > 0.0F) {
+            float widen = outlineWidenWorld(outlineWidthPx, pixelsPerWorldUnit, barThickness);
+            displaced[0] = displaced[0] + directionX * widen;
+            displaced[1] = displaced[1] + directionY * widen;
+            displaced[2] = displaced[2] + directionZ * widen;
+        }
+        return displaced;
     }
 
     /**

@@ -55,6 +55,7 @@ public final class ChainPreviewVisualSettings {
     private final boolean truncationSignal;
     private final int maxTargetsHardCap;
     private final boolean suppressVanillaHighlight;
+    private final boolean faceShading;
 
     /** 最近一次发布的快照引用（零分配读取；volatile 读跨线程安全）。 */
     private static volatile ChainPreviewVisualSettings current;
@@ -183,7 +184,7 @@ public final class ChainPreviewVisualSettings {
     }
 
     /**
-     * 完整构造（B3.x 追加第 25 参：描边壳外扩宽度）。
+     * 描边宽度构造（B3.x 第 25 参）：面朝向明暗未显式传入时按基线档关闭。
      *
      * <p>描边宽度收窄到 {@code [0, 8]}——与着色器 {@code clamp(uOutlineWidthPx, 0.0, 8.0)} 及
      * {@code ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX} 同区间，NaN / Infinity / 越界回落基线档 0；
@@ -217,6 +218,46 @@ public final class ChainPreviewVisualSettings {
             int maxTargetsHardCap,
             boolean suppressVanillaHighlight,
             float outlineWidthPx) {
+        this(barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
+            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
+            alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
+            maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, false);
+    }
+
+    /**
+     * 完整构造（本轮追加第 26 参：面朝向明暗开关）。
+     *
+     * @param faceShadingEnabled 是否按面朝向烘焙明暗（默认 false = 等于接线前观感，逐字节不变）；
+     *                           开启后 legacy 颜色流与着色器顶点色使用同一张亮度表
+     */
+    public ChainPreviewVisualSettings(
+            float barThickness,
+            float minScreenWidthPx,
+            String depthModeId,
+            String animationId,
+            String animationPhaseId,
+            String fadeModeId,
+            String colorSourceId,
+            String renderBackendId,
+            int colorPrimary,
+            int colorSecondary,
+            int colorRemote,
+            int colorTruncated,
+            int animationDurationMs,
+            float fadeRefreshDistance,
+            int fadeFallbackMs,
+            float alphaFadeStartRadius,
+            float alphaFadeEndRadius,
+            float alphaStartValue,
+            float alphaEndValue,
+            String lodId,
+            float lodMinAlpha,
+            boolean truncationSignal,
+            int maxTargetsHardCap,
+            boolean suppressVanillaHighlight,
+            float outlineWidthPx,
+            boolean faceShadingEnabled) {
         this.barThickness = clampFloat(barThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT);
         this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK);
         this.depthModeId = nonNull(depthModeId, PreviewDepthMode.defaultValue().id());
@@ -245,6 +286,7 @@ public final class ChainPreviewVisualSettings {
         this.maxTargetsHardCap = clampInt(maxTargetsHardCap, 1, 4096, 4096);
         this.suppressVanillaHighlight = suppressVanillaHighlight;
         this.outlineWidthPx = clampFloat(outlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK);
+        this.faceShading = faceShadingEnabled;
     }
 
     /**
@@ -287,7 +329,8 @@ public final class ChainPreviewVisualSettings {
             Config.clientPreviewTruncationSignal,
             Config.clientPreviewMaxTargetsHardCap,
             Config.clientPreviewSuppressVanillaHighlight,
-            clampFloat(Config.clientPreviewOutlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK));
+            clampFloat(Config.clientPreviewOutlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK),
+            Config.clientPreviewFaceShading);
     }
 
     /** @return 条柱半厚（格） */
@@ -303,6 +346,11 @@ public final class ChainPreviewVisualSettings {
     /** @return 描边壳外扩宽度（物理像素）；0 = 关闭描边（仅着色器 OUTLINE 深度档消费） */
     public float getOutlineWidthPx() {
         return outlineWidthPx;
+    }
+
+    /** @return 是否按面朝向烘焙明暗（face shading；默认 false = 两个后端与颜色流都逐字节等于现状） */
+    public boolean isFaceShadingEnabled() {
+        return faceShading;
     }
 
     /** @return 深度通道稳定 id（xray / occlude / outline） */
@@ -472,6 +520,7 @@ public final class ChainPreviewVisualSettings {
             && colorTruncated == that.colorTruncated
             && truncationSignal == that.truncationSignal
             && suppressVanillaHighlight == that.suppressVanillaHighlight
+            && faceShading == that.faceShading
             && depthModeId.equals(that.depthModeId)
             && animationId.equals(that.animationId)
             && animationPhaseId.equals(that.animationPhaseId)
@@ -508,6 +557,7 @@ public final class ChainPreviewVisualSettings {
         result = 31 * result + (truncationSignal ? 1 : 0);
         result = 31 * result + maxTargetsHardCap;
         result = 31 * result + (suppressVanillaHighlight ? 1 : 0);
+        result = 31 * result + (faceShading ? 1 : 0);
         return result;
     }
 
@@ -527,6 +577,7 @@ public final class ChainPreviewVisualSettings {
             + ", truncationSignal=" + truncationSignal
             + ", maxTargetsHardCap=" + maxTargetsHardCap
             + ", suppressVanillaHighlight=" + suppressVanillaHighlight
+            + ", faceShading=" + faceShading
             + "}";
     }
 

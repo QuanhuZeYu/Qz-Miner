@@ -49,6 +49,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewFadeFallbackMs", "250.0"},
             {"client.clientPreviewMinScreenWidthPx", "0.0"},
             {"client.clientPreviewOutlineWidthPx", "1.5"},
+            {"client.clientPreviewFaceShading", "false"},
             {"client.clientPreviewTruncationSignal", "false"},
             {"client.clientPreviewMaxTargetsHardCap", "4096.0"},
             {"client.clientPreviewLod", "off"},
@@ -324,7 +325,8 @@ public class PreviewConfigSurfaceTest {
         if (leaf.equals("clientPreviewSuppressVanillaHighlight") || leaf.equals("clientPreviewVersionedInputs")
                 || leaf.equals("clientPreviewPresentationOverlay")
                 || leaf.equals("clientPreviewExecutionProgress")
-                || leaf.equals("clientPreviewBackendDiagnostics")) {
+                || leaf.equals("clientPreviewBackendDiagnostics")
+                || leaf.equals("clientPreviewFaceShading")) {
             return Boolean.TRUE.equals(staticDefault(leaf)) ? Boolean.FALSE : Boolean.TRUE;
         }
         if (leaf.equals("clientPreviewTruncationSignal")) {

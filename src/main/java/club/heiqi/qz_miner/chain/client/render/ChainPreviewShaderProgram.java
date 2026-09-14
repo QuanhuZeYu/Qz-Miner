@@ -93,6 +93,9 @@ public final class ChainPreviewShaderProgram {
         "uBarThickness",
         "uMinScreenWidthPx",
         "uOutlineWidthPx",
+        // 面朝向明暗：开关本身是活引用（uFaceShading > 0.5 门控乘色分支），
+        // 缺失会让「开着明暗但常量没传」静默退化成关闭态——宁可判程序不可用回退 legacy。
+        "uFaceShading",
     };
 
     /**
@@ -443,6 +446,18 @@ public final class ChainPreviewShaderProgram {
      */
     public void setOutlineWidthPx(float outlineWidthPx) {
         setUniform1f("uOutlineWidthPx", ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx));
+    }
+
+    /**
+     * 设置面朝向明暗开关（face shading）。
+     *
+     * <p>{@code 0} 表示关闭（默认）：GLSL 侧整段乘色分支不执行，输出逐字节等于接线前。
+     * 传 {@code 1} 才进入 {@code color * faceShading(aDirection.xyz)}。</p>
+     *
+     * @param faceShading 0 = 关闭，1 = 开启（其余值按 {@code > 0.5} 判定）
+     */
+    public void setFaceShading(float faceShading) {
+        setUniform1f("uFaceShading", faceShading > 0.5F ? 1.0F : 0.0F);
     }
 
     /**

@@ -24,7 +24,8 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  *   <li><b>逐波生长</b>：判据 {@code order <= round(u × 目标总数)} 落成「序号格之差」后，
  *       必须满足 u=0 全隐、u=1 全显、中间单调递增；0xFFFF 恒可见（不出现空洞）。</li>
  *   <li><b>屏幕最小宽度</b>：px=0 严格恒等（逐值相等，不是「误差内相等」）；
- *       px&gt;0 只对亚像素条柱加宽，近处（已够宽）保持不变。</li>
+ *       px&gt;0 只对亚像素条柱沿面法线单向加宽、**真的交付配置像素宽**，近处（已够宽）保持不变，
+ *       位移受与真描边同口径的世界上界约束（A1/A2 修复）。</li>
  * </ol>
  *
  * <p>同时用「GLSL 表达式同形」断言把着色器侧的算术固定下来：参考模型与 GLSL 必须
@@ -227,31 +228,12 @@ public class ChainPreviewShaderGrowthWidthTest {
     // ------------------------------------------------------------------ B) 屏幕最小宽度
 
     /**
-     * T13-D2：退化偏移不得放大——必须与 GLSL 的
-     * {@code lateralMagnitude <= 0.02 × barThickness} 分支同形。
+     * px=0 / px&lt;0 / px=NaN（本轮默认档）必须严格恒等：输出与输入逐值相等，不留任何残差。
      *
-     * <p>数值反例（审查给定）：halfThickness=0.0225、偏移=0.0004。
-     * 0.02 × 0.0225 = 0.00045 &gt; 0.0004，属于格线残留而非条柱半厚度，
-     * 放大它只会把顶点推出方块。</p>
+     * <p>断言打在 {@link ChainPreviewShaderMath#displaceVertex}（与 {@code preview.vert} 的
+     * {@code main()} 同形）上：旧模型 {@code lateralClamp}「从 aPos 猜横向轴」已随 T51 删除，
+     * 继续断言它等于保护一个真机不存在的实现。</p>
      */
-    @Test
-    public void degenerateOffsetIsNotWidened() {
-        float thickness = 0.045F;
-        float offset = 0.0004F;
-        float[] position = {offset, offset, offset};
-
-        float[] output = ChainPreviewShaderMath.lateralClamp(
-                1.0F, position[0], position[1], position[2], 0.001F, 1.0F, thickness);
-        Assert.assertArrayEquals("低于 0.02×thickness 的退化偏移必须原样返回", position, output, 0.0F);
-
-        // 略高于阈值时仍应放大（确认退化判据不是「一律不放大」）
-        float[] above = {0.02F * thickness * 1.5F, 0.02F * thickness * 1.5F, 0.02F * thickness * 1.5F};
-        float[] widened = ChainPreviewShaderMath.lateralClamp(
-                1.0F, above[0], above[1], above[2], 0.001F, 1.0F, thickness);
-        Assert.assertTrue("高于阈值必须放大", widened[0] > above[0]);
-    }
-
-    /** px=0（本轮默认）必须严格恒等：输出与输入逐值相等，不留任何残差。 */
     @Test
     public void minWidthDisabledIsExactIdentity() {
         float[][] probes = {
@@ -259,12 +241,11 @@ public class ChainPreviewShaderGrowthWidthTest {
             {0.5F, 0.5F, 0.5F}, {12.75F, -3.5F, 0.125F},
         };
         for (float[] probe : probes) {
-            float[] output = ChainPreviewShaderMath.lateralClamp(
-                    0.0F, probe[0], probe[1], probe[2], 900.0F, 1.0F);
-            Assert.assertArrayEquals("px=0 必须逐值恒等", probe, output, 0.0F);
-            float[] negative = ChainPreviewShaderMath.lateralClamp(
-                    -1.0F, probe[0], probe[1], probe[2], 900.0F, 1.0F);
-            Assert.assertArrayEquals("负值同样视为关闭（逐值恒等）", probe, negative, 0.0F);
+            for (float px : new float[] {0.0F, -1.0F, Float.NaN}) {
+                float[] output = ChainPreviewShaderMath.displaceVertex(
+                    probe[0], probe[1], probe[2], 0.0F, 1.0F, 0.0F, 900.0F, px, 0.045F, 0.0F);
+                Assert.assertArrayEquals("px<=0（含 NaN）必须逐值恒等", probe, output, 0.0F);
+            }
         }
     }
 
@@ -272,116 +253,105 @@ public class ChainPreviewShaderGrowthWidthTest {
     @Test
     public void minWidthNeverWidensAlreadyVisibleBars() {
         float[] position = {HALF_THICKNESS, HALF_THICKNESS, HALF_THICKNESS};
-        // 像素/单位 = 900 → 宽 2×0.0225×900 = 40.5px，远超 1px 目标：不得加宽。
-        float[] output = ChainPreviewShaderMath.lateralClamp(1.0F, position[0], position[1], position[2], 900.0F, 1.0F);
+        // ppwu=900 → 投影宽 0.045×900 = 40.5px，远超 1px 目标：外扩量必须精确为 0。
+        Assert.assertEquals("已够宽时外扩量必须精确为 0",
+            0.0F, ChainPreviewShaderMath.minWidthWidenWorld(1.0F, 0.045F, 900.0F), 0.0F);
+        float[] output = ChainPreviewShaderMath.displaceVertex(
+            position[0], position[1], position[2], 0.0F, 1.0F, 0.0F, 900.0F, 1.0F, 0.045F, 0.0F);
         Assert.assertArrayEquals("已够宽的条柱必须保持不变", position, output, 0.0F);
     }
 
-    /** px&gt;0 且条柱为亚像素（远处）时必须加宽到目标像素宽度附近。 */
+    /**
+     * A1 回归锁：配置的最小宽度必须**真的交付**（修复前激活区恒为 minW/2）。
+     *
+     * <p>默认厚度 t=0.045、ppwu=24 ⇒ 原始投影宽 1.08px。修复前 2..8px 档分别只交付
+     * 1.08 / 1.5 / 2.0 / 2.5 / 3.0 / 3.5 / 4.0px（Python 独立复算见
+     * 工作站 temp/qz-miner-minwidth-a1a2-recheck.py）；修复后必须逐档等于配置值。</p>
+     */
     @Test
-    public void minWidthWidensSubpixelBarsTowardTarget() {
-        float[] position = {HALF_THICKNESS, HALF_THICKNESS, HALF_THICKNESS};
-
-        // 触上限的场景：2×0.0225×0.0863 ≈ 0.00388px，需要约 258 倍，被 64 倍上限截断。
-        float[] capped = ChainPreviewShaderMath.lateralClamp(
-                1.0F, position[0], position[1], position[2], 0.0863F, 1.0F);
-        Assert.assertEquals("极远亚像素条柱必须被加宽到上限", HALF_THICKNESS * 64.0F, capped[0], 1.0e-6F);
-        Assert.assertEquals("加宽只作用于横向轴（纵向轴保持原值）", position[1], capped[1], 0.0F);
-        Assert.assertEquals(position[2], capped[2], 0.0F);
-
-        // 未触上限的场景：2×0.0225×10 = 0.45px → widen ≈ 2.22，加宽后应正好达到 1px 目标。
-        float[] modest = ChainPreviewShaderMath.lateralClamp(
-                1.0F, position[0], position[1], position[2], 10.0F, 1.0F);
-        float achievedPx = 2.0F * modest[0] * 10.0F;
-        Assert.assertTrue("必须被加宽", modest[0] > position[0]);
-        // 容差 1e-3：float 经 2×magnitude×ppu 往返会有 ~1ulp 误差（实测 0.99999994）。
-        Assert.assertEquals("未被上限截断时必须达到 1px 目标", 1.0F, achievedPx, 1.0e-3F);
-
-        float widen = modest[0] / position[0];
-        Assert.assertTrue("放大倍数必须在 [1,64]", widen >= 1.0F && widen <= 64.0F + 1.0e-4F);
+    public void minWidthDeliversConfiguredWidthAfterThresholdFix() {
+        float thickness = 0.045F;
+        float pixelsPerWorldUnit = 24.0F;
+        for (float minWidthPx : new float[] {2.0F, 3.0F, 4.0F, 5.0F, 6.0F, 7.0F, 8.0F}) {
+            float widen = ChainPreviewShaderMath.minWidthWidenWorld(minWidthPx, thickness, pixelsPerWorldUnit);
+            float delivered = (thickness + 2.0F * widen) * pixelsPerWorldUnit;
+            Assert.assertEquals("配置 " + minWidthPx + "px 必须真的交付",
+                minWidthPx, delivered, 1.0e-3F);
+        }
+        // 阈值以下（目标不高于原始投影宽）必须精确恒等：单向钳制不得反向缩窄。
+        Assert.assertEquals("目标低于原始宽时必须精确恒等",
+            0.0F, ChainPreviewShaderMath.minWidthWidenWorld(1.0F, thickness, pixelsPerWorldUnit), 0.0F);
+        Assert.assertEquals("目标远低于原始宽时必须精确恒等",
+            0.0F, ChainPreviewShaderMath.minWidthWidenWorld(0.5F, thickness, pixelsPerWorldUnit), 0.0F);
     }
 
     /**
-     * T12/Lead 追加：轴向判据必须是「哪个轴的分量最小」，而不是拿最小值去和另两轴比。
+     * A2 回归锁：世界上界必须与真描边**同一口径**（{@code max(0, 0.5 - t)}），极小像素密度不发散。
      *
-     * <p>该条件曾恒真（lateralMagnitude ≤ |y| 且 ≤ |z| 永远成立），导致位移永远沿 X 轴，
-     * 远距时把条柱沿世界 X 推出方块（最大约 1.4 格），而「只断言加宽/不加宽」的测试会假通过。</p>
+     * <p>复算给定点：ppwu=0.01、t=0.045、minW=8 在无上界时单侧外扩约 400 格（本测试先证伪旧行为，
+     * 再断言收敛到 0.455）。上界处到达半径 t/2 + cap = 0.4775 &le; 0.5，相邻条柱不粘连。</p>
      */
     @Test
-    public void minWidthWidensAlongTheSmallestMagnitudeAxis() {
-        // verifier 给出的反例：|y|=3.9775 最小 ⇒ 必须沿 Y 轴加宽，而不是 X。
-        float[] position = {12.0225F, 3.9775F, 7.0225F};
-        float pixelPerUnit = 0.02F; // 极小 ⇒ 触 64 倍上限，位移显著、便于判轴
-        float[] output = ChainPreviewShaderMath.lateralClamp(
-                1.0F, position[0], position[1], position[2], pixelPerUnit, 1.0F);
+    public void minWidthSaturatesAtTheSameCapAsOutline() {
+        float thickness = 0.045F;
+        float cap = ChainPreviewShaderMath.maxWidenWorld(thickness);
+        Assert.assertEquals("上界口径必须是 max(0, 0.5 - t)", 0.455F, cap, 1.0e-7F);
 
-        Assert.assertEquals("X 轴不是最小分量轴，必须保持原值", position[0], output[0], 0.0F);
-        Assert.assertTrue("Y 轴是最小分量轴，必须被加宽", output[1] > position[1]);
-        Assert.assertEquals("Z 轴必须保持原值", position[2], output[2], 0.0F);
+        float unbounded = 0.5F * thickness * Math.max(0.0F, 8.0F / (thickness * 0.01F) - 1.0F);
+        Assert.assertTrue("测试前提：未截断的位移必须远超上界（实际 " + unbounded + " 格）",
+            unbounded > 100.0F);
 
-        // 位移量必须等于 半厚度 × (widen-1)，且不超过 64 倍上限
-        float delta = output[1] - position[1];
-        Assert.assertTrue("位移必须为正", delta > 0.0F);
-        Assert.assertTrue("位移不得超过 64 倍半厚度", delta <= 3.9775F * 63.0F + 1.0e-3F);
+        for (float pixelsPerWorldUnit : new float[] {1.0F, 0.1F, 0.01F, 1.0e-4F}) {
+            float widen = ChainPreviewShaderMath.minWidthWidenWorld(8.0F, thickness, pixelsPerWorldUnit);
+            Assert.assertFalse("极小像素密度不得产生 NaN（ppwu=" + pixelsPerWorldUnit + "）",
+                Float.isNaN(widen));
+            Assert.assertEquals("位移必须收敛到与描边同口径的上界（ppwu=" + pixelsPerWorldUnit + "）",
+                cap, widen, 1.0e-6F);
+            Assert.assertEquals("真描边在同一厚度下必须共用同一上界",
+                cap, ChainPreviewShaderMath.outlineWidenWorld(1.0e6F, pixelsPerWorldUnit, thickness), 1.0e-6F);
+        }
+
+        float reach = thickness * 0.5F + cap;
+        Assert.assertTrue("上界处不得越出自身方块（reach=" + reach + "）", reach <= 0.5F + 1.0e-6F);
+        Assert.assertTrue("上界处相邻条柱不得粘连",
+            ChainPreviewShaderMath.neighbourGap(thickness, cap) >= 0.0F);
     }
 
     /**
-     * 穷举网格：加宽轴必须恒等于「最小 |分量| 轴」，且只有该轴发生变化。
+     * 位移方向恒为显式面法线 {@code aDirection}；零方向顶点恒等退化。
      *
-     * <p>覆盖 X/Y/Z 三轴各为主导的情形，以及分量为 0、为负的边界。</p>
+     * <p替代已删除的 T13-D2「格线残留不放大」与「最小 |分量| 轴」判据：那两条针对的是
+     * 「从 aPos 的绝对值猜横向轴」的旧实现，而 T51 起顶点身份 = (位置, 面)、位移恒沿该面法线，
+     * 因此不存在「放大某个坐标分量把几何拉歪」的路径；退化保护由零方向守卫承担。</p>
      */
     @Test
-    public void minWidthAxisSelectionMatchesSmallestMagnitudeOnGrid() {
-        float[][] probes = {
-            {12.0225F, 3.9775F, 7.0225F},   // Y 主导
-            {3.9775F, 12.0225F, 7.0225F},   // X 主导
-            {12.0225F, 7.0225F, 3.9775F},   // Z 主导
-            {0.0225F, 5.0F, 5.0F},          // X 主导（含极小值）
-            {-0.0225F, -5.0F, -5.0F},       // 负坐标 X 主导
-            {5.0F, -0.0225F, 5.0F},         // 负坐标 Y 主导
-            {5.0F, 5.0F, -0.0225F},         // 负坐标 Z 主导
-            {0.5F, 0.5F, 0.0225F},          // Z 主导（格线场景）
+    public void minWidthWidensAlongFaceDirectionOnly() {
+        float[][] positions = {
+            {0.0225F, 0.0225F, 0.0225F},
+            {12.0225F, 3.9775F, 7.0225F},
+            {-0.0225F, -5.0F, 5.0F},
         };
-        for (float[] probe : probes) {
-            float pixelPerUnit = 0.02F;
-            float[] output = ChainPreviewShaderMath.lateralClamp(
-                    1.0F, probe[0], probe[1], probe[2], pixelPerUnit, 1.0F);
-
-            int expectedAxis = smallestMagnitudeAxis(probe[0], probe[1], probe[2]);
-            for (int axis = 0; axis < 3; axis++) {
-                if (axis == expectedAxis) {
-                    Assert.assertTrue("轴 " + axis + " 必须被加宽（probe="
-                                    + probe[0] + "," + probe[1] + "," + probe[2] + "）",
-                            Math.abs(output[axis]) > Math.abs(probe[axis]));
-                } else {
-                    Assert.assertEquals("轴 " + axis + " 不得变化（probe="
-                                    + probe[0] + "," + probe[1] + "," + probe[2] + "）",
-                            probe[axis], output[axis], 0.0F);
+        float[][] directions = {
+            {1.0F, 0.0F, 0.0F}, {-1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, -1.0F},
+        };
+        float expected = ChainPreviewShaderMath.minWidthWidenWorld(1.0F, 0.045F, 0.02F);
+        Assert.assertTrue("测试前提：该参数下必须产生正位移", expected > 0.0F);
+        for (float[] position : positions) {
+            for (float[] direction : directions) {
+                float[] after = ChainPreviewShaderMath.displaceVertex(
+                    position[0], position[1], position[2],
+                    direction[0], direction[1], direction[2], 0.02F, 1.0F, 0.045F, 0.0F);
+                for (int axis = 0; axis < 3; axis++) {
+                    Assert.assertEquals("位移必须逐轴等于 direction × 外扩量（轴 " + axis + "）",
+                        position[axis] + direction[axis] * expected, after[axis], 1.0e-6F);
                 }
             }
+            float[] identity = ChainPreviewShaderMath.displaceVertex(
+                position[0], position[1], position[2], 0.0F, 0.0F, 0.0F, 0.02F, 1.0F, 0.045F, 0.0F);
+            Assert.assertArrayEquals("零方向顶点必须逐值恒等（防御性守卫）", position, identity, 0.0F);
         }
-    }
-
-    /** 返回三轴中绝对分量最小的轴下标（0=X, 1=Y, 2=Z）。 */
-    private static int smallestMagnitudeAxis(float x, float y, float z) {
-        float ax = Math.abs(x);
-        float ay = Math.abs(y);
-        float az = Math.abs(z);
-        if (ax <= ay && ax <= az) {
-            return 0;
-        }
-        return ay <= az ? 1 : 2;
-    }
-
-    /** 横向投影越小（正对视线）时加宽越保守，但不得突破 64 倍上限。 */
-    @Test
-    public void minWidthRespectsProjectionAndCap() {
-        float[] position = {HALF_THICKNESS, HALF_THICKNESS, HALF_THICKNESS};
-        float full = ChainPreviewShaderMath.lateralClamp(1.0F, position[0], position[1], position[2], 0.1F, 1.0F)[0];
-        float partial = ChainPreviewShaderMath.lateralClamp(1.0F, position[0], position[1], position[2], 0.1F, 0.5F)[0];
-        Assert.assertTrue("投影越短需要的放大越少", partial <= full);
-        float capped = ChainPreviewShaderMath.lateralClamp(8.0F, position[0], position[1], position[2], 0.0001F, 1.0F)[0];
-        Assert.assertEquals("必须被 64 倍上限截断", HALF_THICKNESS * 64.0F, capped, 1.0e-6F);
     }
 
     /**

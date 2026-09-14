@@ -13,8 +13,9 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderMath;
 /**
  * T7/T12 shader 路径独立契约探针（接口冻结 §F/§G + 波次 2 cell 式裁定）。
  *
- * <p>只依赖当前公开 API：像素尺度、quadratic 距离淡出、顶点距离、最小宽度 lateralClamp
- * （px<=0 严格恒等 / px>0 单向加宽 / 近处不变 / 单调 / 上限 64）、逐波生长 cell 式
+ * <p>只依赖当前公开 API：像素尺度、quadratic 距离淡出、顶点距离、最小宽度位移
+ * （px<=0 严格恒等 / px>0 沿面法线单向加宽 / 交付配置像素宽 / 近处不变 / 单调 /
+ * 与真描边同口径的世界上界）、逐波生长 cell 式
  * （u=0 全隐、u=1 全显、随 u 单调不减、随 order 单调不增、0xFFFF 恒可见、独立模型逐值交叉验证）、
  * visibleOrderCount 取整、字节还原与丢弃阈值，以及无 GL 上下文时 shader 后端的回退契约。</p>
  */
@@ -79,6 +80,16 @@ public class ShaderPathContractTest {
             0.0001F);
     }
 
+    /**
+     * 屏幕最小宽度：px&lt;=0 严格恒等、px&gt;0 沿面法线单向加宽并**真的交付**配置像素宽。
+     *
+     * <p>T51 后真实位移只认 aDirection（每顶点面法线），不再从 aPos 猜横向轴；本测试打在
+     * {@link ChainPreviewShaderMath#displaceVertex} 上——它与 {@code preview.vert} 的 main()
+     * 同序同式，因此「测试保护的东西 = 真机跑的东西」。</p>
+     *
+     * <p>A1 修复前这里必须是红的：旧式用 {@code 2 × t × ppwu} 当基准，激活阈值翻倍、位移减半，
+     * 交付宽恒为 minW/2（8px 档只交付 4px）。</p>
+     */
     @Test
     public void minWidthIsIdentityAtZeroAndOneWayWhenPositive() {
         float[][] samples = {
@@ -89,80 +100,73 @@ public class ShaderPathContractTest {
             {100.5F, -64.25F, 7.75F},
         };
         for (float[] sample : samples) {
-            float[] identity = ChainPreviewShaderMath.lateralClamp(
-                0.0F, sample[0], sample[1], sample[2], 10.0F, 1.0F);
-            Assert.assertEquals("px=0 必须严格恒等(0)", sample[0], identity[0], 0.0F);
-            Assert.assertEquals("px=0 必须严格恒等(1)", sample[1], identity[1], 0.0F);
-            Assert.assertEquals("px=0 必须严格恒等(2)", sample[2], identity[2], 0.0F);
-            float[] negative = ChainPreviewShaderMath.lateralClamp(
-                -3.0F, sample[0], sample[1], sample[2], 10.0F, 1.0F);
-            Assert.assertEquals("px<0 也必须恒等(0)", sample[0], negative[0], 0.0F);
-            Assert.assertEquals("px<0 也必须恒等(1)", sample[1], negative[1], 0.0F);
-            Assert.assertEquals("px<0 也必须恒等(2)", sample[2], negative[2], 0.0F);
-            float[] notANumber = ChainPreviewShaderMath.lateralClamp(
-                Float.NaN, sample[0], sample[1], sample[2], 10.0F, 1.0F);
-            Assert.assertEquals("px=NaN 也必须恒等(0)", sample[0], notANumber[0], 0.0F);
-            Assert.assertEquals("px=NaN 也必须恒等(1)", sample[1], notANumber[1], 0.0F);
-            Assert.assertEquals("px=NaN 也必须恒等(2)", sample[2], notANumber[2], 0.0F);
+            for (float px : new float[] {0.0F, -3.0F, Float.NaN}) {
+                float[] identity = ChainPreviewShaderMath.displaceVertex(
+                    sample[0], sample[1], sample[2], 0.0F, 1.0F, 0.0F, 10.0F, px, 0.045F, 0.0F);
+                Assert.assertArrayEquals("px<=0（或 NaN）必须逐值恒等", sample, identity, 0.0F);
+            }
         }
 
-        // 生产入口：带 barThickness 的横向钳制（像素宽 = 2×|最小分量|×ppu×投影）。
-        // 样本最小分量为 y=3.9775 → 只有 y 应被加宽；取 ppu=0.05 使投影宽 0.39775px < 1px。
-        float[] far = ChainPreviewShaderMath.lateralClamp(
-            1.0F, 12.0225F, 3.9775F, 7.0225F, 0.05F, 1.0F, 0.045F);
-        Assert.assertTrue("最小横向轴必须被加宽：" + (Math.abs(far[1]) - Math.abs(3.9775F)),
-            Math.abs(far[1]) - Math.abs(3.9775F) > 0.0F);
-        Assert.assertEquals("非最小分量不得改动(x)", 12.0225F, far[0], 0.0F);
-        Assert.assertEquals("非最小分量不得改动(z)", 7.0225F, far[2], 0.0F);
-        Assert.assertEquals("符号必须保留", Math.signum(3.9775F), Math.signum(far[1]), 0.0F);
-        Assert.assertEquals(
-            "加宽量 = |最小分量| × (1/宽度像素 - 1)",
-            3.9775F * (1.0F / (2.0F * 3.9775F * 0.05F) - 1.0F),
-            Math.abs(far[1]) - Math.abs(3.9775F),
-            0.0001F);
+        // t=0.045、ppwu=4 ⇒ 原始投影宽 0.18px（亚像素），1px 目标未触世界上界 ⇒ 必须精确达标。
+        float[] far = ChainPreviewShaderMath.displaceVertex(
+            12.0225F, 3.9775F, 7.0225F, 0.0F, 1.0F, 0.0F, 4.0F, 1.0F, 0.045F, 0.0F);
+        Assert.assertEquals("非方向分量不得改动(x)", 12.0225F, far[0], 0.0F);
+        Assert.assertEquals("非方向分量不得改动(z)", 7.0225F, far[2], 0.0F);
+        Assert.assertTrue("方向轴必须被加宽：" + far[1], far[1] > 3.9775F);
+        Assert.assertEquals("交付像素宽必须等于配置值（(t + 2d) × ppwu）",
+            1.0F, (0.045F + 2.0F * (far[1] - 3.9775F)) * 4.0F, 1.0e-4F);
 
         // 近距（已足够宽）→ 恒等：单向钳制不得加粗近处。
-        float[] near = ChainPreviewShaderMath.lateralClamp(
-            1.0F, 12.0225F, 3.9775F, 7.0225F, 200.0F, 1.0F, 0.045F);
-        Assert.assertEquals("近处不得加宽(0)", 12.0225F, near[0], 0.0F);
+        float[] near = ChainPreviewShaderMath.displaceVertex(
+            12.0225F, 3.9775F, 7.0225F, 0.0F, 1.0F, 0.0F, 200.0F, 1.0F, 0.045F, 0.0F);
         Assert.assertEquals("近处不得加宽(1)", 3.9775F, near[1], 0.0F);
-        Assert.assertEquals("近处不得加宽(2)", 7.0225F, near[2], 0.0F);
 
-        // T13-D2 退化判据：|最小分量| <= 0.02 × 厚度 的格线残留必须原样返回。
-        float[] degenerate = ChainPreviewShaderMath.lateralClamp(
-            8.0F, 0.0005F, 5.0F, 5.0F, 0.5F, 1.0F, 0.045F);
-        Assert.assertEquals("格线残留不得放大(0)", 0.0005F, degenerate[0], 0.0F);
-        Assert.assertEquals("格线残留不得放大(1)", 5.0F, degenerate[1], 0.0F);
-        Assert.assertEquals("格线残留不得放大(2)", 5.0F, degenerate[2], 0.0F);
+        // 世界上界（A2）：ppwu 极小时位移必须收敛到与真描边同口径的 max(0, 0.5 - t)。
+        float cap = ChainPreviewShaderMath.maxWidenWorld(0.045F);
+        float[] capped = ChainPreviewShaderMath.displaceVertex(
+            12.0225F, 3.9775F, 7.0225F, 0.0F, 1.0F, 0.0F, 0.01F, 8.0F, 0.045F, 0.0F);
+        Assert.assertEquals("极小像素密度必须收敛到上界", 3.9775F + cap, capped[1], 1.0e-4F);
+        Assert.assertFalse("上界不得产生 NaN", Float.isNaN(capped[1]));
 
-        // 放大上限 64：delta = 63 × |最小分量|。
-        float[] capped = ChainPreviewShaderMath.lateralClamp(
-            1000000.0F, 0.0225F, 5.0F, 5.0F, 0.5F, 1.0F, 0.045F);
-        Assert.assertEquals("上限 64 时 x = 0.0225 × 64", 0.0225F * 64.0F, capped[0], 0.0001F);
-        Assert.assertEquals("非最小分量不得改动(y)", 5.0F, capped[1], 0.0F);
-        Assert.assertEquals("非最小分量不得改动(z)", 5.0F, capped[2], 0.0F);
-
-        // 单调：px 越大，最小横向轴的偏移越大（同深度）。
+        // 单调：px 越大，沿方向的偏移越大（同深度）。
         float previous = -1.0F;
-        float[] pxValues = {0.0F, 0.5F, 1.0F, 4.0F, 8.0F};
-        for (float px : pxValues) {
-            float[] clamped = ChainPreviewShaderMath.lateralClamp(
-                px, 12.0225F, 3.9775F, 7.0225F, 0.05F, 1.0F, 0.045F);
-            float magnitude = Math.abs(clamped[1]);
-            Assert.assertTrue("widen 随 px 单调不减：" + previous + "->" + magnitude, magnitude >= previous);
-            previous = magnitude;
+        for (float px : new float[] {0.0F, 0.5F, 1.0F, 4.0F, 8.0F}) {
+            float[] displaced = ChainPreviewShaderMath.displaceVertex(
+                12.0225F, 3.9775F, 7.0225F, 0.0F, 1.0F, 0.0F, 0.05F, px, 0.045F, 0.0F);
+            Assert.assertTrue("位移随 px 单调不减：" + previous + "->" + displaced[1],
+                displaced[1] >= previous);
+            previous = displaced[1];
         }
     }
 
+    /**
+     * 位移方向恒为显式面法线 aDirection；六个主轴方向逐轴相等，零方向恒等退化。
+     *
+     * <p>替换旧断言（「最小 |分量| 轴被加宽」）：那条实现已随 T51 删除，其模型即便继续绿灯也
+     * 保护不了真机行为——本测试改打在真实位移式上。</p>
+     */
     @Test
-    public void minWidthWidensAlongTheMinimumMagnitudeAxisOnly() {
-        // 轴向判据必须是「哪个分量的 |值| 最小」，而不是「最小值 vs Y/Z」（后者恒真 → 恒选 X）。
-        assertWidenedAxis("最小轴 X", 1.0F, 0.0225F, 5.0F, 5.0F, 0.05F, 0);
-        assertWidenedAxis("最小轴 Y", 1.0F, 12.0225F, 3.9775F, 7.0225F, 0.05F, 1);
-        assertWidenedAxis("最小轴 Z", 1.0F, 5.0F, 5.0F, 0.0225F, 0.05F, 2);
-        assertWidenedAxis("负号 Y 轴保留符号", 1.0F, 5.0F, -3.9775F, 7.0F, 0.05F, 1);
-        assertWidenedAxis("负号 Z 轴保留符号", 1.0F, -4.0F, 6.0F, -0.0225F, 0.05F, 2);
-        assertWidenedAxis("相等时取 X（文档口径）", 1.0F, 0.0225F, 0.0225F, 5.0F, 0.05F, 0);
+    public void minWidthWidensAlongTheExplicitFaceDirectionOnly() {
+        float[][] directions = {
+            {1.0F, 0.0F, 0.0F}, {-1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, -1.0F},
+        };
+        float expected = ChainPreviewShaderMath.minWidthWidenWorld(1.0F, 0.045F, 0.05F);
+        Assert.assertTrue("测试前提：该参数下必须产生正位移（实际 " + expected + "）", expected > 0.0F);
+        for (float[] direction : directions) {
+            float[] after = ChainPreviewShaderMath.displaceVertex(
+                0.0225F, 0.0225F, 0.0225F,
+                direction[0], direction[1], direction[2], 0.05F, 1.0F, 0.045F, 0.0F);
+            for (int axis = 0; axis < 3; axis++) {
+                Assert.assertEquals("位移必须逐轴等于 direction × 外扩量（轴 " + axis + "）",
+                    0.0225F + direction[axis] * expected, after[axis], 1.0e-6F);
+            }
+        }
+        float[] zeroDirection = ChainPreviewShaderMath.displaceVertex(
+            0.0225F, 0.0225F, 0.0225F, 0.0F, 0.0F, 0.0F, 0.05F, 1.0F, 0.045F, 0.0F);
+        Assert.assertArrayEquals("零方向顶点必须逐值恒等退化",
+            new float[] {0.0225F, 0.0225F, 0.0225F}, zeroDirection, 0.0F);
     }
 
     @Test
@@ -355,40 +359,6 @@ public class ShaderPathContractTest {
         backend.dispose();
         Assert.assertFalse("释放后再探测仍不得抛", backend.ensureReady());
         Assert.assertTrue(backend.describe().length() > 0);
-    }
-
-    /** 断言只有指定的最小 |分量| 轴被加宽，其余分量逐位不变、符号保留。 */
-    private static void assertWidenedAxis(
-            String label,
-            float minScreenWidthPx,
-            float positionX,
-            float positionY,
-            float positionZ,
-            float pixelPerUnit,
-            int expectedAxis) {
-        float[] before = {positionX, positionY, positionZ};
-        float[] after = ChainPreviewShaderMath.lateralClamp(
-            minScreenWidthPx, positionX, positionY, positionZ, pixelPerUnit, 1.0F, 0.045F);
-        for (int axis = 0; axis < 3; axis++) {
-            if (axis == expectedAxis) {
-                float originalMagnitude = Math.abs(before[axis]);
-                float widenedMagnitude = Math.abs(after[axis]);
-                Assert.assertTrue(
-                    label + " 轴 " + axis + " 必须被加宽：" + originalMagnitude + "->" + widenedMagnitude,
-                    widenedMagnitude > originalMagnitude);
-                Assert.assertEquals(
-                    label + " 符号必须保留",
-                    Math.signum(before[axis]),
-                    Math.signum(after[axis]),
-                    0.0F);
-            } else {
-                Assert.assertEquals(
-                    label + " 非最小轴 " + axis + " 不得改动",
-                    before[axis],
-                    after[axis],
-                    0.0F);
-            }
-        }
     }
 
     /** 独立复算：CPU 端 quadratic 距离淡出。 */

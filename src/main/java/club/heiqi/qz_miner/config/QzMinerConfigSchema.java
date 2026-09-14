@@ -253,6 +253,12 @@ public final class QzMinerConfigSchema {
                         .helper("描边壳沿面方向的外扩宽度（物理像素），默认 1.5（等于接线前写死值，观感不变）、"
                                 + "0 表示关闭描边，合法 0..8；仅着色器后端的 outline 深度档消费")
                         .build()
+                    .bool("clientPreviewFaceShading")
+                        .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_FACE_SHADING))
+                        .label("clientPreviewFaceShading")
+                        .helper("是否按面朝向烘焙明暗（顶面最亮、底面最暗），默认 false（等于接线前观感）；"
+                                + "开启后 legacy 颜色流与着色器顶点色使用同一张亮度表")
+                        .build()
                     .bool("clientPreviewTruncationSignal")
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL))
                         .label("clientPreviewTruncationSignal")

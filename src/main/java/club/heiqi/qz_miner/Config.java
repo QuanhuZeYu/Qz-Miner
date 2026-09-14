@@ -102,6 +102,8 @@ public class Config {
     public static double clientPreviewMinScreenWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX;
     /** 描边壳外扩宽度（物理像素）；默认 1.5（等于接线前写死值），0 表示关闭描边；仅着色器 OUTLINE 档消费。 */
     public static double clientPreviewOutlineWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX;
+    /** 面朝向烘焙明暗（face shading）；默认 false（逐字节等于接线前观感），两后端共用同一张亮度表。 */
+    public static boolean clientPreviewFaceShading = QzMinerConfigDefaults.CLIENT_PREVIEW_FACE_SHADING;
     /** 预览被上限截断时是否给出可见提示；本轮默认 false。 */
     public static boolean clientPreviewTruncationSignal = QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL;
     /** 预览目标数量硬顶。 */

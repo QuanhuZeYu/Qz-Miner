@@ -779,7 +779,8 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 settings.getAlphaStartValue(),
                 settings.getAlphaEndValue(),
                 settings.getBarThickness())
-                .withLod(lodEnabled, settings.getLodMinAlpha());
+                .withLod(lodEnabled, settings.getLodMinAlpha())
+                .withFaceShading(settings.isFaceShadingEnabled());
         }
     }
 

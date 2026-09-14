@@ -511,7 +511,10 @@ public class ChainPreviewRenderer {
                 settings.getColorTruncated()),
             ChainPreviewDrawPlan.Visuals.Lod.fromConfig(
                 settings.getLodId(),
-                settings.getLodMinAlpha()));
+                settings.getLodMinAlpha()),
+            false,
+            0.0F,
+            settings.isFaceShadingEnabled());
     }
 
     private static ChainPreviewDrawPlan.DepthChannel mapDepthChannel(String depthModeId) {

@@ -128,15 +128,24 @@ public class ChainPreviewShaderFallbackTest {
     // 生长与最小宽度的完整行为契约见 ChainPreviewShaderGrowthWidthTest（task-11）；
     // 这里只保留「开关关闭时恒等」的最小回归面，避免同一语义两处断言漂移。
 
-    /** minScreenWidthPx=0（本轮默认）必须严格恒等，不得留下任何加宽残差。 */
+    /**
+     * minScreenWidthPx=0（本轮默认）必须严格恒等，不得留下任何加宽残差。
+     *
+     * <p>断言打在 {@link ChainPreviewShaderMath#displaceVertex}（与 {@code preview.vert} 同形的
+     * 顶点位移）上，而不是任何「从 aPos 猜横向轴」的旧模型——后者已随 T51 删除。</p>
+     */
     @Test
     public void minScreenWidthDisabledIsExactIdentity() {
         float[] position = {0.0225F, 0.0225F, 0.0225F};
-        Assert.assertArrayEquals("px=0 必须逐值恒等", position,
-                ChainPreviewShaderMath.lateralClamp(0.0F, position[0], position[1], position[2], 900.0F, 1.0F),
-                0.0F);
-        Assert.assertArrayEquals("负值同样视为关闭", position,
-                ChainPreviewShaderMath.lateralClamp(-1.0F, position[0], position[1], position[2], 900.0F, 1.0F),
+        for (float px : new float[] {0.0F, -1.0F}) {
+            Assert.assertArrayEquals("px<=0 必须逐值恒等", position,
+                    ChainPreviewShaderMath.displaceVertex(position[0], position[1], position[2],
+                            0.0F, 1.0F, 0.0F, 900.0F, px, 0.045F, 0.0F),
+                    0.0F);
+        }
+        Assert.assertArrayEquals("px=NaN 同样视为关闭", position,
+                ChainPreviewShaderMath.displaceVertex(position[0], position[1], position[2],
+                        0.0F, 1.0F, 0.0F, 900.0F, Float.NaN, 0.045F, 0.0F),
                 0.0F);
     }
 

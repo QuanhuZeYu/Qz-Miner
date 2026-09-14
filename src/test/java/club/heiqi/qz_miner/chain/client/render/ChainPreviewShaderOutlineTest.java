@@ -125,17 +125,17 @@ public class ChainPreviewShaderOutlineTest {
     @Test
     public void widenCapSubtractsBarThickness() {
         Assert.assertEquals("厚度 0.045 ⇒ 上界 0.455",
-                0.455F, ChainPreviewShaderMath.maxOutlineWorld(0.045F), 1.0e-7F);
+                0.455F, ChainPreviewShaderMath.maxWidenWorld(0.045F), 1.0e-7F);
         Assert.assertEquals("厚度 0.2 ⇒ 上界 0.3",
-                0.3F, ChainPreviewShaderMath.maxOutlineWorld(0.2F), 1.0e-7F);
+                0.3F, ChainPreviewShaderMath.maxWidenWorld(0.2F), 1.0e-7F);
         Assert.assertEquals("厚度 0.005（下限）⇒ 上界 0.495",
-                0.495F, ChainPreviewShaderMath.maxOutlineWorld(0.005F), 1.0e-7F);
+                0.495F, ChainPreviewShaderMath.maxWidenWorld(0.005F), 1.0e-7F);
         Assert.assertEquals("厚度 >= 0.5（极端）⇒ 上界收敛 0",
-                0.0F, ChainPreviewShaderMath.maxOutlineWorld(0.5F), 0.0F);
+                0.0F, ChainPreviewShaderMath.maxWidenWorld(0.5F), 0.0F);
         Assert.assertEquals("厚度 0.99 ⇒ 仍为 0（不得为负）",
-                0.0F, ChainPreviewShaderMath.maxOutlineWorld(0.99F), 0.0F);
+                0.0F, ChainPreviewShaderMath.maxWidenWorld(0.99F), 0.0F);
         Assert.assertEquals("NaN 厚度 ⇒ 最保守 0",
-                0.0F, ChainPreviewShaderMath.maxOutlineWorld(Float.NaN), 0.0F);
+                0.0F, ChainPreviewShaderMath.maxWidenWorld(Float.NaN), 0.0F);
     }
 
     /** 上界必须真的作用在换算上：请求超大宽度 ⇒ 恰好落在 0.455（默认厚度）。 */
@@ -151,7 +151,7 @@ public class ChainPreviewShaderOutlineTest {
     @Test
     public void neighboursDoNotOverlapAtMaximumWidening() {
         for (float thickness : new float[] {0.005F, 0.045F, 0.1F, 0.2F}) {
-            float cap = ChainPreviewShaderMath.maxOutlineWorld(thickness);
+            float cap = ChainPreviewShaderMath.maxWidenWorld(thickness);
             // 请求远超上界 ⇒ 实际取到上界
             float widen = ChainPreviewShaderMath.outlineWidenWorld(1.0e6F, 0.0001F, thickness);
             Assert.assertEquals("厚度 " + thickness + " 时必须取到上界", cap, widen, 1.0e-6F);
@@ -206,7 +206,7 @@ public class ChainPreviewShaderOutlineTest {
 
         // 极近视角：1px 对应很大世界量 ⇒ 世界侧必须被「0.5 − 厚度」封顶（F-1）
         Assert.assertEquals("世界侧收敛到 0.5 − barThickness",
-                ChainPreviewShaderMath.maxOutlineWorld(DEFAULT_BAR_THICKNESS),
+                ChainPreviewShaderMath.maxWidenWorld(DEFAULT_BAR_THICKNESS),
                 ChainPreviewShaderMath.outlineWidenWorld(DEFAULT_OUTLINE_PX, 0.0001F, DEFAULT_BAR_THICKNESS), 0.0F);
 
         // 非法 pixelsPerWorldUnit 不得产生 NaN / 无穷

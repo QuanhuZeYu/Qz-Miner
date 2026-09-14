@@ -116,6 +116,70 @@ public class ChainPreviewMeshBuilder {
         return component < 0.0F ? (byte) -ChainPreviewMesh.DIRECTION_UNIT : (byte) 0;
     }
 
+    /** @return 方向字节 → 浮点法线分量（{@link #directionByte(float)} 的逆）。 */
+    public static float directionComponent(byte directionByte) {
+        if (directionByte > 0) {
+            return 1.0F;
+        }
+        return directionByte < 0 ? -1.0F : 0.0F;
+    }
+
+    // ---------------------------------------------------------------- 面朝向明暗（亮度表）
+
+    /** 面朝向亮度：+Y 顶面（最亮）。与 preview.vert 的 faceShading() 同值。 */
+    private static final float FACE_SHADING_TOP = 1.00F;
+    /** 面朝向亮度：−Y 底面（最暗）。 */
+    private static final float FACE_SHADING_BOTTOM = 0.72F;
+    /** 面朝向亮度：+Z 侧面。 */
+    private static final float FACE_SHADING_Z_POSITIVE = 0.90F;
+    /** 面朝向亮度：−Z 侧面。 */
+    private static final float FACE_SHADING_Z_NEGATIVE = 0.84F;
+    /** 面朝向亮度：±X 侧面（两侧同值，避免相机绕圈时出现固定「亮侧」偏置）。 */
+    private static final float FACE_SHADING_X = 0.78F;
+
+    /**
+     * 面法线 → 亮度系数（view-independent face shading）。
+     *
+     * <p><b>取值依据</b>（三条，缺一不可）：</p>
+     * <ol>
+     *   <li><b>相对排序沿用原版固定管线的面明暗</b>（顶 &gt; 侧面 &gt; 底），但压缩了动态范围：
+     *       预览条柱是自发光提示（alpha 混合、不走光照模型），对比度过强会在暗背景上显得「脏」，
+     *       故取 0.72 ~ 1.00 而不是原版方块明暗的 0.5 ~ 1.0。</li>
+     *   <li><b>四个侧面分三级</b>（+Z 0.90 / −Z 0.84 / ±X 0.78），保证相邻两面之间有可见台阶、
+     *       棱线不糊；±X 同值是为了让相机绕圈时没有固定的「亮侧」偏置。</li>
+     *   <li><b>必须是可逐位复现的十进制字面量</b>：GLSL 侧 {@code preview.vert} 的
+     *       {@code faceShading()} 写同一组字面量，两侧都是「字面常量 × 同一 palette 常量」的
+     *       单次 IEEE 单精度乘法 ⇒ 结果逐位一致。一旦把系数改成表达式（mix / lerp / 点积），
+     *       这条性质立即失效——两侧会因运算顺序或精度差异分叉。</li>
+     * </ol>
+     *
+     * <p>零方向 / 未定义方向返回 1.0（恒等兜底）：不得压暗无方向顶点（T51 后顶点按面分裂，
+     * 正常路径不产生零方向顶点，这里是防御）。</p>
+     *
+     * @param normalX 面法线 X（±1 或 0）
+     * @param normalY 面法线 Y
+     * @param normalZ 面法线 Z
+     * @return 亮度系数（0.72 ~ 1.00，或恒等 1.0）
+     */
+    public static float faceShading(float normalX, float normalY, float normalZ) {
+        if (normalY > 0.5F) {
+            return FACE_SHADING_TOP;
+        }
+        if (normalY < -0.5F) {
+            return FACE_SHADING_BOTTOM;
+        }
+        if (normalZ > 0.5F) {
+            return FACE_SHADING_Z_POSITIVE;
+        }
+        if (normalZ < -0.5F) {
+            return FACE_SHADING_Z_NEGATIVE;
+        }
+        if (normalX > 0.5F || normalX < -0.5F) {
+            return FACE_SHADING_X;
+        }
+        return 1.0F;
+    }
+
     private static final int[][] TUBE_FACES_BY_AXIS = {
         {0, 1, 2, 3},
         {0, 1, 4, 5},
@@ -400,6 +464,7 @@ public class ChainPreviewMeshBuilder {
         private final float barThickness;
         private final boolean lodEnabled;
         private final float lodMinAlpha;
+        private final boolean faceShadingEnabled;
 
         public VisualParameters(
                 double cameraX,
@@ -415,7 +480,7 @@ public class ChainPreviewMeshBuilder {
         }
 
         /**
-         * 携带 LOD 策略的完整构造。
+         * 携带 LOD 策略的构造（面朝向明暗默认关闭）。
          *
          * @param lodEnabled 是否启用构建期 LOD 剔除（clientPreviewLod=auto）；false 时逐字等于现状
          * @param lodMinAlpha 剔除进入阈值（clientPreviewLodMinAlpha）
@@ -431,6 +496,29 @@ public class ChainPreviewMeshBuilder {
                 float barThickness,
                 boolean lodEnabled,
                 float lodMinAlpha) {
+            this(cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, barThickness,
+                lodEnabled, lodMinAlpha, false);
+        }
+
+        /**
+         * 完整构造（本轮追加面朝向明暗开关）。
+         *
+         * @param faceShadingEnabled 是否把面朝向亮度烘焙进颜色流（配置 clientPreviewFaceShading）；
+         *                           false 时不执行任何乘法，颜色流逐位等于现状
+         */
+        public VisualParameters(
+                double cameraX,
+                double cameraY,
+                double cameraZ,
+                double fadeStart,
+                double fadeEnd,
+                float maxAlpha,
+                float minAlpha,
+                float barThickness,
+                boolean lodEnabled,
+                float lodMinAlpha,
+                boolean faceShadingEnabled) {
+            this.faceShadingEnabled = faceShadingEnabled;
             this.cameraX = cameraX;
             this.cameraY = cameraY;
             this.cameraZ = cameraZ;
@@ -459,14 +547,24 @@ public class ChainPreviewMeshBuilder {
         public VisualParameters withBarThickness(float nextBarThickness) {
             return new VisualParameters(
                 cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, nextBarThickness,
-                lodEnabled, lodMinAlpha);
+                lodEnabled, lodMinAlpha, faceShadingEnabled);
         }
 
         /** @return 只替换 LOD 策略的不可变副本；会话侧从 settings 快照注入 */
         public VisualParameters withLod(boolean nextLodEnabled, float nextLodMinAlpha) {
             return new VisualParameters(
                 cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, barThickness,
-                nextLodEnabled, nextLodMinAlpha);
+                nextLodEnabled, nextLodMinAlpha, faceShadingEnabled);
+        }
+
+        /** @return 只替换面朝向明暗开关的不可变副本；会话侧从 settings 快照注入 */
+        public VisualParameters withFaceShading(boolean nextFaceShadingEnabled) {
+            if (nextFaceShadingEnabled == faceShadingEnabled) {
+                return this;
+            }
+            return new VisualParameters(
+                cameraX, cameraY, cameraZ, fadeStart, fadeEnd, maxAlpha, minAlpha, barThickness,
+                lodEnabled, lodMinAlpha, nextFaceShadingEnabled);
         }
 
         public float getBarThickness() {
@@ -479,6 +577,11 @@ public class ChainPreviewMeshBuilder {
 
         public float getLodMinAlpha() {
             return lodMinAlpha;
+        }
+
+        /** @return 是否把面朝向亮度烘焙进颜色流（face shading；false = 颜色流逐位等于现状） */
+        public boolean isFaceShadingEnabled() {
+            return faceShadingEnabled;
         }
 
         /** @return 恢复已剔除目标的退出阈值（进入阈值 + {@link #LOD_EXIT_ALPHA_MARGIN}，钳制到 1） */
@@ -1650,9 +1753,13 @@ public class ChainPreviewMeshBuilder {
             directions.add((byte) 0);
             float alpha = visuals.alphaFor(meshOrigin.x + (double) x, meshOrigin.y + (double) y,
                 meshOrigin.z + (double) z);
-            colors.add(BASE_RED);
-            colors.add(BASE_GREEN);
-            colors.add(BASE_BLUE);
+            // 面朝向明暗（view-independent）：关闭时系数精确为 1.0（乘法幺元），
+            // 三次乘法逐位等于现状；开启时与 shader 侧同表同式（字面常量 × palette 常量）。
+            float shade = visuals.isFaceShadingEnabled()
+                ? faceShading(normal[0], normal[1], normal[2]) : 1.0F;
+            colors.add(BASE_RED * shade);
+            colors.add(BASE_GREEN * shade);
+            colors.add(BASE_BLUE * shade);
             colors.add(alpha);
             // 接口冻结 §A/§D：semanticClass 与 appearOrder 同源（最小 incident 目标）。
             aux.add((byte) semanticClassForOrder(appearOrder));
@@ -1793,9 +1900,12 @@ public class ChainPreviewMeshBuilder {
                     source.getOriginY() + (double) vertices[vertexOffset + 1],
                     source.getOriginZ() + (double) vertices[vertexOffset + 2]);
                 int colorOffset = vertexCursor * 4;
-                colors[colorOffset] = BASE_RED;
-                colors[colorOffset + 1] = BASE_GREEN;
-                colors[colorOffset + 2] = BASE_BLUE;
+                // 面朝向明暗：距离刷新（recolor）必须与全量装配用同一张亮度表，否则开明暗后
+                // 「换相机 → 颜色流丢面朝向」；方向字节是 mesh 自带的唯一方向真相源。
+                float shade = faceShadingFactor(source, vertexCursor, visuals);
+                colors[colorOffset] = BASE_RED * shade;
+                colors[colorOffset + 1] = BASE_GREEN * shade;
+                colors[colorOffset + 2] = BASE_BLUE * shade;
                 colors[colorOffset + 3] = alpha;
                 vertexCursor++;
             }
@@ -1809,6 +1919,29 @@ public class ChainPreviewMeshBuilder {
                 throw new IllegalStateException("Preview mesh recolor is not complete");
             }
             return mesh;
+        }
+
+        /**
+         * 亮度系数：从 mesh 的方向字节流还原面法线后查 {@link ChainPreviewMeshBuilder#faceShading}。
+         *
+         * <p>与 {@code BuildSession#vertexIndex} 用的是同一张表、同一个乘法；方向流缺失或越界时
+         * 返回恒等 1.0（不压暗），保证 recolor 与全量装配逐位一致（BaselineColorStreamContractTest
+         * 的 recolor 等价断言在明暗档下仍成立）。</p>
+         */
+        private static float faceShadingFactor(ChainPreviewMesh mesh, int vertex, VisualParameters visuals) {
+            if (!visuals.isFaceShadingEnabled()) {
+                return 1.0F;
+            }
+            byte[] directions = mesh.directionArray();
+            int offset = vertex * ChainPreviewMesh.DIRECTION_BYTES_PER_VERTEX;
+            if (directions == null || offset < 0
+                    || offset + 2 >= directions.length) {
+                return 1.0F;
+            }
+            return faceShading(
+                directionComponent(directions[offset]),
+                directionComponent(directions[offset + 1]),
+                directionComponent(directions[offset + 2]));
         }
     }
 

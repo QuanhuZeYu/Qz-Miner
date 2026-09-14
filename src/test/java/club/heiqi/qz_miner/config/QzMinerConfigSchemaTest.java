@@ -75,6 +75,7 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientPreviewFadeFallbackMs", FieldType.NUMBER, Double.valueOf(250.0D)},
                 {"client.clientPreviewMinScreenWidthPx", FieldType.NUMBER, Double.valueOf(0.0D)},
                 {"client.clientPreviewOutlineWidthPx", FieldType.NUMBER, Double.valueOf(1.5D)},
+                {"client.clientPreviewFaceShading", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewTruncationSignal", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewMaxTargetsHardCap", FieldType.NUMBER, Double.valueOf(4096.0D)},
                 {"client.clientPreviewLod", FieldType.CHOICE, "off"},

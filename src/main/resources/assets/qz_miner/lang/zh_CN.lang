@@ -147,6 +147,7 @@ config.qz_miner.clientPreviewFadeRefreshDistance.tooltip=signal 档相机位移�
 config.qz_miner.clientPreviewFadeFallbackMs.tooltip=signal 档无位移时的兜底刷新间隔（毫秒），合法 50..5000
 config.qz_miner.clientPreviewMinScreenWidthPx.tooltip=条柱在屏幕上的最小宽度（像素）：0 关闭钳制（默认，等于现状），1..8 生效——远距离时条柱在屏幕上至少保留该宽度，合法 0..8
 config.qz_miner.clientPreviewOutlineWidthPx.tooltip=描边壳沿面方向的外扩宽度（物理像素）：默认 1.5（与既有观感一致，此前为渲染器内写死值），0 关闭描边，合法 0..8；仅着色器后端的 outline 深度档绘制描边壳
+config.qz_miner.clientPreviewFaceShading.tooltip=是否按面朝向烘焙明暗（顶面最亮、底面最暗）：默认 false（等于接线前观感，逐字节不变）；开启后 legacy 颜色流与着色器顶点色使用同一张亮度表（字面常量 × 同一调色板常量，逐位一致）
 config.qz_miner.clientPreviewTruncationSignal.tooltip=预览被目标上限截断时是否给出可见提示，默认 false（HUD 文案接线属下一批）
 config.qz_miner.clientPreviewMaxTargetsHardCap.tooltip=预览目标数量硬顶，合法 1..4096；实际取该值与 clientPreviewMaxTargets、服务端 chainMaxBlocks 的较小值
 config.qz_miner.clientPreviewLod.tooltip=极端规模 LOD：off 关闭（默认，等于历史行为）；auto 按距离合并并做 alpha 剔除

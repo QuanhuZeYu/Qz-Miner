@@ -518,6 +518,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         float outlineWidthPx = plan.isOutlineShell() ? plan.getOutlineWidthPx() : 0.0F;
         program.setOutlineWidthPx(ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx));
 
+        // 面朝向明暗：默认关闭传 0，GLSL 侧整段乘色分支不执行 ⇒ 逐字节等于现状。
+        program.setFaceShading(plan.isFaceShadingEnabled() ? 1.0F : 0.0F);
+
         // 调色板：builtin 档四槽都传精确基线常量 (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流
         // （不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）。
         applyColorPalette(plan);

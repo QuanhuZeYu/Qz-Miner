@@ -311,6 +311,7 @@ public final class ChainPreviewDrawPlan {
         private final Lod lod;
         private final boolean outlineShell;
         private final float outlineWidthPx;
+        private final boolean faceShading;
 
         /**
          * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出）+ builtin 颜色，保留既有调用点签名。
@@ -414,7 +415,8 @@ public final class ChainPreviewDrawPlan {
         }
 
         /**
-         * 完整构造（B3.x 追加描边壳两参）：{@code outlineShell=false, outlineWidthPx=0} 即非描边段。
+         * 描边壳两参构造（B3.x）：{@code outlineShell=false, outlineWidthPx=0} 即非描边段，
+         * 面朝向明暗默认关闭（face shading）。
          *
          * <p>规范化：{@code shell && widthPx > 0} 才算壳段，否则标志 false、宽度 0
          * （NaN / 负值 / 关闭都收敛到同一形态，便于相等判定与后端分支）。</p>
@@ -436,6 +438,32 @@ public final class ChainPreviewDrawPlan {
                 Lod lod,
                 boolean outlineShell,
                 float outlineWidthPx) {
+            this(barThickness, minScreenWidthPx, animationU, fadeStartRadius, fadeEndRadius,
+                alphaStart, alphaEnd, depthChannel, fadeAlpha, colors, lod,
+                outlineShell, outlineWidthPx, false);
+        }
+
+        /**
+         * 完整构造（本轮追加面朝向明暗一参）。
+         *
+         * @param faceShading 是否按面朝向烘焙明暗（配置 clientPreviewFaceShading）；
+         *                    false 时后端不进入乘色分支，输出逐字节等于现状
+         */
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha,
+                Colors colors,
+                Lod lod,
+                boolean outlineShell,
+                float outlineWidthPx,
+                boolean faceShading) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -449,6 +477,7 @@ public final class ChainPreviewDrawPlan {
             this.lod = lod == null ? Lod.OFF : lod;
             this.outlineShell = outlineShell && outlineWidthPx > 0.0F;
             this.outlineWidthPx = this.outlineShell ? outlineWidthPx : 0.0F;
+            this.faceShading = faceShading;
         }
 
         public float getBarThickness() {
@@ -472,6 +501,7 @@ public final class ChainPreviewDrawPlan {
             if (Float.compare(animationU, nextAnimationU) == 0) {
                 return this;
             }
+            // 与既有 11 参构造同义（非壳段：shell=false、width=0）；面朝向明暗必须原样携带。
             return new Visuals(
                 barThickness,
                 minScreenWidthPx,
@@ -483,7 +513,10 @@ public final class ChainPreviewDrawPlan {
                 depthChannel,
                 fadeAlpha,
                 colors,
-                lod);
+                lod,
+                false,
+                0.0F,
+                faceShading);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -553,7 +586,10 @@ public final class ChainPreviewDrawPlan {
                 depthChannel,
                 safeMultiplier,
                 colors,
-                lod);
+                lod,
+                false,
+                0.0F,
+                faceShading);
         }
 
         /** @return 深度通道，永不为 null */
@@ -605,6 +641,11 @@ public final class ChainPreviewDrawPlan {
             return outlineWidthPx;
         }
 
+        /** @return 是否按面朝向烘焙明暗（face shading；false = 后端与颜色流都逐字节等于现状） */
+        public boolean isFaceShadingEnabled() {
+            return faceShading;
+        }
+
         /**
          * 派生：标记 / 取消描边壳段（B3.x 真描边）。
          *
@@ -636,7 +677,8 @@ public final class ChainPreviewDrawPlan {
                 colors,
                 lod,
                 nextShell,
-                nextWidth);
+                nextWidth,
+                faceShading);
         }
 
         /** @return 收窄 NaN / 越界后的视觉参数；本就规范时返回自身 */
@@ -692,7 +734,8 @@ public final class ChainPreviewDrawPlan {
                 safeColors,
                 safeLod,
                 safeOutlineShell,
-                safeOutlineWidth);
+                safeOutlineWidth,
+                faceShading);
         }
 
         @Override
@@ -715,6 +758,7 @@ public final class ChainPreviewDrawPlan {
                 && depthChannel == that.depthChannel
                 && outlineShell == that.outlineShell
                 && Float.compare(outlineWidthPx, that.outlineWidthPx) == 0
+                && faceShading == that.faceShading
                 && colors.equals(that.colors)
                 && lod.equals(that.lod);
         }
@@ -732,6 +776,7 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + (depthChannel == null ? 0 : depthChannel.hashCode());
             result = 31 * result + (outlineShell ? 1 : 0);
             result = 31 * result + Float.floatToIntBits(outlineWidthPx);
+            result = 31 * result + (faceShading ? 1 : 0);
             result = 31 * result + colors.hashCode();
             result = 31 * result + lod.hashCode();
             return result;
@@ -747,6 +792,7 @@ public final class ChainPreviewDrawPlan {
                 + ", fadeAlpha=" + fadeAlpha
                 + ", depthChannel=" + depthChannel
                 + ", outlineShell=" + outlineShell + (outlineShell ? "@" + outlineWidthPx + "px" : "")
+                + ", faceShading=" + faceShading
                 + ", " + colors
                 + ", " + lod
                 + '}';
@@ -1043,6 +1089,11 @@ public final class ChainPreviewDrawPlan {
     /** @return 描边壳外扩宽度（物理像素）；非壳段恒 0 */
     public float getOutlineWidthPx() {
         return visuals.getOutlineWidthPx();
+    }
+
+    /** @return 是否按面朝向烘焙明暗（face shading；false = 着色器不进入乘色分支，逐字节等于现状） */
+    public boolean isFaceShadingEnabled() {
+        return visuals.isFaceShadingEnabled();
     }
 
     /** @return 条柱粗细（方块坐标单位） */
