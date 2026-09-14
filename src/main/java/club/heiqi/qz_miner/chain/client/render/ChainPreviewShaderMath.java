@@ -265,6 +265,10 @@ public final class ChainPreviewShaderMath {
      * <p>{@code widthPx <= 0}（默认档 / xray / occlude / OUTLINE 主体 pass）必须返回<b>精确 0</b>，
      * 这样顶点位移恒等、逐值等于现状。</p>
      *
+     * <p><strong>本方法只看描边自己</strong>（最小宽度关闭时的口径）。两项同时激活时必须改用
+     * {@link #outlineWidenWithinBudget(float, float, float, float)}：那条路径会再扣掉最小宽度
+     * 已占用的预算，使联合位移不越出 {@link #maxWidenWorld(float)}。</p>
+     *
      * @param widthPx             描边宽度（物理像素）
      * @param pixelsPerWorldUnit  横向「像素 / 世界单位」（= uPixelScale / depth × 横向投影）
      * @return 外扩的世界量；关闭时为 0
@@ -295,6 +299,34 @@ public final class ChainPreviewShaderMath {
     }
 
     /**
+     * 描边在「最小宽度已占用预算」之后的实际外扩量（联合上界，T52）。
+     *
+     * <p>与 {@code preview.vert} 的消耗式预算逐式同形：</p>
+     * <pre>
+     *   remaining = max(0, maxWidenWorld(t) − minWidthWiden)
+     *   outline   = min(widthPx / ppwu, remaining)
+     * </pre>
+     *
+     * <p><strong>为什么让描边让位</strong>（Lead 裁定）：最小宽度是功能性需求（远距条柱必须可见），
+     * 真描边是装饰性的；两者争同一份世界空间预算时功能优先。{@code minWidthWiden} 吃满
+     * {@link #maxWidenWorld(float)} 时本方法<b>精确返回 0</b>（而不是让描边把联合位移顶到
+     * {@code 2×(0.5 − t)} 越出自身方块）。</p>
+     *
+     * @param widthPx             描边宽度（物理像素）；&lt;= 0 视为关闭
+     * @param pixelsPerWorldUnit  像素 / 世界单位
+     * @param barThickness        条柱厚度
+     * @param consumedWorld       最小宽度已占用的位移量（{@link #minWidthWidenWorld} 的结果；
+     *                            NaN / 负数按 0 计）
+     * @return 描边的世界外扩量；关闭或预算耗尽时精确为 0
+     */
+    public static float outlineWidenWithinBudget(
+            float widthPx, float pixelsPerWorldUnit, float barThickness, float consumedWorld) {
+        float consumed = Float.isNaN(consumedWorld) ? 0.0F : Math.max(0.0F, consumedWorld);
+        float remaining = Math.max(0.0F, maxWidenWorld(barThickness) - consumed);
+        return Math.min(outlineWidenWorld(widthPx, pixelsPerWorldUnit, barThickness), remaining);
+    }
+
+    /**
      * 沿面法线位移的世界量上界：{@code max(0, 0.5 − barThickness)}（与 GLSL 逐式同形）。
      *
      * <p><strong>本方法是「外扩世界量上界」的单一真源</strong>：真描边
@@ -316,9 +348,12 @@ public final class ChainPreviewShaderMath {
      * （{@code OutlineStrokeBoundsContractTest#expandedNeighborBarsMustNotOverlapForAnyThickness}）
      * 的结果，不得自行改回 {@code 0.5} 或另立半厚口径。</p>
      *
-     * <p><strong>未决点登记</strong>：最小宽度与真描边各自受本上界约束，但两者叠加
-     * （OUTLINE 壳段同时开最小宽度）时联合位移可达 {@code 2×(0.5 − t)}，会越出方块并使相邻条柱
-     * 重叠。联合上界需要 Lead 裁定，本类不私自定义。</p>
+     * <p><strong>联合预算（T52 已裁定并落地）</strong>：本上界是<strong>一份</strong>预算，不是每项一份。
+     * 最小宽度优先取用（功能性需求：保证远距可见性），真描边只能用剩余额度（装饰性需求），
+     * 故联合位移恒 {@code <= maxWidenWorld}。旧行为两项各自取上界、联合可达 {@code 2×(0.5 − t)}
+     * （t=0.045 时单侧到达 0.9325 格，越出自身方块并使相邻条柱重叠），已由
+     * {@link #outlineWidenWithinBudget(float, float, float, float)} 与
+     * {@link #displaceVertex} 的消耗式预算消除。</p>
      *
      * @param barThickness 条柱厚度（配置范围 0.005 ~ 0.2）；NaN 按最保守处理（0）
      * @return &gt;= 0 的世界量上界
@@ -553,8 +588,18 @@ public final class ChainPreviewShaderMath {
      *
      * <p>这是「参考模型 = 真机跑的东西」的落地形态：测试不再断言「从 aPos 猜横向轴」的旧模型
      * （那条实现已随 T51 删除），而是断言与 GLSL 同序的两次位移——先按最小屏幕宽度从 {@code aPos}
-     * 沿 {@code aDirection.xyz} 外扩，再把描边量加到结果上；两处各自以 {@code > 0} 独立门控。
+     * 沿 {@code aDirection.xyz} 外扩，再把描边量加到结果上。GLSL 侧两处各以 {@code > 0} 门控，
+     * 本模型把门控折进「关闭即精确 0」的返回值，算术顺序与结果逐值一致。
      * 零方向顶点（{@code aDirection = 0}）两项位移都乘 0 ⇒ 恒等退化。</p>
+     *
+     * <p><strong>联合上界（T52 修复）</strong>：两项位移消耗<strong>同一份</strong>
+     * {@link #maxWidenWorld(float)} 预算——最小宽度优先取满，描边只能用剩余额度
+     * （{@link #outlineWidenWithinBudget(float, float, float, float)}）。因此本方法的联合位移
+     * 恒 {@code <= maxWidenWorld}：min-width 吃满预算时描边位移精确为 0。修复前两项各自取上界，
+     * 联合可达 {@code 2×(0.5 − t)}（t=0.045 ⇒ 单侧到达 0.9325 格）会越出自身方块并与相邻条柱重叠。</p>
+     *
+     * <p>算术顺序刻意与 GLSL 一致（两次「原值 + 方向 × 位移量」的加法），不合并成一次乘法：
+     * 合并会改变单精度舍入，破坏「参考模型与 GLSL 逐值同形」这一前提。</p>
      *
      * @param positionX          相对 meshOrigin 的 X（GLSL aPos.x）
      * @param positionY          相对 meshOrigin 的 Y
@@ -573,18 +618,17 @@ public final class ChainPreviewShaderMath {
             float directionX, float directionY, float directionZ,
             float pixelsPerWorldUnit, float minScreenWidthPx, float barThickness, float outlineWidthPx) {
         float[] displaced = {positionX, positionY, positionZ};
-        if (minScreenWidthPx > 0.0F) {
-            float widen = minWidthWidenWorld(minScreenWidthPx, barThickness, pixelsPerWorldUnit);
-            displaced[0] = positionX + directionX * widen;
-            displaced[1] = positionY + directionY * widen;
-            displaced[2] = positionZ + directionZ * widen;
-        }
-        if (outlineWidthPx > 0.0F) {
-            float widen = outlineWidenWorld(outlineWidthPx, pixelsPerWorldUnit, barThickness);
-            displaced[0] = displaced[0] + directionX * widen;
-            displaced[1] = displaced[1] + directionY * widen;
-            displaced[2] = displaced[2] + directionZ * widen;
-        }
+        // 与 GLSL 同序：最小宽度位移无条件写成（关闭/非法时为 0 ⇒ 逐值恒等，NaN 输入同样收敛）。
+        float minWidthWiden = minWidthWidenWorld(minScreenWidthPx, barThickness, pixelsPerWorldUnit);
+        displaced[0] = positionX + directionX * minWidthWiden;
+        displaced[1] = positionY + directionY * minWidthWiden;
+        displaced[2] = positionZ + directionZ * minWidthWiden;
+        // 描边只吃剩余预算（GLSL 的 if (uOutlineWidthPx > 0.0) 门控已折进「关闭即 0」）。
+        float outlineWiden = outlineWidenWithinBudget(
+                outlineWidthPx, pixelsPerWorldUnit, barThickness, minWidthWiden);
+        displaced[0] = displaced[0] + directionX * outlineWiden;
+        displaced[1] = displaced[1] + directionY * outlineWiden;
+        displaced[2] = displaced[2] + directionZ * outlineWiden;
         return displaced;
     }
 

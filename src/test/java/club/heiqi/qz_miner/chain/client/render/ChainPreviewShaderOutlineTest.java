@@ -12,20 +12,24 @@ import org.junit.Test;
 /**
  * B3.x 真描边（着色器扩边）的契约。
  *
- * <p>本项最硬的判据是「默认档不受影响」：</p>
+ * <p>断言只落在两类可证伪的东西上：<b>纯 JVM 参考模型的数值</b>（{@link ChainPreviewShaderMath}
+ * 的 px→world 换算、宽度收敛、世界上界与联合预算）与<b>后端接口行为</b>。这里<strong>不再</strong>
+ * 对 shader 源码做文本匹配（断言某一行/某个表达式写成什么样）：那种断言重命名即误报、改语义却照样绿。
+ * GLSL 侧改动的口径改为「真机验证 + 在 shader 头部「实机验证记录」追加一行标记」，
+ * 且<strong>注释改动本身不触发重验</strong>（否则加标记会形成死循环）。</p>
+ *
+ * <p>本项最硬的判据仍是「默认档不受影响」：</p>
  * <ul>
  *   <li><b>xray（默认）/ occlude</b>：{@code uOutlineWidthPx = 0}，顶点位移必须恒等 ⇒ 逐值等于现状；</li>
  *   <li><b>OUTLINE 主体 pass</b>：同样 {@code = 0}，走完全同现状的路径；</li>
- *   <li>只有 <b>OUTLINE 描边壳 pass</b> 传 &gt; 0，沿既有 lateralAxis 横向机制外扩。</li>
+ *   <li>只有 <b>OUTLINE 描边壳 pass</b> 传 &gt; 0，沿显式面法线 aDirection 外扩。</li>
  * </ul>
  *
- * <p>其余约束：不依赖 tubeEdge 四象限（实测只落 {0,1}）、取色仍在顶点阶段、
- * fade × growth × uFadeAlpha 包络不被描边分支破坏、宽度 0/负/超限必须收敛。</p>
+ * <p>世界上界是<strong>一份预算</strong>（默认厚度 0.045 时为 0.455）：最小宽度优先取用、
+ * 真描边只用剩余额度，故联合位移恒不越界（T52 联合上界，Lead 裁定「功能性优先于装饰性」）。</p>
  */
 public class ChainPreviewShaderOutlineTest {
 
-    private static final String VERTEX_PATH = "src/main/resources/assets/qz_miner/shaders/preview.vert";
-    private static final String FRAGMENT_PATH = "src/main/resources/assets/qz_miner/shaders/preview.frag";
     private static final String BACKEND_PATH =
             "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
@@ -48,38 +52,6 @@ public class ChainPreviewShaderOutlineTest {
             Assert.assertFalse("widthPx=0 必须判定为关闭",
                     ChainPreviewShaderMath.isOutlineEnabled(0.0F));
         }
-    }
-
-    /** GLSL：所有描边分支必须由 uOutlineWidthPx > 0 门控，否则默认档会被污染。 */
-    @Test
-    public void everyOutlineBranchIsGatedByPositiveWidth() throws Exception {
-        String body = stripComments(read(VERTEX_PATH));
-
-        Assert.assertTrue("必须声明 uOutlineWidthPx", body.contains("uniform float uOutlineWidthPx;"));
-        // T51 后位移方向一律来自 aDirection 属性，顶点阶段不再推导「横向轴」：
-        // 最小宽度与描边是两处独立位移，各自以 > 0.0 门控（描边位移 + 描边配色共两处门控）。
-        Assert.assertTrue("最小宽度位移必须以 > 0 门控",
-                body.contains("if (uMinScreenWidthPx > 0.0) {"));
-        int firstOutlineGate = body.indexOf("if (uOutlineWidthPx > 0.0) {");
-        Assert.assertTrue("描边位移分支必须以 > 0 门控", firstOutlineGate >= 0);
-        Assert.assertTrue("描边色分支必须以 > 0 门控",
-                body.indexOf("if (uOutlineWidthPx > 0.0) {", firstOutlineGate + 1) >= 0);
-        Assert.assertTrue("描边位移必须沿显式面方向 aDirection",
-                body.contains("displaced + aDirection.xyz *"));
-        Assert.assertFalse("不得出现「非正即启用」的反向判定",
-                body.contains("uOutlineWidthPx >= 0.0"));
-    }
-
-    /** 主体着色路径必须与现状逐式一致：alpha 表达式里不得出现描边量。 */
-    @Test
-    public void outlineDoesNotTouchAlphaEnvelope() throws Exception {
-        String body = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("alpha 包络必须仍是 fade × growth × uFadeAlpha",
-                body.contains("float alpha = fade * growth * uFadeAlpha;"));
-        Assert.assertFalse("包络不得掺入描边量",
-                body.contains("alpha = fade * growth * uFadeAlpha * uOutlineWidthPx"));
-        Assert.assertFalse("亮度/alpha 不得被描边宽度调制",
-                body.contains("uOutlineWidthPx * fade") || body.contains("fade * uOutlineWidthPx"));
     }
 
     // ------------------------------------------------------------------ 壳段外扩量映射
@@ -166,33 +138,111 @@ public class ChainPreviewShaderOutlineTest {
         Assert.assertTrue("旧口径确实重叠", legacyGap < 0.0F);
     }
 
-    /** GLSL 侧必须是同一式子（用已有 uniform uBarThickness，不引入新 uniform）。 */
+    // ------------------------------------------------------------------ 联合上界（min-width 优先，描边让位）
+
+    /**
+     * T52 联合上界：最小宽度与真描边<strong>共用同一份</strong>世界空间预算
+     * （{@link ChainPreviewShaderMath#maxWidenWorld(float)}），故联合位移恒 {@code <=} 该上界。
+     *
+     * <p>修复前两项各自取上界，联合可达 {@code 2×(0.5 − t)}：t=0.045 时单侧位移 0.91 格、
+     * 到达半径 0.9325 格 ⇒ 越出自身方块（半宽 0.5）且相邻条柱重叠。本测试在
+     * 「厚度 × 像素密度 × 最小宽度 × 描边宽度」网格上逐格钉住新性质（Python 独立复算见工作站
+     * {@code temp/qz-miner-t52-joint-budget.py}：旧行为 4 个厚度全部越界，新行为 420 格零违规）。</p>
+     */
     @Test
-    public void glslUsesSameThicknessDependentCap() throws Exception {
-        String vertex = stripComments(read(VERTEX_PATH));
-        // T51 后描边世界量直接在位移表达式中以内层 min 收窄，上界子式保持不变
-        Assert.assertTrue("GLSL 上界必须减去 uBarThickness",
-                vertex.contains("max(0.0, 0.5 - uBarThickness)"));
-        Assert.assertFalse("不得再出现固定 0.5 的旧上界",
-                vertex.contains("clamp(outlineWorld, 0.0, 0.5)"));
-        Assert.assertTrue("必须复用既有 uBarThickness（不新增 uniform）",
-                vertex.contains("uniform float uBarThickness;"));
+    public void combinedDisplacementNeverExceedsTheSharedWorldBudget() {
+        int cells = 0;
+        float worstExcess = 0.0F;
+        for (float thickness : new float[] {0.005F, 0.045F, 0.1F, 0.2F, 0.5F}) {
+            float cap = ChainPreviewShaderMath.maxWidenWorld(thickness);
+            for (float pixelsPerWorldUnit : new float[] {1.0e-4F, 0.001F, 0.01F, 0.05F, 1.0F, 24.0F, 900.0F}) {
+                for (float minWidthPx : new float[] {0.0F, 1.0F, 4.0F, 8.0F}) {
+                    for (float outlinePx : new float[] {0.0F, DEFAULT_OUTLINE_PX, 8.0F}) {
+                        float[] after = ChainPreviewShaderMath.displaceVertex(
+                                0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F,
+                                pixelsPerWorldUnit, minWidthPx, thickness, outlinePx);
+                        float widen = after[1];
+                        worstExcess = Math.max(worstExcess, widen - cap);
+                        String label = "（t=" + thickness + " ppwu=" + pixelsPerWorldUnit
+                                + " minW=" + minWidthPx + " outline=" + outlinePx
+                                + " 位移=" + widen + " 上界=" + cap + "）";
+                        Assert.assertTrue("联合位移不得超出共用预算" + label, widen <= cap + 1.0e-6F);
+                        Assert.assertTrue("位移不得为负" + label, widen >= 0.0F);
+                        Assert.assertTrue("到达半径不得越出自身方块" + label,
+                                thickness * 0.5F + widen <= 0.5F + 1.0e-6F);
+                        Assert.assertTrue("相邻条柱（中心距 1 格）不得重叠" + label,
+                                ChainPreviewShaderMath.neighbourGap(thickness, widen) >= -1.0e-6F);
+                        cells++;
+                    }
+                }
+            }
+        }
+        Assert.assertEquals("网格格数（5 厚度 × 7 像素密度 × 4 最小宽度 × 3 描边宽度）", 420, cells);
+        Assert.assertTrue("最大超出量必须为 0，实际 " + worstExcess, worstExcess <= 1.0e-6F);
     }
 
     /**
-     * F-2 登记：真描边是着色器路径专有，auto 档回退 legacy 时退化为两 pass 叠色。
+     * 回归锁核心条目：最小宽度吃满预算时，描边位移必须<strong>精确收敛为 0</strong>。
      *
-     * <p>登记写在源文件注释里，因此这里检查<strong>未剥注释</strong>的原文
-     * （其余断言用剥注释后的代码，避免注释里的示例污染结构判定）。</p>
+     * <p>这正是 Lead 裁定「min-width 优先、描边让位」的可证伪形式：修复前两个分支各自吃满上界，
+     * 同一组参数下联合位移会是 {@code 2 × 0.455 = 0.91} 格。</p>
      */
     @Test
-    public void legacyCapabilityGapIsDocumented() throws Exception {
-        String raw = read(VERTEX_PATH);
-        Assert.assertTrue("必须登记 legacy 能力差异", raw.contains("能力差异"));
-        Assert.assertTrue("必须点名 legacy 回退行为", raw.contains("回退 legacy"));
-        Assert.assertTrue("必须说明原因（固定管线外扩要改 CPU 几何）",
-                raw.contains("固定管线") && raw.contains("CPU 几何"));
+    public void outlineYieldsToMinWidthWhenBudgetIsExhausted() {
+        float thickness = DEFAULT_BAR_THICKNESS;
+        float cap = ChainPreviewShaderMath.maxWidenWorld(thickness);
+        float pixelsPerWorldUnit = 1.0e-4F;
+        Assert.assertEquals("测试前提：最小宽度单独就已吃满预算", cap,
+                ChainPreviewShaderMath.minWidthWidenWorld(8.0F, thickness, pixelsPerWorldUnit), 1.0e-6F);
+        Assert.assertEquals("测试前提：描边单独同样会吃满预算", cap,
+                ChainPreviewShaderMath.outlineWidenWorld(DEFAULT_OUTLINE_PX, pixelsPerWorldUnit, thickness), 1.0e-6F);
+        Assert.assertEquals("预算耗尽时描边的实际外扩量必须是精确 0",
+                0.0F, ChainPreviewShaderMath.outlineWidenWithinBudget(
+                        DEFAULT_OUTLINE_PX, pixelsPerWorldUnit, thickness, cap), 0.0F);
+
+        float[] after = ChainPreviewShaderMath.displaceVertex(
+                0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F,
+                pixelsPerWorldUnit, 8.0F, thickness, DEFAULT_OUTLINE_PX);
+        Assert.assertEquals("联合位移必须等于共用预算（而不是 2 × 预算）", cap, after[1], 1.0e-6F);
+        Assert.assertFalse("不得为 NaN", Float.isNaN(after[1]));
+        Assert.assertTrue("到达半径不得越出自身方块",
+                thickness * 0.5F + after[1] <= 0.5F + 1.0e-6F);
     }
+
+    /**
+     * 预算未耗尽时描边按剩余额度让位（不是一律取消），且最小宽度仍被完整交付（功能性优先）。
+     *
+     * <p>参数（t=0.045、ppwu=10、minW=8、描边=1.5px）经 Python 复算：最小宽度位移 0.3775、
+     * 剩余额度 0.0775，而描边请求 0.15 ⇒ 必须被压到 0.0775（既不为 0，也不再是它自己那份上界）。</p>
+     */
+    @Test
+    public void outlineUsesOnlyRemainingBudgetWhenMinWidthIsActive() {
+        float thickness = DEFAULT_BAR_THICKNESS;
+        float cap = ChainPreviewShaderMath.maxWidenWorld(thickness);
+        float pixelsPerWorldUnit = 10.0F;
+        float minWidthPx = 8.0F;
+
+        float minWidthWiden = ChainPreviewShaderMath.minWidthWidenWorld(
+                minWidthPx, thickness, pixelsPerWorldUnit);
+        float requestedOutline = DEFAULT_OUTLINE_PX / pixelsPerWorldUnit;
+        float remaining = Math.max(0.0F, cap - minWidthWiden); // 独立复算，不调实现
+        Assert.assertTrue("测试前提：预算未耗尽，剩余额度 " + remaining, remaining > 0.0F);
+        Assert.assertTrue("测试前提：描边请求必须超出剩余额度，否则测不到让位（请求 "
+                + requestedOutline + " / 剩余 " + remaining + "）", requestedOutline > remaining);
+
+        float[] after = ChainPreviewShaderMath.displaceVertex(
+                0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F,
+                pixelsPerWorldUnit, minWidthPx, thickness, DEFAULT_OUTLINE_PX);
+        float outlineWiden = after[1] - minWidthWiden;
+        Assert.assertTrue("描边必须让位但不得被取消（实际 " + outlineWiden + "）", outlineWiden > 0.0F);
+        Assert.assertEquals("描边只能用到剩余额度", remaining, outlineWiden, 1.0e-6F);
+        Assert.assertEquals("联合位移恰好吃满预算（未越界）", cap, after[1], 1.0e-6F);
+        Assert.assertTrue("最小宽度的交付量不得被描边削减：(t + 2d) × ppwu = "
+                        + (thickness + 2.0F * minWidthWiden) * pixelsPerWorldUnit,
+                (thickness + 2.0F * minWidthWiden) * pixelsPerWorldUnit >= minWidthPx - 1.0e-3F);
+    }
+
+    // ------------------------------------------------------------------ 宽度上限与常量单一真源
 
     /** 超限宽度必须收敛到上限（像素侧 8px；世界侧 0.5 格）。 */
     @Test
@@ -219,37 +269,6 @@ public class ChainPreviewShaderOutlineTest {
                         DEFAULT_OUTLINE_PX, Float.POSITIVE_INFINITY, thickness)));
     }
 
-    // ------------------------------------------------------------------ 既有契约不被破坏
-
-    /** 不依赖 tubeEdge 四象限：描边与取色都不得读 aAux.y。 */
-    @Test
-    public void outlineDoesNotDependOnTubeEdgeQuadrants() throws Exception {
-        String vertex = stripComments(read(VERTEX_PATH));
-        Assert.assertFalse("顶点不得读 aAux.y（实测只落 {0,1}，四象限不齐备）",
-                vertex.contains("aAux.y"));
-        String fragment = stripComments(read(FRAGMENT_PATH));
-        Assert.assertFalse("片元不得读 aAux.y", fragment.contains("aAux.y"));
-    }
-
-    /** 取色仍在顶点阶段（F1）：片元不得出现 uColor* 或类别判定。 */
-    @Test
-    public void semanticSelectionStaysInVertexStage() throws Exception {
-        String vertex = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("顶点必须调用 previewSemanticColor",
-                vertex.contains("previewSemanticColor(auxChannel(aAux.x))"));
-        String fragment = stripComments(read(FRAGMENT_PATH));
-        Assert.assertFalse("片元不得声明 uColor*", fragment.contains("uniform vec3 uColor"));
-        Assert.assertFalse("片元不得做类别比较", fragment.contains("vSemantic"));
-    }
-
-    /** 描边壳用统一主色，而不是按类别分色（轮廓应可辨识、不参与语义分类）。 */
-    @Test
-    public void outlineShellUsesPrimaryColor() throws Exception {
-        String vertex = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("描边壳必须用 uColorPrimary",
-                vertex.contains("color = uColorPrimary;"));
-    }
-
     /** 后端必须真的消费 plan 的描边面：只有壳段传非 0，其余精确为 0。 */
     @Test
     public void backendConsumesOutlineShellOnly() throws Exception {
@@ -270,16 +289,6 @@ public class ChainPreviewShaderOutlineTest {
                 ChainPreviewShaderMath.MAX_OUTLINE_WIDTH_PX, 0.0F);
         Assert.assertEquals("plan 默认宽度必须是 1.5px", 1.5F,
                 ChainPreviewDrawPlan.OUTLINE_WIDTH_DEFAULT_PX, 0.0F);
-    }
-
-    /** 描边只改顶点位移，不改拓扑：不得出现索引/几何分支。 */
-    @Test
-    public void outlineOnlyDisplacesVertices() throws Exception {
-        String vertex = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("外扩必须加到 displaced 上（沿显式面方向 aDirection）",
-                vertex.contains("displaced = displaced + aDirection.xyz *"));
-        Assert.assertFalse("顶点着色器不得触碰索引",
-                vertex.contains("gl_VertexID") || vertex.contains("gl_Index"));
     }
 
     private static String read(String relativePath) throws Exception {

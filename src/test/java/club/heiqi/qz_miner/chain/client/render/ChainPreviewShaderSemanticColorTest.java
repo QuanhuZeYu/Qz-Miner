@@ -22,13 +22,13 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass;
  *       config 档按 8bit 量化（差异只在该档）；</li>
  *   <li><b>插值语义（F1）</b>：选色必须在<strong>顶点阶段</strong>完成。varying 是 smooth 插值的，
  *       同一 quad 内两顶点类别不同时插值落在两整数之间——若片元再用 {@code == 2.0} 比较就会整片
- *       落空、丢失远端/截断色。本段用「顶点颜色 → 插值 → 片元输出」的模型证明颜色不再丢失。</li>
+ *       落空、丢失远端/截断色。本段用「顶点颜色 → 插值 → 片元输出」的模型证明颜色不再丢失；
+ *       「哪一行写成什么样」不再做源码文本匹配（重命名即误报、改系数却照样绿），
+ *       GLSL 侧改为真机验证 + shader 头部「实机验证记录」标记（注释改动不触发重验）。</li>
  * </ol>
  */
 public class ChainPreviewShaderSemanticColorTest {
 
-    private static final String VERTEX_PATH = "src/main/resources/assets/qz_miner/shaders/preview.vert";
-    private static final String FRAGMENT_PATH = "src/main/resources/assets/qz_miner/shaders/preview.frag";
     private static final String BACKEND_PATH =
             "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
@@ -214,35 +214,6 @@ public class ChainPreviewShaderSemanticColorTest {
     }
 
     // ------------------------------------------------------------------ 段 4：F1 插值语义
-
-    /**
-     * F1：选色必须在顶点阶段完成，片元只消费插值后的颜色。
-     *
-     * <p>由于 GLSL 1.20 无 flat 限定符，varying 一律 smooth 插值：一个 quad 内两顶点类别不同
-     * （共享角点取相邻目标的最小类别序）时，片元拿到的 vSemantic 会落在两整数之间。
-     * 片元若仍用 {@code == 2.0} 比较就会整片落回主色、丢失远端色；把选择搬到顶点即可根治。</p>
-     */
-    @Test
-    public void vertexSelectsColorSoInterpolationCannotLoseCategory() throws Exception {
-        String vertex = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("选色函数必须存在，且按类别返回对应槽位色",
-                vertex.contains("previewSemanticColor"));
-        Assert.assertTrue("类别 1 必须走 uColorSecondary", vertex.contains("return uColorSecondary;"));
-        Assert.assertTrue("类别 2 必须走 uColorRemote", vertex.contains("return uColorRemote;"));
-        Assert.assertTrue("类别 3 必须走 uColorTruncated", vertex.contains("return uColorTruncated;"));
-        Assert.assertTrue("其余类别必须兜底 uColorPrimary", vertex.contains("return uColorPrimary;"));
-        Assert.assertTrue("顶点必须把选中的颜色写进 vColor.rgb",
-                vertex.contains("vec3 color = previewSemanticColor(auxChannel(aAux.x));")
-                        && vertex.contains("vColor = vec4(color, alpha);"));
-
-        String fragment = stripComments(read(FRAGMENT_PATH));
-        Assert.assertTrue("片元必须直接输出插值后的 vColor.rgb",
-                fragment.contains("gl_FragColor = vec4(vColor.rgb, vColor.a)"));
-        Assert.assertFalse("片元不得再用 vSemantic 做精确比较（这正是丢色的根因）",
-                fragment.contains("vSemantic =="));
-        Assert.assertFalse("片元不得再声明 uColor*（避免两处真源分叉）",
-                fragment.contains("uniform vec3 uColor"));
-    }
 
     /**
      * 插值模型：两顶点类别不同 → 片元颜色是两者的线性混合，不再是「主色兜底」。

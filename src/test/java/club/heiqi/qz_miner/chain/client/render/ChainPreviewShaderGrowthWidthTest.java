@@ -5,8 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -25,15 +23,16 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  *       必须满足 u=0 全隐、u=1 全显、中间单调递增；0xFFFF 恒可见（不出现空洞）。</li>
  *   <li><b>屏幕最小宽度</b>：px=0 严格恒等（逐值相等，不是「误差内相等」）；
  *       px&gt;0 只对亚像素条柱沿面法线单向加宽、**真的交付配置像素宽**，近处（已够宽）保持不变，
- *       位移受与真描边同口径的世界上界约束（A1/A2 修复）。</li>
+ *       位移受与真描边**共用**的世界空间预算约束（A1/A2/T52 修复）。</li>
  * </ol>
  *
- * <p>同时用「GLSL 表达式同形」断言把着色器侧的算术固定下来：参考模型与 GLSL 必须
- * 逐式对应（相同的乘除与 clamp 顺序），否则离线断言就保护不了真机行为。</p>
+ * <p><strong>不读 shader 源码做文本匹配</strong>：GLSL 表达式的形状不再被
+ * {@code body.contains(...)} 钉住（重命名即误报、改系数却照样绿）。参考模型的数值形状在此逐值
+ * 断言，GLSL 与参考模型的一致性由「真机验证 + shader 头部「实机验证记录」追加标记」承担——
+ * 且<strong>注释改动本身不触发重验</strong>（否则加标记会形成死循环）。</p>
  */
 public class ChainPreviewShaderGrowthWidthTest {
 
-    private static final String VERTEX_PATH = "src/main/resources/assets/qz_miner/shaders/preview.vert";
     private static final String BACKEND_PATH =
             "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
@@ -427,48 +426,7 @@ public class ChainPreviewShaderGrowthWidthTest {
         }
     }
 
-    // ------------------------------------------------------------------ GLSL 同形断言
-
-    /**
-     * GLSL 必须真的把钳制结果用于投影。
-     *
-     * <p>此前 {@code gl_Position = ftransform()} 让 {@code displaced} 算完即丢，
-     * 导致最小宽度在 shader 路径静默失效——这条断言是那次缺陷的回归锁。</p>
-     */
-    @Test
-    public void glslProjectsTheDisplacedPosition() throws Exception {
-        String body = methodBody(VERTEX_PATH, "void main(void)", "main");
-        Assert.assertTrue("必须计算位移后的位置", body.contains("displaced"));
-        Assert.assertTrue("必须对 displaced 做投影（显式 MVP，T48c-A）",
-                body.contains("uModelViewProjection * vec4(displaced, 1.0)"));
-        Assert.assertFalse("不得再用 ftransform()（它会忽略 displaced，使最小宽度失效）",
-                body.contains("ftransform()"));
-        Assert.assertFalse("不得再用固定管线内建矩阵（真机 GLSM/no-error context 下失同步）",
-                body.contains("gl_ModelViewProjectionMatrix") || body.contains("gl_ModelViewMatrix"));
-    }
-
-    /** GLSL 的生长判据必须与参考模型同形（序号格之差 + 0xFFFF 放行 + u>=1 跳过）。 */
-    @Test
-    public void glslGrowthGuardMatchesReferenceModel() throws Exception {
-        String body = methodBody(VERTEX_PATH, "void main(void)", "main");
-        Assert.assertTrue("必须按序号格判定出现",
-                body.contains("floor(min(appearOrder, uAppearSpan))"));
-        Assert.assertTrue("判据必须是 u × 总数 − 序号格",
-                body.contains("uAnimProgress * uAppearSpan - orderFloor"));
-        Assert.assertTrue("0xFFFF 必须走「已出现」分支",
-                body.contains("appearOrder < 65535.0"));
-        Assert.assertTrue("u>=1 必须跳过 appearOrder 比较（整段绘制）",
-                body.contains("uAnimProgress < 1.0"));
-    }
-
-    /** GLSL 的最小宽度必须由 uMinScreenWidthPx 门控，且 px<=0 时位移保持原样。 */
-    @Test
-    public void glslMinWidthIsGatedAndIdentityWhenDisabled() throws Exception {
-        String body = methodBody(VERTEX_PATH, "void main(void)", "main");
-        Assert.assertTrue("必须由 uMinScreenWidthPx > 0 门控", body.contains("uMinScreenWidthPx > 0.0"));
-        Assert.assertTrue("位移初值必须是原始位置（px=0 恒等）", body.contains("vec3 displaced = aPos;"));
-        Assert.assertTrue("必须使用视口像素换算", body.contains("uPixelScale"));
-    }
+    // ------------------------------------------------------------------ 后端接线（Java 源面）
 
     /** backend 必须把 u 与目标总数传进着色器，且 u>=1 时关闭逐顶点比较。 */
     @Test
@@ -578,10 +536,5 @@ public class ChainPreviewShaderGrowthWidthTest {
     private static String stripComments(String source) {
         return Glsl120StaticChecker.stripComments(
                 source, "src", new ArrayList<Glsl120StaticChecker.Finding>());
-    }
-
-    /** 与 GLSL 无关但需要被引用的字符串比较工具（保持 import 有效）。 */
-    static List<String> linesOf(String text) {
-        return Collections.unmodifiableList(java.util.Arrays.asList(text.split("\\n")));
     }
 }

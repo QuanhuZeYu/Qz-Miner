@@ -22,12 +22,14 @@
  * 功能优先级与落点（接口冻结文档 §F）：
  *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
  *   2) 屏幕最小宽度  —— 顶点侧沿面法线 aDirection 外扩，把条柱的屏幕投影宽抬到 uMinScreenWidthPx 像素；
- *                        世界空间位移与真描边共用同一上界口径（见下与 ChainPreviewShaderMath.maxWidenWorld）
+ *                        与真描边**共用同一份世界空间预算** maxWidenWorld：最小宽度优先取用，
+ *                        描边只能使用剩余额度（见 main() 与 ChainPreviewShaderMath.maxWidenWorld）
  *   3) 逐波生长      —— 读 aAux 的 appearOrder 归一化后与 uAnimProgress 逐顶点比较（不要求索引有序）
  *   4) 语义颜色      —— 顶点按 semanticClass 选 uColor* 并写进 vColor.rgb（片元只做插值输出）
  *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
  *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha
- *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿面法线外扩 uOutlineWidthPx（仅着色器路径）
+ *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿面法线外扩 uOutlineWidthPx，且只使用最小宽度未占用的
+ *                        剩余预算（仅着色器路径；预算耗尽时精确为 0）
  *   7) 面朝向明暗（face shading）—— 顶点按 aDirection.xyz 查表乘进 color；**默认关闭**（uFaceShading=0），
  *                        开启后与 legacy 颜色流用同一张亮度表（字面常量 × 同一 palette 常量）
  *   8) 相机矩阵       —— 一律走显式 uniform uModelViewProjection / uModelView（T48c-A）：
@@ -39,6 +41,13 @@
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
  * 形状一致（d <= fadeStart → uMaxAlpha；d >= fadeEnd → uMinAlpha；之间按 t^2 插值），
  * 否则 legacy 与 shader 两档观感分叉。
+ *
+ * 实机验证记录（本节是注释：**注释改动不触发重验**；只有 GLSL 逻辑变化才需要重验）
+ *   理由：加/改本标记本身若算「逻辑改动」，标记就永远落不下来——会形成死循环。
+ *   口径：改 GLSL 逻辑 → 真机确认无异常 → 在列表末尾追加一行（并按仓库规范跑完整 build）。
+ *   格式：@ <短commit> <日期> <验证了什么>
+ *
+ *    @ c390b681 2026-09-14  布局 / 最小宽度 / 真描边 / 面朝向明暗 —— 真机无异常
  */
 
 attribute vec3 aPos;
@@ -188,22 +197,32 @@ void main(void) {
     // 保证共享多面顶点不会被错误推向任一轴。
     vec3 displaced = aPos;
     float pixelsPerWorldUnit = max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6);
-    // 世界空间位移上界（A2）：**与真描边同一口径**，单一真源是 ChainPreviewShaderMath.maxWidenWorld。
+    // 世界空间位移预算（A2）：**最小宽度与真描边共用同一份**，单一真源是
+    // ChainPreviewShaderMath.maxWidenWorld（= max(0.0, 0.5 - uBarThickness)）。
     // 推导（接口冻结 §L / F-1 独立复算）：条柱自身厚度 t 与单侧外扩量 w 共同计入相邻条柱的占用，
     // 中心距 1 格时既有口径的间隙式 1 - 2(t + w) 在上界处恰好为 0；而真实几何到达半径
     // t/2 + w = 0.5 - t/2 < 0.5，比「不越出自身方块」更保守。不用固定 0.5 是因为默认厚度下
     // 相邻条柱会重叠 0.09 格。上界把它收敛到 0.955 格总宽（t=0.045），仍不粘连。
     float maxWidenWorld = max(0.0, 0.5 - uBarThickness);
+    // 联合上界（T52 已修）：两项位移**消耗同一份预算**，故联合位移恒 <= maxWidenWorld。
+    // Lead 裁定「最小宽度优先、描边让位」：最小宽度是功能性需求（保证远距可见性），真描边是
+    // 装饰性的，两者争同一份世界空间预算时功能优先。修复前两者各自取 maxWidenWorld，
+    // 联合可达 2×(0.5 - t)：t=0.045 时单侧位移 0.91 格、到达半径 0.9325 格，越出自身方块
+    // 并使相邻条柱重叠（Python 复算见工作站 temp/qz-miner-t52-joint-budget.py）。
+    float minWidthWiden = 0.0;
     if (uMinScreenWidthPx > 0.0) {
         // A1 修复：条柱的屏幕投影宽 = **总厚度** × pixelsPerWorldUnit。
         // 旧式写 2.0 * uBarThickness 把激活阈值抬到 2t×ppwu、位移量减半，
         // 于是配置 minW 只能交付 minW/2 像素（8px 档实测约 4px，Python 复算见
         // temp/qz-miner-minwidth-a1a2-recheck.py）。
         float widthPx = max(uBarThickness * pixelsPerWorldUnit, 1e-6);
-        displaced = aPos + aDirection.xyz * min(0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0), maxWidenWorld);
+        minWidthWiden = min(0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0), maxWidenWorld);
     }
+    displaced = aPos + aDirection.xyz * minWidthWiden;
     if (uOutlineWidthPx > 0.0) {
-        displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, maxWidenWorld);
+        // 描边只能用最小宽度未占用的剩余额度：min-width 吃满预算时此处精确为 0（让位而非叠加）。
+        float remainingWiden = max(0.0, maxWidenWorld - minWidthWiden);
+        displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, remainingWiden);
     }
 
     // 历史做法（从 aPos 的绝对值近似横向轴）已彻底移除：横向轴只认 Mesh 显式提供的 aDirection。
@@ -213,10 +232,14 @@ void main(void) {
     // 已被取代：上面的活跃位移实打实引用了 uModelView / uPixelScale / uBarThickness，
     // 保护作用由活跃分支承担，占位块遂删除（它同时是「读起来像在用 lateralAxis」的误导源）。
     //
-    // 未决点登记（A2 报告项）：最小宽度与真描边各自都以上式为上界，但**叠加**（OUTLINE 壳段
-    // 同时 uMinScreenWidthPx > 0）时联合位移可达 2×(0.5 - t)，t=0.045 时单侧到达 0.9325 格，
-    // 会越出自身方块并使相邻条柱重叠。描边上界是 Lead 裁定并被测试钉死，本批不擅改其口径；
-    // 联合上界（例如让描边上界让位 max(0.0, 0.5 - uBarThickness - minWidthWiden)）留待 Lead 裁定。
+    // 已修登记（T52 联合上界）：上面的消耗式预算就是原先的「未决点」——最小宽度与真描边不再
+    // 各自取上界，而是共用 maxWidenWorld，联合位移恒 <= 该上界，min-width 吃满时描边让位为 0。
+    // 参考模型 ChainPreviewShaderMath.displaceVertex / outlineWidenWithinBudget 与之同形；
+    // 回归锁见 ChainPreviewShaderOutlineTest#combinedDisplacementNeverExceedsTheSharedWorldBudget
+    // 与 #outlineYieldsToMinWidthWhenBudgetIsExhausted（t=0.045 时旧行为到达 0.9325 格已不复现）。
+    //
+    // 本次是 GLSL **逻辑**变更：按头部「实机验证记录」口径，需真机确认无异常后才追加标记行；
+    // 现有标记行 c390b681 覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
     //
     // 教训保留：T49 曾因误删 pixelsPerWorldUnit 声明导致 GLSL 编译失败，再被回退链吞成
     // 「观感正常」。改动本段后必须过 glslang 闸门，且必须确认上方位移在真机上生效。

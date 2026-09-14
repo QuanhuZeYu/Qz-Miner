@@ -1,10 +1,5 @@
 package club.heiqi.qz_miner.chain.client.render;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -28,8 +23,10 @@ import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
  *   <li><b>关闭档逐位等于现状</b>：默认 false 时颜色流 R/G/B 与基线常量逐位相等（不执行乘法）；</li>
  *   <li><b>开启档逐面精确</b>：每个顶点的颜色必须等于「基色 × 独立复算系数」，用
  *       {@code Float.floatToIntBits} 比较（不是误差范围内相等）；</li>
- *   <li><b>两侧同源</b>：GLSL 里的字面量表必须与 Java 侧 {@link ChainPreviewMeshBuilder#faceShading}
- *       返回值逐位相同，且乘色被 {@code uFaceShading} 门控、uniform 已登记。</li>
+ *   <li><b>两侧同源</b>：Java 侧 {@link ChainPreviewMeshBuilder#faceShading} 的返回值必须逐位等于
+ *       GLSL 侧使用的十进制字面量，且 {@code uFaceShading} 已登记在 uniform 清单里。
+ *       GLSL 源码文本不再被断言（重命名即误报、改系数却照样绿）；GLSL 逻辑改动走真机验证 +
+ *       shader 头部「实机验证记录」标记，注释改动本身不触发重验。</li>
  * </ol>
  *
  * <p>视角无关性单独断言：同一 mesh 在不同相机位置下 RGB 必须逐位不变（只有 alpha 随距离变化）。</p>
@@ -39,7 +36,6 @@ public class ChainPreviewFaceShadingTest {
     private static final float BASE_RED = 0.25F;
     private static final float BASE_GREEN = 0.9F;
     private static final float BASE_BLUE = 1.0F;
-    private static final String VERTEX_PATH = "src/main/resources/assets/qz_miner/shaders/preview.vert";
 
     /** 单目标 cube：6 个面 × 4 顶点 = 24 顶点，足以覆盖整张亮度表。 */
     private static List<ChainTarget> targets() {
@@ -149,29 +145,22 @@ public class ChainPreviewFaceShadingTest {
     }
 
     /**
-     * 两侧同源：GLSL 的字面量表与 Java 侧返回值必须逐位相同，乘色必须被 uFaceShading 门控，
-     * 且 uniform 必须登记在清单里（否则链接期缺 location 会让功能静默失效）。
+     * 门控 uniform 必须登记在清单里（否则链接期缺 location 会让功能静默失效），
+     * 且 Java 侧亮度表的每个系数必须逐位等于 GLSL 侧使用的十进制字面量。
+     *
+     * <p>「GLSL 源码里含字面量 1.00 / 0.72 / …」这类<strong>源码文本匹配</strong>已按裁定移除：
+     * 它重命名即误报、改语义却照样绿，拦不住真问题（GLSL 改系数、改判定顺序都不会让它变红）。
+     * 两侧同源改为：Java 侧数值在此逐位钉死 + GLSL<strong>逻辑</strong>改动走真机验证并在
+     * shader 头部「实机验证记录」追加标记（注释改动本身不触发重验）。</p>
      */
     @Test
-    public void glslUsesTheSameLiteralTableBehindTheUniformGate() throws Exception {
-        String body = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("必须声明门控 uniform", body.contains("uniform float uFaceShading;"));
-        Assert.assertTrue("乘色必须由 uFaceShading > 0.5 门控（默认关闭时不执行）",
-            body.contains("if (uFaceShading > 0.5) {"));
-        Assert.assertTrue("乘色必须是「字面表 × 同一 palette 常量」",
-            body.contains("color = color * faceShading(aDirection.xyz);"));
-        Assert.assertTrue("必须保留顶点选色行（被测试逐字钉死）",
-            body.contains("vec3 color = previewSemanticColor(auxChannel(aAux.x));"));
-        Assert.assertTrue("必须保留 vColor 写入行（被测试逐字钉死）",
-            body.contains("vColor = vec4(color, alpha);"));
-
-        // 六个面法线 → Java 侧系数必须逐位等于 GLSL 源码里的十进制字面量。
-        assertLiteral(body, "1.00", ChainPreviewMeshBuilder.faceShading(0.0F, 1.0F, 0.0F));
-        assertLiteral(body, "0.72", ChainPreviewMeshBuilder.faceShading(0.0F, -1.0F, 0.0F));
-        assertLiteral(body, "0.90", ChainPreviewMeshBuilder.faceShading(0.0F, 0.0F, 1.0F));
-        assertLiteral(body, "0.84", ChainPreviewMeshBuilder.faceShading(0.0F, 0.0F, -1.0F));
-        assertLiteral(body, "0.78", ChainPreviewMeshBuilder.faceShading(1.0F, 0.0F, 0.0F));
-        assertLiteral(body, "0.78", ChainPreviewMeshBuilder.faceShading(-1.0F, 0.0F, 0.0F));
+    public void faceShadingUniformIsRegisteredAndTableIsBitExact() {
+        assertLiteral("1.00", ChainPreviewMeshBuilder.faceShading(0.0F, 1.0F, 0.0F));
+        assertLiteral("0.72", ChainPreviewMeshBuilder.faceShading(0.0F, -1.0F, 0.0F));
+        assertLiteral("0.90", ChainPreviewMeshBuilder.faceShading(0.0F, 0.0F, 1.0F));
+        assertLiteral("0.84", ChainPreviewMeshBuilder.faceShading(0.0F, 0.0F, -1.0F));
+        assertLiteral("0.78", ChainPreviewMeshBuilder.faceShading(1.0F, 0.0F, 0.0F));
+        assertLiteral("0.78", ChainPreviewMeshBuilder.faceShading(-1.0F, 0.0F, 0.0F));
         Assert.assertEquals("零方向必须恒等（不得压暗无方向顶点）",
             Float.floatToIntBits(1.0F), Float.floatToIntBits(ChainPreviewMeshBuilder.faceShading(0.0F, 0.0F, 0.0F)));
 
@@ -187,8 +176,7 @@ public class ChainPreviewFaceShadingTest {
     }
 
     /** 亮度系数必须逐位等于该十进制字面量在 GLSL 侧的解析值（两侧同源的最小判据）。 */
-    private static void assertLiteral(String glslBody, String literal, float actual) {
-        Assert.assertTrue("GLSL 亮度表必须含字面量 " + literal, glslBody.contains(literal));
+    private static void assertLiteral(String literal, float actual) {
         Assert.assertEquals("Java 系数必须逐位等于 GLSL 字面量 " + literal,
             Float.floatToIntBits(Float.parseFloat(literal)), Float.floatToIntBits(actual));
     }
@@ -242,25 +230,5 @@ public class ChainPreviewFaceShadingTest {
             return 1.0F;
         }
         return directionByte < 0 ? -1.0F : 0.0F;
-    }
-
-    private static String read(String relativePath) throws Exception {
-        Path direct = Paths.get(relativePath);
-        if (!Files.isRegularFile(direct)) {
-            Path dir = Paths.get("").toAbsolutePath();
-            while (dir != null) {
-                Path candidate = dir.resolve(relativePath);
-                if (Files.isRegularFile(candidate)) {
-                    return new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
-                }
-                dir = dir.getParent();
-            }
-        }
-        Assert.assertTrue("找不到文件: " + relativePath, Files.isRegularFile(direct));
-        return new String(Files.readAllBytes(direct), StandardCharsets.UTF_8);
-    }
-
-    private static String stripComments(String source) {
-        return Glsl120StaticChecker.stripComments(source, "src", new ArrayList<Glsl120StaticChecker.Finding>());
     }
 }

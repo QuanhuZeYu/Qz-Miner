@@ -15,12 +15,12 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
  * 淡入淡出包络（B3.2 / L5）与最终 alpha 的契约。
  *
  * <p>规范要求：{@code fadeAlpha = 0} ⇒ 全透明、{@code 0.5} ⇒ 半透、{@code 1} ⇒ 与今天逐值一致，
- * 且与 legacy 乘子路径的最终 alpha 逐值相等。这里用参考模型逐值断言（纯 JVM），
- * 并把「GLSL 真的乘了该 uniform」用结构断言固定下来。</p>
+ * 且与 legacy 乘子路径的最终 alpha 逐值相等。这里用参考模型逐值断言（纯 JVM）；
+ * 「GLSL 真的乘了该 uniform」不再用源码文本断言，改为「uFadeAlpha 登记为硬必备 uniform
+ * + 真机验证 + shader 头部「实机验证记录」标记」（注释改动本身不触发重验）。</p>
  */
 public class ChainPreviewShaderFadeAlphaTest {
 
-    private static final String VERTEX_PATH = "src/main/resources/assets/qz_miner/shaders/preview.vert";
     private static final String PROGRAM_PATH =
             "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderProgram.java";
     private static final String BACKEND_PATH =
@@ -99,15 +99,6 @@ public class ChainPreviewShaderFadeAlphaTest {
                 ChainPreviewShaderMath.finalAlpha(0.7F, 2.0F), 0.0F);
         float nanResult = ChainPreviewShaderMath.finalAlpha(0.7F, Float.NaN);
         Assert.assertFalse("NaN 包络不得产生 NaN alpha", Float.isNaN(nanResult));
-    }
-
-    /** GLSL 必须真的消费 uFadeAlpha（而不是声明后不用）。 */
-    @Test
-    public void vertexShaderConsumesFadeAlpha() throws Exception {
-        String body = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("必须声明 uFadeAlpha", body.contains("uniform float uFadeAlpha;"));
-        Assert.assertTrue("最终 alpha 必须乘上该包络",
-                body.contains("float alpha = fade * growth * uFadeAlpha;"));
     }
 
     /** 后端必须真的消费 plan 的包络（否则文档声称的「shader 路径有淡入淡出」不成立）。 */

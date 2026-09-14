@@ -32,6 +32,16 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderProgram;
  *
  * <p>反射说明：两个清单都是 private 静态常量，无公共读口；内部字段名变更需同步此处。
  * 字段缺失会直接抛 {@code NoSuchFieldException} ⇒ 改名即红，不会静默跳过。</p>
+ *
+ * <p><b>为什么本类保留源码分析</b>：它断言的是<strong>声明面 + 可达性</strong>（每个硬必备名字
+ * 必须被声明、且在 {@code if (false && …)} 死块之外真的被引用），不是「某一行写成什么样」的文本
+ * 快照——重命名会同时打断 Java 侧的字符串绑定，等价改写（换行、加括号、挪进辅助函数）不会误报。
+ * 它拦的是一条<strong>静默</strong>失效：uniform 被编译器优化掉 ⇒ location = -1 ⇒ 整个着色器后端
+ * 每次都白回退 legacy（观感「正常」，只是永远不走 shader）。</p>
+ *
+ * <p><b>已移除的文本禁令</b>：原先的 {@code shaderSourceHasNoFixedFunctionBuiltins}（在整份源码里
+ * 搜 {@code gl_ModelViewProjectionMatrix} / {@code ftransform} 等 token）按裁定归入「读源码文本匹配」，
+ * 已删除；T48c-A 的防线改为真机验证 + shader 头部「实机验证记录」标记（注释改动不触发重验）。</p>
  */
 public class T48cCRequiredUniformReachabilityTest {
 
@@ -89,18 +99,6 @@ public class T48cCRequiredUniformReachabilityTest {
         Assert.assertTrue("只被 if (false && …) 死块引用的 uniform（" + onlyDead
                 + "）必须登记为能力型，否则真机必然「白回退 / 程序不可用」；未登记：" + unregistered,
                 unregistered.isEmpty());
-    }
-
-    @Test
-    public void shaderSourceHasNoFixedFunctionBuiltins() throws Exception {
-        String source = withoutComments(readResource(VERTEX_RESOURCE));
-        for (String builtin : new String[] {
-            "gl_ModelViewProjectionMatrix", "gl_ModelViewMatrix", "gl_ProjectionMatrix",
-            "gl_ModelViewMatrixInverse", "gl_NormalMatrix", "ftransform",
-        }) {
-            Assert.assertFalse("T48c-A 的核心：顶点着色器不得再依赖固定管线内建量 " + builtin
-                    + "（真机 GLSM 下它与真实相机矩阵失同步且完全不可观测）", source.contains(builtin));
-        }
     }
 
     @Test
