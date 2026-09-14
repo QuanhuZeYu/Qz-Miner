@@ -67,7 +67,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     /** 顶点属性显式 stride（字节）：core profile 下不依赖 stride=0 的"紧凑"语义。 */
     private static final int POSITION_STRIDE_BYTES = 3 * 4;
     private static final int AUX_STRIDE_BYTES = 4;
-    private static final int DIRECTION_STRIDE_BYTES = 3 * 4;
+    private static final int DIRECTION_STRIDE_BYTES = ChainPreviewMesh.DIRECTION_BYTES_PER_VERTEX;
 
     private final ChainPreviewShaderProgram program;
 
@@ -114,7 +114,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private FloatBuffer vertexStaging;
     private IntBuffer indexStaging;
     private ByteBuffer auxStaging;
-    private FloatBuffer directionStaging;
+    private ByteBuffer directionStaging;
 
     /** buffer 分配 seam：默认走 LWJGL BufferUtils（native 支撑），测试可注入纯 JVM 实现。 */
     interface BufferAllocator {
@@ -250,7 +250,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         float[] vertices = mesh.vertexArray();
         int[] indices = mesh.indexArray();
         byte[] aux = mesh.isAuxAvailable() ? mesh.auxArray() : null;
-        float[] directions = mesh.isDirectionAvailable() ? mesh.directionArray() : null;
+        byte[] directions = mesh.isDirectionAvailable() ? mesh.directionArray() : null;
         int vertexFloatCount = mesh.getVertexFloatCount();
 
         // plan 的索引语义恒为 mesh 的 quad 索引；shader EBO 在此处按 4→6 展开。
@@ -748,28 +748,40 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * <p>方向流缺失（网格来自未提供方向的路径 / 长度退化）时整段填零：零方向顶点在着色器里
      * 恒等退化（{@code displaced = aPos}），与禁用最小宽度和描边逐值一致，是安全降级。</p>
      */
-    private void uploadDirections(float[] directions, int vertexCount) {
-        int floats = vertexCount * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX;
+    private void uploadDirections(byte[] directions, int vertexCount) {
+        int bytes = vertexCount * ChainPreviewMesh.DIRECTION_BYTES_PER_VERTEX;
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
-        dboCapacity = calculateNewCapacity(floats * 4);
+        dboCapacity = calculateNewCapacity(bytes);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
-        if (directions != null && directions.length >= floats) {
-            directionStaging = prepareFloatBuffer(directionStaging, directions, floats);
+        if (directions != null && directions.length >= bytes) {
+            directionStaging = prepareDirectionBuffer(directionStaging, directions, bytes);
         } else {
-            directionStaging = prepareZeroFloatBuffer(directionStaging, floats);
+            directionStaging = prepareZeroDirectionBuffer(directionStaging, bytes);
         }
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, directionStaging);
     }
 
-    /** 全零 staging（方向流缺失时的降级）；复用同一缓冲，避免每代分配。 */
-    private FloatBuffer prepareZeroFloatBuffer(FloatBuffer buffer, int count) {
+    /** 方向 staging：整段复用，避免每代分配。 */
+    private ByteBuffer prepareDirectionBuffer(ByteBuffer buffer, byte[] source, int count) {
         int required = Math.max(count, 1);
         if (buffer == null || buffer.capacity() < required) {
-            buffer = allocator.floatBuffer(calculateElementCapacity(required));
+            buffer = ByteBuffer.allocate(calculateElementCapacity(required));
+        }
+        buffer.clear();
+        buffer.put(source, 0, count);
+        buffer.flip();
+        return buffer;
+    }
+
+    /** 全零 staging（方向流缺失时的降级）；零方向顶点在着色器里恒等退化。 */
+    private ByteBuffer prepareZeroDirectionBuffer(ByteBuffer buffer, int count) {
+        int required = Math.max(count, 1);
+        if (buffer == null || buffer.capacity() < required) {
+            buffer = ByteBuffer.allocate(calculateElementCapacity(required));
         }
         buffer.clear();
         for (int index = 0; index < count; index++) {
-            buffer.put(0.0F);
+            buffer.put((byte) 0);
         }
         buffer.flip();
         return buffer;
@@ -867,7 +879,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
-        GL20.glVertexAttribPointer(attributeDirection, 3, GL11.GL_FLOAT, false, DIRECTION_STRIDE_BYTES, 0L);
+        GL20.glVertexAttribPointer(attributeDirection, 4, GL11.GL_BYTE, true, DIRECTION_STRIDE_BYTES, 0L);
     }
 
     /** T50：链接后取驱动分配的属性槽位；任一必需属性缺失即置后端不可用（绝不画错误空间的一帧）。 */
@@ -908,11 +920,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(attributeAux);
 
-        // 接口冻结 §A（T51 追加）：aDirection = 3 x float32，每顶点显式面方向；
-        // 多面共享顶点在建网格时合并为零向量（不外扩），避免把共享角点推向任一轴。
+        // 接口冻结 §A（T51）：aDirection = 4 x int8 normalized（xyz 为面法线，w 为对齐保留位）。
+        // 顶点按面分裂后每顶点恰属一个面，方向恒为单位面法线，不存在零方向顶点。
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
-        GL20.glVertexAttribPointer(attributeDirection, 3, GL11.GL_FLOAT, false, DIRECTION_STRIDE_BYTES, 0L);
+        GL20.glVertexAttribPointer(attributeDirection, 4, GL11.GL_BYTE, true, DIRECTION_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(attributeDirection);
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);

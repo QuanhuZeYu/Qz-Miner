@@ -118,7 +118,7 @@ public class ChainPreviewProductionPipelineReproTest {
             + " blocks=" + mesh.getBlockCount() + " verts=" + mesh.getVertexCount()
             + " indices=" + mesh.getIndexCount());
         Assert.assertEquals("同一坐标重复投喂必须只产出 1 根", 1, mesh.getBlockCount());
-        Assert.assertEquals("单根条柱顶点数（既有口径）", 64, mesh.getVertexCount());
+        Assert.assertEquals("单根条柱顶点数（T51 方案 A：每面一顶点）", 168, mesh.getVertexCount());
     }
 
     /** 跑完所有排队任务（让出后重新调度，直到 COMPLETED），返回最新发布网格。 */

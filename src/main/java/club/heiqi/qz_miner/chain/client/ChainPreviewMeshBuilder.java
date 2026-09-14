@@ -49,8 +49,9 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * <p>B4.2 有界容量与峰值：唯一上限仍是 {@link #MAX_RENDER_TARGETS}（= clientPreviewMaxTargetsHardCap 的
  * 默认/夹具上限 4096，不新造第二套上限语义）；超限走既有 truncated 语义（网格 {@code isTruncated()}
  * 与会话 {@link GenerationSession#isOverflowed()} 同时可见），不做静默截断。顶点/索引/aux/可见边均为
- * unique 目标的派生量，由 tests 断言其受 64×块数 / 288×块数 / 4×顶点 / 12×块数 的派生上界约束
- * （即既有单条柱实测包络：64 顶点 / 288 索引 每块，见 {@code ChainPreviewMeshBuilderTest}）。
+ * unique 目标的派生量，由 tests 断言其受 168×块数 / 288×块数 / 4×顶点 / 12×块数 的派生上界约束
+ * （即孤立方块实测包络：168 顶点 / 288 索引 每块，见 {@code ChainPreviewMeshBuilderTest}；
+ * T51 方案 A 顶点按面分裂前为 64 顶点 / 288 索引）。
  * 峰值由 {@link GenerationSession} 在构建线程采样，并经
  * {@link GenerationSession#publishCapacityInto(ChainPreviewScaleCounters)} 交接进既有规模计数器通道。</p>
  */
@@ -107,6 +108,14 @@ public class ChainPreviewMeshBuilder {
         {0.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F},
         {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}
     };
+    /** @return 面法线分量的归一化 byte 编码（±1 -> ±{@link ChainPreviewMesh#DIRECTION_UNIT}，0 -> 0）。 */
+    private static byte directionByte(float component) {
+        if (component > 0.0F) {
+            return ChainPreviewMesh.DIRECTION_UNIT;
+        }
+        return component < 0.0F ? (byte) -ChainPreviewMesh.DIRECTION_UNIT : (byte) 0;
+    }
+
     private static final int[][] TUBE_FACES_BY_AXIS = {
         {0, 1, 2, 3},
         {0, 1, 4, 5},
@@ -493,7 +502,7 @@ public class ChainPreviewMeshBuilder {
             return maxAlpha - (maxAlpha - minAlpha) * squared;
         }
 
-        private static float clampAlpha(float alpha) {
+    private static float clampAlpha(float alpha) {
             return Math.max(0.0F, Math.min(1.0F, alpha));
         }
     }
@@ -1207,11 +1216,20 @@ public class ChainPreviewMeshBuilder {
         private final Map<GridPoint, Integer> incidence = new LinkedHashMap<GridPoint, Integer>();
         private final Map<GridPoint, Integer> junctionAppearOrders = new LinkedHashMap<GridPoint, Integer>();
         private final Map<MeshVertexKey, Integer> vertexIndices = new LinkedHashMap<MeshVertexKey, Integer>();
+        /**
+         * 位置 → 该位置分裂出的全部顶点索引（首次创建顶点时登记）。
+         *
+         * <p>用途单一：构建收尾把 appearOrder / semanticClass 仍按<b>位置</b>取最小值
+         * （见 {@link #normalizeAppearOrderByPosition()}）。几何点是最小 incident 目标这个语义
+         * 必须跨面成立，否则逐波生长时同一物理位置的不同面会在不同时刻出现，条柱表面露缝。</p>
+         */
+        private final Map<MeshVertexKey, IntArrayBuilder> positionVertices =
+            new LinkedHashMap<MeshVertexKey, IntArrayBuilder>();
         private final FloatArrayBuilder vertices = new FloatArrayBuilder();
         private final FloatArrayBuilder colors = new FloatArrayBuilder();
         private final IntArrayBuilder indices = new IntArrayBuilder();
         private final ByteArrayBuilder aux = new ByteArrayBuilder();
-        private final FloatArrayBuilder directions = new FloatArrayBuilder();
+        private final ByteArrayBuilder directions = new ByteArrayBuilder();
 
         private int targetReadCount;
         private int semanticClassFallbackCount;
@@ -1420,6 +1438,10 @@ public class ChainPreviewMeshBuilder {
                 geometryPhase = 3;
             }
 
+            // T51 方案 A 收尾：顶点按面分裂后，appearOrder / semanticClass 仍在位置级取最小值。
+            // 必须早于 aux.exactArray()——后者可能返回副本，之后再改 builder 就落不到 mesh 上。
+            normalizeAppearOrderByPosition();
+
             mesh = new ChainPreviewMesh(
                 vertices.backingArray(),
                 vertices.size(),
@@ -1599,17 +1621,19 @@ public class ChainPreviewMeshBuilder {
             int faceOffset = face * 4;
             float[] normal = FACE_NORMALS[face];
             for (int corner = 0; corner < 4; corner++) {
+                // T51 方案 A：顶点身份 = (位置, 面)；每顶点只属一个面，外扩方向即该面法线。
                 indices.add(vertexIndex(
-                    corners[CUBOID_QUAD_INDICES[faceOffset + corner]], tubeEdge, appearOrder, normal));
+                    corners[CUBOID_QUAD_INDICES[faceOffset + corner]], face, tubeEdge, appearOrder, normal));
             }
         }
 
-        private int vertexIndex(MeshVertexKey key, int tubeEdge, int appearOrder, float[] normal) {
-            Integer existing = vertexIndices.get(key);
+        private int vertexIndex(MeshVertexKey key, int face, int tubeEdge, int appearOrder, float[] normal) {
+            MeshVertexKey vertexKey = key.tiedToFace(face);
+            Integer existing = vertexIndices.get(vertexKey);
             if (existing != null) {
                 int index = existing.intValue();
+                // 方向不再需要合并：顶点身份已含面，同一顶点只会被同一个面写入。
                 mergeAppearOrder(index, appearOrder);
-                mergeDirection(index, normal);
                 return index;
             }
             int index = vertices.size() / 3;
@@ -1620,9 +1644,10 @@ public class ChainPreviewMeshBuilder {
             vertices.add(x);
             vertices.add(y);
             vertices.add(z);
-            directions.add(normal[0]);
-            directions.add(normal[1]);
-            directions.add(normal[2]);
+            directions.add(directionByte(normal[0]));
+            directions.add(directionByte(normal[1]));
+            directions.add(directionByte(normal[2]));
+            directions.add((byte) 0);
             float alpha = visuals.alphaFor(meshOrigin.x + (double) x, meshOrigin.y + (double) y,
                 meshOrigin.z + (double) z);
             colors.add(BASE_RED);
@@ -1634,21 +1659,74 @@ public class ChainPreviewMeshBuilder {
             aux.add((byte) tubeEdge);
             aux.add((byte) (appearOrder & 0xFF));
             aux.add((byte) ((appearOrder >>> 8) & 0xFF));
-            vertexIndices.put(key, Integer.valueOf(index));
+            vertexIndices.put(vertexKey, Integer.valueOf(index));
+            MeshVertexKey positionKey = key.byPosition();
+            IntArrayBuilder siblings = positionVertices.get(positionKey);
+            if (siblings == null) {
+                siblings = new IntArrayBuilder();
+                positionVertices.put(positionKey, siblings);
+            }
+            siblings.add(index);
             return index;
         }
 
-        private void mergeDirection(int vertexIndex, float[] normal) {
-            int offset = vertexIndex * ChainPreviewMesh.DIRECTION_FLOATS_PER_VERTEX;
-            float currentX = directions.get(offset);
-            float currentY = directions.get(offset + 1);
-            float currentZ = directions.get(offset + 2);
-            if ((currentX != normal[0] || currentY != normal[1] || currentZ != normal[2])
-                    && (currentX != 0.0F || currentY != 0.0F || currentZ != 0.0F)) {
-                directions.set(offset, 0.0F);
-                directions.set(offset + 1, 0.0F);
-                directions.set(offset + 2, 0.0F);
+        /**
+         * 构建收尾：把 appearOrder / semanticClass 仍按<b>位置</b>取最小值。
+         *
+         * <p>顶点按面分裂后，同一几何点会有多个顶点（每面一个），而「最小 incident 目标序号」
+         * 是<b>位置</b>的语义不是面的语义。若不做这一步，逐波生长时同一物理位置的不同面
+         * 会在不同时刻出现，条柱表面露缝；几何点归属目标的最小序号也会因面而异。</p>
+         *
+         * <p>两遍 O(n)：先按位置求最小序号，再写回该位置的全部顶点。临时映射在收尾后清空。</p>
+         */
+        private void normalizeAppearOrderByPosition() {
+            if (positionVertices.isEmpty()) {
+                return;
             }
+            Map<MeshVertexKey, Integer> minimumOrder = new LinkedHashMap<MeshVertexKey, Integer>();
+            for (Map.Entry<MeshVertexKey, IntArrayBuilder> entry : positionVertices.entrySet()) {
+                IntArrayBuilder members = entry.getValue();
+                int minimum = Integer.MAX_VALUE;
+                boolean defined = false;
+                for (int slot = 0; slot < members.size(); slot++) {
+                    int order = readAppearOrder(members.get(slot));
+                    if (order == ChainPreviewMesh.APPEAR_ORDER_UNDEFINED) {
+                        continue;
+                    }
+                    defined = true;
+                    if (order < minimum) {
+                        minimum = order;
+                    }
+                }
+                if (defined) {
+                    minimumOrder.put(entry.getKey(), Integer.valueOf(minimum));
+                }
+            }
+            for (Map.Entry<MeshVertexKey, IntArrayBuilder> entry : positionVertices.entrySet()) {
+                Integer minimum = minimumOrder.get(entry.getKey());
+                if (minimum == null) {
+                    continue;
+                }
+                IntArrayBuilder members = entry.getValue();
+                for (int slot = 0; slot < members.size(); slot++) {
+                    writeAppearOrder(members.get(slot), minimum.intValue());
+                }
+            }
+            positionVertices.clear();
+        }
+
+        /** @return 该顶点当前的 appearOrder（小端 u16） */
+        private int readAppearOrder(int vertexIndex) {
+            int offset = vertexIndex * ChainPreviewMesh.AUX_BYTES_PER_VERTEX;
+            return (aux.get(offset + 2) & 0xFF) | ((aux.get(offset + 3) & 0xFF) << 8);
+        }
+
+        /** 写入 appearOrder（semanticClass 与序号同源，必须一起更新）。 */
+        private void writeAppearOrder(int vertexIndex, int appearOrder) {
+            int offset = vertexIndex * ChainPreviewMesh.AUX_BYTES_PER_VERTEX;
+            aux.set(offset, (byte) semanticClassForOrder(appearOrder));
+            aux.set(offset + 2, (byte) (appearOrder & 0xFF));
+            aux.set(offset + 3, (byte) ((appearOrder >>> 8) & 0xFF));
         }
 
         /**
@@ -1980,20 +2058,48 @@ public class ChainPreviewMeshBuilder {
 
     private static final class MeshVertexKey {
 
+        /** 位置键约定：{@code face == POSITION_KEY_FACE} 表示「只按位置」的键（appearOrder 合并用）。 */
+        private static final int POSITION_KEY_FACE = -1;
+
         private final long x;
         private final long y;
         private final long z;
         private final int offsetX;
         private final int offsetY;
         private final int offsetZ;
+        /**
+         * 所属面（0..5）或 {@link #POSITION_KEY_FACE}。
+         *
+         * <p><b>T51 方案 A：顶点按面分裂。</b>条柱几何的每个角点都被 2~3 个面共享，
+         * 若按位置合并顶点，则「每顶点的外扩方向」无法表达——面法线互相冲突，只能归零，
+         * 于是最小屏幕宽度与真描边的横向外扩恒等失效（实测 line(8) 的 176 个顶点方向全零）。
+         * 分裂后每顶点只属一个面，方向即为该面法线。</p>
+         */
+        private final int face;
 
+        /** 位置键构造（角点模板用）：face 取 {@link #POSITION_KEY_FACE}，真正绑面在 appendFace。 */
         private MeshVertexKey(long x, int offsetX, long y, int offsetY, long z, int offsetZ) {
+            this(x, offsetX, y, offsetY, z, offsetZ, POSITION_KEY_FACE);
+        }
+
+        private MeshVertexKey(long x, int offsetX, long y, int offsetY, long z, int offsetZ, int face) {
             this.x = x;
             this.y = y;
             this.z = z;
             this.offsetX = offsetX;
             this.offsetY = offsetY;
             this.offsetZ = offsetZ;
+            this.face = face;
+        }
+
+        /** @return 同一位置、指定面的键（顶点身份） */
+        private MeshVertexKey tiedToFace(int nextFace) {
+            return new MeshVertexKey(x, offsetX, y, offsetY, z, offsetZ, nextFace);
+        }
+
+        /** @return 同一位置的「仅按位置」键（appearOrder / semanticClass 合并用） */
+        private MeshVertexKey byPosition() {
+            return new MeshVertexKey(x, offsetX, y, offsetY, z, offsetZ, POSITION_KEY_FACE);
         }
 
         @Override
@@ -2006,7 +2112,8 @@ public class ChainPreviewMeshBuilder {
             }
             MeshVertexKey that = (MeshVertexKey) other;
             return x == that.x && y == that.y && z == that.z
-                && offsetX == that.offsetX && offsetY == that.offsetY && offsetZ == that.offsetZ;
+                && offsetX == that.offsetX && offsetY == that.offsetY && offsetZ == that.offsetZ
+                && face == that.face;
         }
 
         @Override
@@ -2017,6 +2124,7 @@ public class ChainPreviewMeshBuilder {
             result = 31 * result + offsetX;
             result = 31 * result + offsetY;
             result = 31 * result + offsetZ;
+            result = 31 * result + face;
             return result;
         }
     }
@@ -2166,6 +2274,10 @@ public class ChainPreviewMeshBuilder {
         private void add(int value) {
             ensureCapacity(size + 1);
             values[size++] = value;
+        }
+
+        private int get(int index) {
+            return values[index];
         }
 
         private int size() {

@@ -5,7 +5,7 @@
  *
  * 顶点属性契约（接口冻结文档 §A）：
  *   attribute 0 aPos   3 x float32  相对 meshOrigin 的方块坐标 + 偏移 x barThickness
- *   attribute 3 aDirection 3 x float32  显式面方向；共享多面顶点冲突时为零向量
+ *   attribute 3 aDirection 4 x int8(normalized) 显式面方向（xyz；每组面一个顶点，恒为单位面法线）
  *   attribute 1 aAux   4 x uint8 normalized
  *                        x = semanticClass（0..255，255 = 未定义）
  *                        y = tubeEdge（0..3，255 = 未定义）
@@ -39,7 +39,8 @@
  */
 
 attribute vec3 aPos;
-attribute vec3 aDirection;
+// T51：byte x4 归一化属性（xyz = 面法线，w = 对齐保留位），GL 按 c/127 映射到 [-1, 1]。
+attribute vec4 aDirection;
 attribute vec4 aAux;
 
 // 相机矩阵（T48c-A）：显式 uniform，由 Java 侧每帧从固定管线栈读取、CPU 相乘后上传。
@@ -155,10 +156,10 @@ void main(void) {
     float pixelsPerWorldUnit = max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6);
     if (uMinScreenWidthPx > 0.0) {
         float widthPx = max(2.0 * uBarThickness * pixelsPerWorldUnit, 1e-6);
-        displaced = aPos + aDirection * (0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0));
+        displaced = aPos + aDirection.xyz * (0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0));
     }
     if (uOutlineWidthPx > 0.0) {
-        displaced = displaced + aDirection * min(uOutlineWidthPx / pixelsPerWorldUnit, max(0.0, 0.5 - uBarThickness));
+        displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, max(0.0, 0.5 - uBarThickness));
     }
 
     // 下面的历史分支永久关闭，仅作为契约占位保留：它从 aPos 的绝对值近似横向轴，

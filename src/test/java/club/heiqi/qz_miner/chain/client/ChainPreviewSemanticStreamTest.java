@@ -28,7 +28,7 @@ public class ChainPreviewSemanticStreamTest {
             visuals());
 
         int vertexCount = mesh.getVertexFloatCount() / 3;
-        Assert.assertEquals(3 * 64 * 3, mesh.getVertexFloatCount());
+        Assert.assertEquals(3 * 168 * 3, mesh.getVertexFloatCount());
         Assert.assertTrue(mesh.isAuxAvailable());
         byte[] aux = mesh.getAux();
         Assert.assertNotNull(aux);

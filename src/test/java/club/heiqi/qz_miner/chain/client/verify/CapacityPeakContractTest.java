@@ -44,7 +44,8 @@ public class CapacityPeakContractTest {
                 newestFirst(chronological), null, VISUALS, THICKNESS);
             VerifyMeshReferenceModel.Expectation expectation =
                 VerifyMeshReferenceModel.build(chronological, null, THICKNESS, false);
-            int expectedVertices = expectation.vertices.size();
+            // T51 方案 A：顶点身份 = (位置, 面)，顶点数取分裂键集合大小。
+            int expectedVertices = expectation.splitVertexKeys.size();
             int expectedIndices = expectation.quadCount * 4;
             maxVertices = Math.max(maxVertices, expectedVertices);
             maxIndices = Math.max(maxIndices, expectedIndices);

@@ -172,7 +172,7 @@ public class AuxStreamContractTest {
         // 按 Lead 口径只断言值域与 255 存在；独立模型实测单方块 = {0:4, 1:4, 255:56}。
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(VerifyShapes.single(0, 0, 0), VISUALS);
         int vertexCount = mesh.getVertexFloatCount() / 3;
-        Assert.assertEquals(64, vertexCount);
+        Assert.assertEquals(168, vertexCount);
         byte[] aux = mesh.getAux();
         int undefinedEdges = 0;
         boolean definedEdgeSeen = false;
@@ -194,7 +194,7 @@ public class AuxStreamContractTest {
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
             VerifyFeeds.snapshot(VerifyShapes.scatteredX(300, 3)), VISUALS);
         int vertexCount = mesh.getVertexFloatCount() / 3;
-        Assert.assertEquals(300 * 64, vertexCount);
+        Assert.assertEquals(300 * 168, vertexCount);
         byte[] aux = mesh.getAux();
         // Lead 口径：隔离夹具只断言值域 ⊆ {0,1,2,3,255} 且 255 存在；
         // 独立模型实测 = {0:1200, 1:1200, 255:16800}。
@@ -308,7 +308,7 @@ public class AuxStreamContractTest {
                 expectedOrder,
                 decodeAppearOrder(aux, vertex));
         }
-        Assert.assertEquals("隔离目标必须整块共享同一 order", 64, found);
+        Assert.assertEquals("隔离目标必须整块共享同一 order", 168, found);
         Assert.assertEquals("低字节", expectedOrder & 0xFF, aux[firstVertex * 4 + 2] & 0xFF);
         Assert.assertEquals("高字节", (expectedOrder >>> 8) & 0xFF, aux[firstVertex * 4 + 3] & 0xFF);
     }

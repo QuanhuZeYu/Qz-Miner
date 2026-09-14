@@ -22,8 +22,8 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  *   <li>峰值（顶点 / 索引 / aux / 代级缓存条目）逐项取历史最大值，可 reset，并能交接进既有
  *       {@link ChainPreviewScaleCounters} 通道；</li>
  *   <li>收缩 / 会话结束 / 换代（切维度）/ lifecycle 四条回收路径都释放代级缓存与 mesh 引用；</li>
- *   <li>顶点 / 索引 / aux / 可见边是 unique 目标的派生量，受 64×块数 / 288×块数 / 4×顶点 / 12×块数 的
- *       派生上界约束（即既有单条柱实测包络 {@code ChainPreviewMeshBuilderTest} 的 64 顶点 / 288 索引 每块；
+ *   <li>顶点 / 索引 / aux / 可见边是 unique 目标的派生量，受 168×块数 / 288×块数 / 4×顶点 / 12×块数 的
+ *       派生上界约束（即孤立方块实测包络 168 顶点 / 288 索引 每块；T51 方案 A 前为 64 顶点 / 288 索引，
  *       不引入第二套上限数值）；</li>
  *   <li>容量语义与既有一次性全量入口一致：默认档行为不变。</li>
  * </ol>
@@ -114,7 +114,7 @@ public class ChainPreviewCapacityContractTest {
         Assert.assertTrue(session.getPeakCacheEntryCount() <= 6 * LIMIT);
         Assert.assertTrue(session.getPeakRetainedTargetCount() <= LIMIT + 1);
         Assert.assertTrue(session.getPeakVisibleSegmentCount() <= 12 * LIMIT);
-        Assert.assertTrue(session.getPeakVertexCount() <= 64 * LIMIT);
+        Assert.assertTrue(session.getPeakVertexCount() <= 168 * LIMIT);
         Assert.assertTrue(session.getPeakIndexCount() <= 288 * LIMIT);
         Assert.assertTrue(session.getPeakAuxBytes()
             <= ChainPreviewMesh.AUX_BYTES_PER_VERTEX * session.getPeakVertexCount());
@@ -145,7 +145,7 @@ public class ChainPreviewCapacityContractTest {
         Assert.assertTrue(session.isOverflowed());
         Assert.assertEquals(steadyTotal, session.getPeakCacheEntryCount());
         Assert.assertTrue(session.getPeakRetainedTargetCount() <= LIMIT + 1);
-        Assert.assertTrue(session.getPeakVertexCount() <= 64 * LIMIT);
+        Assert.assertTrue(session.getPeakVertexCount() <= 168 * LIMIT);
     }
 
     /** 有界性（稠密/共享面形态）：可见块数小于保留目标数时，缓存与几何仍按唯一目标上限有界。 */
@@ -161,7 +161,7 @@ public class ChainPreviewCapacityContractTest {
         // 口径提示：mesh.getBlockCount() 是「可见块数」（有可见段的位置），稠密团内部块为 0 段；
         // 容量上界由 getCacheEntryCount() / getGenerationTargetCount()（唯一目标）断言。
         Assert.assertTrue("可见块数不得超过保留目标数", mesh.getBlockCount() <= LIMIT);
-        Assert.assertTrue(mesh.getVertexCount() <= 64 * LIMIT);
+        Assert.assertTrue(mesh.getVertexCount() <= 168 * LIMIT);
         Assert.assertTrue(mesh.getIndexCount() <= 288 * LIMIT);
         Assert.assertTrue(session.getCacheEntryTotal() <= 6 * LIMIT);
         Assert.assertTrue(session.getPeakVisibleSegmentCount() <= 12 * LIMIT);
@@ -375,8 +375,8 @@ public class ChainPreviewCapacityContractTest {
     private static void assertDerivedBounds(
             String label, GenerationSession session, ChainPreviewMesh mesh) {
         int blocks = Math.max(1, mesh.getBlockCount());
-        Assert.assertTrue(label + " 顶点数超过 64×块数: " + mesh.getVertexCount(),
-            mesh.getVertexCount() <= 64 * blocks);
+        Assert.assertTrue(label + " 顶点数超过 168×块数: " + mesh.getVertexCount(),
+            mesh.getVertexCount() <= 168 * blocks);
         Assert.assertTrue(label + " 索引数超过 288×块数: " + mesh.getIndexCount(),
             mesh.getIndexCount() <= 288 * blocks);
         Assert.assertTrue(label + " aux 字节超过 4×顶点: " + mesh.getAuxByteCount(),

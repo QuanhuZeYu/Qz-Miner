@@ -51,6 +51,27 @@ public class TrueIncrementalLocalityContractTest {
         return vertices;
     }
 
+    /**
+     * T51 方案 A 后同一位置存在多个顶点（每面一个）。本用例比较的是<b>几何覆盖</b>，
+     * 因此实际侧先按位置去重，再与参考模型的位置集合（本就去重）比较；两侧口径一致。
+     */
+    private static List<float[]> distinctPositions(List<float[]> vertices) {
+        List<float[]> distinct = new ArrayList<float[]>();
+        for (float[] vertex : vertices) {
+            boolean seen = false;
+            for (float[] kept : distinct) {
+                if (VerifyWorldGeometry.near(kept, vertex, VerifyWorldGeometry.DEFAULT_TOLERANCE)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                distinct.add(vertex);
+            }
+        }
+        return distinct;
+    }
+
     @Test
     public void incrementalVertexDeltaEqualsExpectedNeighborhoodDelta() {
         List<ChainTarget> base = VerifyShapes.plane(3);
@@ -68,8 +89,8 @@ public class TrueIncrementalLocalityContractTest {
             ChainPreviewMesh after = extend(session, extended);
             Assert.assertEquals("追加不得触发重锚", 0, session.getReanchorCount());
 
-            List<float[]> actualBefore = VerifyWorldGeometry.vertices(before);
-            List<float[]> actualAfter = VerifyWorldGeometry.vertices(after);
+            List<float[]> actualBefore = distinctPositions(VerifyWorldGeometry.vertices(before));
+            List<float[]> actualAfter = distinctPositions(VerifyWorldGeometry.vertices(after));
             List<float[]> addedVertices =
                 VerifyWorldGeometry.difference(actualAfter, actualBefore, VerifyWorldGeometry.DEFAULT_TOLERANCE);
             List<float[]> removedVertices =

@@ -2,7 +2,6 @@ package club.heiqi.qz_miner.chain.client.verify;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.TreeMap;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -22,15 +21,20 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * 整面被推离原始几何）。因此本探针只钉两件事：<b>值域</b>（零或六面单位法线）与
  * <b>朝向</b>（非零分量必须真的指向该轴的极值面，写反了立刻红灯）。</p>
  *
- * <p>共享顶点口径：同一条边被多个面引用时，其方向在建网格阶段被合并为<b>零向量</b>
- * （不外扩），保证共享角点不会被推向任一轴；零方向顶点在着色器里恒等退化。</p>
+ * <p>共享顶点口径（T51 方案 A）：顶点身份 = (位置, 面)，每顶点只属一个面，方向即该面单位法线，
+ * 同位置的相邻面各持一个顶点、互不干扰。分裂前「同位置方向冲突即归零」的合并策略会把
+ * <b>全部</b>角点归零（SDF 条柱的每个角点都被 2~3 个面共享），外扩因此恒等失效——方案 A 是
+ * 该语义生效的前置条件。</p>
  */
 public class DirectionStreamContractTest {
 
     private static final VisualParameters VISUALS =
         new VisualParameters(0.5D, 0.5D, 0.5D, 2.0D, 6.0D, 0.8F, 0.2F, 0.045F);
     private static final float EPSILON = 0.001F;
-    private static final int FLOATS_PER_VERTEX = 3;
+    /** float 顶点坐标经叉积后的法线容差。 */
+    private static final double NORMAL_EPSILON = 1.0E-4D;
+    /** 归一化 byte 方向流的字节数/顶点（xyz 面法线 + 对齐保留位）。 */
+    private static final int BYTES_PER_VERTEX = ChainPreviewMesh.DIRECTION_BYTES_PER_VERTEX;
 
     @Test
     public void directionStreamIsBoundToVertexCountAndStaysInValueDomain() {
@@ -45,51 +49,111 @@ public class DirectionStreamContractTest {
             int vertexCount = mesh.getVertexFloatCount() / 3;
             Assert.assertTrue("构建路径必须产出方向流", mesh.isDirectionAvailable());
             Assert.assertNull("方向可用时不得留降级原因", mesh.getDirectionDegradationReason());
-            float[] directions = mesh.getDirections();
+            byte[] directions = mesh.getDirections();
             Assert.assertNotNull(directions);
-            Assert.assertEquals(vertexCount * FLOATS_PER_VERTEX, directions.length);
-            Assert.assertEquals(vertexCount * FLOATS_PER_VERTEX, mesh.getDirectionFloatCount());
+            Assert.assertEquals(vertexCount * BYTES_PER_VERTEX, directions.length);
+            Assert.assertEquals(vertexCount * BYTES_PER_VERTEX, mesh.getDirectionByteCount());
             for (int vertex = 0; vertex < vertexCount; vertex++) {
-                float x = directions[vertex * FLOATS_PER_VERTEX];
-                float y = directions[vertex * FLOATS_PER_VERTEX + 1];
-                float z = directions[vertex * FLOATS_PER_VERTEX + 2];
-                Assert.assertTrue("方向分量必须是有限值", isFinite(x) && isFinite(y) && isFinite(z));
-                float magnitude = Math.abs(x) + Math.abs(y) + Math.abs(z);
-                Assert.assertTrue("方向必须恰好是零向量或某个单位面法线（顶点 " + vertex
-                    + " -> (" + x + "," + y + "," + z + ")）", near(magnitude, 0.0F) || near(magnitude, 1.0F));
+                int encoded = 0;
+                for (int axis = 0; axis < 3; axis++) {
+                    int value = directions[vertex * BYTES_PER_VERTEX + axis];
+                    Assert.assertTrue("方向分量必须恰好是 -127 / 0 / 127（顶点 " + vertex + " 轴 " + axis
+                        + " -> " + value + "）", value == 0 || value == ChainPreviewMesh.DIRECTION_UNIT
+                        || value == -ChainPreviewMesh.DIRECTION_UNIT);
+                    encoded += Math.abs(value);
+                }
+                Assert.assertEquals("归一化 byte 必须恰好对应某个单位面法线（顶点 " + vertex + "）",
+                    ChainPreviewMesh.DIRECTION_UNIT, encoded);
+                Assert.assertEquals("对齐保留位必须为 0（顶点 " + vertex + "）",
+                    0, directions[vertex * BYTES_PER_VERTEX + 3]);
             }
         }
     }
 
     /**
-     * 记录当前缺口：条柱几何的全部角点都是多面共享，方向流因此恒为零，外扩实际未生效。
+     * 方案 A（顶点按面分裂）后方向语义已生效：顶点身份 = (位置, 面)，方向 = 该面单位法线，
+     * 因此不存在「零方向」顶点。
      *
-     * <p>实测：SDF 条柱几何里每个角点都被 2~3 个面共享，因此 {@code mergeDirection} 的
-     * 「不一致即归零」策略把<b>全部</b>顶点都归零（line(8) 直方图 {(0,0,0)=176}），
-     * 外扩恒等失效。方向语义需重新设计（顶点分裂 / 显式横向轴 / 面内独立方向），
-     * 在此之前不得断言朝向——否则等于把未实现的口径写成绿的。</p>
+     * <p>判据取<b>几何自洽</b>而非构建器的面知识：逐 quad 用顶点绕向算外法线（{@code VerifyMeshAudit}
+     * 已独立确认全部 quad 为外向 CCW 闭合体），它必须等于该 quad 四个顶点的方向流值。方向写反、
+     * 同面顶点方向不一致、或顶点跨面共享（一个顶点被两个法线不同的面引用）都会立刻红灯。</p>
      */
     @Test
-    public void allCornersAreSharedSoDirectionStreamIsCurrentlyAllZero() {
-        ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(VerifyShapes.line(8), VISUALS);
-        float[] directions = mesh.getDirections();
-        int vertexCount = mesh.getVertexFloatCount() / 3;
-        int oriented = 0;
-        TreeMap<String, Integer> histogram = new TreeMap<String, Integer>();
-        for (int vertex = 0; vertex < vertexCount; vertex++) {
-            float x = directions[vertex * FLOATS_PER_VERTEX];
-            float y = directions[vertex * FLOATS_PER_VERTEX + 1];
-            float z = directions[vertex * FLOATS_PER_VERTEX + 2];
-            String key = "(" + x + "," + y + "," + z + ")";
-            Integer previous = histogram.get(key);
-            histogram.put(key, Integer.valueOf(previous == null ? 1 : previous.intValue() + 1));
-            if (!near(Math.abs(x) + Math.abs(y) + Math.abs(z), 0.0F)) {
-                oriented++;
+    public void everyQuadNormalMatchesItsVertexDirections() {
+        ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
+        List<List<ChainTarget>> fixtures = new ArrayList<List<ChainTarget>>();
+        fixtures.add(VerifyShapes.line(8));
+        fixtures.add(VerifyShapes.line(64));
+        fixtures.add(VerifyShapes.lShape(64));
+        fixtures.add(VerifyShapes.single(0, 0, 0));
+        fixtures.add(VerifyShapes.plane(9));
+        for (List<ChainTarget> targets : fixtures) {
+            String label = "shape[" + targets.size() + "]";
+            ChainPreviewMesh mesh = builder.build(targets, VISUALS);
+            Assert.assertTrue(label + " 构建路径必须产出方向流", mesh.isDirectionAvailable());
+            float[] vertices = mesh.getVertices();
+            byte[] directions = mesh.getDirections();
+            int[] indices = mesh.getIndices();
+            int vertexCount = mesh.getVertexFloatCount() / 3;
+            Assert.assertEquals(label + " 方向流长度必须与顶点数绑定",
+                vertexCount * BYTES_PER_VERTEX, directions.length);
+            int zeroDirections = 0;
+            for (int vertex = 0; vertex < vertexCount; vertex++) {
+                if (magnitude(directions, vertex) == 0) {
+                    zeroDirections++;
+                }
+            }
+            Assert.assertEquals(label + " 方案 A 下每顶点恰属一个面，不得出现零方向顶点", 0, zeroDirections);
+            for (int offset = 0; offset + 3 < indices.length; offset += 4) {
+                int[] quad = {indices[offset], indices[offset + 1], indices[offset + 2], indices[offset + 3]};
+                String quadLabel = label + " quad " + (offset / 4);
+                for (int corner = 1; corner < 4; corner++) {
+                    for (int axis = 0; axis < 3; axis++) {
+                        Assert.assertEquals(quadLabel + " 四个顶点必须同面同向（轴 " + axis + "）",
+                            directions[quad[0] * BYTES_PER_VERTEX + axis],
+                            directions[quad[corner] * BYTES_PER_VERTEX + axis]);
+                    }
+                }
+                double[] normal = outwardNormal(vertices, quad[0], quad[1], quad[2]);
+                Assert.assertTrue(quadLabel + " 不得退化", normal != null);
+                Assert.assertEquals(quadLabel + " 外法线必须等于方向流 X",
+                    normal[0], decodeDirection(directions, quad[0], 0), NORMAL_EPSILON);
+                Assert.assertEquals(quadLabel + " 外法线必须等于方向流 Y",
+                    normal[1], decodeDirection(directions, quad[0], 1), NORMAL_EPSILON);
+                Assert.assertEquals(quadLabel + " 外法线必须等于方向流 Z",
+                    normal[2], decodeDirection(directions, quad[0], 2), NORMAL_EPSILON);
             }
         }
-        Assert.assertEquals("方向语义已改变（出现非零方向顶点）——请删除本用例并补朝向断言；直方图=" + histogram,
-                0, oriented);
-        Assert.assertTrue("方向流必须与顶点数绑定；直方图=" + histogram, histogram.containsKey("(0.0,0.0,0.0)"));
+    }
+
+    /** @return 由 CCW 绕向得到的外法线（单位向量）；退化时返回 {@code null}。 */
+    private static double[] outwardNormal(float[] vertices, int first, int second, int third) {
+        double abX = vertices[second * 3] - vertices[first * 3];
+        double abY = vertices[second * 3 + 1] - vertices[first * 3 + 1];
+        double abZ = vertices[second * 3 + 2] - vertices[first * 3 + 2];
+        double acX = vertices[third * 3] - vertices[first * 3];
+        double acY = vertices[third * 3 + 1] - vertices[first * 3 + 1];
+        double acZ = vertices[third * 3 + 2] - vertices[first * 3 + 2];
+        double x = abY * acZ - abZ * acY;
+        double y = abZ * acX - abX * acZ;
+        double z = abX * acY - abY * acX;
+        double length = Math.sqrt(x * x + y * y + z * z);
+        if (length <= 1.0E-9D) {
+            return null;
+        }
+        return new double[] {x / length, y / length, z / length};
+    }
+
+    /** @return 该顶点方向编码的 L1 幅值（单位面法线恰为 {@link ChainPreviewMesh#DIRECTION_UNIT}）。 */
+    private static int magnitude(byte[] directions, int vertex) {
+        return Math.abs(directions[vertex * BYTES_PER_VERTEX])
+            + Math.abs(directions[vertex * BYTES_PER_VERTEX + 1])
+            + Math.abs(directions[vertex * BYTES_PER_VERTEX + 2]);
+    }
+
+    /** @return 归一化 byte 的解码值（-127/0/127 -> -1.0/0.0/1.0，均为精确值）。 */
+    private static double decodeDirection(byte[] directions, int vertex, int axis) {
+        return directions[vertex * BYTES_PER_VERTEX + axis] / (double) ChainPreviewMesh.DIRECTION_UNIT;
     }
 
     /** 同输入重建必须逐字节一致（方向流参与确定性契约）。 */
@@ -98,7 +162,7 @@ public class DirectionStreamContractTest {
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         ChainPreviewMesh first = builder.build(VerifyShapes.line(64), VISUALS);
         ChainPreviewMesh second = builder.build(VerifyShapes.line(64), VISUALS);
-        Assert.assertArrayEquals("方向流必须逐字节可复现", first.getDirections(), second.getDirections(), 0.0F);
+        Assert.assertArrayEquals("方向流必须逐字节可复现", first.getDirections(), second.getDirections());
         Assert.assertArrayEquals(first.getVertices(), second.getVertices(), 0.0F);
     }
 
@@ -119,7 +183,7 @@ public class DirectionStreamContractTest {
         ChainPreviewMesh incremental = session.getMesh();
         Assert.assertTrue("增量路径必须同样产出方向流", incremental.isDirectionAvailable());
         Assert.assertArrayEquals("增量与全量方向流必须逐字节一致",
-            full.getDirections(), incremental.getDirections(), 0.0F);
+            full.getDirections(), incremental.getDirections());
     }
 
     /** 长度不符必须降级且可观察（与 aAux 同口径），不得半信半疑地当有效流用。 */
@@ -132,10 +196,10 @@ public class DirectionStreamContractTest {
             1,
             new byte[] {1, 2, 3, 4},
             0,
-            new float[] {0.0F, 1.0F});
+            new byte[] {0, 1});
         Assert.assertFalse("长度不符不得被当作有效方向流", malformed.isDirectionAvailable());
         Assert.assertNull(malformed.getDirections());
-        Assert.assertEquals(0, malformed.getDirectionFloatCount());
+        Assert.assertEquals(0, malformed.getDirectionByteCount());
         Assert.assertNotNull("降级原因必须可读", malformed.getDirectionDegradationReason());
     }
 

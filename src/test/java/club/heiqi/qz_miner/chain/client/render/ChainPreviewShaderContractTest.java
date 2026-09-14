@@ -63,7 +63,7 @@ public class ChainPreviewShaderContractTest {
     // ------------------------------------------------------------------ 接口冻结 §A/§F
 
     /**
-     * 顶点属性契约（接口冻结 §A 修订，T51）：声明 aPos(3f) / aAux(4 通道) / aDirection(3f)。
+     * 顶点属性契约（接口冻结 §A 修订，T51）：声明 aPos(3f) / aAux(4 通道) / aDirection(4 x int8 normalized)。
      *
      * <p>原 §A 还包含「attribute 2 aColor 4 x float32（既有颜色流）」，但着色器从不读取它
      * （颜色由 aAux.semanticClass + uColor* 在顶点阶段决定），编译器因此把它整体优化掉
@@ -72,8 +72,12 @@ public class ChainPreviewShaderContractTest {
      * 该流仅剩 legacy 固定管线消费（其逐顶点 α 是 CPU 烘焙值）。</p>
      *
      * <p>新增的 {@code aDirection} 是「屏幕最小宽度 / 真描边」所需的外扩轴向：Mesh 侧按面法线
-     * 逐顶点写入，多面共享顶点合并为零向量。着色器永不从 aPos 推断横向轴——那条路会把长条端点 /
-     * junction / 跨轴线段误判并推离原始几何。</p>
+     * 逐顶点写入。T51 方案 A 起顶点身份 = (位置, 面)，每顶点恰属一个面、方向恒为单位面法线，
+     * 因此不存在零方向顶点；着色器永不从 aPos 推断横向轴——那条路会把长条端点 / junction /
+     * 跨轴线段误判并推离原始几何。</p>
+     *
+     * <p>编码用 {@code 4 x int8} 而非 {@code 3 x float32}：方向只有 6 种取值，归一化 byte 的
+     * {@code 127/127 = 1.0} 仍是精确值；4096 目标规模下省 8.25 MB/mesh 的顶点流。</p>
      *
      * <p>槽位编号一律不进入契约：GLSL 1.20 无 layout 限定符，属链接期事实，由
      * ChainPreviewShaderProgram#resolveAttributeLocations 运行时解析。</p>
@@ -87,7 +91,7 @@ public class ChainPreviewShaderContractTest {
         Assert.assertEquals("必须恰好声明 §A 约定的三个属性", 3, attributes.size());
         Assert.assertEquals("vec3", attributes.get("aPos"));
         Assert.assertEquals("vec4", attributes.get("aAux"));
-        Assert.assertEquals("vec3", attributes.get("aDirection"));
+        Assert.assertEquals("vec4", attributes.get("aDirection"));
         Assert.assertNull("aColor 已从 shader 路径移除（§A 修订 T51）", attributes.get("aColor"));
     }
 
