@@ -8,7 +8,7 @@ import club.heiqi.uilib.ui.scene.image.SceneImageSource;
 /**
  * 展示适配器（无状态、无缓存）：标签直读面板数据，图标经 {@link PickerIconSource} 按候选域 key 解析。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.7 D-6、§5.5、A6/A8；ADR §9.3
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.7 D-6、§5.5、A6/A8；ADR §9.3
  * （原 {@code BlockPickerVisualAdapterTest} 的「快照语义」断言迁到图标源 / UILib 缓存层）。</p>
  *
  * <p><b>删除了什么</b>：无界 {@code HashMap} 图标缓存（D-6，改由 UILib 有界 {@code PickerIconCache} 承担）

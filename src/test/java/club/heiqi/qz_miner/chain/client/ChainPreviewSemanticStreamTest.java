@@ -15,7 +15,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * 接口冻结 §A：aAux 字节布局、u16 小端序、appearOrder 最小值语义与降级可观测性。
+ * 顶点属性契约（真源：preview.vert 头部属性段）：aAux 字节布局、u16 小端序、appearOrder 最小值语义与降级可观测性。
  *
  * <p>主夹具为生产主场景「相邻链」；隔离方块只作补充夹具。</p>
  */

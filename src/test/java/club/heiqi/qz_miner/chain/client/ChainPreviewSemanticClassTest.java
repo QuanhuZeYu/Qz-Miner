@@ -6,7 +6,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 
-/** B2.3 a：语义类别 id（接口冻结 §D，本轮按大模式重排）与本地类别判定的契约。 */
+/** B2.3 a：语义类别 id（语义类别表（真源：ChainPreviewSemanticClass），本轮按大模式重排）与本地类别判定的契约。 */
 public class ChainPreviewSemanticClassTest {
 
     @Test

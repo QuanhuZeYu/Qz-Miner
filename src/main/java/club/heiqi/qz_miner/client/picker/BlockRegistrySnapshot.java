@@ -16,8 +16,8 @@ import club.heiqi.qz_miner.MyMod;
 /**
  * 候选清单快照：<b>只读注册名清单 + Block 引用 + modId 前缀统计</b>，不做任何变体物化。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.7 D-9（{@code BlockVariantEnumerator.enumerate()}
- * 的替代者之一）；{@code team/P2-Miner-Provider-改造设计.md} §2.1/§M1。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.7 D-9（{@code BlockVariantEnumerator.enumerate()}
+ * 的替代者之一）；（改造设计原稿在工作站、不在仓内）。</p>
  *
  * <p><b>为什么独立于变体物化</b>：真正昂贵的是 {@code block.getSubBlocks(...)}（每方块一次多方块 API）、
  * 逐变体 {@code getDisplayName()} 与创造栏捕获；清单只需要 {@code Block.blockRegistry.getNameForObject}，

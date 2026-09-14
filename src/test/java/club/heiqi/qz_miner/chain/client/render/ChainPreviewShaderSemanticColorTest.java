@@ -6,7 +6,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass;
 
 /**
- * 语义类别取色的行为契约（task-16c，接口冻结 §D；本轮按大模式重排值域与调色板槽位）。
+ * 语义类别取色的行为契约（task-16c，语义类别表（真源：ChainPreviewSemanticClass）；本轮按大模式重排值域与调色板槽位）。
  *
  * <p>取色链路共四段，逐段可证伪：</p>
  * <ol>
@@ -52,7 +52,7 @@ public class ChainPreviewShaderSemanticColorTest {
 
     // ------------------------------------------------------------------ 段 2：类别 → 槽位
 
-    /** §D 类别表逐条映射（0/1/2→三大模式、3→扩展子模式、4→远端、5→截断，6/7/255→CHAIN 兜底）。 */
+    /** 语义类别表（真源：ChainPreviewSemanticClass）逐条映射（0/1/2→三大模式、3→扩展子模式、4→远端、5→截断，6/7/255→CHAIN 兜底）。 */
     @Test
     public void paletteIndexFollowsFrozenCategoryTable() {
         Assert.assertEquals("0 CHAIN_LOCAL → CHAIN 色", ChainPreviewShaderMath.PALETTE_CHAIN,

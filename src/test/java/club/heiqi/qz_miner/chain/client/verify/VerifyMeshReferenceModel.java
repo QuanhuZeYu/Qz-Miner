@@ -31,9 +31,9 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  */
 public final class VerifyMeshReferenceModel {
 
-    /** 顶点种别：semanticClass 兜底值（接口冻结 §D）。 */
+    /** 顶点种别：semanticClass 兜底值（语义类别表（真源：ChainPreviewSemanticClass））。 */
     public static final int UNDEFINED = 255;
-    /** appearOrder 未定义值（接口冻结 §D）。 */
+    /** appearOrder 未定义值（语义类别表（真源：ChainPreviewSemanticClass））。 */
     public static final int APPEAR_ORDER_UNDEFINED = 0xFFFF;
     public static final int MAX_RENDER_TARGETS = 4096;
     public static final int AUX_BYTES_PER_VERTEX = 4;
@@ -109,7 +109,7 @@ public final class VerifyMeshReferenceModel {
         }
     }
 
-    /** 独立归一化：0..5 与 255 合法，其余一律 UNDEFINED（与接口冻结 §D 同口径）。 */
+    /** 独立归一化：0..5 与 255 合法，其余一律 UNDEFINED（与语义类别表（真源：ChainPreviewSemanticClass） 同口径）。 */
     public static int normalizeSemanticClass(int value) {
         return (value >= 0 && value <= 5) || value == UNDEFINED ? value : UNDEFINED;
     }

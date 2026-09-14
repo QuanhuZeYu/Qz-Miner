@@ -31,7 +31,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
 
     static final long EFFECT_REFRESH_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(1L);
 
-    /** B1.3 signal 档的 fadeMode 稳定 id（接口冻结 §E）。 */
+    /** B1.3 signal 档的 fadeMode 稳定 id（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     static final String SIGNAL_FADE_MODE_ID = "signal";
 
     interface TaskScheduler {
@@ -191,7 +191,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             latestCameraX = cameraX;
             latestCameraY = cameraY;
             latestCameraZ = cameraZ;
-            // 后端档位热切换必须「下一帧生效」（接口冻结 §G）：每帧只做一次枚举引用比较（零分配），
+            // 后端档位热切换必须「下一帧生效」（后端热切换语义（下一帧生效））：每帧只做一次枚举引用比较（零分配），
             // 引用变化才重建不可变快照。
             PreviewRenderBackend configuredBackend = Config.clientPreviewRenderBackend;
             if (configuredBackend != lastConfiguredBackend) {

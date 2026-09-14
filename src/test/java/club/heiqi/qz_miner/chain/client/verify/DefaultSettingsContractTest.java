@@ -16,7 +16,7 @@ import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 
 /**
- * T7 默认档与回退组合独立契约探针（接口冻结 §E/§H + Lead 裁定 3）。
+ * T7 默认档与回退组合独立契约探针（配置键位与默认值（真源：QzMinerConfigDefaults）/读取面单通道（真源：ChainPreviewVisualSettings） + Lead 裁定 3）。
  *
  * <p>Lead 裁定：默认值不得超前于实现（animation=off、minScreenWidthPx=0.0、fadeMode=timer、
  * truncationSignal=false、versionedInputs=false）。回退到今天的五开关组合与默认映射必须一致；
@@ -171,7 +171,7 @@ public class DefaultSettingsContractTest {
             Assert.assertEquals("builtin", settings.getColorSourceId());
             Assert.assertEquals("off", settings.getLodId());
             Assert.assertEquals(0.045F, settings.getBarThickness(), 0.0000001F);
-            // Lead 裁定：NaN 兜底必须与 §E 新默认及 draw plan sanitized 一致，均为 0.0（原本为旧默认 1.0）。
+            // Lead 裁定：NaN 兜底必须与 配置键位与默认值（真源：QzMinerConfigDefaults） 新默认及 draw plan sanitized 一致，均为 0.0（原本为旧默认 1.0）。
             Assert.assertEquals(
                 "NaN → minScreenWidthPx 兜底必须为 0.0（与 draw plan sanitized 一致）",
                 0.0F,

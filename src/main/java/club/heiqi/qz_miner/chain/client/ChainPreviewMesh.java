@@ -37,7 +37,7 @@ public class ChainPreviewMesh {
 
     /**
      * aAux 中「未定义」的 8 位值（semanticClass / tubeEdge）；类别 id 的冻结源为
-     * {@link ChainPreviewSemanticClass}（接口冻结 §D）。
+     * {@link ChainPreviewSemanticClass}（语义类别表（真源：ChainPreviewSemanticClass））。
      */
     public static final int AUX_UNDEFINED = 255;
 

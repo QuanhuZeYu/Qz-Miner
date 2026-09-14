@@ -16,7 +16,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * T7 语义顶点流 aAux 独立契约探针（接口冻结 §A + Lead 裁定）。
+ * T7 语义顶点流 aAux 独立契约探针（顶点属性契约（真源：preview.vert 头部属性段） + Lead 裁定）。
  *
  * <p>裁定口径：appearOrder = 顶点全部 incident 目标序号的最小值（顶点序 != 序号序）；
  * 夹具以相邻链为主、隔离方块作补充；tubeEdge 只在 tube 相新建顶点上定义，junction 相恒 255；

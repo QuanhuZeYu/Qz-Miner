@@ -8,8 +8,8 @@ import net.minecraft.block.Block;
 /**
  * 变体分片缓存：<b>单 registry 粒度、有界 LRU</b>，缓存 {@link BlockCandidate}（含变体与名称快照）。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §2.5（「变体格分片缓存」上限 LRU 1024 registry、
- * {@code registry} 代际全清、{@code release()} 释放）；{@code team/P2-Miner-Provider-改造设计.md} §2.2/§M2。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §2.5（「变体格分片缓存」上限 LRU 1024 registry、
+ * {@code registry} 代际全清、{@code release()} 释放）；（改造设计原稿在工作站、不在仓内）。</p>
  *
  * <p><b>粒度 = 单个 registry</b>（一个方块的全部 meta 变体，ADR A4）：与缓存键天然对齐，
  * 窗口内核不感知粒度，只消费 {@code page(offset, limit)}；单页物化量因此与 {@code limit} 成正比、

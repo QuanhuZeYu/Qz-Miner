@@ -26,7 +26,7 @@ public final class ChainPreviewFadeController {
         RETIRING
     }
 
-    /** 单次淡入 / 淡出时长硬上限（毫秒），与 §E animationDurationMs 上限同源。 */
+    /** 单次淡入 / 淡出时长硬上限（毫秒），与 配置键位与默认值（真源：QzMinerConfigDefaults） animationDurationMs 上限同源。 */
     public static final int MAX_FADE_MS = 2000;
 
     private static final String MODE_FLOW = "flow";

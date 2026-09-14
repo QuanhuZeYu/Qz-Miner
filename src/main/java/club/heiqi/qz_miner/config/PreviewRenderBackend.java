@@ -19,7 +19,7 @@ public enum PreviewRenderBackend {
     /** 恒定固定管线后端（回退到今天的渲染路径）。 */
     LEGACY("legacy");
 
-    /** 本轮目标默认（接口冻结 §E）。 */
+    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final PreviewRenderBackend DEFAULT_VALUE = AUTO;
 
     private final String id;

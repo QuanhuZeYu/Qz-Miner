@@ -45,7 +45,7 @@ public class ChainPreviewState {
      * 跨代重置：新代开始时类别上下文与类别数组随目标链一同重建，不累积。</p>
      *
      * @param origin 预览原点
-     * @param semanticClass 本代类别（§D 冻结 id；非法值归 UNDEFINED）
+     * @param semanticClass 本代类别（语义类别表冻结 id；非法值归 UNDEFINED）
      * @return 新代编号
      */
     public int begin(ChainTarget origin, int semanticClass) {
@@ -175,7 +175,7 @@ public class ChainPreviewState {
      * 代内切换语义类别：只影响此后新增的目标，已记录目标类别不变；跨代由 {@link #begin} 重置。
      *
      * @param expectedGeneration 上报者持有的代
-     * @param semanticClass 新类别（§D 冻结 id；非法值归 UNDEFINED）
+     * @param semanticClass 新类别（语义类别表冻结 id；非法值归 UNDEFINED）
      * @return 是否被本代接受
      */
     public boolean setSemanticClass(int expectedGeneration, int semanticClass) {
@@ -397,7 +397,7 @@ public class ChainPreviewState {
          * <p>索引 i 对应第 i 个迭代目标（最新 target → 最早 target）；长度恒等于
          * {@link #getTargetCount()}。返回防御性拷贝，调用方可安全持有。</p>
          *
-         * @return §D 冻结的类别 id 数组
+         * @return 语义类别表冻结的类别 id 数组
          */
         public int[] getSemanticClasses() {
             return semanticClasses.clone();

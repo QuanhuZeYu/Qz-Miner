@@ -8,7 +8,7 @@ import club.heiqi.uilib.ui.scene.image.SceneImageSource;
 /**
  * 方块选择器图标源（纯函数，无缓存、无状态）：候选域 key → 可渲染物品图标。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.2(A6/A8)/§5.1/§5.5；
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.2(A6/A8)/§5.1/§5.5；
  * UILib {@code PickerIconSource} javadoc。要点：</p>
  * <ul>
  *   <li><b>入口是候选域 key</b>（不要求先物化 Candidate/Variant）：候选级用代表变体栈，

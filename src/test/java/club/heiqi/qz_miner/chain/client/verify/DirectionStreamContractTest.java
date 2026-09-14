@@ -14,7 +14,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * 外扩方向流 aDirection 独立契约探针（接口冻结 §A 修订 T51）。
+ * 外扩方向流 aDirection 独立契约探针（顶点属性契约修订 T51）。
  *
  * <p>这条流只服务两件事：屏幕最小宽度与真描边的<b>横向外扩</b>。它必须是「每顶点的显式面方向」——
  * 着色器绝不允许从 {@code aPos} 的绝对值猜横向轴（长条端点 / junction / 跨轴线段会被误判，

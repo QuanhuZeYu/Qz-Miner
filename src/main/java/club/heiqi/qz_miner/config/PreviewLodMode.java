@@ -16,7 +16,7 @@ public enum PreviewLodMode {
     /** 按距离合并与 clientPreviewLodMinAlpha 剔除。 */
     AUTO("auto");
 
-    /** 本轮目标默认（接口冻结 §E）。 */
+    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final PreviewLodMode DEFAULT_VALUE = OFF;
 
     private final String id;

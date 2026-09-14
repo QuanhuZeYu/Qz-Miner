@@ -42,7 +42,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * 超距合并/外壳档位（拓扑改写）未实现，下一批评估。</p>
  *
  * semanticClass 由构建入口的类别载体按目标出现序号提供（id 冻结源 {@link ChainPreviewSemanticClass}，
- * 即接口冻结 §D 的 0..5 或 255 UNDEFINED），去重后与 appearOrder 同源、取最小 incident 目标；
+ * 即语义类别表（真源：ChainPreviewSemanticClass） 的 0..5 或 255 UNDEFINED），去重后与 appearOrder 同源、取最小 incident 目标；
  * 载体缺失/越界/非法值一律按 255 兜底并计数，见
  * {@link BuildSession#getSemanticClassFallbackCount()} 与 {@link #getSemanticClassFallbackTotal()}。</p>
  *
@@ -307,7 +307,7 @@ public class ChainPreviewMeshBuilder {
      *
      * <p>semanticClasses 与 previewTargets 的**喂入顺序**严格同序：索引 i 即第 i 个喂入目标
      * （{@code RenderSnapshot.getTargets()} 为最新→最早）。装配时目标与类别数组一起翻转为
-     * 时间序，因此类别始终跟随其目标，不因方向统一而错位。取值见接口冻结 §D：
+     * 时间序，因此类别始终跟随其目标，不因方向统一而错位。取值见语义类别表（真源：ChainPreviewSemanticClass）：
      * 0 CHAIN_LOCAL / 1 AREA_LOCAL / 2 INTERACT_LOCAL / 3 SUB_MODE_LOCAL / 4 REMOTE_PREDICTED /
      * 5 TRUNCATED / 6 DEFERRED / 7 EXECUTED / 255 UNDEFINED。传 null 表示未提供类别（全部按 255，不计降级）；数组短于
      * 目标数或元素非法时仅对应目标按 255 兜底并计数，前面的类别绝不错位。</p>
@@ -1761,7 +1761,7 @@ public class ChainPreviewMeshBuilder {
             colors.add(BASE_GREEN * shade);
             colors.add(BASE_BLUE * shade);
             colors.add(alpha);
-            // 接口冻结 §A/§D：semanticClass 与 appearOrder 同源（最小 incident 目标）。
+            // 顶点属性契约（真源：preview.vert 头部属性段）/语义类别表（真源：ChainPreviewSemanticClass）：semanticClass 与 appearOrder 同源（最小 incident 目标）。
             aux.add((byte) semanticClassForOrder(appearOrder));
             aux.add((byte) tubeEdge);
             aux.add((byte) (appearOrder & 0xFF));

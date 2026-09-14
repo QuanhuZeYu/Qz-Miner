@@ -14,8 +14,8 @@ import net.minecraft.block.Block;
  * 注册表代际接入点：把「客户端 Block registry 可能变化」的三条已知来源收敛为
  * <b>O(1) 标脏</b>（不重建）。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §2.1 #4（1.7.10 无注册表变更事件，故需新建）
- * /§2.4（标脏 + 首窗重建）；{@code team/P2-Miner-Provider-改造设计.md} §2.3 registryRevision 三来源。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §2.1 #4（1.7.10 无注册表变更事件，故需新建）
+ * /§2.4（标脏 + 首窗重建）；（改造设计原稿在工作站、不在仓内） registryRevision 三来源。</p>
  *
  * <ul>
  *   <li>{@link FMLLoadCompleteEvent}：模组加载完成（首次建快照的实际触发点是首个真实读取）；</li>

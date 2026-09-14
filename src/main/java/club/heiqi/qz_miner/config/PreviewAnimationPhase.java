@@ -16,7 +16,7 @@ public enum PreviewAnimationPhase {
     /** 相位来自坐标 + 代次的稳定哈希。 */
     HASH("hash");
 
-    /** 本轮目标默认（接口冻结 §E）。 */
+    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final PreviewAnimationPhase DEFAULT_VALUE = ORDER;
 
     private final String id;

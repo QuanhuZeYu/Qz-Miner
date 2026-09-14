@@ -19,8 +19,8 @@ import club.heiqi.qz_miner.MyMod;
 /**
  * 单 registry 候选物化器（无状态、无缓存）：{@code getSubBlocks} + 变体名称 + 创造栏标签。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.7 D-9（{@code BlockVariantEnumerator.enumerateBlock}
- * 方法体原样搬入分片层）；{@code team/P2-Miner-Provider-改造设计.md} §M2。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.7 D-9（{@code BlockVariantEnumerator.enumerateBlock}
+ * 方法体原样搬入分片层）；（改造设计原稿在工作站、不在仓内）。</p>
  *
  * <p><b>为什么单独成类</b>：缓存与物化解耦——{@link BlockVariantShardCache} 负责「何时物化、物化几次、
  * 何时淘汰」，本类负责「一个方块怎么物化」，因此三件昂贵动作（{@code getSubBlocks} / 逐变体

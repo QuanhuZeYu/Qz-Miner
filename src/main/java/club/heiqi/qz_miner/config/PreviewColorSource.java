@@ -16,7 +16,7 @@ public enum PreviewColorSource {
     /** 使用 clientPreviewColor* 四个 RGB 键的语义配色。 */
     CONFIG("config");
 
-    /** 本轮目标默认（接口冻结 §E）。 */
+    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final PreviewColorSource DEFAULT_VALUE = BUILTIN;
 
     private final String id;

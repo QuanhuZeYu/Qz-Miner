@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.client.render;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 
 /**
- * 连锁预览渲染后端契约（接口冻结 §C）。
+ * 连锁预览渲染后端契约（预览渲染后端契约（真源：ChainPreviewRenderBackend））。
  *
  * <p>线程契约：{@link #ensureReady()}、{@link #dispose()} 只在渲染线程调用；
  * GPU 释放必须回到渲染线程。</p>

@@ -24,7 +24,7 @@ import club.heiqi.qz_miner.testsupport.GlslSourceScanner;
  *       （#version 120 首行、括号配平、句法终结、内建参数个数、内建变量表、属性类型、固定管线内建禁令）；</li>
  *   <li><b>校验器自身有效</b>：把带错误的最小源码喂给校验器，必须被逐条检出——否则第 1 类断言
  *       只是「永远通过的空壳」；</li>
- *   <li><b>接口冻结 §A/§F 的形状</b>：{@link GlslSourceScanner} 解析出的<b>声明面</b>
+ *   <li><b>顶点属性契约（真源：preview.vert 头部属性段）/功能优先级与落点（真源：preview.vert 头部落点表） 的形状</b>：{@link GlslSourceScanner} 解析出的<b>声明面</b>
  *       （属性/varying/uniform/函数的名字与类型：属性三元组、varying 一致性、调色板 uniform 只在
  *       顶点阶段声明、uniform 清单对账）。</li>
  * </ol>
@@ -33,7 +33,7 @@ import club.heiqi.qz_miner.testsupport.GlslSourceScanner;
  * 找语句或表达式）：那种断言重命名变量即误报、改系数/改语义却照样绿，拦不住真问题。GLSL 侧改动的
  * 口径改为「真机验证 + 在 shader 头部「实机验证记录」追加一行标记」，且<strong>注释改动本身不触发
  * 重验</strong>（否则加标记会形成死循环）。声明面解析保留：属性/uniform 名字是 Java 侧按字符串
- * 解析的运行时接口（§A 契约），重命名会真的打断绑定，不是快照。</p>
+ * 解析的运行时接口（顶点属性契约（真源：preview.vert 头部属性段） 契约），重命名会真的打断绑定，不是快照。</p>
  */
 public class ChainPreviewShaderContractTest {
 
@@ -68,12 +68,12 @@ public class ChainPreviewShaderContractTest {
         }
     }
 
-    // ------------------------------------------------------------------ 接口冻结 §A/§F
+    // ------------------------------------------------------------------ 顶点属性契约（真源：preview.vert 头部属性段）/功能优先级与落点（真源：preview.vert 头部落点表）
 
     /**
-     * 顶点属性契约（接口冻结 §A 修订，T51）：声明 aPos(3f) / aAux(4 通道) / aDirection(4 x int8 normalized)。
+     * 顶点属性契约（顶点属性契约修订，T51）：声明 aPos(3f) / aAux(4 通道) / aDirection(4 x int8 normalized)。
      *
-     * <p>原 §A 还包含「attribute 2 aColor 4 x float32（既有颜色流）」，但着色器从不读取它
+     * <p>原 顶点属性契约（真源：preview.vert 头部属性段） 还包含「attribute 2 aColor 4 x float32（既有颜色流）」，但着色器从不读取它
      * （颜色由 aAux.semanticClass + uColor* 在顶点阶段决定），编译器因此把它整体优化掉
      * （{@code glGetAttribLocation} 返回 -1）。契约里"保留该槽"的写法与实现长期不符，
      * 还让后端每代白白上传一份 262 KB 级、永不被读取的颜色流。现已从契约与着色器中移除；
@@ -95,11 +95,11 @@ public class ChainPreviewShaderContractTest {
         Map<String, String> attributes = GlslSourceScanner.of(read(VERTEX_PATH))
                 .getAttributes();
 
-        Assert.assertEquals("必须恰好声明 §A 约定的三个属性", 3, attributes.size());
+        Assert.assertEquals("必须恰好声明 顶点属性契约约定的三个属性", 3, attributes.size());
         Assert.assertEquals("vec3", attributes.get("aPos"));
         Assert.assertEquals("vec4", attributes.get("aAux"));
         Assert.assertEquals("vec4", attributes.get("aDirection"));
-        Assert.assertNull("aColor 已从 shader 路径移除（§A 修订 T51）", attributes.get("aColor"));
+        Assert.assertNull("aColor 已从 shader 路径移除（顶点属性契约修订 T51）", attributes.get("aColor"));
     }
 
     /**
@@ -158,7 +158,7 @@ public class ChainPreviewShaderContractTest {
     /**
      * 语义调色板 uniform 必须声明在**顶点**着色器（选色在顶点阶段完成，F1）。
      *
-     * <p>断言只落在声明面（uniform 名字按字符串在运行时解析，属 §A/§D 接口契约）与「选择器实现为
+     * <p>断言只落在声明面（uniform 名字按字符串在运行时解析，属 顶点属性契约（真源：preview.vert 头部属性段）/语义类别表（真源：ChainPreviewSemanticClass） 接口契约）与「选择器实现为
      * 顶点侧独立函数」这一结构事实上；具体表达式（哪一行 return 哪个 uniform）不再做文本匹配。</p>
      */
     @Test
@@ -321,7 +321,7 @@ public class ChainPreviewShaderContractTest {
                 "固定管线内建 gl_ModelViewMatrix：");
         assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_ProjectionMatrix[0][0]);\n"),
                 "固定管线内建 gl_ProjectionMatrix：");
-        // 固定管线几何/属性输入：几何与属性一律来自显式 attribute（接口冻结 §A）。
+        // 固定管线几何/属性输入：几何与属性一律来自显式 attribute（顶点属性契约（真源：preview.vert 头部属性段））。
         assertHasErrorContaining(checkVertex("    gl_Position = gl_Vertex;\n"), "固定管线内建 gl_Vertex：");
         assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_MultiTexCoord0.xy, 0.0, 1.0);\n"),
                 "固定管线内建 gl_MultiTexCoord0：");

@@ -20,7 +20,7 @@ import club.heiqi.config.ui.editor.VisualAdapter;
 /**
  * 方块选择器 Provider：<b>只固化惰性候选源的引用</b>，构造期零枚举、零全量预转换。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.2/§1.4/§1.7（D-1..D-7）；{@code team/P2-Miner-Provider-改造设计.md} §2/§3（M3-M6）。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.2/§1.4/§1.7（D-1..D-7）；（改造设计原稿在工作站、不在仓内）（M3-M6）。</p>
  *
  * <p><b>构造期删除清单（ADR §1.7）</b>：</p>
  * <ul>

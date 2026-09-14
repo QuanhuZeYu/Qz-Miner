@@ -16,8 +16,8 @@ import club.heiqi.config.ui.field.PickerSourceGuard;
 /**
  * 方块选择器惰性候选源：<b>单 registry 分片 + 惰性物化 + 脏标记惰性重建 + 有界缓存</b>。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.2/§1.3/§1.6/§2.3/§2.5；
- * {@code team/P2-Miner-Provider-改造设计.md} §2（M1/M2/M4/M5/M6/M7）。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.2/§1.3/§1.6/§2.3/§2.5；
+ * （改造设计原稿在工作站、不在仓内）（M1/M2/M4/M5/M6/M7）。</p>
  *
  * <h3>结构</h3>
  * <ul>

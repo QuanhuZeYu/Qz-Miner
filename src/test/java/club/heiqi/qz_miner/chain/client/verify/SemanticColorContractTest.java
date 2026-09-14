@@ -12,7 +12,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.DepthChannel
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderMath;
 
 /**
- * T17 颜色语义与来源解耦独立探针（T16c + 接口冻结 §D；本轮按大模式扩到六槽）。
+ * T17 颜色语义与来源解耦独立探针（T16c + 语义类别表（真源：ChainPreviewSemanticClass）；本轮按大模式扩到六槽）。
  *
  * <p>独立口径：builtin 档 CHAIN 槽对任意「CHAIN 或未定义」类别都必须返回精确基线常量
  * (0.25, 0.9, 1.0)（逐位），其余类别返回各自槽位；config 档按类别选六色并按 8bit 量化（/255）；

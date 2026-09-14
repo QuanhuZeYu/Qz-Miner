@@ -12,7 +12,7 @@
  *   因此本单元只做两件事：丢弃不可见片元、把插值后的颜色与 alpha 交给共用混合。
  *   这里**不再**声明 uColor* uniform，也不重复选择类别（避免两处真源分叉）。
  *
- * 颜色模型：uColor* 是**绝对颜色**，由顶点按 semanticClass 选择（接口冻结 §D 类别表；六色按大模式区分）。
+ * 颜色模型：uColor* 是**绝对颜色**，由顶点按 semanticClass 选择（语义类别表（真源：ChainPreviewSemanticClass）；六色按大模式区分）。
  *  - colorSource=builtin：CHAIN 槽传精确基线常量 (0.25, 0.90, 1.00) ⇒ 默认大模式逐字节等于现状；
  *    其余五槽为内置显式色（0xRRGGBB → float/255）；
  *  - colorSource=config：六色来自配置（int RGB → float/255；8bit 量化差异只出现在该档）。

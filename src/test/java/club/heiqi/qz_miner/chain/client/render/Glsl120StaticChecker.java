@@ -61,7 +61,7 @@ final class Glsl120StaticChecker {
      * <ol>
      *   <li><b>几何/属性输入</b>（{@code gl_Vertex} / {@code gl_Normal} / {@code gl_Color} /
      *       {@code gl_MultiTexCoord*} / {@code gl_FogCoord}）：取自兼容管线的 client array 槽位，
-     *       本项目着色器路径不填充（且会与接口冻结 §A 的用户属性抢槽），几何类输入更是未经位移管线的
+     *       本项目着色器路径不填充（且会与顶点属性契约（真源：preview.vert 头部属性段） 的用户属性抢槽），几何类输入更是未经位移管线的
      *       原始值。</li>
      *   <li><b>矩阵状态</b>（{@code gl_ModelViewProjectionMatrix} 一族）与便捷函数 {@code ftransform}：
      *       相机矩阵在本项目真机上不可信，{@code ftransform()} 内部还只用原始顶点位置。</li>
@@ -99,7 +99,7 @@ final class Glsl120StaticChecker {
 
     /** 禁用理由：几何/属性输入一族。 */
     private static final String REASON_FIXED_PIPELINE_VERTEX_INPUT =
-            "它取自兼容管线的 client array 槽位——本项目不填充这些槽位（还会与 §A 的用户属性抢槽），"
+            "它取自兼容管线的 client array 槽位——本项目不填充这些槽位（还会与 顶点属性契约（真源：preview.vert 头部属性段） 的用户属性抢槽），"
                     + "几何类输入更是未经位移管线的原始值；几何与属性一律来自显式 attribute";
     /** 禁用理由：相机/纹理矩阵状态一族。 */
     private static final String REASON_FIXED_PIPELINE_MATRIX =
@@ -191,7 +191,7 @@ final class Glsl120StaticChecker {
             }
         }
         // 固定管线内建禁令：与上面的内建白名单是两个正交的轴（理由见 FORBIDDEN_FIXED_PIPELINE 的说明）。
-        // 顶点输入一族：几何/属性一律来自显式 attribute（接口冻结 §A）。
+        // 顶点输入一族：几何/属性一律来自显式 attribute（顶点属性契约（真源：preview.vert 头部属性段））。
         for (String name : ("gl_Vertex gl_Normal gl_Color gl_SecondaryColor gl_FogCoord "
                 + "gl_MultiTexCoord0 gl_MultiTexCoord1 gl_MultiTexCoord2 gl_MultiTexCoord3 gl_MultiTexCoord4 "
                 + "gl_MultiTexCoord5 gl_MultiTexCoord6 gl_MultiTexCoord7").split(" ")) {
@@ -317,7 +317,7 @@ final class Glsl120StaticChecker {
         return code;
     }
 
-    /** 首个非空行必须是 #version，且必须是 120（GL 2.1 基线，接口冻结 §F）。 */
+    /** 首个非空行必须是 #version，且必须是 120（GL 2.1 基线，功能优先级与落点（真源：preview.vert 头部落点表））。 */
     static void checkVersionDirective(String source, String fileName, List<Finding> findings) {
         String[] lines = source.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {

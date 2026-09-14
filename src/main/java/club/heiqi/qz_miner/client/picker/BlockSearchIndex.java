@@ -10,8 +10,8 @@ import club.heiqi.config.ui.editor.PickerQuery;
 /**
  * 清单级搜索索引：只做归一化 + rank，返回「命中的清单下标」有序数组。
  *
- * <p>契约出处：{@code team/P0-ADR-契约与测量.md} §1.7 D-2/D-3/D-7、§1.6(a)（搜索 lane 顺序 =
- * rank 升序 + registry 字典序 tie-break）；{@code team/P2-Miner-Provider-改造设计.md} §2.5。</p>
+ * <p>契约出处：（ADR 原稿在工作站、不在仓内） §1.7 D-2/D-3/D-7、§1.6(a)（搜索 lane 顺序 =
+ * rank 升序 + registry 字典序 tie-break）；（改造设计原稿在工作站、不在仓内）。</p>
  *
  * <p><b>与旧形态的差别</b>（旧 {@code search(query, requestedLimit)} 返回 {@code Result(candidates, truncated)}）：</p>
  * <ul>

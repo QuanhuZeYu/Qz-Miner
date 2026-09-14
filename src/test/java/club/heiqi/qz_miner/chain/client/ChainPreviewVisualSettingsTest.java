@@ -6,7 +6,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 
-/** 视觉设置快照（§H 唯一配置读取面）的不可变、兜底与曲线同源契约。 */
+/** 视觉设置快照（读取面单通道（真源：ChainPreviewVisualSettings） 唯一配置读取面）的不可变、兜底与曲线同源契约。 */
 public class ChainPreviewVisualSettingsTest {
 
     @Test

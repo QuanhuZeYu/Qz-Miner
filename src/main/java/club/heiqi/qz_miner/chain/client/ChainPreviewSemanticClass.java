@@ -4,11 +4,11 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 
 /**
- * 连锁预览语义类别（接口冻结 §D 的稳定 id，B2.3 a 部分；本轮按【大模式】重排值域）。
+ * 连锁预览语义类别（语义类别表（真源：ChainPreviewSemanticClass） 的稳定 id，B2.3 a 部分；本轮按【大模式】重排值域）。
  *
  * <p>类别载体与预览目标同序：由 {@link ChainPreviewState.RenderSnapshot#getSemanticClasses()}
  * 提供，随构建输入交给 ChainPreviewMeshBuilder 写入 aAux.x；着色器按类别从六色 uniform 取色。
- * 值域在接口冻结 §D 冻结，调用方不得自造 id。</p>
+ * 值域在语义类别表冻结，调用方不得自造 id。</p>
  *
  * <p><b>本轮值域变更（用户裁定 B 档：默认颜色按大模式区分）</b>：三个大模式的默认子模式
  * 各自获得稳定 id（{@link #CHAIN_LOCAL}/{@link #AREA_LOCAL}/{@link #INTERACT_LOCAL}），
@@ -19,7 +19,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
  * 但规划到上限即停止、被截断目标不在目标集合内，远端响应被 cap 时客户端也拿不到丢弃数，
  * 因此 a 部分不产出 5——<b>5 是合法 id 但本轮无数据源产出，截断可见性由 B0.5 的
  * ChainPreviewState.getTruncationReason() / getTruncatedCount() 通道表达</b>。
- * {@link #DEFERRED}/{@link #EXECUTED} 按 §D 未启用，同样不产出。
+ * {@link #DEFERRED}/{@link #EXECUTED} 按 语义类别表（真源：ChainPreviewSemanticClass） 未启用，同样不产出。
  * 消费者必须仍按合法值处理这三类（不得抛异常）。</p>
  */
 public final class ChainPreviewSemanticClass {
@@ -49,7 +49,7 @@ public final class ChainPreviewSemanticClass {
     private ChainPreviewSemanticClass() {
     }
 
-    /** @return 是否为 §D 冻结的已定义类别（含 6/7，不含 {@link #UNDEFINED}） */
+    /** @return 是否为 语义类别表冻结的已定义类别（含 6/7，不含 {@link #UNDEFINED}） */
     public static boolean isDefined(int semanticClass) {
         return semanticClass >= MIN_DEFINED && semanticClass <= MAX_DEFINED;
     }

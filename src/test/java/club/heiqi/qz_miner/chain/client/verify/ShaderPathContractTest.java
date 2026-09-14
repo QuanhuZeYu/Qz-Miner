@@ -11,7 +11,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderMath;
 
 /**
- * T7/T12 shader 路径独立契约探针（接口冻结 §F/§G + 波次 2 cell 式裁定）。
+ * T7/T12 shader 路径独立契约探针（功能优先级与落点（真源：preview.vert 头部落点表）/后端热切换语义（下一帧生效） + 波次 2 cell 式裁定）。
  *
  * <p>只依赖当前公开 API：像素尺度、quadratic 距离淡出、顶点距离、最小宽度位移
  * （px<=0 严格恒等 / px>0 沿面法线单向加宽 / 交付配置像素宽 / 近处不变 / 单调 /
@@ -332,7 +332,7 @@ public class ShaderPathContractTest {
 
     @Test
     public void shaderBackendFailsSafelyWithoutGlContext() {
-        // §C：ensureReady 失败返回 false 且不抛；§G：编译/链接失败当帧起回退 legacy，不每帧重试。
+        // 预览渲染后端契约（真源：ChainPreviewRenderBackend）：ensureReady 失败返回 false 且不抛；后端热切换语义（下一帧生效）：编译/链接失败当帧起回退 legacy，不每帧重试。
         ChainPreviewRenderBackend backend = ChainPreviewShaderBackend.create();
         Assert.assertNotNull(backend);
         Assert.assertEquals("shader", backend.id());

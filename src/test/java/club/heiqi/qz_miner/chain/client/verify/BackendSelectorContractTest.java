@@ -7,7 +7,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewBackendSelector;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewGlCapabilities;
 
 /**
- * T7 后端选择与能力探测独立契约探针（接口冻结 §C / §G，Lead 裁定删除 shader pack 维度后）。
+ * T7 后端选择与能力探测独立契约探针（预览渲染后端契约（真源：ChainPreviewRenderBackend） / 后端热切换语义（下一帧生效），Lead 裁定删除 shader pack 维度后）。
  *
  * <p>决策表只包含真实能力与「上次 shader 失败」两个维度；pack 接管维度已按裁定删除，
  * 未接线注入点不保留，故本探针不得再依赖它。</p>

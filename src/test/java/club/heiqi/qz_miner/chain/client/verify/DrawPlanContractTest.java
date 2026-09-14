@@ -16,7 +16,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.Visuals;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * T7 draw plan 独立契约探针（接口冻结 §B + Lead 裁定 C + origin 回归裁定）。
+ * T7 draw plan 独立契约探针（预览渲染契约 draw plan 契约 + Lead 裁定 C + origin 回归裁定）。
  *
  * <p>口径：plan 是纯数据 + 纯函数，可在纯 JVM 断言；origin 必须等于 mesh origin（renderer 据此平移）；
  * wave 的 legacy 路径本轮为整体绘制，shader 走逐顶点 appearOrder 比较，不假定索引有序。</p>

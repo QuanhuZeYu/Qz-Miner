@@ -19,7 +19,7 @@ public enum PreviewDepthMode {
     /** 主体遮挡 pass + 置顶轮廓 pass。 */
     OUTLINE("outline");
 
-    /** 本轮目标默认（接口冻结 §E）。 */
+    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final PreviewDepthMode DEFAULT_VALUE = XRAY;
 
     private final String id;
