@@ -119,7 +119,11 @@ public class BaselineGeometryContractTest {
             Assert.assertEquals(label + " 存在未引用顶点", 0, report.unusedVertex);
             Assert.assertEquals(label + " 退化 quad", 0, report.degenerateQuad);
             Assert.assertEquals(label + " 重复 quad", 0, report.duplicateQuad);
-            Assert.assertEquals(label + " 顶点位置重复", 0, report.duplicateVertexPosition);
+            // T51 方案 A（顶点按面分裂）后，同一位置出现多个顶点是**预期结构**（外扩方向 = 该面法线），
+            // 因此不再断言「位置唯一」——那与本方案直接对立。改判「同位置顶点的语义属性必须一致」：
+            // 否则逐波生长时同位置的不同面会在不同时刻出现，条柱表面露缝。构建侧由
+            // normalizeAppearOrderByPosition() 保证，本行是它的独立复核（金值来源见类注释）。
+            Assert.assertEquals(label + " 同位置顶点语义不一致", 0, report.inconsistentSharedVertexSemantics);
             Assert.assertEquals(label + " 开放边", 0, report.openEdge);
             Assert.assertEquals(label + " 非流形边", 0, report.nonManifoldEdge);
             Assert.assertEquals(label + " 绕向不一致", 0, report.inconsistentWinding);

@@ -23,7 +23,21 @@ public final class VerifyMeshAudit {
         public int unusedVertex;
         public int degenerateQuad;
         public int duplicateQuad;
-        public int duplicateVertexPosition;
+        /**
+     * 同一位置出现多个顶点的次数（T51 方案 A 后属**预期结构**，不再计为错误）。
+     *
+     * <p>顶点按面分裂：同一位置每个面各有一个顶点，外扩方向即该面法线。保留本计数仅作信息，
+     * 断言口径已改为 {@link #inconsistentSharedVertexSemantics}。</p>
+     */
+    public int duplicateVertexPosition;
+    /**
+     * 同一位置各顶点的语义属性（appearOrder / semanticClass）不一致的次数。
+     *
+     * <p>「最小 incident 目标序号」是<b>位置</b>的语义而非面的语义：若同位置的不同面持有不同序号，
+     * 逐波生长时它们会在不同时刻出现，条柱表面露缝，归属目标也会因面而异。构建侧由
+     * {@code ChainPreviewMeshBuilder#normalizeAppearOrderByPosition()} 保证一致，本计数是它的独立复核。</p>
+     */
+    public int inconsistentSharedVertexSemantics;
         public int nonManifoldEdge;
         public int openEdge;
         public int inconsistentWinding;
@@ -45,8 +59,11 @@ public final class VerifyMeshAudit {
             report.indexCountNotQuadAligned++;
         }
         boolean[] used = new boolean[report.vertexCount];
+        byte[] aux = mesh.isAuxAvailable() ? mesh.getAux() : null;
         Set<String> quadKeys = new HashSet<String>();
         Set<String> vertexKeys = new HashSet<String>();
+        Map<String, Integer> orderByPosition = new HashMap<String, Integer>();
+        Map<String, Integer> semanticByPosition = new HashMap<String, Integer>();
         Map<Long, int[]> edges = new HashMap<Long, int[]>();
         for (int offset = 0; offset + 3 < indices.length; offset += 4) {
             int first = indices[offset];
@@ -100,9 +117,22 @@ public final class VerifyMeshAudit {
             if (!used[index]) {
                 report.unusedVertex++;
             }
-            if (!vertexKeys.add(positionKey(vertices, index))) {
+            String position = positionKey(vertices, index);
+            if (!vertexKeys.add(position)) {
                 report.duplicateVertexPosition++;
             }
+            int order = readAppearOrder(aux, index);
+            int semantic = readSemanticClass(aux, index);
+            Integer previousOrder = orderByPosition.get(position);
+            if (previousOrder != null) {
+                Integer previousSemantic = semanticByPosition.get(position);
+                if (previousOrder.intValue() != order
+                        || (previousSemantic != null && previousSemantic.intValue() != semantic)) {
+                    report.inconsistentSharedVertexSemantics++;
+                }
+            }
+            orderByPosition.put(position, Integer.valueOf(order));
+            semanticByPosition.put(position, Integer.valueOf(semantic));
         }
         for (int[] state : edges.values()) {
             if (state[0] != 2) {
@@ -116,6 +146,22 @@ public final class VerifyMeshAudit {
             }
         }
         return report;
+    }
+
+    /** @return 该顶点当前 appearOrder（小端 u16）；无 aux 语义流时返回 {@code APPEAR_ORDER_UNDEFINED}。 */
+    private static int readAppearOrder(byte[] aux, int index) {
+        if (aux == null || index * 4 + 3 >= aux.length) {
+            return ChainPreviewMesh.APPEAR_ORDER_UNDEFINED;
+        }
+        return (aux[index * 4 + 2] & 0xFF) | ((aux[index * 4 + 3] & 0xFF) << 8);
+    }
+
+    /** @return 该顶点当前 semanticClass；无 aux 语义流时返回 {@code UNDEFINED_BYTE}。 */
+    private static int readSemanticClass(byte[] aux, int index) {
+        if (aux == null || index * 4 >= aux.length) {
+            return 0xFF;
+        }
+        return aux[index * 4] & 0xFF;
     }
 
     private static String positionKey(float[] vertices, int index) {
