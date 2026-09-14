@@ -127,7 +127,7 @@ public class ClientProxy extends CommonProxy {
         MyMod.clientChainEventBus.bindMainThread(Thread.currentThread());
         new ClientChainEventBusDrainer(MyMod.clientChainEventBus).bootstrap();
         // 阶段6 A2：客户端投影容器 + 订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged，
-        // ClientTickEvent.START drain 更新容器，守 I4 主线程收口）
+        // ClientTickEvent.START drain 更新容器，守跨线程只经事件总线：主线程收口）
         clientPhaseProjection = new ClientPhaseProjection();
         clientCuboidSelectionState = new ClientCuboidSelectionState();
         clientPhaseProjectionSubscriber = new ClientPhaseProjectionSubscriber(
@@ -215,7 +215,7 @@ public class ClientProxy extends CommonProxy {
      * 主线程任务内：先整包校验，再在 lifecycle 线性化边界内复核 connection 仍 current+active
      * 并写 ChainClientState 三字段。旧连接包在 B 已 connect 后即使全局 current=B 也丢弃。</p>
      *
-     * <p>守 I4：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。
+     * <p>守跨线程只经事件总线：volatile 只提供可见性，不授予 Netty 线程客户端状态写主权。
      * publication 回调禁阻塞、禁反向调用 lifecycle 入口。</p>
      *
      * @param chainRadius        服务端连锁半径上限
@@ -499,7 +499,7 @@ public class ClientProxy extends CommonProxy {
      * 阶段6：处理连锁阶段快照下发。
      *
      * <p>Netty 线程按 netHandler 捕获 token 与包数据，不直接改投影容器、不 publish 语义状态。
-     * 主线程在 world-active gate 内再 publish 到 clientChainEventBus（守 I4）。</p>
+     * 主线程在 world-active gate 内再 publish 到 clientChainEventBus（守跨线程只经事件总线）。</p>
      *
      * @param phaseOrdinal 目标态 ordinal
      * @param generation   转移后的新代际

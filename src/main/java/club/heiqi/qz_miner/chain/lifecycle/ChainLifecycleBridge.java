@@ -11,7 +11,7 @@ import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
 
 /**
- * 连锁生命周期桥：平行订阅 {@link PlayerStateEvent} 转 {@link LifecycleCleanup}（守不变量 I7）。
+ * 连锁生命周期桥：平行订阅 {@link PlayerStateEvent} 转 {@link LifecycleCleanup}（守生命周期收口）。
  *
  * <h3>三路回 IDLE 中的角色（阶段7 收口）</h3>
  * <p>本类是<b>生命周期强制清理路径</b>，与执行完成快速路径（{@code ChainExecutionEventBridge}）、
@@ -36,18 +36,18 @@ import club.heiqi.qz_miner.event.QzEvents;
  *
  * <h3>字段填充裁决（F.1 W1 + F.2 S1）</h3>
  * <ul>
- *   <li><b>forced=true</b>（F.1 W1）：所有生命周期 reason 都豁免 genCheck（守 I7：玩家都登出了，哪一代都得清）。</li>
+ *   <li><b>forced=true</b>（F.1 W1）：所有生命周期 reason 都豁免 genCheck（守生命周期收口：玩家都登出了，哪一代都得清）。</li>
  *   <li><b>generation=0</b>：forced 豁免 genCheck，gen 填占位值 0 不影响（被豁免不校验）。</li>
  *   <li><b>removeSlot</b>（F.2 S1）：LOGOUT=true（删槽防泄漏），RESPAWN/DIMENSION_CHANGE/CLONE=false（保 gen 单调）。</li>
  *   <li><b>LOGIN</b>：不 publish（无需清理，玩家刚加入无活跃连锁）。</li>
  * </ul>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：本类只 publish LifecycleCleanup，不切 phase、不碰 worker、不写世界。</li>
- *   <li><b>I7</b>：复用 {@link PlayerStateEvent} 现成生命周期源（同一主线程收口），
+ *   <li><b>边界不越权</b>：本类只 publish LifecycleCleanup，不切 phase、不碰 worker、不写世界。</li>
+ *   <li><b>生命周期收口</b>：复用 {@link PlayerStateEvent} 现成生命周期源（同一主线程收口），
  *       slots.remove 在状态机 handler 内（唯一写权威）。</li>
- *   <li><b>I10</b>：本类不写 slots，状态机是唯一写权威。</li>
+ *   <li><b>唯一写权威</b>：本类不写 slots，状态机是唯一写权威。</li>
  * </ul>
  */
 public class ChainLifecycleBridge {
@@ -140,7 +140,7 @@ public class ChainLifecycleBridge {
         }
         long tick = ChainTickSource.currentServerTick();
         long nanos = ChainTickSource.nowNanos();
-        // F.1 W1：forced=true 豁免 genCheck（守 I7）；gen=0 占位（被豁免不校验）
+        // F.1 W1：forced=true 豁免 genCheck（守生命周期收口）；gen=0 占位（被豁免不校验）
         bus.publish(new LifecycleCleanup(uuid, 0, tick, nanos, reasonText, true, removeSlot));
         MyMod.LOG.debug("[ChainLifecycleBridge] publish LifecycleCleanup player={} reason={} removeSlot={}",
                 uuid, reasonText, Boolean.valueOf(removeSlot));

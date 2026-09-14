@@ -1021,7 +1021,7 @@ public class ChainStateMachineTest {
      * 阶段7 F.1 W1：forced=true LifecycleCleanup 豁免 genCheck。
      *
      * <p>slot gen=5（RUNNING），event gen=999 forced=true → 强制回 IDLE。
-     * 守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</p>
+     * 守生命周期收口：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</p>
      */
     @Test
     public void forcedLifecycleCleanupSkipsGenCheck() {
@@ -1066,7 +1066,7 @@ public class ChainStateMachineTest {
      * 阶段7 F.2 S1：removeSlot=true 转移后 slots.remove（玩家槽被删）。
      *
      * <p>删槽后 getCurrentPhase 会重新 computeIfAbsent 返回默认 IDLE/gen=0。
-     * 守 I10：slots.remove 唯一写权威在状态机 handler 内。</p>
+     * 守唯一写权威：slots.remove 唯一写权威在状态机 handler 内。</p>
      */
     @Test
     public void removeSlotTrueDeletesSlot() {
@@ -1115,7 +1115,7 @@ public class ChainStateMachineTest {
      * 本用例模拟常见登出场景（玩家完成连锁回 IDLE 后登出）：先走完整闭环回 IDLE，
      * 再发 forced LifecycleCleanup(removeSlot=true)，断言槽被删（getCurrentGeneration 重新 computeIfAbsent 返回 0）。</p>
      *
-     * <p>守 I10：slots.remove 仍在状态机 handler 内（唯一写权威）。</p>
+     * <p>守唯一写权威：slots.remove 仍在状态机 handler 内（唯一写权威）。</p>
      */
     @Test
     public void removeSlotTrueDeletesSlotEvenInIdle() {
@@ -1170,7 +1170,7 @@ public class ChainStateMachineTest {
      *
      * <p>松键修复路径：PacketKeyState pressed=false 时 publish LifecycleCleanup(reason="user-abort",
      * forced=true, removeSlot=false)。worker 仍在影子遍历 PLANNING 期间，松键应能立即终止活跃连锁
-     * （守 I7：哪一代都得清；复用 T9 PLANNING→IDLE 不改转移表）。</p>
+     * （守生命周期收口：哪一代都得清；复用 T9 PLANNING→IDLE 不改转移表）。</p>
      */
     @Test
     public void forcedLifecycleCleanupFromPlanningReturnsIdle() {
@@ -1191,7 +1191,7 @@ public class ChainStateMachineTest {
      * E2 松键即停：FINISHING 态收 forced=true LifecycleCleanup → T8 回 IDLE。
      *
      * <p> ExecutionFinished 已 T7 RUNNING→FINISHING，但本桥 publish 的非 forced LifecycleCleanup
-     * 迟到或玩家在此瞬间松键，forced 路径应能强制收口（守 I7）。</p>
+     * 迟到或玩家在此瞬间松键，forced 路径应能强制收口（守生命周期收口）。</p>
      */
     @Test
     public void forcedLifecycleCleanupFromFinishingReturnsIdle() {

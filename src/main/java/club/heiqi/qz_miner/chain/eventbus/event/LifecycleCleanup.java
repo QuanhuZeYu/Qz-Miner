@@ -5,7 +5,7 @@ import java.util.UUID;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 
 /**
- * 玩家连锁状态清理事件（对应 cleanupPlayerState 语义，守不变量 I7）。
+ * 玩家连锁状态清理事件（对应 cleanupPlayerState 语义，守生命周期收口）。
  *
  * <h3>阶段7 三路回 IDLE 裁决（F.1 W1 + F.2 S1）</h3>
  * <p>阶段7 起 LifecycleCleanup 携带两个字段区分两类来源：</p>
@@ -14,7 +14,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
  *       <ul>
  *         <li>{@code forced=true}：玩家登出/重生/切维度（{@code ChainLifecycleBridge} 平行订阅
  *             {@code PlayerStateEvent} 转发），状态机 handler 跳过 genCheck 强制回 IDLE。
- *             守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</li>
+ *             守生命周期收口：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</li>
  *         <li>{@code forced=false}：执行完成快速收尾路径（{@code ChainExecutionEventBridge} 队列空时
  *             同 tick 紧接 publish），走 genCheck（gen 已知，代际匹配校验）。</li>
  *       </ul>

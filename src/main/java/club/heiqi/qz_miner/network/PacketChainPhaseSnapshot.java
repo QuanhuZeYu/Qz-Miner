@@ -14,11 +14,11 @@ import io.netty.buffer.ByteBuf;
  * Handler 将 {@code ctx.netHandler} 与快照字段转交 proxy；客户端主线程按 world-active
  * token gate 后才 publish 到 clientChainEventBus（禁止 Netty 直接写/发布语义状态）。</p>
  *
- * <p>守不变量：</p>
+ * <p>守框架约束：</p>
  * <ul>
- *   <li><b>I1</b>：本包是只读快照下发，不要求客户端切态；客户端投影容器可见但不夺权（P0-1=A 决议）。</li>
- *   <li><b>I4</b>：Handler 在 Netty 线程只捕获数据与 common INetHandler，不直接改投影容器。</li>
- *   <li><b>I10</b>：客户端投影容器与状态机物理隔离，客户端没有状态机实例，投影只可见不可切态。</li>
+ *   <li><b>边界不越权</b>：本包是只读快照下发，不要求客户端切态；客户端投影容器可见但不夺权（P0-1=A 决议）。</li>
+ *   <li><b>跨线程只经事件总线</b>：Handler 在 Netty 线程只捕获数据与 common INetHandler，不直接改投影容器。</li>
+ *   <li><b>唯一写权威</b>：客户端投影容器与状态机物理隔离，客户端没有状态机实例，投影只可见不可切态。</li>
  * </ul>
  *
  * <p>阶段8 块3：旧 {@code PacketChainStateSync} 八字段同步链已删除（G2 夺权后 phase 由本包 + 投影承载，
@@ -64,7 +64,7 @@ public class PacketChainPhaseSnapshot implements IMessage {
     /**
      * Netty 线程 Handler：转交 proxy（含 {@code ctx.netHandler}）。
      *
-     * <p>守 I4：不在 Netty 线程改投影容器或 publish 语义状态；ClientProxy 主线程 world-active gate 后收口。</p>
+     * <p>守跨线程只经事件总线：不在 Netty 线程改投影容器或 publish 语义状态；ClientProxy 主线程 world-active gate 后收口。</p>
      */
     public static class Handler implements IMessageHandler<PacketChainPhaseSnapshot, IMessage> {
 

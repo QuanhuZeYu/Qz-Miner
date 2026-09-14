@@ -6,7 +6,7 @@ import net.minecraft.server.MinecraftServer;
 /**
  * 连锁事件诊断时间戳来源。
  *
- * <p>守不变量 I4：仅供 {@code publish} 路径填充 {@code ChainEvent.serverTick}/
+ * <p>守跨线程只经事件总线：仅供 {@code publish} 路径填充 {@code ChainEvent.serverTick}/
  * {@code timestampNanos} 诊断字段。事件是输入事件（ChainKeyPressed/BlockBreakObserved/...）时，
  * 调用方保证在主线程或跨线程入队前取值即可，本类不触碰任何主线程语义状态。</p>
  *
@@ -35,7 +35,7 @@ public final class ChainTickSource {
             return server == null ? -1L : server.getTickCounter();
         } catch (LinkageError | RuntimeException e) {
             // 无 Forge 运行时（如纯 JVM 单测）FMLCommonHandler 触发 ExceptionInInitializerError（LinkageError 子类）；
-            // 诊断字段回退占位值，不阻断事件流（守 I4 ChainTickSource 仅诊断字段语义）
+            // 诊断字段回退占位值，不阻断事件流（守跨线程只经事件总线：ChainTickSource 仅诊断字段语义）
             return -1L;
         }
     }

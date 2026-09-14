@@ -80,7 +80,7 @@ public class PacketChainConfigRequest implements IMessage {
             final int protocolVersion = message.protocolVersion;
             final int tunnelDirectionCode = message.tunnelDirectionCode;
             final boolean rawValid = message.rawValid;
-            // 守 I4：只捕获原始数据与端点身份；校验/写入在 keyed lane 的服务端主线程消费中完成
+            // 守跨线程只经事件总线：只捕获原始数据与端点身份；校验/写入在 keyed lane 的服务端主线程消费中完成
             ServerChainConfigRequestDispatch.submit(player, requestedChainRadius, requestedChainMaxBlocks,
                     protocolVersion, tunnelDirectionCode, rawValid);
             return null;

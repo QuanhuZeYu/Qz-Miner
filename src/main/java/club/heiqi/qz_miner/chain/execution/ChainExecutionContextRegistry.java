@@ -18,12 +18,12 @@ import java.util.concurrent.ConcurrentMap;
  * 后 {@link #get(UUID, int, long)} 领取。按 {@code UUID + gen + serverRoundId} 三元校验做陈旧判定，
  * 不破坏 {@link club.heiqi.qz_miner.chain.eventbus.event.ChainEvent} 不可变契约。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：本类只承载数据引用，不触碰世界、不切态、不破坏方块。</li>
- *   <li><b>I4</b>：跨线程安全——worker 线程 put，主线程消费订阅者 get，
+ *   <li><b>边界不越权</b>：本类只承载数据引用，不触碰世界、不切态、不破坏方块。</li>
+ *   <li><b>跨线程只经事件总线</b>：跨线程安全——worker 线程 put，主线程消费订阅者 get，
  *       {@link ConcurrentHashMap} 提供 happens-before 可见性。</li>
- *   <li><b>I10</b>：本类 <b>不</b>写状态机，gen 字段从 context 透传。</li>
+ *   <li><b>唯一写权威</b>：本类 <b>不</b>写状态机，gen 字段从 context 透传。</li>
  * </ul>
  *
  * <h3>三元身份校验策略（决策文档 §"陈旧 gen 领取被拒"）</h3>

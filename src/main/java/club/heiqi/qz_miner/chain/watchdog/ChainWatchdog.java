@@ -34,7 +34,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * <h3>推进信号源（奠基事实1）</h3>
  * <p>本类订阅 {@link ChainPhaseChanged}（阶段6 G1 加入，状态机 {@code applyTransition} 每次转移后 publish）
- * 建 per-player 活跃镜像。<b>不</b>自建钩子、<b>不</b>读状态机字段（守 I10 只读广播）。</p>
+ * 建 per-player 活跃镜像。<b>不</b>自建钩子、<b>不</b>读状态机字段（守唯一写权威：只读广播）。</p>
  *
      * <p>另订阅 {@link PlanProgress}（worker 分片提交 durable progress 时 publish）与 {@link ExecutionAdvanced}
      * （目标消费后 publish）作为真实推进信号；{@link ExecutionDeferred} 只登记 shared deadline
@@ -51,12 +51,12 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <h3>F.4 镜像立即移除（C1）</h3>
  * <p>publish WatchdogTimeout 后立即从镜像移除该条目，避免后续 tick 重复 publish（防止看门狗风暴）。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：本类只 publish/remove 自己容器，绝不切 phase、不碰 worker、不写世界。</li>
- *   <li><b>I2</b>：协作式取消——只 publish WatchdogTimeout，不 Future.cancel、不强杀 worker、
+ *   <li><b>边界不越权</b>：本类只 publish/remove 自己容器，绝不切 phase、不碰 worker、不写世界。</li>
+ *   <li><b>协作式取消</b>：协作式取消——只 publish WatchdogTimeout，不 Future.cancel、不强杀 worker、
  *       不绕 endStage。worker 协作式停到安全边界，状态机 T10 自行切态。</li>
- *   <li><b>I10</b>：本类不写 slots，状态机是唯一写权威。</li>
+ *   <li><b>唯一写权威</b>：本类不写 slots，状态机是唯一写权威。</li>
  * </ul>
  *
  * <h3>线程契约</h3>
@@ -72,7 +72,7 @@ public class ChainWatchdog {
     /**
      * per-player 活跃追踪镜像：key=玩家 UUID，value=该玩家最后一次推进时的代际与 tick。
      *
-     * <p>守 I4：订阅者仅主线程 drain/ServerTickEvent 调用，单线程假定无需自锁（对齐 onLifecycleCleanup 契约）。
+     * <p>守跨线程只经事件总线：订阅者仅主线程 drain/ServerTickEvent 调用，单线程假定无需自锁（对齐 onLifecycleCleanup 契约）。
      * 非线程安全容器 {@link HashMap} 在单线程契约下安全。</p>
      */
     private final Map<UUID, WatchEntry> activePlayers = new HashMap<UUID, WatchEntry>();
@@ -230,7 +230,7 @@ public class ChainWatchdog {
      * 超时判定（elapsed &gt;= threshold 分支）完全不可达，3 个声称场景（超时触发/推进刷新不触发/
      * 镜像立即移除）零真测覆盖。提取本方法后单测可注入 forcedTick 直接驱动超时路径。</p>
      *
-     * <p>语义不变（守 I2）：运行时仍由 {@link #onServerTick} 经 ChainTickSource 取 tick 后调用本方法，
+     * <p>语义不变（守协作式取消）：运行时仍由 {@link #onServerTick} 经 ChainTickSource 取 tick 后调用本方法，
      * 单测注入的 tick 只用于驱动逻辑分支验证，不影响生产路径。F.4 C1 镜像立即移除保持不变。</p>
      *
      * @param currentTick 当前服务端 tick（单测可注入；运行时来自 ChainTickSource）

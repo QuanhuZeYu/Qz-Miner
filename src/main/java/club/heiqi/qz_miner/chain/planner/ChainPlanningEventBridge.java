@@ -42,17 +42,17 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * worker 完成 publish {@link PlanCompleted}（推进 PLANNING→RUNNING）/ 取消 publish {@link PlanCancelled}
  * （回 PLANNING→IDLE）。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：影子 worker 只读世界（traverser 只读）+ 只 publish 事件，<b>绝不</b>
+ *   <li><b>边界不越权</b>：影子 worker 只读世界（traverser 只读）+ 只 publish 事件，<b>绝不</b>
  *       {@code setExecutionStatus}、<b>绝不</b>写 {@code ChainSession}、<b>绝不</b>
  *       {@code syncPlayerState}。阶段8 块1 已删除旧链路 worker（{@code AbstractFloodFillPlanningStrategy}/
  *       {@code BlockBoxScanPlanningStrategy} 等），I1 偏离随之清偿（偏离条目已移除）。</li>
- *   <li><b>I3</b>：复用 {@link ChainPlanningRuntimeFactory#createForServer} 与
+ *   <li><b>复用既有入口</b>：复用 {@link ChainPlanningRuntimeFactory#createForServer} 与
  *       {@link ChainTraversalSupport#step}，不新造遍历逻辑。</li>
- *   <li><b>I4</b>：publish 跨线程入队、drain 主线程消费（{@link ChainEventBus} 天然满足），
+ *   <li><b>跨线程只经事件总线</b>：publish 跨线程入队、drain 主线程消费（{@link ChainEventBus} 天然满足），
  *       bridge 不碰主线程语义状态。</li>
- *   <li><b>I10</b>：bridge 只 publish 不 {@code transition}；陈旧 generation 的
+ *   <li><b>唯一写权威</b>：bridge 只 publish 不 {@code transition}；陈旧 generation 的
  *       {@link PlanCompleted} 由状态机 genCheck 丢弃，bridge 无需也无法读状态机内部 generation。</li>
  * </ul>
  *
@@ -251,7 +251,7 @@ public class ChainPlanningEventBridge {
     /**
      * 影子 worker 单分片执行：推进 traverser，完成/取消 publish 派生事件。
      *
-     * <p>守 I1：worker 只读世界（traverser 只读）+ 只 publish，绝不 setExecutionStatus/写 session/syncPlayerState。
+     * <p>守边界不越权：worker 只读世界（traverser 只读）+ 只 publish，绝不 setExecutionStatus/写 session/syncPlayerState。
      * 新链路活性由状态机 generation 判定，陈旧 gen 的 PlanCompleted 会被状态机 genCheck 丢弃。</p>
      *
      * @param control        并行 tick 控制

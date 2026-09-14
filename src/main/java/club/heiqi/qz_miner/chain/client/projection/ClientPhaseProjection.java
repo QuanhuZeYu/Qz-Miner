@@ -13,18 +13,18 @@ import cpw.mods.fml.relauncher.SideOnly;
  * <p><b>阶段8 块3 起投影夺权</b>：HUD/预览锁定权威已从旧 {@code serverExecutionStatus}
  * 切到本投影（G2 不夺权铁律解除）。阶段6-7 影子期的"只可见不夺权"已结束。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I4</b>：本容器 {@code update} 由 {@code ClientPhaseProjectionSubscriber} 在
+ *   <li><b>跨线程只经事件总线</b>：本容器 {@code update} 由 {@code ClientPhaseProjectionSubscriber} 在
  *       ClientTickEvent.START drain（客户端主线程）调用，不在 Netty 线程直接改。</li>
- *   <li><b>I7</b>：玩家断线/切维度/世界卸载时由 {@code ClientConnectionListener} 调 {@link #clear()}。</li>
- *   <li><b>I10</b>：客户端没有状态机实例，投影容器与状态机物理隔离，只可见不可切态。</li>
+ *   <li><b>生命周期收口</b>：玩家断线/切维度/世界卸载时由 {@code ClientConnectionListener} 调 {@link #clear()}。</li>
+ *   <li><b>唯一写权威</b>：客户端没有状态机实例，投影容器与状态机物理隔离，只可见不可切态。</li>
  * </ul>
  */
 @SideOnly(Side.CLIENT)
 public class ClientPhaseProjection {
 
-    /** 当前投影阶段，初值 IDLE。volatile 守 I4 跨线程可见性（实际写都在客户端主线程 drain）。 */
+    /** 当前投影阶段，初值 IDLE。volatile 守跨线程只经事件总线：跨线程可见性（实际写都在客户端主线程 drain）。 */
     private volatile ChainPhase currentPhase = ChainPhase.IDLE;
     /** 当前投影代际，初值 0。 */
     private volatile int currentGeneration = 0;
@@ -52,7 +52,7 @@ public class ClientPhaseProjection {
     }
 
     /**
-     * 清理投影（守 I7：玩家断线/切维度/世界卸载时调用）。
+     * 清理投影（守生命周期收口：玩家断线/切维度/世界卸载时调用）。
      */
     public void clear() {
         this.currentPhase = ChainPhase.IDLE;

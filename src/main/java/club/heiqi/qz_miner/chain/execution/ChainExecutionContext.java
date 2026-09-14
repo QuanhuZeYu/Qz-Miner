@@ -22,16 +22,16 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
  * 真实破坏桥<b>不</b>读 session 的 pendingBreakTargets/plannerRunning 等运行态字段
  * （这些字段块3 字段瘦身时一起清）。session 是只读配置载体，不破坏 I1。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：本类只承载数据（队列 + 代际 + session），<b>不</b>触碰世界、
+ *   <li><b>边界不越权</b>：本类只承载数据（队列 + 代际 + session），<b>不</b>触碰世界、
  *       <b>不</b>切执行态、<b>不</b>调任何破坏方块 API。真实破坏发生在主线程消费订阅者
  *       （{@link ChainExecutionEventBridge#onServerTick} ServerTickEvent.START）经
  *       {@link club.heiqi.qz_miner.chain.executor.ChainActionExecutor#execute} 调起，
  *       本类仅提供数据。</li>
- *   <li><b>I4</b>：跨线程安全——bridge worker 线程构造 + put registry，主线程消费订阅者 get + poll，
+ *   <li><b>跨线程只经事件总线</b>：跨线程安全——bridge worker 线程构造 + put registry，主线程消费订阅者 get + poll，
  *       队列与 registry 均为 {@code concurrent} 包线程安全实现。</li>
- *   <li><b>I10</b>：本类 <b>不</b>写状态机，generation 字段 final 不可变，由
+ *   <li><b>唯一写权威</b>：本类 <b>不</b>写状态机，generation 字段 final 不可变，由
  *       {@link ChainPlanningEventBridge} 经 {@code PlanStarted.getGeneration()} 注入。</li>
  * </ul>
  *

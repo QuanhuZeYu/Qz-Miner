@@ -17,11 +17,11 @@ import cpw.mods.fml.relauncher.SideOnly;
  * publish 到 clientChainEventBus → {@code ClientChainEventBusDrainer} 在 ClientTickEvent.START
  * drain（客户端主线程）→ 触发本订阅者。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I4</b>：本订阅者仅由客户端主线程 drain 调用（clientChainEventBus.drain 在 ClientTickEvent.START），
+ *   <li><b>跨线程只经事件总线</b>：本订阅者仅由客户端主线程 drain 调用（clientChainEventBus.drain 在 ClientTickEvent.START），
  *       实际更新在主线程，不在 Netty 线程直接改容器。</li>
- *   <li><b>I10</b>：clientChainEventBus 是客户端独立实例，物理隔离进不了服务端状态机。</li>
+ *   <li><b>唯一写权威</b>：clientChainEventBus 是客户端独立实例，物理隔离进不了服务端状态机。</li>
  * </ul>
  */
 @SideOnly(Side.CLIENT)

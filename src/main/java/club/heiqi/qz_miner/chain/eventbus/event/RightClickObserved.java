@@ -9,11 +9,11 @@ import net.minecraft.block.Block;
 /**
  * 玩家右键方块被观测到事件。
  *
- * <p>守不变量 I1：不可变事件，所有字段 {@code final}，构造后不可修改，
+ * <p>守边界不越权：不可变事件，所有字段 {@code final}，构造后不可修改，
  * 可安全跨线程传递（Netty IO 线程 publish → 主线程 drain）。</p>
  *
  * <p>命中偏移 {@code hitX/Y/Z} 携带是关键——右键触发连锁需要精确命中点供 INTERACT 模式
- * flood fill 方向判定，是 T4 扩右键观测双触发的根因（见不变量 I10）。</p>
+ * flood fill 方向判定，是 T4 扩右键观测双触发的根因（见「唯一写权威」）。</p>
  */
 public final class RightClickObserved extends ChainEvent {
 

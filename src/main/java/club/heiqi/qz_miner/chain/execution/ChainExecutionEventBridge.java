@@ -70,12 +70,12 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <h3>两容器清理分工（阶段7 收口）</h3>
  * <p>状态机管 {@code slots}（{@code ChainStateMachine.onLifecycleCleanup} 内 remove），
  * 本桥管 {@code registry}（订阅 WatchdogTimeout/LifecycleCleanup 清理幽灵队列），
- * 各清各的容器，互不夺权（守 I10）。</p>
+ * 各清各的容器，互不夺权（守唯一写权威）。</p>
  *
  * <h3>阶段8 块2：真实破坏桥 + G1 掉落窗口接线</h3>
  * <ul>
  *   <li><b>真实破坏</b>：consumeContext 调 {@link ChainActionExecutor#execute}（tryHarvestBlock/activateBlockOrUseItem），
- *       由 session 携带的 mode/subMode 经 ChainModeRegistry 解析执行器。守 I1：consumeContext 由
+ *       由 session 携带的 mode/subMode 经 ChainModeRegistry 解析执行器。守边界不越权：consumeContext 由
  *       onServerTick 在 {@code ServerTickEvent.START} 主线程调用，破坏在主线程。</li>
  *   <li><b>G1 掉落窗口</b>：五点 setExecuting 接线（onPlanStarted 流式开窗 true /
  *       onPlanCompleted 登记 true / publishExecutionFinishedWithCleanup
@@ -84,16 +84,16 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *       {@code ChainDropCollector}:32 收集开关 + :58 释放开关正确工作（I5 生命线）。</li>
  * </ul>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：consumeContext 在主线程 ServerTickEvent.START 调 tryHarvestBlock/activateBlockOrUseItem；
+ *   <li><b>边界不越权</b>：consumeContext 在主线程 ServerTickEvent.START 调 tryHarvestBlock/activateBlockOrUseItem；
  *       session 仅是配置载体（mode/subMode/origin/interactFace），不破坏世界。</li>
- *   <li><b>I5</b>：G1 四点 setExecuting 全覆盖，ChainDropCollector 收集/释放窗口正确；
+ *   <li><b>掉落窗口正确</b>：G1 四点 setExecuting 全覆盖，ChainDropCollector 收集/释放窗口正确；
  *       flushPlayerDrops 保留在 ChainStateService（I5 兜底）。</li>
- *   <li><b>I4</b>：消费在主线程 ServerTickEvent.START，publish 经事件总线入队→主线程 drain。
+ *   <li><b>跨线程只经事件总线</b>：消费在主线程 ServerTickEvent.START，publish 经事件总线入队→主线程 drain。
  *       跨线程只发生在 worker put registry 与主线程 get registry，{@link java.util.concurrent.ConcurrentHashMap}
  *       保证可见性。</li>
- *   <li><b>I10</b>：本桥 <b>只 publish 不 transition</b>。状态机仍是 phase/generation 唯一写权威。</li>
+ *   <li><b>唯一写权威</b>：本桥 <b>只 publish 不 transition</b>。状态机仍是 phase/generation 唯一写权威。</li>
  * </ul>
  *
  * <h3>gen 传递链铁律（根治时序竞态）</h3>
@@ -153,7 +153,7 @@ public class ChainExecutionEventBridge {
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
         bus.subscribe(PlanCancelled.class, this::onPlanCancelled);
         // 阶段7 B.4：订阅 WatchdogTimeout + LifecycleCleanup 清理 registry 幽灵队列（两容器清理分工）。
-        // 状态机管 slots，本桥管 registry，各清各的容器，互不夺权（守 I10）。
+        // 状态机管 slots，本桥管 registry，各清各的容器，互不夺权（守唯一写权威）。
         bus.subscribe(WatchdogTimeout.class, this::onWatchdogTimeout);
         bus.subscribe(LifecycleCleanup.class, this::onLifecycleCleanup);
     }
@@ -179,7 +179,7 @@ public class ChainExecutionEventBridge {
      * 若窗口仍按旧 {@link #onPlanCompleted} 才打开，PLANNING 期间 worker 已 add 但消费未启的
      * 边界也会有同步破坏掉落（主线程边搜边消费）， collector 守卫 isExecuting()=false 会丢弃 → 丢感。</p>
      *
-     * <p>守 I5：窗口提前到 PlanStarted，保证 PLANNING 期间边搜边破坏的掉落全部进 buffer。
+     * <p>守掉落窗口正确：窗口提前到 PlanStarted，保证 PLANNING 期间边搜边破坏的掉落全部进 buffer。
      * 后续 {@link #onPlanCompleted} 仍幂等 setExecutionWindow(true, "plan-completed") 保窗，
      * {@link #publishExecutionFinishedWithCleanup} / {@link #onPlanCancelled} /
      * {@link #onWatchdogTimeout} / {@link #onLifecycleCleanup} 关窗。</p>
@@ -244,7 +244,7 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 服务端 tick 回调，仅 START 阶段消费所有活跃执行上下文（真实破坏，守 I1 主线程）。
+     * 服务端 tick 回调，仅 START 阶段消费所有活跃执行上下文（真实破坏，守边界不越权：主线程）。
      *
      * <p>对每个 context：经 {@link #consumeContext} 走真实破坏三元组（玩家解析 → 执行器解析 →
      * canExecute/execute 循环 + 控速）。队列空（isCompleted）→ publish
@@ -285,7 +285,7 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 消费单个执行上下文（阶段8 块2 起真实破坏，守 I1）。
+     * 消费单个执行上下文（阶段8 块2 起真实破坏，守边界不越权）。
      *
      * <p>真实破坏三元组（对齐旧 ChainExecutor:52-110）：</p>
      * <ol>
@@ -295,7 +295,7 @@ public class ChainExecutionEventBridge {
      *   <li>共享 deadline 检查 + while 循环 {@code canExecute}/{@code execute}。</li>
      * </ol>
      *
-     * <p>守 I1：本方法由 {@link #onServerTick} 在 {@link TickEvent.ServerTickEvent#START} 主线程调用，
+     * <p>守边界不越权：本方法由 {@link #onServerTick} 在 {@link TickEvent.ServerTickEvent#START} 主线程调用，
      * {@link ChainActionExecutor#execute} 调 {@code tryHarvestBlock}/{@code activateBlockOrUseItem} 均在主线程。
      * session 仅作配置载体（mode/subMode/interactFace/hit），不破坏世界。</p>
      *
@@ -530,7 +530,7 @@ public class ChainExecutionEventBridge {
      * 两条事件 publish 间隔几乎为零（同 drain 帧），状态机 drain 时 T7 先于 T8 处理（合法转移）。</p>
      *
      * <p>tick/nanos 来源：{@link ChainTickSource}。ChainTickSource 自身兜底无 Forge 运行时环境
-     * （如纯 JVM 单测）返回 {@code -1L}，故本方法无需防御性 catch（守 I4 ChainTickSource 仅诊断字段语义）。</p>
+     * （如纯 JVM 单测）返回 {@code -1L}，故本方法无需防御性 catch（守跨线程只经事件总线：ChainTickSource 仅诊断字段语义）。</p>
      *
      * @param context    三元身份已冻结的执行上下文
      * @param reason     ExecutionFinished 原因
@@ -598,9 +598,9 @@ public class ChainExecutionEventBridge {
      * 它们在 put 之前）以及 worker 运行中 cancelled / 全部搜完前 traversal-terminated 都会 publish
      * PlanCancelled。若不订阅清理，registry 内残留 planningComplete=false 的幽灵 context 会被
      * onServerTick 每次 tick snapshot 出来 poll（queue 空 isCompleted=false，无害但占内存并对状态机
-     * 无推进）。本订阅者守 I5：关掉落窗口 + 清 registry（避免下 tick 消费幽灵 context）。</p>
+     * 无推进）。本订阅者守掉落窗口正确：关掉落窗口 + 清 registry（避免下 tick 消费幽灵 context）。</p>
      *
-     * <p>守 I10：只清本桥管的 registry，不碰状态机 slots（状态机 T6 PLANNING→IDLE 自行处理）。</p>
+     * <p>守唯一写权威：只清本桥管的 registry，不碰状态机 slots（状态机 T6 PLANNING→IDLE 自行处理）。</p>
      *
      * @param event 规划取消事件
      */
@@ -625,7 +625,7 @@ public class ChainExecutionEventBridge {
      * 若不清理，下一 tick ServerTickEvent 仍会消费幽灵队列（{@code oracle A.4} 竞态）。
      * 本桥订阅 WatchdogTimeout 后仅按三元身份移除匹配的幽灵队列。</p>
      *
-     * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots；状态机 T10 自行处理 slots。</p>
+     * <p>守唯一写权威：本桥只 remove 自己管的 registry，不碰状态机 slots；状态机 T10 自行处理 slots。</p>
      *
      * @param event 看门狗超时事件
      */
@@ -654,7 +654,7 @@ public class ChainExecutionEventBridge {
      * 派生收口，仅在 UUID/generation/serverRoundId 三元身份匹配时移除并关闭对应窗口，防止旧轮事件
      * 清理新轮 context。</p>
      *
-     * <p>守 I10：本桥只 remove 自己管的 registry，不碰状态机 slots。</p>
+     * <p>守唯一写权威：本桥只 remove 自己管的 registry，不碰状态机 slots。</p>
      *
      * @param event 生命周期清理事件
      */

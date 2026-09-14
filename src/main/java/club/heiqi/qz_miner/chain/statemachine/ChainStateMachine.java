@@ -24,7 +24,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 /**
  * 连锁框架状态机：各玩家 `phase` 与 `generation` 的唯一写权威。
  *
- * <p>落地不变量 I10「合法转移表」：状态变更只经此类驱动，且按玩家 UUID 分槽
+ * <p>落地唯一写权威「合法转移表」：状态变更只经此类驱动，且按玩家 UUID 分槽
  * （per-player {@link #slots}）。外部入口只能 {@link ChainEventBus#publish(ChainEvent)} 事件、
  * 不能直接 {@code transition} 切态。越界（非法源→目标组合）即丢弃事件并诊断日志，
  * 不得静默改态或抛异常中断 drain。</p>
@@ -36,10 +36,10 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  *   <li>{@link PlayerPhaseSlot} 私有静态内嵌值对象，构造期 IDLE/0</li>
  * </ul>
  *
- * <h3>线程契约（守 I1/I4）</h3>
+ * <h3>线程契约（守边界不越权与跨线程只经事件总线）</h3>
  * <ul>
  *   <li>本类所有 {@code onXxx} handler 仅被主线程 {@link ChainEventBus#drain()} 调用，
- *       契约上为单线程串行执行，{@link HashMap} 无需加锁（守 I4）</li>
+ *       契约上为单线程串行执行，{@link HashMap} 无需加锁（守跨线程只经事件总线）</li>
  *   <li>worker 线程只 {@code publish} 事件、不直接调任何 handler、不读写 {@link #slots} 字段（I10 对 I1 的延伸保证）</li>
  * </ul>
  *
@@ -57,7 +57,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  * <h3>阶段 4 范围（T4 扩右键观测 + publish PlanStarted 进态广播）</h3>
  * <p>阶段 4 起 T4 ARMED→PLANNING 转移完成后，状态机 <b>publish {@link PlanStarted}</b> 作为进态广播，
  * 供 {@code ChainPlanningEventBridge} 拿到 {@code generation} + origin/dimension/sideHit/hitOffset 上下文
- * 后发起影子 traverser。这是状态机对外广播"我已进 PLANNING"，不是外部改态（守 I10）。
+ * 后发起影子 traverser。这是状态机对外广播"我已进 PLANNING"，不是外部改态（守唯一写权威）。
  * 订阅集仍含 9 个驱动事件：
  * T4 ARMED→PLANNING 由 {@link BlockBreakObserved} 或 {@link RightClickObserved} 或 {@link LeftClickObserved}
  * 三事件入口触发，三者均 {@code ++generation}。
@@ -68,9 +68,9 @@ public class ChainStateMachine {
     /** 注入的事件总线，构造期订阅 9 个驱动事件。 */
     private final ChainEventBus bus;
     /**
-     * per-player 状态槽容器：{@code phase}/{@code generation} 唯一写权威（守 I10）。
+     * per-player 状态槽容器：{@code phase}/{@code generation} 唯一写权威（守唯一写权威）。
      *
-     * <p>守 I4：drain 单线程串行调用 handler，{@link HashMap} 无需加锁。
+     * <p>守跨线程只经事件总线：drain 单线程串行调用 handler，{@link HashMap} 无需加锁。
      * 容器内嵌值对象 {@link PlayerPhaseSlot}，{@link #applyTransition} 是唯一写点。</p>
      */
     private final Map<UUID, PlayerPhaseSlot> slots = new HashMap<UUID, PlayerPhaseSlot>();
@@ -170,7 +170,7 @@ public class ChainStateMachine {
      *
      * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。
      * 命中偏移命中字段（hitX/Y/Z）携带供 INTERACT 模式 flood fill 方向判定，
-     * 是 oracle 决议扩 T4 触发入口（破坏/右键/左键三入口）的根因（见不变量 I10）。</p>
+     * 是 oracle 决议扩 T4 触发入口（破坏/右键/左键三入口）的根因（见「唯一写权威」）。</p>
      *
      * @param event 右键观测事件
      */
@@ -198,7 +198,7 @@ public class ChainStateMachine {
      * 左键方块观测事件：ARMED → PLANNING，并自增代际（T4 左键观测入口，GT 线缆替换模式专用）。
      *
      * <p>阶段8 D1：GT 线缆左键替换观测入口，与破坏观测/右键观测三事件入口对称扩展 T4
-     * （见不变量 I10）。逻辑等同 {@link #onRightClickObserved}——
+     * （见「唯一写权威」）。逻辑等同 {@link #onRightClickObserved}——
      * ARMED 态 ++gen → PLANNING → publish {@link PlanStarted} 携带命中偏移。
      * GT 线缆左键路径 {@code hitX/Y/Z} 默认填 0（1.7.10 {@code PlayerInteractEvent}
      * 左键分支未暴露命中偏移），flood fill 不依赖此值。</p>
@@ -339,9 +339,9 @@ public class ChainStateMachine {
      * <p>阶段7 三路回 IDLE 收口（F.1 W1 + F.2 S1）：</p>
      * <ul>
      *   <li><b>forced=true</b>（F.1 W1）：玩家登出/重生/切维度等生命周期强制清理豁免 genCheck。
-     *       守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</li>
+     *       守生命周期收口：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束。</li>
      *   <li><b>forced=false</b>：执行完成快速收尾路径走 genCheck（gen 已知）。</li>
-     *   <li><b>removeSlot=true</b>（F.2 S1 + P2-1 收口）：LOGOUT 删槽防泄漏，守 I10 唯一写权威（仅本 handler 内 remove）。
+     *   <li><b>removeSlot=true</b>（F.2 S1 + P2-1 收口）：LOGOUT 删槽防泄漏，守唯一写权威：唯一写权威（仅本 handler 内 remove）。
      *       P2-1：IDLE 态 early-return 分支也执行 removeSlot（常见登出场景：玩家完成连锁回 IDLE 后登出）。</li>
      *   <li><b>removeSlot=false</b>：RESPAWN/维度切换/执行完成保槽保 gen 单调。</li>
      * </ul>
@@ -353,7 +353,7 @@ public class ChainStateMachine {
     private void onLifecycleCleanup(LifecycleCleanup event) {
         PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
         // F.1 W1：生命周期强制清理豁免 genCheck（forced=true），执行完成快速路径走 genCheck（forced=false）
-        // 守 I7：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束
+        // 守生命周期收口：玩家都登出了，哪一代都得清；跨包拿不到 slot.generation，强制清理不该受代际约束
         if (!event.isForced()) {
             if (!genCheck(slot, event)) {
                 return;
@@ -362,7 +362,7 @@ public class ChainStateMachine {
         if (slot.phase == ChainPhase.IDLE) {
             // P2-1 收口：IDLE 态 LOGOUT 仍需删槽防泄漏（常见登出场景：玩家完成连锁回 IDLE 后登出）。
             // 原阶段7 实现只在非 IDLE 分支末尾 remove，IDLE early-return 命中后 LOGOUT 意图被吞 → 槽泄漏。
-            // 守 I10：slots.remove 仍在状态机 handler 内（唯一写权威）。
+            // 守唯一写权威：slots.remove 仍在状态机 handler 内（唯一写权威）。
             if (event.isRemoveSlot()) {
                 slots.remove(event.getPlayerUUID());
             }
@@ -373,7 +373,7 @@ public class ChainStateMachine {
         // T8 + T9 合流：任意非 IDLE → IDLE
         applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
         // F.2 S1：LOGOUT 删槽防泄漏；RESPAWN/维度切换/执行完成保槽保 gen 单调。
-        // 守 I10：slots 容器唯一写权威内的 remove（与 applyTransition 唯一写点同处 handler）。
+        // 守唯一写权威：slots 容器唯一写权威内的 remove（与 applyTransition 唯一写点同处 handler）。
         if (event.isRemoveSlot()) {
             slots.remove(event.getPlayerUUID());
         }
@@ -407,7 +407,7 @@ public class ChainStateMachine {
     /**
      * 应用合法转移：改 {@code slot.phase} + debug 日志。非法转移不调用本方法（调用前已过滤）。
      *
-     * <p>守 I10：唯一写点。{@code phase} 与 {@code generation} 均唯一写在本方法内，
+     * <p>守唯一写权威：唯一写点。{@code phase} 与 {@code generation} 均唯一写在本方法内，
      * T4 ARMED→PLANNING 由调用方传 {@code nextGen = slot.generation + 1} 后由本方法写回新代际，
      * 其余路径调用方传 {@code nextGen == slot.generation}，写回幂等无副作用。</p>
      *
@@ -425,7 +425,7 @@ public class ChainStateMachine {
         MyMod.LOG.debug("[ChainStateMachine] transition {} -> {} on {} gen={} player={}",
                 from, to, event.getClass().getSimpleName(), nextGen, player);
         // 阶段6 G1：进态广播（B3 模式延伸），供快照下发订阅者接收"状态机已转移"信号。
-        // 守 I10：状态机 publish 是转移完成后的广播，不是外部改态入口；订阅者只读不可切态。
+        // 守唯一写权威：状态机 publish 是转移完成后的广播，不是外部改态入口；订阅者只读不可切态。
         // 与 T4 路径在 applyTransition 外单独 publish 的 PlanStarted 职责不同（PlanStarted 携带规划上下文，
         // ChainPhaseChanged 携带 from/to 通用进态信号），两者订阅集互不重叠，并行不冲突。
         bus.publish(new ChainPhaseChanged(player, event.getServerRoundId(), nextGen, from, to,
@@ -433,7 +433,7 @@ public class ChainStateMachine {
     }
 
     /**
-     * 越界事件丢弃诊断日志（不抛异常、不改态，守 I10）。
+     * 越界事件丢弃诊断日志（不抛异常、不改态，守唯一写权威）。
      *
      * @param event       越界事件
      * @param from        当前态
@@ -467,7 +467,7 @@ public class ChainStateMachine {
     /**
      * per-player 状态槽值对象：phase 起点 IDLE，generation 起点 0。
      *
-     * <p>私有静态内嵌类，phase 与 generation 均唯一写在 {@link #applyTransition}（守 I10）。</p>
+     * <p>私有静态内嵌类，phase 与 generation 均唯一写在 {@link #applyTransition}（守唯一写权威）。</p>
      */
     private static final class PlayerPhaseSlot {
         /** 玩家当前连锁阶段，唯一写在 {@link #applyTransition}。 */

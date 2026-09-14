@@ -63,7 +63,7 @@ public class PacketKeyState implements IMessage {
             final int keyId = message.keyId;
             final boolean pressed = message.pressed;
             ServerMainThreadDispatcher.run(() -> {
-                // 守 I4：本 lambda 在 ServerMainThreadDispatcher.run 内收口主线程执行（line 60），状态读写已收口
+                // 守跨线程只经事件总线：本 lambda 在 ServerMainThreadDispatcher.run 内收口主线程执行（line 60），状态读写已收口
                 if (player == null) {
                     return;
                 }
@@ -83,7 +83,7 @@ public class PacketKeyState implements IMessage {
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainStateService != null) {
                     MyMod.chainStateService.setPlayerChainKeyPressed(player.getUniqueID(), pressed);
                 }
-                // 守 I4：publish 在 ServerMainThreadDispatcher.run lambda 内（line 60），已收口主线程
+                // 守跨线程只经事件总线：publish 在 ServerMainThreadDispatcher.run lambda 内（line 60），已收口主线程
                 // 阶段3影子并行：保留旧 setPlayerChainKeyPressed，新链路仅推进状态机观测
                 // 输入事件 generation 传 0 豁免代际判定（由转移规则本身约束消费态）
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainEventBus != null) {

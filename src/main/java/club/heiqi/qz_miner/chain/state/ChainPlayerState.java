@@ -17,7 +17,7 @@ import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
  * <p>字段 {@link #dropReleaseConsecutiveFailures}：掉落释放连续失败计数，
  * world-tick 释放路径用，累计超 {@code DROP_RELEASE_MAX_RETRIES} 上限触发 discard 兜底
  * （守四级降级链终点）；{@link #clearRuntimeState(String)} 收口清零，
- * 防跨生命周期残留脏计数（守 I7）。</p>
+ * 防跨生命周期残留脏计数（守生命周期收口）。</p>
  */
 public class ChainPlayerState extends AbstractChainModeState {
 
@@ -44,7 +44,7 @@ public class ChainPlayerState extends AbstractChainModeState {
      *
      * <p>独立于 {@link #executionStatus}/phase/generation，不复用状态机写入口（类比
      * {@link #seedDropCaptureArmed} 独立字段自行管理）。{@link #clearRuntimeState(String)} 收口清零，
-     * 守 I7 生命周期收口，防跨玩家/跨会话残留脏计数。</p>
+     * 守生命周期收口：生命周期收口，防跨玩家/跨会话残留脏计数。</p>
      */
     private volatile int dropReleaseConsecutiveFailures;
 
@@ -61,7 +61,7 @@ public class ChainPlayerState extends AbstractChainModeState {
      * 后立即 {@link #armSeedDropCapture(long)} arm 一次；collector 守卫扩展为
      * {@code (isExecuting() || consumeSeedDropCaptureIfArmed(tick))}，armed 时也收一次。</p>
      *
-     * <p>守不变量 I10（状态机唯一写权威）：本字段独立于 {@link #executionStatus}/phase/generation，
+     * <p>守唯一写权威（状态机唯一写权威）：本字段独立于 {@link #executionStatus}/phase/generation，
      * 不复用 {@link #setExecuting(boolean)} 写入口；{@code volatile} 保证主线程 publish 侧 arm 与
      * 主线程 collector 侧 consume 的可见性（同 tick 同步链路，无跨线程竞争）。</p>
      */
@@ -348,7 +348,7 @@ public class ChainPlayerState extends AbstractChainModeState {
                 clearSession();
             }
         }
-        // 守 I7：掉落释放失败计数随运行时状态一并清零，防跨生命周期残留脏计数
+        // 守生命周期收口：掉落释放失败计数随运行时状态一并清零，防跨生命周期残留脏计数
         // （玩家重生/切维度/克隆后下一轮释放从 0 起算，避免误触发 discard 兜底）。
         resetDropReleaseFailure();
         clearPendingTunnelHit();
@@ -365,7 +365,7 @@ public class ChainPlayerState extends AbstractChainModeState {
      * 后立即调用，记录 arm 时的服务端 tick 戳。collector 侧 {@link #consumeSeedDropCaptureIfArmed(long)}
      * 在同 tick 戳消费一次即清零。</p>
      *
-     * <p>守 I10：不复用 {@link #setExecuting(boolean)}/{@link #setExecutionStatus} 写入口，
+     * <p>守唯一写权威：不复用 {@link #setExecuting(boolean)}/{@link #setExecutionStatus} 写入口，
      * 独立字段，状态机唯一写权威不受影响。</p>
      *
      * @param currentServerTick arm 时的服务端 tick 计数
@@ -414,7 +414,7 @@ public class ChainPlayerState extends AbstractChainModeState {
     /**
      * 重置 world-tick 掉落释放连续失败计数为 0。
      *
-     * <p>释放成功任一级降级后调用；{@link #clearRuntimeState(String)} 生命周期收口时也调用（守 I7）。</p>
+     * <p>释放成功任一级降级后调用；{@link #clearRuntimeState(String)} 生命周期收口时也调用（守生命周期收口）。</p>
      */
     public void resetDropReleaseFailure() {
         dropReleaseConsecutiveFailures = 0;

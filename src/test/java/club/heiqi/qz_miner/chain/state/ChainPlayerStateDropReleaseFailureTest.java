@@ -13,8 +13,8 @@ import org.junit.Test;
  * {@link ChainPlayerState#resetDropReleaseFailure()} 与
  * {@link ChainPlayerState#clearRuntimeState(String)} 收口清零语义。</p>
  *
- * <p>守不变量 I7：失败计数随生命周期收口（{@code clearRuntimeState}）一并清零，
- * 防跨生命周期残留脏计数；守 I10：失败计数独立于 phase/generation/executionStatus，
+ * <p>守生命周期收口：失败计数随生命周期收口（{@code clearRuntimeState}）一并清零，
+ * 防跨生命周期残留脏计数；守唯一写权威：失败计数独立于 phase/generation/executionStatus，
  * 不复用状态机写入口，反之亦然。</p>
  */
 public class ChainPlayerStateDropReleaseFailureTest {
@@ -42,7 +42,7 @@ public class ChainPlayerStateDropReleaseFailureTest {
         Assert.assertEquals("reset 后 increment 应从 1 重新起算", 1, state.incrementDropReleaseFailure());
     }
 
-    /** clearRuntimeState(reason) 触发后失败计数归零（守 I7）。 */
+    /** clearRuntimeState(reason) 触发后失败计数归零（守生命周期收口）。 */
     @Test
     public void clearRuntimeStateZerosFailureCounter() {
         ChainPlayerState state = new ChainPlayerState(PLAYER);
@@ -51,12 +51,12 @@ public class ChainPlayerStateDropReleaseFailureTest {
         state.incrementDropReleaseFailure();
         // clearRuntimeState 模拟生命周期收口（无 session 路径仍可达 reset 分支）
         state.clearRuntimeState("test-lifecycle");
-        Assert.assertEquals("clearRuntimeState 后再次 increment 应从 1 起算（守 I7）",
+        Assert.assertEquals("clearRuntimeState 后再次 increment 应从 1 起算（守生命周期收口）",
             1, state.incrementDropReleaseFailure());
     }
 
     /**
-     * 失败计数与 executionStatus 写入口隔离（守 I10）。
+     * 失败计数与 executionStatus 写入口隔离（守唯一写权威）。
      *
      * <p>方向 A：increment/reset 失败计数不动 executionStatus。
      * 方向 B：setExecuting/setExecutionStatus 不动失败计数。</p>

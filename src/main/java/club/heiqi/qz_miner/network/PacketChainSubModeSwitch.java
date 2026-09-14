@@ -85,7 +85,7 @@ public class PacketChainSubModeSwitch implements IMessage {
                 if (state.getSelectedSubMode() == previousSubMode) {
                     return;
                 }
-                // 守 I4：publish 在 ServerMainThreadDispatcher.run lambda 内（line 49），已收口主线程
+                // 守跨线程只经事件总线：publish 在 ServerMainThreadDispatcher.run lambda 内（line 49），已收口主线程
                 // 阶段3影子并行：保留旧 setPlayerSelectedSubMode，新链路仅推进状态机观测
                 // 输入事件 generation 传 0 豁免代际判定
                 if (MyMod.chainEventBus != null) {

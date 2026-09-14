@@ -20,10 +20,10 @@ import io.netty.buffer.ByteBuf;
  * {@code CommonProxy.handleClientChainConfigSync}；ClientProxy 按 connection identity
  * capture token，经主线程整包校验后 connection-active gate 再写状态。</p>
  *
- * <h3>守不变量</h3>
+ * <h3>守框架约束</h3>
  * <ul>
- *   <li><b>I1</b>：本包是只读配置下发，不要求客户端切态、不碰世界。</li>
- *   <li><b>I4</b>：Handler 在 Netty 线程只捕获纯数据与 common {@code INetHandler}，不触碰客户端状态。</li>
+ *   <li><b>边界不越权</b>：本包是只读配置下发，不要求客户端切态、不碰世界。</li>
+ *   <li><b>跨线程只经事件总线</b>：Handler 在 Netty 线程只捕获纯数据与 common {@code INetHandler}，不触碰客户端状态。</li>
  * </ul>
  */
 public class PacketChainConfigSync implements IMessage {
@@ -96,7 +96,7 @@ public class PacketChainConfigSync implements IMessage {
     /**
      * Netty 线程 Handler：捕获包内纯数据与 {@code ctx.netHandler}，转交 proxy。
      *
-     * <p>守 I4：common packet 类不依赖 client-only dispatcher / {@code NetHandlerPlayClient}，
+     * <p>守跨线程只经事件总线：common packet 类不依赖 client-only dispatcher / {@code NetHandlerPlayClient}，
      * 避免 dedicated server 类加载风险。不逐包打成功 debug。</p>
      */
     public static class Handler implements IMessageHandler<PacketChainConfigSync, IMessage> {

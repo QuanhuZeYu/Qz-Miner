@@ -5,7 +5,7 @@ import java.util.UUID;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 
 /**
- * 看门狗超时事件（FINISHING/看门狗，守不变量 I2/I9 显式收尾）。
+ * 看门狗超时事件（FINISHING/看门狗，协作式取消 → 显式收尾）。
  */
 public final class WatchdogTimeout extends ChainEvent {
 

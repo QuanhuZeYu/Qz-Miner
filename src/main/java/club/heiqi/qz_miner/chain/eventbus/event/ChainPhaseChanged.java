@@ -22,11 +22,11 @@ import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
  * <p>序列化优化：内部以 {@code int ordinal} 存储 from/to（{@link ChainPhase} 枚举已是 5 态稳定），
  * 省网络字节；getter 返回 {@link ChainPhase} 枚举便于消费方使用。</p>
  *
- * <p>守不变量 I1/I10：</p>
+ * <p>守边界不越权与唯一写权威：</p>
  * <ul>
- *   <li><b>I1</b>：不可变事件，所有字段 {@code final}，构造后不可修改，
+ *   <li><b>边界不越权</b>：不可变事件，所有字段 {@code final}，构造后不可修改，
  *       可安全跨线程传递（主线程 drain publish → Netty 线程读 → 客户端主线程 drain）。</li>
- *   <li><b>I10</b>：本事件是状态机转移完成后的<b>广播</b>，不是外部改态入口；外部订阅者只读不可切态。</li>
+ *   <li><b>唯一写权威</b>：本事件是状态机转移完成后的<b>广播</b>，不是外部改态入口；外部订阅者只读不可切态。</li>
  * </ul>
  */
 public final class ChainPhaseChanged extends ChainEvent {

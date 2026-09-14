@@ -7,12 +7,12 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 /**
  * 玩家左键方块被观测到事件（GT 线缆替换模式专用，T4 第三入口）。
  *
- * <p>守不变量 I1：不可变事件，所有字段 {@code final}，构造后不可修改，
+ * <p>守边界不越权：不可变事件，所有字段 {@code final}，构造后不可修改，
  * 可安全跨线程传递（Netty IO 线程 publish → 主线程 drain）。</p>
  *
  * <p>阶段8 D1：GT 线缆左键替换观测事件，与 {@link BlockBreakObserved}（CHAIN/AREA 模式）
  * 及 {@link RightClickObserved}（INTERACT 模式）对称——三者共同构成 T4 ARMED→PLANNING 的
- * 三事件入口（见不变量 I10）。GT 线缆左键替换必须以左键触发
+ * 三事件入口（见「唯一写权威」）。GT 线缆左键替换必须以左键触发
  * （{@code PlayerInteractEvent.Action.LEFT_CLICK_BLOCK}），原 {@code GregTechCableReplacePlanner}
  * 直接调 {@code startPlanning} 旧链路删除后改 publish 本事件由状态机统一推进。</p>
  *

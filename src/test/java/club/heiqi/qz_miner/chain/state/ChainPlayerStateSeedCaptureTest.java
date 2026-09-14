@@ -12,7 +12,7 @@ import org.junit.Test;
  * 仅覆盖 {@link ChainPlayerState#armSeedDropCapture(long)} 与
  * {@link ChainPlayerState#consumeSeedDropCaptureIfArmed(long)} 的一次性 + 同 tick 戳语义。</p>
  *
- * <p>守不变量 I10：armed 标志独立于 phase/generation/executionStatus，
+ * <p>守唯一写权威：armed 标志独立于 phase/generation/executionStatus，
  * 不复用 {@link ChainPlayerState#setExecuting(boolean)} 写入口，本测验证其不污染执行状态。</p>
  */
 public class ChainPlayerStateSeedCaptureTest {

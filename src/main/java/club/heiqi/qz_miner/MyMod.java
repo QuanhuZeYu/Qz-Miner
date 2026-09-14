@@ -95,7 +95,7 @@ public class MyMod {
     public static AutoToolSwapRoundPhaseProjectionBridge autoToolSwapRoundPhaseProjectionBridge;
     /** 阶段7：连锁看门狗（A 异常兜底），N tick 无推进 publish WatchdogTimeout 协作式回 IDLE（T10）。 */
     public static ChainWatchdog chainWatchdog;
-    /** 阶段7：连锁生命周期桥（B 生命周期收口），平行订阅 PlayerStateEvent 转 LifecycleCleanup（守 I7）。 */
+    /** 阶段7：连锁生命周期桥（B 生命周期收口），平行订阅 PlayerStateEvent 转 LifecycleCleanup（守生命周期收口）。 */
     public static ChainLifecycleBridge chainLifecycleBridge;
 
     /**
@@ -173,10 +173,10 @@ public class MyMod {
         chainExecutionEventBridge = ChainExecutionEventBridge.withLocalToolSwap(
                 chainEventBus, chainExecutionContextRegistry, autoToolSwapServerBatchService);
         // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
-        // 守 I1：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
+        // 守边界不越权：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
         // 阶段8 块3 F3-a：配置下发桥，订阅 PlanCompleted（matchedCount 真值 = totalTargets）+ LOGIN（基础 config）。
-        // 守 I1：只 sendTo 下发配置，不碰世界；接替旧八字段链删除后的 radius/maxBlocks/matchedCount 客户端同步。
+        // 守边界不越权：只 sendTo 下发配置，不碰世界；接替旧八字段链删除后的 radius/maxBlocks/matchedCount 客户端同步。
         chainConfigProjectionBridge = new ChainConfigProjectionBridge(chainEventBus);
         autoToolSwapRoundPhaseProjectionBridge = new AutoToolSwapRoundPhaseProjectionBridge(
                 chainEventBus, autoToolSwapRoundService);

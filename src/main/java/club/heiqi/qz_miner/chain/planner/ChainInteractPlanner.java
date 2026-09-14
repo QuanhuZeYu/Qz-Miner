@@ -71,7 +71,7 @@ public class ChainInteractPlanner {
         // 后续 drain/规划不得用已经被本次右键改变的 live world 覆盖。
         FrozenInteractSeed frozenSeed = freezeInteractSeed(player, resolvedTarget);
         HitOffset hitOffset = resolveHitOffset(resolvedTarget);
-        // 守 I1：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
+        // 守边界不越权：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
         // 阶段8：旧 startPlanning 已删，仅 publish 走新链路 T4 右键观测入口
         // 输入事件 generation 传 0 豁免代际判定；命中偏移携带是 T4 扩右键的根因
         if (MyMod.chainEventBus != null) {
