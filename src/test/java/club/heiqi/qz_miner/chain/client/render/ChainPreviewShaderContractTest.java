@@ -324,48 +324,56 @@ public class ChainPreviewShaderContractTest {
                 "固定管线内建 gl_ModelViewProjectionMatrix：");
         assertHasErrorContaining(checkVertex("    gl_Position = gl_ModelViewMatrix * vec4(aPos, 1.0);\n"),
                 "固定管线内建 gl_ModelViewMatrix：");
+        assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_ProjectionMatrix[0][0]);\n"),
+                "固定管线内建 gl_ProjectionMatrix：");
         // 固定管线几何/属性输入：几何与属性一律来自显式 attribute（接口冻结 §A）。
         assertHasErrorContaining(checkVertex("    gl_Position = gl_Vertex;\n"), "固定管线内建 gl_Vertex：");
         assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_MultiTexCoord0.xy, 0.0, 1.0);\n"),
                 "固定管线内建 gl_MultiTexCoord0：");
-        // 矩阵变体不得被后缀绕过（禁用清单按族覆盖 Inverse / Transpose / InverseTranspose）。
+        // 矩阵变体不得被后缀绕过：禁用清单按族覆盖 Inverse / Transpose / InverseTranspose。
         assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_ModelViewMatrixInverse[0][0]);\n"),
                 "固定管线内建 gl_ModelViewMatrixInverse：");
-        assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_NormalMatrix[0][0]);\n"),
-                "固定管线内建 gl_NormalMatrix：");
+        assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_ProjectionMatrixInverseTranspose[0][0]);\n"),
+                "固定管线内建 gl_ProjectionMatrixInverseTranspose：");
     }
 
     /**
-     * 前缀/后缀重叠的内建名必须按<b>整词</b>判定：短名与长名各自独立命中，不得互相冒名或漏报。
+     * 重叠的内建名必须按<b>整词</b>判定：每个名字只由自己命中，既不漏报也不冒名。
      *
-     * <p>断言里带上全角冒号，是为了让「名字」成为消息里的完整一段：否则
-     * {@code "…内建 gl_ModelViewMatrix"} 会成为 {@code "…内建 gl_ModelViewMatrixInverse"}
-     * 的前缀，反误伤断言自己就失效了。</p>
+     * <p>四组用例对应两种真实的错法（名字关系先用 Python 复核过）：<b>漏报</b>——
+     * {@code gl_ModelViewMatrix} 与 {@code gl_ModelViewProjectionMatrix} 互不为子串，按短名查会整条
+     * 丢掉长名；<b>冒名</b>——{@code gl_ModelViewMatrix} 是 {@code gl_ModelViewMatrixInverse} 的真子串，
+     * {@code gl_Normal} 是 {@code gl_NormalMatrix} 的真子串（而且这四个名字都在禁用名单里），子串匹配
+     * 会在只写了长名时额外冒出一条短名的错误。</p>
+     *
+     * <p>断言里带上全角冒号，是为了让「名字」成为消息里的完整一段：否则 {@code "…内建 gl_Normal"}
+     * 会成为 {@code "…内建 gl_NormalMatrix"} 的前缀，反误伤断言自己就失效了。</p>
      */
     @Test
     public void fixedPipelineRuleMatchesWholeBuiltinNamesOnly() {
-        // 只出现短名：报短名，且不得报出长名。
+        // 漏报方向：只出现长名时必须由长名自己命中。
+        List<Glsl120StaticChecker.Finding> longOnly = checkVertex(
+                "    gl_Position = gl_ModelViewProjectionMatrix * vec4(aPos, 1.0);\n");
+        assertHasErrorContaining(longOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
+        assertNoErrorContaining(longOnly, "固定管线内建 gl_ModelViewMatrix：");
+
+        // 反方向：只出现短名时也必须命中，且不得冒充长名。
         List<Glsl120StaticChecker.Finding> shortOnly = checkVertex(
                 "    gl_Position = gl_ModelViewMatrix * vec4(aPos, 1.0);\n");
         assertHasErrorContaining(shortOnly, "固定管线内建 gl_ModelViewMatrix：");
         assertNoErrorContaining(shortOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
 
-        // 只出现长名：必须报长名。注意 "gl_ModelViewProjectionMatrix" 里<b>没有</b>
-        // "gl_ModelViewMatrix" 这个子串，所以「按 contains 查短名」在这里恒为假、整条漏报。
-        List<Glsl120StaticChecker.Finding> longOnly = checkVertex(
-                "    gl_Position = gl_ModelViewProjectionMatrix * vec4(aPos, 1.0);\n");
-        assertHasErrorContaining(longOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
-        assertNoErrorContaining(longOnly, "固定管线内建 gl_ModelViewMatrix：");
-        // 后缀陷阱：gl_ProjectionMatrix 是 gl_ModelViewProjectionMatrix 的后缀，
-        // 按 contains/endsWith 匹配的实现会在这里额外冒出一条「gl_ProjectionMatrix」的错误。
-        assertNoErrorContaining(longOnly, "固定管线内建 gl_ProjectionMatrix：");
+        // 冒名方向一：gl_ModelViewMatrix ⊂ gl_ModelViewMatrixInverse。
+        List<Glsl120StaticChecker.Finding> inverseOnly = checkVertex(
+                "    gl_Position = vec4(gl_ModelViewMatrixInverse[0][0]);\n");
+        assertHasErrorContaining(inverseOnly, "固定管线内建 gl_ModelViewMatrixInverse：");
+        assertNoErrorContaining(inverseOnly, "固定管线内建 gl_ModelViewMatrix：");
 
-        // 后缀重叠：gl_ProjectionMatrix 是 gl_ModelViewProjectionMatrix 的后缀，二者不得互相冒名。
-        List<Glsl120StaticChecker.Finding> projectionOnly = checkVertex(
-                "    gl_Position = vec4(gl_ProjectionMatrix[0][0]);\n");
-        assertHasErrorContaining(projectionOnly, "固定管线内建 gl_ProjectionMatrix：");
-        assertNoErrorContaining(projectionOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
-        assertNoErrorContaining(projectionOnly, "固定管线内建 gl_ModelViewMatrix：");
+        // 冒名方向二（最贴近的陷阱）：gl_Normal ⊂ gl_NormalMatrix，两个名字都在禁用名单里。
+        List<Glsl120StaticChecker.Finding> normalMatrixOnly = checkVertex(
+                "    gl_Position = vec4(gl_NormalMatrix[0][0]);\n");
+        assertHasErrorContaining(normalMatrixOnly, "固定管线内建 gl_NormalMatrix：");
+        assertNoErrorContaining(normalMatrixOnly, "固定管线内建 gl_Normal：");
     }
 
     /**

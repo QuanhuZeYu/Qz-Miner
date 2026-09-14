@@ -43,12 +43,17 @@ final class Glsl120StaticChecker {
      * 「本项目允不允许用它」（接口决策）。所以同一个名字可以「是合法内建」且「被本项目禁用」，
      * 而报错只有一条、只讲真正的原因。</p>
      *
-     * <p><b>为什么必须整词匹配</b>：禁用名之间有前缀/后缀重叠——{@code gl_ModelViewMatrix} 是
-     * {@code gl_ModelViewMatrixInverse} 的前缀、又与 {@code gl_ModelViewProjectionMatrix} 共享
-     * {@code gl_ModelView}，而 {@code gl_ProjectionMatrix} 还是 {@code gl_ModelViewProjectionMatrix}
-     * 的后缀。子串匹配两头都会错：{@code "gl_ModelViewProjectionMatrix".contains("gl_ModelViewMatrix")}
-     * 为 <b>false</b>（长名漏报），按后缀/词干匹配又会把长名报成短名（误报）。因此判定统一走
-     * {@link #scanIdentifiers}：它只吐完整 GLSL 标识符 token，相等即命中。</p>
+     * <p><b>为什么必须整词匹配</b>：禁用名之间有两种方向相反的重叠，一种让子串匹配漏报、另一种让它
+     * 误报——{@code gl_ModelViewMatrix} 与 {@code gl_ModelViewProjectionMatrix} 只共享 12 字符前缀
+     * {@code gl_ModelView} 而<b>互不为子串</b>，于是
+     * {@code "gl_ModelViewProjectionMatrix".contains("gl_ModelViewMatrix")} 为 {@code false}，
+     * 按短名匹配会整条漏报长名；而 {@code gl_ModelViewMatrix} 又确实是
+     * {@code gl_ModelViewMatrixInverse} / {@code …Transpose} / {@code …InverseTranspose} 的<b>真子串</b>
+     * （{@code gl_Normal} 之于 {@code gl_NormalMatrix} 同理，且两者都在禁用名单里），子串匹配会在这些
+     * 名字上冒充短名多报一条。非禁用名还贴着同一片前缀区：{@code gl_Position} / {@code gl_PointSize} /
+     * {@code gl_PointCoord} 与 {@code gl_ProjectionMatrix*} 只共享 4 字符前缀 {@code gl_P}，任何把族名
+     * 截短成词干的松匹配都会误伤它们。结论：安全判据只有「完整标识符相等」，判定统一走
+     * {@link #scanIdentifiers}——它只吐完整 GLSL 标识符 token，相等即命中。</p>
      *
      * <p><b>禁的是两类「静默失效」</b>：</p>
      * <ol>
