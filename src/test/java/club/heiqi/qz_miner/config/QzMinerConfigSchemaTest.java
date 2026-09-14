@@ -81,6 +81,7 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientPreviewMaxTargetsHardCap", FieldType.NUMBER, Double.valueOf(4096.0D)},
                 {"client.clientPreviewLod", FieldType.CHOICE, "off"},
                 {"client.clientPreviewLodMinAlpha", FieldType.NUMBER, Double.valueOf(0.05D)},
+                {"client.clientPreviewOrderMinAlpha", FieldType.NUMBER, Double.valueOf(0.45D)},
                 {"client.clientPreviewSuppressVanillaHighlight", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewVersionedInputs", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewPresentationOverlay", FieldType.BOOLEAN, Boolean.FALSE},

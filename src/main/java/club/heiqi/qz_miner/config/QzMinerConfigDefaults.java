@@ -106,6 +106,14 @@ public final class QzMinerConfigDefaults {
     public static final String CLIENT_PREVIEW_LOD = PreviewLodMode.defaultValue().id();
     /** LOD alpha 剔除阈值。 */
     public static final double CLIENT_PREVIEW_LOD_MIN_ALPHA = 0.05D;
+    /**
+     * 连锁序（appearOrder）alpha 权重下限：预览集合里序号最大（离瞄准起点最远）处乘的权重。
+     *
+     * <p>{@code 1.0} = 关闭本能力（逐值等于现状），{@code 0.45}（默认）= 起点 1.0、最远 0.45。
+     * 归一化分母是「同代目标总数」{@code uAppearSpan}；公式、门控与「未定义序号恒 1.0」的判据见
+     * {@code chain.client.render.ChainPreviewShaderMath#orderWeight}（与 preview.vert 逐值同形）。</p>
+     */
+    public static final double CLIENT_PREVIEW_ORDER_MIN_ALPHA = 0.45D;
     /** 预览激活时是否取消同目标的原版方块高亮。 */
     public static final boolean CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT = false;
     /** 是否使用版本化预览输入快照（含目标去抖；本轮默认 false；接线属下一批 B1.2）。 */
@@ -180,6 +188,7 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewMaxTargetsHardCap", Double.valueOf(CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP));
         target.put("client.clientPreviewLod", CLIENT_PREVIEW_LOD);
         target.put("client.clientPreviewLodMinAlpha", Double.valueOf(CLIENT_PREVIEW_LOD_MIN_ALPHA));
+        target.put("client.clientPreviewOrderMinAlpha", Double.valueOf(CLIENT_PREVIEW_ORDER_MIN_ALPHA));
         target.put("client.clientPreviewSuppressVanillaHighlight",
                 Boolean.valueOf(CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT));
         target.put("client.clientPreviewVersionedInputs", Boolean.valueOf(CLIENT_PREVIEW_VERSIONED_INPUTS));

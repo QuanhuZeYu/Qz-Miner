@@ -39,6 +39,15 @@
  *                        且失败不可观测；显式化后矩阵可读、可断言，后端可自检并回退 legacy
  *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
  *        「两 pass 叠色」行为——固定管线做外扩必须改 CPU 几何，会破坏 B4.1 的增量/差分等价。
+ *   9) 连锁序渐弱（本项目新增，**非 §F 冻结项**）—— 与第 3 项**共用同一次** appearOrder 还原
+ *                        （u16 只组装一次，任一消费方不需要时都不读），按归一化连锁序把 alpha 从
+ *                        1.0 线性降到 uOrderMinAlpha（配置 clientPreviewOrderMinAlpha，默认 0.45）：
+ *                        t = clamp(floor(min(order, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)，
+ *                        orderWeight = 1.0 − (1.0 − uOrderMinAlpha) × t。
+ *                        门控：uOrderMinAlpha >= 1.0 时**完全不进入**该分支（逐值等于现状）；
+ *                        序号未定义（0xFFFF）或 uAppearSpan <= 0 时权重恒 1.0。
+ *                        分母 uAppearSpan 由 Java 侧逐帧供给，其取值语义（默认档为 0）见
+ *                        ChainPreviewShaderBackend#orderMinAlphaFor 的说明。
  *
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
  * 形状一致（d <= fadeStart → uMaxAlpha；d >= fadeEnd → uMinAlpha；之间按 t^2 插值），
@@ -84,6 +93,9 @@ uniform float uOutlineWidthPx;   // 真描边（B3.x）外扩宽度（物理像�
                                  // xray / occlude 与 OUTLINE 主体 pass 都必须为 0 ⇒ 逐值等于现状
 uniform float uFaceShading;      // 面朝向明暗（face shading）开关：0 = 关闭（默认，等于接线前观感），1 = 开启
                                  // 关闭时必须**完全不进入乘色分支**，保证逐字节等于现状
+uniform float uOrderMinAlpha;    // 连锁序渐弱（第 9 项）的 alpha 权重下限：1 = 关闭（= 接线前观感）
+                                 // 关闭时必须**完全不进入 orderWeight 分支**，保证逐值等于现状；
+                                 // 序号未定义 / uAppearSpan <= 0 时该分支也保持恒等 1.0
 
 // 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表）。
 // builtin 档四色都是精确基线常量 (0.25, 0.9, 1.0) ⇒ 输出逐字节等于现状。
@@ -174,26 +186,43 @@ void main(void) {
     vec3 cameraRelative = uOriginRel + aPos;
 
     float fade = 1.0;
-    float appearOrder = 0.0;
     if (uFadeStart < uFadeEnd) {
         fade = fadeAlpha(length(cameraRelative));
     }
 
-    // 3) 逐波生长：逐顶点比较 order <= round(uAnimProgress * 目标总数)，不要求索引有序（Lead 裁定）。
-    //    判据落在「出现序号的一格」内：u=0 时全隐（order=0 的顶点也要等 u 超过 1/total），
-    //    u 从 0→1 时可见顶点数单调递增。整式在 u∈[0,1] 上单调不减，故不存在「先显后隐」。
-    //    uAnimProgress >= 1 时整段可见，完全不读 appearOrder（避免逐顶点分支拖慢整段绘制）。
-    //    0xFFFF（未定义序号）按「已出现」处理，避免无归属顶点在任意进度下出现空洞。
+    // 3) 逐波生长 + 9) 连锁序渐弱：两个消费方**共用同一次** appearOrder 还原（u16 只组装一次）。
+    //    读取门控 = 「至少一个消费方需要」，不再只挂在生长上（那是第 3 项独占时的省开销短路）：
+    //      · 生长：uAnimProgress < 1.0 && uAppearSpan > 0.0 —— u >= 1 整段可见，无需读序号；
+    //      · 权重：uOrderMinAlpha < 1.0 && uAppearSpan > 0.0 —— uAppearSpan <= 0 时恒等（见下）。
+    //    两者都不需要时整段不读 aAux.z / aAux.w，逐顶点分支开销与接线前一致。
+    //    0xFFFF（未定义序号）在两个消费方都按「已出现 / 权重 1.0」处理，避免无归属顶点在任意
+    //    进度下出现空洞、或在任意进度下被异常压暗。
     float growth = 1.0;
-    if (uAnimProgress < 1.0 && uAppearSpan > 0.0) {
-        appearOrder = auxChannel(aAux.z) + auxChannel(aAux.w) * 256.0;
+    float orderWeight = 1.0;
+    bool growthActive = uAnimProgress < 1.0 && uAppearSpan > 0.0;
+    bool orderWeightActive = uOrderMinAlpha < 1.0 && uAppearSpan > 0.0;
+    if (growthActive || orderWeightActive) {
+        float appearOrder = auxChannel(aAux.z) + auxChannel(aAux.w) * 256.0;
         if (appearOrder < 65535.0) {
-            // 判据：orderFloor <= u × 目标总数 ⟺ order <= round(u × 总数)。
-            // 用「序号格」而非「归一化相等」避免 float 边界抖动；u=0 时恒 0（全隐）。
+            // 序号格（两个消费方共用同一格边界，故同一条柱内不会出现生长与权重的格错位）。
             float orderFloor = floor(min(appearOrder, uAppearSpan));
-            growth = clamp(uAnimProgress * uAppearSpan - orderFloor, 0.0, 1.0);
+            if (growthActive) {
+                // 判据：orderFloor <= u × 目标总数 ⟺ order <= round(u × 总数)。
+                // 用「序号格」而非「归一化相等」避免 float 边界抖动；u=0 时恒 0（全隐）。
+                growth = clamp(uAnimProgress * uAppearSpan - orderFloor, 0.0, 1.0);
+            }
+            if (orderWeightActive) {
+                // 9) 连锁序渐弱：序号越小越靠近瞄准起点。分母是「同代目标总数」，
+                //    起点 order = 0 ⇒ t = 0 ⇒ 权重 1.0；最远 order >= span ⇒ t = 1 ⇒ 权重 = uOrderMinAlpha。
+                //    门控已在上面表达（uOrderMinAlpha >= 1.0 ⇒ orderWeightActive 为假 ⇒ 整段不执行），
+                //    这里不再重复判一次，避免出现第二个真源。
+                float t = clamp(orderFloor / max(uAppearSpan, 1.0), 0.0, 1.0);
+                orderWeight = 1.0 - (1.0 - uOrderMinAlpha) * t;
+            }
         }
     }
+    //    本次是 GLSL **逻辑**变更：按头部「实机验证记录」口径，需真机确认无异常后才追加标记行；
+    //    现有标记行覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
 
     // 几何位置必须保持与 legacy 完全一致。aPos 已经是 MeshBuilder 生成的
     // 条柱/连接块顶点，不能从其相对 origin 的绝对坐标猜测横向轴：长条端点、
@@ -252,9 +281,10 @@ void main(void) {
     // 颜色与 alpha：vColor.rgb 是「语义类别色」（非预乘），alpha 单独传给混合。
     // 共用混合是 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)（两后端共用）：
     // 预乘 alpha 会让最终 src 变成 rgb × alpha²（alpha=0.15 时 0.0225 vs 0.15）。
-    // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）。
-    // uFadeAlpha = 1 时与启用动画前逐值一致（乘 1 不改变结果）。
-    float alpha = fade * growth * uFadeAlpha;
+    // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）× 连锁序权重（第 9 项）。
+    // uFadeAlpha = 1 与 orderWeight = 1.0 都是**精确 1.0 的乘法**（关闭档 / 未定义序号 /
+    // 无同代目标总数时 orderWeight 保持初值 1.0），故两档都与接线前逐值一致。
+    float alpha = fade * growth * uFadeAlpha * orderWeight;
     // 描边 pass 用主色（outline 轮廓统一色，不参与语义分类）；其余情况按 semanticClass 取色。
     // 取色仍在顶点阶段（F1），alpha 包络 fade × growth × uFadeAlpha 不受描边分支影响。
     vec3 color = previewSemanticColor(auxChannel(aAux.x));

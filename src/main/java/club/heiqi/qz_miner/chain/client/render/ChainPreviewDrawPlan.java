@@ -83,6 +83,14 @@ public final class ChainPreviewDrawPlan {
         /** 屏幕最小宽度基线默认（§E：0.0 = 不钳制）。 */
         public static final float DEFAULT_MIN_SCREEN_WIDTH_PX = 0.0F;
 
+        /**
+         * 连锁序 alpha 权重下限的基线默认（{@code 1.0} = 关闭本能力，恒等）。
+         *
+         * <p>刻意<b>不</b>取配置默认 0.45（理由见 {@link #BASELINE}）：与 faceShading 同属例外项，
+         * 「拿不到配置」不能读作「用户选择了 0.45」。</p>
+         */
+        public static final float DEFAULT_ORDER_MIN_ALPHA = 1.0F;
+
         /** 距离淡出基线默认（与 ChainPreviewVisualSettings 的 NaN 兜底逐值同源）。 */
         public static final float DEFAULT_FADE_START_RADIUS = 2.0F;
         public static final float DEFAULT_FADE_END_RADIUS = 6.0F;
@@ -90,11 +98,11 @@ public final class ChainPreviewDrawPlan {
         public static final float DEFAULT_ALPHA_END = 0.15F;
 
         /**
-         * settings 缺失 / 字段 NaN 时的最后防线：除 faceShading 外与配置默认逐项同值。
+         * settings 缺失 / 字段 NaN 时的最后防线：除 faceShading 与 orderMinAlpha 外与配置默认逐项同值。
          *
-         * <p>faceShading 是刻意的例外：本兜底路径的语义是「拿不到配置」，保持关闭才等于历史
-         * 观感；配置默认虽已上调为开启（见 QzMinerConfigDefaults），但「读不到配置」不等于
-         * 「用户选择了开启」。</p>
+         * <p>这两项是刻意的例外：本兜底路径的语义是「拿不到配置」，保持关闭 / 恒等才等于历史
+         * 观感；配置默认虽已上调（面明暗开启、连锁序权重下限 0.45，见 QzMinerConfigDefaults），
+         * 但「读不到配置」不等于「用户选择了开启」。</p>
          */
         public static final Visuals BASELINE = new Visuals(
             DEFAULT_BAR_THICKNESS,
@@ -318,6 +326,7 @@ public final class ChainPreviewDrawPlan {
         private final boolean outlineShell;
         private final float outlineWidthPx;
         private final boolean faceShading;
+        private final float orderMinAlpha;
 
         /**
          * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出）+ builtin 颜色，保留既有调用点签名。
@@ -450,7 +459,7 @@ public final class ChainPreviewDrawPlan {
         }
 
         /**
-         * 完整构造（本轮追加面朝向明暗一参）。
+         * 15 参构造：连锁序权重未显式传入时按 {@link #DEFAULT_ORDER_MIN_ALPHA}（= 1.0，关闭）处理。
          *
          * @param faceShading 是否按面朝向烘焙明暗（配置 clientPreviewFaceShading）；
          *                    false 时后端不进入乘色分支，输出逐字节等于现状
@@ -470,6 +479,34 @@ public final class ChainPreviewDrawPlan {
                 boolean outlineShell,
                 float outlineWidthPx,
                 boolean faceShading) {
+            this(barThickness, minScreenWidthPx, animationU, fadeStartRadius, fadeEndRadius,
+                alphaStart, alphaEnd, depthChannel, fadeAlpha, colors, lod,
+                outlineShell, outlineWidthPx, faceShading, DEFAULT_ORDER_MIN_ALPHA);
+        }
+
+        /**
+         * 完整构造（本轮追加连锁序 alpha 权重下限一参）。
+         *
+         * @param orderMinAlpha 连锁序 alpha 权重下限（配置 clientPreviewOrderMinAlpha，读取面已收窄到
+         *                      [0,1]）；{@code 1.0} = 后端传 1.0 给 {@code uOrderMinAlpha}，
+         *                      preview.vert 完全不进入 orderWeight 分支 ⇒ 输出逐值等于现状
+         */
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha,
+                Colors colors,
+                Lod lod,
+                boolean outlineShell,
+                float outlineWidthPx,
+                boolean faceShading,
+                float orderMinAlpha) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -484,6 +521,7 @@ public final class ChainPreviewDrawPlan {
             this.outlineShell = outlineShell && outlineWidthPx > 0.0F;
             this.outlineWidthPx = this.outlineShell ? outlineWidthPx : 0.0F;
             this.faceShading = faceShading;
+            this.orderMinAlpha = orderMinAlpha;
         }
 
         public float getBarThickness() {
@@ -522,7 +560,8 @@ public final class ChainPreviewDrawPlan {
                 lod,
                 false,
                 0.0F,
-                faceShading);
+                faceShading,
+                orderMinAlpha);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -595,7 +634,8 @@ public final class ChainPreviewDrawPlan {
                 lod,
                 false,
                 0.0F,
-                faceShading);
+                faceShading,
+                orderMinAlpha);
         }
 
         /** @return 深度通道，永不为 null */
@@ -653,6 +693,16 @@ public final class ChainPreviewDrawPlan {
         }
 
         /**
+         * @return 连锁序 alpha 权重下限；{@code 1.0} = 关闭本能力（后端传 1.0，GLSL 不进入该分支）
+         *
+         * <p>消费链：{@code ChainPreviewShaderBackend#orderMinAlphaFor} → {@code uOrderMinAlpha}
+         * → preview.vert 的 {@code orderWeight}。legacy 固定管线不消费本值。</p>
+         */
+        public float getOrderMinAlpha() {
+            return orderMinAlpha;
+        }
+
+        /**
          * 派生：标记 / 取消描边壳段（B3.x 真描边）。
          *
          * <p>只改本对象的描边两参，其余字段原样复制；规范化口径与完整构造一致
@@ -684,7 +734,8 @@ public final class ChainPreviewDrawPlan {
                 lod,
                 nextShell,
                 nextWidth,
-                faceShading);
+                faceShading,
+                orderMinAlpha);
         }
 
         /** @return 收窄 NaN / 越界后的视觉参数；本就规范时返回自身 */
@@ -712,6 +763,8 @@ public final class ChainPreviewDrawPlan {
             if (!safeOutlineShell) {
                 safeOutlineWidth = 0.0F;
             }
+            float safeOrderMinAlpha = clampFinite(
+                orderMinAlpha, 0.0F, 1.0F, DEFAULT_ORDER_MIN_ALPHA);
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx
                     && safeAnimationU == animationU
@@ -724,7 +777,8 @@ public final class ChainPreviewDrawPlan {
                     && safeColors == colors
                     && safeLod == lod
                     && safeOutlineShell == outlineShell
-                    && safeOutlineWidth == outlineWidthPx) {
+                    && safeOutlineWidth == outlineWidthPx
+                    && safeOrderMinAlpha == orderMinAlpha) {
                 return this;
             }
             return new Visuals(
@@ -741,7 +795,8 @@ public final class ChainPreviewDrawPlan {
                 safeLod,
                 safeOutlineShell,
                 safeOutlineWidth,
-                faceShading);
+                faceShading,
+                safeOrderMinAlpha);
         }
 
         @Override
@@ -765,6 +820,7 @@ public final class ChainPreviewDrawPlan {
                 && outlineShell == that.outlineShell
                 && Float.compare(outlineWidthPx, that.outlineWidthPx) == 0
                 && faceShading == that.faceShading
+                && Float.compare(orderMinAlpha, that.orderMinAlpha) == 0
                 && colors.equals(that.colors)
                 && lod.equals(that.lod);
         }
@@ -783,6 +839,7 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + (outlineShell ? 1 : 0);
             result = 31 * result + Float.floatToIntBits(outlineWidthPx);
             result = 31 * result + (faceShading ? 1 : 0);
+            result = 31 * result + Float.floatToIntBits(orderMinAlpha);
             result = 31 * result + colors.hashCode();
             result = 31 * result + lod.hashCode();
             return result;
@@ -799,6 +856,7 @@ public final class ChainPreviewDrawPlan {
                 + ", depthChannel=" + depthChannel
                 + ", outlineShell=" + outlineShell + (outlineShell ? "@" + outlineWidthPx + "px" : "")
                 + ", faceShading=" + faceShading
+                + ", orderMinAlpha=" + orderMinAlpha
                 + ", " + colors
                 + ", " + lod
                 + '}';
@@ -1105,6 +1163,11 @@ public final class ChainPreviewDrawPlan {
     /** @return 是否按面朝向烘焙明暗（face shading；false = 着色器不进入乘色分支，逐字节等于现状） */
     public boolean isFaceShadingEnabled() {
         return visuals.isFaceShadingEnabled();
+    }
+
+    /** @return 连锁序 alpha 权重下限；1.0 = 关闭本能力（着色器不进入 orderWeight 分支，逐值等于现状） */
+    public float getOrderMinAlpha() {
+        return visuals.getOrderMinAlpha();
     }
 
     /** @return 条柱粗细（方块坐标单位） */

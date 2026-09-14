@@ -29,6 +29,13 @@ public final class ChainPreviewVisualSettings {
     private static final float MIN_SCREEN_WIDTH_FALLBACK = 0.0F;
     /** 描边壳外扩宽度兜底（基线档：关闭）。 */
     private static final float OUTLINE_WIDTH_FALLBACK = 0.0F;
+    /**
+     * 连锁序 alpha 权重下限兜底（基线档：1.0 = 关闭本能力）。
+     *
+     * <p>与 {@link #OUTLINE_WIDTH_FALLBACK} 同一取向：兜底路径的语义是「拿不到配置 / 拿到的值非法」，
+     * 取恒等值才等于历史观感；配置默认 0.45 是「用户选择了开启」，两者不得混用。</p>
+     */
+    private static final float ORDER_MIN_ALPHA_FALLBACK = 1.0F;
 
     private final float barThickness;
     private final float minScreenWidthPx;
@@ -56,6 +63,7 @@ public final class ChainPreviewVisualSettings {
     private final int maxTargetsHardCap;
     private final boolean suppressVanillaHighlight;
     private final boolean faceShading;
+    private final float orderMinAlpha;
 
     /** 最近一次发布的快照引用（零分配读取；volatile 读跨线程安全）。 */
     private static volatile ChainPreviewVisualSettings current;
@@ -226,7 +234,11 @@ public final class ChainPreviewVisualSettings {
     }
 
     /**
-     * 完整构造（本轮追加第 26 参：面朝向明暗开关）。
+     * 26 参构造：连锁序权重未显式传入时按<b>基线档关闭</b>（{@code 1.0}）处理。
+     *
+     * <p>本构造曾是最完整的那个，现让位给追加了第 27 参的版本。不把 {@code orderMinAlpha} 默认成
+     * 配置默认 0.45 是刻意的：「未显式传入」不能读作「用户选择了开启」，否则任何拿不到配置的调用点
+     * 都会平白改变观感（同 {@link #OUTLINE_WIDTH_FALLBACK} 的取向）。</p>
      *
      * @param faceShadingEnabled 是否按面朝向烘焙明暗（默认 false = 等于接线前观感，逐字节不变）；
      *                           开启后 legacy 颜色流与着色器顶点色使用同一张亮度表
@@ -258,6 +270,51 @@ public final class ChainPreviewVisualSettings {
             boolean suppressVanillaHighlight,
             float outlineWidthPx,
             boolean faceShadingEnabled) {
+        this(barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
+            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
+            alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
+            maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, faceShadingEnabled,
+            ORDER_MIN_ALPHA_FALLBACK);
+    }
+
+    /**
+     * 完整构造（本轮追加第 27 参：连锁序 alpha 权重下限）。
+     *
+     * <p>取值面与收窄：{@code [0,1]} 内原样保留；NaN / Infinity / 越界回落
+     * {@link #ORDER_MIN_ALPHA_FALLBACK}（= 1.0 = 恒等，等于接线前观感）。</p>
+     *
+     * @param orderMinAlpha 连锁序 alpha 权重下限（配置 {@code clientPreviewOrderMinAlpha}）；
+     *                      {@code 1.0} = 关闭本能力，默认档 0.45 = 起点 1.0、最远 0.45
+     */
+    public ChainPreviewVisualSettings(
+            float barThickness,
+            float minScreenWidthPx,
+            String depthModeId,
+            String animationId,
+            String animationPhaseId,
+            String fadeModeId,
+            String colorSourceId,
+            String renderBackendId,
+            int colorPrimary,
+            int colorSecondary,
+            int colorRemote,
+            int colorTruncated,
+            int animationDurationMs,
+            float fadeRefreshDistance,
+            int fadeFallbackMs,
+            float alphaFadeStartRadius,
+            float alphaFadeEndRadius,
+            float alphaStartValue,
+            float alphaEndValue,
+            String lodId,
+            float lodMinAlpha,
+            boolean truncationSignal,
+            int maxTargetsHardCap,
+            boolean suppressVanillaHighlight,
+            float outlineWidthPx,
+            boolean faceShadingEnabled,
+            float orderMinAlpha) {
         this.barThickness = clampFloat(barThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT);
         this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK);
         this.depthModeId = nonNull(depthModeId, PreviewDepthMode.defaultValue().id());
@@ -287,6 +344,7 @@ public final class ChainPreviewVisualSettings {
         this.suppressVanillaHighlight = suppressVanillaHighlight;
         this.outlineWidthPx = clampFloat(outlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK);
         this.faceShading = faceShadingEnabled;
+        this.orderMinAlpha = clampFloat(orderMinAlpha, 0.0F, 1.0F, ORDER_MIN_ALPHA_FALLBACK);
     }
 
     /**
@@ -330,7 +388,8 @@ public final class ChainPreviewVisualSettings {
             Config.clientPreviewMaxTargetsHardCap,
             Config.clientPreviewSuppressVanillaHighlight,
             clampFloat(Config.clientPreviewOutlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK),
-            Config.clientPreviewFaceShading);
+            Config.clientPreviewFaceShading,
+            clampFloat(Config.clientPreviewOrderMinAlpha, 0.0F, 1.0F, ORDER_MIN_ALPHA_FALLBACK));
     }
 
     /** @return 条柱半厚（格） */
@@ -479,6 +538,17 @@ public final class ChainPreviewVisualSettings {
         return lodMinAlpha;
     }
 
+    /**
+     * @return 连锁序 alpha 权重下限（{@code [0,1]}）；{@code 1.0} = 关闭本能力（等于接线前观感）
+     *
+     * <p>消费链：{@link club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.Visuals}
+     * → {@code ChainPreviewShaderBackend} 的 {@code uOrderMinAlpha} → {@code preview.vert} 的
+     * {@code orderWeight} 分支。legacy 固定管线不消费本值（与描边宽度同理：只有着色器路径有该能力）。</p>
+     */
+    public float getOrderMinAlpha() {
+        return orderMinAlpha;
+    }
+
     /** @return 是否启用截断可见信号 */
     public boolean isTruncationSignalEnabled() {
         return truncationSignal;
@@ -521,6 +591,7 @@ public final class ChainPreviewVisualSettings {
             && truncationSignal == that.truncationSignal
             && suppressVanillaHighlight == that.suppressVanillaHighlight
             && faceShading == that.faceShading
+            && Float.compare(orderMinAlpha, that.orderMinAlpha) == 0
             && depthModeId.equals(that.depthModeId)
             && animationId.equals(that.animationId)
             && animationPhaseId.equals(that.animationPhaseId)
@@ -558,6 +629,7 @@ public final class ChainPreviewVisualSettings {
         result = 31 * result + maxTargetsHardCap;
         result = 31 * result + (suppressVanillaHighlight ? 1 : 0);
         result = 31 * result + (faceShading ? 1 : 0);
+        result = 31 * result + Float.floatToIntBits(orderMinAlpha);
         return result;
     }
 
@@ -578,6 +650,7 @@ public final class ChainPreviewVisualSettings {
             + ", maxTargetsHardCap=" + maxTargetsHardCap
             + ", suppressVanillaHighlight=" + suppressVanillaHighlight
             + ", faceShading=" + faceShading
+            + ", orderMinAlpha=" + orderMinAlpha
             + "}";
     }
 

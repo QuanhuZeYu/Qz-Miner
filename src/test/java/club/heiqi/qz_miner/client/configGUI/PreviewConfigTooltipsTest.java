@@ -79,7 +79,7 @@ public class PreviewConfigTooltipsTest {
             }
         });
         String[] paths = PreviewConfigTooltips.paths();
-        Assert.assertEquals(29, paths.length);
+        Assert.assertEquals(30, paths.length);
         for (String path : paths) {
             Assert.assertNotNull("schema 缺少新键 " + path, schema.field(path));
         }

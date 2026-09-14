@@ -190,6 +190,69 @@ public final class ChainPreviewShaderMath {
         return clamp(animationProgress * totalTargets - orderFloor, 0.0F, 1.0F);
     }
 
+    /** 连锁序权重下限的恒等值：{@code 1.0} = 关闭本能力（起点与最远都乘 1.0，逐值等于接线前）。 */
+    public static final float ORDER_MIN_ALPHA_OFF = 1.0F;
+
+    /**
+     * 连锁序权重下限的 host 侧收敛（与 {@code uOrderMinAlpha} 的写入边界同口径）。
+     *
+     * <p>{@code 1.0} 是恒等值：{@code preview.vert} 在 {@code uOrderMinAlpha >= 1.0} 时完全不进入
+     * orderWeight 分支。NaN / Infinity 收敛为恒等而不是传播——与
+     * {@link #outlineWidthPx(float)} 的「非法即关闭」同取向：异常配置不得让远处条柱静默消失。</p>
+     *
+     * @param requested 配置 / plan 给出的下限（可为 NaN / 越界）
+     * @return [0,1] 的下限；非法输入为 {@link #ORDER_MIN_ALPHA_OFF}
+     */
+    public static float orderMinAlpha(float requested) {
+        if (!isFinite(requested)) {
+            return ORDER_MIN_ALPHA_OFF;
+        }
+        return clamp(requested, 0.0F, 1.0F);
+    }
+
+    /**
+     * 连锁序（appearOrder）alpha 权重：与 {@code preview.vert} 的 orderWeight 分支逐值同形。
+     *
+     * <p>GLSL 侧（{@code preview.vert} 的 {@code main()}，与 {@link #growthWeight} 共用同一次
+     * aAux u16 还原）：</p>
+     * <pre>
+     *   t           = clamp(floor(min(appearOrder, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)
+     *   orderWeight = 1.0 - (1.0 - uOrderMinAlpha) * t
+     * </pre>
+     *
+     * <p><b>三条恒等出口</b>（必须与 GLSL 的短路判据逐条对应）：</p>
+     * <ul>
+     *   <li>{@code uOrderMinAlpha >= 1.0} ⇒ GLSL 根本不进入该分支（本模型以
+     *       {@code orderMinAlpha >= ORDER_MIN_ALPHA_OFF} 表达），权重恒 1.0，逐值等于接线前；</li>
+     *   <li>{@code uAppearSpan <= 0}（无同代目标总数 / 无 aAux）⇒ 恒 1.0；</li>
+     *   <li>出现序号未定义（u16 == 0xFFFF）⇒ 恒 1.0，绝不能按「序号 65535」把远处条柱算成最低权重。</li>
+     * </ul>
+     *
+     * <p><b>为什么分子先 floor 再除</b>：分母是「同代目标总数」，分子是「出现序号」。起点
+     * {@code order = 0} 给出 {@code t = 0}（权重 1.0），最远 {@code order >= span} 给出 {@code t = 1}
+     * （权重 = 下限）。取整口径与 {@link #growthWeight} 一致（按序号格），故同一格内的顶点权重完全相同，
+     * 不会在同一条柱内部出现权重跳变。</p>
+     *
+     * <p>未定义判定写成 {@code !(appearOrder < 0xFFFF)} 而不是 {@code >= 0xFFFF}：GLSL 的判据是
+     * {@code if (appearOrder < 65535.0)}，NaN 比较恒为 false ⇒ 未定义出口，两侧必须同结论。</p>
+     *
+     * @param orderMinAlpha 权重下限（配置值；{@link #ORDER_MIN_ALPHA_OFF} = 关闭）
+     * @param appearOrder   顶点出现序号；{@code >= 0xFFFF} 视为未定义（恒 1.0）
+     * @param appearSpan    同代目标总数（归一化分母）；{@code <= 0} 表示无序号信息（恒 1.0）
+     * @return 顶点 alpha 权重，落在 {@code [orderMinAlpha, 1]}
+     */
+    public static float orderWeight(float orderMinAlpha, float appearOrder, float appearSpan) {
+        if (!(orderMinAlpha < ORDER_MIN_ALPHA_OFF) || !(appearSpan > 0.0F)) {
+            return 1.0F;
+        }
+        if (!(appearOrder < APPEAR_ORDER_UNDEFINED)) {
+            return 1.0F;
+        }
+        float normalized = (float) Math.floor(Math.min(appearOrder, appearSpan)) / Math.max(appearSpan, 1.0F);
+        float t = clamp(normalized, 0.0F, 1.0F);
+        return 1.0F - (1.0F - orderMinAlpha) * t;
+    }
+
     /**
      * 该进度下「已出现」的最大序号（诊断与测试用）。
      *

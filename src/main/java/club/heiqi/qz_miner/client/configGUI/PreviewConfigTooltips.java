@@ -53,6 +53,7 @@ public final class PreviewConfigTooltips {
             "client.clientPreviewMaxTargetsHardCap",
             "client.clientPreviewLod",
             "client.clientPreviewLodMinAlpha",
+            "client.clientPreviewOrderMinAlpha",
             "client.clientPreviewSuppressVanillaHighlight",
             "client.clientPreviewVersionedInputs",
             "client.clientPreviewPresentationOverlay",
