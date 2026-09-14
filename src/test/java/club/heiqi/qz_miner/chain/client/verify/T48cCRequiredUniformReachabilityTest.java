@@ -39,9 +39,12 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderProgram;
  * 它拦的是一条<strong>静默</strong>失效：uniform 被编译器优化掉 ⇒ location = -1 ⇒ 整个着色器后端
  * 每次都白回退 legacy（观感「正常」，只是永远不走 shader）。</p>
  *
- * <p><b>已移除的文本禁令</b>：原先的 {@code shaderSourceHasNoFixedFunctionBuiltins}（在整份源码里
- * 搜 {@code gl_ModelViewProjectionMatrix} / {@code ftransform} 等 token）按裁定归入「读源码文本匹配」，
- * 已删除；T48c-A 的防线改为真机验证 + shader 头部「实机验证记录」标记（注释改动不触发重验）。</p>
+ * <p><b>已移除的文本禁令与其替代</b>：原先的 {@code shaderSourceHasNoFixedFunctionBuiltins}（在整份
+ * 源码里搜 {@code gl_ModelViewProjectionMatrix} / {@code ftransform} 等 token）按裁定归入「读源码文本
+ * 匹配」，已删除。禁令本身仍然有效，只是换了承载方式：现在由 {@code Glsl120StaticChecker} 的固定管线
+ * 内建规则按<b>完整标识符</b>判定（喂一份坏源码进去就会红，见 ChainPreviewShaderContractTest 的
+ * 「固定管线内建禁令」一节）；而<b>行为</b>正确性仍由真机验证 + shader 头部「实机验证记录」标记承担
+ * （注释改动不触发重验）。</p>
  */
 public class T48cCRequiredUniformReachabilityTest {
 

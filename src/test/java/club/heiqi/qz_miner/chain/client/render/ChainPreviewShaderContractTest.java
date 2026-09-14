@@ -19,7 +19,7 @@ import org.junit.Test;
  * <p>三类断言，全部是「能被证伪的实现契约」而不是源码字符串快照：</p>
  * <ol>
  *   <li><b>资源合法</b>：两个 GLSL 文件通过 {@link Glsl120StaticChecker} 的全部静态检查
- *       （#version 120 首行、括号配平、句法终结、内建参数个数、内建变量表、属性类型）；</li>
+ *       （#version 120 首行、括号配平、句法终结、内建参数个数、内建变量表、属性类型、固定管线内建禁令）；</li>
  *   <li><b>校验器自身有效</b>：把带错误的最小源码喂给校验器，必须被逐条检出——否则第 1 类断言
  *       只是「永远通过的空壳」；</li>
  *   <li><b>接口冻结 §A/§F 的形状</b>：{@link GlslSourceScanner} 解析出的<b>声明面</b>
@@ -230,8 +230,10 @@ public class ChainPreviewShaderContractTest {
      * {@code use_no_error_g_l_context=true}）下，固定管线内建 {@code gl_ModelViewProjectionMatrix} /
      * {@code gl_ModelViewMatrix} 与真实相机矩阵失同步，整条预览链会被画进错误空间（77px 窄竖条），
      * 且失败完全不可观测。本测试只钉住<strong>声明面</strong>（两个 mat4 uniform 必须存在，名字由
-     * Java 侧按字符串解析、登记为硬必备）；「源码里不再出现内建矩阵名」这类文本禁令已按裁定移除，
-     * 由真机验证 + shader 头部「实机验证记录」标记承担。</p>
+     * Java 侧按字符串解析、登记为硬必备）；「源码里不再出现内建矩阵名」这类<strong>文本</strong>禁令
+     * 已按裁定移除（源码文本快照重命名即误报、改语义却照样绿），现在由
+     * {@link Glsl120StaticChecker} 的固定管线内建禁令以<strong>词法规则</strong>承担——喂一份坏源码
+     * 进去就会红，见本类的 {@link #checkerRejectsFixedPipelineBuiltins()}。</p>
      */
     @Test
     public void cameraMatrixUniformsAreMat4() throws IOException {
@@ -246,19 +248,19 @@ public class ChainPreviewShaderContractTest {
     @Test
     public void checkerRejectsMissingVersionDirective() {
         assertHasErrorContaining(Glsl120StaticChecker.check(
-                "void main(void) {\n    gl_Position = ftransform();\n}\n", "bad.vert"), "#version");
+                "void main(void) {\n    gl_Position = vec4(0.0);\n}\n", "bad.vert"), "#version");
     }
 
     @Test
     public void checkerRejectsWrongGlslVersion() {
         assertHasErrorContaining(Glsl120StaticChecker.check(
-                "#version 330\nvoid main(void) {\n    gl_Position = ftransform();\n}\n", "bad.vert"), "120");
+                "#version 330\nvoid main(void) {\n    gl_Position = vec4(0.0);\n}\n", "bad.vert"), "120");
     }
 
     @Test
     public void checkerRejectsUnbalancedBraces() {
         assertHasErrorContaining(Glsl120StaticChecker.check(
-                "#version 120\nvoid main(void) {\n    gl_Position = ftransform();\n", "bad.vert"), "未闭合");
+                "#version 120\nvoid main(void) {\n    gl_Position = vec4(0.0);\n", "bad.vert"), "未闭合");
     }
 
     @Test
@@ -303,23 +305,132 @@ public class ChainPreviewShaderContractTest {
                 "终结符");
     }
 
+    // ------------------------------------------------------------------ 固定管线内建禁令（T53）
+
+    /**
+     * 固定管线几何/矩阵内建必须被拒：它们要么绕过已算好的位移，要么在真机上与真实相机矩阵失同步。
+     *
+     * <p>这是 T48c-A 那三处「读源码做文本匹配」断言被删除后的替代防线——规则本体与历史教训写在
+     * {@link Glsl120StaticChecker} 的 {@code FORBIDDEN_FIXED_PIPELINE} 注释里。此处断言的是
+     * 「把这行源码喂进校验器会不会红」，不是「源码里有没有某个字符串」：重命名变量、换行、
+     * 抽成辅助函数都不影响判定，而把投影改回内建矩阵一定红。</p>
+     */
+    @Test
+    public void checkerRejectsFixedPipelineBuiltins() {
+        // 致命项：ftransform() 内部用原始顶点位置取 MVP，先算好的位移会被整段丢弃（T48c-A）。
+        assertHasErrorContaining(checkVertex("    gl_Position = ftransform();\n"), "固定管线内建 ftransform：");
+        // T48c-A 第一类坑：真机内建矩阵与真实相机矩阵失同步。
+        assertHasErrorContaining(checkVertex("    gl_Position = gl_ModelViewProjectionMatrix * vec4(aPos, 1.0);\n"),
+                "固定管线内建 gl_ModelViewProjectionMatrix：");
+        assertHasErrorContaining(checkVertex("    gl_Position = gl_ModelViewMatrix * vec4(aPos, 1.0);\n"),
+                "固定管线内建 gl_ModelViewMatrix：");
+        // 固定管线几何/属性输入：几何与属性一律来自显式 attribute（接口冻结 §A）。
+        assertHasErrorContaining(checkVertex("    gl_Position = gl_Vertex;\n"), "固定管线内建 gl_Vertex：");
+        assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_MultiTexCoord0.xy, 0.0, 1.0);\n"),
+                "固定管线内建 gl_MultiTexCoord0：");
+        // 矩阵变体不得被后缀绕过（禁用清单按族覆盖 Inverse / Transpose / InverseTranspose）。
+        assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_ModelViewMatrixInverse[0][0]);\n"),
+                "固定管线内建 gl_ModelViewMatrixInverse：");
+        assertHasErrorContaining(checkVertex("    gl_Position = vec4(gl_NormalMatrix[0][0]);\n"),
+                "固定管线内建 gl_NormalMatrix：");
+    }
+
+    /**
+     * 前缀/后缀重叠的内建名必须按<b>整词</b>判定：短名与长名各自独立命中，不得互相冒名或漏报。
+     *
+     * <p>断言里带上全角冒号，是为了让「名字」成为消息里的完整一段：否则
+     * {@code "…内建 gl_ModelViewMatrix"} 会成为 {@code "…内建 gl_ModelViewMatrixInverse"}
+     * 的前缀，反误伤断言自己就失效了。</p>
+     */
+    @Test
+    public void fixedPipelineRuleMatchesWholeBuiltinNamesOnly() {
+        // 只出现短名：报短名，且不得报出长名。
+        List<Glsl120StaticChecker.Finding> shortOnly = checkVertex(
+                "    gl_Position = gl_ModelViewMatrix * vec4(aPos, 1.0);\n");
+        assertHasErrorContaining(shortOnly, "固定管线内建 gl_ModelViewMatrix：");
+        assertNoErrorContaining(shortOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
+
+        // 只出现长名：必须报长名。注意 "gl_ModelViewProjectionMatrix" 里<b>没有</b>
+        // "gl_ModelViewMatrix" 这个子串，所以「按 contains 查短名」在这里恒为假、整条漏报。
+        List<Glsl120StaticChecker.Finding> longOnly = checkVertex(
+                "    gl_Position = gl_ModelViewProjectionMatrix * vec4(aPos, 1.0);\n");
+        assertHasErrorContaining(longOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
+        assertNoErrorContaining(longOnly, "固定管线内建 gl_ModelViewMatrix：");
+        // 后缀陷阱：gl_ProjectionMatrix 是 gl_ModelViewProjectionMatrix 的后缀，
+        // 按 contains/endsWith 匹配的实现会在这里额外冒出一条「gl_ProjectionMatrix」的错误。
+        assertNoErrorContaining(longOnly, "固定管线内建 gl_ProjectionMatrix：");
+
+        // 后缀重叠：gl_ProjectionMatrix 是 gl_ModelViewProjectionMatrix 的后缀，二者不得互相冒名。
+        List<Glsl120StaticChecker.Finding> projectionOnly = checkVertex(
+                "    gl_Position = vec4(gl_ProjectionMatrix[0][0]);\n");
+        assertHasErrorContaining(projectionOnly, "固定管线内建 gl_ProjectionMatrix：");
+        assertNoErrorContaining(projectionOnly, "固定管线内建 gl_ModelViewProjectionMatrix：");
+        assertNoErrorContaining(projectionOnly, "固定管线内建 gl_ModelViewMatrix：");
+    }
+
+    /**
+     * 反误伤：输出与片元内建必须原样通过——它们是着色器与管线之间的必要接口，不是固定管线状态。
+     *
+     * <p>{@code gl_Position} 与内建矩阵名共享 {@code gl_Pro…} / {@code gl_ModelView…} 前缀，
+     * 是最容易被过度匹配误伤的一族；注释里写满禁用名的源也必须绿（剥注释在校验之前完成）。</p>
+     */
+    @Test
+    public void checkerAcceptsOutputAndFragmentBuiltins() {
+        assertNoErrors("legal.vert", Glsl120StaticChecker.check(
+                "#version 120\n"
+                        + "attribute vec3 aPos;\n"
+                        + "uniform mat4 uModelViewProjection;\n"
+                        + "void main(void) {\n"
+                        + "    gl_PointSize = 1.0;\n"
+                        + "    gl_Position = uModelViewProjection * vec4(aPos, 1.0);\n"
+                        + "}\n",
+                "legal.vert"));
+        assertNoErrors("legal.frag", Glsl120StaticChecker.check(
+                "#version 120\n"
+                        + "void main(void) {\n"
+                        + "    if (gl_FrontFacing) {\n"
+                        + "        gl_FragColor = vec4(gl_FragCoord.xy, 0.0, 1.0);\n"
+                        + "    } else {\n"
+                        + "        gl_FragColor = vec4(0.0);\n"
+                        + "    }\n"
+                        + "}\n",
+                "legal.frag"));
+        // 注释里的禁用名不算引用：preview.vert 头部就写着 ftransform() / gl_ModelViewProjectionMatrix，
+        // 它必须仍然通过（第 1 类断言已覆盖真实文件本身）。
+        assertNoErrors("legal.vert", Glsl120StaticChecker.check(
+                "#version 120\n"
+                        + "// 不得写 ftransform() 或 gl_ModelViewProjectionMatrix\n"
+                        + "/* gl_ModelViewMatrix：历史写法 */\n"
+                        + "void main(void) {\n"
+                        + "    gl_Position = vec4(0.0);\n"
+                        + "}\n",
+                "legal.vert"));
+    }
+
     @Test
     public void checkerAcceptsLegalMinimalShaderWithoutFalsePositives() {
         String legal = "#version 120\n"
                 + "attribute vec3 aPos;\n"
                 + "uniform float uScale;\n"
+                + "uniform mat4 uModelViewProjection;\n"
                 + "varying float vOut;\n"
                 + "float helper(float value) {\n"
                 + "    return clamp(value * uScale, 0.0, 1.0);\n"
                 + "}\n"
                 + "void main(void) {\n"
                 + "    vOut = helper(aPos.x);\n"
-                + "    gl_Position = ftransform();\n"
+                + "    gl_Position = uModelViewProjection * vec4(aPos, 1.0);\n"
                 + "}\n";
         assertNoErrors("legal.vert", Glsl120StaticChecker.check(legal, "legal.vert"));
     }
 
     // ------------------------------------------------------------------ 辅助
+
+    /** 顶点负例的统一外壳：属性声明 + main，只把待检语句留给用例填。 */
+    private static List<Glsl120StaticChecker.Finding> checkVertex(String statement) {
+        return Glsl120StaticChecker.check(
+                "#version 120\nattribute vec3 aPos;\nvoid main(void) {\n" + statement + "}\n", "bad.vert");
+    }
 
     private static void assertNoErrors(String fileName, List<Glsl120StaticChecker.Finding> findings) {
         List<String> errors = new ArrayList<String>();
@@ -338,6 +449,14 @@ public class ChainPreviewShaderContractTest {
             }
         }
         Assert.fail("期望检出包含「" + needle + "」的错误，实际: " + findings);
+    }
+
+    private static void assertNoErrorContaining(List<Glsl120StaticChecker.Finding> findings, String needle) {
+        for (Glsl120StaticChecker.Finding finding : findings) {
+            if ("error".equals(finding.severity) && finding.message.contains(needle)) {
+                Assert.fail("不应检出包含「" + needle + "」的错误，实际: " + findings);
+            }
+        }
     }
 
     private static String read(String relativePath) throws IOException {

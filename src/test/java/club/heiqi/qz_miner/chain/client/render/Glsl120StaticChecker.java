@@ -19,8 +19,8 @@ import java.util.Set;
  * 只能到真机运行时才暴露，而运行时的表现是「编译失败 → 静默回退 legacy」，观感变差却没有任何
  * 异常。本校验器在离线阶段拦住其中<strong>可静态判定</strong>的几类，并且与
  * {@code UiBackdropShaderSyntaxTest} 的做法不同：它不做源码字符串 contains 断言，而是真的
- * 做词法分析、作用域符号表、调用点参数个数核对与内建白名单，因此它能被「喂进一份坏源码」
- * 的负例测试证伪（见 {@code ChainPreviewShaderContractTest}）。</p>
+ * 做词法分析、作用域符号表、调用点参数个数核对、内建白名单与固定管线内建禁令，因此它能被
+ * 「喂进一份坏源码」的负例测试证伪（见 {@code ChainPreviewShaderContractTest}）。</p>
  *
  * <p>刻意不用 windowed 正则匹配整个源；只用线性扫描与 {@code indexOf}，避免跨语言转义坑。</p>
  */
@@ -34,6 +34,74 @@ final class Glsl120StaticChecker {
     private static final Set<String> BUILTIN_VARIABLES = new LinkedHashSet<String>();
     /** 内建函数返回值/参数用到的类型名，作为构造式的例外（vec3(x) 这类构造）。 */
     private static final Set<String> TYPE_NAMES = new LinkedHashSet<String>();
+
+    /**
+     * 本项目着色器路径<b>禁止引用</b>的 GLSL 1.20 固定管线（compatibility）内建：名字 → 禁用理由。
+     *
+     * <p><b>两个正交的轴</b>：{@link #BUILTIN_VARIABLES} / {@link #BUILTIN_FUNCTIONS} 回答「GLSL 1.20
+     * 里这个符号是什么」（语言事实，拼错 {@code gl_ModleViewMatrix} 必须报「未知内建」）；本表回答
+     * 「本项目允不允许用它」（接口决策）。所以同一个名字可以「是合法内建」且「被本项目禁用」，
+     * 而报错只有一条、只讲真正的原因。</p>
+     *
+     * <p><b>为什么必须整词匹配</b>：禁用名之间有前缀/后缀重叠——{@code gl_ModelViewMatrix} 是
+     * {@code gl_ModelViewMatrixInverse} 的前缀、又与 {@code gl_ModelViewProjectionMatrix} 共享
+     * {@code gl_ModelView}，而 {@code gl_ProjectionMatrix} 还是 {@code gl_ModelViewProjectionMatrix}
+     * 的后缀。子串匹配两头都会错：{@code "gl_ModelViewProjectionMatrix".contains("gl_ModelViewMatrix")}
+     * 为 <b>false</b>（长名漏报），按后缀/词干匹配又会把长名报成短名（误报）。因此判定统一走
+     * {@link #scanIdentifiers}：它只吐完整 GLSL 标识符 token，相等即命中。</p>
+     *
+     * <p><b>禁的是两类「静默失效」</b>：</p>
+     * <ol>
+     *   <li><b>几何/属性输入</b>（{@code gl_Vertex} / {@code gl_Normal} / {@code gl_Color} /
+     *       {@code gl_MultiTexCoord*} / {@code gl_FogCoord}）：取自兼容管线的 client array 槽位，
+     *       本项目着色器路径不填充（且会与接口冻结 §A 的用户属性抢槽），几何类输入更是未经位移管线的
+     *       原始值。</li>
+     *   <li><b>矩阵状态</b>（{@code gl_ModelViewProjectionMatrix} 一族）与便捷函数 {@code ftransform}：
+     *       相机矩阵在本项目真机上不可信，{@code ftransform()} 内部还只用原始顶点位置。</li>
+     * </ol>
+     *
+     * <p><b>T48c-A 的历史教训（这条规则存在的原因）</b>：{@code preview.vert} 曾经写
+     * {@code gl_Position = ftransform();}。{@code ftransform()} 语义等价于
+     * {@code gl_ModelViewProjectionMatrix * gl_Vertex}——乘的是<b>原始顶点位置</b>，而不是上面刚算完
+     * 屏幕最小宽度位移的 {@code displaced}。于是那段位移<b>算完即丢</b>：着色器照常编译、照常出图，
+     * 观感「正常」，只是该生效的横向钳制从未生效（B2.1 在 shader 路径静默失效）。同族的第二类坑是
+     * 内建矩阵本身：真机（GTNH 2.9 + Angelica 2.2.10 的 GLSM 用生成着色器模拟固定管线，
+     * {@code use_no_error_g_l_context=true}）下 {@code gl_ModelViewProjectionMatrix} /
+     * {@code gl_ModelViewMatrix} 与真实相机矩阵失同步，整条预览链被画进错误空间（77px 窄竖条），
+     * 失败同样完全不可观测。修法是把相机矩阵显式化为 mat4 uniform（{@code uModelViewProjection} /
+     * {@code uModelView}），并<b>只对 {@code displaced} 做投影</b>。</p>
+     *
+     * <p>这两类坑原由三处「读 shader 源码做文本匹配」的断言钉住（{@code body.contains(...)}），
+     * 已随 T52 按裁定整体删除（文本快照重命名即误报、改语义却照样绿）。本规则是它的替代防线：
+     * 走词法分析而不是文本快照，可以被负例证伪（见 {@code ChainPreviewShaderContractTest}），
+     * 且「为什么」就写在这里。</p>
+     *
+     * <p><b>刻意不在禁列</b>（划边界，避免误伤）：</p>
+     * <ul>
+     *   <li>输出与片元接口：{@code gl_Position} / {@code gl_PointSize} / {@code gl_ClipVertex} /
+     *       {@code gl_FragColor} / {@code gl_FragData} / {@code gl_FragDepth} / {@code gl_FragCoord} /
+     *       {@code gl_FrontFacing} / {@code gl_PointCoord}——它们是着色器与管线之间的必要接口，
+     *       不是固定管线状态，禁掉等于禁掉着色器本身。</li>
+     *   <li>与相机矩阵无关的固定管线状态（{@code gl_DepthRange} / {@code gl_ClipPlane} /
+     *       {@code gl_LightSource} / {@code gl_FrontMaterial} / {@code gl_Fog} 等）：既不会绕过本项目的
+     *       位移管线，也不会被 GLSM 的矩阵模拟带偏；把它们一并禁掉属范围外扩张，只会在将来真需要时
+     *       逼出「为绕检查而改名」的坏味道。</li>
+     * </ul>
+     */
+    private static final Map<String, String> FORBIDDEN_FIXED_PIPELINE = new LinkedHashMap<String, String>();
+
+    /** 禁用理由：几何/属性输入一族。 */
+    private static final String REASON_FIXED_PIPELINE_VERTEX_INPUT =
+            "它取自兼容管线的 client array 槽位——本项目不填充这些槽位（还会与 §A 的用户属性抢槽），"
+                    + "几何类输入更是未经位移管线的原始值；几何与属性一律来自显式 attribute";
+    /** 禁用理由：相机/纹理矩阵状态一族。 */
+    private static final String REASON_FIXED_PIPELINE_MATRIX =
+            "真机（Angelica GLSM 用生成着色器模拟固定管线 + use_no_error_g_l_context=true）下它与真实相机矩阵"
+                    + "失同步、失败不可观测；相机矩阵必须走显式 mat4 uniform（uModelViewProjection / uModelView）";
+    /** 禁用理由：唯一的被禁函数 ftransform()。 */
+    private static final String REASON_FTRANSFORM =
+            "它内部用原始顶点位置取 MVP（等价于 gl_ModelViewProjectionMatrix * gl_Vertex），先算好的位移会被整段"
+                    + "丢弃——T48c-A 的屏幕最小宽度钳制就是这样静默失效的；必须写成 uModelViewProjection * vec4(displaced, 1.0)";
 
     static {
         for (String keyword : ("attribute const uniform varying break continue do for while if else in out inout "
@@ -96,24 +164,54 @@ final class Glsl120StaticChecker {
         register("texture2D", 2, 3);
         register("texture2DProj", 2, 3);
         register("textureCube", 2, 3);
-        // GLSL 1.20 兼容管线内建（固定管线顶点变换 + 内建矩阵未在符号表声明也不该报错）
+        // GLSL 1.20 兼容管线内建函数：登记它是为了让它仍按内建解析、参数个数仍被核对——
+        // 「本项目允不允许用」是另一个轴，由下面的 FORBIDDEN_FIXED_PIPELINE 说了算。
         register("ftransform", 0, 0);
         register("texture2DLod", 3, 3);
-        for (String variable : ("gl_Position gl_PointSize gl_FragCoord gl_FrontFacing gl_FragColor gl_FragData "
-                + "gl_Color gl_SecondaryColor gl_Normal gl_Vertex gl_MultiTexCoord0 gl_MultiTexCoord1 "
-                + "gl_MultiTexCoord2 gl_MultiTexCoord3 gl_MultiTexCoord4 gl_MultiTexCoord5 gl_MultiTexCoord6 "
-                + "gl_MultiTexCoord7 gl_FogCoord gl_ModelViewMatrix gl_ProjectionMatrix gl_ModelViewProjectionMatrix "
-                + "gl_NormalMatrix gl_TextureMatrix gl_ModelViewMatrixInverse gl_ProjectionMatrixInverse "
-                + "gl_ModelViewProjectionMatrixInverse gl_TextureMatrixInverse gl_DepthRange gl_ClipPlane")
+        for (String variable : ("gl_Position gl_PointSize gl_ClipVertex gl_FragCoord gl_FrontFacing gl_FragColor "
+                + "gl_FragData gl_PointCoord gl_Color gl_SecondaryColor gl_Normal gl_Vertex gl_MultiTexCoord0 "
+                + "gl_MultiTexCoord1 gl_MultiTexCoord2 gl_MultiTexCoord3 gl_MultiTexCoord4 gl_MultiTexCoord5 "
+                + "gl_MultiTexCoord6 gl_MultiTexCoord7 gl_FogCoord gl_ModelViewMatrix gl_ProjectionMatrix "
+                + "gl_ModelViewProjectionMatrix gl_NormalMatrix gl_TextureMatrix gl_ModelViewMatrixInverse "
+                + "gl_ProjectionMatrixInverse gl_ModelViewProjectionMatrixInverse gl_TextureMatrixInverse "
+                + "gl_ModelViewMatrixTranspose gl_ProjectionMatrixTranspose gl_ModelViewProjectionMatrixTranspose "
+                + "gl_TextureMatrixTranspose gl_ModelViewMatrixInverseTranspose gl_ProjectionMatrixInverseTranspose "
+                + "gl_ModelViewProjectionMatrixInverseTranspose gl_TextureMatrixInverseTranspose "
+                + "gl_DepthRange gl_ClipPlane")
                 .split(" ")) {
             if (!variable.isEmpty()) {
                 BUILTIN_VARIABLES.add(variable);
             }
         }
+        // 固定管线内建禁令：与上面的内建白名单是两个正交的轴（理由见 FORBIDDEN_FIXED_PIPELINE 的说明）。
+        // 顶点输入一族：几何/属性一律来自显式 attribute（接口冻结 §A）。
+        for (String name : ("gl_Vertex gl_Normal gl_Color gl_SecondaryColor gl_FogCoord "
+                + "gl_MultiTexCoord0 gl_MultiTexCoord1 gl_MultiTexCoord2 gl_MultiTexCoord3 gl_MultiTexCoord4 "
+                + "gl_MultiTexCoord5 gl_MultiTexCoord6 gl_MultiTexCoord7").split(" ")) {
+            forbidFixedPipeline(name, REASON_FIXED_PIPELINE_VERTEX_INPUT);
+        }
+        // 矩阵状态一族：四族有完整的 Inverse / Transpose / InverseTranspose 变体，必须整族禁止——
+        // 只禁正矩阵等于留一条「换个后缀就绕过」的缝。gl_NormalMatrix 是唯一没有变体的
+        // （glslang 16.6.0 -S vert 实测：gl_NormalMatrixInverse / -Transpose 均为 undeclared identifier）。
+        for (String stem : ("gl_ModelViewMatrix gl_ProjectionMatrix gl_ModelViewProjectionMatrix "
+                + "gl_TextureMatrix").split(" ")) {
+            forbidFixedPipeline(stem, REASON_FIXED_PIPELINE_MATRIX);
+            forbidFixedPipeline(stem + "Inverse", REASON_FIXED_PIPELINE_MATRIX);
+            forbidFixedPipeline(stem + "Transpose", REASON_FIXED_PIPELINE_MATRIX);
+            forbidFixedPipeline(stem + "InverseTranspose", REASON_FIXED_PIPELINE_MATRIX);
+        }
+        forbidFixedPipeline("gl_NormalMatrix", REASON_FIXED_PIPELINE_MATRIX);
+        // 唯一被禁的函数。内建函数表里保留 ftransform 条目，是为了让它仍按「内建」解析并核对参数个数，
+        // 而不是被当成拼错的用户函数——禁用与否由本表说了算。
+        forbidFixedPipeline("ftransform", REASON_FTRANSFORM);
     }
 
     private static void register(String name, int min, int max) {
         BUILTIN_FUNCTIONS.put(name, new int[] {min, max});
+    }
+
+    private static void forbidFixedPipeline(String name, String reason) {
+        FORBIDDEN_FIXED_PIPELINE.put(name, reason);
     }
 
     /** 一条校验发现。severity 为 "error" 时测试必须失败。 */
@@ -150,6 +248,7 @@ final class Glsl120StaticChecker {
         checkVersionDirective(source, fileName, findings);
         checkBalanced(code, findings);
         checkForbiddenBuiltins(code, findings);
+        checkFixedPipelineBuiltins(code, findings);
         checkIntegerAttributes(code, findings);
         checkStatementsTerminated(code, findings);
         checkCalls(code, findings);
@@ -374,11 +473,32 @@ final class Glsl120StaticChecker {
     }
 
     /**
-     * 调用点核对：所有被调用的标识符必须能解析为「已声明的函数」或「GLSL 1.20 内建」；
-     * 内建函数还需参数个数匹配。
+     * 标识符访问者：{@link #scanIdentifiers} 每切出一个完整 token 就回调一次。
+     *
+     * <p>刻意用内部接口而不是重复写扫描循环：本文件里所有「按标识符判定」的规则
+     * （内建函数参数个数、未知内建变量、固定管线禁令）共享同一套词法，
+     * 于是「按词边界精确匹配」是结构保证，而不是每条规则各自小心。</p>
      */
-    static void checkCalls(String code, List<Finding> findings) {
-        // 只核对「内建函数的参数个数」；用户自定义函数由 checkDeclaredOnce 与编译器兜底。
+    private interface IdentifierVisitor {
+
+        /**
+         * @param name  token 文本（完整的 GLSL 标识符）
+         * @param start token 在源码中的起始下标
+         * @param end   token 结束下标（不含）
+         */
+        void visit(String name, int start, int end);
+    }
+
+    /**
+     * 线性切分 GLSL 标识符（字母/下划线开头，字母、数字、下划线继续），逐个交给访问者。
+     *
+     * <p>这里是「按词边界精确匹配」的唯一实现：访问者拿到的永远是完整 token，所以
+     * {@code gl_ModelViewProjectionMatrix} 绝不会被切出 {@code gl_ModelViewMatrix}，
+     * {@code gl_Position} 也绝不会被 {@code gl_ProjectionMatrix} 的规则命中。
+     * 本项目禁用清单里存在多组前缀/后缀重叠的内建名（见 {@link #FORBIDDEN_FIXED_PIPELINE}），
+     * 只有整词判定才是对的。</p>
+     */
+    private static void scanIdentifiers(String code, IdentifierVisitor visitor) {
         int index = 0;
         while (index < code.length()) {
             char ch = code.charAt(index);
@@ -390,27 +510,60 @@ final class Glsl120StaticChecker {
             while (index < code.length() && (Character.isLetterOrDigit(code.charAt(index)) || code.charAt(index) == '_')) {
                 index++;
             }
-            String name = code.substring(start, index);
-            int probe = index;
-            while (probe < code.length() && (code.charAt(probe) == ' ' || code.charAt(probe) == '\t')) {
-                probe++;
-            }
-            if (probe >= code.length() || code.charAt(probe) != '(') {
-                continue;
-            }
-            if (KEYWORDS.contains(name) || TYPE_NAMES.contains(name)) {
-                continue;
-            }
-            int[] signature = BUILTIN_FUNCTIONS.get(name);
-            if (signature == null) {
-                continue;
-            }
-            int argumentCount = countTopLevelArguments(code, probe);
-            if (argumentCount < signature[0] || (signature[1] >= 0 && argumentCount > signature[1])) {
-                findings.add(new Finding("error", lineOf(code, start), "内建函数 " + name + " 参数个数=" + argumentCount
-                        + "，允许区间=[" + signature[0] + "," + (signature[1] < 0 ? "∞" : String.valueOf(signature[1])) + "]"));
-            }
+            visitor.visit(code.substring(start, index), start, index);
         }
+    }
+
+    /**
+     * 调用点核对：所有被调用的标识符必须能解析为「已声明的函数」或「GLSL 1.20 内建」；
+     * 内建函数还需参数个数匹配。
+     */
+    static void checkCalls(String code, final List<Finding> findings) {
+        // 只核对「内建函数的参数个数」；用户自定义函数由 checkDeclaredOnce 与编译器兜底。
+        scanIdentifiers(code, new IdentifierVisitor() {
+
+            @Override
+            public void visit(String name, int start, int end) {
+                int probe = end;
+                while (probe < code.length() && (code.charAt(probe) == ' ' || code.charAt(probe) == '\t')) {
+                    probe++;
+                }
+                if (probe >= code.length() || code.charAt(probe) != '(') {
+                    return;
+                }
+                if (KEYWORDS.contains(name) || TYPE_NAMES.contains(name)) {
+                    return;
+                }
+                int[] signature = BUILTIN_FUNCTIONS.get(name);
+                if (signature == null) {
+                    return;
+                }
+                int argumentCount = countTopLevelArguments(code, probe);
+                if (argumentCount < signature[0] || (signature[1] >= 0 && argumentCount > signature[1])) {
+                    findings.add(new Finding("error", lineOf(code, start), "内建函数 " + name + " 参数个数=" + argumentCount
+                            + "，允许区间=[" + signature[0] + "," + (signature[1] < 0 ? "∞" : String.valueOf(signature[1])) + "]"));
+                }
+            }
+        });
+    }
+
+    /**
+     * 固定管线内建禁令：{@link #FORBIDDEN_FIXED_PIPELINE} 里的任何符号出现即 error。
+     *
+     * <p>判定是「完整 token 相等」，不是子串/前缀/后缀匹配——理由与历史教训见
+     * {@link #FORBIDDEN_FIXED_PIPELINE} 的说明。</p>
+     */
+    static void checkFixedPipelineBuiltins(String code, final List<Finding> findings) {
+        scanIdentifiers(code, new IdentifierVisitor() {
+
+            @Override
+            public void visit(String name, int start, int end) {
+                String reason = FORBIDDEN_FIXED_PIPELINE.get(name);
+                if (reason != null) {
+                    findings.add(new Finding("error", lineOf(code, start), "着色器不得引用固定管线内建 " + name + "：" + reason));
+                }
+            }
+        });
     }
 
     /**
@@ -419,26 +572,19 @@ final class Glsl120StaticChecker {
      * <p>这是本校验器唯一能可靠判定「用未声明符号」的场景——{@code gl_} 前缀是保留给实现的，
      * 用户不可能自行声明，因此拼错（例如 {@code gl_ModleViewMatrix}）必然编译失败。</p>
      */
-    static void checkBuiltinVariables(String code, List<Finding> findings) {
-        int index = 0;
-        while (index < code.length()) {
-            char ch = code.charAt(index);
-            if (!Character.isLetter(ch) && ch != '_') {
-                index++;
-                continue;
+    static void checkBuiltinVariables(String code, final List<Finding> findings) {
+        scanIdentifiers(code, new IdentifierVisitor() {
+
+            @Override
+            public void visit(String name, int start, int end) {
+                if (!name.startsWith("gl_")) {
+                    return;
+                }
+                if (!BUILTIN_VARIABLES.contains(name)) {
+                    findings.add(new Finding("error", lineOf(code, start), "未知的 GLSL 内建变量: " + name));
+                }
             }
-            int start = index;
-            while (index < code.length() && (Character.isLetterOrDigit(code.charAt(index)) || code.charAt(index) == '_')) {
-                index++;
-            }
-            String name = code.substring(start, index);
-            if (!name.startsWith("gl_")) {
-                continue;
-            }
-            if (!BUILTIN_VARIABLES.contains(name)) {
-                findings.add(new Finding("error", lineOf(code, start), "未知的 GLSL 内建变量: " + name));
-            }
-        }
+        });
     }
 
     private static int countTopLevelArguments(String code, int openParen) {
