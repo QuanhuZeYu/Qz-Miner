@@ -15,12 +15,12 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
 /**
  * T7 基线几何契约（独立金值）。
  *
- * <p>金值来自 temp/chain-preview/verify/cp_verify_baseline.py 的独立 Python 重建模型，
+ * <p>金值来自 工作站 temp/chain-preview/verify/cp_verify_baseline.py 的独立 Python 重建模型，
  * 与目标仓既有测试夹具、owner 探针均无复用关系。任何一项在本次施工后变化都意味着
  * 默认观感被改变，必须回到 Lead 裁决。</p>
  *
  * <p><b>T51 方案 A（顶点按面分裂）后的金值更新：</b>顶点身份由「位置」升级为「(位置, 面)」，
- * 金值改由 temp/chain-preview/verify/cp_verify_split_model.py 独立复算（同一几何重建，
+ * 金值改由 工作站 temp/chain-preview/verify/cp_verify_split_model.py 独立复算（同一几何重建，
  * 按 CUBOID_QUAD_INDICES 展开每个 quad 的角点后按 (位置, 面) 去重）。该模型自检
  * 「split 顶点的位置投影 == 原位置数」与「quad 数不变」全部通过，quads 金值因此完全未变。
  * lead 裁决依据：方向流本身在分裂前恒为零（同位置冲突法线被归零），方案 A 是方向语义

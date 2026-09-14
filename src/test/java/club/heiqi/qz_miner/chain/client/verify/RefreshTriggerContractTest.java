@@ -8,7 +8,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewRefreshPolicy;
 /**
  * T12 刷新触发独立契约探针（B1.3 signal 档 + timer 等价口径）。
  *
- * <p>边界值来自独立规格模型 temp/chain-preview/verify/wave2_model.json
+ * <p>边界值来自独立规格模型 工作站 temp/chain-preview/verify/wave2_model.json
  * （cp_verify_wave2_model.py 产出），不复用 session-core 的断言：
  * 位移阈值与兜底时间均为「>=」触发；阈值 &lt;= 0 或 NaN 等价每帧刷新；兜底 &lt;= 0 不生效；
  * 负 elapsed 按 0 处理；位移 NaN 不得单独触发（仍由兜底保底）。</p>

@@ -15,7 +15,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan;
 /**
  * T17 深度分层 pass 独立契约探针（T15 + 预览渲染契约 draw plan 契约）。
  *
- * <p>独立口径来自 temp/chain-preview/verify/wave3_model.json：三档 → pass 选择表、
+ * <p>独立口径来自 工作站 temp/chain-preview/verify/wave3_model.json：三档 → pass 选择表、
  * null/未知兜底 XRAY、xray 单 pass 且深度状态等于历史基线、occlude 开深测不写深度、
  * outline 两段固定顺序（主体 → 置顶）；只验证选择与顺序契约，不假定描边效果存在。</p>
  */

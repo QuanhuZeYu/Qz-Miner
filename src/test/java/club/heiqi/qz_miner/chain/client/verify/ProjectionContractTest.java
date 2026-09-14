@@ -18,7 +18,7 @@ import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
 /**
  * T22 表现投影独立契约探针（B1.1 / task-19a）。
  *
- * <p>独立口径来自 temp/chain-preview/verify/wave4_model.json：
+ * <p>独立口径来自 工作站 temp/chain-preview/verify/wave4_model.json：
  * header 字段映射、身份维度任一变化即重发布（全同则零通知）、订阅/退订与生命周期清理、
  * header 不得携带集合或数组字段（O(1) 结构约束）、订阅者异常隔离。</p>
  */

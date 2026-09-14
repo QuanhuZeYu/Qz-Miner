@@ -21,7 +21,7 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * 跨世界与跨模式必须判为语义变化（调用方据此重置，不得进入去抖窗口）、快照不可变。</p>
  *
  * <p>本探针不复用 owner 用例：独立性来自「九维逐一扰动 + 同值不同实例」的对照设计，
- * 以及 temp/chain-preview/verify/wave4_model.json 中独立推导的去抖边界。
+ * 以及 工作站 temp/chain-preview/verify/wave4_model.json 中独立推导的去抖边界。
  * {@code PreviewTargetDebounce} 为包私有，本包用反射驱动，只调用不复制其实现。</p>
  */
 public class InputSnapshotContractTest {

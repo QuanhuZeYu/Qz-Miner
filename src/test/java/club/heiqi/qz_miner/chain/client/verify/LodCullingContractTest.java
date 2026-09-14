@@ -18,7 +18,7 @@ import club.heiqi.qz_miner.config.PreviewLodMode;
  *
  * <p>独立口径：探针自带 fade 参数（fadeStart=0 / fadeEnd=100 / maxAlpha=1 / minAlpha=0.05），
  * 目标放在 X 轴整数格、相机放在 (0.5 - d, 0.5, 0.5)，使「方块中心到相机距离」恰为整数 d，
- * 期望 alpha 由 temp/chain-preview/verify/cp_verify_lod_alpha_table.py 独立验算：
+ * 期望 alpha 由 工作站 temp/chain-preview/verify/cp_verify_lod_alpha_table.py 独立验算：
  * fresh 判定 alpha &lt;= enter 剔除；连带滞回记忆时 alpha &gt;= exit(=enter+0.05) 才恢复。</p>
  *
  * <p>不复用 owner 探针的取样点与断言；只覆盖任务要求：剔除边界（alpha 等于 epsilon）、

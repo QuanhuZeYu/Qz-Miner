@@ -9,7 +9,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewAnimationClock;
  * T12 动画时间线独立契约探针（B3.1）。
  *
  * <p>时钟是纯标量状态机：只依赖传入的 nowNanos，可在 JVM 内确定性断言。
- * 独立口径来自 temp/chain-preview/verify/wave2_model.json：
+ * 独立口径来自 工作站 temp/chain-preview/verify/wave2_model.json：
  * off / 未知档 / duration&lt;=0 → 恒完成；flow / wave 按 duration 线性推进；
  * 代变化重新计时；掉帧只跳进（钳制到 1）；时钟回退不出负值；reset 清空且不跨代残留。</p>
  */

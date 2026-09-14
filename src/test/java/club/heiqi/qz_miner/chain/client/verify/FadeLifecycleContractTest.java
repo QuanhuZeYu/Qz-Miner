@@ -8,7 +8,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewFadeController;
 /**
  * T17 淡入淡出 + retiring 独立契约探针（T14）。
  *
- * <p>独立口径来自 temp/chain-preview/verify/wave3_model.json：
+ * <p>独立口径来自 工作站 temp/chain-preview/verify/wave3_model.json：
  * off / duration&lt;=0 与历史一致（无过渡、无 retiring）；启用后 FADING_IN → ACTIVE → RETIRING → IDLE；
  * 新代抢占 retiring；时长上限 2000ms；掉帧只跳进；时钟回退不出负值；reset 全清。</p>
  */

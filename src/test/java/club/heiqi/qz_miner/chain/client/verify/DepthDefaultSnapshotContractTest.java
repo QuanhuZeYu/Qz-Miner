@@ -11,7 +11,7 @@ import club.heiqi.qz_miner.config.PreviewDepthMode;
 /**
  * T39 波次 8 深度档回归锁：xray / occlude 必须逐值等于波次 3 的默认快照。
  *
- * <p>金值直接取自 {@code temp/chain-preview/verify/wave3_model.json} 的 {@code depth_pass_table}
+ * <p>金值直接取自 {@code 工作站 temp/chain-preview/verify/wave3_model.json} 的 {@code depth_pass_table}
  * （T17 波次 3 独立模型）：xray=(depthTest false, mask false)、occlude=(true, false, LEQUAL)、
  * 未知/null 兜底 xray。OUTLINE 允许在本波次升级为真描边，故只锁「主体段+置顶段」不变量。</p>
  */

@@ -60,7 +60,7 @@ import club.heiqi.uilib.ui.scene.runtime.SceneRuntime;
  * {@code rowActivate} / {@code nudgeSelection} 的接缝）。两条都不新建真值、不绕过 pane 公开入口。</p>
  *
  * <p><b>读数落盘</b>：每个用例的关键读数在 @After 追加到 {@code -Dlistfix.evidence=} 指定的文件
- * （默认 {@code temp/listfix-evidence.txt}），断言失败也留证。</p>
+ * （默认 {@code build/reports/listfix-evidence.txt}，相对测试运行目录、目录自动创建），断言失败也留证。</p>
  */
 public class ObjectGroupListPaneBehaviorProbeTest {
 
@@ -76,7 +76,13 @@ public class ObjectGroupListPaneBehaviorProbeTest {
     private static final int ROW_PADDING_PX = 6;
     private static final String OVERFLOW_GLYPH = "\u22EE";
     private static final String EVIDENCE_KEY = "listfix.evidence";
-    private static final String EVIDENCE_DEFAULT = "D:\\Code\\MC\\Qz工作站\\temp\\listfix-evidence.txt";
+    /**
+     * 证据落盘默认路径：相对**测试运行目录**（{@link Files#createDirectories} 会自动建父目录）。
+     *
+     * <p>刻意不写机器绝对路径——此前硬编码 {@code D:\Code\MC\Qz工作站\temp\...} 只在本机可写，
+     * 换机 / CI 上会静默写进别的目录或失败。需要固定落盘位置时用 {@code -Dlistfix.evidence=} 覆盖。</p>
+     */
+    private static final String EVIDENCE_DEFAULT = "build/reports/listfix-evidence.txt";
 
     @Rule
     public final TestName testName = new TestName();
