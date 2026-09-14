@@ -379,8 +379,9 @@ public class ChainPreviewShaderContractTest {
     /**
      * 反误伤：输出与片元内建必须原样通过——它们是着色器与管线之间的必要接口，不是固定管线状态。
      *
-     * <p>{@code gl_Position} 与内建矩阵名共享 {@code gl_Pro…} / {@code gl_ModelView…} 前缀，
-     * 是最容易被过度匹配误伤的一族；注释里写满禁用名的源也必须绿（剥注释在校验之前完成）。</p>
+     * <p>{@code gl_Position} / {@code gl_PointSize} / {@code gl_PointCoord} 与 {@code gl_ProjectionMatrix*}
+     * 只共享 4 字符前缀 {@code gl_P}，是最容易被「把族名截短成词干」的松匹配误伤的一族；注释里写满
+     * 禁用名的源也必须绿（剥注释在校验之前完成）。</p>
      */
     @Test
     public void checkerAcceptsOutputAndFragmentBuiltins() {
