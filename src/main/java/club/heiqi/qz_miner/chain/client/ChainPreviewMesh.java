@@ -23,8 +23,17 @@ public class ChainPreviewMesh {
     /** aAux 每顶点字节数：x=semanticClass、y=tubeEdge、z/w=appearOrder（u16 小端）。 */
     public static final int AUX_BYTES_PER_VERTEX = 4;
 
-    /** 每顶点显式外扩方向的 float 分量数（面法线，shader 属性 aDirection）。 */
-    public static final int DIRECTION_FLOATS_PER_VERTEX = 3;
+    /**
+     * 每顶点显式外扩方向的字节数：x/y/z 为归一化 byte 面法线（{@link #DIRECTION_UNIT} 表示 ±1），
+     * 第 4 字节为对齐保留位。作为 {@code vec4} 属性上传：
+     * {@code glVertexAttribPointer(loc, 4, GL_BYTE, normalized=true, 4, 0)}。
+     *
+     * <p>方向只有 6 种取值（±X/±Y/±Z）；float×3 是 12 字节/顶点，4096 目标规模下 8.25 MB/mesh
+     * 的浪费。归一化 byte 的 {@code 127/127 = 1.0} 与 {@code 0/127 = 0.0} 都是精确值，无精度损失。</p>
+     */
+    public static final int DIRECTION_BYTES_PER_VERTEX = 4;
+    /** 归一化 byte 属性里表示 ±1 的幅值（GL 按 {@code c / 127} 映射到 [-1, 1]）。 */
+    public static final byte DIRECTION_UNIT = 127;
 
     /**
      * aAux 中「未定义」的 8 位值（semanticClass / tubeEdge）；类别 id 的冻结源为
@@ -45,7 +54,7 @@ public class ChainPreviewMesh {
     private final float[] colors;
     private final int colorFloatCount;
     private final byte[] aux;
-    private final float[] directions;
+    private final byte[] directions;
     private final String directionDegradationReason;
     private final String auxDegradationReason;
     private final int[] indices;
@@ -93,7 +102,7 @@ public class ChainPreviewMesh {
     /** 创建带语义流与显式面方向流的网格。 */
     public ChainPreviewMesh(
             float[] vertices, float[] colors, int[] indices, int blockCount, byte[] aux,
-            int culledTargetCount, float[] directions) {
+            int culledTargetCount, byte[] directions) {
         this(
             vertices,
             vertices == null ? 0 : vertices.length,
@@ -143,7 +152,7 @@ public class ChainPreviewMesh {
             boolean truncated,
             int culledTargetCount,
             byte[] aux,
-            float[] directions) {
+            byte[] directions) {
         this.vertices = vertices == null ? new float[0] : vertices;
         this.vertexFloatCount = boundedCount(vertexFloatCount, this.vertices.length);
         this.colors = colors == null ? new float[0] : colors;
@@ -158,15 +167,15 @@ public class ChainPreviewMesh {
         this.culledTargetCount = Math.max(0, culledTargetCount);
         int vertexCount = this.vertexFloatCount / 3;
         int requiredAuxBytes = vertexCount * AUX_BYTES_PER_VERTEX;
-        int requiredDirectionFloats = vertexCount * DIRECTION_FLOATS_PER_VERTEX;
+        int requiredDirectionBytes = vertexCount * DIRECTION_BYTES_PER_VERTEX;
         if (directions == null) {
             this.directions = null;
             this.directionDegradationReason = null;
-        } else if (directions.length != requiredDirectionFloats) {
+        } else if (directions.length != requiredDirectionBytes) {
             this.directions = null;
-            this.directionDegradationReason = "aDirection length " + directions.length
-                + " != vertexCount(" + vertexCount + ") * " + DIRECTION_FLOATS_PER_VERTEX
-                + " = " + requiredDirectionFloats;
+            this.directionDegradationReason = "aDirection bytes " + directions.length
+                + " != vertexCount(" + vertexCount + ") * " + DIRECTION_BYTES_PER_VERTEX
+                + " = " + requiredDirectionBytes;
         } else {
             this.directions = directions;
             this.directionDegradationReason = null;
@@ -222,11 +231,12 @@ public class ChainPreviewMesh {
         return aux == null ? null : Arrays.copyOf(aux, aux.length);
     }
 
-    public float[] getDirections() {
+    /** @return 归一化 byte 方向流副本（{@link #DIRECTION_BYTES_PER_VERTEX} 字节/顶点）；null 表示未启用。 */
+    public byte[] getDirections() {
         return directions == null ? null : Arrays.copyOf(directions, directions.length);
     }
 
-    public int getDirectionFloatCount() {
+    public int getDirectionByteCount() {
         return directions == null ? 0 : directions.length;
     }
 
@@ -336,7 +346,7 @@ public class ChainPreviewMesh {
         return aux;
     }
 
-    public float[] directionArray() {
+    public byte[] directionArray() {
         return directions;
     }
 

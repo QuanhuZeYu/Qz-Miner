@@ -33,7 +33,8 @@ public class DirectionStreamContractTest {
     private static final float EPSILON = 0.001F;
     /** float 顶点坐标经叉积后的法线容差。 */
     private static final double NORMAL_EPSILON = 1.0E-4D;
-    private static final int FLOATS_PER_VERTEX = 3;
+    /** 归一化 byte 方向流的字节数/顶点（xyz 面法线 + 对齐保留位）。 */
+    private static final int BYTES_PER_VERTEX = ChainPreviewMesh.DIRECTION_BYTES_PER_VERTEX;
 
     @Test
     public void directionStreamIsBoundToVertexCountAndStaysInValueDomain() {
@@ -48,18 +49,23 @@ public class DirectionStreamContractTest {
             int vertexCount = mesh.getVertexFloatCount() / 3;
             Assert.assertTrue("构建路径必须产出方向流", mesh.isDirectionAvailable());
             Assert.assertNull("方向可用时不得留降级原因", mesh.getDirectionDegradationReason());
-            float[] directions = mesh.getDirections();
+            byte[] directions = mesh.getDirections();
             Assert.assertNotNull(directions);
-            Assert.assertEquals(vertexCount * FLOATS_PER_VERTEX, directions.length);
-            Assert.assertEquals(vertexCount * FLOATS_PER_VERTEX, mesh.getDirectionFloatCount());
+            Assert.assertEquals(vertexCount * BYTES_PER_VERTEX, directions.length);
+            Assert.assertEquals(vertexCount * BYTES_PER_VERTEX, mesh.getDirectionByteCount());
             for (int vertex = 0; vertex < vertexCount; vertex++) {
-                float x = directions[vertex * FLOATS_PER_VERTEX];
-                float y = directions[vertex * FLOATS_PER_VERTEX + 1];
-                float z = directions[vertex * FLOATS_PER_VERTEX + 2];
-                Assert.assertTrue("方向分量必须是有限值", isFinite(x) && isFinite(y) && isFinite(z));
-                float magnitude = Math.abs(x) + Math.abs(y) + Math.abs(z);
-                Assert.assertTrue("方向必须恰好是零向量或某个单位面法线（顶点 " + vertex
-                    + " -> (" + x + "," + y + "," + z + ")）", near(magnitude, 0.0F) || near(magnitude, 1.0F));
+                int encoded = 0;
+                for (int axis = 0; axis < 3; axis++) {
+                    int value = directions[vertex * BYTES_PER_VERTEX + axis];
+                    Assert.assertTrue("方向分量必须恰好是 -127 / 0 / 127（顶点 " + vertex + " 轴 " + axis
+                        + " -> " + value + "）", value == 0 || value == ChainPreviewMesh.DIRECTION_UNIT
+                        || value == -ChainPreviewMesh.DIRECTION_UNIT);
+                    encoded += Math.abs(value);
+                }
+                Assert.assertEquals("归一化 byte 必须恰好对应某个单位面法线（顶点 " + vertex + "）",
+                    ChainPreviewMesh.DIRECTION_UNIT, encoded);
+                Assert.assertEquals("对齐保留位必须为 0（顶点 " + vertex + "）",
+                    0, directions[vertex * BYTES_PER_VERTEX + 3]);
             }
         }
     }
@@ -86,14 +92,14 @@ public class DirectionStreamContractTest {
             ChainPreviewMesh mesh = builder.build(targets, VISUALS);
             Assert.assertTrue(label + " 构建路径必须产出方向流", mesh.isDirectionAvailable());
             float[] vertices = mesh.getVertices();
-            float[] directions = mesh.getDirections();
+            byte[] directions = mesh.getDirections();
             int[] indices = mesh.getIndices();
             int vertexCount = mesh.getVertexFloatCount() / 3;
             Assert.assertEquals(label + " 方向流长度必须与顶点数绑定",
-                vertexCount * FLOATS_PER_VERTEX, directions.length);
+                vertexCount * BYTES_PER_VERTEX, directions.length);
             int zeroDirections = 0;
             for (int vertex = 0; vertex < vertexCount; vertex++) {
-                if (near(magnitude(directions, vertex), 0.0F)) {
+                if (magnitude(directions, vertex) == 0) {
                     zeroDirections++;
                 }
             }
@@ -102,20 +108,20 @@ public class DirectionStreamContractTest {
                 int[] quad = {indices[offset], indices[offset + 1], indices[offset + 2], indices[offset + 3]};
                 String quadLabel = label + " quad " + (offset / 4);
                 for (int corner = 1; corner < 4; corner++) {
-                    for (int axis = 0; axis < FLOATS_PER_VERTEX; axis++) {
-                        Assert.assertEquals(quadLabel + " 四个顶点必须同面同向",
-                            directions[quad[0] * FLOATS_PER_VERTEX + axis],
-                            directions[quad[corner] * FLOATS_PER_VERTEX + axis], EPSILON);
+                    for (int axis = 0; axis < 3; axis++) {
+                        Assert.assertEquals(quadLabel + " 四个顶点必须同面同向（轴 " + axis + "）",
+                            directions[quad[0] * BYTES_PER_VERTEX + axis],
+                            directions[quad[corner] * BYTES_PER_VERTEX + axis]);
                     }
                 }
                 double[] normal = outwardNormal(vertices, quad[0], quad[1], quad[2]);
                 Assert.assertTrue(quadLabel + " 不得退化", normal != null);
                 Assert.assertEquals(quadLabel + " 外法线必须等于方向流 X",
-                    normal[0], directions[quad[0] * FLOATS_PER_VERTEX], NORMAL_EPSILON);
+                    normal[0], decodeDirection(directions, quad[0], 0), NORMAL_EPSILON);
                 Assert.assertEquals(quadLabel + " 外法线必须等于方向流 Y",
-                    normal[1], directions[quad[0] * FLOATS_PER_VERTEX + 1], NORMAL_EPSILON);
+                    normal[1], decodeDirection(directions, quad[0], 1), NORMAL_EPSILON);
                 Assert.assertEquals(quadLabel + " 外法线必须等于方向流 Z",
-                    normal[2], directions[quad[0] * FLOATS_PER_VERTEX + 2], NORMAL_EPSILON);
+                    normal[2], decodeDirection(directions, quad[0], 2), NORMAL_EPSILON);
             }
         }
     }
@@ -138,10 +144,16 @@ public class DirectionStreamContractTest {
         return new double[] {x / length, y / length, z / length};
     }
 
-    private static float magnitude(float[] directions, int vertex) {
-        return Math.abs(directions[vertex * FLOATS_PER_VERTEX])
-            + Math.abs(directions[vertex * FLOATS_PER_VERTEX + 1])
-            + Math.abs(directions[vertex * FLOATS_PER_VERTEX + 2]);
+    /** @return 该顶点方向编码的 L1 幅值（单位面法线恰为 {@link ChainPreviewMesh#DIRECTION_UNIT}）。 */
+    private static int magnitude(byte[] directions, int vertex) {
+        return Math.abs(directions[vertex * BYTES_PER_VERTEX])
+            + Math.abs(directions[vertex * BYTES_PER_VERTEX + 1])
+            + Math.abs(directions[vertex * BYTES_PER_VERTEX + 2]);
+    }
+
+    /** @return 归一化 byte 的解码值（-127/0/127 -> -1.0/0.0/1.0，均为精确值）。 */
+    private static double decodeDirection(byte[] directions, int vertex, int axis) {
+        return directions[vertex * BYTES_PER_VERTEX + axis] / (double) ChainPreviewMesh.DIRECTION_UNIT;
     }
 
     /** 同输入重建必须逐字节一致（方向流参与确定性契约）。 */
@@ -150,7 +162,7 @@ public class DirectionStreamContractTest {
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         ChainPreviewMesh first = builder.build(VerifyShapes.line(64), VISUALS);
         ChainPreviewMesh second = builder.build(VerifyShapes.line(64), VISUALS);
-        Assert.assertArrayEquals("方向流必须逐字节可复现", first.getDirections(), second.getDirections(), 0.0F);
+        Assert.assertArrayEquals("方向流必须逐字节可复现", first.getDirections(), second.getDirections());
         Assert.assertArrayEquals(first.getVertices(), second.getVertices(), 0.0F);
     }
 
@@ -171,7 +183,7 @@ public class DirectionStreamContractTest {
         ChainPreviewMesh incremental = session.getMesh();
         Assert.assertTrue("增量路径必须同样产出方向流", incremental.isDirectionAvailable());
         Assert.assertArrayEquals("增量与全量方向流必须逐字节一致",
-            full.getDirections(), incremental.getDirections(), 0.0F);
+            full.getDirections(), incremental.getDirections());
     }
 
     /** 长度不符必须降级且可观察（与 aAux 同口径），不得半信半疑地当有效流用。 */
@@ -184,10 +196,10 @@ public class DirectionStreamContractTest {
             1,
             new byte[] {1, 2, 3, 4},
             0,
-            new float[] {0.0F, 1.0F});
+            new byte[] {0, 1});
         Assert.assertFalse("长度不符不得被当作有效方向流", malformed.isDirectionAvailable());
         Assert.assertNull(malformed.getDirections());
-        Assert.assertEquals(0, malformed.getDirectionFloatCount());
+        Assert.assertEquals(0, malformed.getDirectionByteCount());
         Assert.assertNotNull("降级原因必须可读", malformed.getDirectionDegradationReason());
     }
 

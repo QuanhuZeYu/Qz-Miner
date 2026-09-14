@@ -108,6 +108,14 @@ public class ChainPreviewMeshBuilder {
         {0.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F},
         {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}
     };
+    /** @return 面法线分量的归一化 byte 编码（±1 -> ±{@link ChainPreviewMesh#DIRECTION_UNIT}，0 -> 0）。 */
+    private static byte directionByte(float component) {
+        if (component > 0.0F) {
+            return ChainPreviewMesh.DIRECTION_UNIT;
+        }
+        return component < 0.0F ? (byte) -ChainPreviewMesh.DIRECTION_UNIT : (byte) 0;
+    }
+
     private static final int[][] TUBE_FACES_BY_AXIS = {
         {0, 1, 2, 3},
         {0, 1, 4, 5},
@@ -494,7 +502,7 @@ public class ChainPreviewMeshBuilder {
             return maxAlpha - (maxAlpha - minAlpha) * squared;
         }
 
-        private static float clampAlpha(float alpha) {
+    private static float clampAlpha(float alpha) {
             return Math.max(0.0F, Math.min(1.0F, alpha));
         }
     }
@@ -1221,7 +1229,7 @@ public class ChainPreviewMeshBuilder {
         private final FloatArrayBuilder colors = new FloatArrayBuilder();
         private final IntArrayBuilder indices = new IntArrayBuilder();
         private final ByteArrayBuilder aux = new ByteArrayBuilder();
-        private final FloatArrayBuilder directions = new FloatArrayBuilder();
+        private final ByteArrayBuilder directions = new ByteArrayBuilder();
 
         private int targetReadCount;
         private int semanticClassFallbackCount;
@@ -1636,9 +1644,10 @@ public class ChainPreviewMeshBuilder {
             vertices.add(x);
             vertices.add(y);
             vertices.add(z);
-            directions.add(normal[0]);
-            directions.add(normal[1]);
-            directions.add(normal[2]);
+            directions.add(directionByte(normal[0]));
+            directions.add(directionByte(normal[1]));
+            directions.add(directionByte(normal[2]));
+            directions.add((byte) 0);
             float alpha = visuals.alphaFor(meshOrigin.x + (double) x, meshOrigin.y + (double) y,
                 meshOrigin.z + (double) z);
             colors.add(BASE_RED);
