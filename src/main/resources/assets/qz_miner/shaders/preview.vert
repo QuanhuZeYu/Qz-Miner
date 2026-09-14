@@ -162,48 +162,15 @@ void main(void) {
         displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, max(0.0, 0.5 - uBarThickness));
     }
 
-    // 下面的历史分支永久关闭，仅作为契约占位保留：它从 aPos 的绝对值近似横向轴，
-    // 对长条端点 / junction / 跨轴线段会误判，是已被否定的做法——横向轴只认 Mesh 显式提供的
-    // aDirection。GLSL 对 if (false && …) 不做死代码豁免，被关掉的语句同样要过语义检查，
-    // 所以里面引用的 uModelView / uPixelScale / uBarThickness 仍受声明与链接检查保护。
-    // T49 教训：曾因误删这里的 pixelsPerWorldUnit 声明导致 GLSL 编译失败，被回退链吞成「观感正常」。
-    float pixelPerUnitAtDepth = 1.0;
-    float lateralMagnitude = 0.0;
-    vec3 lateralAxis = vec3(0.0, 0.0, 0.0);
-    if (false && (uMinScreenWidthPx > 0.0 || uOutlineWidthPx > 0.0)) {
-        float depth = max(1e-4, -(uModelView * vec4(aPos, 1.0)).z);
-        pixelPerUnitAtDepth = uPixelScale / depth;
-        float magnitudeX = abs(aPos.x);
-        float magnitudeY = abs(aPos.y);
-        float magnitudeZ = abs(aPos.z);
-        lateralMagnitude = min(magnitudeX, min(magnitudeY, magnitudeZ));
-        if (lateralMagnitude <= 0.02 * max(uBarThickness, 1e-4)) {
-            lateralAxis = vec3(0.0, 0.0, 0.0);
-        } else if (magnitudeX <= magnitudeY && magnitudeX <= magnitudeZ) {
-            lateralAxis = vec3(sign(aPos.x), 0.0, 0.0);
-        } else if (magnitudeY <= magnitudeZ) {
-            lateralAxis = vec3(0.0, sign(aPos.y), 0.0);
-        } else {
-            lateralAxis = vec3(0.0, 0.0, sign(aPos.z));
-        }
-    }
-    if (false && lateralMagnitude > 0.0) {
-        float worldLateral = length((uModelView * vec4(lateralAxis, 0.0)).xyz);
-        float projectedPerUnit = clamp(worldLateral, 0.05, 1.0);
-        pixelsPerWorldUnit = max(pixelPerUnitAtDepth * projectedPerUnit, 1e-6);
-        float lateralWidthPx = 2.0 * lateralMagnitude * pixelsPerWorldUnit;
-        float widen = 1.0;
-        if (uMinScreenWidthPx > 0.0) {
-            widen = clamp(uMinScreenWidthPx / max(lateralWidthPx, 1e-6), 1.0, 64.0);
-        }
-        displaced = aPos + lateralAxis * (lateralMagnitude * (widen - 1.0));
-    }
-    if (uOutlineWidthPx > 0.0 && lateralMagnitude > 0.0) {
-        float outlinePx = clamp(uOutlineWidthPx, 0.0, 8.0);
-        float outlineWorld = outlinePx / pixelsPerWorldUnit;
-        outlineWorld = clamp(outlineWorld, 0.0, max(0.0, 0.5 - uBarThickness));
-        displaced = displaced + lateralAxis * outlineWorld;
-    }
+    // 历史做法（从 aPos 的绝对值近似横向轴）已彻底移除：横向轴只认 Mesh 显式提供的 aDirection。
+    //
+    // T49 曾用 if (false) 占位保留那段代码，理由是 GLSL 对 if (false && …) 不做死代码豁免、
+    // 被关掉的语句同样要过语义检查，于是占位块能顺带护住 uniform 的声明与链接检查。该理由
+    // 已被取代：上面的活跃位移实打实引用了 uModelView / uPixelScale / uBarThickness，
+    // 保护作用由活跃分支承担，占位块遂删除（它同时是「读起来像在用 lateralAxis」的误导源）。
+    //
+    // 教训保留：T49 曾因误删 pixelsPerWorldUnit 声明导致 GLSL 编译失败，再被回退链吞成
+    // 「观感正常」。改动本段后必须过 glslang 闸门，且必须确认上方位移在真机上生效。
 
     // 颜色与 alpha：vColor.rgb 是「语义类别色」（非预乘），alpha 单独传给混合。
     // 共用混合是 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)（两后端共用）：
