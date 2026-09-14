@@ -75,6 +75,13 @@ public final class VerifyMeshReferenceModel {
         public final Map<String, VertexExpectation> vertices = new LinkedHashMap<String, VertexExpectation>();
         public final Set<String> quads = new LinkedHashSet<String>();
         public final List<String> positionKeys = new ArrayList<String>();
+        /**
+         * T51 方案 A 的顶点键集合：{@code 位置 + "|" + face}。
+         *
+         * <p>顶点数即本集合大小；{@link #vertices} 仍按<b>位置</b>聚合语义（appearOrder /
+         * semanticClass），因此它同时独立复核构建侧的 {@code normalizeAppearOrderByPosition()}。</p>
+         */
+        public final Set<String> splitVertexKeys = new LinkedHashSet<String>();
         public int visibleBlockCount;
         public int culledTargetCount;
         public boolean truncated;
@@ -218,7 +225,7 @@ public final class VerifyMeshReferenceModel {
                     continue;
                 }
                 addFace(expectation, half, anchorOrigin(expectation), junctionCorners(pointX, pointY, pointZ),
-                    FACE_QUADS[face], APPEAR_ORDER_UNDEFINED, true, appearOrder, orders);
+                    FACE_QUADS[face], face, APPEAR_ORDER_UNDEFINED, true, appearOrder, orders);
             }
         }
 
@@ -234,7 +241,7 @@ public final class VerifyMeshReferenceModel {
             int[] corners = tubeCorners(low, high, axis, startOffset, endOffset);
             for (int slot = 0; slot < slots.length; slot++) {
                 addFace(expectation, half, anchorOrigin(expectation), corners,
-                    FACE_QUADS[slots[slot]], slot, false, entry.getValue().intValue(), orders);
+                    FACE_QUADS[slots[slot]], slots[slot], slot, false, entry.getValue().intValue(), orders);
             }
         }
         return expectation;
@@ -245,12 +252,14 @@ public final class VerifyMeshReferenceModel {
     }
 
     private static void addFace(
-            Expectation expectation, float half, int[] origin, int[] corners, int[] cornerIndices,
+            Expectation expectation, float half, int[] origin, int[] corners, int[] cornerIndices, int face,
             int tubeEdge, boolean junction, int appearOrder, List<Integer> semanticClasses) {
         String[] keys = new String[4];
         for (int corner = 0; corner < 4; corner++) {
             String logical = logicalKey(corners, cornerIndices[corner]);
             keys[corner] = positionKey(logical, half, origin);
+            // T51 方案 A：顶点身份 = (位置, 面)；同位置的不同面各持一个顶点。
+            expectation.splitVertexKeys.add(keys[corner] + "|" + face);
             VertexExpectation vertex = expectation.vertices.get(keys[corner]);
             if (vertex == null) {
                 vertex = new VertexExpectation();
@@ -329,6 +338,28 @@ public final class VerifyMeshReferenceModel {
     /** 与生产同式的局部坐标（float 位比较要求逐位一致）。 */
     private static float local(long coordinate, int offset, int origin, float half) {
         return (float) ((double) coordinate - origin + offset * (double) half);
+    }
+
+    /** @return 该顶点 aux 语义的规范键（semanticClass:appearOrder）。 */
+    private static String semanticKey(byte[] aux, int vertex) {
+        if (aux == null || vertex * AUX_BYTES_PER_VERTEX + 3 >= aux.length) {
+            return "none";
+        }
+        int offset = vertex * AUX_BYTES_PER_VERTEX;
+        int semanticClass = aux[offset] & 0xFF;
+        int appearOrder = (aux[offset + 2] & 0xFF) | ((aux[offset + 3] & 0xFF) << 8);
+        return semanticClass + ":" + appearOrder;
+    }
+
+    /** @return 位置 -> 该位置的顶点数（T51 方案 A 下每面一个）。 */
+    private static Map<String, Integer> countByPosition(Set<String> splitVertexKeys) {
+        Map<String, Integer> counts = new HashMap<String, Integer>();
+        for (String key : splitVertexKeys) {
+            String position = key.substring(0, key.lastIndexOf('|'));
+            Integer previous = counts.get(position);
+            counts.put(position, Integer.valueOf(previous == null ? 1 : previous.intValue() + 1));
+        }
+        return counts;
     }
 
     private static String bits(float value) {
@@ -519,24 +550,52 @@ public final class VerifyMeshReferenceModel {
             int culledTargetCount) {
         List<Mismatch> mismatches = new ArrayList<Mismatch>();
         int actualVertexCount = vertexFloatCount / 3;
-        if (actualVertexCount != expected.vertices.size()) {
+        if (actualVertexCount != expected.splitVertexKeys.size()) {
             mismatches.add(new Mismatch("vertexCount",
-                "expected " + expected.vertices.size() + " but was " + actualVertexCount));
+                "expected " + expected.splitVertexKeys.size() + " but was " + actualVertexCount));
         }
-        Map<String, Integer> actualIndexByPosition = new HashMap<String, Integer>();
+        Map<String, Integer> expectedCountByPosition = countByPosition(expected.splitVertexKeys);
+        Map<String, Integer> actualCountByPosition = new HashMap<String, Integer>();
+        Map<String, Integer> actualFirstIndexByPosition = new HashMap<String, Integer>();
+        Map<String, String> actualSemanticByPosition = new HashMap<String, String>();
         for (int vertex = 0; vertex < actualVertexCount; vertex++) {
             String position = bits(vertices[vertex * 3]) + "," + bits(vertices[vertex * 3 + 1])
                 + "," + bits(vertices[vertex * 3 + 2]);
-            if (actualIndexByPosition.put(position, Integer.valueOf(vertex)) != null) {
-                mismatches.add(new Mismatch("duplicateVertexPosition", "position " + position));
+            Integer previous = actualCountByPosition.get(position);
+            actualCountByPosition.put(position, Integer.valueOf(previous == null ? 1 : previous.intValue() + 1));
+            if (previous == null) {
+                actualFirstIndexByPosition.put(position, Integer.valueOf(vertex));
+            } else {
+                // 同一位置的多顶点必须共享同一 aux 语义：构建侧 normalizeAppearOrderByPosition() 的独立复核。
+                // 逐波生长时同位置不同面若持有不同 appearOrder，条柱表面会露缝。
+                String semantic = semanticKey(aux, vertex);
+                String first = actualSemanticByPosition.get(position);
+                if (first != null && !first.equals(semantic)) {
+                    mismatches.add(new Mismatch("inconsistentSharedVertexSemantics",
+                        "position " + position + " " + first + " vs " + semantic));
+                }
             }
+            actualSemanticByPosition.put(position, semanticKey(aux, vertex));
             if (!expected.vertices.containsKey(position)) {
                 mismatches.add(new Mismatch("unexpectedVertexPosition", "position " + position));
             }
         }
-        for (String position : expected.vertices.keySet()) {
-            if (!actualIndexByPosition.containsKey(position)) {
-                mismatches.add(new Mismatch("missingVertexPosition", "position " + position));
+        // T51 方案 A：同一位置允许多顶点（每面一个），但每位置的顶点数必须与独立模型一致；
+        // 位置集合本身仍须严格相等。
+        for (Map.Entry<String, Integer> entry : expectedCountByPosition.entrySet()) {
+            Integer actual = actualCountByPosition.get(entry.getKey());
+            if (actual == null) {
+                mismatches.add(new Mismatch("missingVertexPosition", "position " + entry.getKey()));
+                break;
+            }
+            if (actual.intValue() != entry.getValue().intValue()) {
+                mismatches.add(new Mismatch("verticesPerPosition",
+                    "position " + entry.getKey() + " expected " + entry.getValue() + " but was " + actual));
+            }
+        }
+        for (String position : actualCountByPosition.keySet()) {
+            if (!expectedCountByPosition.containsKey(position)) {
+                mismatches.add(new Mismatch("unexpectedVertexPosition", "position " + position));
                 break;
             }
         }
@@ -584,7 +643,7 @@ public final class VerifyMeshReferenceModel {
             mismatches.add(new Mismatch("auxLength", "aux bytes " + aux.length
                 + " for " + actualVertexCount + " vertices"));
         } else if (aux.length > 0) {
-            for (Map.Entry<String, Integer> entry : actualIndexByPosition.entrySet()) {
+            for (Map.Entry<String, Integer> entry : actualFirstIndexByPosition.entrySet()) {
                 VertexExpectation expectation = expected.vertices.get(entry.getKey());
                 if (expectation == null) {
                     continue;

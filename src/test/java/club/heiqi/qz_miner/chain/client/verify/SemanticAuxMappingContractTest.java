@@ -129,7 +129,7 @@ public class SemanticAuxMappingContractTest {
             }
         }
         for (int block = 0; block < 3; block++) {
-            Assert.assertEquals("每块 64 顶点", 64, perBlockVertices[block]);
+            Assert.assertEquals("每块 168 顶点（T51 方案 A）", 168, perBlockVertices[block]);
         }
     }
 
@@ -160,7 +160,7 @@ public class SemanticAuxMappingContractTest {
                     aux[vertex * 4] & 0xFF);
             }
         }
-        Assert.assertEquals(64, repeatedVertices);
+        Assert.assertEquals(168, repeatedVertices);
         Assert.assertEquals(2, mesh.getBlockCount());
     }
 

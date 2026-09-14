@@ -26,8 +26,8 @@ public class ChainPreviewMeshBuilderTest {
             visuals(0.5D, 0.5D, 0.5D));
 
         Assert.assertEquals(1, mesh.getBlockCount());
-        Assert.assertEquals(64 * 3, mesh.getVertexFloatCount());
-        Assert.assertEquals(64 * 4, mesh.getColorFloatCount());
+        Assert.assertEquals(168 * 3, mesh.getVertexFloatCount());
+        Assert.assertEquals(168 * 4, mesh.getColorFloatCount());
         Assert.assertEquals((12 * 4 + 8 * 3) * 4, mesh.getIndexCount());
         assertIndicesInRange(mesh);
         assertNoDuplicateQuads(mesh);
@@ -57,7 +57,7 @@ public class ChainPreviewMeshBuilderTest {
             Arrays.asList(origin, new ChainTarget(1, 0, 0)),
             visuals);
         Assert.assertEquals(2, adjacent.getBlockCount());
-        Assert.assertEquals(80 * 3, adjacent.getVertexFloatCount());
+        Assert.assertEquals(200 * 3, adjacent.getVertexFloatCount());
         Assert.assertEquals((16 * 4 + 8 * 3) * 4, adjacent.getIndexCount());
         assertIndicesInRange(adjacent);
         assertNoDuplicateQuads(adjacent);
@@ -107,7 +107,7 @@ public class ChainPreviewMeshBuilderTest {
             Collections.singletonList(new ChainTarget(0, 0, 0)),
             visuals(0.5D, 0.5D, 0.5D));
 
-        float[] expected = new float[64 * 4];
+        float[] expected = new float[168 * 4];
         for (int offset = 0; offset < expected.length; offset += 4) {
             expected[offset] = 0.25F;
             expected[offset + 1] = 0.9F;

@@ -49,8 +49,9 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * <p>B4.2 有界容量与峰值：唯一上限仍是 {@link #MAX_RENDER_TARGETS}（= clientPreviewMaxTargetsHardCap 的
  * 默认/夹具上限 4096，不新造第二套上限语义）；超限走既有 truncated 语义（网格 {@code isTruncated()}
  * 与会话 {@link GenerationSession#isOverflowed()} 同时可见），不做静默截断。顶点/索引/aux/可见边均为
- * unique 目标的派生量，由 tests 断言其受 64×块数 / 288×块数 / 4×顶点 / 12×块数 的派生上界约束
- * （即既有单条柱实测包络：64 顶点 / 288 索引 每块，见 {@code ChainPreviewMeshBuilderTest}）。
+ * unique 目标的派生量，由 tests 断言其受 168×块数 / 288×块数 / 4×顶点 / 12×块数 的派生上界约束
+ * （即孤立方块实测包络：168 顶点 / 288 索引 每块，见 {@code ChainPreviewMeshBuilderTest}；
+ * T51 方案 A 顶点按面分裂前为 64 顶点 / 288 索引）。
  * 峰值由 {@link GenerationSession} 在构建线程采样，并经
  * {@link GenerationSession#publishCapacityInto(ChainPreviewScaleCounters)} 交接进既有规模计数器通道。</p>
  */

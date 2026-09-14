@@ -18,6 +18,13 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * <p>金值来自 temp/chain-preview/verify/cp_verify_baseline.py 的独立 Python 重建模型，
  * 与目标仓既有测试夹具、owner 探针均无复用关系。任何一项在本次施工后变化都意味着
  * 默认观感被改变，必须回到 Lead 裁决。</p>
+ *
+ * <p><b>T51 方案 A（顶点按面分裂）后的金值更新：</b>顶点身份由「位置」升级为「(位置, 面)」，
+ * 金值改由 temp/chain-preview/verify/cp_verify_split_model.py 独立复算（同一几何重建，
+ * 按 CUBOID_QUAD_INDICES 展开每个 quad 的角点后按 (位置, 面) 去重）。该模型自检
+ * 「split 顶点的位置投影 == 原位置数」与「quad 数不变」全部通过，quads 金值因此完全未变。
+ * lead 裁决依据：方向流本身在分裂前恒为零（同位置冲突法线被归零），方案 A 是方向语义
+ * 生效的前置条件。</p>
  */
 public class BaselineGeometryContractTest {
 
@@ -26,23 +33,24 @@ public class BaselineGeometryContractTest {
 
     @Test
     public void isolatedAndConnectedShapesMatchIndependentModel() {
-        assertShape("single", VerifyShapes.single(0, 0, 0), 64, 72, 1, false);
-        assertShape("adjacent_x2", VerifyShapes.line(2), 80, 88, 2, false);
-        assertShape("line_100", VerifyShapes.line(100), 1648, 1656, 100, false);
-        assertShape("plane_16x16", VerifyShapes.plane(16), 544, 552, 60, false);
-        assertShape("solid_10_cube", VerifyShapes.solidCube(10), 496, 504, 104, false);
-        assertShape("lshape_64", VerifyShapes.lShape(64), 2096, 2108, 127, false);
-        assertShape("edge_contact", VerifyShapes.edgeContact(), 112, 130, 2, false);
-        assertShape("corner_contact", VerifyShapes.cornerContact(), 120, 138, 2, false);
-        assertShape("duplicates_1024", VerifyShapes.duplicated(1024), 64, 72, 1, false);
+        assertShape("single", VerifyShapes.single(0, 0, 0), 168, 72, 1, false);
+        assertShape("adjacent_x2", VerifyShapes.line(2), 200, 88, 2, false);
+        assertShape("line_100", VerifyShapes.line(100), 3336, 1656, 100, false);
+        assertShape("plane_16x16", VerifyShapes.plane(16), 1128, 552, 60, false);
+        assertShape("solid_10_cube", VerifyShapes.solidCube(10), 1032, 504, 104, false);
+        assertShape("lshape_64", VerifyShapes.lShape(64), 4252, 2108, 127, false);
+        assertShape("edge_contact", VerifyShapes.edgeContact(), 300, 130, 2, false);
+        assertShape("corner_contact", VerifyShapes.cornerContact(), 318, 138, 2, false);
+        assertShape("duplicates_1024", VerifyShapes.duplicated(1024), 168, 72, 1, false);
     }
 
     @Test
     public void isolated4096TargetsMatchIndependentScaleModel() {
         // 独立模型：每目标 12 边 × 4 面 = 48 quad，8 接头 × 3 面 = 24 quad，合计 72 quad；
-        // 顶点键 = 8 接头角点 × 8 offset = 64/目标。
-        assertShape("scattered_4096", VerifyShapes.scatteredX(4096, 3), 262144, 294912, 4096, false);
-        assertShape("scatter_lattice_4096", VerifyShapes.deterministicScatter(4096), 262144, 294912, 4096, false);
+        // 顶点 = (位置, 面) 配对数：8 接头位置 × 8 offset × 3 面 = 192/目标，其中 24 个被管段复用，净 168/目标；
+        // 4096 × 168 = 688128（quads 与位置数口径不变）。
+        assertShape("scattered_4096", VerifyShapes.scatteredX(4096, 3), 688128, 294912, 4096, false);
+        assertShape("scatter_lattice_4096", VerifyShapes.deterministicScatter(4096), 688128, 294912, 4096, false);
     }
 
     @Test
@@ -51,7 +59,7 @@ public class BaselineGeometryContractTest {
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(VerifyFeeds.snapshot(beyond), VISUALS);
         Assert.assertTrue("超出 4096 必须置 truncated", mesh.isTruncated());
         Assert.assertEquals(4096, mesh.getBlockCount());
-        Assert.assertEquals(262144, mesh.getVertexFloatCount() / 3);
+        Assert.assertEquals(688128, mesh.getVertexFloatCount() / 3);
         Assert.assertEquals(294912 * 4, mesh.getIndexCount());
         Assert.assertEquals(0, mesh.getOriginX());
         float[] vertices = mesh.getVertices();

@@ -278,3 +278,11 @@ val validateShaders = tasks.register<ValidateShadersTask>("validateShaders") {
 tasks.matching { it.name == "check" || it.name == "test" }.configureEach {
     dependsOn(validateShaders)
 }
+
+// T51 方案 A（顶点按面分裂）后孤立方块顶点数 64 -> 168（×2.625）。容量契约测试会跑到
+// MAX_RENDER_TARGETS 全量规模（4096 目标 ≈ 688k 顶点 ≈ 35 MB 数组/mesh，外加构建期
+// 顶点索引结构），默认 512m 测试堆会在 extend 阶段 OOM。这是测试环境的规模适配，
+// 与产品体积无关（真机同时只持有一份当前 mesh + 有界代缓存）。
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    maxHeapSize = "2g"
+}
