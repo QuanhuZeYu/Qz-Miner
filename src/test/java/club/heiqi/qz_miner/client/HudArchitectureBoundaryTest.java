@@ -28,6 +28,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
+import club.heiqi.qz_miner.testsupport.LanguageFiles;
 import club.heiqi.uilib.api.chat.ChatActionRegistration;
 import club.heiqi.uilib.api.chat.ChatActionService;
 import club.heiqi.uilib.ui.hud.api.HudEditService;
@@ -439,19 +440,8 @@ public class HudArchitectureBoundaryTest {
         return false;
     }
 
-    private static Map<String, String> loadLang(String path) throws IOException {
-        Map<String, String> entries = new LinkedHashMap<String, String>();
-        for (String line : JavaSourceSlices.read(path).split("\\r?\\n")) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            int separator = trimmed.indexOf('=');
-            if (separator <= 0) {
-                continue;
-            }
-            entries.put(trimmed.substring(0, separator), trimmed.substring(separator + 1));
-        }
+    private static Map<String, String> loadLang(String path) {
+        Map<String, String> entries = LanguageFiles.asMap(LanguageFiles.readRepoFile(path));
         Assert.assertTrue("lang 文件必须解析出条目: " + path, !entries.isEmpty());
         return entries;
     }

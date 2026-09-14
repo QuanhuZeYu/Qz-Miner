@@ -10,15 +10,13 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.spongepowered.asm.mixin.injection.Inject;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 import club.heiqi.qz_miner.mixins.early.MixinNetHandlerPlayServer;
 import club.heiqi.qz_miner.mixins.early.MixinServerConfigurationManager;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
+import club.heiqi.qz_miner.testsupport.JsonResources;
 
 /**
  * vanilla 玩家生命周期注入点的结构门禁。
@@ -84,14 +82,9 @@ public class ServerConfigurationManagerLifecycleMixinStructureTest {
         Assert.assertTrue("early loader 必须注册 " + MIXIN_NAME + ": " + loaded,
                 loaded.contains(MIXIN_NAME));
 
-        JsonObject config = new JsonParser()
-                .parse(JavaSourceSlices.readLocated(EARLY_CONFIG)).getAsJsonObject();
-        Set<String> declared = new LinkedHashSet<String>();
-        JsonArray array = config.getAsJsonArray("mixins");
-        Assert.assertNotNull("early mixin 清单必须包含 mixins 数组", array);
-        for (JsonElement entry : array) {
-            declared.add(entry.getAsString());
-        }
+        JsonObject config = JsonResources.readRepoFile(EARLY_CONFIG);
+        Assert.assertTrue("early mixin 清单必须包含 mixins 数组", JsonResources.hasArray(config, "mixins"));
+        Set<String> declared = JsonResources.arrayEntrySet(config, "mixins");
         Assert.assertTrue("early mixin 配置必须声明 " + MIXIN_NAME + ": " + declared,
                 declared.contains(MIXIN_NAME));
     }

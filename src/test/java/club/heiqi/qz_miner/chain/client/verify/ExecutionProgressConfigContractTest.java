@@ -1,8 +1,6 @@
 package club.heiqi.qz_miner.chain.client.verify;
 
 import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,6 +16,7 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator;
 import club.heiqi.qz_miner.config.ConfigValueBridge;
 import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 import club.heiqi.qz_miner.config.QzMinerConfigSchema;
+import club.heiqi.qz_miner.testsupport.LanguageFiles;
 
 /**
  * T43 波次 9 执行进度配置面契约（B5.2 / task-41/42）：五处同源 + 默认 off + 语言中英对称。
@@ -64,8 +63,8 @@ public class ExecutionProgressConfigContractTest {
     @Test
     public void languageEntriesArePresentInBothLanguages() throws Exception {
         String prefix = "config.qz_miner." + SHORT_KEY;
-        Properties en = language("assets/qz_miner/lang/en_US.lang");
-        Properties zh = language("assets/qz_miner/lang/zh_CN.lang");
+        Properties en = LanguageFiles.read("assets/qz_miner/lang/en_US.lang");
+        Properties zh = LanguageFiles.read("assets/qz_miner/lang/zh_CN.lang");
 
         String enTip = tooltip(en, prefix);
         String zhTip = tooltip(zh, prefix);
@@ -119,19 +118,5 @@ public class ExecutionProgressConfigContractTest {
             value = language.getProperty(prefix);
         }
         return value == null ? "" : value.trim();
-    }
-
-    /** 解析 lang 文件为键值表（{@code key=value}，UTF-8）。 */
-    private static Properties language(String resource) throws Exception {
-        InputStream stream = ExecutionProgressConfigContractTest.class.getClassLoader()
-            .getResourceAsStream(resource);
-        Assert.assertNotNull("资源必须存在: " + resource, stream);
-        Properties properties = new Properties();
-        try {
-            properties.load(new InputStreamReader(stream, "UTF-8"));
-        } finally {
-            stream.close();
-        }
-        return properties;
     }
 }

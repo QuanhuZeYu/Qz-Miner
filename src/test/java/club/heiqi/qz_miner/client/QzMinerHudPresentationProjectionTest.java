@@ -1,11 +1,6 @@
 package club.heiqi.qz_miner.client;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +18,7 @@ import club.heiqi.qz_miner.chain.client.projection.ClientPhaseProjection;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+import club.heiqi.qz_miner.testsupport.LanguageFiles;
 
 /**
  * HUD 订阅表现投影的 headless 行为契约（task-19b）。
@@ -274,28 +270,8 @@ public class QzMinerHudPresentationProjectionTest {
         Assert.fail("missing span " + lineId + "/" + spanId);
     }
 
-    private static Map<String, String> loadLang(String name) throws IOException {
-        InputStream in = QzMinerHudPresentationProjectionTest.class.getClassLoader()
-                .getResourceAsStream(LANG_ROOT + name);
-        Assert.assertNotNull("缺少语言文件 " + name, in);
-        Map<String, String> values = new LinkedHashMap<String, String>();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
-        try {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                    continue;
-                }
-                int split = trimmed.indexOf('=');
-                if (split > 0) {
-                    values.put(trimmed.substring(0, split).trim(), trimmed.substring(split + 1));
-                }
-            }
-        } finally {
-            reader.close();
-        }
-        return values;
+    private static Map<String, String> loadLang(String name) {
+        return LanguageFiles.asMap(LanguageFiles.read(LANG_ROOT + name));
     }
 
     /** 用例夹具：装配真实投影，按 tick 语义手动采样。 */

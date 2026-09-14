@@ -1,10 +1,5 @@
 package club.heiqi.qz_miner.client.configGUI;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeSet;
 
@@ -16,6 +11,7 @@ import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.config.ui.field.FieldRenderer;
 import club.heiqi.config.ui.field.FieldRendererRegistry;
 import club.heiqi.qz_miner.config.QzMinerConfigSchema;
+import club.heiqi.qz_miner.testsupport.LanguageFiles;
 
 /**
  * 新增配置键 tooltip 本地化的行为契约（纯 JVM）：语言键命名、只替换 helper、缺失回退、
@@ -110,28 +106,7 @@ public class PreviewConfigTooltipsTest {
         }
     }
 
-    private static Map<String, String> loadLang(String name) throws IOException {
-        InputStream in = PreviewConfigTooltipsTest.class.getClassLoader()
-                .getResourceAsStream(LANG_ROOT + name);
-        Assert.assertNotNull("缺少语言文件 " + name, in);
-        Map<String, String> values = new LinkedHashMap<String, String>();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
-        try {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                    continue;
-                }
-                int split = trimmed.indexOf('=');
-                if (split <= 0) {
-                    continue;
-                }
-                values.put(trimmed.substring(0, split).trim(), trimmed.substring(split + 1));
-            }
-        } finally {
-            reader.close();
-        }
-        return values;
+    private static Map<String, String> loadLang(String name) {
+        return LanguageFiles.asMap(LanguageFiles.read(LANG_ROOT + name));
     }
 }

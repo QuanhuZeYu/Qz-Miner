@@ -7,14 +7,12 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 import club.heiqi.qz_miner.mixins.client.MixinPlayerControllerMPToolSwap;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
+import club.heiqi.qz_miner.testsupport.JsonResources;
 
 /**
  * 自动工具只保留首块成功 Mixin，网络事务路径必须为零。
@@ -70,36 +68,23 @@ public class AutoToolSwapMixinStructureTest {
     /** mixin 归属表契约：该 mixin 必须注册在 client 数组，且已删除的网络 mixin 不得在任何数组里复活。 */
     @Test
     public void clientMixinListDoesNotRegisterVanillaNetworkPath() throws Exception {
-        JsonObject config = new JsonParser()
-                .parse(JavaSourceSlices.readLocated(MIXIN_CONFIG)).getAsJsonObject();
+        JsonObject config = JsonResources.readRepoFile(MIXIN_CONFIG);
+        Set<String> clientEntries = JsonResources.arrayEntrySet(config, "client");
 
-        Assert.assertTrue("client mixin 必须注册在 client 数组: " + entries(config, "client"),
-                entries(config, "client").contains(CLIENT_MIXIN));
+        Assert.assertTrue("client mixin 必须注册在 client 数组: " + clientEntries,
+                clientEntries.contains(CLIENT_MIXIN));
         Assert.assertFalse("客户端 mixin 不得注册进通用 mixins 数组（会在服务端侧加载）",
-                entries(config, "mixins").contains(CLIENT_MIXIN));
+                JsonResources.arrayEntrySet(config, "mixins").contains(CLIENT_MIXIN));
         Assert.assertFalse("客户端 mixin 不得注册进 server 数组",
-                entries(config, "server").contains(CLIENT_MIXIN));
+                JsonResources.arrayEntrySet(config, "server").contains(CLIENT_MIXIN));
 
         Set<String> registered = new LinkedHashSet<String>();
-        registered.addAll(entries(config, "mixins"));
-        registered.addAll(entries(config, "client"));
-        registered.addAll(entries(config, "server"));
+        registered.addAll(JsonResources.arrayEntrySet(config, "mixins"));
+        registered.addAll(clientEntries);
+        registered.addAll(JsonResources.arrayEntrySet(config, "server"));
         for (String entry : registered) {
             Assert.assertFalse("已删除的网络 mixin 不得重新注册: " + entry,
                     entry.contains("MixinNetHandlerPlayClientToolSwap"));
         }
-    }
-
-    /** 取某张 mixin 数组的条目集合（数组缺失即没有条目）。 */
-    private static Set<String> entries(JsonObject config, String arrayName) {
-        Set<String> names = new LinkedHashSet<String>();
-        JsonArray array = config.getAsJsonArray(arrayName);
-        if (array == null) {
-            return names;
-        }
-        for (JsonElement entry : array) {
-            names.add(entry.getAsString());
-        }
-        return names;
     }
 }

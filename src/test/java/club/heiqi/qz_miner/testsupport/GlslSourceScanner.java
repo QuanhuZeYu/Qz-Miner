@@ -1,4 +1,4 @@
-package club.heiqi.qz_miner.chain.client.render;
+package club.heiqi.qz_miner.testsupport;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -8,13 +8,33 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 极简 GLSL 顶层结构扫描器：抽取 attribute/varying/uniform 名字、函数签名与函数体。
+ * GLSL 源码的词汇/顶层结构读取入口：剥注释、抽 attribute/varying/uniform 声明面、函数签名与函数体。
  *
- * <p>供测试做「行为契约」级断言：例如「顶点着色器必须声明 attribute 0/1/2 三个属性」
- * 「片元着色器的颜色必须来自 uniform 而非 aColor」。它只认顶层声明，不做类型推导——
- * 类型推导与参数个数核对由 {@link Glsl120StaticChecker} 负责。</p>
+ * <p><b>为什么存在</b>：着色器的「声明面」是 Java 侧按字符串解析的运行时接口
+ * （{@code glGetUniformLocation} / {@code glGetAttribLocation} 拿名字去问），所以「某个 uniform 到底
+ * 声明没有、是 mat4 还是 vec4、只在顶点阶段还是两阶段都有、函数还在不在」是真实契约而不是文本快照；
+ * 但它是 GLSL 而不是 Java，{@link JavaSourceSlices} 的 Java 口径（方法体、调用实参、标识符）
+ * 在这里没有对应概念。本类原先住在 {@code chain.client.render} 包内且是包私有，
+ * {@code chain.client.verify} 的用例够不到，只能各自写正则——已并入 {@code testsupport}，
+ * 让任何包都能用同一套词法与结构口径（注释剥离也只有这一份实现：
+ * 原包内的 GLSL 校验器改为委托本类，避免两套注释剥离器随版本分叉）。</p>
+ *
+ * <p><b>能证伪什么</b>：删掉/改名一个 uniform、attribute、varying 或函数（声明面集合立即变化）；
+ * 把 uniform 从顶点阶段挪到片元阶段（两阶段集合互换）；改 uniform 类型（如 mat4 写成 vec3）；
+ * 两阶段 varying 名字或类型不一致（链接期必然失败）；把代码写进注释冒充声明；
+ * 某个 uniform 只声明、从不被函数体引用（{@link #countIdentifier} 的词边界计数为 0）。</p>
+ *
+ * <p><b>守不到什么</b>：GLSL 语义与行为（类型推导、参数个数、表达式取值、编译器实际是否保留某 uniform
+ * 全都不在这里判定，本类只做顶层文本结构抽取）；预处理器分支（{@code #ifdef} 里外的声明一视同仁）；
+ * 多行折叠的声明写法（声明必须落在同一行，这是本仓着色器的既有排版约束）；
+ * 运行时是否真的绑定成功（真机验证 + shader 头部「实机验证记录」承担）。</p>
+ *
+ * <p><b>服务哪些用例</b>：{@code ChainPreviewShaderContractTest}（属性三元组、varying 一致性、
+ * 阶段归属、uniform 清单对账）、{@code ChainPreviewShaderSemanticColorTest} 与
+ * {@code ChainPreviewShaderFenceTest}（经原包校验器间接使用注释剥离）、
+ * {@code chain.client.verify.T48cCRequiredUniformReachabilityTest}（声明面；其正则口径的替换见该类注释）。</p>
  */
-final class GlslSourceScanner {
+public final class GlslSourceScanner {
 
     private final Map<String, String> attributes = new LinkedHashMap<String, String>();
     private final Map<String, String> varyings = new LinkedHashMap<String, String>();
@@ -24,9 +44,71 @@ final class GlslSourceScanner {
 
     private GlslSourceScanner() {}
 
-    static GlslSourceScanner of(String source, List<Glsl120StaticChecker.Finding> findings, String fileName) {
+    /**
+     * 剥掉 GLSL 注释（{@code //} 与 {@code /* … *}{@code /}），换行原样保留以便逐行对照。
+     *
+     * <p>与 {@link JavaSourceSlices#stripComments(String)} 的差别：GLSL 没有字符串字面量，
+     * 因此不做字面量保护；行注释与块注释内的换行都保留（块注释外的换行计数不受影响）。</p>
+     */
+    public static String stripComments(String source) {
+        return stripComments(source, new ArrayList<Integer>());
+    }
+
+    /**
+     * 同上，并把未闭合块注释的起始行号（1 起）追加进 {@code unterminatedBlockCommentLines}。
+     *
+     * <p>供 GLSL 校验器把「块注释未闭合」记成一条 error：本方法是注释剥离的唯一真源，
+     * 校验器只负责把行号翻译成它自己的发现条目。</p>
+     */
+    public static String stripComments(String source, List<Integer> unterminatedBlockCommentLines) {
+        StringBuilder out = new StringBuilder(source.length());
+        int index = 0;
+        int line = 1;
+        while (index < source.length()) {
+            char current = source.charAt(index);
+            if (current == '\n') {
+                line++;
+                out.append(current);
+                index++;
+                continue;
+            }
+            if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                while (index < source.length() && source.charAt(index) != '\n') {
+                    index++;
+                }
+                continue;
+            }
+            if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                int startLine = line;
+                index += 2;
+                boolean closed = false;
+                while (index + 1 < source.length()) {
+                    if (source.charAt(index) == '*' && source.charAt(index + 1) == '/') {
+                        index += 2;
+                        closed = true;
+                        break;
+                    }
+                    if (source.charAt(index) == '\n') {
+                        line++;
+                        out.append('\n');
+                    }
+                    index++;
+                }
+                if (!closed) {
+                    unterminatedBlockCommentLines.add(Integer.valueOf(startLine));
+                }
+                continue;
+            }
+            out.append(current);
+            index++;
+        }
+        return out.toString();
+    }
+
+    /** 读取一份 GLSL 源码并抽取顶层结构（内部先 {@link #stripComments(String)}，注释里的名字不参与匹配）。 */
+    public static GlslSourceScanner of(String source) {
         GlslSourceScanner scanner = new GlslSourceScanner();
-        String code = Glsl120StaticChecker.stripComments(source, fileName, findings);
+        String code = stripComments(source);
         String[] lines = code.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String trimmed = lines[i].trim();
@@ -120,30 +202,34 @@ final class GlslSourceScanner {
         return body.toString();
     }
 
-    Map<String, String> getAttributes() {
+    /** 顶层 {@code attribute <type> <name>;} 的「名字 → 类型」表（保序）。 */
+    public Map<String, String> getAttributes() {
         return attributes;
     }
 
-    Map<String, String> getVaryings() {
+    /** 顶层 {@code varying <type> <name>;} 的「名字 → 类型」表（保序）。 */
+    public Map<String, String> getVaryings() {
         return varyings;
     }
 
-    Map<String, String> getUniforms() {
+    /** 顶层 {@code uniform <type> <name>;} 的「名字 → 类型」表（保序）。 */
+    public Map<String, String> getUniforms() {
         return uniforms;
     }
 
-    Set<String> getFunctionNames() {
+    /** 全部函数名（保序）。 */
+    public Set<String> getFunctionNames() {
         return new LinkedHashSet<String>(functions.keySet());
     }
 
     /** 取函数体（含签名行）；不存在时返回空串。 */
-    String body(String functionName) {
+    public String body(String functionName) {
         String body = functionBodies.get(functionName);
         return body == null ? "" : body;
     }
 
     /** 统计函数体里出现的标识符次数（仅按词边界，用于确认某 uniform/属性是否被真的读取）。 */
-    static int countIdentifier(String text, String identifier) {
+    public static int countIdentifier(String text, String identifier) {
         int count = 0;
         int index = 0;
         while (index < text.length()) {
@@ -163,7 +249,7 @@ final class GlslSourceScanner {
     }
 
     /** 收集源码中所有函数调用名（标识符后紧跟左括号）。 */
-    List<String> callsOf(String text) {
+    public List<String> callsOf(String text) {
         List<String> calls = new ArrayList<String>();
         int index = 0;
         while (index < text.length()) {

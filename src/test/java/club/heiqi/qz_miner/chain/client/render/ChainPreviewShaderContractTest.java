@@ -13,6 +13,8 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.testsupport.GlslSourceScanner;
+
 /**
  * 预览着色器的资源契约测试。
  *
@@ -53,10 +55,9 @@ public class ChainPreviewShaderContractTest {
     /** 顶点与片元的 varying 必须完全一致：名字与类型都相同，否则链接期必然失败。 */
     @Test
     public void varyingsAreIdenticalAcrossStages() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        Map<String, String> vertexVaryings = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
+        Map<String, String> vertexVaryings = GlslSourceScanner.of(read(VERTEX_PATH))
                 .getVaryings();
-        Map<String, String> fragmentVaryings = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag")
+        Map<String, String> fragmentVaryings = GlslSourceScanner.of(read(FRAGMENT_PATH))
                 .getVaryings();
 
         Assert.assertFalse("顶点着色器必须向片元传递 varying", vertexVaryings.isEmpty());
@@ -91,8 +92,7 @@ public class ChainPreviewShaderContractTest {
      */
     @Test
     public void declaresFrozenVertexAttributes() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        Map<String, String> attributes = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
+        Map<String, String> attributes = GlslSourceScanner.of(read(VERTEX_PATH))
                 .getAttributes();
 
         Assert.assertEquals("必须恰好声明 §A 约定的三个属性", 3, attributes.size());
@@ -112,8 +112,7 @@ public class ChainPreviewShaderContractTest {
      */
     @Test
     public void growthUniformSurfaceIsDeclared() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert");
+        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH));
 
         Assert.assertTrue("必须存在生长进度 uniform", vertex.getUniforms().containsKey("uAnimProgress"));
         Assert.assertTrue("必须存在目标总数 uniform",
@@ -149,8 +148,7 @@ public class ChainPreviewShaderContractTest {
 
     private static void collectUnregistered(String label, String path, Set<String> registered,
             List<String> unregistered) throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        for (String name : GlslSourceScanner.of(read(path), ignored, label).getUniforms().keySet()) {
+        for (String name : GlslSourceScanner.of(read(path)).getUniforms().keySet()) {
             if (!registered.contains(name)) {
                 unregistered.add(label + ":" + name);
             }
@@ -165,10 +163,9 @@ public class ChainPreviewShaderContractTest {
      */
     @Test
     public void semanticPaletteLivesInVertexStage() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        Map<String, String> vertexUniforms = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert")
+        Map<String, String> vertexUniforms = GlslSourceScanner.of(read(VERTEX_PATH))
                 .getUniforms();
-        Map<String, String> fragmentUniforms = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag")
+        Map<String, String> fragmentUniforms = GlslSourceScanner.of(read(FRAGMENT_PATH))
                 .getUniforms();
 
         for (String required : new String[] {
@@ -183,7 +180,7 @@ public class ChainPreviewShaderContractTest {
         Assert.assertFalse("不得保留无人写入的 *Enabled uniform（死 uniform）",
                 vertexUniforms.containsKey("uColorPrimaryEnabled"));
 
-        String selector = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert").body("previewSemanticColor");
+        String selector = GlslSourceScanner.of(read(VERTEX_PATH)).body("previewSemanticColor");
         Assert.assertTrue("选色必须实现为顶点侧独立函数", selector.length() > 0);
     }
 
@@ -195,8 +192,7 @@ public class ChainPreviewShaderContractTest {
      */
     @Test
     public void fragmentStageDoesNotRedeclareFadeUniforms() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        GlslSourceScanner fragment = GlslSourceScanner.of(read(FRAGMENT_PATH), ignored, "preview.frag");
+        GlslSourceScanner fragment = GlslSourceScanner.of(read(FRAGMENT_PATH));
 
         Assert.assertFalse("片元不得重复声明距离淡出参数，否则曲线会被算两遍",
                 fragment.getUniforms().containsKey("uFadeStart"));
@@ -213,8 +209,7 @@ public class ChainPreviewShaderContractTest {
      */
     @Test
     public void minScreenWidthUniformsAreDeclared() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert");
+        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH));
 
         Assert.assertTrue("必须声明 uMinScreenWidthPx", vertex.getUniforms().containsKey("uMinScreenWidthPx"));
         Assert.assertTrue("必须声明 uPixelScale（视口像素换算）",
@@ -237,8 +232,7 @@ public class ChainPreviewShaderContractTest {
      */
     @Test
     public void cameraMatrixUniformsAreMat4() throws IOException {
-        List<Glsl120StaticChecker.Finding> ignored = new ArrayList<Glsl120StaticChecker.Finding>();
-        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH), ignored, "preview.vert");
+        GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH));
         Assert.assertEquals("MVP 必须是 mat4 uniform", "mat4", vertex.getUniforms().get("uModelViewProjection"));
         Assert.assertEquals("modelview 必须是 mat4 uniform", "mat4", vertex.getUniforms().get("uModelView"));
     }

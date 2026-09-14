@@ -46,8 +46,9 @@ import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
  * 词边界是必须的：裸子串会把 {@code uModelView} 的存活引用算进 {@code uModelViewProjection}
  * 的出现里，而这两个名字正是同一份清单里的邻居，一旦前者只剩声明、后者仍在用，旧口径照样绿。
  * 只剩 GLSL 顶层的 {@code uniform <type> <name>;} 声明面解析留在本类：{@code JavaSourceSlices}
- * 是 Java 源码口径（没有 uniform 概念），而唯一共享的 GLSL 扫描器 {@code GlslSourceScanner}
- * 是 {@code chain.client.render} 包的包私有类，本类在 {@code chain.client.verify} 包用不到。</p>
+ * 是 Java 源码口径（没有 uniform 概念）。共享的 GLSL 扫描器
+ * {@link club.heiqi.qz_miner.testsupport.GlslSourceScanner} 已并入 {@code testsupport}（本类从此够得到），
+ * 把这条正则换成它的 {@code getUniforms()} 口径属于下一批次的断言语义回补，本次不动。</p>
  *
  * <p><b>已移除的文本禁令与其替代</b>：原先的 {@code shaderSourceHasNoFixedFunctionBuiltins}（在整份
  * 源码里搜 {@code gl_ModelViewProjectionMatrix} / {@code ftransform} 等 token）按裁定归入「读源码文本

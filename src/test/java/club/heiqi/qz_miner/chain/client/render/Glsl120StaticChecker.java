@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import club.heiqi.qz_miner.testsupport.GlslSourceScanner;
+
 /**
  * GLSL 1.20（GL 2.1）离线静态校验器。
  *
@@ -300,50 +302,19 @@ final class Glsl120StaticChecker {
         return direct;
     }
 
-    /** 剥掉行注释与块注释；未闭合的块注释记一条 error。 */
+    /**
+     * 剥掉行注释与块注释；未闭合的块注释记一条 error。
+     *
+     * <p>词法实现只有一份，在 {@link GlslSourceScanner#stripComments(String, List)}；本方法只把
+     * 「未闭合块注释的起始行号」翻译成本校验器的发现条目（签名与行为保持原样）。</p>
+     */
     static String stripComments(String source, String fileName, List<Finding> findings) {
-        StringBuilder out = new StringBuilder(source.length());
-        int index = 0;
-        int line = 1;
-        while (index < source.length()) {
-            char current = source.charAt(index);
-            if (current == '\n') {
-                line++;
-                out.append(current);
-                index++;
-                continue;
-            }
-            if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
-                while (index < source.length() && source.charAt(index) != '\n') {
-                    index++;
-                }
-                continue;
-            }
-            if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
-                int startLine = line;
-                index += 2;
-                boolean closed = false;
-                while (index + 1 < source.length()) {
-                    if (source.charAt(index) == '*' && source.charAt(index + 1) == '/') {
-                        index += 2;
-                        closed = true;
-                        break;
-                    }
-                    if (source.charAt(index) == '\n') {
-                        line++;
-                        out.append('\n');
-                    }
-                    index++;
-                }
-                if (!closed) {
-                    findings.add(new Finding("error", startLine, fileName + " 块注释未闭合"));
-                }
-                continue;
-            }
-            out.append(current);
-            index++;
+        List<Integer> unterminatedBlockCommentLines = new ArrayList<Integer>();
+        String code = GlslSourceScanner.stripComments(source, unterminatedBlockCommentLines);
+        for (Integer startLine : unterminatedBlockCommentLines) {
+            findings.add(new Finding("error", startLine.intValue(), fileName + " 块注释未闭合"));
         }
-        return out.toString();
+        return code;
     }
 
     /** 首个非空行必须是 #version，且必须是 120（GL 2.1 基线，接口冻结 §F）。 */

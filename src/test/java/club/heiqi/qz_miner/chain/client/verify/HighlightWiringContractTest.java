@@ -1,19 +1,11 @@
 package club.heiqi.qz_miner.chain.client.verify;
 
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
 import java.lang.reflect.Constructor;
-import java.util.LinkedHashSet;
-import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.Config;
@@ -22,6 +14,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewRenderer;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.client.ChainPreviewVisualSettings;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.testsupport.JsonResources;
 
 /**
  * T35 波次 7 高亮协同接线契约（B2.5 / task-34）：行为判据走 renderer 的公开判定入口
@@ -97,28 +90,18 @@ public class HighlightWiringContractTest {
      */
     @Test
     public void highlightMixinIsRegisteredInClientArray() throws Exception {
-        JsonObject config = new JsonParser()
-            .parse(readResource("mixins.qz_miner.json")).getAsJsonObject();
+        JsonObject config = JsonResources.readResource("mixins.qz_miner.json");
+        for (String arrayName : new String[] { "client", "mixins", "server" }) {
+            Assert.assertTrue("mixin 清单必须包含数组: " + arrayName,
+                JsonResources.hasArray(config, arrayName));
+        }
 
         Assert.assertTrue("client mixin 必须注册在 client 数组: " + MIXIN_CLASS,
-            mixinNames(config, "client").contains(MIXIN_CLASS));
+            JsonResources.simpleNameSet(config, "client").contains(MIXIN_CLASS));
         Assert.assertFalse("client mixin 不得注册在通用 mixins 数组",
-            mixinNames(config, "mixins").contains(MIXIN_CLASS));
+            JsonResources.simpleNameSet(config, "mixins").contains(MIXIN_CLASS));
         Assert.assertFalse("client mixin 不得注册在 server 数组",
-            mixinNames(config, "server").contains(MIXIN_CLASS));
-    }
-
-    /** 取某张 mixin 表的条目简单名集合（条目可带子包前缀，如 {@code client.X}）。 */
-    private static Set<String> mixinNames(JsonObject config, String arrayName) {
-        JsonArray entries = config.getAsJsonArray(arrayName);
-        Assert.assertNotNull("mixin 清单必须包含数组: " + arrayName, entries);
-        Set<String> names = new LinkedHashSet<String>();
-        for (JsonElement entry : entries) {
-            String name = entry.getAsString();
-            int separator = name.lastIndexOf('.');
-            names.add(separator < 0 ? name : name.substring(separator + 1));
-        }
-        return names;
+            JsonResources.simpleNameSet(config, "server").contains(MIXIN_CLASS));
     }
 
     private static boolean suppress(Object renderer, int x, int y, int z) throws Exception {
@@ -135,19 +118,4 @@ public class HighlightWiringContractTest {
         constructor.setAccessible(true);
         return constructor.newInstance(cache);
     }
-
-    private static String readResource(String name) throws Exception {
-        InputStream stream = HighlightWiringContractTest.class.getClassLoader().getResourceAsStream(name);
-        Assert.assertNotNull("资源必须存在: " + name, stream);
-        Reader reader = new InputStreamReader(stream, "UTF-8");
-        StringBuilder text = new StringBuilder();
-        char[] buffer = new char[2048];
-        int read;
-        while ((read = reader.read(buffer)) >= 0) {
-            text.append(buffer, 0, read);
-        }
-        reader.close();
-        return text.toString();
-    }
-
 }

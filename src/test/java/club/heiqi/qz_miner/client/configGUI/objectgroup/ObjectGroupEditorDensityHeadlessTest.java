@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -28,6 +27,7 @@ import net.minecraft.util.StringTranslate;
 import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.client.ClientI18n;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.testsupport.LanguageFiles;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
 import club.heiqi.uilib.ui.scene.input.InputFrameBuilder;
 import club.heiqi.uilib.ui.scene.input.RawInputEvent;
@@ -392,19 +392,7 @@ public class ObjectGroupEditorDensityHeadlessTest {
         if (!Files.exists(path)) {
             return null;
         }
-        Map<String, String> out = new LinkedHashMap<String, String>();
-        for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            int eq = trimmed.indexOf('=');
-            if (eq <= 0) {
-                continue;
-            }
-            out.put(trimmed.substring(0, eq), trimmed.substring(eq + 1));
-        }
-        return out;
+        return LanguageFiles.asMap(LanguageFiles.parse(Files.newInputStream(path), path.toString()));
     }
 
     /**
