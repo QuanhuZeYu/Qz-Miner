@@ -6,7 +6,6 @@ import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.config.ui.ConfigScreen;
 import club.heiqi.config.ui.ConfigUI;
 import club.heiqi.config.ui.editor.Registry;
-import club.heiqi.config.ui.field.FieldRendererRegistry;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.client.configGUI.objectgroup.ObjectGroupEditorFieldRenderer;
 import club.heiqi.qz_miner.client.configGUI.objectgroup.ObjectGroupEditorState;
@@ -46,16 +45,13 @@ public class QzMinerConfigGUI extends McScreenBridge {
         // buildScreen 先执行 editorRegistryCustomizer、再执行字段 renderer customizer，所以用一个
         // 惰性持有者把该 registry 带进 renderer：render 发生在 ConfigScreen 构造期，届时已冻结。
         final Registry[] editorRegistry = new Registry[1];
-        // 两个 path 装饰各自独立叠加，不靠注册顺序：颜色键的 HEX 控件挂在控件层注册表，
-        // tooltip 本地化只替换 helper 后委托控件层（详见 PreviewConfigTooltips.install 重载）。
-        final FieldRendererRegistry controlRenderers = FieldRendererRegistry.defaultRegistry();
-        PreviewColorFieldRenderer.install(controlRenderers);
         return ConfigUI.buildScreen(manager, input,
                 registry -> {
                     registry.registerPath(ObjectGroupEditorState.PATH,
                             new ObjectGroupEditorFieldRenderer(() -> editorRegistry[0]));
-                    // 本轮新增配置键的 tooltip 走语言文件（UILib 配置页无 label/helper i18n 通道）
-                    PreviewConfigTooltips.install(registry, controlRenderers);
+                    // 本轮新增配置键的 tooltip 走语言文件（UILib 配置页无 label/helper i18n 通道）；
+                    // 控件本身走类型默认渲染器——颜色键由 schema 的 .color() 声明，按 widget 分发到 HEX 输入框
+                    PreviewConfigTooltips.install(registry);
                 },
                 policy -> { },
                 editors -> {

@@ -10,6 +10,7 @@ import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.config.schema.ColorSpec;
 import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.config.schema.FieldType;
@@ -142,6 +143,16 @@ public class QzMinerConfigSchemaTest {
         FieldSpec alphaStart = schema.field("client.clientPreviewAlphaStartValue");
         Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE),
                 alphaStart.defaultValue());
+
+        // 颜色键的控件形态：由 schema 的 .color(...) 声明（按 widget 分发到 HEX 输入框），值语义仍是 NUMBER。
+        // 唯一能在离线暴露「改回 .number(...) 导致颜色框静默退回十进制形态」的地方。
+        for (String path : new String[] {"client.clientPreviewColorPrimary", "client.clientPreviewColorSecondary",
+                "client.clientPreviewColorRemote", "client.clientPreviewColorTruncated"}) {
+            FieldSpec color = schema.field(path);
+            Assert.assertEquals(path + " 值语义必须是 NUMBER", FieldType.NUMBER, color.type());
+            Assert.assertTrue(path + " 必须由 .color(...) 声明 ColorSpec widget",
+                    color.widget() instanceof ColorSpec);
+        }
 
         FieldSpec groups = schema.field("client.objectGroups");
         Assert.assertEquals(FieldType.STRUCTURED_LIST, groups.type());

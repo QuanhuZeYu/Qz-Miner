@@ -87,10 +87,24 @@ dependencies {
     //   并新增 useDebug 下 frame.backdrop.surfaces/areaPx/captures/taps 计数（真机 full/eco/solid A/B 用）。
     //   症状与根因：打开配置页笔记本风扇狂转——每帧 26-46 个玻璃表面 / 1.76-2.53 屏 × 13 次纹理采样
     //   （CPU 侧已由 headless 基准排除：净 scene 核心 0.0238 ms/帧）。
-    //   命令 VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks
+    //   [背景滤镜档位件] 命令 VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks
     //   （主源 class 1529 个；550 suites / 5688 例 / 0 失败 / 0 错误 / 7 跳过）；
-    //   sha256 9951D2EA5FD1633B587234690466E1D03CEF36D768829715FC04B5344DA89688（3946495 bytes）。
-    //   本件取代 FCCFBCE8…（3939700 bytes，搜索 lane A 方案制品）、3C7B2F0B…（3940946 bytes，文本通道诊断制品）、C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
+    //   sha256 9951D2EA5FD1633B587234690466E1D03CEF36D768829715FC04B5344DA89688（3946495 bytes）
+    //   ——已被下一段「通用颜色字段能力」增量取代，禁止回退。
+    //   + 【本轮·通用颜色字段能力迁移】来源 Qz-UILib 分支 4.0 提交 5f02aa7b：上游交付通用颜色字段能力
+    //   （ColorSpec / HexColorCodec / ColorFieldRenderer + DSL SectionSpec.Builder.color(String) /
+    //   FieldSpec.Builder.color()；值语义仍是 0xRRGGBB 的 NUMBER，未显式 range 时补 [0,0xFFFFFF]，
+    //   输入接受 #RRGGBB / 0xRRGGBB / 无前缀六位十六进制 / 纯十进制，编辑期保留未完成原文）。
+    //   Miner 侧随本件删除私有 HexColorCodec / PreviewColorFieldRenderer 与四个 path 覆盖注册，
+    //   四个颜色键改由 .color(...) 声明（按 widget 分发，值域 / 默认值来源不变）。
+    //   命令 VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks
+    //   （553 suites / 5701 例 / 0 失败 / 0 错误 / 7 跳过；其中 HexColorCodecTest 与
+    //   ColorFieldRendererEditTextTest 各 4 例，颜色编解码与编辑期原文行为在上游成对钉住）；
+    //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
+    //   sha256 6BDB7AB1584BF4FCBDDE326612854296BFF9187238B7C2D50697F84C69EF261F（3955603 bytes）。
+    //   ⚠ 同名同版本内容漂移照旧：本件与 9951D2EA… 同名同版本、内容不同，混用会因缺
+    //   ColorSpec/HexColorCodec/ColorFieldRenderer 在类加载期 NoClassDefFoundError；集成与发布以本注释 sha256 为准。
+    //   [背景滤镜档位件] 取代 FCCFBCE8…（3939700 bytes，搜索 lane A 方案制品）、3C7B2F0B…（3940946 bytes，文本通道诊断制品）、C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
     //   标签可读性修复版）与更早的 56A9C0FB…：本轮新增平台文本通道可诊断化（统一前缀 [文本通道]，
     //   桥可用性/注册结果/external 实际写入值/被吞字符/TEXT 无接收者等 11 条限流日志）与 picker 焦点
     //   消费双依赖加固（意图早于目标就绪不再永久丢焦点）；此前累计的分类筛选修复（浏览 lane 总量按

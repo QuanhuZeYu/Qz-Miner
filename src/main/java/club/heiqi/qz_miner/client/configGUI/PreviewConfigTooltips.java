@@ -80,53 +80,26 @@ public final class PreviewConfigTooltips {
     }
 
     /**
-     * 为新增配置键注册本地化代理渲染器（使用生产 {@link ClientI18n} 解析，控件走类型默认渲染器）。
+     * 为新增配置键注册本地化代理渲染器（使用生产 {@link ClientI18n} 解析）。
      *
      * @param registry 配置页字段渲染器注册表
      */
     public static void install(FieldRendererRegistry registry) {
-        install(registry, FieldRendererRegistry.defaultRegistry(), new ClientI18nResolver());
+        install(registry, new ClientI18nResolver());
     }
 
     /**
-     * 为新增配置键注册本地化代理渲染器（控件走类型默认渲染器）。
+     * 为新增配置键注册本地化代理渲染器：只把 helper 换成语言文本，控件实现由类型默认渲染器解析
+     * （schema 以 {@code .color(...)} 声明的颜色键因此仍按 widget 分发到 HEX 输入框）。
      *
      * @param registry 配置页字段渲染器注册表
      * @param resolver 语言文本解析边界
      */
     public static void install(FieldRendererRegistry registry, TextResolver resolver) {
-        install(registry, FieldRendererRegistry.defaultRegistry(), resolver);
-    }
-
-    /**
-     * 为新增配置键注册本地化代理渲染器（使用生产 {@link ClientI18n} 解析）。
-     *
-     * <p>本地化与控件替换是两个独立的 path 装饰：本方法只把 helper 换成语言文本，控件实现仍由
-     * {@code delegates} 解析。故「某字段要换控件」（如颜色键的 HEX 输入，见
-     * {@link PreviewColorFieldRenderer#install(FieldRendererRegistry)}）时，把控件覆盖注册进
-     * {@code delegates} 即可叠加，<b>不依赖两次 registerPath 的先后顺序</b>（同 path 后者覆盖前者
-     * 会让其中一个装饰静默失效）。</p>
-     *
-     * @param registry  配置页字段渲染器注册表（外层：按 path 命中的最终渲染器）
-     * @param delegates 控件层渲染器注册表（本地化只替换 helper，控件由它解析）
-     */
-    public static void install(FieldRendererRegistry registry, FieldRendererRegistry delegates) {
-        install(registry, delegates, new ClientI18nResolver());
-    }
-
-    /**
-     * 为新增配置键注册本地化代理渲染器。
-     *
-     * @param registry  配置页字段渲染器注册表
-     * @param delegates 控件层渲染器注册表
-     * @param resolver  语言文本解析边界
-     */
-    public static void install(FieldRendererRegistry registry, FieldRendererRegistry delegates,
-            TextResolver resolver) {
-        if (registry == null || delegates == null || resolver == null) {
-            throw new IllegalArgumentException("registry、delegates 与 resolver 均不可为 null");
+        if (registry == null || resolver == null) {
+            throw new IllegalArgumentException("registry 与 resolver 均不可为 null");
         }
-        LocalizingRenderer renderer = new LocalizingRenderer(delegates, resolver);
+        LocalizingRenderer renderer = new LocalizingRenderer(resolver);
         for (String path : PATHS) {
             registry.registerPath(path, renderer);
         }
@@ -168,11 +141,11 @@ public final class PreviewConfigTooltips {
     /** 只替换 helper 的代理渲染器；其余字段与信号全部透传原实现。 */
     private static final class LocalizingRenderer implements FieldRenderer {
 
-        private final FieldRendererRegistry delegates;
+        /** 控件层：按字段类型分发的默认渲染器，本地化不参与控件选择。 */
+        private final FieldRendererRegistry delegates = FieldRendererRegistry.defaultRegistry();
         private final TextResolver resolver;
 
-        private LocalizingRenderer(FieldRendererRegistry delegates, TextResolver resolver) {
-            this.delegates = delegates;
+        private LocalizingRenderer(TextResolver resolver) {
             this.resolver = resolver;
         }
 
