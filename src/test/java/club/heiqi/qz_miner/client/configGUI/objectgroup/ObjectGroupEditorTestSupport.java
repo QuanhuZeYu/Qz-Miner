@@ -364,10 +364,18 @@ final class ObjectGroupEditorTestSupport {
             pressKey(key, false);
         }
 
+        /**
+         * 注入带 Shift 修饰的按键 PRESSED。
+         *
+         * <p>{@code RawInputEvent.ofKey} 的形参序是 control → shift → alt → meta；此处必须把
+         * {@code shift} 放在**第二个**修饰位。此前该重载把它写进第一位（即 controlDown），
+         * 使「Shift+点击/Shift+按键」类断言实际注入 Ctrl——因当时无调用点而未暴露观感问题，
+         * 但写出来的断言会验错东西（不可证伪的断言即负债）。</p>
+         */
         void pressKey(SceneKey key, boolean shift) {
             InputFrameBuilder frameBuilder = new InputFrameBuilder(0, 0);
             frameBuilder.push(RawInputEvent.ofKey(key, SceneKeyAction.PRESSED,
-                    shift, false, false, false, 0, 0, frameNanos));
+                    false, shift, false, false, 0, 0, frameNanos));
             rt.route(root, frameBuilder.drainFrame(), 0, 0);
             rt.flush();
             frame();
