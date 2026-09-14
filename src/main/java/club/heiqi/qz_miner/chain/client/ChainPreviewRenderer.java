@@ -90,7 +90,7 @@ public class ChainPreviewRenderer {
     /**
      * OUTLINE 档描边壳外扩宽度（物理像素；0 = 关闭描边）。
      *
-     * <p>与 {@link #visuals} 同源于 §H 读取面快照（{@code getVisualSettings()} 引用未变时不重复取值），
+     * <p>与 {@link #visuals} 同源于 读取面单通道（真源：ChainPreviewVisualSettings）快照（{@code getVisualSettings()} 引用未变时不重复取值），
      * 只在 {@link #drawPreview} 派生壳段计划时消费；XRAY / OCCLUDE 档不读本字段。</p>
      */
     private float outlineWidthPx;
@@ -148,7 +148,7 @@ public class ChainPreviewRenderer {
     /**
      * B2.5 原版高亮协同：本帧是否需要抑制原版方块选择框（渲染线程；零分配、无 GL、不写状态）。
      *
-     * <p>三条件：视觉快照开关（§H 读取面）→ 预览激活（renderCache）→ 瞄准方块与预览代 origin
+     * <p>三条件：视觉快照开关（读取面单通道（真源：ChainPreviewVisualSettings））→ 预览激活（renderCache）→ 瞄准方块与预览代 origin
      * 坐标一致（controller 的 {@link ChainPreviewState#getOrigin()}；B4.1 后 draw plan 的 origin
      * 是代内稳定锚点，不能作为匹配基准）。任一条件不满足 fail-open，原版行为逐字不变；
      * 开关关闭时不再触碰 controller / state（默认档零开销）。</p>
@@ -517,7 +517,8 @@ public class ChainPreviewRenderer {
             false,
             0.0F,
             settings.isFaceShadingEnabled(),
-            settings.getOrderMinBrightness());
+            settings.getOrderMinBrightness(),
+            settings.getInteriorDim());
     }
 
     private static ChainPreviewDrawPlan.DepthChannel mapDepthChannel(String depthModeId) {
@@ -530,7 +531,7 @@ public class ChainPreviewRenderer {
         return ChainPreviewDrawPlan.DepthChannel.XRAY;
     }
 
-    /** 后端档位经 §H 读取面（ChainPreviewVisualSettings）获取，renderer 不再直连 Config（T8-D10）。 */
+    /** 后端档位经 读取面单通道（真源：ChainPreviewVisualSettings）（ChainPreviewVisualSettings）获取，renderer 不再直连 Config（T8-D10）。 */
     private String configuredBackendId() {
         ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
         return settings == null ? ChainPreviewBackendSelector.AUTO : settings.getRenderBackendId();
@@ -563,7 +564,7 @@ public class ChainPreviewRenderer {
                 outlineWidthPx);
             int stageCount = ChainPreviewDepthPass.stageCount(pass);
             // B3.x 真描边：仅 OUTLINE 档派生一次壳段计划（XRAY / OCCLUDE 零分配、逐字节等于现状）；
-            // 外扩宽度取 §H 读取面（配置 clientPreviewOutlineWidthPx），进到这里必然 > 0。
+            // 外扩宽度取 读取面单通道（真源：ChainPreviewVisualSettings）（配置 clientPreviewOutlineWidthPx），进到这里必然 > 0。
             ChainPreviewDrawPlan shellPlan = pass == ChainPreviewDepthPass.Pass.OUTLINE
                 ? plan.withOutlinePass(true, outlineWidthPx)
                 : null;

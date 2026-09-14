@@ -24,7 +24,7 @@ import org.lwjgl.opengl.GL30;
  * 保证不中断渲染主循环。</p>
  *
  * <p><strong>零 CPU 颜色上传</strong>：{@link #usesCpuColors()} 返回 false，颜色由 aAux 语义类别
- * + uniform 调色板在 GPU 侧决定。着色器不声明 aColor、也不保留该顶点流（§A 修订，T51）：
+ * + uniform 调色板在 GPU 侧决定。着色器不声明 aColor、也不保留该顶点流（顶点属性契约修订，T51）：
  * 该流只服务 legacy 的 CPU 烘焙逐顶点 α，上传一份永不被读取的颜色数据纯属浪费。</p>
  *
  * <p><strong>显式相机矩阵 + 自检（T48c-A）</strong>：着色器不再读固定管线内建矩阵。每次 draw 在
@@ -537,7 +537,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      *       写进调用方提供的复用缓冲；该量化差异只出现在本档，已登记。</li>
      * </ul>
      *
-     * @param plan          当前 draw plan（颜色来源只经 plan 传入，遵守 §H 单通道）
+     * @param plan          当前 draw plan（颜色来源只经 plan 传入，遵守 单通道）
      * @param configScratch config 档输出缓冲（{@link ChainPreviewShaderMath#PALETTE_SLOT_COUNT} × 3
      *                      槽位数组，调用方复用）；builtin 档不使用
      * @return 长度 {@link ChainPreviewShaderMath#PALETTE_SLOT_COUNT} 的 RGB 表；builtin 档为
@@ -597,6 +597,30 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      */
     static float orderMinBrightnessFor(ChainPreviewDrawPlan plan) {
         return ChainPreviewShaderMath.orderMinBrightness(plan.getOrderMinBrightness());
+    }
+
+    /**
+     * 内部结构亮度系数 uniform（{@code uInteriorDim}）的取值。
+     *
+     * <p>默认档（未接线前的历史观感）是 {@code 1.0} = 关闭：GLSL 侧 {@code uInteriorDim >= 1.0}
+     * 完全不进入内部压暗分支。非 1.0 时该系数只乘<b>内部格线</b>（{@code auxChannel(aAux.y) >= 4.0}，
+     * 即 tubeEdge 未定义的 junction 补块 / 共享顶点）的<b>颜色 rgb</b>，alpha 链路
+     * （fade × growth × uFadeAlpha）不含它，描边 pass 也不含它</p>
+     *
+     * <p><b>为什么压暗对象是「未定义 tubeEdge」</b>：贯通管面槽位 0..3 的顶点承担外轮廓，
+     * 必须保持原亮度；junction 补块与共享顶点首写即为
+     * {@link club.heiqi.qz_miner.chain.client.ChainPreviewMesh#AUX_UNDEFINED}（实测可达集合
+     * {0, 1, 255}），正是「内部格线」的几何身份。判据见
+     * {@link ChainPreviewShaderMath#INTERIOR_TUBEEDGE_THRESHOLD}。</p>
+     *
+     * <p>收敛口径的单一真源在 {@link ChainPreviewShaderMath#interiorDim(float)}
+     * （NaN / 越界 → 1.0），不把非法值送进 uniform。</p>
+     *
+     * @param plan 当前 draw plan
+     * @return [0,1] 的亮度系数；{@code 1.0} = 关闭本能力
+     */
+    static float interiorDimFor(ChainPreviewDrawPlan plan) {
+        return ChainPreviewShaderMath.interiorDim(plan.getInteriorDim());
     }
 
     /**
@@ -684,6 +708,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 连锁序渐弱（appearOrder 亮度权重）：默认档 0.55，只乘颜色亮度（alpha 不受影响）；
         // 传 1.0 时 GLSL 完全不进入该分支。
         program.setOrderMinBrightness(orderMinBrightnessFor(plan));
+
+        // 内部结构压暗（"外轮廓强 / 内部格线弱"）：默认档 0.65，只乘内部格线的颜色 rgb
+        // （alpha 不受影响）；传 1.0 时 GLSL 完全不进入该分支。描边 pass 侧另有互斥门控。
+        program.setInteriorDim(interiorDimFor(plan));
 
         // 调色板：builtin 档传内置六色表，CHAIN 槽是精确基线常量 (0.25, 0.9, 1.0)，
         // 逐位等于 legacy 颜色流（不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）；
@@ -862,7 +890,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * <p>取值规则见 {@link #paletteUniforms(ChainPreviewDrawPlan, float[][])}（纯函数，可 headless
      * 断言数值）：builtin 档传内置调色板（CHAIN 槽为精确基线常量），config 档按 8bit 量化传 plan 六色。</p>
      *
-     * @param plan 当前 draw plan（配置只经 plan 传入，保持「只读 plan + uniform」单通道，遵守 §H）
+     * @param plan 当前 draw plan（配置只经 plan 传入，保持「只读 plan + uniform」单通道，遵守 读取面单通道（真源：ChainPreviewVisualSettings））
      */
     private void applyColorPalette(ChainPreviewDrawPlan plan) {
         float[][] palette = paletteUniforms(plan, colorPaletteScratch);
@@ -1069,17 +1097,17 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
-        // 接口冻结 §A：aPos = 3 x float32（相对 meshOrigin 的局部坐标）。槽位取运行时解析值。
+        // 顶点属性契约（真源：preview.vert 头部属性段）：aPos = 3 x float32（相对 meshOrigin 的局部坐标）。槽位取运行时解析值。
         GL20.glVertexAttribPointer(attributePosition, 3, GL11.GL_FLOAT, false, POSITION_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(attributePosition);
 
-        // 接口冻结 §A：aAux = 4 x uint8 normalized（semanticClass / tubeEdge / appearOrder u16 LE）
+        // 顶点属性契约（真源：preview.vert 头部属性段）：aAux = 4 x uint8 normalized（semanticClass / tubeEdge / appearOrder u16 LE）
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
         GL20.glVertexAttribPointer(attributeAux, 4, GL11.GL_UNSIGNED_BYTE, true, AUX_STRIDE_BYTES, 0L);
         GL20.glEnableVertexAttribArray(attributeAux);
 
-        // 接口冻结 §A（T51）：aDirection = 4 x int8 normalized（xyz 为面法线，w 为对齐保留位）。
+        // 顶点属性契约（真源：preview.vert 头部属性段）（T51）：aDirection = 4 x int8 normalized（xyz 为面法线，w 为对齐保留位）。
         // 顶点按面分裂后每顶点恰属一个面，方向恒为单位面法线，不存在零方向顶点。
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, dboCapacity, GL15.GL_DYNAMIC_DRAW);
@@ -1134,7 +1162,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL15.glDeleteBuffers(deletedDbo);
             GL15.glDeleteBuffers(deletedEbo);
         } finally {
-            // 颜色缓冲参数恒为 0：shader 路径不再持有 CBO（§A 修订 T51 移除了 aColor 顶点流）。
+            // 颜色缓冲参数恒为 0：shader 路径不再持有 CBO（顶点属性契约修订 T51 移除了 aColor 顶点流）。
             previous.withoutDeletedBuffers(
                 deletedVao, deletedVbo, 0, deletedAbo, deletedDbo, deletedEbo).restore();
         }

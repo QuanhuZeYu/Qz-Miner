@@ -85,6 +85,7 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientPreviewLod", FieldType.CHOICE, "off"},
                 {"client.clientPreviewLodMinAlpha", FieldType.NUMBER, Double.valueOf(0.05D)},
                 {"client.clientPreviewOrderMinBrightness", FieldType.NUMBER, Double.valueOf(0.55D)},
+                {"client.clientPreviewInteriorDim", FieldType.NUMBER, Double.valueOf(0.65D)},
                 {"client.clientPreviewSuppressVanillaHighlight", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewVersionedInputs", FieldType.BOOLEAN, Boolean.FALSE},
                 {"client.clientPreviewPresentationOverlay", FieldType.BOOLEAN, Boolean.FALSE},

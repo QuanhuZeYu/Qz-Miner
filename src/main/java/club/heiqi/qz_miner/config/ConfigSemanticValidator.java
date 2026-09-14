@@ -116,6 +116,7 @@ public final class ConfigSemanticValidator {
         putChoice(typed, errors, draft, "client.clientPreviewLod", PreviewLodMode.ids());
         putDoubleNumber(typed, errors, draft, "client.clientPreviewLodMinAlpha", 0.0D, 1.0D);
         putDoubleNumber(typed, errors, draft, "client.clientPreviewOrderMinBrightness", 0.0D, 1.0D);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewInteriorDim", 0.0D, 1.0D);
         putBoolean(typed, errors, draft, "client.clientPreviewSuppressVanillaHighlight");
         putBoolean(typed, errors, draft, "client.clientPreviewVersionedInputs");
         putBoolean(typed, errors, draft, "client.clientPreviewPresentationOverlay");
@@ -396,6 +397,7 @@ public final class ConfigSemanticValidator {
         public final PreviewLodMode clientPreviewLod;
         public final double clientPreviewLodMinAlpha;
         public final double clientPreviewOrderMinBrightness;
+        public final double clientPreviewInteriorDim;
         public final boolean clientPreviewSuppressVanillaHighlight;
         public final boolean clientPreviewVersionedInputs;
         public final boolean clientPreviewPresentationOverlay;
@@ -454,6 +456,7 @@ public final class ConfigSemanticValidator {
             clientPreviewLod = PreviewLodMode.fromId((String) typed.get("client.clientPreviewLod"));
             clientPreviewLodMinAlpha = number(typed, "client.clientPreviewLodMinAlpha");
             clientPreviewOrderMinBrightness = number(typed, "client.clientPreviewOrderMinBrightness");
+            clientPreviewInteriorDim = number(typed, "client.clientPreviewInteriorDim");
             clientPreviewSuppressVanillaHighlight = ((Boolean) typed
                     .get("client.clientPreviewSuppressVanillaHighlight")).booleanValue();
             clientPreviewVersionedInputs = ((Boolean) typed.get("client.clientPreviewVersionedInputs"))

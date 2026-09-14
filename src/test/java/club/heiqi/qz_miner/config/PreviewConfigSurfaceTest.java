@@ -24,12 +24,12 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
  * B0.1 配置档位的行为契约（纯 JVM，不加载 GL / 不跑客户端）。
  *
  * <p>覆盖：Schema / Defaults / 旧 cfg 导入 / Config 静态字段 / 分侧发布 五处同源；26 个新键的
- * 默认值（接口冻结 §E 目标默认）；数值范围收窄与 CHOICE 白名单；恢复默认回到目标默认；
+ * 默认值（配置键位与默认值（真源：QzMinerConfigDefaults） 目标默认）；数值范围收窄与 CHOICE 白名单；恢复默认回到目标默认；
  * 既有 YAML 缺键时回落到默认。</p>
  */
 public class PreviewConfigSurfaceTest {
 
-    /** 每行：字段全路径、接口冻结 §E 目标默认（规范化字符串）。 */
+    /** 每行：字段全路径、配置键位与默认值（真源：QzMinerConfigDefaults） 目标默认（规范化字符串）。 */
     private static final String[][] NEW_KEYS = {
             {"general.parallelBudgetMode", "deadline"},
             {"general.parallelSliceBudgetMs", "4.0"},
@@ -59,6 +59,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewLod", "off"},
             {"client.clientPreviewLodMinAlpha", "0.05"},
             {"client.clientPreviewOrderMinBrightness", "0.55"},
+            {"client.clientPreviewInteriorDim", "0.65"},
             {"client.clientPreviewSuppressVanillaHighlight", "false"},
             {"client.clientPreviewVersionedInputs", "false"},
             {"client.clientPreviewPresentationOverlay", "false"},
@@ -85,6 +86,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewMaxTargetsHardCap", "1", "4096", "0", "4097"},
             {"client.clientPreviewLodMinAlpha", "0", "1", "-0.1", "1.1"},
             {"client.clientPreviewOrderMinBrightness", "0", "1", "-0.1", "1.1"},
+            {"client.clientPreviewInteriorDim", "0", "1", "-0.1", "1.1"},
             {"client.clientPreviewRemoteTimeoutMs", "250", "60000", "249", "60001"}
     };
 
@@ -373,7 +375,8 @@ public class PreviewConfigSurfaceTest {
         if (leaf.equals("clientPreviewFadeFallbackMs")) {
             return 5000.0D;
         }
-        if (leaf.equals("clientPreviewLodMinAlpha") || leaf.equals("clientPreviewOrderMinBrightness")) {
+        if (leaf.equals("clientPreviewLodMinAlpha") || leaf.equals("clientPreviewOrderMinBrightness")
+                || leaf.equals("clientPreviewInteriorDim")) {
             return 1.0D;
         }
         if (leaf.equals("clientPreviewRemoteTimeoutMs")) {

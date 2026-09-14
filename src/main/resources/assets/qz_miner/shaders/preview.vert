@@ -3,7 +3,7 @@
 /*
  * 连锁预览条柱 · 顶点主路径（GL 2.1 / GLSL 1.20 基线）
  *
- * 顶点属性契约（接口冻结文档 §A）：
+ * 顶点属性契约（顶点属性契约（真源：preview.vert 头部属性段））：
  *   attribute 0 aPos   3 x float32  相对 meshOrigin 的方块坐标 + 偏移 x barThickness
  *   attribute 3 aDirection 4 x int8(normalized) 显式面方向（xyz；每组面一个顶点，恒为单位面法线）
  *   attribute 1 aAux   4 x uint8 normalized
@@ -11,7 +11,7 @@
  *                        y = tubeEdge（0..3，255 = 未定义）
  *                        z/w = appearOrder u16 小端（0xFFFF = 未定义）
  *
- *   **§A 修订（T51）**：原契约的「attribute 2 aColor 4 x float32（既有颜色流）」已从着色器路径移除。
+ *   **顶点属性契约修订（T51）**：原契约的「attribute 2 aColor 4 x float32（既有颜色流）」已从着色器路径移除。
  *   那份颜色流只服务 legacy 固定管线（其逐顶点 α 是 CPU 烘焙值）；着色器路径的颜色由
  *   aAux.semanticClass + uColor* 调色板在顶点阶段决定，从不读取 aColor——编译器因此把它整体优化掉
  *   （location = -1），契约里「保留该槽」的写法与实现不符，还会让下游以为这份颜色流仍参与计算。
@@ -19,7 +19,7 @@
  *   ChainPreviewShaderProgram#resolveAttributeLocations 运行时解析，见
  *   docs/反馈层/errors/ERROR-20260914-preview-attribute-slot-assumption.md。
  *
- * 功能优先级与落点（接口冻结文档 §F）：
+ * 功能优先级与落点（功能优先级与落点（真源：preview.vert 头部落点表））：
  *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
  *   2) 屏幕最小宽度  —— 顶点侧沿面法线 aDirection 外扩，把条柱的屏幕投影宽抬到 uMinScreenWidthPx 像素；
  *                        与真描边**共用同一份世界空间预算** maxWidenWorld：最小宽度优先取用，
@@ -39,7 +39,7 @@
  *                        且失败不可观测；显式化后矩阵可读、可断言，后端可自检并回退 legacy
  *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
  *        「两 pass 叠色」行为——固定管线做外扩必须改 CPU 几何，会破坏 B4.1 的增量/差分等价。
- *   9) 连锁序渐弱（本项目新增，**非 §F 冻结项**）—— 与第 3 项**共用同一次** appearOrder 还原
+ *   9) 连锁序渐弱（本项目新增，**非冻结项**）—— 与第 3 项**共用同一次** appearOrder 还原
  *                        （u16 只组装一次，任一消费方不需要时都不读），按归一化连锁序把**颜色亮度**
  *                        从 1.0 线性降到 uOrderMinBrightness（配置 clientPreviewOrderMinBrightness，默认 0.55）：
  *                        t = clamp(floor(min(order, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)，
@@ -51,6 +51,18 @@
  *                        序号未定义（0xFFFF）或 uAppearSpan <= 0 时权重恒 1.0。
  *                        分母 uAppearSpan 由 Java 侧逐帧供给，其取值语义见
  *                        ChainPreviewShaderBackend#orderMinBrightnessFor 的说明。
+ *  10) 内部结构压暗（本项目新增，**非冻结项**）—— 按 aAux.y（tubeEdge）把顶点分成
+ *                        「外轮廓」与「内部格线」两类：贯通管面槽位（0..3）保持原亮度，
+ *                        其余（实测只有 255 = AUX_UNDEFINED 的 junction 补块 / 共享顶点）把
+ *                        **颜色 rgb** 乘 uInteriorDim（配置 clientPreviewInteriorDim，默认 0.65）。
+ *                        设计目标「外轮廓强 / 内部格线弱」：体积感来自面亮缝暗，而不是叠色。
+ *                        **只乘 rgb，不乘 alpha**（与第 9 项同口径）：alpha 只由「距离淡出 × 逐波生长
+ *                        × uFadeAlpha」决定，压暗内部不得改变透明度。
+ *                        **描边 pass 不参与**：描边色 uColorChain 代表外轮廓本身，压暗它等于把本项的
+ *                        设计目标自己抹掉，故门控额外要求 uOutlineWidthPx <= 0（与描边分支互斥）。
+ *                        门控：uInteriorDim >= 1.0 时**完全不进入**该分支（乘 1.0 是精确恒等，
+ *                        关闭档逐值等于现状）；Java 侧已把 NaN / 越界收敛为 1.0，非法值不进 uniform。
+ *                        仅着色器后端消费：legacy 固定管线不消费 tubeEdge（其逐顶点色由 CPU 烘焙）。
  *
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
  * 形状一致（d <= fadeStart → uMaxAlpha；d >= fadeEnd → uMinAlpha；之间按 t^2 插值），
@@ -103,8 +115,14 @@ uniform float uOrderMinBrightness;    // 连锁序渐弱（第 9 项）的**亮�
                                  // 关闭时必须**完全不进入 orderWeight 分支**，保证逐值等于现状；
                                  // 序号未定义 / uAppearSpan <= 0 时该分支也保持恒等 1.0；
                                  // 权重只乘颜色亮度（rgb），alpha 不消费本 uniform
+uniform float uInteriorDim;      // 内部结构压暗（第 10 项）的颜色亮度系数：1 = 关闭（= 接线前观感）
+                                 // 关闭时必须**完全不进入压暗分支**，保证逐值等于现状；
+                                 // 只乘内部格线（auxChannel(aAux.y) >= 4.0）的 rgb，不乘 alpha；
+                                 // 描边 pass（uOutlineWidthPx > 0）不消费本 uniform
+                                 // 阈值 4.0 与 Java 侧 ChainPreviewShaderMath.INTERIOR_TUBEEDGE_THRESHOLD
+                                 // 同源：0..3 = 贯通管面槽位（外轮廓），255 = AUX_UNDEFINED（内部格线）
 
-// 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表；六色按【大模式】区分）。
+// 语义调色板（按 aAux.x 的 semanticClass 选择，见 语义类别表（真源：ChainPreviewSemanticClass）；六色按【大模式】区分）。
 // builtin 档由 Java 侧 ChainPreviewShaderMath.builtinColorTable() 供给：CHAIN 槽是精确基线常量
 // (0.25, 0.9, 1.0) ⇒ 默认大模式输出逐字节等于现状；其余五槽是显式 0xRRGGBB 的内置色。
 uniform vec3 uColorChain;
@@ -122,7 +140,7 @@ float auxChannel(float value) {
 }
 
 /**
- * 语义类别 → 颜色，与接口冻结 §D 类别表逐条对应（本轮按【大模式】重排值域）：
+ * 语义类别 → 颜色，与语义类别表（真源：ChainPreviewSemanticClass）逐条对应（本轮按【大模式】重排值域）：
  *   0 CHAIN_LOCAL → uColorChain
  *   1 AREA_LOCAL → uColorArea
  *   2 INTERACT_LOCAL → uColorInteract
@@ -252,7 +270,7 @@ void main(void) {
     float pixelsPerWorldUnit = max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6);
     // 世界空间位移预算（A2）：**最小宽度与真描边共用同一份**，单一真源是
     // ChainPreviewShaderMath.maxWidenWorld（= max(0.0, 0.5 - uBarThickness)）。
-    // 推导（接口冻结 §L / F-1 独立复算）：条柱自身厚度 t 与单侧外扩量 w 共同计入相邻条柱的占用，
+    // 推导（世界空间位移预算（真源：ChainPreviewShaderMath.maxWidenWorld） / F-1 独立复算）：条柱自身厚度 t 与单侧外扩量 w 共同计入相邻条柱的占用，
     // 中心距 1 格时既有口径的间隙式 1 - 2(t + w) 在上界处恰好为 0；而真实几何到达半径
     // t/2 + w = 0.5 - t/2 < 0.5，比「不越出自身方块」更保守。不用固定 0.5 是因为默认厚度下
     // 相邻条柱会重叠 0.09 格。上界把它收敛到 0.955 格总宽（t=0.045），仍不粘连。
@@ -321,11 +339,27 @@ void main(void) {
     // 「先 color × 明暗系数、再 × 权重」，既有面明暗链路逐位不变）。
     // orderWeight 在关闭档 / 未定义序号 / 无同代目标总数时保持初值 1.0，乘 1.0 精确恒等。
     color = color * orderWeight;
+    // 10) 内部结构压暗：aAux.y 是 tubeEdge（byte 0..255）。0..3 = 贯通管面槽位（外轮廓，保持原亮度），
+    //     其余（实测只有 255 = AUX_UNDEFINED 的 junction 补块 / 共享顶点）是「内部格线」，乘本系数。
+    //     判据刻意写 >= 4.0 而不是 == 255.0：它同时覆盖「槽位 2/3 将来可达」与「未知大值」，
+    //     除了 0..3 这些贯通面以外的一切顶点都算内部结构；把 0..3 误判成内部会把整根条柱侧面压暗，
+    //     与「外轮廓强」直接矛盾（阈值同源见 Java 侧 ChainPreviewShaderMath.INTERIOR_TUBEEDGE_THRESHOLD）。
+    //     关闭档门控：uInteriorDim >= 1.0 时**完全不进入**该分支，乘 1.0 是精确恒等 ⇒ 逐值等于现状
+    //     （host 侧已把 NaN / 越界收敛为 1.0，见 ChainPreviewShaderMath.interiorDim）。
+    //     描边 pass 明确排除：uOutlineWidthPx > 0 时 color 是 uColorChain（外轮廓专用色），
+    //     压暗它等于把本项的设计目标「外轮廓强」自己抹掉，故 condition 里额外要求 uOutlineWidthPx <= 0
+    //     （与上面的取色分支互斥，不依赖两个 uniform 的取值巧合）。
+    //     只乘 rgb：alpha 已在上面独立算完，本项不得参与（与第 9 项 orderWeight 同口径）。
+    if (uInteriorDim < 1.0 && uOutlineWidthPx <= 0.0 && auxChannel(aAux.y) >= 4.0) {
+        color = color * uInteriorDim;
+    }
+    //     本次是 GLSL **逻辑**变更（新增第 10 项内部结构压暗）：按头部「实机验证记录」口径，
+    //     需真机确认无异常后才追加标记行；现有标记行覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
     vColor = vec4(color, alpha);
 
     // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），
     // 使上面的横向钳制算完即丢——B2.1 最小宽度在 shader 路径静默失效。
     // MVP 来自显式 uniform（uModelViewProjection）；内建 gl_ModelViewProjectionMatrix 在真机
-    // 环境下与真实相机矩阵失同步，见文件头部 uniform 段与 §F 的能力差异登记。
+    // 环境下与真实相机矩阵失同步，见文件头部 uniform 段与 功能优先级与落点（真源：preview.vert 头部落点表） 的能力差异登记。
     gl_Position = uModelViewProjection * vec4(displaced, 1.0);
 }

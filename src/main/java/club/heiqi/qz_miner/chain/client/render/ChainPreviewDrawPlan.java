@@ -46,7 +46,7 @@ public final class ChainPreviewDrawPlan {
      *
      * <p>本常量是 draw plan 层的参考值（壳段单元测试与契约文档口径）；生产生效宽度由配置
      * {@code client.clientPreviewOutlineWidthPx} 提供（默认 1.5D，与本常量一致；0 = 关闭描边），
-     * renderer 经 §H 读取面 {@code ChainPreviewVisualSettings#getOutlineWidthPx()} 传入
+     * renderer 经 读取面单通道（真源：ChainPreviewVisualSettings） {@code ChainPreviewVisualSettings#getOutlineWidthPx()} 传入
      * {@link #withOutlinePass(boolean, float)}。</p>
      */
     public static final float OUTLINE_WIDTH_DEFAULT_PX = 1.5F;
@@ -80,7 +80,7 @@ public final class ChainPreviewDrawPlan {
      */
     public static final class Visuals {
 
-        /** 屏幕最小宽度基线默认（§E：0.0 = 不钳制）。 */
+        /** 屏幕最小宽度基线默认（配置键位与默认值（真源：QzMinerConfigDefaults）：0.0 = 不钳制）。 */
         public static final float DEFAULT_MIN_SCREEN_WIDTH_PX = 0.0F;
 
         /**
@@ -91,6 +91,14 @@ public final class ChainPreviewDrawPlan {
          */
         public static final float DEFAULT_ORDER_MIN_BRIGHTNESS = 1.0F;
 
+        /**
+         * 内部结构亮度系数的基线默认（{@code 1.0} = 关闭本能力，恒等）。
+         *
+         * <p>刻意<b>不</b>取配置默认 0.65（理由见 {@link #BASELINE}）：与 faceShading 同属例外项，
+         * 「拿不到配置」不能读作「用户选择了 0.65」。</p>
+         */
+        public static final float DEFAULT_INTERIOR_DIM = 1.0F;
+
         /** 距离淡出基线默认（与 ChainPreviewVisualSettings 的 NaN 兜底逐值同源）。 */
         public static final float DEFAULT_FADE_START_RADIUS = 2.0F;
         public static final float DEFAULT_FADE_END_RADIUS = 6.0F;
@@ -98,11 +106,12 @@ public final class ChainPreviewDrawPlan {
         public static final float DEFAULT_ALPHA_END = 0.15F;
 
         /**
-         * settings 缺失 / 字段 NaN 时的最后防线：除 faceShading 与 orderMinBrightness 外与配置默认逐项同值。
+         * settings 缺失 / 字段 NaN 时的最后防线：除 faceShading、orderMinBrightness 与 interiorDim
+         * 外与配置默认逐项同值。
          *
-         * <p>这两项是刻意的例外：本兜底路径的语义是「拿不到配置」，保持关闭 / 恒等才等于历史
-         * 观感；配置默认虽已上调（面明暗开启、连锁序亮度权重下限 0.55，见 QzMinerConfigDefaults），
-         * 但「读不到配置」不等于「用户选择了开启」。</p>
+         * <p>这三项是刻意的例外：本兜底路径的语义是「拿不到配置」，保持关闭 / 恒等才等于历史
+         * 观感；配置默认虽已上调（面明暗开启、连锁序亮度权重下限 0.55、内部结构亮度系数 0.65，
+         * 见 QzMinerConfigDefaults），但「读不到配置」不等于「用户选择了开启」。</p>
          */
         public static final Visuals BASELINE = new Visuals(
             DEFAULT_BAR_THICKNESS,
@@ -391,6 +400,7 @@ public final class ChainPreviewDrawPlan {
         private final float outlineWidthPx;
         private final boolean faceShading;
         private final float orderMinBrightness;
+        private final float interiorDim;
 
         /**
          * 简化构造：{@code fadeAlpha = 1}（无全局淡入淡出）+ builtin 颜色，保留既有调用点签名。
@@ -523,7 +533,8 @@ public final class ChainPreviewDrawPlan {
         }
 
         /**
-         * 15 参构造：连锁序亮度权重未显式传入时按 {@link #DEFAULT_ORDER_MIN_BRIGHTNESS}（= 1.0，关闭）处理。
+         * 15 参构造：连锁序亮度权重与内部结构亮度系数都未显式传入时分别按
+         * {@link #DEFAULT_ORDER_MIN_BRIGHTNESS} / {@link #DEFAULT_INTERIOR_DIM}（都是 1.0 = 关闭）处理。
          *
          * @param faceShading 是否按面朝向烘焙明暗（配置 clientPreviewFaceShading）；
          *                    false 时后端不进入乘色分支，输出逐字节等于现状
@@ -545,11 +556,12 @@ public final class ChainPreviewDrawPlan {
                 boolean faceShading) {
             this(barThickness, minScreenWidthPx, animationU, fadeStartRadius, fadeEndRadius,
                 alphaStart, alphaEnd, depthChannel, fadeAlpha, colors, lod,
-                outlineShell, outlineWidthPx, faceShading, DEFAULT_ORDER_MIN_BRIGHTNESS);
+                outlineShell, outlineWidthPx, faceShading, DEFAULT_ORDER_MIN_BRIGHTNESS,
+                DEFAULT_INTERIOR_DIM);
         }
 
         /**
-         * 完整构造（本轮追加连锁序亮度权重下限一参）。
+         * 16 参构造：内部结构亮度系数未显式传入时按 {@link #DEFAULT_INTERIOR_DIM}（= 1.0，关闭）处理。
          *
          * @param orderMinBrightness 连锁序**亮度**权重下限（配置 clientPreviewOrderMinBrightness，读取面已收窄到
          *                      [0,1]）；{@code 1.0} = 后端传 1.0 给 {@code uOrderMinBrightness}，
@@ -572,6 +584,36 @@ public final class ChainPreviewDrawPlan {
                 float outlineWidthPx,
                 boolean faceShading,
                 float orderMinBrightness) {
+            this(barThickness, minScreenWidthPx, animationU, fadeStartRadius, fadeEndRadius,
+                alphaStart, alphaEnd, depthChannel, fadeAlpha, colors, lod,
+                outlineShell, outlineWidthPx, faceShading, orderMinBrightness, DEFAULT_INTERIOR_DIM);
+        }
+
+        /**
+         * 完整构造（本轮追加内部结构亮度系数一参）。
+         *
+         * @param interiorDim 内部结构亮度系数（配置 clientPreviewInteriorDim，读取面已收窄到 [0,1]）；
+         *                      {@code 1.0} = 后端传 1.0 给 {@code uInteriorDim}，
+         *                      preview.vert 完全不进入内部压暗分支 ⇒ 输出逐值等于现状；
+         *                      非 1.0 时乘在内部格线（tubeEdge 未定义的顶点）的颜色 rgb 上，不乘 alpha
+         */
+        public Visuals(
+                float barThickness,
+                float minScreenWidthPx,
+                float animationU,
+                float fadeStartRadius,
+                float fadeEndRadius,
+                float alphaStart,
+                float alphaEnd,
+                DepthChannel depthChannel,
+                float fadeAlpha,
+                Colors colors,
+                Lod lod,
+                boolean outlineShell,
+                float outlineWidthPx,
+                boolean faceShading,
+                float orderMinBrightness,
+                float interiorDim) {
             this.barThickness = barThickness;
             this.minScreenWidthPx = minScreenWidthPx;
             this.animationU = animationU;
@@ -587,6 +629,7 @@ public final class ChainPreviewDrawPlan {
             this.outlineWidthPx = this.outlineShell ? outlineWidthPx : 0.0F;
             this.faceShading = faceShading;
             this.orderMinBrightness = orderMinBrightness;
+            this.interiorDim = interiorDim;
         }
 
         public float getBarThickness() {
@@ -626,7 +669,8 @@ public final class ChainPreviewDrawPlan {
                 false,
                 0.0F,
                 faceShading,
-                orderMinBrightness);
+                orderMinBrightness,
+                interiorDim);
         }
 
         /** @return 距离淡出起点（格），此距离内为 alphaStart */
@@ -700,7 +744,8 @@ public final class ChainPreviewDrawPlan {
                 false,
                 0.0F,
                 faceShading,
-                orderMinBrightness);
+                orderMinBrightness,
+                interiorDim);
         }
 
         /** @return 深度通道，永不为 null */
@@ -769,6 +814,17 @@ public final class ChainPreviewDrawPlan {
         }
 
         /**
+         * @return 内部结构亮度系数；{@code 1.0} = 关闭本能力（后端传 1.0，GLSL 不进入该分支）
+         *
+         * <p>消费链：{@code ChainPreviewShaderBackend#interiorDimFor} → {@code uInteriorDim}
+         * → preview.vert 的内部结构压暗分支（乘在内部格线的颜色 rgb 上，alpha 只由距离淡出 × 生长 ×
+         * 包络决定；描边 pass 不参与，见该分支注释）。legacy 固定管线不消费本值。</p>
+         */
+        public float getInteriorDim() {
+            return interiorDim;
+        }
+
+        /**
          * 派生：标记 / 取消描边壳段（B3.x 真描边）。
          *
          * <p>只改本对象的描边两参，其余字段原样复制；规范化口径与完整构造一致
@@ -801,7 +857,8 @@ public final class ChainPreviewDrawPlan {
                 nextShell,
                 nextWidth,
                 faceShading,
-                orderMinBrightness);
+                orderMinBrightness,
+                interiorDim);
         }
 
         /** @return 收窄 NaN / 越界后的视觉参数；本就规范时返回自身 */
@@ -831,6 +888,7 @@ public final class ChainPreviewDrawPlan {
             }
             float safeOrderMinBrightness = clampFinite(
                 orderMinBrightness, 0.0F, 1.0F, DEFAULT_ORDER_MIN_BRIGHTNESS);
+            float safeInteriorDim = clampFinite(interiorDim, 0.0F, 1.0F, DEFAULT_INTERIOR_DIM);
             if (safeThickness == barThickness
                     && safeMinWidth == minScreenWidthPx
                     && safeAnimationU == animationU
@@ -844,7 +902,8 @@ public final class ChainPreviewDrawPlan {
                     && safeLod == lod
                     && safeOutlineShell == outlineShell
                     && safeOutlineWidth == outlineWidthPx
-                    && safeOrderMinBrightness == orderMinBrightness) {
+                    && safeOrderMinBrightness == orderMinBrightness
+                    && safeInteriorDim == interiorDim) {
                 return this;
             }
             return new Visuals(
@@ -862,7 +921,8 @@ public final class ChainPreviewDrawPlan {
                 safeOutlineShell,
                 safeOutlineWidth,
                 faceShading,
-                safeOrderMinBrightness);
+                safeOrderMinBrightness,
+                safeInteriorDim);
         }
 
         @Override
@@ -887,6 +947,7 @@ public final class ChainPreviewDrawPlan {
                 && Float.compare(outlineWidthPx, that.outlineWidthPx) == 0
                 && faceShading == that.faceShading
                 && Float.compare(orderMinBrightness, that.orderMinBrightness) == 0
+                && Float.compare(interiorDim, that.interiorDim) == 0
                 && colors.equals(that.colors)
                 && lod.equals(that.lod);
         }
@@ -906,6 +967,7 @@ public final class ChainPreviewDrawPlan {
             result = 31 * result + Float.floatToIntBits(outlineWidthPx);
             result = 31 * result + (faceShading ? 1 : 0);
             result = 31 * result + Float.floatToIntBits(orderMinBrightness);
+            result = 31 * result + Float.floatToIntBits(interiorDim);
             result = 31 * result + colors.hashCode();
             result = 31 * result + lod.hashCode();
             return result;
@@ -923,6 +985,7 @@ public final class ChainPreviewDrawPlan {
                 + ", outlineShell=" + outlineShell + (outlineShell ? "@" + outlineWidthPx + "px" : "")
                 + ", faceShading=" + faceShading
                 + ", orderMinBrightness=" + orderMinBrightness
+                + ", interiorDim=" + interiorDim
                 + ", " + colors
                 + ", " + lod
                 + '}';
@@ -1180,7 +1243,7 @@ public final class ChainPreviewDrawPlan {
      * 描边形态未变化时返回自身（零分配）。XRAY / OCCLUDE 不调用本方法，逐字节等于现状。</p>
      *
      * <p>壳段判定即 {@code shell && widthPx > 0}：renderer 只在 OUTLINE 档调用，
-     * 宽度取 §H 读取面（配置 {@code client.clientPreviewOutlineWidthPx}）。</p>
+     * 宽度取 读取面单通道（真源：ChainPreviewVisualSettings）（配置 {@code client.clientPreviewOutlineWidthPx}）。</p>
      *
      * <p><b>本方法只把「本计划」标记为非壳段，不会改变 stage 划分</b>——OUTLINE 档仍是 2 段
      * （{@link ChainPreviewDepthPass#stageCount}）。宽度 0 的收敛发生在档位解析处：
@@ -1234,6 +1297,11 @@ public final class ChainPreviewDrawPlan {
     /** @return 连锁序**亮度**权重下限；1.0 = 关闭本能力（着色器不进入 orderWeight 分支，逐值等于现状） */
     public float getOrderMinBrightness() {
         return visuals.getOrderMinBrightness();
+    }
+
+    /** @return 内部结构亮度系数；1.0 = 关闭本能力（着色器不进入内部压暗分支，逐值等于现状） */
+    public float getInteriorDim() {
+        return visuals.getInteriorDim();
     }
 
     /** @return 条柱粗细（方块坐标单位） */

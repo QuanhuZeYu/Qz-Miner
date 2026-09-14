@@ -164,6 +164,7 @@ config.qz_miner.clientPreviewMaxTargetsHardCap.tooltip=预览目标数量硬顶�
 config.qz_miner.clientPreviewLod.tooltip=极端规模 LOD：off 关闭（默认，等于历史行为）；auto 按距离合并并做 alpha 剔除
 config.qz_miner.clientPreviewLodMinAlpha.tooltip=LOD alpha 剔除阈值：低于该值的条柱不参与构建，合法 0..1
 config.qz_miner.clientPreviewOrderMinBrightness.tooltip=连锁序亮度权重下限：按条柱在预览集合里的出现序号（离瞄准起点越远序号越大）线性降低颜色亮度，不改动 alpha（距离淡出仍各自权威、互不污染），合法 0..1；1.0 关闭本能力（等于现状），默认 0.55 时起点 1.0、最远 0.55；仅着色器后端生效
+config.qz_miner.clientPreviewInteriorDim.tooltip=内部结构亮度系数：预览里内部格线（junction 补块与共享顶点，即没有贯通管面槽位的顶点）乘的颜色亮度，合法 0..1；1.0 关闭本能力（等于现状），默认 0.65 时内部格线为原亮度的 65%、外轮廓（贯通管面）保持 1.0；只压暗颜色亮度、不改动 alpha，也不作用于描边 pass（描边色即外轮廓）；仅着色器后端生效
 config.qz_miner.clientPreviewSuppressVanillaHighlight.tooltip=预览激活且瞄准同一目标时取消原版方块高亮，避免双重指示
 config.qz_miner.clientPreviewVersionedInputs.tooltip=是否使用版本化预览输入快照（含目标去抖），默认 false（接线属下一批）；关闭时走逐字段比较
 config.qz_miner.clientPreviewPresentationOverlay.tooltip=是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源）

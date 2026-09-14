@@ -64,7 +64,7 @@ public class Config {
     public static double clientPreviewAlphaStartValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE;
     public static double clientPreviewAlphaEndValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE;
 
-    // ---- 连锁预览观感档位（client 段；键名/默认值与接口冻结 §E 同源）----
+    // ---- 连锁预览观感档位（client 段；键名/默认值与配置键位与默认值（真源：QzMinerConfigDefaults） 同源）----
     // 本类只承载「键 → 静态字段 + 缺省兜底 + 分侧发布」（ConfigValueBridge）。
     // 把多个键聚合成不可变观感快照的唯一消费面是 session-core 的
     // ChainPreviewVisualSettings.fromConfig()；渲染/构建路径不得绕过快照直连这些字段。
@@ -118,6 +118,8 @@ public class Config {
     public static double clientPreviewLodMinAlpha = QzMinerConfigDefaults.CLIENT_PREVIEW_LOD_MIN_ALPHA;
     /** 连锁序亮度权重下限；1.0 = 关闭本能力（等于现状），默认 0.55（起点 1.0、最远 0.55）；只乘颜色亮度，仅着色器后端消费。 */
     public static double clientPreviewOrderMinBrightness = QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS;
+    /** 内部结构亮度系数；1.0 = 关闭本能力（等于现状），默认 0.65；只压暗内部格线（junction / 共享顶点的 rgb），仅着色器后端消费。 */
+    public static double clientPreviewInteriorDim = QzMinerConfigDefaults.CLIENT_PREVIEW_INTERIOR_DIM;
     /** 预览激活时是否取消同目标的原版方块高亮。 */
     public static boolean clientPreviewSuppressVanillaHighlight =
             QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT;

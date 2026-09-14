@@ -32,7 +32,7 @@ public final class ChainPreviewShaderMath {
     /** legacy 基线条柱厚度（= ChainPreviewMeshBuilder 的默认值，供便捷重载使用）。 */
     private static final float DEFAULT_BAR_THICKNESS = 0.045F;
 
-    /** appearOrder 未定义哨兵（接口冻结 §A：0xFFFF）。 */
+    /** appearOrder 未定义哨兵（顶点属性契约（真源：preview.vert 头部属性段）：0xFFFF）。 */
     public static final float APPEAR_ORDER_UNDEFINED = 65535.0F;
 
     /** legacy 基线常量色 R（= ChainPreviewMeshBuilder.BASE_RED）。 */
@@ -69,7 +69,7 @@ public final class ChainPreviewShaderMath {
     /** 颜色来源稳定 id：配置（六色来自 clientPreviewColor*）。 */
     public static final String COLOR_SOURCE_CONFIG = "config";
 
-    // ---------------------------------------------------------------- §D 语义类别（冻结）
+    // ---------------------------------------------------------------- 语义类别表（真源：ChainPreviewSemanticClass） 语义类别（冻结）
 
     // 语义类别常量**单一真源**：session-core 的 ChainPreviewSemanticClass（F3）。
     // 本类不再自造 id；GLSL 侧因无法共享 Java 常量而保留字面量，注释互指。
@@ -228,6 +228,45 @@ public final class ChainPreviewShaderMath {
     public static float orderMinBrightness(float requested) {
         if (!isFinite(requested)) {
             return ORDER_MIN_BRIGHTNESS_OFF;
+        }
+        return clamp(requested, 0.0F, 1.0F);
+    }
+
+    /** 内部结构亮度系数的恒等值：{@code 1.0} = 关闭本能力（内部格线也乘 1.0，逐值等于接线前）。 */
+    public static final float INTERIOR_DIM_OFF = 1.0F;
+
+    /**
+     * 「内部结构」判据的 aAux.y 下界，即 {@code preview.vert} 的 {@code auxChannel(aAux.y) >= 4.0}。
+     *
+     * <p>{@code aAux.y} 是 tubeEdge（{@link ChainPreviewMesh#AUX_BYTES_PER_VERTEX}）：0..3 = 贯通管面
+     * 槽位，{@code 255} = {@link ChainPreviewMesh#AUX_UNDEFINED}（junction 补块 / 共享顶点）。
+     * 判据刻意写成 {@code >= 4.0} 而不是 {@code == 255.0}：它同时覆盖「槽位 2/3 将来可达」
+     * 与「未知大值」两种情形——除了 0..3 这些<b>贯通面</b>以外的一切顶点都算内部结构。
+     * 反过来把 0..3 误判成内部会让整根条柱侧面被压暗，与「外轮廓强」直接矛盾。</p>
+     *
+     * <p><b>本常量不参与任何 host 侧计算</b>：{@code uInteriorDim} 是整条 draw call 的统一乘数，
+     * 逐顶点的 tubeEdge 判断只发生在顶点阶段（GLSL 侧有独立字面量，无法共享 Java 常量，改动须两处同步）。
+     * 放在这里是为了给「阈值 4.0 从哪来」一个可被 javadoc 引用的落点。</p>
+     */
+    public static final float INTERIOR_TUBEEDGE_THRESHOLD = 4.0F;
+
+    /**
+     * 内部结构亮度系数（{@code uInteriorDim}）的 host 侧收敛（与写入边界同口径）。
+     *
+     * <p>{@code 1.0} 是恒等值：{@code preview.vert} 在 {@code uInteriorDim >= 1.0} 时完全不进入内部
+     * 压暗分支。NaN / Infinity 收敛为恒等而不是传播——与 {@link #orderMinBrightness(float)} 同取向
+     * （非法即关闭）：异常配置不得让内部格线静默变黑，也不得变成「未知乘数」。</p>
+     *
+     * <p><b>作用位置</b>：只乘颜色 rgb（{@code color = color * uInteriorDim}），不乘 alpha——
+     * alpha 只由「距离淡出 × 逐波生长 × uFadeAlpha」决定（与 {@link #orderWeight} 同一口径）。
+     * 描边 pass 不消费本值（描边色 {@code uColorChain} 即外轮廓，压暗它等于取消「外轮廓强」）。</p>
+     *
+     * @param requested 配置 / plan 给出的系数（可为 NaN / 越界）
+     * @return [0,1] 的系数；非法输入为 {@link #INTERIOR_DIM_OFF}
+     */
+    public static float interiorDim(float requested) {
+        if (!isFinite(requested)) {
+            return INTERIOR_DIM_OFF;
         }
         return clamp(requested, 0.0F, 1.0F);
     }
@@ -439,7 +478,7 @@ public final class ChainPreviewShaderMath {
      * {@code t/2 + w}，故「不越出自身方块」的自然上界是 {@code 0.5 − t/2}。既有口径取
      * {@code 0.5 − t}，对应到达 {@code 0.5 − t/2 < 0.5}、真实间隙
      * {@code 1 − 2×(t/2 + w) = t > 0} —— 比自然上界更保守（留了半个厚度的余量），
-     * 且表达式仍只依赖一个既有 uniform。这是接口冻结 §L 第 138 行的 Lead 裁定与 F-1 独立复算
+     * 且表达式仍只依赖一个既有 uniform。这是世界预算算法第 138 行的 Lead 裁定与 F-1 独立复算
      * （{@code OutlineStrokeBoundsContractTest#expandedNeighborBarsMustNotOverlapForAnyThickness}）
      * 的结果，不得自行改回 {@code 0.5} 或另立半厚口径。</p>
      *
@@ -484,7 +523,7 @@ public final class ChainPreviewShaderMath {
     /**
      * 类别 → 调色板下标，与 {@code preview.vert} 的 {@code previewSemanticColor()} 逐条对应。
      *
-     * <p>映射（接口冻结 §D 类别表，本轮按大模式重排）：
+     * <p>映射（语义类别表（真源：ChainPreviewSemanticClass），本轮按大模式重排）：
      * 0/1/2 → CHAIN/AREA/INTERACT 色；3 → 扩展子模式色；4 → 远端色；5 → 截断色；
      * 6/7/255 及任何未知值 → CHAIN 色兜底。</p>
      *

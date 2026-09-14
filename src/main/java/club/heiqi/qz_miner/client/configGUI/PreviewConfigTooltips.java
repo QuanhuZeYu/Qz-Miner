@@ -38,7 +38,7 @@ public final class PreviewConfigTooltips {
     /** label 语言键后缀。 */
     public static final String KEY_SUFFIX_LABEL = ".label";
 
-    /** 本轮新增配置键的完整 schema path（顺序与接口冻结 §E 一致）。 */
+    /** 本轮新增配置键的完整 schema path（顺序与配置键位一致）。 */
     private static final String[] PATHS = {
             "general.parallelBudgetMode",
             "general.parallelSliceBudgetMs",
@@ -66,6 +66,7 @@ public final class PreviewConfigTooltips {
             "client.clientPreviewLod",
             "client.clientPreviewLodMinAlpha",
             "client.clientPreviewOrderMinBrightness",
+            "client.clientPreviewInteriorDim",
             "client.clientPreviewSuppressVanillaHighlight",
             "client.clientPreviewVersionedInputs",
             "client.clientPreviewPresentationOverlay",

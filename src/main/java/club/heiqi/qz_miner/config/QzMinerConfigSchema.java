@@ -298,6 +298,15 @@ public final class QzMinerConfigSchema {
                                 + "合法 0..1；1.0 关闭本能力（等于现状），默认 0.55 时起点 1.0、最远 0.55；"
                                 + "只乘颜色亮度，不影响由距离淡出决定的 alpha")
                         .build()
+                    .number("clientPreviewInteriorDim")
+                        .defaultValue(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_INTERIOR_DIM))
+                        .range(0.0, 1.0)
+                        .label("clientPreviewInteriorDim")
+                        .helper("内部结构亮度系数：预览里内部格线（junction 补块 / 共享顶点，无贯通面槽位的顶点）"
+                                + "乘的颜色亮度，合法 0..1；1.0 关闭本能力（等于现状），默认 0.65 时内部格线"
+                                + "为原亮度的 65%，外轮廓（贯通管面）保持 1.0；只压暗颜色亮度，不影响 alpha，"
+                                + "也不作用于描边 pass（描边色即外轮廓）")
+                        .build()
                     .bool("clientPreviewSuppressVanillaHighlight")
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT))
                         .label("clientPreviewSuppressVanillaHighlight")

@@ -20,7 +20,7 @@ import org.lwjgl.opengl.GL20;
  * GLSL 编译链接逻辑，也不重复实现 uniform 缓存语义（沿用 UILib 的
  * 「命中缓存 → 未命中查询 → 缺失记入 missing 集合」三段式，缺失 uniform 静默跳过）。</p>
  *
- * <p>失败语义（接口冻结 §F）：{@link #ensureReady()} 只尝试一次；失败后置
+ * <p>失败语义（功能优先级与落点（真源：preview.vert 头部落点表））：{@link #ensureReady()} 只尝试一次；失败后置
  * {@link #isUnavailable()} 为 true，后续调用直接返回 false，<strong>不会每帧重试</strong>。
  * 所有 GL 异常在此处被捕获，绝不向渲染帧抛出。原因保存在 {@link #getLastFailureMessage()}，
  * 由后端写进 {@code describe()}。</p>
@@ -102,6 +102,10 @@ public final class ChainPreviewShaderProgram {
         // 缺失会让「配置了非 1.0 的下限」静默退化成恒等——宁可判程序不可用回退 legacy，
         // 也不画出一份与配置不符、且看不出哪里不对的亮度分布。
         "uOrderMinBrightness",
+        // 内部结构压暗：门控本身是活引用（uInteriorDim < 1.0 且非描边 pass 才进入乘色分支），
+        // 缺失会让「配置了非 1.0 的系数」静默退化成恒等——宁可判程序不可用回退 legacy，
+        // 也不画出一份与配置不符、且看不出哪里不对的内部/轮廓对比。
+        "uInteriorDim",
     };
 
     /**
@@ -177,6 +181,8 @@ public final class ChainPreviewShaderProgram {
             setFadeAlpha(INITIAL_FADE_ALPHA);
             // 同类安全初值：0 对本 uniform 不是恒等（见 INITIAL_ORDER_MIN_BRIGHTNESS），必须写 1.0。
             setOrderMinBrightness(INITIAL_ORDER_MIN_BRIGHTNESS);
+            // 同上：0 会把内部格线直接压成纯黑（见 INITIAL_INTERIOR_DIM），必须写 1.0。
+            setInteriorDim(INITIAL_INTERIOR_DIM);
             // 必备 uniform 校验放在最后：缺失即抛 ⇒ 由下方 catch 收敛为「程序不可用」⇒ 后端一次性回退。
             verifyRequiredUniforms();
             // T50：属性槽位同样必须问驱动要，不能假设 0/1/2（原因见 resolveAttributeLocations）。
@@ -403,6 +409,16 @@ public final class ChainPreviewShaderProgram {
     static final float INITIAL_ORDER_MIN_BRIGHTNESS = ChainPreviewShaderMath.ORDER_MIN_BRIGHTNESS_OFF;
 
     /**
+     * 宿主安全初值：{@code uInteriorDim} 的恒等值（{@link ChainPreviewShaderMath#INTERIOR_DIM_OFF}）。
+     *
+     * <p>与 {@link #INITIAL_ORDER_MIN_BRIGHTNESS} 同一个坑，且表型更重：GLSL uniform 未赋值时为
+     * {@code 0}，{@code 0 < 1.0} 会让内部压暗分支直接生效、内部格线乘 0 ——
+     * 那是<b>整片纯黑</b>（不是变暗），几何与 alpha 都还在，但颜色被压没。写入 {@code 1.0} 后，
+     * 「宿主漏设」退化为「本能力关闭」，即接线前观感。</p>
+     */
+    static final float INITIAL_INTERIOR_DIM = ChainPreviewShaderMath.INTERIOR_DIM_OFF;
+
+    /**
      * 包络 uniform 的合法域收敛：clamp 到 [0,1]，NaN 收敛为不透明（{@link #INITIAL_FADE_ALPHA}）。
      *
      * <p>写入边界（{@link #setFadeAlpha(float)}）与后端取值路径（backend 的 {@code fadeAlphaFor}）
@@ -520,6 +536,23 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
+     * 设置内部结构亮度系数（内部格线压暗）。
+     *
+     * <p>{@code 1.0} 表示关闭：GLSL 侧 {@code uInteriorDim >= 1.0} 时完全不进入内部压暗分支，
+     * 输出逐值等于接线前。系数的消费位置是<b>颜色 rgb 上的一次乘法</b>
+     * （{@code if (auxChannel(aAux.y) >= 4.0 && uOutlineWidthPx <= 0.0) color = color * uInteriorDim;}），
+     * 与 alpha 链路无关，也不作用于描边 pass（描边色即外轮廓）。
+     * 写入前按 host 侧口径收敛
+     * （{@link ChainPreviewShaderMath#interiorDim(float)}：clamp 到 [0,1]，NaN / Infinity → 1.0），
+     * 不把非法值送进 uniform。</p>
+     *
+     * @param interiorDim [0,1] 的内部结构亮度系数；{@code 1.0} = 关闭本能力
+     */
+    public void setInteriorDim(float interiorDim) {
+        setUniform1f("uInteriorDim", ChainPreviewShaderMath.interiorDim(interiorDim));
+    }
+
+    /**
      * 设置淡入淡出包络（B3.2）。
      *
      * <p>{@code fadeAlpha = 1} 表示完全不透明，与启用动画前逐值一致。宿主必须每帧显式设置：
@@ -626,7 +659,7 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 请求固定属性槽位（接口冻结 §A 的 attribute 0/1/2）。
+     * 请求固定属性槽位（顶点属性契约（真源：preview.vert 头部属性段） 的 attribute 0/1/2）。
      *
      * <p><b>这只是「请求」，不是「事实」</b>：真机实测（Angelica GLSM + lwjgl3ify + core profile）
      * 下本调用返回成功却不生效，驱动把 {@code aPos} 分到了槽位 1、{@code aAux} 分到了槽位 2

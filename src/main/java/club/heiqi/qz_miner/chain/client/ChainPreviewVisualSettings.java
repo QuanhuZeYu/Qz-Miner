@@ -20,7 +20,7 @@ import club.heiqi.qz_miner.config.PreviewRenderBackend;
  */
 public final class ChainPreviewVisualSettings {
 
-    /** 条柱粗细范围（接口冻结 §E）。 */
+    /** 条柱粗细范围（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final float BAR_THICKNESS_MIN = 0.005F;
     private static final float BAR_THICKNESS_MAX = 0.2F;
     /** 默认条柱粗细（= 历史硬编码 0.045）。 */
@@ -36,6 +36,13 @@ public final class ChainPreviewVisualSettings {
      * 取恒等值才等于历史观感；配置默认 0.55 是「用户选择了开启」，两者不得混用。</p>
      */
     private static final float ORDER_MIN_BRIGHTNESS_FALLBACK = 1.0F;
+    /**
+     * 内部结构亮度系数兜底（基线档：1.0 = 关闭本能力）。
+     *
+     * <p>与 {@link #ORDER_MIN_BRIGHTNESS_FALLBACK} 同一取向：兜底路径的语义是「拿不到配置 / 拿到的值非法」，
+     * 取恒等值才等于历史观感；配置默认 0.65 是「用户选择了开启」，两者不得混用。</p>
+     */
+    private static final float INTERIOR_DIM_FALLBACK = 1.0F;
 
     private final float barThickness;
     private final float minScreenWidthPx;
@@ -66,6 +73,7 @@ public final class ChainPreviewVisualSettings {
     private final boolean suppressVanillaHighlight;
     private final boolean faceShading;
     private final float orderMinBrightness;
+    private final float interiorDim;
 
     /** 最近一次发布的快照引用（零分配读取；volatile 读跨线程安全）。 */
     private static volatile ChainPreviewVisualSettings current;
@@ -291,14 +299,15 @@ public final class ChainPreviewVisualSettings {
             animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
             alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
             maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, faceShadingEnabled,
-            ORDER_MIN_BRIGHTNESS_FALLBACK);
+            ORDER_MIN_BRIGHTNESS_FALLBACK, INTERIOR_DIM_FALLBACK);
     }
 
     /**
-     * 完整构造（本轮追加第 27 参：连锁序亮度权重下限）。
+     * 27 参构造：内部结构亮度系数未显式传入时按<b>基线档关闭</b>（{@code 1.0}）处理。
      *
-     * <p>取值面与收窄：{@code [0,1]} 内原样保留；NaN / Infinity / 越界回落
-     * {@link #ORDER_MIN_BRIGHTNESS_FALLBACK}（= 1.0 = 恒等，等于接线前观感）。</p>
+     * <p>本构造曾是最完整的那个，现让位给追加了第 28 参的版本。不把 {@code interiorDim} 默认成
+     * 配置默认 0.65 是刻意的：「未显式传入」不能读作「用户选择了开启」，否则任何拿不到配置的调用点
+     * 都会平白改变观感（同 {@link #INTERIOR_DIM_FALLBACK} 的取向）。</p>
      *
      * @param orderMinBrightness 连锁序**亮度**权重下限（配置 {@code clientPreviewOrderMinBrightness}）；
      *                      {@code 1.0} = 关闭本能力，默认档 0.55 = 起点 1.0、最远 0.55
@@ -333,6 +342,56 @@ public final class ChainPreviewVisualSettings {
             float outlineWidthPx,
             boolean faceShadingEnabled,
             float orderMinBrightness) {
+        this(barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
+            colorSourceId, renderBackendId, colorChain, colorArea, colorInteract, colorSecondary,
+            colorRemote, colorTruncated,
+            animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
+            alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
+            maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, faceShadingEnabled,
+            orderMinBrightness, INTERIOR_DIM_FALLBACK);
+    }
+
+    /**
+     * 完整构造（本轮追加第 28 参：内部结构亮度系数）。
+     *
+     * <p>取值面与收窄：{@code [0,1]} 内原样保留；NaN / Infinity / 越界回落
+     * {@link #INTERIOR_DIM_FALLBACK}（= 1.0 = 恒等，等于接线前观感）。</p>
+     *
+     * @param interiorDim 内部结构亮度系数（配置 {@code clientPreviewInteriorDim}）；
+     *                      {@code 1.0} = 关闭本能力，默认档 0.65 = 内部格线压暗到 65%、
+     *                      贯通管面（外轮廓）保持 1.0；只乘颜色 rgb，不乘 alpha
+     */
+    public ChainPreviewVisualSettings(
+            float barThickness,
+            float minScreenWidthPx,
+            String depthModeId,
+            String animationId,
+            String animationPhaseId,
+            String fadeModeId,
+            String colorSourceId,
+            String renderBackendId,
+            int colorChain,
+            int colorArea,
+            int colorInteract,
+            int colorSecondary,
+            int colorRemote,
+            int colorTruncated,
+            int animationDurationMs,
+            float fadeRefreshDistance,
+            int fadeFallbackMs,
+            float alphaFadeStartRadius,
+            float alphaFadeEndRadius,
+            float alphaStartValue,
+            float alphaEndValue,
+            String lodId,
+            float lodMinAlpha,
+            boolean truncationSignal,
+            int maxTargetsHardCap,
+            boolean suppressVanillaHighlight,
+            float outlineWidthPx,
+            boolean faceShadingEnabled,
+            float orderMinBrightness,
+            float interiorDim) {
         this.barThickness = clampFloat(barThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT);
         this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK);
         this.depthModeId = nonNull(depthModeId, PreviewDepthMode.defaultValue().id());
@@ -365,6 +424,7 @@ public final class ChainPreviewVisualSettings {
         this.outlineWidthPx = clampFloat(outlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK);
         this.faceShading = faceShadingEnabled;
         this.orderMinBrightness = clampFloat(orderMinBrightness, 0.0F, 1.0F, ORDER_MIN_BRIGHTNESS_FALLBACK);
+        this.interiorDim = clampFloat(interiorDim, 0.0F, 1.0F, INTERIOR_DIM_FALLBACK);
     }
 
     /**
@@ -411,7 +471,8 @@ public final class ChainPreviewVisualSettings {
             Config.clientPreviewSuppressVanillaHighlight,
             clampFloat(Config.clientPreviewOutlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK),
             Config.clientPreviewFaceShading,
-            clampFloat(Config.clientPreviewOrderMinBrightness, 0.0F, 1.0F, ORDER_MIN_BRIGHTNESS_FALLBACK));
+            clampFloat(Config.clientPreviewOrderMinBrightness, 0.0F, 1.0F, ORDER_MIN_BRIGHTNESS_FALLBACK),
+            clampFloat(Config.clientPreviewInteriorDim, 0.0F, 1.0F, INTERIOR_DIM_FALLBACK));
     }
 
     /** @return 条柱半厚（格） */
@@ -448,7 +509,7 @@ public final class ChainPreviewVisualSettings {
      * @return 动画相位稳定 id（order / hash）
      *
      * <p><b>登记（假旋钮）</b>：当前没有任何生产消费者——渲染路径只读 animationId 与
-     * animationDurationMs；该字段按接口冻结 §E 保留键位，B3.1 动画时钟接入后才生效。</p>
+     * animationDurationMs；该字段按保留的配置键位，B3.1 动画时钟接入后才生效。</p>
      */
     public String getAnimationPhaseId() {
         return animationPhaseId;
@@ -582,6 +643,20 @@ public final class ChainPreviewVisualSettings {
         return orderMinBrightness;
     }
 
+    /**
+     * @return 内部结构亮度系数（{@code [0,1]}）；{@code 1.0} = 关闭本能力（等于接线前观感）
+     *
+     * <p>消费链：{@link club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.Visuals}
+     * → {@code ChainPreviewShaderBackend} 的 {@code uInteriorDim} → {@code preview.vert} 的
+     * 「内部结构压暗」分支，最终乘在<b>颜色 rgb</b> 上（{@code color = color * uInteriorDim}），
+     * 不参与 alpha。压暗对象是 tubeEdge 未定义（{@code ChainPreviewMesh.AUX_UNDEFINED}）的
+     * junction 补块 / 共享顶点，即「内部格线」；贯通管面（外轮廓）与描边 pass 都不消费本值。
+     * legacy 固定管线不消费本值（与描边宽度同理：只有着色器路径有该能力）。</p>
+     */
+    public float getInteriorDim() {
+        return interiorDim;
+    }
+
     /** @return 是否启用截断可见信号 */
     public boolean isTruncationSignalEnabled() {
         return truncationSignal;
@@ -627,6 +702,7 @@ public final class ChainPreviewVisualSettings {
             && suppressVanillaHighlight == that.suppressVanillaHighlight
             && faceShading == that.faceShading
             && Float.compare(orderMinBrightness, that.orderMinBrightness) == 0
+            && Float.compare(interiorDim, that.interiorDim) == 0
             && depthModeId.equals(that.depthModeId)
             && animationId.equals(that.animationId)
             && animationPhaseId.equals(that.animationPhaseId)
@@ -667,6 +743,7 @@ public final class ChainPreviewVisualSettings {
         result = 31 * result + (suppressVanillaHighlight ? 1 : 0);
         result = 31 * result + (faceShading ? 1 : 0);
         result = 31 * result + Float.floatToIntBits(orderMinBrightness);
+        result = 31 * result + Float.floatToIntBits(interiorDim);
         return result;
     }
 
@@ -688,6 +765,7 @@ public final class ChainPreviewVisualSettings {
             + ", suppressVanillaHighlight=" + suppressVanillaHighlight
             + ", faceShading=" + faceShading
             + ", orderMinBrightness=" + orderMinBrightness
+            + ", interiorDim=" + interiorDim
             + "}";
     }
 

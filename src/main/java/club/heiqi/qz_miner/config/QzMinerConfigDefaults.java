@@ -43,7 +43,7 @@ public final class QzMinerConfigDefaults {
     public static final java.util.List<String> PARALLEL_BUDGET_MODES = java.util.Collections.unmodifiableList(
             java.util.Arrays.asList(PARALLEL_BUDGET_MODE_DEADLINE, PARALLEL_BUDGET_MODE_SLICE));
 
-    // ---- 连锁预览观感档位（client 段，接口冻结 §E）----
+    // ---- 连锁预览观感档位（client 段，配置键位与默认值（真源：QzMinerConfigDefaults））----
 
     /** 预览渲染后端：auto 能力探测通过用 shader，否则 legacy。 */
     public static final String CLIENT_PREVIEW_RENDER_BACKEND = PreviewRenderBackend.defaultValue().id();
@@ -126,6 +126,28 @@ public final class QzMinerConfigDefaults {
      * {@code chain.client.render.ChainPreviewShaderMath#orderWeight}（与 preview.vert 逐值同形）。</p>
      */
     public static final double CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS = 0.55D;
+    /**
+     * 内部结构亮度系数：连锁预览里<b>内部格线</b>（junction 补块 / 共享顶点，即
+     * {@code aAux.y == }{@value club.heiqi.qz_miner.chain.client.ChainPreviewMesh#AUX_UNDEFINED}）
+     * 的顶点颜色亮度乘数。
+     *
+     * <p>目的（连锁预览建议 2「外轮廓强 / 内部格线弱」）：贯通管面槽位（{@code tubeEdge ∈ 0..3}）
+     * 保持原亮度承担外轮廓，内部格线压暗一档，体积感来自「面亮、缝暗」而不是叠色。</p>
+     *
+     * <p><b>作用位置是颜色亮度</b>（{@code color = color * uInteriorDim}），<b>不乘 alpha</b>——
+     * 与 {@link #CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS} 同口径：alpha 只由「距离淡出 × 逐波生长 ×
+     * 包络」决定，内部压暗不得改变透明度（否则会与距离淡出抢同一个量）。{@code 1.0} = 关闭本能力
+     * （逐值等于现状），默认 {@code 0.65}。</p>
+     *
+     * <p><b>不参与描边 pass</b>：描边壳段（{@code uOutlineWidthPx > 0}）的颜色是外轮廓专用色
+     * {@code uColorChain}，压暗它等于把「外轮廓强」这条设计目标自己抹掉；门控因此额外要求
+     * {@code uOutlineWidthPx <= 0}，与描边分支互斥。</p>
+     *
+     * <p>仅着色器后端消费：legacy 固定管线不消费 tubeEdge（其逐顶点色由 CPU 烘焙，没有该通道的
+     * 语义）。消费点与 CPU 参考模型见
+     * {@code chain.client.render.ChainPreviewShaderMath#interiorDim}（与 preview.vert 逐值同形）。</p>
+     */
+    public static final double CLIENT_PREVIEW_INTERIOR_DIM = 0.65D;
     /** 预览激活时是否取消同目标的原版方块高亮。 */
     public static final boolean CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT = false;
     /** 是否使用版本化预览输入快照（含目标去抖；本轮默认 false；接线属下一批 B1.2）。 */
@@ -203,6 +225,7 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewLod", CLIENT_PREVIEW_LOD);
         target.put("client.clientPreviewLodMinAlpha", Double.valueOf(CLIENT_PREVIEW_LOD_MIN_ALPHA));
         target.put("client.clientPreviewOrderMinBrightness", Double.valueOf(CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS));
+        target.put("client.clientPreviewInteriorDim", Double.valueOf(CLIENT_PREVIEW_INTERIOR_DIM));
         target.put("client.clientPreviewSuppressVanillaHighlight",
                 Boolean.valueOf(CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT));
         target.put("client.clientPreviewVersionedInputs", Boolean.valueOf(CLIENT_PREVIEW_VERSIONED_INPUTS));

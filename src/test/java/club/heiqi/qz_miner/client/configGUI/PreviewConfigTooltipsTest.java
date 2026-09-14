@@ -103,8 +103,9 @@ public class PreviewConfigTooltipsTest {
             }
         });
         String[] paths = PreviewConfigTooltips.paths();
-        // 32 = 上一轮的 30 个受覆盖键，去掉 1 个旧颜色键、加上 3 个大模式颜色键（CHAIN / AREA / INTERACT）
-        Assert.assertEquals(32, paths.length);
+        // 33 = 上一轮的 30 个受覆盖键，去掉 1 个旧颜色键、加上 3 个大模式颜色键（CHAIN / AREA / INTERACT）、
+        //      再加 1 个内部结构亮度系数（clientPreviewInteriorDim）
+        Assert.assertEquals(33, paths.length);
         for (String path : paths) {
             Assert.assertNotNull("schema 缺少新键 " + path, schema.field(path));
         }
