@@ -48,6 +48,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewFadeRefreshDistance", "0.5"},
             {"client.clientPreviewFadeFallbackMs", "250.0"},
             {"client.clientPreviewMinScreenWidthPx", "0.0"},
+            {"client.clientPreviewOutlineWidthPx", "1.5"},
             {"client.clientPreviewTruncationSignal", "false"},
             {"client.clientPreviewMaxTargetsHardCap", "4096.0"},
             {"client.clientPreviewLod", "off"},
@@ -72,6 +73,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewFadeRefreshDistance", "0", "8", "-0.1", "8.1"},
             {"client.clientPreviewFadeFallbackMs", "50", "5000", "49", "5001"},
             {"client.clientPreviewMinScreenWidthPx", "0", "8", "-0.1", "8.1"},
+            {"client.clientPreviewOutlineWidthPx", "0", "8", "-0.1", "8.1"},
             {"client.clientPreviewMaxTargetsHardCap", "1", "4096", "0", "4097"},
             {"client.clientPreviewLodMinAlpha", "0", "1", "-0.1", "1.1"},
             {"client.clientPreviewRemoteTimeoutMs", "250", "60000", "249", "60001"}
@@ -353,7 +355,8 @@ public class PreviewConfigSurfaceTest {
         if (leaf.equals("clientPreviewAnimationDurationMs")) {
             return 2000.0D;
         }
-        if (leaf.equals("clientPreviewFadeRefreshDistance") || leaf.equals("clientPreviewMinScreenWidthPx")) {
+        if (leaf.equals("clientPreviewFadeRefreshDistance") || leaf.equals("clientPreviewMinScreenWidthPx")
+                || leaf.equals("clientPreviewOutlineWidthPx")) {
             return 8.0D;
         }
         if (leaf.equals("clientPreviewFadeFallbackMs")) {

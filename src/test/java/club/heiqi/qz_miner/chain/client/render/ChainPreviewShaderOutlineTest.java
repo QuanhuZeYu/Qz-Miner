@@ -56,13 +56,16 @@ public class ChainPreviewShaderOutlineTest {
         String body = stripComments(read(VERTEX_PATH));
 
         Assert.assertTrue("必须声明 uOutlineWidthPx", body.contains("uniform float uOutlineWidthPx;"));
-        // 描边相关的三处判定都必须是 > 0.0 门控
-        Assert.assertTrue("横向轴计算必须把描边计入启用条件",
-                body.contains("uMinScreenWidthPx > 0.0 || uOutlineWidthPx > 0.0"));
-        Assert.assertTrue("外扩分支必须以 > 0 门控",
-                body.contains("if (uOutlineWidthPx > 0.0 && lateralMagnitude > 0.0)"));
+        // T51 后位移方向一律来自 aDirection 属性，顶点阶段不再推导「横向轴」：
+        // 最小宽度与描边是两处独立位移，各自以 > 0.0 门控（描边位移 + 描边配色共两处门控）。
+        Assert.assertTrue("最小宽度位移必须以 > 0 门控",
+                body.contains("if (uMinScreenWidthPx > 0.0) {"));
+        int firstOutlineGate = body.indexOf("if (uOutlineWidthPx > 0.0) {");
+        Assert.assertTrue("描边位移分支必须以 > 0 门控", firstOutlineGate >= 0);
         Assert.assertTrue("描边色分支必须以 > 0 门控",
-                body.contains("if (uOutlineWidthPx > 0.0) {"));
+                body.indexOf("if (uOutlineWidthPx > 0.0) {", firstOutlineGate + 1) >= 0);
+        Assert.assertTrue("描边位移必须沿显式面方向 aDirection",
+                body.contains("displaced + aDirection.xyz *"));
         Assert.assertFalse("不得出现「非正即启用」的反向判定",
                 body.contains("uOutlineWidthPx >= 0.0"));
     }
@@ -167,8 +170,9 @@ public class ChainPreviewShaderOutlineTest {
     @Test
     public void glslUsesSameThicknessDependentCap() throws Exception {
         String vertex = stripComments(read(VERTEX_PATH));
+        // T51 后描边世界量直接在位移表达式中以内层 min 收窄，上界子式保持不变
         Assert.assertTrue("GLSL 上界必须减去 uBarThickness",
-                vertex.contains("clamp(outlineWorld, 0.0, max(0.0, 0.5 - uBarThickness))"));
+                vertex.contains("max(0.0, 0.5 - uBarThickness)"));
         Assert.assertFalse("不得再出现固定 0.5 的旧上界",
                 vertex.contains("clamp(outlineWorld, 0.0, 0.5)"));
         Assert.assertTrue("必须复用既有 uBarThickness（不新增 uniform）",
@@ -272,8 +276,8 @@ public class ChainPreviewShaderOutlineTest {
     @Test
     public void outlineOnlyDisplacesVertices() throws Exception {
         String vertex = stripComments(read(VERTEX_PATH));
-        Assert.assertTrue("外扩必须加到 displaced 上",
-                vertex.contains("displaced = displaced + lateralAxis * outlineWorld;"));
+        Assert.assertTrue("外扩必须加到 displaced 上（沿显式面方向 aDirection）",
+                vertex.contains("displaced = displaced + aDirection.xyz *"));
         Assert.assertFalse("顶点着色器不得触碰索引",
                 vertex.contains("gl_VertexID") || vertex.contains("gl_Index"));
     }

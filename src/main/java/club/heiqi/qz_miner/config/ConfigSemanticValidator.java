@@ -107,6 +107,7 @@ public final class ConfigSemanticValidator {
         putDoubleNumber(typed, errors, draft, "client.clientPreviewFadeRefreshDistance", 0.0D, 8.0D);
         putIntNumber(typed, errors, draft, "client.clientPreviewFadeFallbackMs", 50, 5000);
         putDoubleNumber(typed, errors, draft, "client.clientPreviewMinScreenWidthPx", 0.0D, 8.0D);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewOutlineWidthPx", 0.0D, 8.0D);
         putBoolean(typed, errors, draft, "client.clientPreviewTruncationSignal");
         putIntNumber(typed, errors, draft, "client.clientPreviewMaxTargetsHardCap", 1, 4096);
         putChoice(typed, errors, draft, "client.clientPreviewLod", PreviewLodMode.ids());
@@ -382,6 +383,7 @@ public final class ConfigSemanticValidator {
         public final double clientPreviewFadeRefreshDistance;
         public final int clientPreviewFadeFallbackMs;
         public final double clientPreviewMinScreenWidthPx;
+        public final double clientPreviewOutlineWidthPx;
         public final boolean clientPreviewTruncationSignal;
         public final int clientPreviewMaxTargetsHardCap;
         public final PreviewLodMode clientPreviewLod;
@@ -434,6 +436,7 @@ public final class ConfigSemanticValidator {
             clientPreviewFadeRefreshDistance = number(typed, "client.clientPreviewFadeRefreshDistance");
             clientPreviewFadeFallbackMs = exactInt(typed, "client.clientPreviewFadeFallbackMs");
             clientPreviewMinScreenWidthPx = number(typed, "client.clientPreviewMinScreenWidthPx");
+            clientPreviewOutlineWidthPx = number(typed, "client.clientPreviewOutlineWidthPx");
             clientPreviewTruncationSignal = ((Boolean) typed.get("client.clientPreviewTruncationSignal"))
                     .booleanValue();
             clientPreviewMaxTargetsHardCap = exactInt(typed, "client.clientPreviewMaxTargetsHardCap");

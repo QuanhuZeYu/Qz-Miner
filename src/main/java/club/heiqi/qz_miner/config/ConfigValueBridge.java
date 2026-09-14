@@ -86,6 +86,7 @@ public final class ConfigValueBridge {
         Config.clientPreviewFadeRefreshDistance = snapshot.clientPreviewFadeRefreshDistance;
         Config.clientPreviewFadeFallbackMs = snapshot.clientPreviewFadeFallbackMs;
         Config.clientPreviewMinScreenWidthPx = snapshot.clientPreviewMinScreenWidthPx;
+        Config.clientPreviewOutlineWidthPx = snapshot.clientPreviewOutlineWidthPx;
         Config.clientPreviewTruncationSignal = snapshot.clientPreviewTruncationSignal;
         Config.clientPreviewMaxTargetsHardCap = snapshot.clientPreviewMaxTargetsHardCap;
         Config.clientPreviewLod = snapshot.clientPreviewLod;

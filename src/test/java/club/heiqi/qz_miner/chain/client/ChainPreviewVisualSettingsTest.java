@@ -20,6 +20,7 @@ public class ChainPreviewVisualSettingsTest {
         Assert.assertEquals(Config.clientPreviewBarThickness, settings.getBarThickness(), 1.0e-6D);
         Assert.assertEquals(0.045F, settings.getBarThickness(), 1.0e-6F);
         Assert.assertEquals(Config.clientPreviewMinScreenWidthPx, settings.getMinScreenWidthPx(), 1.0e-6D);
+        Assert.assertEquals(Config.clientPreviewOutlineWidthPx, settings.getOutlineWidthPx(), 1.0e-6D);
         Assert.assertNotNull(settings.getDepthModeId());
         Assert.assertNotNull(settings.getAnimationId());
         Assert.assertNotNull(settings.getAnimationPhaseId());
@@ -62,6 +63,8 @@ public class ChainPreviewVisualSettingsTest {
 
         Assert.assertEquals(0.045F, settings.getBarThickness(), 1.0e-6F);
         Assert.assertEquals("非法 minScreenWidthPx 回落基线档 0.0", 0.0F, settings.getMinScreenWidthPx(), 1.0e-6F);
+        Assert.assertEquals("未显式传入描边宽度时必须为基线档 0.0（关闭）",
+            0.0F, settings.getOutlineWidthPx(), 1.0e-6F);
         Assert.assertEquals(0, settings.getAnimationDurationMs());
         Assert.assertEquals(0.5F, settings.getFadeRefreshDistance(), 1.0e-6F);
         Assert.assertEquals(250, settings.getFadeFallbackMs());
@@ -93,6 +96,27 @@ public class ChainPreviewVisualSettingsTest {
         Assert.assertEquals("settings 与 draw plan sanitized 必须同口径（越界）",
             drawPlanMinScreenWidth(100.0F),
             settingsWithMinScreenWidth(100.0F).getMinScreenWidthPx(),
+            0.0F);
+    }
+
+    /** 描边宽度与 min-width 同口径：NaN / 负值回落 0，越界收窄到 8，且与 draw plan sanitized 一致。 */
+    @Test
+    public void nanAndOutOfRangeOutlineWidthMatchesDrawPlanSanitized() {
+        Assert.assertEquals("NaN 必须回落基线 0.0",
+            0.0F, settingsWithOutlineWidth(Float.NaN).getOutlineWidthPx(), 0.0F);
+        Assert.assertEquals("负值收窄到 0.0",
+            0.0F, settingsWithOutlineWidth(-5.0F).getOutlineWidthPx(), 0.0F);
+        Assert.assertEquals("0 = 关闭描边必须原样保留",
+            0.0F, settingsWithOutlineWidth(0.0F).getOutlineWidthPx(), 0.0F);
+        Assert.assertEquals("越界上界收窄到 8.0",
+            8.0F, settingsWithOutlineWidth(100.0F).getOutlineWidthPx(), 0.0F);
+        Assert.assertEquals("settings 与 draw plan sanitized 必须同口径（NaN）",
+            drawPlanOutlineWidth(Float.NaN),
+            settingsWithOutlineWidth(Float.NaN).getOutlineWidthPx(),
+            0.0F);
+        Assert.assertEquals("settings 与 draw plan sanitized 必须同口径（越界）",
+            drawPlanOutlineWidth(100.0F),
+            settingsWithOutlineWidth(100.0F).getOutlineWidthPx(),
             0.0F);
     }
 
@@ -130,6 +154,17 @@ public class ChainPreviewVisualSettingsTest {
             0.045F, minScreenWidthPx, "xray", "off", "order", "timer", "builtin", "auto",
             0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
             "off", 0.05F, false, 4096);
+    }
+
+    private static ChainPreviewVisualSettings settingsWithOutlineWidth(float outlineWidthPx) {
+        return new ChainPreviewVisualSettings(
+            0.045F, 0.0F, "outline", "off", "order", "timer", "builtin", "shader",
+            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
+            "off", 0.05F, false, 4096, false, outlineWidthPx);
+    }
+
+    private static float drawPlanOutlineWidth(float outlineWidthPx) {
+        return ChainPreviewDrawPlan.Visuals.BASELINE.withOutlinePass(true, outlineWidthPx).getOutlineWidthPx();
     }
 
     private static ChainPreviewVisualSettings settingsWithBackendId(String renderBackendId) {

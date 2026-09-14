@@ -27,9 +27,12 @@ public final class ChainPreviewVisualSettings {
     private static final float BAR_THICKNESS_DEFAULT = 0.045F;
     /** 最小屏幕宽度兜底（基线档：关闭）。 */
     private static final float MIN_SCREEN_WIDTH_FALLBACK = 0.0F;
+    /** 描边壳外扩宽度兜底（基线档：关闭）。 */
+    private static final float OUTLINE_WIDTH_FALLBACK = 0.0F;
 
     private final float barThickness;
     private final float minScreenWidthPx;
+    private final float outlineWidthPx;
     private final String depthModeId;
     private final String animationId;
     private final String animationPhaseId;
@@ -142,7 +145,7 @@ public final class ChainPreviewVisualSettings {
      * 完整构造（T34 / B2.5 追加第 24 参：原版方块高亮抑制开关）。
      *
      * <p>其余字段语义、范围收窄与 {@code null} 兜底与 23 参构造完全一致；旧调用点保持原语义
-     * （未显式传入时按默认关闭 false）。</p>
+     * （未显式传入时按默认关闭 false）。描边宽度未显式传入时按基线档 0（关闭描边）处理。</p>
      *
      * @param suppressVanillaHighlight 是否抑制原版方块选择框（B2.5；默认 false）
      */
@@ -171,6 +174,49 @@ public final class ChainPreviewVisualSettings {
             boolean truncationSignal,
             int maxTargetsHardCap,
             boolean suppressVanillaHighlight) {
+        this(
+            barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
+            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
+            alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
+            maxTargetsHardCap, suppressVanillaHighlight, OUTLINE_WIDTH_FALLBACK);
+    }
+
+    /**
+     * 完整构造（B3.x 追加第 25 参：描边壳外扩宽度）。
+     *
+     * <p>描边宽度收窄到 {@code [0, 8]}——与着色器 {@code clamp(uOutlineWidthPx, 0.0, 8.0)} 及
+     * {@code ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX} 同区间，NaN / Infinity / 越界回落基线档 0；
+     * 其余字段语义与 24 参构造完全一致。</p>
+     *
+     * @param outlineWidthPx 描边壳外扩宽度（物理像素；0 = 关闭描边，仅着色器 OUTLINE 深度档消费）
+     */
+    public ChainPreviewVisualSettings(
+            float barThickness,
+            float minScreenWidthPx,
+            String depthModeId,
+            String animationId,
+            String animationPhaseId,
+            String fadeModeId,
+            String colorSourceId,
+            String renderBackendId,
+            int colorPrimary,
+            int colorSecondary,
+            int colorRemote,
+            int colorTruncated,
+            int animationDurationMs,
+            float fadeRefreshDistance,
+            int fadeFallbackMs,
+            float alphaFadeStartRadius,
+            float alphaFadeEndRadius,
+            float alphaStartValue,
+            float alphaEndValue,
+            String lodId,
+            float lodMinAlpha,
+            boolean truncationSignal,
+            int maxTargetsHardCap,
+            boolean suppressVanillaHighlight,
+            float outlineWidthPx) {
         this.barThickness = clampFloat(barThickness, BAR_THICKNESS_MIN, BAR_THICKNESS_MAX, BAR_THICKNESS_DEFAULT);
         this.minScreenWidthPx = clampFloat(minScreenWidthPx, 0.0F, 8.0F, MIN_SCREEN_WIDTH_FALLBACK);
         this.depthModeId = nonNull(depthModeId, PreviewDepthMode.defaultValue().id());
@@ -198,6 +244,7 @@ public final class ChainPreviewVisualSettings {
         this.truncationSignal = truncationSignal;
         this.maxTargetsHardCap = clampInt(maxTargetsHardCap, 1, 4096, 4096);
         this.suppressVanillaHighlight = suppressVanillaHighlight;
+        this.outlineWidthPx = clampFloat(outlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK);
     }
 
     /**
@@ -239,7 +286,8 @@ public final class ChainPreviewVisualSettings {
             (float) Config.clientPreviewLodMinAlpha,
             Config.clientPreviewTruncationSignal,
             Config.clientPreviewMaxTargetsHardCap,
-            Config.clientPreviewSuppressVanillaHighlight);
+            Config.clientPreviewSuppressVanillaHighlight,
+            clampFloat(Config.clientPreviewOutlineWidthPx, 0.0F, 8.0F, OUTLINE_WIDTH_FALLBACK));
     }
 
     /** @return 条柱半厚（格） */
@@ -247,9 +295,14 @@ public final class ChainPreviewVisualSettings {
         return barThickness;
     }
 
-    /** @return 屏幕最小宽度（像素） */
+    /** @return 屏幕最小宽度（像素）；0 = 关闭钳制 */
     public float getMinScreenWidthPx() {
         return minScreenWidthPx;
+    }
+
+    /** @return 描边壳外扩宽度（物理像素）；0 = 关闭描边（仅着色器 OUTLINE 深度档消费） */
+    public float getOutlineWidthPx() {
+        return outlineWidthPx;
     }
 
     /** @return 深度通道稳定 id（xray / occlude / outline） */
@@ -403,6 +456,7 @@ public final class ChainPreviewVisualSettings {
         ChainPreviewVisualSettings that = (ChainPreviewVisualSettings) other;
         return Float.compare(barThickness, that.barThickness) == 0
             && Float.compare(minScreenWidthPx, that.minScreenWidthPx) == 0
+            && Float.compare(outlineWidthPx, that.outlineWidthPx) == 0
             && Float.compare(fadeRefreshDistance, that.fadeRefreshDistance) == 0
             && Float.compare(alphaFadeStartRadius, that.alphaFadeStartRadius) == 0
             && Float.compare(alphaFadeEndRadius, that.alphaFadeEndRadius) == 0
@@ -431,6 +485,7 @@ public final class ChainPreviewVisualSettings {
     public int hashCode() {
         int result = Float.floatToIntBits(barThickness);
         result = 31 * result + Float.floatToIntBits(minScreenWidthPx);
+        result = 31 * result + Float.floatToIntBits(outlineWidthPx);
         result = 31 * result + depthModeId.hashCode();
         result = 31 * result + animationId.hashCode();
         result = 31 * result + animationPhaseId.hashCode();
@@ -460,6 +515,7 @@ public final class ChainPreviewVisualSettings {
     public String toString() {
         return "ChainPreviewVisualSettings{barThickness=" + barThickness
             + ", minScreenWidthPx=" + minScreenWidthPx
+            + ", outlineWidthPx=" + outlineWidthPx
             + ", depthMode=" + depthModeId
             + ", animation=" + animationId + "/" + animationPhaseId
             + ", fadeMode=" + fadeModeId

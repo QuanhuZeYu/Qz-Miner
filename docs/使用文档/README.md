@@ -42,7 +42,7 @@
 - 游戏内无界面打开时，按住连锁键滚轮切换子模式；同时按住游戏设置中的潜行键则切换主模式。该组合键会独占滚轮，不改变快捷栏选中槽；未按连锁键或打开界面时保留原版滚轮行为。
 - HUD 布局编辑：打开聊天输入框后，工具栏的「编辑 HUD」按钮进入 UILib 布局编辑子模式，拖动连锁状态 HUD 预览调整屏幕位置。拖动、边界夹取、草稿/提交/取消与 Esc 优先级全部归 UILib 编辑宿主，Miner 只声明可编辑目标与预览内容；缩放 `- / 1:1 / +` 只在编辑子模式由 UILib 编辑层统一提供（关闭态 HUD 不挂常驻工具栏——连锁 HUD 无内容时整窗隐藏，工具栏本来不可见）；编辑会话中的预览不跟随 HUD 显示门（否则连锁键松开时预览零尺寸、无法拖动）。放置为**会话内存**（UILib 4.9.1 尚未做跨重启持久化），退出游戏不保留。
 
-- 连锁预览观感档位（`client.clientPreview*`，全部为本机客户端配置、不参与网络同步）：默认值逐键等于本轮已接线的行为；默认档位不超前于实现——下一批才接线的档位（逐波生长 / 最小宽度 / signal 淡出 / 截断展示 / 版本化快照）默认停在基线档（`animation=off`、`minScreenWidthPx=0`、`fadeMode=timer`、`truncationSignal=false`、`versionedInputs=false`），避免「开关有值但无效果」。本轮已接线：`renderBackend`（着色器主路径，`auto` 探测失败回退 legacy）、`remoteTimeoutMs`（远端预览超时）、`maxTargetsHardCap`（预览目标硬顶）；其余档位键的效果随 B1/B2/B3 批次接线，默认值保持与基线一致。
+- 连锁预览观感档位（`client.clientPreview*`，全部为本机客户端配置、不参与网络同步）：默认值逐键等于本轮已接线的行为；默认档位不超前于实现——尚未接线的档位（逐波生长 / signal 淡出 / 截断展示 / 版本化快照）默认停在基线档（`animation=off`、`fadeMode=timer`、`truncationSignal=false`、`versionedInputs=false`），避免「开关有值但无效果」。已接线：`renderBackend`（着色器主路径，`auto` 探测失败回退 legacy）、`remoteTimeoutMs`（远端预览超时）、`maxTargetsHardCap`（预览目标硬顶）、`minScreenWidthPx`（屏幕最小宽度钳制）、`outlineWidthPx`（`outline` 档描边壳外扩宽度）——屏幕空间两项仅着色器后端生效；其余档位键的效果随后续批次接线，默认值保持与基线一致。
   - 要回到本轮之前的全部行为：保持上面五个键的默认档；需要固定固定管线时把 `renderBackend` 设为 `legacy`。
   - `clientPreviewRenderBackend`：预览渲染后端，默认 `auto`（能力探测通过用 shader，否则 legacy）；可选 `auto`/`shader`/`legacy`。显式 `shader` 探测失败仍回退 legacy 并记录一次诊断，不在每帧重试。
   - `clientPreviewBarThickness`：预览条柱粗细，默认 `0.045`，合法 `0.005..0.2`。
@@ -55,7 +55,8 @@
   - `clientPreviewFadeMode`：距离淡出刷新，默认 `timer`（1 Hz 兜底，等于现状）；可选 `signal`（相机变更信号驱动，消除 1 Hz 台阶，接线属下一批）/ `gpu`（着色器逐帧计算）。
   - `clientPreviewFadeRefreshDistance`：`signal` 档相机位移阈值（格），默认 `0.5`，合法 `0..8`；达到阈值才提升 visual revision。
   - `clientPreviewFadeFallbackMs`：`signal` 档无位移时的兜底刷新间隔（毫秒），默认 `250`，合法 `50..5000`。
-  - `clientPreviewMinScreenWidthPx`：条柱在屏幕上的最小宽度（像素），默认 `0`（不钳制，等于现状），合法 `0..8`；最小宽度单向钳制（消除远距亚像素闪烁）接线属下一批。
+  - `clientPreviewMinScreenWidthPx`：条柱在屏幕上的最小宽度（像素），默认 `0`（关闭钳制，等于现状），合法 `0..8`；`1..8` 时着色器后端单向钳制条柱屏幕宽度，消除远距亚像素闪烁（legacy 固定管线无此能力）。
+  - `clientPreviewOutlineWidthPx`：`outline` 深度档描边壳沿面方向的外扩宽度（物理像素），默认 `1.5`（等于接线前渲染器写死值，观感不变），合法 `0..8`；`0` 关闭描边，`>0` 时着色器后端在主体之外绘制描边壳（legacy 固定管线无此能力）。
   - `clientPreviewTruncationSignal`：预览被目标上限截断时是否给出可见提示，默认 `false`（截断 HUD 展示接线属下一批）。
   - `clientPreviewMaxTargetsHardCap`：预览目标数量硬顶，默认 `4096`，合法 `1..4096`；实际预览数量取该值、`clientPreviewMaxTargets` 与服务端 `chainMaxBlocks` 的较小值。
   - `clientPreviewLod`：极端规模 LOD，默认 `off`（等于历史行为）；`auto` 才启用距离合并与 alpha 剔除。

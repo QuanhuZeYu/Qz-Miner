@@ -98,8 +98,10 @@ public class Config {
             QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_REFRESH_DISTANCE;
     /** signal 档无位移时的兜底刷新间隔（毫秒）。 */
     public static int clientPreviewFadeFallbackMs = QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_FALLBACK_MS;
-    /** 条柱屏幕最小宽度（像素）；0 表示不钳制；本轮默认 0。 */
+    /** 条柱屏幕最小宽度（像素）；0 表示不钳制；默认 0。 */
     public static double clientPreviewMinScreenWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX;
+    /** 描边壳外扩宽度（物理像素）；默认 1.5（等于接线前写死值），0 表示关闭描边；仅着色器 OUTLINE 档消费。 */
+    public static double clientPreviewOutlineWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX;
     /** 预览被上限截断时是否给出可见提示；本轮默认 false。 */
     public static boolean clientPreviewTruncationSignal = QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL;
     /** 预览目标数量硬顶。 */

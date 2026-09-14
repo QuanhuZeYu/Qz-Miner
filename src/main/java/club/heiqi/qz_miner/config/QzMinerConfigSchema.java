@@ -243,8 +243,15 @@ public final class QzMinerConfigSchema {
                         .defaultValue(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX))
                         .range(0.0, 8.0)
                         .label("clientPreviewMinScreenWidthPx")
-                        .helper("条柱在屏幕上的最小宽度（像素），默认 0 表示不钳制（等于现状；接线属下一批），"
-                                + "合法 0..8")
+                        .helper("条柱在屏幕上的最小宽度（像素），0 表示不钳制（默认，等于现状）、1..8 生效，"
+                                + "合法 0..8；着色器后端按该值单向钳制条柱屏幕宽度")
+                        .build()
+                    .number("clientPreviewOutlineWidthPx")
+                        .defaultValue(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX))
+                        .range(0.0, 8.0)
+                        .label("clientPreviewOutlineWidthPx")
+                        .helper("描边壳沿面方向的外扩宽度（物理像素），默认 1.5（等于接线前写死值，观感不变）、"
+                                + "0 表示关闭描边，合法 0..8；仅着色器后端的 outline 深度档消费")
                         .build()
                     .bool("clientPreviewTruncationSignal")
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL))

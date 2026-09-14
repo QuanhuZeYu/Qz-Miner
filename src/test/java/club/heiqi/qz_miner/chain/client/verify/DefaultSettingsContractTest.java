@@ -47,6 +47,7 @@ public class DefaultSettingsContractTest {
         Assert.assertEquals(0.5D, QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_REFRESH_DISTANCE, 0.0D);
         Assert.assertEquals(250, QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_FALLBACK_MS);
         Assert.assertEquals(0.0D, QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX, 0.0D);
+        Assert.assertEquals(1.5D, QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX, 0.0D);
         Assert.assertFalse(QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL);
         Assert.assertEquals(4096, QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP);
         Assert.assertEquals("off", QzMinerConfigDefaults.CLIENT_PREVIEW_LOD);
@@ -74,6 +75,7 @@ public class DefaultSettingsContractTest {
             Assert.assertEquals("auto", settings.getRenderBackendId());
             Assert.assertEquals(0.045F, settings.getBarThickness(), 0.0000001F);
             Assert.assertEquals(0.0F, settings.getMinScreenWidthPx(), 0.0F);
+            Assert.assertEquals(1.5F, settings.getOutlineWidthPx(), 0.0F);
             Assert.assertEquals("xray", settings.getDepthModeId());
             Assert.assertEquals("off", settings.getAnimationId());
             Assert.assertEquals("order", settings.getAnimationPhaseId());
@@ -112,6 +114,8 @@ public class DefaultSettingsContractTest {
             Config.clientPreviewFadeMode = PreviewFadeMode.TIMER;
             Config.clientPreviewAnimation = PreviewAnimationMode.OFF;
             Config.clientPreviewMinScreenWidthPx = 0.0D;
+            // 描边宽度回到接线前的写死值（1.5px，即配置默认常量），故显式设回默认而非关掉
+            Config.clientPreviewOutlineWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX;
             Config.clientPreviewTruncationSignal = false;
             ChainPreviewVisualSettings fallback = ChainPreviewVisualSettings.fromConfig();
 
@@ -123,6 +127,7 @@ public class DefaultSettingsContractTest {
             Assert.assertFalse(
                 "除 renderBackend 外不得再有差异", defaults.equals(fallback));
             Assert.assertEquals(0.0F, fallback.getMinScreenWidthPx(), 0.0F);
+            Assert.assertEquals(1.5F, fallback.getOutlineWidthPx(), 0.0F);
             Assert.assertEquals("timer", fallback.getFadeModeId());
             Assert.assertEquals("off", fallback.getAnimationId());
             Assert.assertFalse(fallback.isTruncationSignalEnabled());
@@ -150,6 +155,7 @@ public class DefaultSettingsContractTest {
             Config.clientPreviewLod = null;
             Config.clientPreviewBarThickness = Double.NaN;
             Config.clientPreviewMinScreenWidthPx = Double.NaN;
+            Config.clientPreviewOutlineWidthPx = Double.NaN;
             Config.clientPreviewAlphaStartValue = Double.NaN;
             Config.clientPreviewAlphaEndValue = Double.NaN;
             Config.clientPreviewLodMinAlpha = Double.NaN;
@@ -173,6 +179,11 @@ public class DefaultSettingsContractTest {
                 new ChainPreviewDrawPlan.Visuals(
                     0.045F, Float.NaN, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F,
                     ChainPreviewDrawPlan.DepthChannel.XRAY, 1.0F).sanitized().getMinScreenWidthPx(),
+                0.0F);
+            Assert.assertEquals(
+                "NaN → outlineWidthPx 兜底必须为 0.0（与 draw plan sanitized 一致）",
+                0.0F,
+                settings.getOutlineWidthPx(),
                 0.0F);
             Assert.assertEquals(0.78F, settings.getAlphaStartValue(), 0.0F);
             Assert.assertEquals(0.15F, settings.getAlphaEndValue(), 0.0F);
@@ -202,6 +213,7 @@ public class DefaultSettingsContractTest {
         Config.clientPreviewFadeRefreshDistance = QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_REFRESH_DISTANCE;
         Config.clientPreviewFadeFallbackMs = QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_FALLBACK_MS;
         Config.clientPreviewMinScreenWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX;
+        Config.clientPreviewOutlineWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX;
         Config.clientPreviewTruncationSignal = QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL;
         Config.clientPreviewMaxTargetsHardCap = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP;
         Config.clientPreviewLod = PreviewLodMode.fromId(QzMinerConfigDefaults.CLIENT_PREVIEW_LOD);
@@ -218,6 +230,7 @@ public class DefaultSettingsContractTest {
             ChainPreviewVisualSettings expected, ChainPreviewVisualSettings actual) {
         Assert.assertEquals(expected.getBarThickness(), actual.getBarThickness(), 0.0F);
         Assert.assertEquals(expected.getMinScreenWidthPx(), actual.getMinScreenWidthPx(), 0.0F);
+        Assert.assertEquals(expected.getOutlineWidthPx(), actual.getOutlineWidthPx(), 0.0F);
         Assert.assertEquals(expected.getDepthModeId(), actual.getDepthModeId());
         Assert.assertEquals(expected.getAnimationId(), actual.getAnimationId());
         Assert.assertEquals(expected.getAnimationPhaseId(), actual.getAnimationPhaseId());
@@ -259,6 +272,7 @@ public class DefaultSettingsContractTest {
         private final double fadeRefreshDistance = Config.clientPreviewFadeRefreshDistance;
         private final int fadeFallbackMs = Config.clientPreviewFadeFallbackMs;
         private final double minScreenWidthPx = Config.clientPreviewMinScreenWidthPx;
+        private final double outlineWidthPx = Config.clientPreviewOutlineWidthPx;
         private final boolean truncationSignal = Config.clientPreviewTruncationSignal;
         private final int maxTargetsHardCap = Config.clientPreviewMaxTargetsHardCap;
         private final PreviewLodMode lod = Config.clientPreviewLod;
@@ -284,6 +298,7 @@ public class DefaultSettingsContractTest {
             Config.clientPreviewFadeRefreshDistance = fadeRefreshDistance;
             Config.clientPreviewFadeFallbackMs = fadeFallbackMs;
             Config.clientPreviewMinScreenWidthPx = minScreenWidthPx;
+            Config.clientPreviewOutlineWidthPx = outlineWidthPx;
             Config.clientPreviewTruncationSignal = truncationSignal;
             Config.clientPreviewMaxTargetsHardCap = maxTargetsHardCap;
             Config.clientPreviewLod = lod;

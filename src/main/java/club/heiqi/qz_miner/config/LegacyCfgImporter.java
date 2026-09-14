@@ -158,6 +158,9 @@ public final class LegacyCfgImporter {
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewMinScreenWidthPx",
                     "client.clientPreviewMinScreenWidthPx",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX);
+            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewOutlineWidthPx",
+                    "client.clientPreviewOutlineWidthPx",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX);
             putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewTruncationSignal",
                     "client.clientPreviewTruncationSignal",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL);

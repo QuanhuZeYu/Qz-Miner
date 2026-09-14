@@ -329,8 +329,8 @@ public class ChainPreviewShaderContractTest {
                 mainBody.indexOf("gl_Position = uModelViewProjection * vec4(displaced, 1.0)") >= 0);
         Assert.assertTrue("深度必须取自显式 modelview",
                 mainBody.indexOf("-(uModelView * vec4(aPos, 1.0)).z") >= 0);
-        Assert.assertTrue("横向投影长度必须取自显式 modelview",
-                mainBody.indexOf("(uModelView * vec4(lateralAxis, 0.0)).xyz") >= 0);
+        // T51 起位移方向来自 aDirection 属性，顶点阶段不再推导横向轴，
+        // 「横向投影长度取自显式 modelview」的断言对象已不存在；深度换算仍由上一行断言覆盖。
     }
 
     // ------------------------------------------------------------------ 校验器自证（负例）

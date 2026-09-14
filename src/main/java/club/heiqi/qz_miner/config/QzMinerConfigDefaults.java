@@ -73,8 +73,16 @@ public final class QzMinerConfigDefaults {
     public static final double CLIENT_PREVIEW_FADE_REFRESH_DISTANCE = 0.5D;
     /** signal 档无位移时的兜底刷新间隔（毫秒）。 */
     public static final int CLIENT_PREVIEW_FADE_FALLBACK_MS = 250;
-    /** 条柱屏幕最小宽度（像素）；0 表示不钳制（本轮默认；接线属下一批 B2.1）。 */
+    /** 条柱屏幕最小宽度（像素）；0 表示不钳制（默认；已接线：settings → DrawPlan → uMinScreenWidthPx）。 */
     public static final double CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX = 0.0D;
+    /**
+     * 描边壳外扩宽度（物理像素）；默认 1.5D（等于接线前渲染器内写死的 {@code OUTLINE_WIDTH_DEFAULT_PX}，
+     * 观感不变），0 表示关闭描边。
+     *
+     * <p>仅着色器后端的 OUTLINE 深度档消费（legacy 固定管线无屏幕空间描边能力），
+     * 取值区间与着色器内 {@code clamp(uOutlineWidthPx, 0.0, 8.0)} 一致。</p>
+     */
+    public static final double CLIENT_PREVIEW_OUTLINE_WIDTH_PX = 1.5D;
     /** 预览被上限截断时是否给出可见提示（本轮默认 false；展示接线属下一批 B1.1）。 */
     public static final boolean CLIENT_PREVIEW_TRUNCATION_SIGNAL = false;
     /** 预览目标数量硬顶。 */
@@ -151,6 +159,7 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewFadeRefreshDistance", Double.valueOf(CLIENT_PREVIEW_FADE_REFRESH_DISTANCE));
         target.put("client.clientPreviewFadeFallbackMs", Double.valueOf(CLIENT_PREVIEW_FADE_FALLBACK_MS));
         target.put("client.clientPreviewMinScreenWidthPx", Double.valueOf(CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX));
+        target.put("client.clientPreviewOutlineWidthPx", Double.valueOf(CLIENT_PREVIEW_OUTLINE_WIDTH_PX));
         target.put("client.clientPreviewTruncationSignal", Boolean.valueOf(CLIENT_PREVIEW_TRUNCATION_SIGNAL));
         target.put("client.clientPreviewMaxTargetsHardCap", Double.valueOf(CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP));
         target.put("client.clientPreviewLod", CLIENT_PREVIEW_LOD);

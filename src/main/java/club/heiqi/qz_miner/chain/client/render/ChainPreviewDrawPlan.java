@@ -41,7 +41,14 @@ public final class ChainPreviewDrawPlan {
     public static final float MAX_MIN_SCREEN_WIDTH_PX = 8.0F;
     public static final float MIN_FADE_SPAN = 0.001F;
 
-    /** B3.x 真描边：OUTLINE 描边壳段默认外扩宽度（物理像素；XRAY / OCCLUDE 不消费）。 */
+    /**
+     * B3.x 真描边：OUTLINE 描边壳段的参考外扩宽度（物理像素；XRAY / OCCLUDE 不消费）。
+     *
+     * <p>本常量是 draw plan 层的参考值（壳段单元测试与契约文档口径）；生产生效宽度由配置
+     * {@code client.clientPreviewOutlineWidthPx} 提供（默认 1.5D，与本常量一致；0 = 关闭描边），
+     * renderer 经 §H 读取面 {@code ChainPreviewVisualSettings#getOutlineWidthPx()} 传入
+     * {@link #withOutlinePass(boolean, float)}。</p>
+     */
     public static final float OUTLINE_WIDTH_DEFAULT_PX = 1.5F;
 
     /** 描边外扩宽度收窄上限（物理像素）。 */
@@ -996,8 +1003,12 @@ public final class ChainPreviewDrawPlan {
      * <p>只替换 {@link Visuals} 的描边两参，其余字段（索引范围、origin、语义掩码、计数）原样保留；
      * 描边形态未变化时返回自身（零分配）。XRAY / OCCLUDE 不调用本方法，逐字节等于现状。</p>
      *
+     * <p>壳段判定即 {@code shell && widthPx > 0}：renderer 只在 OUTLINE 档调用，
+     * 宽度取 §H 读取面（配置 {@code client.clientPreviewOutlineWidthPx}），
+     * 因此宽度 0（默认）收敛为非壳段 = 关闭描边，无需新增绘制段或改动 stage 划分。</p>
+     *
      * @param shell   是否描边壳段
-     * @param widthPx 外扩宽度（物理像素）
+     * @param widthPx 外扩宽度（物理像素；&lt;= 0 / NaN 收敛为非壳段）
      * @return 派生计划或自身
      */
     public ChainPreviewDrawPlan withOutlinePass(boolean shell, float widthPx) {

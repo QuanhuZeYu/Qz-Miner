@@ -47,6 +47,7 @@ public final class PreviewConfigTooltips {
             "client.clientPreviewFadeRefreshDistance",
             "client.clientPreviewFadeFallbackMs",
             "client.clientPreviewMinScreenWidthPx",
+            "client.clientPreviewOutlineWidthPx",
             "client.clientPreviewTruncationSignal",
             "client.clientPreviewMaxTargetsHardCap",
             "client.clientPreviewLod",

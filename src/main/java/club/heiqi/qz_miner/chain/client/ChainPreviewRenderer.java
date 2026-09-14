@@ -87,6 +87,13 @@ public class ChainPreviewRenderer {
     private final ChainPreviewFadeController fadeController = new ChainPreviewFadeController();
     private String animationModeId = "";
     private int animationDurationMs;
+    /**
+     * OUTLINE 档描边壳外扩宽度（物理像素；0 = 关闭描边）。
+     *
+     * <p>与 {@link #visuals} 同源于 §H 读取面快照（{@code getVisualSettings()} 引用未变时不重复取值），
+     * 只在 {@link #drawPreview} 派生壳段计划时消费；XRAY / OCCLUDE 档不读本字段。</p>
+     */
+    private float outlineWidthPx;
 
     private int uploadedGeneration = -1;
     private long uploadedStateRevision = -1L;
@@ -131,6 +138,7 @@ public class ChainPreviewRenderer {
         visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
         animationModeId = "";
         animationDurationMs = 0;
+        outlineWidthPx = 0.0F;
         animationClock.reset();
         fadeController.reset();
         scaleCounters.reset();
@@ -458,11 +466,13 @@ public class ChainPreviewRenderer {
             visuals = ChainPreviewDrawPlan.Visuals.BASELINE;
             animationModeId = "";
             animationDurationMs = 0;
+            outlineWidthPx = 0.0F;
             return;
         }
         visuals = visualsFromSettings(settings);
         animationModeId = settings.getAnimationId();
         animationDurationMs = settings.getAnimationDurationMs();
+        outlineWidthPx = settings.getOutlineWidthPx();
     }
 
     /** @return 是否启用淡入 / 淡出（animation ∈ {flow, wave} 且 duration &gt; 0） */
@@ -541,9 +551,11 @@ public class ChainPreviewRenderer {
                 plan.getOriginZ() - RenderManager.renderPosZ);
             ChainPreviewDepthPass.Pass pass = ChainPreviewDepthPass.select(plan.getDepthChannel());
             int stageCount = ChainPreviewDepthPass.stageCount(pass);
-            // B3.x 真描边：仅 OUTLINE 档派生一次壳段计划（XRAY / OCCLUDE 零分配、逐字节等于现状）
+            // B3.x 真描边：仅 OUTLINE 档派生一次壳段计划（XRAY / OCCLUDE 零分配、逐字节等于现状）；
+            // 外扩宽度取 §H 读取面（配置 clientPreviewOutlineWidthPx）：0 = 关闭，
+            // withOutlinePass 收敛为非壳段，壳段 stage 落到主体绘制
             ChainPreviewDrawPlan shellPlan = pass == ChainPreviewDepthPass.Pass.OUTLINE
-                ? plan.withOutlinePass(true, ChainPreviewDrawPlan.OUTLINE_WIDTH_DEFAULT_PX)
+                ? plan.withOutlinePass(true, outlineWidthPx)
                 : null;
             for (int stageIndex = 0; stageIndex < stageCount; stageIndex++) {
                 applyDepthStage(ChainPreviewDepthPass.stage(pass, stageIndex));
