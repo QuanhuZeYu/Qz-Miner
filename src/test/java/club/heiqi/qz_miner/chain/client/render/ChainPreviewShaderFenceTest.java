@@ -178,7 +178,7 @@ public class ChainPreviewShaderFenceTest {
     public void undefinedAuxBufferFillsEveryRequestedByte() {
         for (int vertexCount : new int[] {1, 16, 4096, 65536}) {
             int required = vertexCount * 4;
-            ByteBuffer buffer = ChainPreviewShaderBackend.prepareUndefinedBuffer(null, required);
+            ByteBuffer buffer = ChainPreviewShaderBackend.prepareUndefinedBuffer(null, required, HEAP_ALLOCATOR);
             Assert.assertEquals("position 必须归零", 0, buffer.position());
             Assert.assertTrue("buffer 长度必须覆盖请求", buffer.limit() >= required);
             for (int index = 0; index < required; index++) {
@@ -210,8 +210,8 @@ public class ChainPreviewShaderFenceTest {
     /** 同一缓冲复用：第二次请求较短长度时不得残留上一次的有效数据。 */
     @Test
     public void undefinedAuxBufferReuseKeepsPrefixUndefined() {
-        ByteBuffer reused = ChainPreviewShaderBackend.prepareUndefinedBuffer(null, 4096);
-        reused = ChainPreviewShaderBackend.prepareUndefinedBuffer(reused, 256);
+        ByteBuffer reused = ChainPreviewShaderBackend.prepareUndefinedBuffer(null, 4096, HEAP_ALLOCATOR);
+        reused = ChainPreviewShaderBackend.prepareUndefinedBuffer(reused, 256, HEAP_ALLOCATOR);
         Assert.assertEquals(0, reused.position());
         for (int index = 0; index < 256; index++) {
             Assert.assertEquals((byte) 0xFF, reused.get(index));
@@ -291,6 +291,26 @@ public class ChainPreviewShaderFenceTest {
         }
         Assert.fail("方法 " + label + " 的花括号不平衡");
         return "";
+    }
+
+    /**
+     * 真机崩溃防线（T51 实机取证）：GL 上传的 staging 必须来自 allocator（direct）。
+     *
+     * <p>heap 缓冲（{@code java.nio.ByteBuffer.allocate}）走 {@code hasArray()} 分支，驱动拿到的是
+     * 非法地址——真机表型是 {@code nvoglv64.dll} 内部 + {@code glBufferSubData} 的
+     * {@code EXCEPTION_ACCESS_VIOLATION}：整进程崩溃，且因为崩在 native 层，连一条 Java 栈都看不到。</p>
+     *
+     * <p><b>为什么必须是源码级检查</b>：单元测试注入的是纯 JVM 分配器，heap 在那里是<b>正常</b>的
+     * （headless 不加载 LWJGL native），运行时守卫 {@code requireDirect} 因此对测试替身豁免——
+     * 这类写法能一路全绿到真机才炸。</p>
+     */
+    @Test
+    public void backendStagingNeverUsesHeapByteBuffer() throws IOException {
+        String source = read(BACKEND_PATH);
+        Assert.assertFalse(
+                "GL 上传 staging 不得直接用 ByteBuffer.allocate（heap）；真机会崩在驱动内部，"
+                    + "必须走 allocator.byteBuffer（direct）",
+                source.contains("ByteBuffer.allocate("));
     }
 
     private static String read(String relativePath) throws IOException {

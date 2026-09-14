@@ -725,7 +725,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             // B2.3 接线颜色语义后会显形（cross-review D5）。
             aboCapacity = calculateNewCapacity(requiredAboSize);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
-            undefinedAuxStaging = prepareUndefinedBuffer(undefinedAuxStaging, requiredAboSize);
+            undefinedAuxStaging = prepareUndefinedBuffer(undefinedAuxStaging, requiredAboSize, allocator);
             auxStaging = undefinedAuxStaging;
             GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, auxStaging);
             return;
@@ -758,14 +758,14 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         } else {
             directionStaging = prepareZeroDirectionBuffer(directionStaging, bytes);
         }
-        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, directionStaging);
+        GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, requireDirect(directionStaging));
     }
 
     /** 方向 staging：整段复用，避免每代分配。 */
     private ByteBuffer prepareDirectionBuffer(ByteBuffer buffer, byte[] source, int count) {
         int required = Math.max(count, 1);
         if (buffer == null || buffer.capacity() < required) {
-            buffer = ByteBuffer.allocate(calculateElementCapacity(required));
+            buffer = allocator.byteBuffer(calculateElementCapacity(required));
         }
         buffer.clear();
         buffer.put(source, 0, count);
@@ -777,7 +777,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private ByteBuffer prepareZeroDirectionBuffer(ByteBuffer buffer, int count) {
         int required = Math.max(count, 1);
         if (buffer == null || buffer.capacity() < required) {
-            buffer = ByteBuffer.allocate(calculateElementCapacity(required));
+            buffer = allocator.byteBuffer(calculateElementCapacity(required));
         }
         buffer.clear();
         for (int index = 0; index < count; index++) {
@@ -793,10 +793,12 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * <p>只有在无 aAux 流或流长不足时才走这里；容量不足时一次填充，之后复用，
      * 不退化成逐顶点循环。</p>
      */
-    static ByteBuffer prepareUndefinedBuffer(ByteBuffer buffer, int required) {
+    static ByteBuffer prepareUndefinedBuffer(ByteBuffer buffer, int required, BufferAllocator allocator) {
         int target = Math.max(required, 1);
         if (buffer == null || buffer.capacity() < target) {
-            buffer = ByteBuffer.allocate(calculateElementCapacity(target));
+            // 必须走 direct 分配器：heap ByteBuffer 传给 glBufferSubData，驱动会取到非法地址。
+            // 真机表型：nvoglv64.dll 内部 + GL15C.glBufferSubData 的 EXCEPTION_ACCESS_VIOLATION。
+            buffer = allocator.byteBuffer(calculateElementCapacity(target));
         }
         // put(index, value) 是绝对写入，不移动 position，也无需 limit 技巧。
         for (int i = 0; i < target; i++) {
@@ -1027,6 +1029,23 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         buffer.put(values, 0, values.length);
         buffer.flip();
         return buffer;
+    }
+
+    /**
+     * GL 上传前的硬守卫：{@code glBufferSubData} 只接受 direct buffer。
+     *
+     * <p>heap {@code ByteBuffer}（{@code ByteBuffer.allocate}）会走 {@code hasArray()} 分支，
+     * 驱动拿到的地址非法——真机表型是 {@code nvoglv64.dll} 内部 + {@code glBufferSubData} 的
+     * {@code EXCEPTION_ACCESS_VIOLATION}，整进程崩溃且无 Java 栈可用。这里把它变成 Java 异常。</p>
+     */
+    private ByteBuffer requireDirect(ByteBuffer buffer) {
+        // 只约束真机路径：默认分配器（BufferUtils）产出的必须是 direct。测试注入的纯 JVM
+        // 分配器只是 GL 替身、不加载 native，不应被此约束拦住。
+        if (buffer == null || buffer.isDirect() || allocator != LWJGL_ALLOCATOR) {
+            return buffer;
+        }
+        throw new IllegalStateException("GL 上传缓冲必须由 allocator 分配（direct buffer），实际为 heap buffer: "
+            + buffer.getClass().getName());
     }
 
     private static int calculateElementCapacity(int required) {
