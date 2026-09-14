@@ -1,8 +1,5 @@
 package club.heiqi.qz_miner.chain.client.verify;
 
-import java.io.File;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -20,7 +17,12 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  * T43 波次 9 重复目标语义契约（B5.4：维持现状 + 文档化）。
  *
  * <p>行为口径由独立构造的序列锁定：**上游计数按收到次数（含重复）**，而**几何/配额去重**
- * （B0.7 去重先于配额）。使用文档必须与这一口径一致——写反按缺陷处理。</p>
+ * （B0.7 去重先于配额）。</p>
+ *
+ * <p><b>已删除的文档断言</b>：原 {@code usageDocumentationMatchesTheLockedSemantics} 读
+ * {@code docs/使用文档/README.md} 的文本，断言出现「重复 / 计数 / 去重」等字样、且不出现若干反向表述。
+ * 文档文本不是代码契约——改文档就红，却保护不了任何代码行为（同样的语义由本类的行为用例锁定），
+ * 按裁定归入「读文本匹配」一并删除，该用例随之移除。文档口径本身仍是产品要求，只是不再由测试守。</p>
  */
 public class DuplicateTargetSemanticsContractTest {
 
@@ -66,41 +68,6 @@ public class DuplicateTargetSemanticsContractTest {
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(many, VISUALS, 0.045F, null);
         Assert.assertEquals(1, mesh.getBlockCount());
         Assert.assertFalse("重复不得消耗配额", mesh.isTruncated());
-    }
-
-    @Test
-    public void usageDocumentationMatchesTheLockedSemantics() throws Exception {
-        String doc = readUsageDocument();
-        boolean mentionsDuplicates = doc.contains("重复");
-        Assert.assertTrue("使用文档必须写明重复目标语义（B5.4）", mentionsDuplicates);
-
-        int previewSection = doc.indexOf("预览");
-        Assert.assertTrue("使用文档必须包含预览章节", previewSection >= 0);
-        String previewText = doc.substring(previewSection);
-
-        boolean mentionsCounting = previewText.contains("计数") || previewText.contains("HUD")
-            || previewText.contains("数字");
-        boolean mentionsQuotaOrDedup = previewText.contains("配额") || previewText.contains("去重")
-            || previewText.contains("容量") || previewText.contains("唯一");
-        Assert.assertTrue("文档必须写明计数口径（含重复计入）", mentionsCounting);
-        Assert.assertTrue("文档必须写明几何/配额口径（去重）", mentionsQuotaOrDedup);
-
-        String[] reversedClaims = {
-            "重复目标不计数",
-            "重复目标不会被计数",
-            "重复目标被完全忽略",
-            "重复目标会重复占用配额",
-            "重复目标重复占容量"
-        };
-        for (String claim : reversedClaims) {
-            Assert.assertFalse("文档出现与代码行为相反的表述：" + claim, doc.contains(claim));
-        }
-    }
-
-    private static String readUsageDocument() throws Exception {
-        File file = new File("docs/使用文档/README.md");
-        Assert.assertTrue("使用文档必须存在: " + file.getAbsolutePath(), file.isFile());
-        return new String(Files.readAllBytes(file.toPath()), Charset.forName("UTF-8"));
     }
 
     @Test

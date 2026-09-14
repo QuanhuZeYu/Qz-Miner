@@ -1,8 +1,5 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -13,6 +10,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.execution.ChainExecutionContext;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
  * {@link ChainPlanningEventBridge} 纯逻辑单测。
@@ -27,6 +25,8 @@ import club.heiqi.qz_miner.chain.execution.ChainExecutionContext;
 public class ChainPlanningEventBridgeTest {
 
     private static final UUID PLAYER = UUID.fromString("00000000-0000-0000-0000-0000000000AB");
+    private static final String BRIDGE_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java";
     private static final long TICK = 99L;
     private static final long NANOS = 424242L;
 
@@ -123,34 +123,53 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertEquals(r2, r2Completed.getServerRoundId());
     }
 
+    /**
+     * worker 装配与活性契约。
+     *
+     * <p>改造口径（Lead 裁定第 10 条与「去脆化 = methodBody 切片 + 标识符位置」）：
+     * 原用例在整文件里找标识符/整句表达式，声明处、注释或文件后面任何位置都能命中。
+     * 现在每条断言都钉在<b>真正承载它的方法体</b>里，并按相对位置表达活性/顺序契约。</p>
+     */
     @Test
-    public void workerWiringAttachesSubscriptionAndSilencesExternalCancellation() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
-                StandardCharsets.UTF_8);
-        Assert.assertTrue(source.contains("context.attachPlanningSubscription(subscription)"));
-        Assert.assertTrue(source.contains("context.isExternalPlanningCancellationRequested()"));
-        Assert.assertTrue(source.contains("tryCompletePlanningAndPublish"));
-        Assert.assertTrue(source.contains("publishPlanningProgressIfActive"));
-        Assert.assertTrue("无 durable progress 的 YIELDED 不得给 watchdog 续命",
-                source.contains("searchContext.getProgressRevision() != progressRevisionBefore"));
-        Assert.assertTrue(source.contains("cancelPlanningAndPublishIfActive"));
-        Assert.assertTrue("PlanStarted 必须只按顶层 CHAIN 冻结工具能力",
-                source.contains("ChainPlanningRuntimeFactory.usesFrozenToolCapabilities(mode)"));
-        Assert.assertTrue(source.contains("PlanningToolCapabilitySnapshot.capture("));
-        Assert.assertTrue("CHAIN 快照必须包含背包全部候选",
-                source.contains("Config.autoToolPrioritySelectors, true"));
-        Assert.assertTrue(source.contains("diagnostics, capabilitySnapshot"));
-        int workerStart = source.indexOf("private ParallelTaskResult runShadowSlice(");
-        String worker = source.substring(workerStart);
-        Assert.assertFalse(worker.contains("player.inventory"));
-        Assert.assertFalse(worker.contains("getCurrentEquippedItem()"));
-        Assert.assertFalse(worker.contains("canHarvestBlock("));
+    public void workerWiringAttachesSubscriptionAndSilencesExternalCancellation() {
+        String source = JavaSourceSlices.stripped(BRIDGE_PATH);
+
+        String planStarted = JavaSourceSlices.methodBody(source, "private void onPlanStarted(",
+                "ChainPlanningEventBridge.onPlanStarted");
+        JavaSourceSlices.assertBefore(planStarted, "registerPre(", "attachPlanningSubscription(",
+                "订阅必须在 worker 注册成功后挂到 context");
+        JavaSourceSlices.assertBefore(planStarted, "usesFrozenToolCapabilities(",
+                "PlanningToolCapabilitySnapshot.capture(", "PlanStarted 必须只按顶层 CHAIN 冻结能力");
+
+        String worker = JavaSourceSlices.methodBody(source, "private ParallelTaskResult runShadowSlice(",
+                "ChainPlanningEventBridge.runShadowSlice");
+        JavaSourceSlices.assertContains(worker, "isExternalPlanningCancellationRequested()",
+                "worker 分片必须检查外部取消");
+        JavaSourceSlices.assertContains(worker, "tryCompletePlanningOrCancel(",
+                "完成路径必须经单次线性化接缝发布");
+        // 无 durable progress 的 YIELDED 不得给 watchdog 续命：PlanProgress 发布必须在「进度已进阶」守卫之后。
+        JavaSourceSlices.assertBefore(worker, "getProgressRevision() != progressRevisionBefore",
+                "publishPlanningProgressIfActive(", "进度未进阶不得发布 PlanProgress");
+
+        String cancellation = JavaSourceSlices.methodBody(source, "private void publishWorkerCancellation(",
+                "ChainPlanningEventBridge.publishWorkerCancellation");
+        JavaSourceSlices.assertContains(cancellation, "cancelPlanningAndPublishIfActive(",
+                "worker 自然取消必须只在仍活跃时发布");
+
+        // 边界清单：worker 分片的能力必须来自 PlanStarted 冻结快照，不得回读背包/手持/采掘能力。
+        JavaSourceSlices.assertAbsent(worker, "player.inventory", "worker 分片不得读背包");
+        JavaSourceSlices.assertAbsent(worker, "getCurrentEquippedItem()", "worker 分片不得读手持");
+        JavaSourceSlices.assertAbsent(worker, "canHarvestBlock(", "worker 分片不得做采掘能力判定");
+
+        // 已删（同批改造）：tryCompletePlanningAndPublish / publishPlanningProgressIfActive /
+        // cancelPlanningAndPublishIfActive 的纯标识符存在性各自并入上面语义更强的方法体断言；
+        // Config.autoToolPrioritySelectors, true 与 diagnostics, capabilitySnapshot 两条逐字实参快照删除——
+        // 「冻结快照必须进 createForServer」已由 ChainHarvestRulesTest 的数据流断言（捕获变量必须出现在实参区间）承担。
     }
 
     /** RuntimeException publication 失败必须转成一次固定原因取消。 */
     @Test
-    public void publicationFailureUsesExactlyOneCancellationAndFixedReason() throws Exception {
+    public void publicationFailureUsesExactlyOneCancellationAndFixedReason() {
         ChainExecutionContext context = new ChainExecutionContext(PLAYER, 303L, 9,
                 new ConcurrentLinkedQueue<club.heiqi.qz_miner.chain.planner.ChainTarget>(), null);
         AtomicInteger cancellations = new AtomicInteger();
@@ -162,13 +181,22 @@ public class ChainPlanningEventBridgeTest {
         Assert.assertFalse(context.isCompleted());
         Assert.assertEquals(1, cancellations.get());
 
-        // 生产固定 reason 与 publication 异常路径必须保持可检索且只走一次取消。
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
-                StandardCharsets.UTF_8);
-        Assert.assertTrue(source.contains("plan-completion-publication-failed"));
-        Assert.assertTrue(source.contains("catch (RuntimeException failure)"));
-        Assert.assertTrue(source.contains("catch (LinkageError failure)"));
+        // 固定 reason 是日志/事件可检索的诊断片段（不是协议字段），因此只锚定「取消发布确实带上了它」，
+        // 不锚定整句文案（Lead 裁定第 2 条口径）：先在 worker 完成路径里定位该字面量的赋值目标，
+        // 再要求同一变量出现在 buildPlanCancelled 的实参区间内。
+        String worker = JavaSourceSlices.methodBody(JavaSourceSlices.stripped(BRIDGE_PATH),
+                "private ParallelTaskResult runShadowSlice(", "ChainPlanningEventBridge.runShadowSlice");
+        int fixedReason = worker.indexOf("\"plan-completion-publication-failed\"");
+        Assert.assertTrue("完成失败路径必须使用固定诊断 reason", fixedReason >= 0);
+        String reasonVariable = JavaSourceSlices.assignmentTarget(worker, fixedReason, "固定 reason 赋值");
+        String cancellationArguments = JavaSourceSlices.callArguments(worker, "buildPlanCancelled(",
+                "完成失败路径的取消发布");
+        JavaSourceSlices.assertContains(cancellationArguments, reasonVariable,
+                "取消事件必须携带固定诊断 reason " + reasonVariable);
+
+        // 已删：catch (RuntimeException failure) / catch (LinkageError failure) 两条捕获样式文本快照——
+        // 两条异常路径的行为已分别由本用例与 linkageErrorDuringCompletionPublicationUsesExactlyOneCancellation
+        // 经真实 tryCompletePlanningOrCancel 调用证伪（不再捕获时异常会直接抛出，测试必红）。
     }
 
     /** LinkageError publication 失败与运行时异常共享单次取消合同。 */
@@ -190,19 +218,16 @@ public class ChainPlanningEventBridgeTest {
 
     /** seed 身份不可解析时必须在 worker 登记前固定取消，不能启动规划。 */
     @Test
-    public void unresolvedSeedIdentityCancelsBeforeWorkerRegistration() throws Exception {
+    public void unresolvedSeedIdentityCancelsBeforeWorkerRegistration() {
         PlanCancelled cancelled = ChainPlanningEventBridge.buildUnresolvedSeedIdentityPlanCancelled(
                 PLAYER, 305L, 11, TICK, NANOS);
         Assert.assertEquals("shadow-seed-tile-identity-unresolved", cancelled.getReason());
         Assert.assertEquals(305L, cancelled.getServerRoundId());
         Assert.assertEquals(11, cancelled.getGeneration());
 
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java").toPath()),
-                StandardCharsets.UTF_8);
-        int failClosed = source.indexOf("buildUnresolvedSeedIdentityPlanCancelled(");
-        int workerRegistration = source.indexOf("executionContextRegistry.put(context)");
-        Assert.assertTrue("UNRESOLVED fail-closed 必须先于 worker/context 登记",
-                failClosed >= 0 && workerRegistration > failClosed);
+        String planStarted = JavaSourceSlices.methodBody(JavaSourceSlices.stripped(BRIDGE_PATH),
+                "private void onPlanStarted(", "ChainPlanningEventBridge.onPlanStarted");
+        JavaSourceSlices.assertBefore(planStarted, "buildUnresolvedSeedIdentityPlanCancelled(",
+                "executionContextRegistry.put(", "UNRESOLVED fail-closed 必须先于 worker/context 登记");
     }
 }

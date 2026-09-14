@@ -1,9 +1,5 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -15,10 +11,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
+
 /** round 级规划诊断预算、原因编码与安全格式的纯 JVM 合同。 */
 public class ChainPlanningDiagnosticsTest {
 
     private static final UUID PLAYER = UUID.fromString("00000000-0000-0000-0000-0000000000CD");
+    private static final String FACTORY_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java";
 
     /** 相同 round 超过预算后只累计，不再输出候选明细。 */
     @Test
@@ -194,34 +194,37 @@ public class ChainPlanningDiagnosticsTest {
 
     /** createRuntime 只能从原子接缝取得最终 filter/matcher，禁止回到中间装配步骤。 */
     @Test
-    public void productionRuntimeUsesAtomicAssemblySeam() throws IOException {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java").toPath()),
-                StandardCharsets.UTF_8);
-        int runtimeStart = source.indexOf("private static ChainPlanningRuntime createRuntime(");
-        int runtimeEnd = source.indexOf("    /** 只有顶层 CHAIN", runtimeStart);
-        Assert.assertTrue("createRuntime source must be present", runtimeStart >= 0);
-        Assert.assertTrue("atomic assembly method must follow createRuntime", runtimeEnd > runtimeStart);
-        String runtimeSource = source.substring(runtimeStart, runtimeEnd);
-        Assert.assertEquals(1, countOccurrences(runtimeSource, "assembleDiagnosticRuntime("));
-        Assert.assertTrue(runtimeSource.contains(
-                "assembleDiagnosticRuntime(\n                searchContext, candidateFilter, matcher, diagnostics, planningEvaluator)"));
-        Assert.assertFalse(runtimeSource.contains("bindMatcherDiagnostics("));
-        Assert.assertFalse(runtimeSource.contains("bindMatcherPlanning("));
-        Assert.assertFalse(runtimeSource.contains("decorateModeExtensionMatcher("));
-        Assert.assertFalse(runtimeSource.contains("assembleDiagnostics("));
+    public void productionRuntimeUsesAtomicAssemblySeam() {
+        String source = JavaSourceSlices.stripped(FACTORY_PATH);
 
-        int assemblyStart = source.indexOf("static DiagnosticAssembly assembleDiagnosticRuntime(");
-        int extensionStart = source.indexOf("    /**\n     * 为模式扩展装饰器", assemblyStart);
-        Assert.assertTrue("atomic assembly source must be present", assemblyStart >= 0);
-        Assert.assertTrue("atomic assembly body must be bounded", extensionStart > assemblyStart);
-        String assemblySource = source.substring(assemblyStart, extensionStart);
-        Assert.assertTrue(assemblySource.indexOf("bindMatcherPlanning(")
-                < assemblySource.indexOf("decorateModeExtensionMatcher("));
-        Assert.assertTrue(assemblySource.indexOf("decorateModeExtensionMatcher(")
-                < assemblySource.indexOf("decorateCandidateFilterWithDiagnostics("));
-        Assert.assertTrue(assemblySource.indexOf("decorateCandidateFilterWithDiagnostics(")
-                < assemblySource.indexOf("decorateMatcherWithDiagnostics("));
+        String runtimeSource = JavaSourceSlices.methodBody(source,
+                "private static ChainPlanningRuntime createRuntime(", "ChainPlanningRuntimeFactory.createRuntime");
+        Assert.assertEquals("createRuntime 只能经唯一原子装配接缝",
+                1, JavaSourceSlices.count(runtimeSource, "assembleDiagnosticRuntime("));
+        String assemblyArguments = JavaSourceSlices.callArguments(runtimeSource, "assembleDiagnosticRuntime(",
+                "createRuntime 内的原子装配调用");
+        JavaSourceSlices.assertContains(assemblyArguments, "planningEvaluator",
+                "原子装配接缝必须收到模式选择的 evaluator（不得回落到默认宽进门）");
+        JavaSourceSlices.assertAbsent(runtimeSource, "bindMatcherDiagnostics(",
+                "createRuntime 不得回到中间装配步骤");
+        JavaSourceSlices.assertAbsent(runtimeSource, "bindMatcherPlanning(",
+                "createRuntime 不得回到中间装配步骤");
+        JavaSourceSlices.assertAbsent(runtimeSource, "decorateModeExtensionMatcher(",
+                "createRuntime 不得回到中间装配步骤");
+        JavaSourceSlices.assertAbsent(runtimeSource, "assembleDiagnostics(",
+                "旧接缝名不得复现");
+
+        // 装配顺序契约：同名重载用 occurrences 区分（4 参壳委托、5 参真装配）。
+        int shellOverload = source.indexOf("static DiagnosticAssembly assembleDiagnosticRuntime(");
+        String assemblySource = JavaSourceSlices.methodBody(source,
+                "static DiagnosticAssembly assembleDiagnosticRuntime(", shellOverload + 1,
+                "ChainPlanningRuntimeFactory.assembleDiagnosticRuntime(5 参)");
+        JavaSourceSlices.assertBefore(assemblySource, "bindMatcherPlanning(",
+                "decorateModeExtensionMatcher(", "绑定必须先于模式扩展装饰");
+        JavaSourceSlices.assertBefore(assemblySource, "decorateModeExtensionMatcher(",
+                "decorateCandidateFilterWithDiagnostics(", "扩展装饰必须先于候选过滤诊断包装");
+        JavaSourceSlices.assertBefore(assemblySource, "decorateCandidateFilterWithDiagnostics(",
+                "decorateMatcherWithDiagnostics(", "候选过滤必须先于 matcher 诊断包装");
     }
 
     private static void assertMatcherEvaluation(ChainBlockMatcher matcher, boolean expectedResult,
@@ -306,16 +309,6 @@ public class ChainPlanningDiagnosticsTest {
         int count = 0;
         for (String log : logs) {
             if (log.contains(fragment)) count++;
-        }
-        return count;
-    }
-
-    private static int countOccurrences(String source, String fragment) {
-        int count = 0;
-        int offset = 0;
-        while ((offset = source.indexOf(fragment, offset)) >= 0) {
-            count++;
-            offset += fragment.length();
         }
         return count;
     }

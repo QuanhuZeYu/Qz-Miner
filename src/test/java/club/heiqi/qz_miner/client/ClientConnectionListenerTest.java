@@ -1,7 +1,6 @@
 package club.heiqi.qz_miner.client;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +13,13 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.state.ChainClientState;
+import club.heiqi.qz_miner.chain.state.ChainStateService;
+import club.heiqi.qz_miner.config.CommittedSnapshot;
+import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
  * {@link ClientConnectionListener} 真实调度路径门禁。
@@ -135,33 +141,80 @@ public class ClientConnectionListenerTest {
 
     @Test
     public void productionInitResendsModeBeforeSubModeAndConfig() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java").toPath()),
-                StandardCharsets.UTF_8);
-        int mode = source.indexOf("sendToServer(new PacketChainModeSwitch(");
-        int subMode = source.indexOf("sendToServer(new PacketChainSubModeSwitch(");
-        int config = source.indexOf("sendToServer(new PacketChainConfigRequest(");
-
-        Assert.assertTrue("connection init must resend the selected mode", mode >= 0);
-        Assert.assertTrue("connection init must resend the selected sub-mode", subMode > mode);
-        Assert.assertTrue("mode mirror must be restored before config requests", config > subMode);
+        String source = JavaSourceSlices.stripCommentsIgnoringStringLiterals(JavaSourceSlices.read(
+                "src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java"));
+        String mirror = JavaSourceSlices.methodBody(source,
+                "private void sendCurrentConnectionMirror(", "sendCurrentConnectionMirror");
+        JavaSourceSlices.assertBefore(mirror, "new PacketChainModeSwitch(", "new PacketChainSubModeSwitch(",
+                "连接镜像必须按 mode → subMode → config 顺序重放");
+        JavaSourceSlices.assertBefore(mirror, "new PacketChainSubModeSwitch(", "new PacketChainConfigRequest(",
+                "连接镜像必须按 mode → subMode → config 顺序重放");
     }
 
+    /** ready replay 结构：先登记 object-group 请求，再发连接镜像（同一 committed 快照）。 */
     @Test
     public void readyReplayPreservesAcceptedObjectGroupProjection() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java").toPath()),
-                StandardCharsets.UTF_8);
-        int replay = source.indexOf("private void replayIfReady");
-        int register = source.indexOf("registerObjectGroupRequest", replay);
-        int send = source.indexOf("sendCurrentConnectionMirror(token, committed)", replay);
-        int initialize = source.indexOf("void initializeConnectionState");
-        int begin = source.indexOf("beginObjectGroupSync", initialize);
+        String source = JavaSourceSlices.stripCommentsIgnoringStringLiterals(JavaSourceSlices.read(
+                "src/main/java/club/heiqi/qz_miner/client/ClientConnectionListener.java"));
+        String replay = JavaSourceSlices.methodBody(source, "private void replayIfReady(", "replayIfReady");
+        JavaSourceSlices.assertBefore(replay, "registerObjectGroupRequest(", "sendCurrentConnectionMirror(",
+                "ready replay 必须先登记 object-group 请求再发镜像");
+    }
 
-        Assert.assertTrue(register > replay && send > register);
-        Assert.assertTrue("new connections must reset object-group result ordering once", begin > initialize);
-        Assert.assertFalse("ready replay must not clear an accepted result",
-                source.substring(replay, initialize).contains("beginObjectGroupSync"));
+    /**
+     * 行为：新连接初始化必须重置 object-group 结果排序；ready replay 不得回退已接受的结果。
+     *
+     * <p>用真实 {@link ChainStateService} + 真实 {@code ConfigBootstrap} 提交快照驱动生产入口，
+     * 替代原「源码里有没有 {@code beginObjectGroupSync} 字样」的文本断言。</p>
+     */
+    @Test
+    public void connectionInitResetsAndReadyReplayKeepsAcceptedObjectGroupResult() throws Exception {
+        File tempDir = Files.createTempDirectory("qz-miner-objectgroup-").toFile();
+        ChainStateService previousService = MyMod.chainStateService;
+        try {
+            ConfigBootstrap.resetForTests();
+            ConfigBootstrap.bootstrap(tempDir, null);
+            ChainStateService service = new ChainStateService();
+            MyMod.chainStateService = service;
+            ClientConnectionLifecycle.resetForTests();
+
+            QueueDispatcher queue = new QueueDispatcher();
+            ClientConnectionListener subject = new ClientConnectionListener(queue);
+            ChainClientState state = service.getClientState();
+            CommittedSnapshot committed = ConfigBootstrap.currentCommittedSnapshot();
+
+            // 旧连接留下一个已接受的权威结果
+            state.beginObjectGroupSync(41L, committed);
+            Assert.assertTrue(state.applyObjectGroupSyncResult(41L, committed.epoch, committed.epoch,
+                    true, committed.snapshot.objectGroups.groups().size()));
+            Assert.assertTrue(state.isObjectGroupSyncAccepted());
+
+            Object handler = new Object();
+            subject.handleConnected(handler);
+            queue.runAll();
+            ClientConnectionLifecycle.Token token = ClientConnectionLifecycle.captureForConnection(handler);
+            Assert.assertNotNull(token);
+            Assert.assertFalse("新连接初始化必须重置 object-group 结果排序",
+                    state.isObjectGroupSyncAccepted());
+            Assert.assertTrue("重置后不得沿用旧连接的权威结果",
+                    state.getServerObjectGroups().groups().isEmpty());
+
+            // 新连接上重新确认成功：ready replay 不得把它清掉
+            Assert.assertTrue(state.applyObjectGroupSyncResult(token.connectionGeneration(),
+                    committed.epoch, committed.epoch, true,
+                    committed.snapshot.objectGroups.groups().size()));
+            subject.handleServerReady(token);
+            queue.runAll();
+            Assert.assertTrue("ready replay 不得回退已接受的 object-group 结果",
+                    state.isObjectGroupSyncAccepted());
+            Assert.assertSame("结果必须保持同一份提交规则集",
+                    committed.snapshot.objectGroups, state.getServerObjectGroups());
+        } finally {
+            MyMod.chainStateService = previousService;
+            ClientConnectionLifecycle.resetForTests();
+            ConfigBootstrap.resetForTests();
+            deleteRecursively(tempDir);
+        }
     }
 
     /**
@@ -595,6 +648,19 @@ public class ClientConnectionListenerTest {
         listener.handleConnected(null);
         Assert.assertEquals(0, dispatcher.size());
         Assert.assertFalse(ClientConnectionLifecycle.capture().isConnectionActive());
+    }
+
+    private static void deleteRecursively(File file) {
+        if (file == null || !file.exists()) {
+            return;
+        }
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteRecursively(child);
+            }
+        }
+        file.delete();
     }
 
     private static void rethrow(Throwable t) throws Exception {

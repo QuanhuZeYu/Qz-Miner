@@ -1,13 +1,12 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Collections;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
+import club.heiqi.qz_miner.toolswap.ToolHarvestEligibility;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.item.Item;
@@ -75,23 +74,62 @@ public class PlanningToolCapabilitySnapshotTest {
                 snapshot.select(new NullHarvestToolBlock(), 2));
     }
 
+    /**
+     * 冻结快照的候选来源、共享资格入口与 worker 侧零库存读取。
+     *
+     * <p>改造口径：{@code select()} 与共享资格规则的一致性改为<b>行为断言</b>——
+     * 同一 Block/ItemStack 同时驱动 {@code snapshot.select} 与
+     * {@link ToolHarvestEligibility#isEligible}，断言二者结论逐例相等（判据不是「源码里调用了谁」）；
+     * 「候选必须经共享 selector 排序」保留为 {@code capture(ItemStack[], ...)} 方法体内的委派契约；
+     * worker 侧禁读清单从「到文件尾的 substring」收敛为
+     * {@code evaluateFrozenPlanningHarvest} 方法体区间。</p>
+     *
+     * <p>已实测：{@code capture(ItemStack[], ...)} 的 {@code includeInventoryTools=true} 分支在纯 JVM
+     * 不可达（{@code OreDictionary} 触达 FMLRelaunchLog 静态初始化，抛
+     * ExceptionInInitializerError: FMLRelaunchLog.side is null），故该分支不做行为断言。</p>
+     */
     @Test
-    public void productionSnapshotUsesSelectorOrderAndSharedEligibilityWithoutWorkerInventoryReads()
-            throws Exception {
-        String snapshot = source("src/main/java/club/heiqi/qz_miner/chain/planner/PlanningToolCapabilitySnapshot.java");
-        String rules = source("src/main/java/club/heiqi/qz_miner/chain/planner/ChainHarvestRules.java");
-        Assert.assertTrue(snapshot.contains("ToolCandidateOrder.sort(identities, selectors)"));
-        Assert.assertTrue(snapshot.contains("ToolHarvestEligibility.isEligible(currentHand"));
-        Assert.assertTrue(snapshot.indexOf("ToolHarvestEligibility.isEligible(currentHand")
-                < snapshot.indexOf("ToolHarvestEligibility.canHarvestWithEmptyHand"));
-        int frozenEvaluator = rules.indexOf("private static HarvestEvaluation evaluateFrozenPlanningHarvest");
-        String workerRule = rules.substring(frozenEvaluator);
-        Assert.assertFalse(workerRule.contains("getCurrentEquippedItem"));
-        Assert.assertFalse(workerRule.contains("player.inventory"));
+    public void productionSnapshotUsesSelectorOrderAndSharedEligibilityWithoutWorkerInventoryReads() {
+        assertSelectFollowsSharedEligibility(new NullHarvestToolBlock(), 2,
+                new ItemStack(new GenericHarvestTool(false)));
+        assertSelectFollowsSharedEligibility(new NullHarvestToolBlock(), 2, new ItemStack(new TestTool()));
+        ItemStack nearlyBroken = new ItemStack(new GenericHarvestTool(false));
+        nearlyBroken.setItemDamage(nearlyBroken.getMaxDamage() - 1);
+        assertSelectFollowsSharedEligibility(new NullHarvestToolBlock(), 2, nearlyBroken);
+
+        String snapshot = JavaSourceSlices.stripped(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/PlanningToolCapabilitySnapshot.java");
+        int arrayCapture = snapshot.indexOf("static PlanningToolCapabilitySnapshot capture(") + 1;
+        String captureBody = JavaSourceSlices.methodBody(snapshot,
+                "static PlanningToolCapabilitySnapshot capture(", arrayCapture,
+                "PlanningToolCapabilitySnapshot.capture(ItemStack[], ...)");
+        JavaSourceSlices.assertContains(captureBody, "ToolCandidateOrder.sort(",
+                "背包候选必须经共享 selector 排序入口");
+        JavaSourceSlices.assertContains(captureBody, "ToolHarvestEligibility.snapshotIdentity(",
+                "候选身份必须来自共享资格采样的纯值快照");
+
+        String rules = JavaSourceSlices.stripped(
+                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainHarvestRules.java");
+        String frozenEvaluator = JavaSourceSlices.methodBody(rules,
+                "private static HarvestEvaluation evaluateFrozenPlanningHarvest(",
+                "ChainHarvestRules.evaluateFrozenPlanningHarvest");
+        JavaSourceSlices.assertAbsent(frozenEvaluator, "getCurrentEquippedItem",
+                "冻结规划路径不得读手持工具");
+        JavaSourceSlices.assertAbsent(frozenEvaluator, "player.inventory",
+                "冻结规划路径不得读背包");
+
+        // 已删：`isEligible(currentHand` 早于 `canHarvestWithEmptyHand` 的位置断言——
+        // 手持优先于空手回落已由 currentHandThenInventoryThenEmptyHandAreDistinctPriorities
+        // 用真实 select() 结果（CURRENT_HAND / INVENTORY_TOOL / EMPTY_HAND / NONE）覆盖。
     }
 
-    private static String source(String path) throws Exception {
-        return new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8);
+    private static void assertSelectFollowsSharedEligibility(Block target, int metadata, ItemStack currentHand) {
+        PlanningToolCapabilitySnapshot snapshot = PlanningToolCapabilitySnapshot.fromOrderedStacks(
+                currentHand, Collections.<ItemStack>emptyList(), false);
+        boolean eligible = ToolHarvestEligibility.isEligible(currentHand, target, metadata);
+        Assert.assertEquals("select 必须与共享资格规则同结论（hand=" + currentHand.getItem() + "）",
+                eligible,
+                snapshot.select(target, metadata) == PlanningToolCapabilitySnapshot.MatchKind.CURRENT_HAND);
     }
 
     private static final class TestBlock extends Block {

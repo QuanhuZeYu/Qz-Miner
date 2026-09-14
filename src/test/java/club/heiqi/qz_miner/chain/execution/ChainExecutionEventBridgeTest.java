@@ -1,8 +1,5 @@
 package club.heiqi.qz_miner.chain.execution;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -30,6 +27,8 @@ import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.parallel.ParallelTickContext;
 import club.heiqi.qz_miner.parallel.ParallelTickStage;
 import club.heiqi.qz_miner.parallel.TickTimeBudget;
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapServerBatchService.PrepareResult;
 
 /**
@@ -460,16 +459,26 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertFalse(ChainExecutionEventBridge.usesLocalToolSwap(ChainMode.SPECIAL));
     }
 
+    /**
+     * 挖掘执行器必须把原版收获结果当返回值，不得假定成功。
+     *
+     * <p><b>为什么不行为化</b>：{@code execute} 收 {@code EntityPlayerMP}（1.7.10 构造玩家实体要求
+     * WorldServer），本仓没有玩家 fixture，裁定也禁止为测试新增 seam，所以判据落在切出来的方法体上：
+     * 必须委派原版 {@code tryHarvestBlock}，且成功路径不得出现 {@code return true}
+     * （「先调用、再无条件返回成功」会把收获失败静默吞掉）。旧写法整句匹配实参文本 + 依赖精确换行缩进的
+     * {@code "…;\n            return true;"}，等价重写（提局部变量、换行、加括号）即误报。</p>
+     */
     @Test
     public void blockHarvestExecutorReturnsVanillaHarvestResultInsteadOfAssumingSuccess() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/executor/BlockHarvestActionExecutor.java").toPath()),
-                StandardCharsets.UTF_8);
+        String execute = JavaSourceSlices.methodBody(
+                JavaSourceSlices.read("src/main/java/club/heiqi/qz_miner/chain/executor/BlockHarvestActionExecutor.java"),
+                "public boolean execute(EntityPlayerMP player, ChainSession session, ChainTarget target)",
+                "BlockHarvestActionExecutor.execute");
 
-        Assert.assertTrue(source.contains(
-                "return player.theItemInWorldManager.tryHarvestBlock(target.getX(), target.getY(), target.getZ())"));
-        Assert.assertFalse(source.contains("tryHarvestBlock(target.getX(), target.getY(), target.getZ());\n"
-                + "            return true;"));
+        JavaSourceSlices.assertContains(execute, "tryHarvestBlock(",
+                "必须委派原版收获入口");
+        JavaSourceSlices.assertAbsent(execute.replaceAll("\\s+", " "), "return true",
+                "不得假定成功：返回值必须来自原版收获结果");
     }
 
     @Test
@@ -768,12 +777,18 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertTrue(context.isCompleted());
         Assert.assertNull(registry.get(PLAYER, 15, 1301L));
 
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge.java").toPath()),
-                StandardCharsets.UTF_8);
-        Assert.assertFalse(source.contains("System.currentTimeMillis"));
-        Assert.assertFalse(source.contains("isExecutorReady"));
-        Assert.assertFalse(source.contains("nextExecutorAllowedMillis"));
+        CompiledClasses.Refs refs = CompiledClasses.refs(CompiledClasses.forInternalName(
+                "club/heiqi/qz_miner/chain/execution/ChainExecutionEventBridge"));
+        Assert.assertFalse("不得回到挂钟时间做节流闸门",
+                refs.methodRefs.contains("java/lang/System#currentTimeMillis"));
+        for (String reference : refs.methodRefs) {
+            Assert.assertFalse("旧执行器就绪闸门不得复活: " + reference,
+                    reference.endsWith("#isExecutorReady") || reference.endsWith("#nextExecutorAllowedMillis"));
+        }
+        for (String reference : refs.fieldRefs) {
+            Assert.assertFalse("旧执行器时间戳字段不得复活: " + reference,
+                    reference.endsWith("#nextExecutorAllowedMillis"));
+        }
     }
 
     @Test

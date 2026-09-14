@@ -1,15 +1,18 @@
 package club.heiqi.qz_miner;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
+import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.relauncher.Side;
 
 /** 5.3 family 握手语法、矩阵与 Forge 接线回归。 */
@@ -25,6 +28,9 @@ public class QzMinerNetworkVersionPolicyTest {
             "5.3.9-soft-deadline.17+abcdef12",
             "5.3.12-branch-name+abcdef12-dirty"
     };
+
+    /** FML 的 {@code @NetworkCheckHandler} 注解描述符（RUNTIME 保留，写进注解表）。 */
+    private static final String NETWORK_CHECK_HANDLER = "Lcpw/mods/fml/common/network/NetworkCheckHandler;";
 
     @Test
     public void legalStablePrereleaseBranchAndDirtyVersionsAreAccepted() {
@@ -120,56 +126,64 @@ public class QzMinerNetworkVersionPolicyTest {
                 "5.3.0", singletonVersion("5.2.1"), MyMod.MODID, Side.SERVER));
     }
 
+    /**
+     * Forge 版本握手入口的唯一性与「只委派策略」合同。
+     *
+     * <p>旧写法读全部 {@code src/main} 文本做字符统计与归一化整句匹配：换行、提局部变量、
+     * 加一行日志都会误报，而「处理器偷偷改成恒 true」这种真回归照样绿。现在分三层：</p>
+     * <ol>
+     *   <li><b>唯一性</b>：扫编译产物的方法注解表（{@code @NetworkCheckHandler} 是 RUNTIME 注解），
+     *       全仓只允许一个，且签名冻结为 {@code (Map, Side)}；</li>
+     *   <li><b>行为</b>：真的 new 出模组实例调用该入口，逐例与
+     *       {@link QzMinerNetworkVersionPolicy#accepts} 的返回值比对——改成恒 true / 换常量都会红；</li>
+     *   <li><b>旁路禁令</b>：{@code @Mod.acceptableRemoteVersions} 必须保持空串
+     *       （非空会绕过整个版本策略放行任意远端版本）。</li>
+     * </ol>
+     */
     @Test
     public void myModHasOneUnparameterizedHandlerThatOnlyDelegatesToPolicy() throws Exception {
-        String allMainSources = readJavaTree(new File("src/main/java"));
-        String myMod = read(new File("src/main/java/club/heiqi/qz_miner/MyMod.java"));
-        String normalized = myMod.replaceAll("\\s+", " ");
+        List<CompiledClasses.MethodInfo> handlers = new ArrayList<CompiledClasses.MethodInfo>();
+        List<String> owners = new ArrayList<String>();
+        for (File classFile : CompiledClasses.classFiles()) {
+            if (!CompiledClasses.relative(classFile).startsWith("club/heiqi/qz_miner/")) {
+                continue;
+            }
+            for (CompiledClasses.MethodInfo method : CompiledClasses.methods(classFile)) {
+                if (method.annotations.contains(NETWORK_CHECK_HANDLER)) {
+                    handlers.add(method);
+                    owners.add(CompiledClasses.relative(classFile) + "#" + method);
+                }
+            }
+        }
+        Assert.assertEquals("全仓只允许唯一 @NetworkCheckHandler: " + owners, 1, handlers.size());
+        CompiledClasses.MethodInfo handler = handlers.get(0);
+        Assert.assertEquals("唯一入口必须是 checkNetworkVersions", "checkNetworkVersions", handler.name);
+        Assert.assertEquals("握手入口签名冻结: " + handler.descriptor,
+                Arrays.asList("java/util/Map", "cpw/mods/fml/relauncher/Side"),
+                handler.parameterInternalNames());
 
-        Assert.assertEquals(1, count(allMainSources, "@NetworkCheckHandler"));
-        Assert.assertTrue(normalized.contains(
-                "@NetworkCheckHandler public boolean checkNetworkVersions("
-                + "Map<String, String> remoteVersions, Side side) { "
-                + "return QzMinerNetworkVersionPolicy.accepts(Tags.VERSION, remoteVersions, MODID, side); }"));
-        Assert.assertFalse(myMod.contains("@NetworkCheckHandler("));
-        Assert.assertFalse(allMainSources.contains("acceptableRemoteVersions"));
-        Assert.assertFalse(read(new File(
-                "src/main/java/club/heiqi/qz_miner/QzMinerNetworkVersionPolicy.java")).contains("startsWith("));
+        MyMod mod = new MyMod();
+        for (Side side : new Side[] {Side.CLIENT, Side.SERVER}) {
+            assertHandlerOnlyDelegatesToPolicy(mod, singletonVersion("5.3.0"), side);
+            assertHandlerOnlyDelegatesToPolicy(mod, singletonVersion("5.2.1"), side);
+            assertHandlerOnlyDelegatesToPolicy(mod, Collections.<String, String>emptyMap(), side);
+        }
+
+        Mod annotation = MyMod.class.getAnnotation(Mod.class);
+        Assert.assertNotNull("@Mod 注解必须存在", annotation);
+        Assert.assertEquals("不得用 acceptableRemoteVersions 放行任意远端版本",
+                "", annotation.acceptableRemoteVersions());
+    }
+
+    private static void assertHandlerOnlyDelegatesToPolicy(MyMod mod, Map<String, String> remote, Side side) {
+        Assert.assertEquals("握手入口只允许委派版本策略: " + remote + " on " + side,
+                QzMinerNetworkVersionPolicy.accepts(Tags.VERSION, remote, MyMod.MODID, side),
+                mod.checkNetworkVersions(remote, side));
     }
 
     private static Map<String, String> singletonVersion(String version) {
         Map<String, String> versions = new HashMap<String, String>();
         versions.put(MyMod.MODID, version);
         return versions;
-    }
-
-    private static String readJavaTree(File root) throws Exception {
-        StringBuilder result = new StringBuilder();
-        File[] children = root.listFiles();
-        if (children == null) {
-            return result.toString();
-        }
-        for (File child : children) {
-            if (child.isDirectory()) {
-                result.append(readJavaTree(child));
-            } else if (child.getName().endsWith(".java")) {
-                result.append(read(child)).append('\n');
-            }
-        }
-        return result.toString();
-    }
-
-    private static String read(File file) throws Exception {
-        return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
-    }
-
-    private static int count(String value, String token) {
-        int count = 0;
-        int cursor = 0;
-        while ((cursor = value.indexOf(token, cursor)) >= 0) {
-            count++;
-            cursor += token.length();
-        }
-        return count;
     }
 }

@@ -3,10 +3,10 @@ package club.heiqi.qz_miner.chain.client.verify;
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.Reader;
 import java.lang.reflect.Field;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -61,18 +61,14 @@ public class BackendDiagnosticsConfigContractTest {
 
     @Test
     public void languageEntriesArePresentInBothLanguages() throws Exception {
-        String en = readResource("assets/qz_miner/lang/en_US.lang");
-        String zh = readResource("assets/qz_miner/lang/zh_CN.lang");
-        assertSymmetricTooltip(en, zh, "config.qz_miner." + SHORT_KEY);
+        assertSymmetricTooltip("config.qz_miner." + SHORT_KEY);
     }
 
     /** HUD 行文案（标签 + 回退片段）中英必须都在，且不得直接复制同一文案。 */
     @Test
     public void hudLanguageEntriesArePresentInBothLanguages() throws Exception {
-        String en = readResource("assets/qz_miner/lang/en_US.lang");
-        String zh = readResource("assets/qz_miner/lang/zh_CN.lang");
-        assertSymmetricTooltip(en, zh, "hud.qz_miner.preview.backend.label");
-        assertSymmetricTooltip(en, zh, "hud.qz_miner.preview.backend.fallback");
+        assertSymmetricTooltip("hud.qz_miner.preview.backend.label");
+        assertSymmetricTooltip("hud.qz_miner.preview.backend.fallback");
     }
 
     @Test
@@ -176,41 +172,43 @@ public class BackendDiagnosticsConfigContractTest {
 
     // ------------------------------------------------------------------ 辅助
 
-    private static void assertSymmetricTooltip(String en, String zh, String prefix) {
-        Assert.assertTrue("en_US 必须包含 " + prefix + " 条目", en.contains(prefix));
-        Assert.assertTrue("zh_CN 必须包含 " + prefix + " 条目", zh.contains(prefix));
+    /**
+     * 语言条目契约：两份 lang 都必须<strong>解析后按键</strong>命中该键，且各自有非空文案。
+     *
+     * <p>旧写法对整份 lang 文本做 {@code contains(prefix)}：键名多一截后缀、或前缀恰好出现在
+     * 别的键的值里都会误判通过；现在解析成 {@link Properties} 后按 key 取。值的具体措辞不作断言
+     * （措辞不是代码回归防线），但「英文原文被复制进中文」这条会红。</p>
+     */
+    private static void assertSymmetricTooltip(String prefix) throws Exception {
+        Properties en = language("assets/qz_miner/lang/en_US.lang");
+        Properties zh = language("assets/qz_miner/lang/zh_CN.lang");
         String enTip = tooltip(en, prefix);
         String zhTip = tooltip(zh, prefix);
-        Assert.assertFalse("en 文案不得为空: " + prefix, enTip.isEmpty());
-        Assert.assertFalse("zh 文案不得为空: " + prefix, zhTip.isEmpty());
+        Assert.assertFalse("en_US 必须提供 " + prefix + " 条目", enTip.isEmpty());
+        Assert.assertFalse("zh_CN 必须提供 " + prefix + " 条目", zhTip.isEmpty());
         Assert.assertNotEquals("中英必须各自本地化（不得直接复制同一文案）: " + prefix, enTip, zhTip);
     }
 
-    private static String tooltip(String language, String prefix) {
-        for (String line : language.split("\r?\n")) {
-            String trimmed = line.trim();
-            if (trimmed.startsWith(prefix + ".tooltip=")) {
-                return trimmed.substring((prefix + ".tooltip=").length()).trim();
-            }
-            if (trimmed.startsWith(prefix + "=")) {
-                return trimmed.substring((prefix + "=").length()).trim();
-            }
+    /** 取条目文案：接受 {@code prefix} 与 {@code prefix.tooltip} 两种落点；键缺失返回空串。 */
+    private static String tooltip(Properties language, String prefix) {
+        String value = language.getProperty(prefix + ".tooltip");
+        if (value == null) {
+            value = language.getProperty(prefix);
         }
-        return "";
+        return value == null ? "" : value.trim();
     }
 
-    private static String readResource(String name) throws Exception {
+    /** 解析 lang 文件为键值表（{@code key=value}，UTF-8）。 */
+    private static Properties language(String resource) throws Exception {
         InputStream stream = BackendDiagnosticsConfigContractTest.class.getClassLoader()
-            .getResourceAsStream(name);
-        Assert.assertNotNull("资源必须存在: " + name, stream);
-        Reader reader = new InputStreamReader(stream, "UTF-8");
-        StringBuilder text = new StringBuilder();
-        char[] buffer = new char[4096];
-        int read;
-        while ((read = reader.read(buffer)) >= 0) {
-            text.append(buffer, 0, read);
+            .getResourceAsStream(resource);
+        Assert.assertNotNull("资源必须存在: " + resource, stream);
+        Properties properties = new Properties();
+        try {
+            properties.load(new InputStreamReader(stream, "UTF-8"));
+        } finally {
+            stream.close();
         }
-        reader.close();
-        return text.toString();
+        return properties;
     }
 }

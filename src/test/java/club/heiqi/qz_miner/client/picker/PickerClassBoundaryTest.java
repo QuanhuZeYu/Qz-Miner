@@ -5,14 +5,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -22,6 +17,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.QzMinerConfigSchema;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
 
 /**
  * 类边界守卫：common 字节码不得反向引用 client picker / GuiScreen / LWJGL（原 5 类清扫面），
@@ -67,16 +63,18 @@ public class PickerClassBoundaryTest {
 
     /**
      * 客户端侧 {@code @SidedProxy} 类：它在根包下（不在 {@code client/} 段内），但按声明只在客户端加载，
-     * 因此从「common 字节码」扫描面中排除——排除项直接读 {@code MyMod} 的 {@code @SidedProxy} 声明，
-     * 不写死类名（声明变化时守卫跟随）。
+     * 因此从「common 字节码」扫描面中排除——排除项直接读 {@code MyMod.class} 的 {@code @SidedProxy}
+     * 注解值（真实制品，不写死类名、不解析源码文本；声明变化时守卫跟随）。
      */
     private static String sidedProxyClientClass() throws IOException {
-        File source = new File("src/main/java/club/heiqi/qz_miner/MyMod.java");
-        Assert.assertTrue("MyMod 源码必须存在: " + source.getPath(), source.isFile());
-        String text = new String(Files.readAllBytes(Paths.get(source.getPath())), StandardCharsets.UTF_8);
-        Matcher matcher = Pattern.compile("clientSide\\s*=\\s*\"([^\"]+)\"").matcher(text);
-        Assert.assertTrue("MyMod 必须声明 @SidedProxy clientSide", matcher.find());
-        String qualified = matcher.group(1);
+        // @SidedProxy 不在运行时可见（反射读不到），因此读 MyMod 编译产物的注解表元素值；
+        // 仍然是「真实制品」，不是源码文本。
+        String qualified = CompiledClasses.annotatedFieldStringValue(
+                CompiledClasses.forInternalName("club/heiqi/qz_miner/MyMod"),
+                "Lcpw/mods/fml/common/SidedProxy;", "clientSide");
+        Assert.assertNotNull("MyMod 必须声明 @SidedProxy（分侧装配入口）", qualified);
+        Assert.assertTrue("clientSide 必须指向客户端代理类，实际「" + qualified + "」",
+                qualified.length() > 0);
         return qualified.substring(qualified.lastIndexOf('.') + 1) + ".class";
     }
 

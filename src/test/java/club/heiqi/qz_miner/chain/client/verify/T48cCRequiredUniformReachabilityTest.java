@@ -13,6 +13,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderProgram;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
  * 必备 uniform 的「可达性」独立复核（T48c-C 初版，T49 按分级重写）。
@@ -39,6 +40,15 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderProgram;
  * 它拦的是一条<strong>静默</strong>失效：uniform 被编译器优化掉 ⇒ location = -1 ⇒ 整个着色器后端
  * 每次都白回退 legacy（观感「正常」，只是永远不走 shader）。</p>
  *
+ * <p><b>口径复用</b>：去注释与<strong>词边界</strong>计数一律走 {@link JavaSourceSlices}
+ * （{@code stripComments} / {@code wordIndexOf} / {@code wordCount}），死块区间用
+ * {@link JavaSourceSlices#block} 的花括号配平截取——本类不再自带第二套花括号匹配。
+ * 词边界是必须的：裸子串会把 {@code uModelView} 的存活引用算进 {@code uModelViewProjection}
+ * 的出现里，而这两个名字正是同一份清单里的邻居，一旦前者只剩声明、后者仍在用，旧口径照样绿。
+ * 只剩 GLSL 顶层的 {@code uniform <type> <name>;} 声明面解析留在本类：{@code JavaSourceSlices}
+ * 是 Java 源码口径（没有 uniform 概念），而唯一共享的 GLSL 扫描器 {@code GlslSourceScanner}
+ * 是 {@code chain.client.render} 包的包私有类，本类在 {@code chain.client.verify} 包用不到。</p>
+ *
  * <p><b>已移除的文本禁令与其替代</b>：原先的 {@code shaderSourceHasNoFixedFunctionBuiltins}（在整份
  * 源码里搜 {@code gl_ModelViewProjectionMatrix} / {@code ftransform} 等 token）按裁定归入「读源码文本
  * 匹配」，已删除。禁令本身仍然有效，只是换了承载方式：现在由 {@code Glsl120StaticChecker} 的固定管线
@@ -50,12 +60,15 @@ public class T48cCRequiredUniformReachabilityTest {
 
     private static final String VERTEX_RESOURCE = "/assets/qz_miner/shaders/preview.vert";
 
+    /** 编译期常量门控的死分支锚点（GLSL 规范允许编译器把其中的 uniform 引用整体优化掉）。 */
+    private static final String DEAD_ANCHOR = "if (false";
+
     /** 无此二者则 T48c-A 的「显式矩阵」整体失效；必须落在「硬必备 ∪ 能力型」内。 */
     private static final String[] MATRIX_UNIFORMS = { "uModelViewProjection", "uModelView" };
 
     @Test
     public void everyRequiredUniformIsDeclaredAndActuallyUsedInVertexShader() throws Exception {
-        String source = withoutComments(readResource(VERTEX_RESOURCE));
+        String source = JavaSourceSlices.stripComments(readResource(VERTEX_RESOURCE));
         List<int[]> dead = deadRanges(source);
         List<String> required = requiredUniforms();
         List<String> capability = capabilityUniforms();
@@ -84,7 +97,7 @@ public class T48cCRequiredUniformReachabilityTest {
     /** 只被死块引用的 uniform 必须全部登记为能力型（清单漂移 = 红灯）。 */
     @Test
     public void uniformsReferencedOnlyFromDeadCodeAreRegisteredAsCapability() throws Exception {
-        String source = withoutComments(readResource(VERTEX_RESOURCE));
+        String source = JavaSourceSlices.stripComments(readResource(VERTEX_RESOURCE));
         List<int[]> dead = deadRanges(source);
         List<String> onlyDead = new ArrayList<String>();
         for (String name : declaredUniforms(source)) {
@@ -104,15 +117,24 @@ public class T48cCRequiredUniformReachabilityTest {
                 unregistered.isEmpty());
     }
 
+    /**
+     * 注册清单里的名字必须在<strong>去注释源码</strong>里真的出现。
+     *
+     * <p>旧断言是 {@code count(去注释) <= count(原文)}——对任何实现都成立的自洽式空壳（去注释只会
+     * 删字符），永远不可能红。现在判「清单漂移」：名字只活在注释里、或已从着色器删除却仍留在
+     * {@code REQUIRED_UNIFORMS / CAPABILITY_UNIFORMS} 里，都意味着运行期 {@code verifyRequiredUniforms}
+     * 恒失败 ⇒ 后端每次白回退。计数走词边界口径，避免长名冒充短名。</p>
+     */
     @Test
     public void requiredUniformsAreNotCommentOnly() throws Exception {
-        String raw = readResource(VERTEX_RESOURCE);
-        String stripped = withoutComments(raw);
-        List<String> all = new ArrayList<String>(requiredUniforms());
-        all.addAll(capabilityUniforms());
-        for (String name : all) {
-            Assert.assertTrue("注释里出现过的名字不得被误判为已声明",
-                    countOccurrences(stripped, name) <= countOccurrences(raw, name));
+        String stripped = JavaSourceSlices.stripComments(readResource(VERTEX_RESOURCE));
+        List<String> registered = new ArrayList<String>(requiredUniforms());
+        registered.addAll(capabilityUniforms());
+        Assert.assertFalse("注册清单不得为空", registered.isEmpty());
+        for (String name : registered) {
+            Assert.assertTrue("uniform " + name + " 在去注释源码里一次也没出现（清单已漂移："
+                    + "只留在注释里，或已从着色器删除）",
+                    JavaSourceSlices.wordCount(stripped, name) >= 1);
         }
     }
 
@@ -140,63 +162,59 @@ public class T48cCRequiredUniformReachabilityTest {
      */
     private static List<int[]> deadRanges(String source) {
         List<int[]> ranges = new ArrayList<int[]>();
-        Matcher matcher = Pattern.compile("if\\s*\\(\\s*false\\s*&&").matcher(source);
-        while (matcher.find()) {
-            int open = source.indexOf('(', matcher.start());
-            int conditionEnd = matchDelimiter(source, open, '(', ')');
-            if (conditionEnd < 0) {
+        int from = 0;
+        while (true) {
+            int anchor = JavaSourceSlices.wordIndexOf(source, DEAD_ANCHOR, from);
+            if (anchor < 0) {
+                return ranges;
+            }
+            String tail = source.substring(anchor);
+            int brace = tail.indexOf('{');
+            int semicolon = tail.indexOf(';');
+            if (brace < 0 || (semicolon >= 0 && semicolon < brace)) {
+                // 无花括号体的死语句：截不出块区间，按「不剔除」保守处理
+                from = anchor + DEAD_ANCHOR.length();
                 continue;
             }
-            int brace = source.indexOf('{', conditionEnd);
-            int blockEnd = matchDelimiter(source, brace, '{', '}');
-            if (brace < 0 || blockEnd < 0) {
-                continue;
-            }
-            ranges.add(new int[] { matcher.start(), blockEnd });
+            String block = JavaSourceSlices.block(tail, DEAD_ANCHOR, "死块");
+            ranges.add(new int[] { anchor, anchor + block.length() - 1 });
+            from = anchor + block.length();
         }
-        return ranges;
     }
 
-    private static int matchDelimiter(String text, int openIndex, char open, char close) {
-        if (openIndex < 0) {
-            return -1;
-        }
-        int depth = 0;
-        for (int i = openIndex; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == open) {
-                depth++;
-            } else if (c == close) {
-                depth--;
-                if (depth == 0) {
-                    return i;
-                }
-            }
-        }
-        return -1;
-    }
-
-    /** 统计「声明行之外、且不在死块内」的引用次数（这才是编译器眼中真正用到的引用）。 */
+    /**
+     * 统计「声明行之外、且不在死块内」的引用次数（这才是编译器眼中真正用到的引用）。
+     *
+     * <p>按<strong>词边界</strong>统计：裸子串会把 {@code uModelView} 的引用算进
+     * {@code uModelViewProjection} 的出现里，而这两个名字正是同一份清单里的邻居——
+     * 短名只剩声明、长名还在用时，旧口径会照样绿。</p>
+     */
     private static int countLiveOccurrences(String source, String name, List<int[]> deadRanges) {
-        int count = 0;
-        int index = source.indexOf(name);
+        int live = 0;
+        int index = JavaSourceSlices.wordIndexOf(source, name);
         while (index >= 0) {
-            int lineStart = source.lastIndexOf('\n', index) + 1;
-            int lineEnd = source.indexOf('\n', index);
-            String line = source.substring(lineStart, lineEnd < 0 ? source.length() : lineEnd);
-            boolean inDead = false;
-            for (int[] range : deadRanges) {
-                if (index >= range[0] && index <= range[1]) {
-                    inDead = true;
-                    break;
-                }
+            if (!isDeclarationLine(source, index) && !inDeadRange(deadRanges, index)) {
+                live++;
             }
-            if (!line.trim().startsWith("uniform") && !inDead) {
-                count++;
-            }
-            index = source.indexOf(name, index + name.length());
+            index = JavaSourceSlices.wordIndexOf(source, name, index + name.length());
         }
-        return count;
+        return live;
+    }
+
+    private static boolean isDeclarationLine(String source, int index) {
+        int lineStart = source.lastIndexOf('\n', index) + 1;
+        int lineEnd = source.indexOf('\n', index);
+        String line = source.substring(lineStart, lineEnd < 0 ? source.length() : lineEnd);
+        return line.trim().startsWith("uniform");
+    }
+
+    private static boolean inDeadRange(List<int[]> deadRanges, int index) {
+        for (int[] range : deadRanges) {
+            if (index >= range[0] && index <= range[1]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 反射读硬必备名单（内部字段名变更需同步此处）。 */
@@ -239,52 +257,4 @@ public class T48cCRequiredUniformReachabilityTest {
         }
     }
 
-    /** 去掉行注释与块注释（保留换行，避免把两行粘成一个 token）。 */
-    private static String withoutComments(String source) {
-        StringBuilder out = new StringBuilder(source.length());
-        boolean line = false;
-        boolean block = false;
-        for (int i = 0; i < source.length(); i++) {
-            char c = source.charAt(i);
-            char next = i + 1 < source.length() ? source.charAt(i + 1) : '\0';
-            if (line) {
-                if (c == '\n') {
-                    line = false;
-                    out.append(c);
-                }
-                continue;
-            }
-            if (block) {
-                if (c == '*' && next == '/') {
-                    block = false;
-                    i++;
-                } else if (c == '\n') {
-                    out.append(c);
-                }
-                continue;
-            }
-            if (c == '/' && next == '/') {
-                line = true;
-                i++;
-                continue;
-            }
-            if (c == '/' && next == '*') {
-                block = true;
-                i++;
-                continue;
-            }
-            out.append(c);
-        }
-        return out.toString();
-    }
-
-    private static int countOccurrences(String text, String needle) {
-        int count = 0;
-        int index = text.indexOf(needle);
-        while (index >= 0) {
-            count++;
-            index = text.indexOf(needle, index + needle.length());
-        }
-        return count;
-    }
 }

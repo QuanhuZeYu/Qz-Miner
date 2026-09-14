@@ -1,19 +1,14 @@
 package club.heiqi.qz_miner.client.picker;
 
-import java.io.IOException;
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLLoadCompleteEvent;
 import cpw.mods.fml.common.event.FMLModIdMappingEvent;
@@ -80,61 +75,39 @@ public class BlockPickerEventRegistrationContractTest {
     }
 
     /**
-     * 全仓源码级守卫：任何 {@code @SubscribeEvent} 都不得绑定 FML 生命周期事件包
-     * （{@code cpw.mods.fml.common.event.*}）。
+     * 全仓产物级守卫：任何 {@code @SubscribeEvent} 方法的参数都必须是 Forge/FML {@code Event} 子类
+     * （{@code cpw.mods.fml.common.event.*} 下的生命周期事件不是）。
      *
      * <p>判据来源：Forge 的 {@code EventBus.register} 要求参数类型是
      * {@code cpw.mods.fml.common.eventhandler.Event} 的子类，而 {@code cpw.mods.fml.common.event} 包下的
      * FML 生命周期事件（{@code FMLLoadCompleteEvent} / {@code FMLModIdMappingEvent} /
-     * {@code FMLServerStartingEvent} …）都不继承它。因此「{@code @SubscribeEvent} 方法参数里出现该包」
-     * 一律判违约——不管出现在哪个类、哪个包（本轮事故就是这样漏过单类反射守卫的）。</p>
+     * {@code FMLServerStartingEvent} …）都不继承它；一旦标注，注册期即抛异常——真机实证为客户端
+     * init 阶段直接崩溃（crash-2026-09-12_08.46.25-client.txt）。</p>
+     *
+     * <p>形态：扫全部生产编译产物的方法注解表与参数描述符，按类型层次判定参数是否为
+     * {@code Event} 子类型。不再扫 .java 源码、也不依赖「FML 生命周期事件类名清单」——
+     * 生命周期事件改名、挪包、经其它类型间接绑定都在判定范围内（原来的 600 字符窗口源码扫描
+     * 既会漏（换包名/换写法），也会误报（注释里的字样））。</p>
      */
     @Test
-    public void noSubscribeEventBindsFmlLifecycleEventPackage() throws IOException {
-        Path root = Paths.get("src/main/java");
-        Assert.assertTrue("找不到源码根（测试工作目录应为项目根）: " + root.toAbsolutePath(),
-                Files.isDirectory(root));
+    public void noSubscribeEventBindsFmlLifecycleEventPackage() throws Exception {
+        List<CompiledClasses.SubscriberMethod> subscriptions = CompiledClasses.subscribeEventMethods();
+        Assert.assertTrue("必须真的扫到事件总线订阅（守卫不得空跑），实际 " + subscriptions.size(),
+                subscriptions.size() >= 8);
         List<String> violations = new ArrayList<String>();
-        final String forbidden = "cpw.mods.fml.common.event.";
-        // 只禁 FML 生命周期事件（cpw.mods.fml.common.event.*）。注意 cpw.mods.fml.common.network.FMLNetworkEvent
-        // 及其子类是 Event 子类、属**合法**订阅，不能用「FMLxxxEvent」泛匹配（初版判据就是这样误报了
-        // ClientConnectionListener）。这里用精确清单。
-        final String[] fmlLifecycleEvents = {
-                "FMLLoadCompleteEvent", "FMLModIdMappingEvent", "FMLPreInitializationEvent",
-                "FMLInitializationEvent", "FMLPostInitializationEvent", "FMLServerAboutToStartEvent",
-                "FMLServerStartingEvent", "FMLServerStartedEvent", "FMLServerStoppingEvent",
-                "FMLServerStoppedEvent", "FMLMissingMappingsEvent", "FMLFingerprintViolationEvent",
-        };
-        try (Stream<Path> paths = Files.walk(root)) {
-            for (Path path : (Iterable<Path>) paths.filter(p -> p.toString().endsWith(".java"))::iterator) {
-                String source = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-                String[] lines = source.split("\n", -1);
-                int offset = 0;
-                for (String line : lines) {
-                    // 只认「注解独占一行」的形态：javadoc/注释里的 {@code @SubscribeEvent} 是行内文本，
-                    // 若把它也算进来，本文件的说明文字会自我误报（本轮实际踩到）。
-                    if (line.trim().startsWith("@SubscribeEvent")) {
-                        int window = Math.min(source.length(), offset + 600);
-                        String slice = source.substring(offset, window);
-                        boolean hit = slice.contains(forbidden);
-                        for (String lifecycle : fmlLifecycleEvents) {
-                            if (slice.contains(lifecycle)) {
-                                hit = true;
-                                break;
-                            }
-                        }
-                        if (hit) {
-                            violations.add(path.toString().replace('\\', '/') + " @ offset " + offset);
-                        }
-                    }
-                    offset += line.length() + 1;
-                }
+        for (CompiledClasses.SubscriberMethod subscription : subscriptions) {
+            List<String> parameters = subscription.method.parameterInternalNames();
+            if (parameters.size() != 1) {
+                violations.add(subscription + " 的参数个数必须为 1，实际 " + parameters.size());
+                continue;
+            }
+            if (!CompiledClasses.isSubtypeOf(parameters.get(0), CompiledClasses.EVENT_BASE)) {
+                violations.add(subscription + " -> " + parameters.get(0) + " 不是 Event 子类");
             }
         }
-        Assert.assertTrue("@SubscribeEvent 不得绑定 FML 生命周期事件（会致启动崩溃）: " + violations,
-                violations.isEmpty());
+        Assert.assertTrue("@SubscribeEvent 的参数必须是 Forge Event 子类（FML 生命周期事件不是，注册期即崩）: "
+                + violations, violations.isEmpty());
     }
-
     /** tick 事件（Forge Event 子类）继续走 {@code @SubscribeEvent} 事件总线路径。 */
     @Test
     public void tickHandlerStaysOnEventBusPath() throws Exception {

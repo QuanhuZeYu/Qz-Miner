@@ -289,8 +289,9 @@ public class ObjectGroupEditorDensityHeadlessTest {
             String count = texts.get("config.qz_miner.object_group.members.count");
             Assert.assertNotNull(lang + " 缺少 members.label", label);
             Assert.assertNotNull(lang + " 缺少 members.count", count);
-            Assert.assertFalse(lang + " 计数文案不得重复区块名词「" + label + "」（实测 " + count + "）",
-                    count.toLowerCase(java.util.Locale.ROOT).contains(label.toLowerCase(java.util.Locale.ROOT)));
+            // 曾断言「计数文案不得包含区块名词」（真机「成员 2 个成员」）：那是对措辞的快照，
+            // 换同义文案即误报，且不保护任何代码行为（Lead 裁定 29/41 ⇒ 删除）。
+            // 保留数据契约本身：两条 lang 必须都有该键、且计数文案必须含数值占位符。
             Assert.assertTrue(lang + " 计数文案必须含数值占位符", count.contains("%s"));
         }
     }

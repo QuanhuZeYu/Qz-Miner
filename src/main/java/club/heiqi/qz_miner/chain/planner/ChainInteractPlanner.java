@@ -114,10 +114,23 @@ public class ChainInteractPlanner {
     private ResolvedInteractTarget resolveInteractTarget(
             EntityPlayerMP player, PlayerInteractEvent event, ChainSubMode selectedSubMode) {
         boolean includeLiquids = selectedSubMode == ChainSubMode.INTERACT_LIQUID_SOURCE;
-        if (includeLiquids || event.action == PlayerInteractEvent.Action.RIGHT_CLICK_AIR) {
+        if (resolvesBySharedRay(selectedSubMode, event.action)) {
             return resolveRayTarget(player, includeLiquids);
         }
         return resolveBlockEventTarget(player, event);
+    }
+
+    /**
+     * 纯值路由接缝（包级，与 T54 {@code originRelativeTo} 同形）：决定语义目标来自共享射线还是 Forge 事件坐标。
+     *
+     * <p>液体子模式与 AIR 没有可用的方块坐标，必须走共享射线；其余 BLOCK 保留 Forge 事件坐标。
+     * 抽成只吃 {@code (subMode, action)} 的纯函数后，这条边界可以被真值表直接证伪——
+     * 内联在 {@code resolveInteractTarget} 里时只能靠表达式文本快照，等价重写（提取局部变量、
+     * 调换 {@code ||} 两侧）就会失效，且无法证明液体分支没被顺手删掉。</p>
+     */
+    static boolean resolvesBySharedRay(ChainSubMode subMode, PlayerInteractEvent.Action action) {
+        return subMode == ChainSubMode.INTERACT_LIQUID_SOURCE
+                || action == PlayerInteractEvent.Action.RIGHT_CLICK_AIR;
     }
 
     /** AIR 没有目标坐标；只从当前共享射线取得完整 BLOCK 命中。 */

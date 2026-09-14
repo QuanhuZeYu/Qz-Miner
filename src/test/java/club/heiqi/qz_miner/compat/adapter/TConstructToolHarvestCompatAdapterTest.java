@@ -1,8 +1,9 @@
 package club.heiqi.qz_miner.compat.adapter;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -13,8 +14,14 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import tconstruct.library.tools.HarvestTool;
 
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
+
 /** TiC 工具类形识别、旧式虚调用与隔离边界。 */
 public class TConstructToolHarvestCompatAdapterTest {
+
+    private static final String ADAPTER_TYPE =
+            "club/heiqi/qz_miner/compat/adapter/TConstructToolHarvestCompatAdapter";
+    private static final String HARVEST_TOOL_FQCN = "tconstruct.library.tools.HarvestTool";
 
     private final TConstructToolHarvestCompatAdapter adapter = new TConstructToolHarvestCompatAdapter();
     private final Block target = new TestBlock();
@@ -48,31 +55,41 @@ public class TConstructToolHarvestCompatAdapterTest {
                 evaluate(new ThrowingTool()));
     }
 
-    /** 生产适配器只保留唯一 TiC FQCN，且不加载或反射解析可选类型。 */
+    /**
+     * 生产适配器只保留唯一 TiC FQCN，且不加载或反射解析可选类型。
+     *
+     * <p>断言对象是编译产物：唯一可选名取自真实的私有常量与常量池字符串集合，
+     * 「不链接 / 不加载 / 不做成员反射」取常量池的类型引用与成员引用集合。</p>
+     */
     @Test
     public void sourceHasSingleOptionalNameAndNoTypeLoadingOrMemberReflection() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/compat/adapter/TConstructToolHarvestCompatAdapter.java").toPath()),
-                StandardCharsets.UTF_8);
-        Assert.assertEquals(1, occurrences(source, "tconstruct.library.tools.HarvestTool"));
-        Assert.assertFalse(source.contains("import tconstruct"));
-        Assert.assertFalse(source.contains("Class.forName"));
-        Assert.assertFalse(source.contains("resolveClass"));
-        Assert.assertFalse(source.contains("getMethod"));
+        CompiledClasses.Refs refs = CompiledClasses.refs(CompiledClasses.forInternalName(ADAPTER_TYPE));
+
+        Field constant = TConstructToolHarvestCompatAdapter.class.getDeclaredField("HARVEST_TOOL_TYPE");
+        constant.setAccessible(true);
+        Assert.assertEquals("唯一可选 FQCN 常量必须精确指向 TiC HarvestTool",
+                HARVEST_TOOL_FQCN, constant.get(null));
+        Set<String> optionalNames = new LinkedHashSet<String>();
+        for (String value : refs.strings) {
+            if (value.startsWith("tconstruct.")) {
+                optionalNames.add(value);
+            }
+        }
+        Assert.assertEquals("全类只允许唯一一个 TiC 可选类型名（多一个常量或多一处内联字面量都要吵）: "
+                + optionalNames, Collections.singleton(HARVEST_TOOL_FQCN), optionalNames);
+
+        Assert.assertFalse("不得静态链接 TiC（常量池不得出现 tconstruct/ 类型）: " + refs.classRefs,
+                refs.hasClassRefUnder("tconstruct/"));
+        Assert.assertFalse("不得加载可选类型：Class.forName",
+                refs.methodRefs.contains("java/lang/Class#forName"));
+        Assert.assertFalse("层级名匹配不得走类型加载入口 resolveClass",
+                CompiledClasses.references(TConstructToolHarvestCompatAdapter.class, "resolveClass"));
+        Assert.assertFalse("不得做成员反射（只做类名层级匹配）",
+                CompiledClasses.references(TConstructToolHarvestCompatAdapter.class, "getMethod"));
     }
 
     private ToolHarvestCompatAdapter.Result evaluate(Item item) {
         return adapter.evaluate(item, new ItemStack(item), target);
-    }
-
-    private static int occurrences(String source, String token) {
-        int count = 0;
-        int offset = 0;
-        while ((offset = source.indexOf(token, offset)) >= 0) {
-            count++;
-            offset += token.length();
-        }
-        return count;
     }
 
     /** 测试目标。 */

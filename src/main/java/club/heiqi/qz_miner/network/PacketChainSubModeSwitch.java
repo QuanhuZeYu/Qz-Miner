@@ -46,6 +46,19 @@ public class PacketChainSubModeSwitch implements IMessage {
     }
 
     /**
+     * 把 wire 上的 ordinal 解析为子模式：越界（负数与未知编号）一律回退 {@code null}，
+     * 调用方据此跳过玩家状态写入。
+     *
+     * <p>wire → 枚举的映射是纯计算，独立为包级纯函数后可在纯 JVM 内按值守
+     * （{@code PacketChainSubModeSwitchProtocolTest}）：删掉边界判断会直接数组越界，
+     * 把回退值改成兜底模式会被断言抓住。</p>
+     */
+    static ChainSubMode resolveSubMode(int ordinal) {
+        ChainSubMode[] subModes = ChainSubMode.values();
+        return ordinal >= 0 && ordinal < subModes.length ? subModes[ordinal] : null;
+    }
+
+    /**
      * 服务端处理通用子模式切换。
      */
     public static class Handler implements IMessageHandler<PacketChainSubModeSwitch, IMessage> {
@@ -64,10 +77,7 @@ public class PacketChainSubModeSwitch implements IMessage {
                     return;
                 }
 
-                ChainSubMode[] subModes = ChainSubMode.values();
-                ChainSubMode subMode = subModeOrdinal >= 0 && subModeOrdinal < subModes.length
-                    ? subModes[subModeOrdinal]
-                    : null;
+                ChainSubMode subMode = resolveSubMode(subModeOrdinal);
 
                 ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(playerId);
                 ChainSubMode previousSubMode = state.getSelectedSubMode();

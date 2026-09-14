@@ -1,8 +1,5 @@
 package club.heiqi.qz_miner.chain.state;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.UUID;
 
 import org.junit.After;
@@ -14,6 +11,7 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapContentFingerprint;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 import club.heiqi.qz_miner.toolswap.server.AutoToolSwapRoundService;
 
 /** 生命周期即使没有 ChainPlayerState 也必须销毁工具换位账本。 */
@@ -58,21 +56,34 @@ public class ChainStateServiceToolSwapLifecycleTest {
         Assert.assertNull(stateService.getPlayerState(playerId));
     }
 
+    /**
+     * 结构契约：cleanup 先清轮次再查状态；LOGIN 分支先清理旧轮次再建状态。
+     *
+     * <p>断言收敛为「先切方法体，再比两个标识符的相对位置」：旧写法用无上界的 {@code indexOf}
+     * 从方法签名一直扫到文件尾，后续方法（甚至别的方法体）里的同名调用也能满足位置关系；
+     * LOGIN 的顺序现在被限制在 {@code case LOGIN:} 到 {@code case RESPAWN:} 的分支区间内。</p>
+     */
     @Test
-    public void cleanupPrecedesNullStateReturnAndLoginTakesOverOldEndpoint() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/state/ChainStateService.java").toPath()),
-                StandardCharsets.UTF_8);
-        int cleanupMethod = source.indexOf("public void cleanupPlayerState(UUID playerUUID, EntityPlayer player");
-        int cleanupRound = source.indexOf("cleanupAutoToolSwapRound(playerUUID);", cleanupMethod);
-        int stateLookup = source.indexOf("ChainPlayerState state = getPlayerState(playerUUID);", cleanupMethod);
-        int login = source.indexOf("case LOGIN:");
-        int loginCleanup = source.indexOf("cleanupAutoToolSwapRound(playerUUID);", login);
-        int loginCreate = source.indexOf("getOrCreatePlayerState(playerUUID);", login);
+    public void cleanupPrecedesNullStateReturnAndLoginTakesOverOldEndpoint() {
+        String source = JavaSourceSlices.stripped(STATE_SERVICE_PATH);
 
-        Assert.assertTrue(cleanupMethod < cleanupRound);
-        Assert.assertTrue(cleanupRound < stateLookup);
-        Assert.assertTrue(login < loginCleanup);
-        Assert.assertTrue(loginCleanup < loginCreate);
+        String cleanup = JavaSourceSlices.methodBody(source,
+                "public void cleanupPlayerState(UUID playerUUID, EntityPlayer player,",
+                "ChainStateService.cleanupPlayerState(UUID, EntityPlayer, ...)");
+        JavaSourceSlices.assertBefore(cleanup, "cleanupAutoToolSwapRound(", "getPlayerState(",
+                "cleanup 必须先清轮次再查状态");
+
+        String stateChanged = JavaSourceSlices.methodBody(source, "private void onPlayerStateChanged(",
+                "ChainStateService.onPlayerStateChanged");
+        int login = stateChanged.indexOf("case LOGIN:");
+        int respawn = stateChanged.indexOf("case RESPAWN:");
+        Assert.assertTrue("LOGIN 分支必须存在", login >= 0);
+        Assert.assertTrue("LOGIN 分支必须早于 RESPAWN 分支", respawn > login);
+        String loginBranch = stateChanged.substring(login, respawn);
+        JavaSourceSlices.assertBefore(loginBranch, "cleanupAutoToolSwapRound(", "getOrCreatePlayerState(",
+                "LOGIN 必须先清理旧轮次再建状态");
     }
+
+    private static final String STATE_SERVICE_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/state/ChainStateService.java";
 }

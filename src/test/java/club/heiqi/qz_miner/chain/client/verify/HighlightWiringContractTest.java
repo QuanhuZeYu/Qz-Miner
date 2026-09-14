@@ -4,9 +4,16 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.lang.reflect.Constructor;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.Config;
@@ -80,15 +87,38 @@ public class HighlightWiringContractTest {
         }
     }
 
+    /**
+     * mixin 归属表契约：高亮 mixin 必须注册在 {@code client} 数组，且不得出现在通用 {@code mixins}
+     * 或 {@code server} 数组里（放错表 = 静默不生效 / 服务端崩溃）。
+     *
+     * <p>旧写法自写文本切片从 JSON 里抠数组再 {@code contains}：多一层缩进、换个键序、
+     * 或类名恰好是另一个更长的类名的前缀都会给出错误结论。现在按 JSON 解析后取条目<strong>简单名</strong>集合，
+     * 判的是清单归属而不是字符出现。</p>
+     */
     @Test
     public void highlightMixinIsRegisteredInClientArray() throws Exception {
-        String json = readResource("mixins.qz_miner.json");
-        String clientArray = arrayFor(json, "client");
-        Assert.assertTrue("client mixin 必须注册在 client 数组: " + MIXIN_CLASS, clientArray.contains(MIXIN_CLASS));
+        JsonObject config = new JsonParser()
+            .parse(readResource("mixins.qz_miner.json")).getAsJsonObject();
+
+        Assert.assertTrue("client mixin 必须注册在 client 数组: " + MIXIN_CLASS,
+            mixinNames(config, "client").contains(MIXIN_CLASS));
         Assert.assertFalse("client mixin 不得注册在通用 mixins 数组",
-            arrayFor(json, "mixins").contains(MIXIN_CLASS));
+            mixinNames(config, "mixins").contains(MIXIN_CLASS));
         Assert.assertFalse("client mixin 不得注册在 server 数组",
-            arrayFor(json, "server").contains(MIXIN_CLASS));
+            mixinNames(config, "server").contains(MIXIN_CLASS));
+    }
+
+    /** 取某张 mixin 表的条目简单名集合（条目可带子包前缀，如 {@code client.X}）。 */
+    private static Set<String> mixinNames(JsonObject config, String arrayName) {
+        JsonArray entries = config.getAsJsonArray(arrayName);
+        Assert.assertNotNull("mixin 清单必须包含数组: " + arrayName, entries);
+        Set<String> names = new LinkedHashSet<String>();
+        for (JsonElement entry : entries) {
+            String name = entry.getAsString();
+            int separator = name.lastIndexOf('.');
+            names.add(separator < 0 ? name : name.substring(separator + 1));
+        }
+        return names;
     }
 
     private static boolean suppress(Object renderer, int x, int y, int z) throws Exception {
@@ -118,17 +148,6 @@ public class HighlightWiringContractTest {
         }
         reader.close();
         return text.toString();
-    }
-
-    /** 取出 JSON 中某个键的数组字面量（最小解析，仅用于清单注册核对）。 */
-    private static String arrayFor(String json, String key) {
-        String marker = "\"" + key + "\"";
-        int start = json.indexOf(marker);
-        Assert.assertTrue("清单必须包含键: " + key, start >= 0);
-        int open = json.indexOf('[', start);
-        int close = json.indexOf(']', open);
-        Assert.assertTrue("键 " + key + " 必须是数组", open > 0 && close > open);
-        return json.substring(open + 1, close);
     }
 
 }

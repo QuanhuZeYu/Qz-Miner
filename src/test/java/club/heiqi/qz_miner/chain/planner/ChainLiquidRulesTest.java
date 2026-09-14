@@ -1,9 +1,5 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -87,16 +83,13 @@ public class ChainLiquidRulesTest {
         Assert.assertEquals(1, seed.getFluidCalls);
     }
 
-    /** 生产规则只探测 canDrain，禁止用 drain(false) 或其它调用修改世界。 */
-    @Test
-    public void productionNeverCallsDrain() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainLiquidRules.java").toPath()),
-                StandardCharsets.UTF_8);
-        Assert.assertTrue(source.contains("FluidRegistry.lookupFluidForBlock(block)"));
-        Assert.assertTrue(source.contains(".canDrain(world, x, y, z)"));
-        Assert.assertFalse(source.contains(".drain("));
-    }
+    // 已删除（断言形态改造，Lead 裁定第 13 条）：原 productionNeverCallsDrain 的三条断言
+    // （FluidRegistry.lookupFluidForBlock(block) / .canDrain(world, x, y, z) / 禁止 .drain(）
+    // 只证明源码里出现过某段字符——注释、import 与字符串字面量同样能命中，改链接写法又能漏检，
+    // 属于典型拼写快照。「规则只探测不排液」已由本类真实调用计数覆盖：
+    // forgeSourcesUseFluidIdentityAndCanDrain（source/flowing 的 drainCalls==0）、
+    // forgeFailuresAreFailClosed（throwingCanDrain.drainCalls==0）。整条用例随之删除，
+    // 不留「已不可能失败」的空壳。
 
     /** 可控 Forge IFluidBlock。 */
     private static final class TestFluidBlock extends Block implements IFluidBlock {

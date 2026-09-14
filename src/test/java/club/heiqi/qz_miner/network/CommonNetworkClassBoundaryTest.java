@@ -1,24 +1,27 @@
 package club.heiqi.qz_miner.network;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.List;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import club.heiqi.qz_miner.CommonProxy;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import net.minecraft.network.INetHandler;
 
 /**
  * common 网络边界：CommonProxy / NetworkMain / S2C packet 签名不得引用 client / LWJGL。
  *
- * <p>JVM 反射只能证明<strong>已解析</strong>类型；对未加载 client 类的保证改用 class 文件
- * ISO-8859-1 常量池字节串断言（不触发 Class.forName 解析 client 类，也不实例化
- * {@link NetworkMain}——其构造会触碰 FML NetworkRegistry，纯 JVM 无 LaunchClassLoader）。</p>
+ * <p>JVM 反射只能证明<strong>已解析</strong>类型；对未加载 client 类的保证改用编译产物常量池文本判定
+ * （{@link CompiledClasses#references(Class, String)}：按类加载器资源定位 .class，整池按 ISO-8859-1
+ * 解码后做子串判定），既不触发 Class.forName 解析 client 类，也不实例化 {@link NetworkMain}——
+ * 其构造函数会触碰 FML NetworkRegistry，纯 JVM 无 LaunchClassLoader）。</p>
+ *
+ * <p><b>这一形态证伪什么</b>：common 侧产物里出现 client / LWJGL 的类型引用、成员引用，或仅仅把它们
+ * 写进字符串——{@code Class.forName("net.minecraft.client...")} 这类反射式依赖同样被拦下；
+ * <b>守不到什么</b>：它也会命中「恰好提到该名字」的调试文案，故失败时先分辨是引用还是文案。</p>
  */
 public class CommonNetworkClassBoundaryTest {
 
@@ -144,45 +147,15 @@ public class CommonNetworkClassBoundaryTest {
         }
     }
 
-    private static void assertClassBytecodeClean(Class<?> type) throws IOException {
-        String resource = type.getName().replace('.', '/') + ".class";
-        InputStream in = type.getClassLoader().getResourceAsStream(resource);
-        Assert.assertNotNull("class bytes missing for " + type.getName(), in);
-        byte[] bytes;
-        try {
-            bytes = readAll(in);
-        } finally {
-            in.close();
-        }
-        // class 常量池以 Modified UTF-8 存内部名；用 ISO-8859-1 扫描足够覆盖路径串
-        String ascii = new String(bytes, "ISO-8859-1");
+    /**
+     * 编译产物常量池不得出现 client / LWJGL 名字。定位（类加载器资源）与判定（ISO-8859-1 常量池文本子串）
+     * 全部走共享工具 {@link CompiledClasses#references(Class, String)}——本类不再自带私有常量池读取副本。
+     */
+    private static void assertClassBytecodeClean(Class<?> type) {
         for (String forbidden : FORBIDDEN_SUBSTRINGS) {
             Assert.assertFalse(
                     type.getName() + " bytecode must not contain " + forbidden,
-                    ascii.contains(forbidden));
+                    CompiledClasses.references(type, forbidden));
         }
-    }
-
-    private static byte[] readAll(InputStream in) throws IOException {
-        List<byte[]> chunks = new ArrayList<byte[]>();
-        int total = 0;
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = in.read(buf)) >= 0) {
-            if (n == 0) {
-                continue;
-            }
-            byte[] chunk = new byte[n];
-            System.arraycopy(buf, 0, chunk, 0, n);
-            chunks.add(chunk);
-            total += n;
-        }
-        byte[] all = new byte[total];
-        int pos = 0;
-        for (byte[] chunk : chunks) {
-            System.arraycopy(chunk, 0, all, pos, chunk.length);
-            pos += chunk.length;
-        }
-        return all;
     }
 }

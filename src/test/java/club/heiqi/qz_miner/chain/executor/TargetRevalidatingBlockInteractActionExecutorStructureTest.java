@@ -1,8 +1,5 @@
 package club.heiqi.qz_miner.chain.executor;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Collections;
 import java.util.UUID;
 
@@ -20,6 +17,8 @@ import club.heiqi.qz_miner.chain.planner.ImmatureCropBlockMatcher;
 import club.heiqi.qz_miner.chain.planner.SameBlockMatcher;
 import club.heiqi.qz_miner.chain.state.ChainRequest;
 import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
+import club.heiqi.qz_miner.testsupport.CompiledClasses;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
@@ -96,19 +95,31 @@ public class TargetRevalidatingBlockInteractActionExecutorStructureTest {
 
     @Test
     public void executorReusesPermissionAndTargetedActivationAndCatchesModFailures() throws Exception {
-        String source = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/executor/"
-                        + "TargetRevalidatingBlockInteractActionExecutor.java").toPath()),
-                StandardCharsets.UTF_8);
-        int permission = source.indexOf("super.canExecute(player, session, target)");
-        int matcher = source.indexOf("createLiveMatcher(session.getRequest(), expectedSubMode)");
+        Assert.assertEquals("目标化右键实现必须只复用 generic executor",
+                BlockInteractActionExecutor.class,
+                TargetRevalidatingBlockInteractActionExecutor.class.getSuperclass());
+        Assert.assertTrue("目标化右键实现仍必须挂在链式执行器接口上",
+                ChainActionExecutor.class.isAssignableFrom(TargetRevalidatingBlockInteractActionExecutor.class));
 
-        Assert.assertTrue(source.contains("extends BlockInteractActionExecutor"));
-        Assert.assertTrue(permission >= 0 && matcher > permission);
-        Assert.assertTrue(source.contains("catch (RuntimeException | LinkageError failure)"));
-        Assert.assertFalse("目标化右键实现必须只复用 generic executor",
-                source.contains("activateBlockOrUseItem("));
-        Assert.assertFalse("液体 Item 路径不属于该执行器", source.contains("tryUseItem("));
+        String code = JavaSourceSlices.maskedMainSource(
+                "src/main/java/club/heiqi/qz_miner/chain/executor/"
+                        + "TargetRevalidatingBlockInteractActionExecutor.java");
+        String canExecute = JavaSourceSlices.methodBodyWithoutSignature(code, "canExecute");
+        int permission = JavaSourceSlices.wordIndexOf(canExecute, "super.canExecute");
+        int matcher = JavaSourceSlices.wordIndexOf(canExecute, "createLiveMatcher");
+        int revalidate = JavaSourceSlices.wordIndexOf(canExecute, "matches(");
+
+        Assert.assertTrue("必须先复用父类权限门", permission >= 0 && matcher > permission);
+        Assert.assertTrue("live matcher 建好后必须真的重验目标", revalidate > matcher);
+        Assert.assertTrue("模组异常必须被吸收", JavaSourceSlices.mentions(canExecute, "catch"));
+        Assert.assertFalse("模组异常必须 fail-closed，catch 内不得 return true",
+                JavaSourceSlices.blockAfter(canExecute, "catch").contains("return true"));
+        Assert.assertFalse("目标化右键实现必须只复用 generic executor，不得自己激活",
+                CompiledClasses.references(
+                        TargetRevalidatingBlockInteractActionExecutor.class, "activateBlockOrUseItem"));
+        Assert.assertFalse("液体 Item 路径不属于该执行器",
+                CompiledClasses.references(
+                        TargetRevalidatingBlockInteractActionExecutor.class, "tryUseItem"));
     }
 
     private static ChainBlockMatcher matcher(ChainSubMode subMode, ModeExtensionSnapshot extension) {

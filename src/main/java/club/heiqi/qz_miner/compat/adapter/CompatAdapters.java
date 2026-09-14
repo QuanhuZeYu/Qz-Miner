@@ -191,14 +191,28 @@ public final class CompatAdapters {
     }
 
     private static boolean matchesLiveBlock(World world, int x, int y, int z, Block block, int metadata) {
+        // 守卫必须留在世界查询之前：期望值非法（block==null / metadata<0）时不得先查世界——
+        // 与原实现保持同一短路顺序。纯函数内的同名判据是给真值表用的，不改这里的求值时机。
         if (world == null || block == null || metadata < 0) {
             return false;
         }
         try {
-            return world.getBlock(x, y, z) == block && world.getBlockMetadata(x, y, z) == metadata;
+            return matchesLiveBlock(world.getBlock(x, y, z), world.getBlockMetadata(x, y, z), block, metadata);
         } catch (RuntimeException | LinkageError failure) {
             return false;
         }
+    }
+
+    /**
+     * 包级纯比较接缝：调用方刚读到的方块/metadata 必须与 live 事实逐项一致。
+     *
+     * <p>把「一致性判定」从世界查询里剥出来，headless 纯 JVM 才能按真值表证伪它
+     * （同实例同 metadata 通过，块漂移 / metadata 漂移 / 期望值非法一律拒绝）；
+     * 世界查询本身仍留在上面的重载里，语义不变。</p>
+     */
+    static boolean matchesLiveBlock(Block liveBlock, int liveMetadata, Block expectedBlock, int expectedMetadata) {
+        return expectedBlock != null && expectedMetadata >= 0
+                && liveBlock == expectedBlock && liveMetadata == expectedMetadata;
     }
 
     private static CropGrowthState vanillaCropGrowthState(World world, int x, int y, int z, Block block) {

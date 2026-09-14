@@ -1,8 +1,5 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -14,12 +11,17 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 import club.heiqi.qz_miner.parallel.ParallelTickStage;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /** 服务端真实 queue 与 traverser confirmedCount 单一写点合同。 */
 public class ChainPlanningConfirmedCountContractTest {
 
     private static final ChainTarget ORIGIN = new ChainTarget(0, 0, 0);
     private static final int MAX_TARGETS = 4;
+    private static final String BRIDGE_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java";
+    private static final String PREVIEW_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java";
 
     /** 六个生产 traverser 的每次真实 consumer 提交必须恰好对应一次 confirmed。 */
     @Test
@@ -71,23 +73,25 @@ public class ChainPlanningConfirmedCountContractTest {
 
     /** 生产 bridge consumer 只负责入队；预览 origin 的独立投影计数保持原语义。 */
     @Test
-    public void bridgeDoesNotDoubleCountAndPreviewOriginRemainsSeparate() throws Exception {
-        String bridge = read(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningEventBridge.java");
-        int workerStart = bridge.indexOf("private ParallelTaskResult runShadowSlice(");
-        int workerEnd = bridge.indexOf("static boolean tryCompletePlanningOrCancel(", workerStart);
-        String worker = bridge.substring(workerStart, workerEnd);
-        Assert.assertTrue(worker.contains("shadowQueue.add(target)"));
-        Assert.assertFalse("bridge consumer 不得成为第二 confirmed 写点",
-                worker.contains("incrementConfirmedCount()"));
+    public void bridgeDoesNotDoubleCountAndPreviewOriginRemainsSeparate() {
+        String bridge = JavaSourceSlices.stripped(BRIDGE_PATH);
+        String worker = JavaSourceSlices.methodBody(bridge, "private ParallelTaskResult runShadowSlice(",
+                "ChainPlanningEventBridge.runShadowSlice");
+        JavaSourceSlices.assertContains(worker, "shadowQueue.add(target)",
+                "bridge consumer 只负责入队");
+        JavaSourceSlices.assertAbsent(worker, "incrementConfirmedCount()",
+                "bridge consumer 不得成为第二 confirmed 写点");
 
-        String preview = read(
-                "src/main/java/club/heiqi/qz_miner/chain/client/ChainPreviewController.java");
-        int originAdd = preview.indexOf("previewState.addPreviewTarget(generation, target)");
-        int originCount = preview.indexOf("searchContext.incrementConfirmedCount()", originAdd);
-        int traverserSeed = preview.indexOf("traverser.seed(searchContext)", originCount);
-        Assert.assertTrue("预览 origin 仍须在 traverser seed 前单独计入投影",
-                originAdd >= 0 && originCount > originAdd && traverserSeed > originCount);
+        // 预览侧原先用「同名字符串 indexOf 到文件尾」定位三个锚点，别处的同名调用也能满足顺序；
+        // 现在先切出真正承载预览推进的 startPreview(World, ...) 重载，再比相对位置。
+        String previewSource = JavaSourceSlices.stripped(PREVIEW_PATH);
+        int secondOverload = previewSource.indexOf("private void startPreview(") + 1;
+        String preview = JavaSourceSlices.methodBody(previewSource, "private void startPreview(",
+                secondOverload, "ChainPreviewController.startPreview(World, ...)");
+        JavaSourceSlices.assertBefore(preview, "addPreviewTarget(", "incrementConfirmedCount()",
+                "预览 origin 必须在 traverser seed 前单独计入投影");
+        JavaSourceSlices.assertBefore(preview, "incrementConfirmedCount()", "traverser.seed(",
+                "预览投影计数必须先于 traverser seed");
     }
 
     private static void assertExactAtMax(String label, BudgetedChainTraverser traverser,
@@ -120,10 +124,6 @@ public class ChainPlanningConfirmedCountContractTest {
                 target -> false);
         context.setCandidateFilter(target -> true);
         return context;
-    }
-
-    private static String read(String path) throws Exception {
-        return new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8);
     }
 
     /** 每个 step 独立提供固定 deadline checkpoint 数。 */

@@ -1,11 +1,5 @@
 package club.heiqi.qz_miner.client.picker;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -15,6 +9,7 @@ import org.junit.Test;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
@@ -93,29 +88,52 @@ public class BlockPickerRegistryWatcherTest {
         Assert.assertFalse("无客户端注册表时不得标脏", fixture.source.isRegistryDirty());
     }
 
+    /**
+     * 装配单点 + 事件入口只标脏不重建。
+     *
+     * <p>事件通道本身（哪条事件走哪个入口、参数是否为 Forge Event 子类）由
+     * {@code BlockPickerEventRegistrationContractTest} 的反射与产物断言覆盖，本用例不再重复；
+     * 这里只钉两件结构契约：{@code ClientProxy.init} 内构造并注册监听、事件入口方法体内
+     * 不得出现注册表快照重建路径（行为面的「回调不重建」已由本类前三个行为用例覆盖）。</p>
+     */
     @Test
-    public void clientBootstrapRegistersWatcherWithBothInvalidationSources() throws Exception {
-        String clientProxy = read(new File("src/main/java/club/heiqi/qz_miner/ClientProxy.java"));
-        Assert.assertTrue("ClientProxy 必须注册注册表监听",
-                clientProxy.contains("new BlockPickerRegistryWatcher(") && clientProxy.contains(".register()"));
+    public void clientBootstrapRegistersWatcherAndEventCallbacksOnlyMarkDirty() throws Exception {
+        String proxy = JavaSourceSlices.stripCommentsIgnoringStringLiterals(JavaSourceSlices.read(
+                "src/main/java/club/heiqi/qz_miner/ClientProxy.java"));
+        String init = JavaSourceSlices.methodBody(proxy,
+                "public void init(FMLInitializationEvent event)", "ClientProxy.init");
+        JavaSourceSlices.assertBefore(init, "new BlockPickerRegistryWatcher(", "blockPickerRegistryWatcher.register()", "注册表监听必须构造后注册");
 
-        String watcher = read(new File("src/main/java/club/heiqi/qz_miner/client/picker/"
-                + "BlockPickerRegistryWatcher.java"));
-        Assert.assertTrue("必须订阅 FMLLoadCompleteEvent", watcher.contains("FMLLoadCompleteEvent"));
-        Assert.assertTrue("必须订阅 FMLModIdMappingEvent", watcher.contains("FMLModIdMappingEvent"));
-        Assert.assertTrue("必须订阅客户端 tick 兜底", watcher.contains("TickEvent.ClientTickEvent"));
-        Assert.assertTrue("只允许标脏入口", watcher.contains("markRegistryDirty"));
-        Assert.assertFalse("禁止任何重建路径出现在事件回调内",
-                watcher.contains("BlockRegistrySnapshot.capture"));
+        String watcher = JavaSourceSlices.stripCommentsIgnoringStringLiterals(JavaSourceSlices.read(
+                "src/main/java/club/heiqi/qz_miner/client/picker/BlockPickerRegistryWatcher.java"));
+        assertDelegatesWithoutRebuild(watcher, "public void onLoadComplete(", "onLoadComplete");
+        assertDelegatesWithoutRebuild(watcher, "public void onModIdMapping(", "onModIdMapping");
+        assertOnlyMarksDirty(watcher, "void onRegistrySourceChanged(String reason)", "onRegistrySourceChanged");
+
+        String tick = JavaSourceSlices.methodBody(watcher, "public void onClientTick(", "onClientTick");
+        JavaSourceSlices.requireAt(tick, "onClientTick 必须只走 O(1) 兜底探测", "probeRegistryKeyCount(");
+        JavaSourceSlices.requireAbsent(tick, "onClientTick 不得重建注册表快照", "BlockRegistrySnapshot");
+        JavaSourceSlices.requireAbsent(tick, "onClientTick 不得触发捕获", ".capture(");
     }
 
     private static TickEvent.ClientTickEvent tick(TickEvent.Phase phase) {
         return new TickEvent.ClientTickEvent(phase);
     }
 
-    private static String read(File file) throws IOException {
-        Assert.assertTrue("源码文件必须存在: " + file.getPath(), file.isFile());
-        return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+    /** FML 生命周期入口只允许委托标脏入口，不得自行重建。 */
+    private static void assertDelegatesWithoutRebuild(String source, String signature, String label) {
+        String body = JavaSourceSlices.methodBody(source, signature, label);
+        JavaSourceSlices.requireAt(body, label + " 必须委托标脏入口", "onRegistrySourceChanged(");
+        JavaSourceSlices.requireAbsent(body, label + " 事件回调内不得重建注册表快照", "BlockRegistrySnapshot");
+        JavaSourceSlices.requireAbsent(body, label + " 事件回调内不得触发捕获", ".capture(");
+    }
+
+    /** 标脏入口只允许写脏标记。 */
+    private static void assertOnlyMarksDirty(String source, String signature, String label) {
+        String body = JavaSourceSlices.methodBody(source, signature, label);
+        JavaSourceSlices.requireAt(body, label + " 必须标脏", "markRegistryDirty");
+        JavaSourceSlices.requireAbsent(body, label + " 不得重建注册表快照", "BlockRegistrySnapshot");
+        JavaSourceSlices.requireAbsent(body, label + " 不得触发捕获", ".capture(");
     }
 
     /** 假清单捕获桩 + 可注入 key 数探针。 */

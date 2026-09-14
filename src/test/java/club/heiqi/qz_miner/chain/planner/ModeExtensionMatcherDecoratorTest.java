@@ -1,9 +1,7 @@
 package club.heiqi.qz_miner.chain.planner;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -12,11 +10,14 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
+import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /** 对象组模式安全 decorator 的表驱动测试。 */
 public class ModeExtensionMatcherDecoratorTest {
 
     private static final ChainTarget TARGET = new ChainTarget(1, 2, 3);
+    private static final String DECORATOR_PATH =
+            "src/main/java/club/heiqi/qz_miner/chain/planner/ModeExtensionMatcherDecorator.java";
 
     static List<ChainSubMode> supportedModes() {
         return Arrays.asList(ChainSubMode.CHAIN_BASE, ChainSubMode.CHAIN_ORE, ChainSubMode.CHAIN_LOGGING,
@@ -110,20 +111,25 @@ public class ModeExtensionMatcherDecoratorTest {
             filter, new FrozenModePredicate(ModeExtensionSnapshot.EMPTY), null));
     }
 
+    /**
+     * 直接装饰器的兼容入口只允许绑定规划宽进门。
+     *
+     * <p>Lead 裁定第 14 条：改为 token 扫描并去掉对尾随逗号的依赖——断言类内出现的
+     * {@code ChainHarvestRules::x} 方法引用集合恰为 {canPlanHarvest}。旧写法依赖
+     * {@code "ChainHarvestRules::canHarvest,"} 的尾随逗号，写法一变即失效，
+     * 且「换绑另一个门」只在拼写完全一致时才会被发现。</p>
+     *
+     * <p>已删：{@code selectPlanningEvaluator(mode, capabilitySnapshot)}、
+     * {@code boundMatcher, diagnostics, planningEvaluator}、{@code evaluator.evaluate(currentPlayer, target}
+     * 三条逐字实参文本快照——同一语义已由 ChainHarvestRulesTest（模式门行为 + 装配接缝必须收到
+     * planningEvaluator + 扩展门先求值再落诊断）与 ChainPlanningDiagnosticsTest（原子装配顺序）承担。</p>
+     */
     @Test
-    public void productionHarvestExtensionUsesTopLevelModeSelectedPlanningGate() throws Exception {
-        String decorator = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ModeExtensionMatcherDecorator.java").toPath()),
-                StandardCharsets.UTF_8);
-        String factory = new String(Files.readAllBytes(new File(
-                "src/main/java/club/heiqi/qz_miner/chain/planner/ChainPlanningRuntimeFactory.java").toPath()),
-                StandardCharsets.UTF_8);
-        Assert.assertTrue("直接装饰器的兼容入口保持 AREA 宽进 admission",
-                decorator.contains("ChainHarvestRules::canPlanHarvest"));
-        Assert.assertFalse(decorator.contains("ChainHarvestRules::canHarvest,"));
-        Assert.assertTrue(factory.contains("selectPlanningEvaluator(mode, capabilitySnapshot)"));
-        Assert.assertTrue(factory.contains("boundMatcher, diagnostics, planningEvaluator"));
-        Assert.assertTrue(factory.contains("evaluator.evaluate(currentPlayer, target"));
+    public void productionHarvestExtensionUsesTopLevelModeSelectedPlanningGate() {
+        String decorator = JavaSourceSlices.stripped(DECORATOR_PATH);
+        Assert.assertEquals("直接装饰器的兼容入口只允许绑定规划宽进门",
+                Collections.singleton("canPlanHarvest"),
+                JavaSourceSlices.identifiersAfter(decorator, "ChainHarvestRules::"));
     }
 
     private static ChainBlockMatcher matcher(ChainSubMode mode, boolean base, boolean extension, boolean gate) {
