@@ -33,7 +33,7 @@ public class ProjectionContractTest {
     @Test
     public void headerMapsStateFieldsIncludingTruncation() {
         ChainPreviewState state = new ChainPreviewState();
-        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, new ChainTarget(1, 0, 0));
         state.addPreviewTarget(generation, new ChainTarget(2, 0, 0));
         state.incrementScannedCount(generation);

@@ -28,7 +28,7 @@ public class ChainPreviewPresentationProjectionTest {
     @Test
     public void sampleAndPublishMapsStateControllerAndPhaseFields() {
         ChainPreviewState state = new ChainPreviewState();
-        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
         state.addPreviewTarget(generation, new ChainTarget(1, 0, 0));
         Assert.assertTrue(state.reportTruncation(
@@ -81,7 +81,7 @@ public class ChainPreviewPresentationProjectionTest {
     @Test
     public void sixIdentityDimensionsRepublishWhileUnchangedContentDoesNot() {
         ChainPreviewState state = new ChainPreviewState();
-        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
         ClientPhaseProjection phaseProjection = new ClientPhaseProjection();
         phaseProjection.update(ChainPhase.ARMED, 1, 10L);
@@ -136,7 +136,7 @@ public class ChainPreviewPresentationProjectionTest {
     @Test
     public void subscribeUnsubscribeLifecycleAndListenerFailureIsolation() {
         ChainPreviewState state = new ChainPreviewState();
-        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
         ClientPhaseProjection phaseProjection = new ClientPhaseProjection();
         ChainPreviewController controller = new ChainPreviewController();

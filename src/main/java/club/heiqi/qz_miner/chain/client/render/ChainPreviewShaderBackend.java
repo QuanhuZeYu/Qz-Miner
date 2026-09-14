@@ -95,8 +95,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     /** 生长 uniform 复用缓冲：out[0] = uAnimProgress，out[1] = uAppearSpan（每帧零分配）。 */
     private final float[] animationUniform = new float[2];
-    /** config 档四槽调色板复用缓冲（每帧零分配；builtin 档直接复用静态精确常量表）。 */
-    private final float[][] colorPaletteScratch = new float[4][3];
+    /** config 档六槽调色板复用缓冲（每帧零分配；builtin 档直接复用静态精确常量表）。 */
+    private final float[][] colorPaletteScratch = new float[ChainPreviewShaderMath.PALETTE_SLOT_COUNT][3];
     /** 相机相对 origin 复用缓冲（double 域相减结果，每帧零分配）。 */
     private final double[] originRelative = new double[3];
 
@@ -523,28 +523,33 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     /**
-     * 四槽语义调色板 uniform 的取值（顺序 = {@link ChainPreviewShaderMath#PALETTE_PRIMARY} …
+     * 六槽语义调色板 uniform 的取值（顺序 = {@link ChainPreviewShaderMath#PALETTE_CHAIN} …
      * {@link ChainPreviewShaderMath#PALETTE_TRUNCATED}）。
      *
      * <p>两档走不同精度通道：</p>
      * <ul>
-     *   <li><b>builtin（生产默认）</b>：返回<b>静态复用的精确基线常量</b> (0.25, 0.9, 1.0)。
-     *       刻意不消费 plan 的 {@code Colors.BUILTIN_RGB}（= 0x40E6FF 的 8bit 量化值）——
-     *       量化后 R=0.25098…、G=0.90196…，与 legacy 颜色流有 ≤0.002 色差，会破坏
-     *       「builtin 逐字节等于现状」；plan 侧该量化值只用于值相等与诊断。</li>
-     *   <li><b>config</b>：四槽取 plan 的四色（配置本以 int RGB 存储），按 8bit 量化（{@code /255}）
+     *   <li><b>builtin（生产默认）</b>：返回<b>静态复用的精确调色板表</b>（CHAIN 槽 = 精确基线常量
+     *       (0.25, 0.9, 1.0)，其余五槽按 /255 取显式 0xRRGGBB）。刻意不消费 plan 的
+     *       {@code Colors.BUILTIN_CHAIN_RGB}（= 0x40E6FF 的 8bit 量化值）——量化后
+     *       R=0.25098…、G=0.90196…，与 legacy 颜色流有 ≤0.002 色差，会破坏
+     *       「默认档逐字节等于现状」；plan 侧该量化值只用于值相等与诊断。</li>
+     *   <li><b>config</b>：六槽取 plan 的六色（配置本以 int RGB 存储），按 8bit 量化（{@code /255}）
      *       写进调用方提供的复用缓冲；该量化差异只出现在本档，已登记。</li>
      * </ul>
      *
      * @param plan          当前 draw plan（颜色来源只经 plan 传入，遵守 §H 单通道）
-     * @param configScratch config 档输出缓冲（4 × 3 槽位数组，调用方复用）；builtin 档不使用
-     * @return 长度 4 的 RGB 表；builtin 档为<b>静态只读表</b>，调用方不得修改
+     * @param configScratch config 档输出缓冲（{@link ChainPreviewShaderMath#PALETTE_SLOT_COUNT} × 3
+     *                      槽位数组，调用方复用）；builtin 档不使用
+     * @return 长度 {@link ChainPreviewShaderMath#PALETTE_SLOT_COUNT} 的 RGB 表；builtin 档为
+     *         <b>静态只读表</b>，调用方不得修改
      */
     static float[][] paletteUniforms(ChainPreviewDrawPlan plan, float[][] configScratch) {
         if (!ChainPreviewShaderMath.COLOR_SOURCE_CONFIG.equals(plan.getColorSourceId())) {
             return ChainPreviewShaderMath.builtinColorTable();
         }
-        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_PRIMARY], plan.getColorPrimary());
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_CHAIN], plan.getColorChain());
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_AREA], plan.getColorArea());
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_INTERACT], plan.getColorInteract());
         fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_SECONDARY], plan.getColorSecondary());
         fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_REMOTE], plan.getColorRemote());
         fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_TRUNCATED], plan.getColorTruncated());
@@ -680,8 +685,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 传 1.0 时 GLSL 完全不进入该分支。
         program.setOrderMinBrightness(orderMinBrightnessFor(plan));
 
-        // 调色板：builtin 档四槽都传精确基线常量 (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流
-        // （不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）。
+        // 调色板：builtin 档传内置六色表，CHAIN 槽是精确基线常量 (0.25, 0.9, 1.0)，
+        // 逐位等于 legacy 颜色流（不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）；
+        // 其余五槽是本轮新增的按大模式区分色（显式 0xRRGGBB，/255 换算）。
         applyColorPalette(plan);
         return true;
     }
@@ -851,16 +857,16 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     /**
-     * 设置四色调色板（uniform 声明在**顶点**着色器：选色在顶点阶段完成，F1）。
+     * 设置六色调色板（uniform 声明在**顶点**着色器：选色在顶点阶段完成，F1）。
      *
      * <p>取值规则见 {@link #paletteUniforms(ChainPreviewDrawPlan, float[][])}（纯函数，可 headless
-     * 断言数值）：builtin 档四槽传精确基线常量 (0.25, 0.9, 1.0)，config 档按 8bit 量化传 plan 的四色。</p>
+     * 断言数值）：builtin 档传内置调色板（CHAIN 槽为精确基线常量），config 档按 8bit 量化传 plan 六色。</p>
      *
      * @param plan 当前 draw plan（配置只经 plan 传入，保持「只读 plan + uniform」单通道，遵守 §H）
      */
     private void applyColorPalette(ChainPreviewDrawPlan plan) {
         float[][] palette = paletteUniforms(plan, colorPaletteScratch);
-        for (int slot = ChainPreviewShaderMath.PALETTE_PRIMARY;
+        for (int slot = ChainPreviewShaderMath.PALETTE_CHAIN;
                 slot <= ChainPreviewShaderMath.PALETTE_TRUNCATED; slot++) {
             float[] rgb = palette[slot];
             program.setSemanticColor(slot, rgb[0], rgb[1], rgb[2]);

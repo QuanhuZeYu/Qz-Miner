@@ -117,10 +117,11 @@ public final class ChainPreviewDrawPlan {
 
         /**
          * 语义颜色面（不可变）：由 renderer 从 ChainPreviewVisualSettings 经
-         * {@link #fromConfig(String, int, int, int, int)} 映射后填入，shader 只读 plan。
+         * {@link #fromConfig(String, int, int, int, int, int, int)} 映射后填入，shader 只读 plan。
          *
-         * <p>{@code builtin} 档四色一律取 §D 基线常量 (0.25, 0.90, 1.00)（quantize 后 = 0x40E6FF），
-         * 与 legacy CPU 颜色流逐位一致；{@code config} 档按位取配置色；null / 未知 sourceId 兜底 builtin。</p>
+         * <p>{@code builtin} 档六槽取 {@code BUILTIN_*_RGB}（其中 CHAIN 槽 quantize 后 = 0x40E6FF，
+         * 与 legacy CPU 颜色流逐位一致——见 {@code ChainPreviewShaderMath.builtinColorTable()}），
+         * 默认即按大模式可区分；{@code config} 档按位取配置色；null / 未知 sourceId 兜底 builtin。</p>
          */
         public static final class Colors {
 
@@ -130,39 +131,67 @@ public final class ChainPreviewDrawPlan {
             /** 颜色来源稳定 id：配置色。 */
             public static final String SOURCE_CONFIG = "config";
 
-            /**
-             * §D builtin 基线常量 (0.25, 0.90, 1.00) 的 0xRRGGBB 量化值（本值仅用于值相等 / 诊断口径，
-             * 与精确 float 常量并非逐位相等：64/255≈0.25098、230/255≈0.90196）；
-             * 像素路径（shader uniform / legacy 颜色流）请使用精确常量 0.25F/0.9F/1.0F，不要反量化本值。
-             */
-            public static final int BUILTIN_RGB = 0x40E6FF;
+            /** 色槽数：与 {@code ChainPreviewShaderMath.PALETTE_SLOT_COUNT}、preview.vert 的 uColor* 同源。 */
+            public static final int SLOT_COUNT = 6;
 
-            /** 全类别 + 全字段基线常量色。 */
-            public static final Colors BUILTIN =
-                new Colors(SOURCE_BUILTIN, BUILTIN_RGB, BUILTIN_RGB, BUILTIN_RGB, BUILTIN_RGB);
+            /**
+             * builtin 档 CHAIN 槽：legacy 基线常量 (0.25, 0.90, 1.00) 的 0xRRGGBB 量化值
+             * （本值仅用于值相等 / 诊断口径，与精确 float 常量并非逐位相等：64/255≈0.25098、
+             * 230/255≈0.90196）；像素路径（shader uniform / legacy 颜色流）请使用精确常量
+             * 0.25F/0.9F/1.0F，不要反量化本值。
+             */
+            public static final int BUILTIN_CHAIN_RGB = 0x40E6FF;
+
+            /** builtin 档 AREA 槽（本轮新增，默认即可区分）。 */
+            public static final int BUILTIN_AREA_RGB = 0x5CE1A6;
+            /** builtin 档 INTERACT 槽（本轮新增）。 */
+            public static final int BUILTIN_INTERACT_RGB = 0xFFC857;
+            /** builtin 档扩展子模式槽（本轮新增）。 */
+            public static final int BUILTIN_SUB_MODE_RGB = 0xB08CFF;
+            /** builtin 档远端槽（本轮新增）。 */
+            public static final int BUILTIN_REMOTE_RGB = 0x8FA9D0;
+            /** builtin 档截断槽（本轮新增）。 */
+            public static final int BUILTIN_TRUNCATED_RGB = 0xFF7A6B;
+
+            /** builtin 档六槽（彼此不同；用户裁定「默认颜色按大模式区分」）。 */
+            public static final Colors BUILTIN = new Colors(
+                SOURCE_BUILTIN,
+                BUILTIN_CHAIN_RGB,
+                BUILTIN_AREA_RGB,
+                BUILTIN_INTERACT_RGB,
+                BUILTIN_SUB_MODE_RGB,
+                BUILTIN_REMOTE_RGB,
+                BUILTIN_TRUNCATED_RGB);
 
             private final String sourceId;
-            private final int primary;
+            private final int chain;
+            private final int area;
+            private final int interact;
             private final int secondary;
             private final int remote;
             private final int truncated;
 
             /**
-             * 纯映射：{@code config} 档取配置色并按 0xFFFFFF 收窄；其余（builtin / null / 未知）一律基线常量。
+             * 纯映射：{@code config} 档取配置色并按 0xFFFFFF 收窄；其余（builtin / null / 未知）一律 builtin 六槽。
              *
              * @param sourceId        颜色来源 id
-             * @param primary         主模式颜色 0xRRGGBB
-             * @param secondary       子模式颜色 0xRRGGBB
+             * @param chain           CHAIN 大模式颜色 0xRRGGBB
+             * @param area            AREA 大模式颜色 0xRRGGBB
+             * @param interact        INTERACT 大模式颜色 0xRRGGBB
+             * @param secondary       扩展子模式颜色 0xRRGGBB
              * @param remote          远端预测颜色 0xRRGGBB
              * @param truncated       截断颜色 0xRRGGBB
              * @return 归一化颜色面
              */
             public static Colors fromConfig(
-                    String sourceId, int primary, int secondary, int remote, int truncated) {
+                    String sourceId, int chain, int area, int interact,
+                    int secondary, int remote, int truncated) {
                 if (SOURCE_CONFIG.equals(sourceId)) {
                     return new Colors(
                         SOURCE_CONFIG,
-                        primary & 0xFFFFFF,
+                        chain & 0xFFFFFF,
+                        area & 0xFFFFFF,
+                        interact & 0xFFFFFF,
                         secondary & 0xFFFFFF,
                         remote & 0xFFFFFF,
                         truncated & 0xFFFFFF);
@@ -171,9 +200,12 @@ public final class ChainPreviewDrawPlan {
             }
 
             public Colors(
-                    String sourceId, int primary, int secondary, int remote, int truncated) {
+                    String sourceId, int chain, int area, int interact,
+                    int secondary, int remote, int truncated) {
                 this.sourceId = SOURCE_CONFIG.equals(sourceId) ? SOURCE_CONFIG : SOURCE_BUILTIN;
-                this.primary = primary & 0xFFFFFF;
+                this.chain = chain & 0xFFFFFF;
+                this.area = area & 0xFFFFFF;
+                this.interact = interact & 0xFFFFFF;
                 this.secondary = secondary & 0xFFFFFF;
                 this.remote = remote & 0xFFFFFF;
                 this.truncated = truncated & 0xFFFFFF;
@@ -184,18 +216,32 @@ public final class ChainPreviewDrawPlan {
                 return sourceId;
             }
 
-            public int getPrimary() {
-                return primary;
+            /** @return CHAIN 大模式颜色 0xRRGGBB */
+            public int getChain() {
+                return chain;
             }
 
+            /** @return AREA 大模式颜色 0xRRGGBB */
+            public int getArea() {
+                return area;
+            }
+
+            /** @return INTERACT 大模式颜色 0xRRGGBB */
+            public int getInteract() {
+                return interact;
+            }
+
+            /** @return 扩展子模式颜色 0xRRGGBB */
             public int getSecondary() {
                 return secondary;
             }
 
+            /** @return 远端预测颜色 0xRRGGBB */
             public int getRemote() {
                 return remote;
             }
 
+            /** @return 截断颜色 0xRRGGBB */
             public int getTruncated() {
                 return truncated;
             }
@@ -209,7 +255,9 @@ public final class ChainPreviewDrawPlan {
                     return false;
                 }
                 Colors that = (Colors) other;
-                return primary == that.primary
+                return chain == that.chain
+                    && area == that.area
+                    && interact == that.interact
                     && secondary == that.secondary
                     && remote == that.remote
                     && truncated == that.truncated
@@ -219,7 +267,9 @@ public final class ChainPreviewDrawPlan {
             @Override
             public int hashCode() {
                 int result = sourceId.hashCode();
-                result = 31 * result + primary;
+                result = 31 * result + chain;
+                result = 31 * result + area;
+                result = 31 * result + interact;
                 result = 31 * result + secondary;
                 result = 31 * result + remote;
                 result = 31 * result + truncated;
@@ -229,7 +279,9 @@ public final class ChainPreviewDrawPlan {
             @Override
             public String toString() {
                 return "Colors{" + sourceId
-                    + ", primary=0x" + Integer.toHexString(primary)
+                    + ", chain=0x" + Integer.toHexString(chain)
+                    + ", area=0x" + Integer.toHexString(area)
+                    + ", interact=0x" + Integer.toHexString(interact)
                     + ", secondary=0x" + Integer.toHexString(secondary)
                     + ", remote=0x" + Integer.toHexString(remote)
                     + ", truncated=0x" + Integer.toHexString(truncated)
@@ -1221,22 +1273,32 @@ public final class ChainPreviewDrawPlan {
         return visuals.getColors().getSourceId();
     }
 
-    /** @return 主模式颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
-    public int getColorPrimary() {
-        return visuals.getColors().getPrimary();
+    /** @return CHAIN 大模式颜色 0xRRGGBB（builtin 档为六槽表槽 0） */
+    public int getColorChain() {
+        return visuals.getColors().getChain();
     }
 
-    /** @return 子模式颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    /** @return AREA 大模式颜色 0xRRGGBB（builtin 档为六槽表槽 1） */
+    public int getColorArea() {
+        return visuals.getColors().getArea();
+    }
+
+    /** @return INTERACT 大模式颜色 0xRRGGBB（builtin 档为六槽表槽 2） */
+    public int getColorInteract() {
+        return visuals.getColors().getInteract();
+    }
+
+    /** @return 扩展子模式颜色 0xRRGGBB（builtin 档为六槽表槽 3） */
     public int getColorSecondary() {
         return visuals.getColors().getSecondary();
     }
 
-    /** @return 远端预测颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    /** @return 远端预测颜色 0xRRGGBB（builtin 档为六槽表槽 4） */
     public int getColorRemote() {
         return visuals.getColors().getRemote();
     }
 
-    /** @return 截断颜色 0xRRGGBB（builtin 档为 §D 基线常量） */
+    /** @return 截断颜色 0xRRGGBB（builtin 档为六槽表槽 5） */
     public int getColorTruncated() {
         return visuals.getColors().getTruncated();
     }

@@ -211,7 +211,7 @@ public class ChainPreviewShaderMatrixSourceTest {
         // ③ 清单内容：反射对账（哪些 uniform 属硬必备是契约本身，不是实现细节）
         java.util.List<String> names = java.util.Arrays.asList(required);
         for (String name : new String[] {
-                "uModelViewProjection", "uOriginRel", "uFadeAlpha", "uColorPrimary" }) {
+                "uModelViewProjection", "uOriginRel", "uFadeAlpha", "uColorChain" }) {
             Assert.assertTrue("硬必备 uniform 必须包含 " + name + "（实际 " + names + "）", names.contains(name));
         }
         // T51：aDirection 位移把 uModelView / uPixelScale / uBarThickness / uMinScreenWidthPx 从能力型

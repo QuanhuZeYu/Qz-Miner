@@ -26,7 +26,7 @@ public class ChainPreviewBuilderSemanticClassTest {
     @Test
     public void alignedCarrierWritesEveryVertexClassFromItsMinIncidentOrder() {
         int[] carrier = {ChainPreviewSemanticClass.REMOTE_PREDICTED,
-            ChainPreviewSemanticClass.PRIMARY_LOCAL,
+            ChainPreviewSemanticClass.CHAIN_LOCAL,
             ChainPreviewSemanticClass.TRUNCATED,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL};
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
@@ -82,7 +82,7 @@ public class ChainPreviewBuilderSemanticClassTest {
     public void shortCarrierFallsBackToUndefinedWithoutMisalignment() {
         long fallbackBefore = ChainPreviewMeshBuilder.getSemanticClassFallbackTotal();
         int[] carrier = {ChainPreviewSemanticClass.REMOTE_PREDICTED,
-            ChainPreviewSemanticClass.PRIMARY_LOCAL};
+            ChainPreviewSemanticClass.CHAIN_LOCAL};
 
         BuildSession session = new ChainPreviewMeshBuilder().begin(
             production(scattered(4)), visuals(), 0.045F, production(carrier));
@@ -93,7 +93,7 @@ public class ChainPreviewBuilderSemanticClassTest {
         Assert.assertEquals(
             fallbackBefore + 2L, ChainPreviewMeshBuilder.getSemanticClassFallbackTotal());
         assertBlockClass(mesh, 0, ChainPreviewSemanticClass.REMOTE_PREDICTED);
-        assertBlockClass(mesh, 2, ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        assertBlockClass(mesh, 2, ChainPreviewSemanticClass.CHAIN_LOCAL);
         assertBlockClass(mesh, 4, ChainPreviewSemanticClass.UNDEFINED);
         assertBlockClass(mesh, 6, ChainPreviewSemanticClass.UNDEFINED);
     }
@@ -132,7 +132,7 @@ public class ChainPreviewBuilderSemanticClassTest {
     public void classesAreDeterministicPerGenerationAndResetOnNextBuild() {
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();
         int[] carrier = {ChainPreviewSemanticClass.REMOTE_PREDICTED,
-            ChainPreviewSemanticClass.PRIMARY_LOCAL};
+            ChainPreviewSemanticClass.CHAIN_LOCAL};
         ChainPreviewMesh first = builder.build(
             production(chain(2)), visuals(), 0.045F, production(carrier));
         ChainPreviewMesh second = builder.build(
@@ -224,7 +224,7 @@ public class ChainPreviewBuilderSemanticClassTest {
             return ChainPreviewSemanticClass.UNDEFINED;
         }
         int value = carrier[order];
-        if (value >= ChainPreviewSemanticClass.PRIMARY_LOCAL
+        if (value >= ChainPreviewSemanticClass.CHAIN_LOCAL
                 && value <= ChainPreviewSemanticClass.EXECUTED) {
             return value;
         }

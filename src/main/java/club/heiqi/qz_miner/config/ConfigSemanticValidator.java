@@ -95,7 +95,9 @@ public final class ConfigSemanticValidator {
         putChoice(typed, errors, draft, "client.clientPreviewRenderBackend", PreviewRenderBackend.ids());
         putDoubleNumber(typed, errors, draft, "client.clientPreviewBarThickness", 0.005D, 0.2D);
         putChoice(typed, errors, draft, "client.clientPreviewColorSource", PreviewColorSource.ids());
-        putIntNumber(typed, errors, draft, "client.clientPreviewColorPrimary", 0, 0xFFFFFF);
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorChain", 0, 0xFFFFFF);
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorArea", 0, 0xFFFFFF);
+        putIntNumber(typed, errors, draft, "client.clientPreviewColorInteract", 0, 0xFFFFFF);
         putIntNumber(typed, errors, draft, "client.clientPreviewColorSecondary", 0, 0xFFFFFF);
         putIntNumber(typed, errors, draft, "client.clientPreviewColorRemote", 0, 0xFFFFFF);
         putIntNumber(typed, errors, draft, "client.clientPreviewColorTruncated", 0, 0xFFFFFF);
@@ -373,7 +375,9 @@ public final class ConfigSemanticValidator {
         public final PreviewRenderBackend clientPreviewRenderBackend;
         public final double clientPreviewBarThickness;
         public final PreviewColorSource clientPreviewColorSource;
-        public final int clientPreviewColorPrimary;
+        public final int clientPreviewColorChain;
+        public final int clientPreviewColorArea;
+        public final int clientPreviewColorInteract;
         public final int clientPreviewColorSecondary;
         public final int clientPreviewColorRemote;
         public final int clientPreviewColorTruncated;
@@ -427,7 +431,9 @@ public final class ConfigSemanticValidator {
             clientPreviewBarThickness = number(typed, "client.clientPreviewBarThickness");
             clientPreviewColorSource = PreviewColorSource.fromId(
                     (String) typed.get("client.clientPreviewColorSource"));
-            clientPreviewColorPrimary = exactInt(typed, "client.clientPreviewColorPrimary");
+            clientPreviewColorChain = exactInt(typed, "client.clientPreviewColorChain");
+            clientPreviewColorArea = exactInt(typed, "client.clientPreviewColorArea");
+            clientPreviewColorInteract = exactInt(typed, "client.clientPreviewColorInteract");
             clientPreviewColorSecondary = exactInt(typed, "client.clientPreviewColorSecondary");
             clientPreviewColorRemote = exactInt(typed, "client.clientPreviewColorRemote");
             clientPreviewColorTruncated = exactInt(typed, "client.clientPreviewColorTruncated");

@@ -505,7 +505,9 @@ public class ChainPreviewRenderer {
             1.0F,
             ChainPreviewDrawPlan.Visuals.Colors.fromConfig(
                 settings.getColorSourceId(),
-                settings.getColorPrimary(),
+                settings.getColorChain(),
+                settings.getColorArea(),
+                settings.getColorInteract(),
                 settings.getColorSecondary(),
                 settings.getColorRemote(),
                 settings.getColorTruncated()),

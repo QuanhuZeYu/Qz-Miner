@@ -46,7 +46,9 @@ public final class ChainPreviewVisualSettings {
     private final String fadeModeId;
     private final String colorSourceId;
     private final String renderBackendId;
-    private final int colorPrimary;
+    private final int colorChain;
+    private final int colorArea;
+    private final int colorInteract;
     private final int colorSecondary;
     private final int colorRemote;
     private final int colorTruncated;
@@ -102,8 +104,10 @@ public final class ChainPreviewVisualSettings {
      * @param fadeModeId 淡出刷新档位稳定 id
      * @param colorSourceId 颜色来源稳定 id
      * @param renderBackendId 后端档位稳定 id（auto / shader / legacy）
-     * @param colorPrimary 主模式颜色 0xRRGGBB
-     * @param colorSecondary 子模式颜色 0xRRGGBB
+     * @param colorChain CHAIN 大模式颜色 0xRRGGBB
+     * @param colorArea AREA 大模式颜色 0xRRGGBB
+     * @param colorInteract INTERACT 大模式颜色 0xRRGGBB
+     * @param colorSecondary 扩展子模式颜色 0xRRGGBB
      * @param colorRemote 远端预测颜色 0xRRGGBB
      * @param colorTruncated 截断颜色 0xRRGGBB
      * @param animationDurationMs 动画时长（毫秒）
@@ -127,7 +131,9 @@ public final class ChainPreviewVisualSettings {
             String fadeModeId,
             String colorSourceId,
             String renderBackendId,
-            int colorPrimary,
+            int colorChain,
+            int colorArea,
+            int colorInteract,
             int colorSecondary,
             int colorRemote,
             int colorTruncated,
@@ -144,7 +150,8 @@ public final class ChainPreviewVisualSettings {
             int maxTargetsHardCap) {
         this(
             barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
-            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            colorSourceId, renderBackendId, colorChain, colorArea, colorInteract, colorSecondary,
+            colorRemote, colorTruncated,
             animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
             alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
             maxTargetsHardCap, false);
@@ -167,7 +174,9 @@ public final class ChainPreviewVisualSettings {
             String fadeModeId,
             String colorSourceId,
             String renderBackendId,
-            int colorPrimary,
+            int colorChain,
+            int colorArea,
+            int colorInteract,
             int colorSecondary,
             int colorRemote,
             int colorTruncated,
@@ -185,7 +194,8 @@ public final class ChainPreviewVisualSettings {
             boolean suppressVanillaHighlight) {
         this(
             barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
-            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            colorSourceId, renderBackendId, colorChain, colorArea, colorInteract, colorSecondary,
+            colorRemote, colorTruncated,
             animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
             alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
             maxTargetsHardCap, suppressVanillaHighlight, OUTLINE_WIDTH_FALLBACK);
@@ -209,7 +219,9 @@ public final class ChainPreviewVisualSettings {
             String fadeModeId,
             String colorSourceId,
             String renderBackendId,
-            int colorPrimary,
+            int colorChain,
+            int colorArea,
+            int colorInteract,
             int colorSecondary,
             int colorRemote,
             int colorTruncated,
@@ -227,7 +239,8 @@ public final class ChainPreviewVisualSettings {
             boolean suppressVanillaHighlight,
             float outlineWidthPx) {
         this(barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
-            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            colorSourceId, renderBackendId, colorChain, colorArea, colorInteract, colorSecondary,
+            colorRemote, colorTruncated,
             animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
             alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
             maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, false);
@@ -252,7 +265,9 @@ public final class ChainPreviewVisualSettings {
             String fadeModeId,
             String colorSourceId,
             String renderBackendId,
-            int colorPrimary,
+            int colorChain,
+            int colorArea,
+            int colorInteract,
             int colorSecondary,
             int colorRemote,
             int colorTruncated,
@@ -271,7 +286,8 @@ public final class ChainPreviewVisualSettings {
             float outlineWidthPx,
             boolean faceShadingEnabled) {
         this(barThickness, minScreenWidthPx, depthModeId, animationId, animationPhaseId, fadeModeId,
-            colorSourceId, renderBackendId, colorPrimary, colorSecondary, colorRemote, colorTruncated,
+            colorSourceId, renderBackendId, colorChain, colorArea, colorInteract, colorSecondary,
+            colorRemote, colorTruncated,
             animationDurationMs, fadeRefreshDistance, fadeFallbackMs, alphaFadeStartRadius,
             alphaFadeEndRadius, alphaStartValue, alphaEndValue, lodId, lodMinAlpha, truncationSignal,
             maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, faceShadingEnabled,
@@ -296,7 +312,9 @@ public final class ChainPreviewVisualSettings {
             String fadeModeId,
             String colorSourceId,
             String renderBackendId,
-            int colorPrimary,
+            int colorChain,
+            int colorArea,
+            int colorInteract,
             int colorSecondary,
             int colorRemote,
             int colorTruncated,
@@ -324,7 +342,9 @@ public final class ChainPreviewVisualSettings {
         this.colorSourceId = nonNull(colorSourceId, PreviewColorSource.defaultValue().id());
         this.renderBackendId = PreviewRenderBackend.fromId(renderBackendId) == null
             ? PreviewRenderBackend.defaultValue().id() : renderBackendId;
-        this.colorPrimary = clampColor(colorPrimary);
+        this.colorChain = clampColor(colorChain);
+        this.colorArea = clampColor(colorArea);
+        this.colorInteract = clampColor(colorInteract);
         this.colorSecondary = clampColor(colorSecondary);
         this.colorRemote = clampColor(colorRemote);
         this.colorTruncated = clampColor(colorTruncated);
@@ -370,7 +390,9 @@ public final class ChainPreviewVisualSettings {
                 ? PreviewColorSource.defaultValue().id() : Config.clientPreviewColorSource.id(),
             Config.clientPreviewRenderBackend == null
                 ? PreviewRenderBackend.defaultValue().id() : Config.clientPreviewRenderBackend.id(),
-            Config.clientPreviewColorPrimary,
+            Config.clientPreviewColorChain,
+            Config.clientPreviewColorArea,
+            Config.clientPreviewColorInteract,
             Config.clientPreviewColorSecondary,
             Config.clientPreviewColorRemote,
             Config.clientPreviewColorTruncated,
@@ -447,12 +469,22 @@ public final class ChainPreviewVisualSettings {
         return renderBackendId;
     }
 
-    /** @return 主模式颜色 0xRRGGBB */
-    public int getColorPrimary() {
-        return colorPrimary;
+    /** @return CHAIN 大模式颜色 0xRRGGBB */
+    public int getColorChain() {
+        return colorChain;
     }
 
-    /** @return 子模式颜色 0xRRGGBB */
+    /** @return AREA 大模式颜色 0xRRGGBB */
+    public int getColorArea() {
+        return colorArea;
+    }
+
+    /** @return INTERACT 大模式颜色 0xRRGGBB */
+    public int getColorInteract() {
+        return colorInteract;
+    }
+
+    /** @return 扩展子模式颜色 0xRRGGBB */
     public int getColorSecondary() {
         return colorSecondary;
     }
@@ -585,7 +617,9 @@ public final class ChainPreviewVisualSettings {
             && animationDurationMs == that.animationDurationMs
             && fadeFallbackMs == that.fadeFallbackMs
             && maxTargetsHardCap == that.maxTargetsHardCap
-            && colorPrimary == that.colorPrimary
+            && colorChain == that.colorChain
+            && colorArea == that.colorArea
+            && colorInteract == that.colorInteract
             && colorSecondary == that.colorSecondary
             && colorRemote == that.colorRemote
             && colorTruncated == that.colorTruncated
@@ -613,7 +647,9 @@ public final class ChainPreviewVisualSettings {
         result = 31 * result + fadeModeId.hashCode();
         result = 31 * result + colorSourceId.hashCode();
         result = 31 * result + renderBackendId.hashCode();
-        result = 31 * result + colorPrimary;
+        result = 31 * result + colorChain;
+        result = 31 * result + colorArea;
+        result = 31 * result + colorInteract;
         result = 31 * result + colorSecondary;
         result = 31 * result + colorRemote;
         result = 31 * result + colorTruncated;

@@ -80,8 +80,8 @@ public class PreviewInputSnapshotTest {
 
             ChainPreviewVisualSettings changed = new ChainPreviewVisualSettings(
                 0.1F, 0.0F, "xray", "off", "order", "timer", "builtin", "auto",
-                0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
-                "off", 0.05F, false, 4096);
+                0x40E6FF, 0x5CE1A6, 0xFFC857, 0xB08CFF, 0x8FA9D0, 0xFF7A6B,
+                120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F, "off", 0.05F, false, 4096);
             Assert.assertNotEquals(fresh, changed);
             Assert.assertTrue("视觉设置内容变化必须重建（按住连锁键改配置即重建）",
                 ChainPreviewController.shouldRestartPreview(

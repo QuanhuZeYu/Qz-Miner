@@ -101,9 +101,12 @@ uniform float uOrderMinBrightness;    // 连锁序渐弱（第 9 项）的**亮�
                                  // 序号未定义 / uAppearSpan <= 0 时该分支也保持恒等 1.0；
                                  // 权重只乘颜色亮度（rgb），alpha 不消费本 uniform
 
-// 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表）。
-// builtin 档四色都是精确基线常量 (0.25, 0.9, 1.0) ⇒ 输出逐字节等于现状。
-uniform vec3 uColorPrimary;
+// 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表；六色按【大模式】区分）。
+// builtin 档由 Java 侧 ChainPreviewShaderMath.builtinColorTable() 供给：CHAIN 槽是精确基线常量
+// (0.25, 0.9, 1.0) ⇒ 默认大模式输出逐字节等于现状；其余五槽是显式 0xRRGGBB 的内置色。
+uniform vec3 uColorChain;
+uniform vec3 uColorArea;
+uniform vec3 uColorInteract;
 uniform vec3 uColorSecondary;
 uniform vec3 uColorRemote;
 uniform vec3 uColorTruncated;
@@ -116,12 +119,14 @@ float auxChannel(float value) {
 }
 
 /**
- * 语义类别 → 颜色，与接口冻结 §D 类别表逐条对应（task-16 冻结值域）：
- *   0 PRIMARY_LOCAL → uColorPrimary
- *   1 SUB_MODE_LOCAL → uColorSecondary
- *   2 REMOTE_PREDICTED → uColorRemote
- *   3 TRUNCATED → uColorTruncated（本轮数据源不产出，保留合法分支）
- *   4 DEFERRED / 5 EXECUTED / 255 UNDEFINED 及任何未知值 → uColorPrimary 兜底
+ * 语义类别 → 颜色，与接口冻结 §D 类别表逐条对应（本轮按【大模式】重排值域）：
+ *   0 CHAIN_LOCAL → uColorChain
+ *   1 AREA_LOCAL → uColorArea
+ *   2 INTERACT_LOCAL → uColorInteract
+ *   3 SUB_MODE_LOCAL → uColorSecondary
+ *   4 REMOTE_PREDICTED → uColorRemote
+ *   5 TRUNCATED → uColorTruncated（本轮数据源不产出，保留合法分支）
+ *   6 DEFERRED / 7 EXECUTED / 255 UNDEFINED 及任何未知值 → uColorChain 兜底
  *
  * <p><b>必须在顶点阶段选色</b>：varying 是 smooth 插值的，一个 quad 内若两顶点类别不同
  * （共享角点取相邻目标的最小类别序），插值结果会落在两整数之间——片元里用
@@ -133,15 +138,21 @@ float auxChannel(float value) {
  */
 vec3 previewSemanticColor(float semanticClass) {
     if (semanticClass == 1.0) {
-        return uColorSecondary;
+        return uColorArea;
     }
     if (semanticClass == 2.0) {
-        return uColorRemote;
+        return uColorInteract;
     }
     if (semanticClass == 3.0) {
+        return uColorSecondary;
+    }
+    if (semanticClass == 4.0) {
+        return uColorRemote;
+    }
+    if (semanticClass == 5.0) {
         return uColorTruncated;
     }
-    return uColorPrimary;
+    return uColorChain;
 }
 
 /**
@@ -291,11 +302,11 @@ void main(void) {
     // 否则两个配置的语义互相污染；且远距 alpha 本已很小，再乘权重只会落进视觉噪声）。
     // uFadeAlpha = 1 是**精确 1.0 的乘法**，故关闭档逐值等于接线前。
     float alpha = fade * growth * uFadeAlpha;
-    // 描边 pass 用主色（outline 轮廓统一色，不参与语义分类）；其余情况按 semanticClass 取色。
+    // 描边 pass 用 CHAIN 色（outline 轮廓统一色，不参与语义分类）；其余情况按 semanticClass 取色。
     // 取色仍在顶点阶段（F1），alpha 包络 fade × growth × uFadeAlpha 不受描边分支影响。
     vec3 color = previewSemanticColor(auxChannel(aAux.x));
     if (uOutlineWidthPx > 0.0) {
-        color = uColorPrimary;
+        color = uColorChain;
     }
     // 面朝向明暗：门控关闭（默认，uFaceShading = 0）时整段不执行 ⇒ 输出逐字节等于现状。
     // 开启时乘的是与 legacy 颜色流同一张表的同一组字面常量（见 faceShading 函数）。

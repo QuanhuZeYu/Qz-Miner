@@ -75,9 +75,13 @@ public class Config {
     public static double clientPreviewBarThickness = QzMinerConfigDefaults.CLIENT_PREVIEW_BAR_THICKNESS;
     /** 预览颜色来源：builtin 与历史行为逐字节一致。 */
     public static PreviewColorSource clientPreviewColorSource = PreviewColorSource.defaultValue();
-    /** 主模式本地预测颜色（0xRRGGBB）。 */
-    public static int clientPreviewColorPrimary = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_PRIMARY;
-    /** 子模式本地预测颜色（0xRRGGBB）。 */
+    /** CHAIN 大模式（默认子模式）本地预测颜色（0xRRGGBB）。 */
+    public static int clientPreviewColorChain = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_CHAIN;
+    /** AREA 大模式（默认子模式）本地预测颜色（0xRRGGBB）。 */
+    public static int clientPreviewColorArea = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_AREA;
+    /** INTERACT 大模式（默认子模式）本地预测颜色（0xRRGGBB）。 */
+    public static int clientPreviewColorInteract = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_INTERACT;
+    /** 扩展子模式本地预测颜色（0xRRGGBB）。 */
     public static int clientPreviewColorSecondary = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SECONDARY;
     /** 远端预测颜色（0xRRGGBB）。 */
     public static int clientPreviewColorRemote = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_REMOTE;

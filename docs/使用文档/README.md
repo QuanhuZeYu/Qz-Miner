@@ -46,8 +46,9 @@
   - 要回到本轮之前的全部行为：保持上面六个键的默认档；需要固定固定管线时把 `renderBackend` 设为 `legacy`。
   - `clientPreviewRenderBackend`：预览渲染后端，默认 `auto`（能力探测通过用 shader，否则 legacy）；可选 `auto`/`shader`/`legacy`。显式 `shader` 探测失败仍回退 legacy 并记录一次诊断，不在每帧重试。
   - `clientPreviewBarThickness`：预览条柱粗细，默认 `0.045`，合法 `0.005..0.2`。
-  - `clientPreviewColorSource`：颜色来源，默认 `builtin`（内置常量色 + 距离 α，与历史逐字节一致）；`config` 时使用下面四个 RGB 键做语义配色。
-  - `clientPreviewColorPrimary` / `clientPreviewColorSecondary` / `clientPreviewColorRemote` / `clientPreviewColorTruncated`：主模式本地预测 / 子模式本地预测 / 远端预测 / 截断目标的颜色，默认均 `0x40E6FF`，合法 `0x000000..0xFFFFFF`。
+  - `clientPreviewColorSource`：颜色来源，默认 `builtin`（内置六色 + 距离 α；CHAIN 一档与历史逐字节一致）；`config` 时使用下面六个 RGB 键做语义配色。
+  - `clientPreviewColorChain` / `clientPreviewColorArea` / `clientPreviewColorInteract`：CHAIN / AREA / INTERACT 三个大模式默认子模式本地预测的颜色，默认 `0x40E6FF` / `0x5CE1A6` / `0xFFC857`。
+  - `clientPreviewColorSecondary` / `clientPreviewColorRemote` / `clientPreviewColorTruncated`：扩展子模式本地预测 / 远端预测 / 截断目标的颜色，默认 `0xB08CFF` / `0x8FA9D0` / `0xFF7A6B`。六键合法范围均 `0x000000..0xFFFFFF`。
   - `clientPreviewDepthMode`：深度通道，默认 `xray`（恒可见，等于历史）；可选 `occlude`（参与深度测试）/ `outline`（主体遮挡 + 置顶轮廓）。只改绘制通道，不改拓扑。
   - `clientPreviewAnimation`：预览动画，默认 `off`（等于基线行为）；可选 `flow`（整体流动）/ `wave`（按出现顺序逐波生长，接线属下一批）。
   - `clientPreviewAnimationDurationMs`：单代动画时长（毫秒），默认 `120`，合法 `0..2000`（`0` 瞬时完成）。

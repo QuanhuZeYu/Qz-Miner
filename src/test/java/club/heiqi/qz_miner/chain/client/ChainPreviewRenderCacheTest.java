@@ -341,7 +341,7 @@ public class ChainPreviewRenderCacheTest {
 
     @Test
     public void semanticClassesReachBuilderAuxForEveryLocalAndRemoteClass() throws Exception {
-        assertAuxSemanticClass(ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        assertAuxSemanticClass(ChainPreviewSemanticClass.CHAIN_LOCAL);
         assertAuxSemanticClass(ChainPreviewSemanticClass.SUB_MODE_LOCAL);
         assertAuxSemanticClass(ChainPreviewSemanticClass.REMOTE_PREDICTED);
         assertAuxSemanticClass(ChainPreviewSemanticClass.UNDEFINED);

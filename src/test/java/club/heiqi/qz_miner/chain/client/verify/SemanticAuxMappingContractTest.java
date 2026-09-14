@@ -31,7 +31,7 @@ public class SemanticAuxMappingContractTest {
     @Test
     public void classCarrierIsSameOrderAsSnapshotTargets() {
         ChainPreviewState state = new ChainPreviewState();
-        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         ChainTarget first = new ChainTarget(1, 0, 0);
         ChainTarget second = new ChainTarget(2, 0, 0);
         ChainTarget third = new ChainTarget(3, 0, 0);
@@ -52,7 +52,7 @@ public class SemanticAuxMappingContractTest {
             } else if (target.equals(second)) {
                 expected.add(Integer.valueOf(ChainPreviewSemanticClass.SUB_MODE_LOCAL));
             } else {
-                expected.add(Integer.valueOf(ChainPreviewSemanticClass.PRIMARY_LOCAL));
+                expected.add(Integer.valueOf(ChainPreviewSemanticClass.CHAIN_LOCAL));
             }
         }
         Assert.assertEquals("载体长度必须等于目标数", iterated.size(), classes.length);
@@ -98,7 +98,7 @@ public class SemanticAuxMappingContractTest {
         targets.add(new ChainTarget(3, 0, 0));
         targets.add(new ChainTarget(6, 0, 0));
         int[] classes = {
-            ChainPreviewSemanticClass.PRIMARY_LOCAL,
+            ChainPreviewSemanticClass.CHAIN_LOCAL,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.REMOTE_PREDICTED
         };
@@ -141,7 +141,7 @@ public class SemanticAuxMappingContractTest {
         targets.add(new ChainTarget(12, 0, 0));
         targets.add(repeated);
         int[] classes = {
-            ChainPreviewSemanticClass.PRIMARY_LOCAL,
+            ChainPreviewSemanticClass.CHAIN_LOCAL,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.REMOTE_PREDICTED
         };
@@ -156,7 +156,7 @@ public class SemanticAuxMappingContractTest {
                 repeatedVertices++;
                 Assert.assertEquals(
                     "重复目标必须取首次读取的类别",
-                    ChainPreviewSemanticClass.PRIMARY_LOCAL,
+                    ChainPreviewSemanticClass.CHAIN_LOCAL,
                     aux[vertex * 4] & 0xFF);
             }
         }
@@ -189,7 +189,7 @@ public class SemanticAuxMappingContractTest {
 
         BuildSession illegalCarrier = new ChainPreviewMeshBuilder().begin(
             targets, VISUALS, BAR_THICKNESS,
-            new int[] {7, -1, 300});
+            new int[] {8, -1, 300});
         Assert.assertTrue(illegalCarrier.advance(null));
         Assert.assertEquals(
             "非法类别必须逐个计数",

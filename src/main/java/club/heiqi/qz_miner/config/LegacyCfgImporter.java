@@ -122,9 +122,15 @@ public final class LegacyCfgImporter {
             putString(values, configuration, CATEGORY_CLIENT, "clientPreviewColorSource",
                     "client.clientPreviewColorSource",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SOURCE);
-            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorPrimary",
-                    "client.clientPreviewColorPrimary",
-                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_PRIMARY);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorChain",
+                    "client.clientPreviewColorChain",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_CHAIN);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorArea",
+                    "client.clientPreviewColorArea",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_AREA);
+            putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorInteract",
+                    "client.clientPreviewColorInteract",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_INTERACT);
             putInt(values, configuration, CATEGORY_CLIENT, "clientPreviewColorSecondary",
                     "client.clientPreviewColorSecondary",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SECONDARY);

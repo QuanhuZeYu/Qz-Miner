@@ -14,42 +14,66 @@ import club.heiqi.qz_miner.config.QzMinerConfigSchema;
 import club.heiqi.qz_miner.testsupport.LanguageFiles;
 
 /**
- * 新增配置键 tooltip 本地化的行为契约（纯 JVM）：语言键命名、只替换 helper、缺失回退、
+ * 新增配置键文本本地化的行为契约（纯 JVM）：语言键命名、helper / label 各自替换与缺失回退、
  * 只覆盖本批路径、语言文件键集合中英对称且覆盖全部新键。
+ *
+ * <p>label 通道的存在理由见 {@link PreviewConfigTooltips} 的类注释：UILib 4.10 的
+ * {@code FieldSpec.label} 没有语言表通道，只能用本仓既有的代理渲染器替换。</p>
  */
 public class PreviewConfigTooltipsTest {
 
     private static final String LANG_ROOT = "assets/qz_miner/lang/";
 
-    /** 语言键 = config.qz_miner.<path 末段>.tooltip。 */
+    /** 语言键 = config.qz_miner.<path 末段>.<后缀>。 */
     @Test
-    public void tooltipKeyUsesLastSchemaPathSegment() {
+    public void languageKeysUseLastSchemaPathSegment() {
         Assert.assertEquals("config.qz_miner.clientPreviewBarThickness.tooltip",
                 PreviewConfigTooltips.tooltipKey("client.clientPreviewBarThickness"));
         Assert.assertEquals("config.qz_miner.parallelBudgetMode.tooltip",
                 PreviewConfigTooltips.tooltipKey("general.parallelBudgetMode"));
+        Assert.assertEquals("config.qz_miner.clientPreviewColorChain.label",
+                PreviewConfigTooltips.labelKey("client.clientPreviewColorChain"));
+        Assert.assertEquals("config.qz_miner.parallelBudgetMode.label",
+                PreviewConfigTooltips.labelKey("general.parallelBudgetMode"));
     }
 
-    /** 命中语言键时只替换 helper，其余字段原样；缺失或空值零分配回退。 */
+    /** 命中语言键时替换 helper / label，其余字段原样；缺失或空值零分配回退。 */
     @Test
-    public void localizedReplacesHelperOnlyAndFallsBackWhenTextMissing() {
+    public void localizedReplacesHelperAndLabelAndFallsBackWhenTextMissing() {
         ConfigSchema schema = QzMinerConfigSchema.create();
         FieldSpec spec = schema.field("client.clientPreviewBarThickness");
-        final String key = PreviewConfigTooltips.tooltipKey(spec.path());
+        final String helperKey = PreviewConfigTooltips.tooltipKey(spec.path());
+        final String labelKey = PreviewConfigTooltips.labelKey(spec.path());
 
-        FieldSpec localized = PreviewConfigTooltips.localized(spec, new PreviewConfigTooltips.TextResolver() {
+        FieldSpec both = PreviewConfigTooltips.localized(spec, new PreviewConfigTooltips.TextResolver() {
             @Override
             public String resolve(String queried) {
-                return key.equals(queried) ? "本地化 tooltip" : queried;
+                if (helperKey.equals(queried)) {
+                    return "本地化 tooltip";
+                }
+                if (labelKey.equals(queried)) {
+                    return "本地化 label";
+                }
+                return queried;
             }
         });
-        Assert.assertEquals("本地化 tooltip", localized.helper());
-        Assert.assertEquals(spec.label(), localized.label());
-        Assert.assertEquals(spec.path(), localized.path());
-        Assert.assertEquals(spec.type(), localized.type());
-        Assert.assertEquals(spec.defaultValue(), localized.defaultValue());
+        Assert.assertEquals("本地化 tooltip", both.helper());
+        Assert.assertEquals("本地化 label", both.label());
+        Assert.assertEquals(spec.path(), both.path());
+        Assert.assertEquals(spec.type(), both.type());
+        Assert.assertEquals(spec.defaultValue(), both.defaultValue());
 
-        // 原版 StatCollector 缺失语言键时返回 key 本身 => 回退 Schema helper
+        // 只命中 label：helper 必须保持 Schema 原文
+        FieldSpec labelOnly = PreviewConfigTooltips.localized(spec, new PreviewConfigTooltips.TextResolver() {
+            @Override
+            public String resolve(String queried) {
+                return labelKey.equals(queried) ? "只有 label" : queried;
+            }
+        });
+        Assert.assertEquals("只有 label", labelOnly.label());
+        Assert.assertEquals(spec.helper(), labelOnly.helper());
+
+        // 原版 StatCollector 缺失语言键时返回 key 本身 => 回退 Schema 原文
         Assert.assertSame(spec, PreviewConfigTooltips.localized(spec,
                 new PreviewConfigTooltips.TextResolver() {
                     @Override
@@ -79,7 +103,8 @@ public class PreviewConfigTooltipsTest {
             }
         });
         String[] paths = PreviewConfigTooltips.paths();
-        Assert.assertEquals(30, paths.length);
+        // 32 = 上一轮的 30 个受覆盖键，去掉 1 个旧颜色键、加上 3 个大模式颜色键（CHAIN / AREA / INTERACT）
+        Assert.assertEquals(32, paths.length);
         for (String path : paths) {
             Assert.assertNotNull("schema 缺少新键 " + path, schema.field(path));
         }
@@ -90,7 +115,7 @@ public class PreviewConfigTooltipsTest {
         Assert.assertNotSame(first, registry.resolve(schema.field("general.greeting")));
     }
 
-    /** 中英语言文件键集合完全一致，且每个新键都有非空 tooltip。 */
+    /** 中英语言文件键集合完全一致，且每个新键都有非空 tooltip、六个颜色键都有非空 label。 */
     @Test
     public void langFilesCarrySymmetricTooltipsForEveryNewKey() throws Exception {
         Map<String, String> zh = loadLang("zh_CN.lang");
@@ -99,6 +124,15 @@ public class PreviewConfigTooltipsTest {
                 new TreeSet<String>(zh.keySet()), new TreeSet<String>(en.keySet()));
         for (String path : PreviewConfigTooltips.paths()) {
             String key = PreviewConfigTooltips.tooltipKey(path);
+            Assert.assertTrue("zh 缺少 " + key, zh.containsKey(key));
+            Assert.assertTrue("en 缺少 " + key, en.containsKey(key));
+            Assert.assertFalse("zh 空值 " + key, zh.get(key).trim().isEmpty());
+            Assert.assertFalse("en 空值 " + key, en.get(key).trim().isEmpty());
+        }
+        for (String leaf : new String[] {"clientPreviewColorChain", "clientPreviewColorArea",
+                "clientPreviewColorInteract", "clientPreviewColorSecondary",
+                "clientPreviewColorRemote", "clientPreviewColorTruncated"}) {
+            String key = PreviewConfigTooltips.labelKey("client." + leaf);
             Assert.assertTrue("zh 缺少 " + key, zh.containsKey(key));
             Assert.assertTrue("en 缺少 " + key, en.containsKey(key));
             Assert.assertFalse("zh 空值 " + key, zh.get(key).trim().isEmpty());

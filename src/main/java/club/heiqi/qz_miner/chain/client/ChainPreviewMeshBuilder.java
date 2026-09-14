@@ -308,8 +308,8 @@ public class ChainPreviewMeshBuilder {
      * <p>semanticClasses 与 previewTargets 的**喂入顺序**严格同序：索引 i 即第 i 个喂入目标
      * （{@code RenderSnapshot.getTargets()} 为最新→最早）。装配时目标与类别数组一起翻转为
      * 时间序，因此类别始终跟随其目标，不因方向统一而错位。取值见接口冻结 §D：
-     * 0 PRIMARY_LOCAL / 1 SUB_MODE_LOCAL / 2 REMOTE_PREDICTED / 3 TRUNCATED / 4 DEFERRED /
-     * 5 EXECUTED / 255 UNDEFINED。传 null 表示未提供类别（全部按 255，不计降级）；数组短于
+     * 0 CHAIN_LOCAL / 1 AREA_LOCAL / 2 INTERACT_LOCAL / 3 SUB_MODE_LOCAL / 4 REMOTE_PREDICTED /
+     * 5 TRUNCATED / 6 DEFERRED / 7 EXECUTED / 255 UNDEFINED。传 null 表示未提供类别（全部按 255，不计降级）；数组短于
      * 目标数或元素非法时仅对应目标按 255 兜底并计数，前面的类别绝不错位。</p>
      */
     public BuildSession begin(

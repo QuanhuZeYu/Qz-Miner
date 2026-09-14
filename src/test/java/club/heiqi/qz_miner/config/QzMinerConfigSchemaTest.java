@@ -63,10 +63,12 @@ public class QzMinerConfigSchemaTest {
                 {"client.clientPreviewRenderBackend", FieldType.CHOICE, "auto"},
                 {"client.clientPreviewBarThickness", FieldType.NUMBER, Double.valueOf(0.045D)},
                 {"client.clientPreviewColorSource", FieldType.CHOICE, "builtin"},
-                {"client.clientPreviewColorPrimary", FieldType.NUMBER, Double.valueOf(4253439.0D)},
-                {"client.clientPreviewColorSecondary", FieldType.NUMBER, Double.valueOf(4253439.0D)},
-                {"client.clientPreviewColorRemote", FieldType.NUMBER, Double.valueOf(4253439.0D)},
-                {"client.clientPreviewColorTruncated", FieldType.NUMBER, Double.valueOf(4253439.0D)},
+                {"client.clientPreviewColorChain", FieldType.NUMBER, Double.valueOf(4253439.0D)},
+                {"client.clientPreviewColorArea", FieldType.NUMBER, Double.valueOf(6087078.0D)},
+                {"client.clientPreviewColorInteract", FieldType.NUMBER, Double.valueOf(16762967.0D)},
+                {"client.clientPreviewColorSecondary", FieldType.NUMBER, Double.valueOf(11570431.0D)},
+                {"client.clientPreviewColorRemote", FieldType.NUMBER, Double.valueOf(9415120.0D)},
+                {"client.clientPreviewColorTruncated", FieldType.NUMBER, Double.valueOf(16743019.0D)},
                 {"client.clientPreviewDepthMode", FieldType.CHOICE, "xray"},
                 {"client.clientPreviewAnimation", FieldType.CHOICE, "off"},
                 {"client.clientPreviewAnimationDurationMs", FieldType.NUMBER, Double.valueOf(120.0D)},
@@ -146,7 +148,8 @@ public class QzMinerConfigSchemaTest {
 
         // 颜色键的控件形态：由 schema 的 .color(...) 声明（按 widget 分发到 HEX 输入框），值语义仍是 NUMBER。
         // 唯一能在离线暴露「改回 .number(...) 导致颜色框静默退回十进制形态」的地方。
-        for (String path : new String[] {"client.clientPreviewColorPrimary", "client.clientPreviewColorSecondary",
+        for (String path : new String[] {"client.clientPreviewColorChain", "client.clientPreviewColorArea",
+                "client.clientPreviewColorInteract", "client.clientPreviewColorSecondary",
                 "client.clientPreviewColorRemote", "client.clientPreviewColorTruncated"}) {
             FieldSpec color = schema.field(path);
             Assert.assertEquals(path + " 值语义必须是 NUMBER", FieldType.NUMBER, color.type());

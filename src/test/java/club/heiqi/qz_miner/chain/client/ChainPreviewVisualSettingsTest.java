@@ -48,6 +48,8 @@ public class ChainPreviewVisualSettingsTest {
            0x1FFFFFF,
             -1,
             0x40E6FF,
+            0x5CE1A6,
+            0xFFC857,
             0x40E6FF,
             -10,
             Float.NaN,
@@ -70,8 +72,12 @@ public class ChainPreviewVisualSettingsTest {
         Assert.assertEquals(250, settings.getFadeFallbackMs());
         Assert.assertEquals(1.0F, settings.getLodMinAlpha(), 1.0e-6F);
         Assert.assertEquals(4096, settings.getMaxTargetsHardCap());
-        Assert.assertEquals(0xFFFFFF, settings.getColorPrimary());
-        Assert.assertEquals("负色值按 24 位掩码收窄", 0xFFFFFF, settings.getColorSecondary());
+        Assert.assertEquals(0xFFFFFF, settings.getColorChain());
+        Assert.assertEquals("负色值按 24 位掩码收窄", 0xFFFFFF, settings.getColorArea());
+        Assert.assertEquals(0x40E6FF, settings.getColorInteract());
+        Assert.assertEquals(0x5CE1A6, settings.getColorSecondary());
+        Assert.assertEquals(0xFFC857, settings.getColorRemote());
+        Assert.assertEquals(0x40E6FF, settings.getColorTruncated());
         Assert.assertEquals(0.0F, settings.getAlphaFadeStartRadius(), 1.0e-6F);
         Assert.assertEquals("fadeEnd 必须严格大于 fadeStart", 0.001F, settings.getAlphaFadeEndRadius(), 1.0e-6F);
         Assert.assertEquals(1.0F, settings.getAlphaStartValue(), 1.0e-6F);
@@ -132,8 +138,8 @@ public class ChainPreviewVisualSettingsTest {
     public void currentSnapshotUsesPublishedInstanceAndPublishRejectsNull() {
         ChainPreviewVisualSettings published = new ChainPreviewVisualSettings(
             0.1F, 2.0F, "xray", "off", "order", "timer", "builtin", "legacy",
-            0x112233, 0x445566, 0x778899, 0xAABBCC, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
-            "off", 0.05F, true, 4096);
+            0x112233, 0x334455, 0x556677, 0x778899, 0x99AABB, 0xAABBCC,
+            120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F, "off", 0.05F, true, 4096);
         ChainPreviewVisualSettings before = ChainPreviewVisualSettings.current();
         try {
             Assert.assertNotNull("current() 必须初始化出非 null 快照", before);
@@ -152,15 +158,15 @@ public class ChainPreviewVisualSettingsTest {
     private static ChainPreviewVisualSettings settingsWithMinScreenWidth(float minScreenWidthPx) {
         return new ChainPreviewVisualSettings(
             0.045F, minScreenWidthPx, "xray", "off", "order", "timer", "builtin", "auto",
-            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
-            "off", 0.05F, false, 4096);
+            0x40E6FF, 0x5CE1A6, 0xFFC857, 0xB08CFF, 0x8FA9D0, 0xFF7A6B,
+            120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F, "off", 0.05F, false, 4096);
     }
 
     private static ChainPreviewVisualSettings settingsWithOutlineWidth(float outlineWidthPx) {
         return new ChainPreviewVisualSettings(
             0.045F, 0.0F, "outline", "off", "order", "timer", "builtin", "shader",
-            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
-            "off", 0.05F, false, 4096, false, outlineWidthPx);
+            0x40E6FF, 0x5CE1A6, 0xFFC857, 0xB08CFF, 0x8FA9D0, 0xFF7A6B,
+            120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F, "off", 0.05F, false, 4096, false, outlineWidthPx);
     }
 
     private static float drawPlanOutlineWidth(float outlineWidthPx) {
@@ -170,8 +176,8 @@ public class ChainPreviewVisualSettingsTest {
     private static ChainPreviewVisualSettings settingsWithBackendId(String renderBackendId) {
         return new ChainPreviewVisualSettings(
             0.045F, 0.0F, "xray", "off", "order", "timer", "builtin", renderBackendId,
-            0x40E6FF, 0x40E6FF, 0x40E6FF, 0x40E6FF, 120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F,
-            "off", 0.05F, false, 4096);
+            0x40E6FF, 0x5CE1A6, 0xFFC857, 0xB08CFF, 0x8FA9D0, 0xFF7A6B,
+            120, 0.5F, 250, 2.0F, 6.0F, 0.78F, 0.15F, "off", 0.05F, false, 4096);
     }
 
     private static float drawPlanMinScreenWidth(float minScreenWidthPx) {

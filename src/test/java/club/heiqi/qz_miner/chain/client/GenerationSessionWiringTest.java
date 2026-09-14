@@ -73,7 +73,7 @@ public class GenerationSessionWiringTest {
             state, new ChainPreviewMeshBuilder(), scheduler);
         cache.observeState();
 
-        int firstGeneration = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int firstGeneration = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(firstGeneration, new ChainTarget(0, 0, 0));
         cache.pollPublication();
         runCompleted(scheduler.tasks.get(0));
@@ -112,7 +112,7 @@ public class GenerationSessionWiringTest {
             state, new ChainPreviewMeshBuilder(), scheduler);
         cache.observeState();
 
-        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
         cache.pollPublication();
         runCompleted(scheduler.tasks.get(0));
@@ -147,7 +147,7 @@ public class GenerationSessionWiringTest {
             state, new ChainPreviewMeshBuilder(), scheduler);
         cache.observeState();
 
-        final int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        final int generation = state.begin(new ChainTarget(0, 0, 0), ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, new ChainTarget(0, 0, 0));
         cache.pollPublication();
         runCompleted(scheduler.tasks.get(0));

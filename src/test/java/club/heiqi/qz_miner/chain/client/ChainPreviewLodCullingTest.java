@@ -68,13 +68,13 @@ public class ChainPreviewLodCullingTest {
     public void partialCullingKeepsIndicesVerticesAuxConsistentAndRenumbersAppearOrder() {
         int[] carrier = {
             ChainPreviewSemanticClass.REMOTE_PREDICTED,
-            ChainPreviewSemanticClass.PRIMARY_LOCAL,
+            ChainPreviewSemanticClass.CHAIN_LOCAL,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.TRUNCATED,
             ChainPreviewSemanticClass.EXECUTED,
             ChainPreviewSemanticClass.UNDEFINED,
             ChainPreviewSemanticClass.REMOTE_PREDICTED,
-            ChainPreviewSemanticClass.PRIMARY_LOCAL,
+            ChainPreviewSemanticClass.CHAIN_LOCAL,
             ChainPreviewSemanticClass.SUB_MODE_LOCAL,
             ChainPreviewSemanticClass.TRUNCATED,
             ChainPreviewSemanticClass.EXECUTED,
@@ -376,7 +376,7 @@ public class ChainPreviewLodCullingTest {
             return ChainPreviewSemanticClass.UNDEFINED;
         }
         int value = carrier[order];
-        if (value >= ChainPreviewSemanticClass.PRIMARY_LOCAL
+        if (value >= ChainPreviewSemanticClass.CHAIN_LOCAL
                 && value <= ChainPreviewSemanticClass.EXECUTED) {
             return value;
         }

@@ -36,10 +36,13 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewRenderBackend", "auto"},
             {"client.clientPreviewBarThickness", "0.045"},
             {"client.clientPreviewColorSource", "builtin"},
-            {"client.clientPreviewColorPrimary", "4253439.0"},
-            {"client.clientPreviewColorSecondary", "4253439.0"},
-            {"client.clientPreviewColorRemote", "4253439.0"},
-            {"client.clientPreviewColorTruncated", "4253439.0"},
+            // normalize() 走 Double.toString：>= 1e7 的值是科学计数法（这不是笔误）
+            {"client.clientPreviewColorChain", "4253439.0"},
+            {"client.clientPreviewColorArea", "6087078.0"},
+            {"client.clientPreviewColorInteract", "1.6762967E7"},
+            {"client.clientPreviewColorSecondary", "1.1570431E7"},
+            {"client.clientPreviewColorRemote", "9415120.0"},
+            {"client.clientPreviewColorTruncated", "1.6743019E7"},
             {"client.clientPreviewDepthMode", "xray"},
             {"client.clientPreviewAnimation", "off"},
             {"client.clientPreviewAnimationDurationMs", "120.0"},
@@ -68,7 +71,9 @@ public class PreviewConfigSurfaceTest {
     private static final String[][] RANGE_CASES = {
             {"general.parallelSliceBudgetMs", "1", "40", "0", "41"},
             {"client.clientPreviewBarThickness", "0.005", "0.2", "0.004", "0.21"},
-            {"client.clientPreviewColorPrimary", "0", "16777215", "-1", "16777216"},
+            {"client.clientPreviewColorChain", "0", "16777215", "-1", "16777216"},
+            {"client.clientPreviewColorArea", "0", "16777215", "-1", "16777216"},
+            {"client.clientPreviewColorInteract", "0", "16777215", "-1", "16777216"},
             {"client.clientPreviewColorSecondary", "0", "16777215", "-1", "16777216"},
             {"client.clientPreviewColorRemote", "0", "16777215", "-1", "16777216"},
             {"client.clientPreviewColorTruncated", "0", "16777215", "-1", "16777216"},
@@ -335,7 +340,8 @@ public class PreviewConfigSurfaceTest {
         if (leaf.equals("clientPreviewTruncationSignal")) {
             return Boolean.TRUE;
         }
-        if (leaf.equals("clientPreviewColorPrimary") || leaf.equals("clientPreviewColorSecondary")
+        if (leaf.equals("clientPreviewColorChain") || leaf.equals("clientPreviewColorArea")
+                || leaf.equals("clientPreviewColorInteract") || leaf.equals("clientPreviewColorSecondary")
                 || leaf.equals("clientPreviewColorRemote") || leaf.equals("clientPreviewColorTruncated")) {
             return Double.valueOf(0.0);
         }

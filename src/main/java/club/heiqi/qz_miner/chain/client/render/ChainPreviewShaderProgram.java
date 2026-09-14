@@ -81,7 +81,9 @@ public final class ChainPreviewShaderProgram {
         "uAnimProgress",
         "uAppearSpan",
         "uFadeAlpha",
-        "uColorPrimary",
+        "uColorChain",
+        "uColorArea",
+        "uColorInteract",
         "uColorSecondary",
         "uColorRemote",
         "uColorTruncated",
@@ -533,20 +535,28 @@ public final class ChainPreviewShaderProgram {
     /**
      * 设置某个调色板槽位的颜色。
      *
-     * @param paletteSlot {@link ChainPreviewShaderMath#PALETTE_PRIMARY} 等 4 个槽位
+     * <p>槽位 → uniform 名的对应关系必须与 {@code preview.vert} 的 {@code previewSemanticColor()}
+     * 以及 {@link ChainPreviewShaderMath#paletteIndexFor(int)} 的分派一致；未知槽位一律落到
+     * {@code uColorChain}（与 CPU 参考模型的兜底槽一致，不静默丢弃写入）。</p>
+     *
+     * @param paletteSlot {@link ChainPreviewShaderMath#PALETTE_CHAIN} 等 6 个槽位
      * @param red         0..1
      * @param green       0..1
      * @param blue        0..1
      */
     public void setSemanticColor(int paletteSlot, float red, float green, float blue) {
-        if (paletteSlot == ChainPreviewShaderMath.PALETTE_SECONDARY) {
+        if (paletteSlot == ChainPreviewShaderMath.PALETTE_AREA) {
+            setUniform3f("uColorArea", red, green, blue);
+        } else if (paletteSlot == ChainPreviewShaderMath.PALETTE_INTERACT) {
+            setUniform3f("uColorInteract", red, green, blue);
+        } else if (paletteSlot == ChainPreviewShaderMath.PALETTE_SECONDARY) {
             setUniform3f("uColorSecondary", red, green, blue);
         } else if (paletteSlot == ChainPreviewShaderMath.PALETTE_REMOTE) {
             setUniform3f("uColorRemote", red, green, blue);
         } else if (paletteSlot == ChainPreviewShaderMath.PALETTE_TRUNCATED) {
             setUniform3f("uColorTruncated", red, green, blue);
         } else {
-            setUniform3f("uColorPrimary", red, green, blue);
+            setUniform3f("uColorChain", red, green, blue);
         }
     }
 

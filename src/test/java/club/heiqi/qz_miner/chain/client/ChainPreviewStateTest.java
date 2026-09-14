@@ -179,7 +179,7 @@ public class ChainPreviewStateTest {
         ChainTarget first = new ChainTarget(1, 1, 1);
         ChainTarget second = new ChainTarget(2, 2, 2);
         ChainTarget third = new ChainTarget(3, 3, 3);
-        int generation = state.begin(first, ChainPreviewSemanticClass.PRIMARY_LOCAL);
+        int generation = state.begin(first, ChainPreviewSemanticClass.CHAIN_LOCAL);
         state.addPreviewTarget(generation, first);
         state.addPreviewTarget(generation, second);
 
@@ -197,9 +197,9 @@ public class ChainPreviewStateTest {
         state.addPreviewTarget(generation, third);
         int[] updated = state.captureRenderSnapshot().getSemanticClasses();
         Assert.assertEquals(3, updated.length);
-        Assert.assertEquals(2, updated[0]);
-        Assert.assertEquals("已记录目标类别不变", 0, updated[1]);
-        Assert.assertEquals(0, updated[2]);
+        Assert.assertEquals(ChainPreviewSemanticClass.REMOTE_PREDICTED, updated[0]);
+        Assert.assertEquals("已记录目标类别不变", ChainPreviewSemanticClass.CHAIN_LOCAL, updated[1]);
+        Assert.assertEquals(ChainPreviewSemanticClass.CHAIN_LOCAL, updated[2]);
 
         int nextGeneration = state.begin(new ChainTarget(9, 9, 9), ChainPreviewSemanticClass.UNDEFINED);
         state.addPreviewTarget(nextGeneration, new ChainTarget(9, 9, 9));

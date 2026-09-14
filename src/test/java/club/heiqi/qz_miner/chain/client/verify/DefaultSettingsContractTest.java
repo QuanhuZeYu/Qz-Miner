@@ -31,10 +31,12 @@ public class DefaultSettingsContractTest {
         Assert.assertEquals(0.045D, QzMinerConfigDefaults.CLIENT_PREVIEW_BAR_THICKNESS, 0.0D);
         Assert.assertEquals("builtin", QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SOURCE);
         Assert.assertEquals("builtin", PreviewColorSource.defaultValue().id());
-        Assert.assertEquals(0x40E6FF, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_PRIMARY);
-        Assert.assertEquals(0x40E6FF, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SECONDARY);
-        Assert.assertEquals(0x40E6FF, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_REMOTE);
-        Assert.assertEquals(0x40E6FF, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_TRUNCATED);
+        Assert.assertEquals(0x40E6FF, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_CHAIN);
+        Assert.assertEquals(0x5CE1A6, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_AREA);
+        Assert.assertEquals(0xFFC857, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_INTERACT);
+        Assert.assertEquals(0xB08CFF, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SECONDARY);
+        Assert.assertEquals(0x8FA9D0, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_REMOTE);
+        Assert.assertEquals(0xFF7A6B, QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_TRUNCATED);
         Assert.assertEquals("xray", QzMinerConfigDefaults.CLIENT_PREVIEW_DEPTH_MODE);
         Assert.assertEquals("xray", PreviewDepthMode.defaultValue().id());
         Assert.assertEquals("off", QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION);
@@ -81,10 +83,12 @@ public class DefaultSettingsContractTest {
             Assert.assertEquals("order", settings.getAnimationPhaseId());
             Assert.assertEquals("timer", settings.getFadeModeId());
             Assert.assertEquals("builtin", settings.getColorSourceId());
-            Assert.assertEquals(0x40E6FF, settings.getColorPrimary());
-            Assert.assertEquals(0x40E6FF, settings.getColorSecondary());
-            Assert.assertEquals(0x40E6FF, settings.getColorRemote());
-            Assert.assertEquals(0x40E6FF, settings.getColorTruncated());
+            Assert.assertEquals(0x40E6FF, settings.getColorChain());
+            Assert.assertEquals(0x5CE1A6, settings.getColorArea());
+            Assert.assertEquals(0xFFC857, settings.getColorInteract());
+            Assert.assertEquals(0xB08CFF, settings.getColorSecondary());
+            Assert.assertEquals(0x8FA9D0, settings.getColorRemote());
+            Assert.assertEquals(0xFF7A6B, settings.getColorTruncated());
             Assert.assertEquals(120, settings.getAnimationDurationMs());
             Assert.assertEquals(0.5F, settings.getFadeRefreshDistance(), 0.0000001F);
             Assert.assertEquals(250, settings.getFadeFallbackMs());
@@ -200,7 +204,9 @@ public class DefaultSettingsContractTest {
         Config.clientPreviewBarThickness = QzMinerConfigDefaults.CLIENT_PREVIEW_BAR_THICKNESS;
         Config.clientPreviewColorSource =
             PreviewColorSource.fromId(QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SOURCE);
-        Config.clientPreviewColorPrimary = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_PRIMARY;
+        Config.clientPreviewColorChain = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_CHAIN;
+        Config.clientPreviewColorArea = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_AREA;
+        Config.clientPreviewColorInteract = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_INTERACT;
         Config.clientPreviewColorSecondary = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_SECONDARY;
         Config.clientPreviewColorRemote = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_REMOTE;
         Config.clientPreviewColorTruncated = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_TRUNCATED;
@@ -236,7 +242,9 @@ public class DefaultSettingsContractTest {
         Assert.assertEquals(expected.getAnimationPhaseId(), actual.getAnimationPhaseId());
         Assert.assertEquals(expected.getFadeModeId(), actual.getFadeModeId());
         Assert.assertEquals(expected.getColorSourceId(), actual.getColorSourceId());
-        Assert.assertEquals(expected.getColorPrimary(), actual.getColorPrimary());
+        Assert.assertEquals(expected.getColorChain(), actual.getColorChain());
+        Assert.assertEquals(expected.getColorArea(), actual.getColorArea());
+        Assert.assertEquals(expected.getColorInteract(), actual.getColorInteract());
         Assert.assertEquals(expected.getColorSecondary(), actual.getColorSecondary());
         Assert.assertEquals(expected.getColorRemote(), actual.getColorRemote());
         Assert.assertEquals(expected.getColorTruncated(), actual.getColorTruncated());
@@ -260,7 +268,9 @@ public class DefaultSettingsContractTest {
         private final PreviewRenderBackend renderBackend = Config.clientPreviewRenderBackend;
         private final double barThickness = Config.clientPreviewBarThickness;
         private final PreviewColorSource colorSource = Config.clientPreviewColorSource;
-        private final int colorPrimary = Config.clientPreviewColorPrimary;
+        private final int colorChain = Config.clientPreviewColorChain;
+        private final int colorArea = Config.clientPreviewColorArea;
+        private final int colorInteract = Config.clientPreviewColorInteract;
         private final int colorSecondary = Config.clientPreviewColorSecondary;
         private final int colorRemote = Config.clientPreviewColorRemote;
         private final int colorTruncated = Config.clientPreviewColorTruncated;
@@ -286,7 +296,9 @@ public class DefaultSettingsContractTest {
             Config.clientPreviewRenderBackend = renderBackend;
             Config.clientPreviewBarThickness = barThickness;
             Config.clientPreviewColorSource = colorSource;
-            Config.clientPreviewColorPrimary = colorPrimary;
+            Config.clientPreviewColorChain = colorChain;
+            Config.clientPreviewColorArea = colorArea;
+            Config.clientPreviewColorInteract = colorInteract;
             Config.clientPreviewColorSecondary = colorSecondary;
             Config.clientPreviewColorRemote = colorRemote;
             Config.clientPreviewColorTruncated = colorTruncated;

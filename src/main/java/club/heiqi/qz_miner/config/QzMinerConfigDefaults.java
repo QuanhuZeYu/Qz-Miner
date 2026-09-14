@@ -51,14 +51,21 @@ public final class QzMinerConfigDefaults {
     public static final double CLIENT_PREVIEW_BAR_THICKNESS = 0.045D;
     /** 预览颜色来源：builtin 与历史行为逐字节一致。 */
     public static final String CLIENT_PREVIEW_COLOR_SOURCE = PreviewColorSource.defaultValue().id();
-    /** 主模式本地预测颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_PRIMARY = 0x40E6FF;
-    /** 子模式本地预测颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_SECONDARY = 0x40E6FF;
+    // 六色语义默认（0xRRGGBB）：与 ChainPreviewDrawPlan.Visuals.Colors 的 BUILTIN_*_RGB 同值——
+    // 「builtin 档」与「config 档但未改过颜色」因此给出同一套可区分配色（用户裁定 B 档：
+    // 默认颜色按大模式区分）。CHAIN 保持历史主色 0x40E6FF，使默认大模式观感与接线前一致。
+    /** CHAIN 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_CHAIN = 0x40E6FF;
+    /** AREA 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_AREA = 0x5CE1A6;
+    /** INTERACT 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_INTERACT = 0xFFC857;
+    /** 扩展子模式本地预测颜色（0xRRGGBB）。 */
+    public static final int CLIENT_PREVIEW_COLOR_SECONDARY = 0xB08CFF;
     /** 远端预测颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_REMOTE = 0x40E6FF;
+    public static final int CLIENT_PREVIEW_COLOR_REMOTE = 0x8FA9D0;
     /** 截断目标颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_TRUNCATED = 0x40E6FF;
+    public static final int CLIENT_PREVIEW_COLOR_TRUNCATED = 0xFF7A6B;
     /** 深度通道：xray 等于历史行为。 */
     public static final String CLIENT_PREVIEW_DEPTH_MODE = PreviewDepthMode.defaultValue().id();
     /** 预览动画：本轮默认 off（逐波生长接线属下一批 B3.1/B3.3）。 */
@@ -173,7 +180,9 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewRenderBackend", CLIENT_PREVIEW_RENDER_BACKEND);
         target.put("client.clientPreviewBarThickness", Double.valueOf(CLIENT_PREVIEW_BAR_THICKNESS));
         target.put("client.clientPreviewColorSource", CLIENT_PREVIEW_COLOR_SOURCE);
-        target.put("client.clientPreviewColorPrimary", Double.valueOf(CLIENT_PREVIEW_COLOR_PRIMARY));
+        target.put("client.clientPreviewColorChain", Double.valueOf(CLIENT_PREVIEW_COLOR_CHAIN));
+        target.put("client.clientPreviewColorArea", Double.valueOf(CLIENT_PREVIEW_COLOR_AREA));
+        target.put("client.clientPreviewColorInteract", Double.valueOf(CLIENT_PREVIEW_COLOR_INTERACT));
         target.put("client.clientPreviewColorSecondary", Double.valueOf(CLIENT_PREVIEW_COLOR_SECONDARY));
         target.put("client.clientPreviewColorRemote", Double.valueOf(CLIENT_PREVIEW_COLOR_REMOTE));
         target.put("client.clientPreviewColorTruncated", Double.valueOf(CLIENT_PREVIEW_COLOR_TRUNCATED));

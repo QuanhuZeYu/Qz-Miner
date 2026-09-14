@@ -74,7 +74,9 @@ public final class ConfigValueBridge {
         Config.clientPreviewRenderBackend = snapshot.clientPreviewRenderBackend;
         Config.clientPreviewBarThickness = snapshot.clientPreviewBarThickness;
         Config.clientPreviewColorSource = snapshot.clientPreviewColorSource;
-        Config.clientPreviewColorPrimary = snapshot.clientPreviewColorPrimary;
+        Config.clientPreviewColorChain = snapshot.clientPreviewColorChain;
+        Config.clientPreviewColorArea = snapshot.clientPreviewColorArea;
+        Config.clientPreviewColorInteract = snapshot.clientPreviewColorInteract;
         Config.clientPreviewColorSecondary = snapshot.clientPreviewColorSecondary;
         Config.clientPreviewColorRemote = snapshot.clientPreviewColorRemote;
         Config.clientPreviewColorTruncated = snapshot.clientPreviewColorTruncated;

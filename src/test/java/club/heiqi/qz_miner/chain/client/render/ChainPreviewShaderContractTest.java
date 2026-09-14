@@ -168,17 +168,18 @@ public class ChainPreviewShaderContractTest {
         Map<String, String> fragmentUniforms = GlslSourceScanner.of(read(FRAGMENT_PATH))
                 .getUniforms();
 
-        for (String required : new String[] {
-                "uColorPrimary", "uColorSecondary", "uColorRemote", "uColorTruncated" }) {
+        String[] semanticUniforms = {
+                "uColorChain", "uColorArea", "uColorInteract",
+                "uColorSecondary", "uColorRemote", "uColorTruncated" };
+        for (String required : semanticUniforms) {
             Assert.assertTrue("顶点必须声明语义色 uniform: " + required, vertexUniforms.containsKey(required));
         }
-        for (String forbidden : new String[] {
-                "uColorPrimary", "uColorSecondary", "uColorRemote", "uColorTruncated" }) {
+        for (String forbidden : semanticUniforms) {
             Assert.assertFalse("片元不得再声明 " + forbidden + "（避免两处真源分叉）",
                     fragmentUniforms.containsKey(forbidden));
         }
         Assert.assertFalse("不得保留无人写入的 *Enabled uniform（死 uniform）",
-                vertexUniforms.containsKey("uColorPrimaryEnabled"));
+                vertexUniforms.containsKey("uColorChainEnabled"));
 
         String selector = GlslSourceScanner.of(read(VERTEX_PATH)).body("previewSemanticColor");
         Assert.assertTrue("选色必须实现为顶点侧独立函数", selector.length() > 0);
