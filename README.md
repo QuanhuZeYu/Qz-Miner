@@ -96,8 +96,8 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 远端模组表缺少 `qz_miner` 时 Forge checker 在 CLIENT/SERVER 两侧都会放行，但这只表示不由
   mod-list 检查拒绝；它不会为无 Qz-Miner 对端创建网络 channel，也不是无 Mod 运行安全保证。
 - 当前真实 5.3 mixed-patch/missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或
-  branch CI 不能替代实机证据。完整合同见
-  `docs/反馈层/决策/network-version-compatibility.md`。
+  branch CI 不能替代实机证据。完整合同见本文件「5.3 网络兼容」与
+  [docs/使用文档/README.md](docs/使用文档/README.md) 的「5.3 联机版本边界」。
 
 从 `4.0` 到当前 `5.3`，模组做过一次较大的重构。对使用者来说，比较重要的变化包括：
 
@@ -161,6 +161,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ## 文档导航
 
+- 文档分区与真源优先级：`docs/README.md`
 - 使用文档：`docs/使用文档/README.md`
 - 开发者文档：`docs/开发者文档/README.md`
 - 踩坑记录：`docs/反馈层/errors/`
