@@ -96,10 +96,10 @@ public final class ChainPreviewShaderProgram {
         // 面朝向明暗：开关本身是活引用（uFaceShading > 0.5 门控乘色分支），
         // 缺失会让「开着明暗但常量没传」静默退化成关闭态——宁可判程序不可用回退 legacy。
         "uFaceShading",
-        // 连锁序渐弱：门控本身是活引用（uOrderMinAlpha < 1.0 才进入 orderWeight 分支），
+        // 连锁序渐弱：门控本身是活引用（uOrderMinBrightness < 1.0 才进入 orderWeight 分支），
         // 缺失会让「配置了非 1.0 的下限」静默退化成恒等——宁可判程序不可用回退 legacy，
-        // 也不画出一份与配置不符、且看不出哪里不对的 alpha 分布。
-        "uOrderMinAlpha",
+        // 也不画出一份与配置不符、且看不出哪里不对的亮度分布。
+        "uOrderMinBrightness",
     };
 
     /**
@@ -173,8 +173,8 @@ public final class ChainPreviewShaderProgram {
             compileAndLink();
             // 安全初值：uniform 未赋值时为 0，会让 uFadeAlpha 把整链 alpha 归零。
             setFadeAlpha(INITIAL_FADE_ALPHA);
-            // 同类安全初值：0 对本 uniform 不是恒等（见 INITIAL_ORDER_MIN_ALPHA），必须写 1.0。
-            setOrderMinAlpha(INITIAL_ORDER_MIN_ALPHA);
+            // 同类安全初值：0 对本 uniform 不是恒等（见 INITIAL_ORDER_MIN_BRIGHTNESS），必须写 1.0。
+            setOrderMinBrightness(INITIAL_ORDER_MIN_BRIGHTNESS);
             // 必备 uniform 校验放在最后：缺失即抛 ⇒ 由下方 catch 收敛为「程序不可用」⇒ 后端一次性回退。
             verifyRequiredUniforms();
             // T50：属性槽位同样必须问驱动要，不能假设 0/1/2（原因见 resolveAttributeLocations）。
@@ -391,14 +391,14 @@ public final class ChainPreviewShaderProgram {
     static final float INITIAL_FADE_ALPHA = 1.0F;
 
     /**
-     * 宿主安全初值：{@code uOrderMinAlpha} 的恒等值（{@link ChainPreviewShaderMath#ORDER_MIN_ALPHA_OFF}）。
+     * 宿主安全初值：{@code uOrderMinBrightness} 的恒等值（{@link ChainPreviewShaderMath#ORDER_MIN_BRIGHTNESS_OFF}）。
      *
      * <p>与 {@link #INITIAL_FADE_ALPHA} 同一个坑：GLSL uniform 未赋值时为 {@code 0}，而 {@code 0}
-     * 对这个 uniform <b>不是</b>恒等——{@code 0 < 1.0} 会让 orderWeight 分支直接生效、最远处权重降到 0
-     * （表型是「远处条柱整片消失」）。写入 {@code 1.0} 后，「宿主漏设」退化为「本能力关闭」，
-     * 即接线前观感。</p>
+     * 对这个 uniform <b>不是</b>恒等——{@code 0 < 1.0} 会让 orderWeight 分支直接生效、最远处亮度权重降到 0
+     * （表型是「远处条柱整条纯黑」：几何与 alpha 都还在，只是颜色被压没）。写入 {@code 1.0} 后，
+     * 「宿主漏设」退化为「本能力关闭」，即接线前观感。</p>
      */
-    static final float INITIAL_ORDER_MIN_ALPHA = ChainPreviewShaderMath.ORDER_MIN_ALPHA_OFF;
+    static final float INITIAL_ORDER_MIN_BRIGHTNESS = ChainPreviewShaderMath.ORDER_MIN_BRIGHTNESS_OFF;
 
     /**
      * 包络 uniform 的合法域收敛：clamp 到 [0,1]，NaN 收敛为不透明（{@link #INITIAL_FADE_ALPHA}）。
@@ -502,17 +502,19 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 设置连锁序 alpha 权重下限（appearOrder 权重）。
+     * 设置连锁序**亮度**权重下限（appearOrder 亮度权重）。
      *
-     * <p>{@code 1.0} 表示关闭：GLSL 侧 {@code uOrderMinAlpha >= 1.0} 时完全不进入 orderWeight 分支，
-     * 输出逐值等于接线前。写入前按 host 侧口径收敛
-     * （{@link ChainPreviewShaderMath#orderMinAlpha(float)}：clamp 到 [0,1]，NaN / Infinity → 1.0），
+     * <p>{@code 1.0} 表示关闭：GLSL 侧 {@code uOrderMinBrightness >= 1.0} 时完全不进入 orderWeight 分支，
+     * 输出逐值等于接线前。权重的消费位置是<b>颜色亮度</b>（{@code color * orderWeight}），
+     * 与 alpha 链路无关（用户裁定：距离淡出与连锁序是两个独立维度）。
+     * 写入前按 host 侧口径收敛
+     * （{@link ChainPreviewShaderMath#orderMinBrightness(float)}：clamp 到 [0,1]，NaN / Infinity → 1.0），
      * 不把非法值送进 uniform。</p>
      *
-     * @param orderMinAlpha [0,1] 的权重下限；{@code 1.0} = 关闭本能力
+     * @param orderMinBrightness [0,1] 的亮度权重下限；{@code 1.0} = 关闭本能力
      */
-    public void setOrderMinAlpha(float orderMinAlpha) {
-        setUniform1f("uOrderMinAlpha", ChainPreviewShaderMath.orderMinAlpha(orderMinAlpha));
+    public void setOrderMinBrightness(float orderMinBrightness) {
+        setUniform1f("uOrderMinBrightness", ChainPreviewShaderMath.orderMinBrightness(orderMinBrightness));
     }
 
     /**

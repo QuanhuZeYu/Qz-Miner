@@ -284,12 +284,13 @@ public final class QzMinerConfigSchema {
                         .label("clientPreviewLodMinAlpha")
                         .helper("LOD alpha 剔除阈值：低于该值的条柱不参与构建，合法 0..1")
                         .build()
-                    .number("clientPreviewOrderMinAlpha")
-                        .defaultValue(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_ALPHA))
+                    .number("clientPreviewOrderMinBrightness")
+                        .defaultValue(Double.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS))
                         .range(0.0, 1.0)
-                        .label("clientPreviewOrderMinAlpha")
-                        .helper("连锁序 alpha 权重下限：预览集合里序号最大（离瞄准起点最远）的条柱乘的权重，"
-                                + "合法 0..1；1.0 关闭本能力（等于现状），默认 0.45 时起点 1.0、最远 0.45")
+                        .label("clientPreviewOrderMinBrightness")
+                        .helper("连锁序亮度权重下限：预览集合里序号最大（离瞄准起点最远）的条柱乘的亮度权重，"
+                                + "合法 0..1；1.0 关闭本能力（等于现状），默认 0.55 时起点 1.0、最远 0.55；"
+                                + "只乘颜色亮度，不影响由距离淡出决定的 alpha")
                         .build()
                     .bool("clientPreviewSuppressVanillaHighlight")
                         .defaultValue(Boolean.valueOf(QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT))

@@ -112,8 +112,8 @@ public class Config {
     public static PreviewLodMode clientPreviewLod = PreviewLodMode.defaultValue();
     /** LOD alpha 剔除阈值。 */
     public static double clientPreviewLodMinAlpha = QzMinerConfigDefaults.CLIENT_PREVIEW_LOD_MIN_ALPHA;
-    /** 连锁序 alpha 权重下限；1.0 = 关闭本能力（等于现状），默认 0.45（起点 1.0、最远 0.45）；仅着色器后端消费。 */
-    public static double clientPreviewOrderMinAlpha = QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_ALPHA;
+    /** 连锁序亮度权重下限；1.0 = 关闭本能力（等于现状），默认 0.55（起点 1.0、最远 0.55）；只乘颜色亮度，仅着色器后端消费。 */
+    public static double clientPreviewOrderMinBrightness = QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS;
     /** 预览激活时是否取消同目标的原版方块高亮。 */
     public static boolean clientPreviewSuppressVanillaHighlight =
             QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT;

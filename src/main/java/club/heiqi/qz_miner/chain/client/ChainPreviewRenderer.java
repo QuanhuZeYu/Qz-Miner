@@ -515,7 +515,7 @@ public class ChainPreviewRenderer {
             false,
             0.0F,
             settings.isFaceShadingEnabled(),
-            settings.getOrderMinAlpha());
+            settings.getOrderMinBrightness());
     }
 
     private static ChainPreviewDrawPlan.DepthChannel mapDepthChannel(String depthModeId) {

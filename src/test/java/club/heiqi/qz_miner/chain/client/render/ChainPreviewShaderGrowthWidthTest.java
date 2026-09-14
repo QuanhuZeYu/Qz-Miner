@@ -433,7 +433,7 @@ public class ChainPreviewShaderGrowthWidthTest {
      *   <li>无 aAux（maxOrder &lt; 0）⇒ 整段可见 {@code (1, 0)}（0 = 无序号信息）；</li>
      *   <li>{@code u >= ANIMATION_COMPLETE} ⇒ 进度为 1（整段可见），但 <b>span 仍传真实序号总数</b>；
      *       是否跳过逐顶点比较改由 GLSL 的 {@code growthActive || orderWeightActive} 门控决定，
-     *       不再依赖「span = 0」这个间接信号——连锁序权重（{@code uOrderMinAlpha}）需要在静止态
+     *       不再依赖「span = 0」这个间接信号——连锁序权重（{@code uOrderMinBrightness}）需要在静止态
      *       拿到 span，两者不可兼得时按「框架正确 &gt; 运行效率」取单一真源。</li>
      * </ol>
      */
@@ -456,7 +456,7 @@ public class ChainPreviewShaderGrowthWidthTest {
         Assert.assertEquals(0.0F, out[1], 0.0F);
 
         // u >= 1：进度为 1（整段可见），但 span 必须仍是真实总数——静止态正是连锁序权重
-        // （uOrderMinAlpha）生效的场景，span 在这里撒谎会让该能力在默认档恒等失效。
+        // （uOrderMinBrightness）生效的场景，span 在这里撒谎会让该能力在默认档恒等失效。
         ChainPreviewShaderBackend.growthUniforms(
                 planWithAnimationU(ChainPreviewDrawPlan.ANIMATION_COMPLETE), 5.0F, out);
         Assert.assertEquals(1.0F, out[0], 0.0F);

@@ -176,9 +176,9 @@ public final class LegacyCfgImporter {
             putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewLodMinAlpha",
                     "client.clientPreviewLodMinAlpha",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_LOD_MIN_ALPHA);
-            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewOrderMinAlpha",
-                    "client.clientPreviewOrderMinAlpha",
-                    QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_ALPHA);
+            putDouble(values, configuration, CATEGORY_CLIENT, "clientPreviewOrderMinBrightness",
+                    "client.clientPreviewOrderMinBrightness",
+                    QzMinerConfigDefaults.CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS);
             putBoolean(values, configuration, CATEGORY_CLIENT, "clientPreviewSuppressVanillaHighlight",
                     "client.clientPreviewSuppressVanillaHighlight",
                     QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT);

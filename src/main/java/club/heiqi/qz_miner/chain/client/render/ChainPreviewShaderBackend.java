@@ -499,8 +499,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * （{@code appearSpan < 0}，此时总数写 0）。</p>
      *
      * <p><b>uAppearSpan 恒携带真实序号总数</b>（唯一的例外是无序号信息时写 0）。它是「归一化分母」
-     * 的单一真源，同时供<b>连锁序权重</b>（{@code uOrderMinAlpha} → {@code orderWeight}）在
-     * <b>静止态</b>使用——静止态正是生长动画已完成的场景。旧写法在 {@code u >= 1} 时把 span 写成 0，
+     * 的单一真源，同时供<b>连锁序权重</b>（{@code uOrderMinBrightness} → {@code orderWeight}，
+     * 乘在颜色亮度上）在<b>静止态</b>使用——静止态正是生长动画已完成的场景。旧写法在 {@code u >= 1} 时把 span 写成 0，
      * 那是「为省开销而对 span 撒谎」，会让连锁序权重在默认档（{@code animation=off}，u 恒 1）
      * 恒等失效。省开销已下移到 GLSL 的 {@code growthActive || orderWeightActive} 按需门控：
      * 两个消费方都不需要时仍然整段不读 appearOrder。</p>
@@ -573,22 +573,25 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     /**
-     * 连锁序 alpha 权重下限 uniform（{@code uOrderMinAlpha}）的取值。
+     * 连锁序**亮度**权重下限 uniform（{@code uOrderMinBrightness}）的取值。
      *
-     * <p>默认档（未接线前的历史观感）是 {@code 1.0} = 关闭：GLSL 侧 {@code uOrderMinAlpha >= 1.0}
-     * 完全不进入 orderWeight 分支。收敛口径的单一真源在
-     * {@link ChainPreviewShaderMath#orderMinAlpha(float)}（NaN / 越界 → 1.0），不把非法值送进 uniform。</p>
+     * <p>默认档（未接线前的历史观感）是 {@code 1.0} = 关闭：GLSL 侧 {@code uOrderMinBrightness >= 1.0}
+     * 完全不进入 orderWeight 分支。非 1.0 时该权重只乘<b>颜色亮度</b>（{@code color * orderWeight}，
+     * 位于面朝向明暗之外层），alpha 链路（fade × growth × uFadeAlpha）不含它——距离淡出与连锁序
+     * 因此各自权威（用户裁定）。收敛口径的单一真源在
+     * {@link ChainPreviewShaderMath#orderMinBrightness(float)}（NaN / 越界 → 1.0），不把非法值送进 uniform。</p>
      *
-     * <p><b>生效前提</b>：orderWeight 的分母是 {@code uAppearSpan}（= 同代目标总数），它由
-     * {@link #growthUniforms} 供给，而后者在 {@code animationU >= ANIMATION_COMPLETE} 或「无 aAux」时
-     * 写成 {@code (1, 0)}。因此本能力只在逐波生长进行中可见——{@code animation=off}（默认档）
-     * 下 {@code uAppearSpan = 0} ⇒ GLSL 走恒等出口。这是供给口的既有语义，不是本函数的判断。</p>
+     * <p><b>生效前提</b>：orderWeight 的分母是 {@code uAppearSpan}（= 同代目标总数），由
+     * {@link #growthUniforms} 逐帧供给；该供给口恒携带真实总数（只有「无 aAux」才写 0），
+     * 因此本能力在静止态（{@code animation=off}，u 恒 1）同样生效——那正是默认档的常见场景。
+     * 「无序号信息」仍走 GLSL 的恒等出口（{@code uAppearSpan <= 0}）：这是供给口的语义，
+     * 不是本函数的判断。</p>
      *
      * @param plan 当前 draw plan
-     * @return [0,1] 的权重下限；{@code 1.0} = 关闭本能力
+     * @return [0,1] 的亮度权重下限；{@code 1.0} = 关闭本能力
      */
-    static float orderMinAlphaFor(ChainPreviewDrawPlan plan) {
-        return ChainPreviewShaderMath.orderMinAlpha(plan.getOrderMinAlpha());
+    static float orderMinBrightnessFor(ChainPreviewDrawPlan plan) {
+        return ChainPreviewShaderMath.orderMinBrightness(plan.getOrderMinBrightness());
     }
 
     /**
@@ -673,8 +676,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         // 面朝向明暗：默认关闭传 0，GLSL 侧整段乘色分支不执行 ⇒ 逐字节等于现状。
         program.setFaceShading(plan.isFaceShadingEnabled() ? 1.0F : 0.0F);
 
-        // 连锁序渐弱（appearOrder 权重）：默认档 0.45；传 1.0 时 GLSL 完全不进入该分支。
-        program.setOrderMinAlpha(orderMinAlphaFor(plan));
+        // 连锁序渐弱（appearOrder 亮度权重）：默认档 0.55，只乘颜色亮度（alpha 不受影响）；
+        // 传 1.0 时 GLSL 完全不进入该分支。
+        program.setOrderMinBrightness(orderMinBrightnessFor(plan));
 
         // 调色板：builtin 档四槽都传精确基线常量 (0.25, 0.9, 1.0)，逐位等于 legacy 颜色流
         // （不经 int 往返，避免 0.9 → 230/255 的 8bit 量化色差）。

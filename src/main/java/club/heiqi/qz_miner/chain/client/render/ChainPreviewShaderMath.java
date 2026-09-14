@@ -190,40 +190,46 @@ public final class ChainPreviewShaderMath {
         return clamp(animationProgress * totalTargets - orderFloor, 0.0F, 1.0F);
     }
 
-    /** 连锁序权重下限的恒等值：{@code 1.0} = 关闭本能力（起点与最远都乘 1.0，逐值等于接线前）。 */
-    public static final float ORDER_MIN_ALPHA_OFF = 1.0F;
+    /** 连锁序**亮度**权重下限的恒等值：{@code 1.0} = 关闭本能力（起点与最远都乘 1.0，逐值等于接线前）。 */
+    public static final float ORDER_MIN_BRIGHTNESS_OFF = 1.0F;
 
     /**
-     * 连锁序权重下限的 host 侧收敛（与 {@code uOrderMinAlpha} 的写入边界同口径）。
+     * 连锁序**亮度**权重下限的 host 侧收敛（与 {@code uOrderMinBrightness} 的写入边界同口径）。
      *
-     * <p>{@code 1.0} 是恒等值：{@code preview.vert} 在 {@code uOrderMinAlpha >= 1.0} 时完全不进入
+     * <p>{@code 1.0} 是恒等值：{@code preview.vert} 在 {@code uOrderMinBrightness >= 1.0} 时完全不进入
      * orderWeight 分支。NaN / Infinity 收敛为恒等而不是传播——与
-     * {@link #outlineWidthPx(float)} 的「非法即关闭」同取向：异常配置不得让远处条柱静默消失。</p>
+     * {@link #outlineWidthPx(float)} 的「非法即关闭」同取向：异常配置不得把远处条柱的亮度压成纯黑。</p>
      *
      * @param requested 配置 / plan 给出的下限（可为 NaN / 越界）
-     * @return [0,1] 的下限；非法输入为 {@link #ORDER_MIN_ALPHA_OFF}
+     * @return [0,1] 的下限；非法输入为 {@link #ORDER_MIN_BRIGHTNESS_OFF}
      */
-    public static float orderMinAlpha(float requested) {
+    public static float orderMinBrightness(float requested) {
         if (!isFinite(requested)) {
-            return ORDER_MIN_ALPHA_OFF;
+            return ORDER_MIN_BRIGHTNESS_OFF;
         }
         return clamp(requested, 0.0F, 1.0F);
     }
 
     /**
-     * 连锁序（appearOrder）alpha 权重：与 {@code preview.vert} 的 orderWeight 分支逐值同形。
+     * 连锁序（appearOrder）**亮度**权重：与 {@code preview.vert} 的 orderWeight 分支逐值同形。
+     *
+     * <p><b>消费位置是颜色亮度，不再乘 alpha</b>（用户裁定：两套「越远越淡」乘在同一个量上会让
+     * 距离淡出与连锁序两个配置的语义互相污染，且远距 alpha 本已很小、再乘权重落进视觉噪声）。
+     * GLSL 侧是 {@code color = color * orderWeight}，位于面朝向明暗乘法<b>之外层</b>（两者是彼此
+     * 独立的乘数，不合并化简）；顶点 alpha 则完全不含本权重（{@code fade * growth * uFadeAlpha}）。
+     * 本方法只给出该亮度乘数本身，与 alpha 链路无交集——这正是「两个维度各自权威」的可断言形式。</p>
      *
      * <p>GLSL 侧（{@code preview.vert} 的 {@code main()}，与 {@link #growthWeight} 共用同一次
      * aAux u16 还原）：</p>
      * <pre>
      *   t           = clamp(floor(min(appearOrder, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)
-     *   orderWeight = 1.0 - (1.0 - uOrderMinAlpha) * t
+     *   orderWeight = 1.0 - (1.0 - uOrderMinBrightness) * t
      * </pre>
      *
      * <p><b>三条恒等出口</b>（必须与 GLSL 的短路判据逐条对应）：</p>
      * <ul>
-     *   <li>{@code uOrderMinAlpha >= 1.0} ⇒ GLSL 根本不进入该分支（本模型以
-     *       {@code orderMinAlpha >= ORDER_MIN_ALPHA_OFF} 表达），权重恒 1.0，逐值等于接线前；</li>
+     *   <li>{@code uOrderMinBrightness >= 1.0} ⇒ GLSL 根本不进入该分支（本模型以
+     *       {@code orderMinBrightness >= ORDER_MIN_BRIGHTNESS_OFF} 表达），权重恒 1.0，逐值等于接线前；</li>
      *   <li>{@code uAppearSpan <= 0}（无同代目标总数 / 无 aAux）⇒ 恒 1.0；</li>
      *   <li>出现序号未定义（u16 == 0xFFFF）⇒ 恒 1.0，绝不能按「序号 65535」把远处条柱算成最低权重。</li>
      * </ul>
@@ -236,13 +242,13 @@ public final class ChainPreviewShaderMath {
      * <p>未定义判定写成 {@code !(appearOrder < 0xFFFF)} 而不是 {@code >= 0xFFFF}：GLSL 的判据是
      * {@code if (appearOrder < 65535.0)}，NaN 比较恒为 false ⇒ 未定义出口，两侧必须同结论。</p>
      *
-     * @param orderMinAlpha 权重下限（配置值；{@link #ORDER_MIN_ALPHA_OFF} = 关闭）
+     * @param orderMinBrightness 亮度权重下限（配置值；{@link #ORDER_MIN_BRIGHTNESS_OFF} = 关闭）
      * @param appearOrder   顶点出现序号；{@code >= 0xFFFF} 视为未定义（恒 1.0）
      * @param appearSpan    同代目标总数（归一化分母）；{@code <= 0} 表示无序号信息（恒 1.0）
-     * @return 顶点 alpha 权重，落在 {@code [orderMinAlpha, 1]}
+     * @return 顶点颜色亮度权重（乘在 rgb 上），落在 {@code [orderMinBrightness, 1]}
      */
-    public static float orderWeight(float orderMinAlpha, float appearOrder, float appearSpan) {
-        if (!(orderMinAlpha < ORDER_MIN_ALPHA_OFF) || !(appearSpan > 0.0F)) {
+    public static float orderWeight(float orderMinBrightness, float appearOrder, float appearSpan) {
+        if (!(orderMinBrightness < ORDER_MIN_BRIGHTNESS_OFF) || !(appearSpan > 0.0F)) {
             return 1.0F;
         }
         if (!(appearOrder < APPEAR_ORDER_UNDEFINED)) {
@@ -250,7 +256,7 @@ public final class ChainPreviewShaderMath {
         }
         float normalized = (float) Math.floor(Math.min(appearOrder, appearSpan)) / Math.max(appearSpan, 1.0F);
         float t = clamp(normalized, 0.0F, 1.0F);
-        return 1.0F - (1.0F - orderMinAlpha) * t;
+        return 1.0F - (1.0F - orderMinBrightness) * t;
     }
 
     /**
@@ -287,6 +293,10 @@ public final class ChainPreviewShaderMath {
      * <p>GLSL 侧 {@code vColor.a = fade * growth * uFadeAlpha}，其中 fade 是
      * {@link #fadeAlpha} 的 quadratic 曲线。{@code fadeAlpha = 1} 时必须与现状逐值一致
      * （乘 1 不改变任何结果），这是「不启用动画档 ⇒ 观感不变」的可断言形式。</p>
+     *
+     * <p><b>本链路刻意不含连锁序权重</b>（{@link #orderWeight}）：该权重乘在颜色亮度上，
+     * 距离淡出与连锁序是两个独立维度、各自权威（用户裁定）。往 {@code vColor.a} 里再补一个
+     * 「越远越淡」的乘数会把两个配置的语义重新绑到一个量上。</p>
      *
      * @param distanceBasedAlpha 距离淡出 alpha（{@link #fadeAlpha} 的结果）
      * @param fadeAlpha          淡入淡出包络 [0,1]；1 = 完全不透明

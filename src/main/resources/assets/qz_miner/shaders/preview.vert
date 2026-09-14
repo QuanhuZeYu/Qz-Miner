@@ -40,14 +40,17 @@
  *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
  *        「两 pass 叠色」行为——固定管线做外扩必须改 CPU 几何，会破坏 B4.1 的增量/差分等价。
  *   9) 连锁序渐弱（本项目新增，**非 §F 冻结项**）—— 与第 3 项**共用同一次** appearOrder 还原
- *                        （u16 只组装一次，任一消费方不需要时都不读），按归一化连锁序把 alpha 从
- *                        1.0 线性降到 uOrderMinAlpha（配置 clientPreviewOrderMinAlpha，默认 0.45）：
+ *                        （u16 只组装一次，任一消费方不需要时都不读），按归一化连锁序把**颜色亮度**
+ *                        从 1.0 线性降到 uOrderMinBrightness（配置 clientPreviewOrderMinBrightness，默认 0.55）：
  *                        t = clamp(floor(min(order, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)，
- *                        orderWeight = 1.0 − (1.0 − uOrderMinAlpha) × t。
- *                        门控：uOrderMinAlpha >= 1.0 时**完全不进入**该分支（逐值等于现状）；
+ *                        orderWeight = 1.0 − (1.0 − uOrderMinBrightness) × t，color = color * orderWeight。
+ *                        **作用位置是颜色亮度（rgb），不乘 alpha**（用户裁定）：alpha 只由
+ *                        「距离淡出 × 逐波生长 × uFadeAlpha」决定，「越远越淡」的两套配置因此各自权威、
+ *                        互不污染（此前乘在 alpha 上会与距离淡出抢同一个量）。
+ *                        门控：uOrderMinBrightness >= 1.0 时**完全不进入**该分支（逐值等于现状）；
  *                        序号未定义（0xFFFF）或 uAppearSpan <= 0 时权重恒 1.0。
- *                        分母 uAppearSpan 由 Java 侧逐帧供给，其取值语义（默认档为 0）见
- *                        ChainPreviewShaderBackend#orderMinAlphaFor 的说明。
+ *                        分母 uAppearSpan 由 Java 侧逐帧供给，其取值语义见
+ *                        ChainPreviewShaderBackend#orderMinBrightnessFor 的说明。
  *
  * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
  * 形状一致（d <= fadeStart → uMaxAlpha；d >= fadeEnd → uMinAlpha；之间按 t^2 插值），
@@ -93,9 +96,10 @@ uniform float uOutlineWidthPx;   // 真描边（B3.x）外扩宽度（物理像�
                                  // xray / occlude 与 OUTLINE 主体 pass 都必须为 0 ⇒ 逐值等于现状
 uniform float uFaceShading;      // 面朝向明暗（face shading）开关：0 = 关闭（默认，等于接线前观感），1 = 开启
                                  // 关闭时必须**完全不进入乘色分支**，保证逐字节等于现状
-uniform float uOrderMinAlpha;    // 连锁序渐弱（第 9 项）的 alpha 权重下限：1 = 关闭（= 接线前观感）
+uniform float uOrderMinBrightness;    // 连锁序渐弱（第 9 项）的**亮度**权重下限：1 = 关闭（= 接线前观感）
                                  // 关闭时必须**完全不进入 orderWeight 分支**，保证逐值等于现状；
-                                 // 序号未定义 / uAppearSpan <= 0 时该分支也保持恒等 1.0
+                                 // 序号未定义 / uAppearSpan <= 0 时该分支也保持恒等 1.0；
+                                 // 权重只乘颜色亮度（rgb），alpha 不消费本 uniform
 
 // 语义调色板（按 aAux.x 的 semanticClass 选择，见 §D 类别表）。
 // builtin 档四色都是精确基线常量 (0.25, 0.9, 1.0) ⇒ 输出逐字节等于现状。
@@ -193,14 +197,14 @@ void main(void) {
     // 3) 逐波生长 + 9) 连锁序渐弱：两个消费方**共用同一次** appearOrder 还原（u16 只组装一次）。
     //    读取门控 = 「至少一个消费方需要」，不再只挂在生长上（那是第 3 项独占时的省开销短路）：
     //      · 生长：uAnimProgress < 1.0 && uAppearSpan > 0.0 —— u >= 1 整段可见，无需读序号；
-    //      · 权重：uOrderMinAlpha < 1.0 && uAppearSpan > 0.0 —— uAppearSpan <= 0 时恒等（见下）。
+    //      · 权重：uOrderMinBrightness < 1.0 && uAppearSpan > 0.0 —— uAppearSpan <= 0 时恒等（见下）。
     //    两者都不需要时整段不读 aAux.z / aAux.w，逐顶点分支开销与接线前一致。
     //    0xFFFF（未定义序号）在两个消费方都按「已出现 / 权重 1.0」处理，避免无归属顶点在任意
     //    进度下出现空洞、或在任意进度下被异常压暗。
     float growth = 1.0;
     float orderWeight = 1.0;
     bool growthActive = uAnimProgress < 1.0 && uAppearSpan > 0.0;
-    bool orderWeightActive = uOrderMinAlpha < 1.0 && uAppearSpan > 0.0;
+    bool orderWeightActive = uOrderMinBrightness < 1.0 && uAppearSpan > 0.0;
     if (growthActive || orderWeightActive) {
         float appearOrder = auxChannel(aAux.z) + auxChannel(aAux.w) * 256.0;
         if (appearOrder < 65535.0) {
@@ -213,16 +217,17 @@ void main(void) {
             }
             if (orderWeightActive) {
                 // 9) 连锁序渐弱：序号越小越靠近瞄准起点。分母是「同代目标总数」，
-                //    起点 order = 0 ⇒ t = 0 ⇒ 权重 1.0；最远 order >= span ⇒ t = 1 ⇒ 权重 = uOrderMinAlpha。
-                //    门控已在上面表达（uOrderMinAlpha >= 1.0 ⇒ orderWeightActive 为假 ⇒ 整段不执行），
+                //    起点 order = 0 ⇒ t = 0 ⇒ 权重 1.0；最远 order >= span ⇒ t = 1 ⇒ 权重 = uOrderMinBrightness。
+                //    权重**乘在颜色亮度上**（见下方 color 行），不参与上面的 alpha。
+                //    门控已在上面表达（uOrderMinBrightness >= 1.0 ⇒ orderWeightActive 为假 ⇒ 整段不执行），
                 //    这里不再重复判一次，避免出现第二个真源。
                 float t = clamp(orderFloor / max(uAppearSpan, 1.0), 0.0, 1.0);
-                orderWeight = 1.0 - (1.0 - uOrderMinAlpha) * t;
+                orderWeight = 1.0 - (1.0 - uOrderMinBrightness) * t;
             }
         }
     }
-    //    本次是 GLSL **逻辑**变更：按头部「实机验证记录」口径，需真机确认无异常后才追加标记行；
-    //    现有标记行覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
+    //    本段（含权重的消费位置：alpha → 颜色亮度）是 GLSL **逻辑**变更：按头部「实机验证记录」口径，
+    //    需真机确认无异常后才追加标记行；现有标记行覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
 
     // 几何位置必须保持与 legacy 完全一致。aPos 已经是 MeshBuilder 生成的
     // 条柱/连接块顶点，不能从其相对 origin 的绝对坐标猜测横向轴：长条端点、
@@ -281,10 +286,11 @@ void main(void) {
     // 颜色与 alpha：vColor.rgb 是「语义类别色」（非预乘），alpha 单独传给混合。
     // 共用混合是 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)（两后端共用）：
     // 预乘 alpha 会让最终 src 变成 rgb × alpha²（alpha=0.15 时 0.0225 vs 0.15）。
-    // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）× 连锁序权重（第 9 项）。
-    // uFadeAlpha = 1 与 orderWeight = 1.0 都是**精确 1.0 的乘法**（关闭档 / 未定义序号 /
-    // 无同代目标总数时 orderWeight 保持初值 1.0），故两档都与接线前逐值一致。
-    float alpha = fade * growth * uFadeAlpha * orderWeight;
+    // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）——**不含连锁序权重（第 9 项）**：
+    // 距离淡出与连锁序是两个独立维度、各自权威（用户裁定：两套「越远越淡」不得乘在同一个量上，
+    // 否则两个配置的语义互相污染；且远距 alpha 本已很小，再乘权重只会落进视觉噪声）。
+    // uFadeAlpha = 1 是**精确 1.0 的乘法**，故关闭档逐值等于接线前。
+    float alpha = fade * growth * uFadeAlpha;
     // 描边 pass 用主色（outline 轮廓统一色，不参与语义分类）；其余情况按 semanticClass 取色。
     // 取色仍在顶点阶段（F1），alpha 包络 fade × growth × uFadeAlpha 不受描边分支影响。
     vec3 color = previewSemanticColor(auxChannel(aAux.x));
@@ -296,6 +302,11 @@ void main(void) {
     if (uFaceShading > 0.5) {
         color = color * faceShading(aDirection.xyz);
     }
+    // 连锁序渐弱（第 9 项）作用在**颜色亮度**上：刻意放在面明暗**之外层**，两者是彼此独立的乘数
+    // （不合并化简、也不移进上面的 if——关闭面明暗时本行照旧生效；单精度舍入顺序保持
+    // 「先 color × 明暗系数、再 × 权重」，既有面明暗链路逐位不变）。
+    // orderWeight 在关闭档 / 未定义序号 / 无同代目标总数时保持初值 1.0，乘 1.0 精确恒等。
+    color = color * orderWeight;
     vColor = vec4(color, alpha);
 
     // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），

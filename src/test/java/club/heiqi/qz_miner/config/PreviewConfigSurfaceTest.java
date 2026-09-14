@@ -55,7 +55,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewMaxTargetsHardCap", "4096.0"},
             {"client.clientPreviewLod", "off"},
             {"client.clientPreviewLodMinAlpha", "0.05"},
-            {"client.clientPreviewOrderMinAlpha", "0.45"},
+            {"client.clientPreviewOrderMinBrightness", "0.55"},
             {"client.clientPreviewSuppressVanillaHighlight", "false"},
             {"client.clientPreviewVersionedInputs", "false"},
             {"client.clientPreviewPresentationOverlay", "false"},
@@ -79,7 +79,7 @@ public class PreviewConfigSurfaceTest {
             {"client.clientPreviewOutlineWidthPx", "0", "8", "-0.1", "8.1"},
             {"client.clientPreviewMaxTargetsHardCap", "1", "4096", "0", "4097"},
             {"client.clientPreviewLodMinAlpha", "0", "1", "-0.1", "1.1"},
-            {"client.clientPreviewOrderMinAlpha", "0", "1", "-0.1", "1.1"},
+            {"client.clientPreviewOrderMinBrightness", "0", "1", "-0.1", "1.1"},
             {"client.clientPreviewRemoteTimeoutMs", "250", "60000", "249", "60001"}
     };
 
@@ -367,7 +367,7 @@ public class PreviewConfigSurfaceTest {
         if (leaf.equals("clientPreviewFadeFallbackMs")) {
             return 5000.0D;
         }
-        if (leaf.equals("clientPreviewLodMinAlpha") || leaf.equals("clientPreviewOrderMinAlpha")) {
+        if (leaf.equals("clientPreviewLodMinAlpha") || leaf.equals("clientPreviewOrderMinBrightness")) {
             return 1.0D;
         }
         if (leaf.equals("clientPreviewRemoteTimeoutMs")) {

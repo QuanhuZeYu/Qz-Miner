@@ -113,7 +113,7 @@ public final class ConfigSemanticValidator {
         putIntNumber(typed, errors, draft, "client.clientPreviewMaxTargetsHardCap", 1, 4096);
         putChoice(typed, errors, draft, "client.clientPreviewLod", PreviewLodMode.ids());
         putDoubleNumber(typed, errors, draft, "client.clientPreviewLodMinAlpha", 0.0D, 1.0D);
-        putDoubleNumber(typed, errors, draft, "client.clientPreviewOrderMinAlpha", 0.0D, 1.0D);
+        putDoubleNumber(typed, errors, draft, "client.clientPreviewOrderMinBrightness", 0.0D, 1.0D);
         putBoolean(typed, errors, draft, "client.clientPreviewSuppressVanillaHighlight");
         putBoolean(typed, errors, draft, "client.clientPreviewVersionedInputs");
         putBoolean(typed, errors, draft, "client.clientPreviewPresentationOverlay");
@@ -391,7 +391,7 @@ public final class ConfigSemanticValidator {
         public final int clientPreviewMaxTargetsHardCap;
         public final PreviewLodMode clientPreviewLod;
         public final double clientPreviewLodMinAlpha;
-        public final double clientPreviewOrderMinAlpha;
+        public final double clientPreviewOrderMinBrightness;
         public final boolean clientPreviewSuppressVanillaHighlight;
         public final boolean clientPreviewVersionedInputs;
         public final boolean clientPreviewPresentationOverlay;
@@ -447,7 +447,7 @@ public final class ConfigSemanticValidator {
             clientPreviewMaxTargetsHardCap = exactInt(typed, "client.clientPreviewMaxTargetsHardCap");
             clientPreviewLod = PreviewLodMode.fromId((String) typed.get("client.clientPreviewLod"));
             clientPreviewLodMinAlpha = number(typed, "client.clientPreviewLodMinAlpha");
-            clientPreviewOrderMinAlpha = number(typed, "client.clientPreviewOrderMinAlpha");
+            clientPreviewOrderMinBrightness = number(typed, "client.clientPreviewOrderMinBrightness");
             clientPreviewSuppressVanillaHighlight = ((Boolean) typed
                     .get("client.clientPreviewSuppressVanillaHighlight")).booleanValue();
             clientPreviewVersionedInputs = ((Boolean) typed.get("client.clientPreviewVersionedInputs"))

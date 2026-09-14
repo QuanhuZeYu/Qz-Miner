@@ -92,7 +92,7 @@ public final class ConfigValueBridge {
         Config.clientPreviewMaxTargetsHardCap = snapshot.clientPreviewMaxTargetsHardCap;
         Config.clientPreviewLod = snapshot.clientPreviewLod;
         Config.clientPreviewLodMinAlpha = snapshot.clientPreviewLodMinAlpha;
-        Config.clientPreviewOrderMinAlpha = snapshot.clientPreviewOrderMinAlpha;
+        Config.clientPreviewOrderMinBrightness = snapshot.clientPreviewOrderMinBrightness;
         Config.clientPreviewSuppressVanillaHighlight = snapshot.clientPreviewSuppressVanillaHighlight;
         Config.clientPreviewVersionedInputs = snapshot.clientPreviewVersionedInputs;
         Config.clientPreviewPresentationOverlay = snapshot.clientPreviewPresentationOverlay;
