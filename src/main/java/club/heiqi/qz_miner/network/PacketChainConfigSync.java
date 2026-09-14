@@ -20,7 +20,7 @@ import io.netty.buffer.ByteBuf;
  * {@code CommonProxy.handleClientChainConfigSync}；ClientProxy 按 connection identity
  * capture token，经主线程整包校验后 connection-active gate 再写状态。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本包是只读配置下发，不要求客户端切态、不碰世界。</li>
  *   <li><b>I4</b>：Handler 在 Netty 线程只捕获纯数据与 common {@code INetHandler}，不触碰客户端状态。</li>

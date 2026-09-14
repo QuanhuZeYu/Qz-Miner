@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.chain.statemachine;
 /**
  * 连锁框架状态机的五态枚举。
  *
- * <p>本枚举落地 NORTH_STAR §5 不变量 I10「合法转移表」的状态空间：
+ * <p>本枚举落地不变量 I10「合法转移表」的状态空间：
  * 状态变更经唯一的 {@link ChainStateMachine} 合法转移表驱动，外部只能 {@code bus.publish} 事件，
  * 不能直接调用 {@code transition} 切态。</p>
  *

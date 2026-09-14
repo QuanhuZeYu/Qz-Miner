@@ -22,7 +22,7 @@ import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
  * 真实破坏桥<b>不</b>读 session 的 pendingBreakTargets/plannerRunning 等运行态字段
  * （这些字段块3 字段瘦身时一起清）。session 是只读配置载体，不破坏 I1。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本类只承载数据（队列 + 代际 + session），<b>不</b>触碰世界、
  *       <b>不</b>切执行态、<b>不</b>调任何破坏方块 API。真实破坏发生在主线程消费订阅者

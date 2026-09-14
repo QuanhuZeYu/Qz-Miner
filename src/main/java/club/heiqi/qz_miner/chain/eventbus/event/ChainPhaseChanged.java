@@ -22,7 +22,7 @@ import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
  * <p>序列化优化：内部以 {@code int ordinal} 存储 from/to（{@link ChainPhase} 枚举已是 5 态稳定），
  * 省网络字节；getter 返回 {@link ChainPhase} 枚举便于消费方使用。</p>
  *
- * <p>守 NORTH_STAR 不变量 I1/I10：</p>
+ * <p>守不变量 I1/I10：</p>
  * <ul>
  *   <li><b>I1</b>：不可变事件，所有字段 {@code final}，构造后不可修改，
  *       可安全跨线程传递（主线程 drain publish → Netty 线程读 → 客户端主线程 drain）。</li>

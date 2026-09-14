@@ -13,7 +13,7 @@ import cpw.mods.fml.relauncher.SideOnly;
  * <p><b>阶段8 块3 起投影夺权</b>：HUD/预览锁定权威已从旧 {@code serverExecutionStatus}
  * 切到本投影（G2 不夺权铁律解除）。阶段6-7 影子期的"只可见不夺权"已结束。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I4</b>：本容器 {@code update} 由 {@code ClientPhaseProjectionSubscriber} 在
  *       ClientTickEvent.START drain（客户端主线程）调用，不在 Netty 线程直接改。</li>

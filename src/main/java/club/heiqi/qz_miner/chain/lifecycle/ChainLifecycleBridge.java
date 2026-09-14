@@ -11,7 +11,7 @@ import club.heiqi.qz_miner.event.PlayerStateEvent;
 import club.heiqi.qz_miner.event.QzEvents;
 
 /**
- * 连锁生命周期桥：平行订阅 {@link PlayerStateEvent} 转 {@link LifecycleCleanup}（守 NORTH_STAR 不变量 I7）。
+ * 连锁生命周期桥：平行订阅 {@link PlayerStateEvent} 转 {@link LifecycleCleanup}（守不变量 I7）。
  *
  * <h3>三路回 IDLE 中的角色（阶段7 收口）</h3>
  * <p>本类是<b>生命周期强制清理路径</b>，与执行完成快速路径（{@code ChainExecutionEventBridge}）、
@@ -42,7 +42,7 @@ import club.heiqi.qz_miner.event.QzEvents;
  *   <li><b>LOGIN</b>：不 publish（无需清理，玩家刚加入无活跃连锁）。</li>
  * </ul>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本类只 publish LifecycleCleanup，不切 phase、不碰 worker、不写世界。</li>
  *   <li><b>I7</b>：复用 {@link PlayerStateEvent} 现成生命周期源（同一主线程收口），

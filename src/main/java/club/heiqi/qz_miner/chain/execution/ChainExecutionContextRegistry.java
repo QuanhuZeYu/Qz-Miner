@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentMap;
  * 后 {@link #get(UUID, int, long)} 领取。按 {@code UUID + gen + serverRoundId} 三元校验做陈旧判定，
  * 不破坏 {@link club.heiqi.qz_miner.chain.eventbus.event.ChainEvent} 不可变契约。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本类只承载数据引用，不触碰世界、不切态、不破坏方块。</li>
  *   <li><b>I4</b>：跨线程安全——worker 线程 put，主线程消费订阅者 get，

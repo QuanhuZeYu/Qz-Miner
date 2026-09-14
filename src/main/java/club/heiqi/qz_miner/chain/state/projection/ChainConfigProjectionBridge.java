@@ -30,7 +30,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 由 {@code ChainPlanningEventBridge} worker 完成路径 publish）。本桥订阅 PlanCompleted 取该值下发，
  * 客户端 HUD 据此显示「服务端匹配数」。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本桥只 {@code sendTo} 下发配置，<b>绝不</b>碰世界、绝不切态、绝不调破坏 API。</li>
  *   <li><b>I4</b>：PlanCompleted 订阅仅在主线程 drain 调用（chainEventBus publish 跨线程、drain 主线程），

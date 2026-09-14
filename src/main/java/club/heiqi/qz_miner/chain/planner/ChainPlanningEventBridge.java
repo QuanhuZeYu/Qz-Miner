@@ -42,12 +42,12 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * worker 完成 publish {@link PlanCompleted}（推进 PLANNING→RUNNING）/ 取消 publish {@link PlanCancelled}
  * （回 PLANNING→IDLE）。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：影子 worker 只读世界（traverser 只读）+ 只 publish 事件，<b>绝不</b>
  *       {@code setExecutionStatus}、<b>绝不</b>写 {@code ChainSession}、<b>绝不</b>
  *       {@code syncPlayerState}。阶段8 块1 已删除旧链路 worker（{@code AbstractFloodFillPlanningStrategy}/
- *       {@code BlockBoxScanPlanningStrategy} 等），I1 偏离随之清偿（NORTH_STAR §8 偏离条目已移除）。</li>
+ *       {@code BlockBoxScanPlanningStrategy} 等），I1 偏离随之清偿（偏离条目已移除）。</li>
  *   <li><b>I3</b>：复用 {@link ChainPlanningRuntimeFactory#createForServer} 与
  *       {@link ChainTraversalSupport#step}，不新造遍历逻辑。</li>
  *   <li><b>I4</b>：publish 跨线程入队、drain 主线程消费（{@link ChainEventBus} 天然满足），

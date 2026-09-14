@@ -84,7 +84,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *       {@code ChainDropCollector}:32 收集开关 + :58 释放开关正确工作（I5 生命线）。</li>
  * </ul>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：consumeContext 在主线程 ServerTickEvent.START 调 tryHarvestBlock/activateBlockOrUseItem；
  *       session 仅是配置载体（mode/subMode/origin/interactFace），不破坏世界。</li>

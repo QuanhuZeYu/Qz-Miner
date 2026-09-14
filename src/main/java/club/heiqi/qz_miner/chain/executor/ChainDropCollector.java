@@ -19,7 +19,7 @@ import net.minecraftforge.event.world.BlockEvent;
 public class ChainDropCollector {
 
     /**
-     * world-tick 掉落释放连续失败上限（守 NORTH_STAR 信条四四级降级链终点）。
+     * world-tick 掉落释放连续失败上限（守四级降级链终点）。
      *
      * <p>{@code onWorldTick} 释放路径四级降级链（当前位置→重生/出生点→已记忆兜底→discard）
      * 全部失败时累加玩家级失败计数，达此上限才触发 {@code ChainDropReleaseHelper.discard} 兜底丢弃，

@@ -5,7 +5,7 @@ import java.util.UUID;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 
 /**
- * 玩家连锁状态清理事件（对应 cleanupPlayerState 语义，守 NORTH_STAR 不变量 I7）。
+ * 玩家连锁状态清理事件（对应 cleanupPlayerState 语义，守不变量 I7）。
  *
  * <h3>阶段7 三路回 IDLE 裁决（F.1 W1 + F.2 S1）</h3>
  * <p>阶段7 起 LifecycleCleanup 携带两个字段区分两类来源：</p>

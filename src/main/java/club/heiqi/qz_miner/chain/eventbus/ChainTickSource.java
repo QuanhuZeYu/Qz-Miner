@@ -6,7 +6,7 @@ import net.minecraft.server.MinecraftServer;
 /**
  * 连锁事件诊断时间戳来源。
  *
- * <p>守 NORTH_STAR 不变量 I4：仅供 {@code publish} 路径填充 {@code ChainEvent.serverTick}/
+ * <p>守不变量 I4：仅供 {@code publish} 路径填充 {@code ChainEvent.serverTick}/
  * {@code timestampNanos} 诊断字段。事件是输入事件（ChainKeyPressed/BlockBreakObserved/...）时，
  * 调用方保证在主线程或跨线程入队前取值即可，本类不触碰任何主线程语义状态。</p>
  *

@@ -16,7 +16,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * {@link PacketChainPhaseSnapshot} 下发到客户端投影容器。阶段8 块3 起投影夺权：
  * HUD/预览锁定权威已从旧 {@code serverExecutionStatus} 切到 {@code ClientPhaseProjection}。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本桥只 {@code sendTo} 下发快照，<b>绝不</b>调 {@code applyTransition}/
  *       {@code transition}。状态机仍是 phase/generation 唯一写权威。</li>

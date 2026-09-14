@@ -15,7 +15,7 @@ import club.heiqi.qz_miner.MyMod;
  * <p>严格 side-agnostic：只依赖 {@code java.util.concurrent}、{@link UUID} 与
  * {@link ChainEvent}，不 import 任何服务端/客户端专属类，便于阶段 3 客户端复用。</p>
  *
- * <h3>线程模型（守 NORTH_STAR 不变量 I1/I2/I4）</h3>
+ * <h3>线程模型（守不变量 I1/I2/I4）</h3>
  * <ul>
  *   <li>{@link #publish(ChainEvent)}：任意线程可调，仅入队，不分发，<b>绝不</b>同步 drain</li>
  *   <li>{@link #subscribe(Class, EventSubscriber)}：任意线程可注册，线程安全</li>

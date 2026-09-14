@@ -51,7 +51,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <h3>F.4 镜像立即移除（C1）</h3>
  * <p>publish WatchdogTimeout 后立即从镜像移除该条目，避免后续 tick 重复 publish（防止看门狗风暴）。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I1</b>：本类只 publish/remove 自己容器，绝不切 phase、不碰 worker、不写世界。</li>
  *   <li><b>I2</b>：协作式取消——只 publish WatchdogTimeout，不 Future.cancel、不强杀 worker、

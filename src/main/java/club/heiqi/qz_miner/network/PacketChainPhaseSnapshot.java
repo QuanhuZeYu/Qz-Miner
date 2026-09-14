@@ -14,7 +14,7 @@ import io.netty.buffer.ByteBuf;
  * Handler 将 {@code ctx.netHandler} 与快照字段转交 proxy；客户端主线程按 world-active
  * token gate 后才 publish 到 clientChainEventBus（禁止 Netty 直接写/发布语义状态）。</p>
  *
- * <p>守 NORTH_STAR 不变量：</p>
+ * <p>守不变量：</p>
  * <ul>
  *   <li><b>I1</b>：本包是只读快照下发，不要求客户端切态；客户端投影容器可见但不夺权（P0-1=A 决议）。</li>
  *   <li><b>I4</b>：Handler 在 Netty 线程只捕获数据与 common INetHandler，不直接改投影容器。</li>

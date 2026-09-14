@@ -24,7 +24,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 /**
  * 连锁框架状态机：各玩家 `phase` 与 `generation` 的唯一写权威。
  *
- * <p>落地 NORTH_STAR §5 不变量 I10「合法转移表」：状态变更只经此类驱动，且按玩家 UUID 分槽
+ * <p>落地不变量 I10「合法转移表」：状态变更只经此类驱动，且按玩家 UUID 分槽
  * （per-player {@link #slots}）。外部入口只能 {@link ChainEventBus#publish(ChainEvent)} 事件、
  * 不能直接 {@code transition} 切态。越界（非法源→目标组合）即丢弃事件并诊断日志，
  * 不得静默改态或抛异常中断 drain。</p>
@@ -170,7 +170,7 @@ public class ChainStateMachine {
      *
      * <p>契约：仅主线程 drain 调用，单线程假定无需自锁。
      * 命中偏移命中字段（hitX/Y/Z）携带供 INTERACT 模式 flood fill 方向判定，
-     * 是 oracle 决议扩 T4 触发入口（破坏/右键/左键三入口）的根因（见 NORTH_STAR §5 I10）。</p>
+     * 是 oracle 决议扩 T4 触发入口（破坏/右键/左键三入口）的根因（见不变量 I10）。</p>
      *
      * @param event 右键观测事件
      */
@@ -198,7 +198,7 @@ public class ChainStateMachine {
      * 左键方块观测事件：ARMED → PLANNING，并自增代际（T4 左键观测入口，GT 线缆替换模式专用）。
      *
      * <p>阶段8 D1：GT 线缆左键替换观测入口，与破坏观测/右键观测三事件入口对称扩展 T4
-     * （见 NORTH_STAR §5 I10）。逻辑等同 {@link #onRightClickObserved}——
+     * （见不变量 I10）。逻辑等同 {@link #onRightClickObserved}——
      * ARMED 态 ++gen → PLANNING → publish {@link PlanStarted} 携带命中偏移。
      * GT 线缆左键路径 {@code hitX/Y/Z} 默认填 0（1.7.10 {@code PlayerInteractEvent}
      * 左键分支未暴露命中偏移），flood fill 不依赖此值。</p>

@@ -16,12 +16,12 @@
 
 ## 根本原因
 
-1. **降级链只接通第一级**：`ChainDropCollector.onWorldTick` 玩家存在分支原本只调 `ChainDropReleaseHelper.releaseAtPlayer`（玩家当前位置）单级，未接通 NORTH_STAR 信条四规划的二/三/四级（重生/出生点 → 已记忆兜底 → discard）。当玩家当前位置 spawn 失败时，没有任何其他降级出口。
+1. **降级链只接通第一级**：`ChainDropCollector.onWorldTick` 玩家存在分支原本只调 `ChainDropReleaseHelper.releaseAtPlayer`（玩家当前位置）单级，未接通四级降级链规划的二/三/四级（重生/出生点 → 已记忆兜底 → discard）。当玩家当前位置 spawn 失败时，没有任何其他降级出口。
 2. **失败无条件回填 → 死循环**：`ChainDropReleaseHelper.releaseAtCoordinates`（`ChainDropReleaseHelper.java:160`）在 `spawnEntityInWorld` 返回 false 时调 `restoreUnreleasedDrops`（`ChainDropReleaseHelper.java:199`）无条件把未生成 stack 回填 buffer。下一帧 `onWorldTick` 判 `IDLE && buffer 非空` 再次进入释放路径，再次以同坐标尝试、再次失败、再次回填 → 死循环。
-3. **discard 兜底存在但从未被主路径调用**：`ChainDropReleaseHelper.discard(...)`（`ChainDropReleaseHelper.java:149`）方法本已存在（守 NORTH_STAR 信条四终点），但 `onWorldTick` 主路径从未到达它，隐性违反 NORTH_STAR 信条四「四级降级链 + 告警丢弃」——设计意图存在，主路径未接通。
+3. **discard 兜底存在但从未被主路径调用**：`ChainDropReleaseHelper.discard(...)`（`ChainDropReleaseHelper.java:149`）方法本已存在（守四级降级链终点），但 `onWorldTick` 主路径从未到达它，隐性违反 四级降级链「四级降级链 + 告警丢弃」——设计意图存在，主路径未接通。
 4. **配置项缺合理硬上限**：`chainMaxBlocks` 当前允许 `Integer.MAX_VALUE`，用户随手改大即可触发本 BUG 量级，本错误预防暂不修，留下一轮 polish。
 
-> NORTH_STAR 信条四原文（节录）：掉落释放四级降级链 —— 当前玩家位置 → 玩家重生点/世界出生点 → 已记忆的兜底坐标 → 连续失败达上限告警丢弃，不得无限 restore 重试。
+> 四级降级链信条原文（节录）：掉落释放四级降级链 —— 当前玩家位置 → 玩家重生点/世界出生点 → 已记忆的兜底坐标 → 连续失败达上限告警丢弃，不得无限 restore 重试。
 
 ## 修复方案
 

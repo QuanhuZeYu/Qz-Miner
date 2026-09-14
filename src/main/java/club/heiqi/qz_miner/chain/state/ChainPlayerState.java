@@ -16,7 +16,7 @@ import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
  *
  * <p>字段 {@link #dropReleaseConsecutiveFailures}：掉落释放连续失败计数，
  * world-tick 释放路径用，累计超 {@code DROP_RELEASE_MAX_RETRIES} 上限触发 discard 兜底
- * （守 NORTH_STAR 信条四四级降级链终点）；{@link #clearRuntimeState(String)} 收口清零，
+ * （守四级降级链终点）；{@link #clearRuntimeState(String)} 收口清零，
  * 防跨生命周期残留脏计数（守 I7）。</p>
  */
 public class ChainPlayerState extends AbstractChainModeState {
@@ -61,7 +61,7 @@ public class ChainPlayerState extends AbstractChainModeState {
      * 后立即 {@link #armSeedDropCapture(long)} arm 一次；collector 守卫扩展为
      * {@code (isExecuting() || consumeSeedDropCaptureIfArmed(tick))}，armed 时也收一次。</p>
      *
-     * <p>守 NORTH_STAR I10（状态机唯一写权威）：本字段独立于 {@link #executionStatus}/phase/generation，
+     * <p>守不变量 I10（状态机唯一写权威）：本字段独立于 {@link #executionStatus}/phase/generation，
      * 不复用 {@link #setExecuting(boolean)} 写入口；{@code volatile} 保证主线程 publish 侧 arm 与
      * 主线程 collector 侧 consume 的可见性（同 tick 同步链路，无跨线程竞争）。</p>
      */

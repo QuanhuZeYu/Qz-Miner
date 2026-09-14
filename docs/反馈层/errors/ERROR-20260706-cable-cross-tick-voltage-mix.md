@@ -29,11 +29,11 @@ GT 线缆替换走专属执行分叉（`shouldWaitForPlannerCompletion=true`）�
 - **B2**：`while` 到队列空，绕过 `maxBreakPerTick` 与 50ms 节流戳
 - **B3**：`precheckCableReplacement` 预校验链路不超 `Config.cableReplaceMaxPerTick`（默认 1024）+ 背包线缆充足，否则不放行 + 聊天提示
 
-详见决策 `docs/反馈层/决策/gt-cable-replacement-model.md` 与 `NORTH_STAR.md`「GT 线缆替换单 tick 原子执行」。
+详见决策 `docs/反馈层/决策/gt-cable-replacement-model.md`「GT 线缆替换单 tick 原子执行」。
 
 ## 预防措施
 
 - 任何「属性变更型」操作（不仅是破坏方块）若引入执行模型分叉，必须评估其中间态是否对目标系统（GT 网络、IC2 网络、AE 网络…）合法
 - 跨 tick 中间态危险的语义必须走单 tick 原子路径，预校验上限兜底防卡 tick
 - 通用 shared deadline 只对可跨 tick 完整收口的操作安全，不能假定所有 `ChainActionExecutor` 都适用
-- 上溯规则：本类误差已在 `NORTH_STAR.md`「GT 线缆替换单 tick 原子执行」登记为长期已知例外
+- 上溯规则：本类误差已登记为长期已知例外

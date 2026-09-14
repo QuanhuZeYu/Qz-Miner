@@ -13,7 +13,7 @@ package club.heiqi.qz_miner.chain.executor;
  * （见 AGENTS §2.2）。</p>
  *
  * <p>四级降级链（当前位置→重生/出生点→已记忆兜底→discard 兜底）的端到端行为，
- * 含 {@code restoreUnreleasedDrops} 回填（守 NORTH_STAR I5）、{@code discard} 警告清空、
+ * 含 {@code restoreUnreleasedDrops} 回填（守不变量 I5）、{@code discard} 警告清空、
  * {@code releaseAtRespawnOrWorldSpawn}/{@code releaseAtRememberedTarget} null 守卫，
  * 留 {@code runClient21}/{@code runServer25} 实机验证（见传感层测试约定）。
  * 实机诊断锚点：buffer 残留 + consecutive failures 计数 + discard WARN 行。</p>

@@ -13,7 +13,7 @@ import org.junit.Test;
  * {@link ChainPlayerState#resetDropReleaseFailure()} 与
  * {@link ChainPlayerState#clearRuntimeState(String)} 收口清零语义。</p>
  *
- * <p>守 NORTH_STAR I7：失败计数随生命周期收口（{@code clearRuntimeState}）一并清零，
+ * <p>守不变量 I7：失败计数随生命周期收口（{@code clearRuntimeState}）一并清零，
  * 防跨生命周期残留脏计数；守 I10：失败计数独立于 phase/generation/executionStatus，
  * 不复用状态机写入口，反之亦然。</p>
  */

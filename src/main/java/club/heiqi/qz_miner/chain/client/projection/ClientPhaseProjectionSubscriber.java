@@ -17,7 +17,7 @@ import cpw.mods.fml.relauncher.SideOnly;
  * publish 到 clientChainEventBus → {@code ClientChainEventBusDrainer} 在 ClientTickEvent.START
  * drain（客户端主线程）→ 触发本订阅者。</p>
  *
- * <h3>守 NORTH_STAR 不变量</h3>
+ * <h3>守不变量</h3>
  * <ul>
  *   <li><b>I4</b>：本订阅者仅由客户端主线程 drain 调用（clientChainEventBus.drain 在 ClientTickEvent.START），
  *       实际更新在主线程，不在 Netty 线程直接改容器。</li>

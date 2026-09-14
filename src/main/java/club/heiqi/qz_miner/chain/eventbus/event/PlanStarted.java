@@ -13,7 +13,7 @@ import net.minecraft.block.Block;
  * 在阶段 4 拿到 {@code generation} + 上下文后发起影子 traverser。本事件由 {@code ChainStateMachine}
  * 在 T4 ARMED→PLANNING 转移完成后作为进态广播 publish（阶段 4 起）。</p>
  *
- * <p>守 NORTH_STAR 不变量 I1：不可变事件，所有字段 {@code final}，构造后不可修改，
+ * <p>守不变量 I1：不可变事件，所有字段 {@code final}，构造后不可修改，
  * 可安全跨线程传递（主线程 drain publish → worker 线程读取上下文）。</p>
  *
  * <p>字段集与 {@link RightClickObserved} 对齐：破坏路径（{@code BlockBreakObserved}）无命中偏移，
