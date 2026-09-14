@@ -21,7 +21,8 @@ import org.junit.Test;
  *   <li><b>失败出口</b>：自检 / 读取失败 ⇒ 一次性 {@code unavailable} ⇒
  *       {@link ChainPreviewShaderBackend#ensureReady()} 恒返回 false（renderer 既有的一次性永久回退
  *       legacy 路径随之生效，不新增回退机制），且失败原因进 {@code describe()}；</li>
- *   <li><b>必备 uniform</b>：链接后必须校验 location，缺失即整体不可用（清单内容用反射对账）。</li>
+ *   <li><b>必备 uniform</b>：链接后必须校验 location，缺失即整体不可用——清单内容用反射对账，
+ *       失败语义按<b>实际调用</b>断言（未链接的程序在任何环境都查不到 location ⇒ 必须抛出<b>完整缺失名单</b>）。</li>
  * </ol>
  *
  * <p><b>为什么不再读 Java 源码文本</b>：原先这一层断言「applyUniforms 里有没有写
@@ -136,6 +137,13 @@ public class ChainPreviewShaderMatrixSourceTest {
         Assert.assertFalse("重复调用必须仍为 false（不每帧重试）", backend.ensureReady());
     }
 
+    /** 反射读取必备 uniform 清单：私有常量，同包也不可直接访问。 */
+    private static String[] requiredUniforms() throws Exception {
+        java.lang.reflect.Field field = ChainPreviewShaderProgram.class.getDeclaredField("REQUIRED_UNIFORMS");
+        field.setAccessible(true);
+        return (String[]) field.get(null);
+    }
+
     /** 指定 origin 的 plan（已 sanitize：可见索引范围 = 索引数）。 */
     private static ChainPreviewDrawPlan planWithOrigin(int originX, int originY, int originZ) {
         return new ChainPreviewDrawPlan(
@@ -168,17 +176,39 @@ public class ChainPreviewShaderMatrixSourceTest {
      */
     @Test
     public void requiredUniformsAreValidatedAfterLink() throws Exception {
+        // ① 接线顺序（结构化扫描，不是方法体文本快照）：校验必须排在链接之后。
+        //    顺序错了的后果不是误报——链接前所有 location 都查不到 ⇒ 必然整体回退，画面直接不画。
         String ensureReady = methodBody(PROGRAM_PATH, "public boolean ensureReady()", "ensureReady");
-        Assert.assertTrue("链接完成后必须校验必备 uniform", ensureReady.contains("verifyRequiredUniforms()"));
-        Assert.assertTrue("校验必须在 compileAndLink() 之后", ensureReady.indexOf("compileAndLink()") < ensureReady.indexOf("verifyRequiredUniforms()"));
+        int link = ensureReady.indexOf("compileAndLink()");
+        int verifyCall = ensureReady.indexOf("verifyRequiredUniforms()");
+        Assert.assertTrue("ensureReady 必须既链接又校验必备 uniform（链接=" + link + "、校验=" + verifyCall + "）",
+                link >= 0 && verifyCall >= 0);
+        Assert.assertTrue("校验必须在 compileAndLink() 之后", link < verifyCall);
 
-        String verify = methodBody(PROGRAM_PATH, "private void verifyRequiredUniforms()", "verifyRequiredUniforms");
-        Assert.assertTrue("缺失必须走失败（抛异常 ⇒ 收敛为程序不可用）", verify.contains("throw new IllegalStateException"));
-        Assert.assertTrue("原因必须带缺失名单", verify.contains("missing"));
+        // ② 失败语义（行为化）：未链接的程序查不到任何 uniform ⇒ 必须硬失败并交出完整缺失名单。
+        //    原先这里是「源码里有没有写 throw new IllegalStateException / missing」的文本快照：
+        //    改名即误报，而把 throw 换成 log.warn 却照样绿——真机后果是 shader 拿零矩阵绘制，
+        //    而后端自检读的是驱动矩阵，于是「自检通过、画面全错」。
+        String[] required = requiredUniforms();
+        ChainPreviewShaderProgram unlinked = new ChainPreviewShaderProgram();
+        java.lang.reflect.Method verify = ChainPreviewShaderProgram.class
+                .getDeclaredMethod("verifyRequiredUniforms");
+        verify.setAccessible(true);
+        try {
+            verify.invoke(unlinked);
+            Assert.fail("必备 uniform 全部缺失时必须抛异常（静默通过 ⇒ 零矩阵绘制且自检仍绿）");
+        } catch (java.lang.reflect.InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            Assert.assertTrue("缺失必须收敛为 IllegalStateException（ensureReady 的 catch 按此收敛为不可用），实际 "
+                    + cause, cause instanceof IllegalStateException);
+            String message = String.valueOf(cause.getMessage());
+            for (String name : required) {
+                Assert.assertTrue("失败原因必须点名缺失的 " + name + "（实际：" + message + "）",
+                        message.contains(name));
+            }
+        }
 
-        java.lang.reflect.Field field = ChainPreviewShaderProgram.class.getDeclaredField("REQUIRED_UNIFORMS");
-        field.setAccessible(true);
-        String[] required = (String[]) field.get(null);
+        // ③ 清单内容：反射对账（哪些 uniform 属硬必备是契约本身，不是实现细节）
         java.util.List<String> names = java.util.Arrays.asList(required);
         for (String name : new String[] {
                 "uModelViewProjection", "uOriginRel", "uFadeAlpha", "uColorPrimary" }) {
