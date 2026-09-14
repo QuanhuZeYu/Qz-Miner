@@ -54,18 +54,20 @@ public final class QzMinerConfigDefaults {
     // 六色语义默认（0xRRGGBB）：与 ChainPreviewDrawPlan.Visuals.Colors 的 BUILTIN_*_RGB 同值——
     // 「builtin 档」与「config 档但未改过颜色」因此给出同一套可区分配色（用户裁定 B 档：
     // 默认颜色按大模式区分）。CHAIN 保持历史主色 0x40E6FF，使默认大模式观感与接线前一致。
+    // 用户裁定：AREA（爆破模式）色相明确偏红、INTERACT（范围交互）色相明确偏绿；
+    // 三槽连带调整的取舍与可辨识度验算见 ChainPreviewDrawPlan.Visuals.Colors 的同名常量。
     /** CHAIN 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
     public static final int CLIENT_PREVIEW_COLOR_CHAIN = 0x40E6FF;
-    /** AREA 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_AREA = 0x5CE1A6;
-    /** INTERACT 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_INTERACT = 0xFFC857;
+    /** AREA 大模式默认子模式本地预测颜色（0xRRGGBB；H≈7° 偏红）。 */
+    public static final int CLIENT_PREVIEW_COLOR_AREA = 0xE8503C;
+    /** INTERACT 大模式默认子模式本地预测颜色（0xRRGGBB；H≈135° 偏绿）。 */
+    public static final int CLIENT_PREVIEW_COLOR_INTERACT = 0x58E07A;
     /** 扩展子模式本地预测颜色（0xRRGGBB）。 */
     public static final int CLIENT_PREVIEW_COLOR_SECONDARY = 0xB08CFF;
     /** 远端预测颜色（0xRRGGBB）。 */
     public static final int CLIENT_PREVIEW_COLOR_REMOTE = 0x8FA9D0;
-    /** 截断目标颜色（0xRRGGBB）。 */
-    public static final int CLIENT_PREVIEW_COLOR_TRUNCATED = 0xFF7A6B;
+    /** 截断目标颜色（0xRRGGBB；琥珀，避让 AREA 红）。 */
+    public static final int CLIENT_PREVIEW_COLOR_TRUNCATED = 0xF8C858;
     /** 深度通道：xray 等于历史行为。 */
     public static final String CLIENT_PREVIEW_DEPTH_MODE = PreviewDepthMode.defaultValue().id();
     /** 预览动画：本轮默认 off（逐波生长接线属下一批 B3.1/B3.3）。 */

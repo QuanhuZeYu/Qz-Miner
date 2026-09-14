@@ -135,11 +135,11 @@ config.qz_miner.clientPreviewRenderBackend.tooltip=Preview render backend: auto 
 config.qz_miner.clientPreviewBarThickness.tooltip=Preview bar thickness (block-space offset scale), default 0.045, range 0.005..0.2
 config.qz_miner.clientPreviewColorSource.tooltip=Preview color source: builtin six-color palette (default, distinguished by chain mode; CHAIN is byte-for-byte identical to before); config uses the six RGB keys below for semantic colors
 config.qz_miner.clientPreviewColorChain.tooltip=CHAIN mode (default sub-mode) local prediction color (#RRGGBB, 0xRRGGBB or decimal), default 0x40E6FF
-config.qz_miner.clientPreviewColorArea.tooltip=AREA mode (default sub-mode) local prediction color (#RRGGBB, 0xRRGGBB or decimal), default 0x5CE1A6
-config.qz_miner.clientPreviewColorInteract.tooltip=INTERACT mode (default sub-mode) local prediction color (#RRGGBB, 0xRRGGBB or decimal), default 0xFFC857
+config.qz_miner.clientPreviewColorArea.tooltip=AREA mode (default sub-mode) local prediction color (#RRGGBB, 0xRRGGBB or decimal), default 0xE8503C
+config.qz_miner.clientPreviewColorInteract.tooltip=INTERACT mode (default sub-mode) local prediction color (#RRGGBB, 0xRRGGBB or decimal), default 0x58E07A
 config.qz_miner.clientPreviewColorSecondary.tooltip=Extended sub-mode local prediction color (#RRGGBB, 0xRRGGBB or decimal), default 0xB08CFF
 config.qz_miner.clientPreviewColorRemote.tooltip=Remote predicted color (#RRGGBB, 0xRRGGBB or decimal), default 0x8FA9D0
-config.qz_miner.clientPreviewColorTruncated.tooltip=Truncated target color (#RRGGBB, 0xRRGGBB or decimal), default 0xFF7A6B
+config.qz_miner.clientPreviewColorTruncated.tooltip=Truncated target color (#RRGGBB, 0xRRGGBB or decimal), default 0xF8C858
 
 # Config screen labels (UILib 4.10 FieldSpec.label has no language-table channel: the
 # PreviewConfigTooltips proxy renderer substitutes them from the same language keys and

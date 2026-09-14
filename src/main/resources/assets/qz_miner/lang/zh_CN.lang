@@ -135,11 +135,11 @@ config.qz_miner.clientPreviewRenderBackend.tooltip=预览渲染后端：auto 能
 config.qz_miner.clientPreviewBarThickness.tooltip=预览条柱粗细（方块坐标偏移缩放），默认 0.045，合法 0.005..0.2
 config.qz_miner.clientPreviewColorSource.tooltip=预览颜色来源：builtin 内置六色（默认，按大模式区分；CHAIN 与历史逐字节一致）；config 使用下方六个 RGB 键的语义配色
 config.qz_miner.clientPreviewColorChain.tooltip=CHAIN 大模式（默认子模式）本地预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0x40E6FF
-config.qz_miner.clientPreviewColorArea.tooltip=AREA 大模式（默认子模式）本地预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0x5CE1A6
-config.qz_miner.clientPreviewColorInteract.tooltip=INTERACT 大模式（默认子模式）本地预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0xFFC857
+config.qz_miner.clientPreviewColorArea.tooltip=AREA 大模式（默认子模式）本地预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0xE8503C
+config.qz_miner.clientPreviewColorInteract.tooltip=INTERACT 大模式（默认子模式）本地预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0x58E07A
 config.qz_miner.clientPreviewColorSecondary.tooltip=扩展子模式本地预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0xB08CFF
 config.qz_miner.clientPreviewColorRemote.tooltip=远端预测颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0x8FA9D0
-config.qz_miner.clientPreviewColorTruncated.tooltip=截断目标颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0xFF7A6B
+config.qz_miner.clientPreviewColorTruncated.tooltip=截断目标颜色（#RRGGBB、0xRRGGBB 或十进制），默认 0xF8C858
 
 # 配置页标签（UILib 4.10 的 FieldSpec.label 没有语言表通道：由 PreviewConfigTooltips 的
 # 代理渲染器按同一套语言键替换，缺失时回退 Schema 里的原始键名）

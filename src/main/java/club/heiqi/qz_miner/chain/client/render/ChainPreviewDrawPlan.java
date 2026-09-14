@@ -142,16 +142,28 @@ public final class ChainPreviewDrawPlan {
              */
             public static final int BUILTIN_CHAIN_RGB = 0x40E6FF;
 
-            /** builtin 档 AREA 槽（本轮新增，默认即可区分）。 */
-            public static final int BUILTIN_AREA_RGB = 0x5CE1A6;
-            /** builtin 档 INTERACT 槽（本轮新增）。 */
-            public static final int BUILTIN_INTERACT_RGB = 0xFFC857;
+            /**
+             * builtin 档 AREA 槽（爆破模式）：色相明确偏红（H≈7°），不是「暖一点」的琥珀。
+             *
+             * <p>用户裁定：AREA 偏红、INTERACT 偏绿，CHAIN 保持青主色。取红橙而非正红是为了在
+             * 与 INTERACT 绿、TRUNCATED 琥珀拉开距离的同时保留「爆破」的暖色联想。</p>
+             */
+            public static final int BUILTIN_AREA_RGB = 0xE8503C;
+            /** builtin 档 INTERACT 槽（范围交互）：色相明确偏绿（H≈135°），与 CHAIN 的青（H≈188°）区分。 */
+            public static final int BUILTIN_INTERACT_RGB = 0x58E07A;
             /** builtin 档扩展子模式槽（本轮新增）。 */
             public static final int BUILTIN_SUB_MODE_RGB = 0xB08CFF;
             /** builtin 档远端槽（本轮新增）。 */
             public static final int BUILTIN_REMOTE_RGB = 0x8FA9D0;
-            /** builtin 档截断槽（本轮新增）。 */
-            public static final int BUILTIN_TRUNCATED_RGB = 0xFF7A6B;
+            /**
+             * builtin 档截断槽：琥珀 0xF8C858（原为珊瑚红 0xFF7A6B）。
+             *
+             * <p><strong>为什么避让</strong>：AREA 改红后，珊瑚红与 AREA 红在三档叠加的最坏档
+             * （连锁序亮度 × 面明暗最暗面 × 近处 alpha）ΔE00 只剩 ≈4，两槽会糊成一片；
+             * 换到琥珀后该对恢复到 ≈21，且琥珀本就是调色板内的色相（旧 INTERACT 槽），
+             * 不引入第七种色相。截断是「本轮数据源不产出」的保留分支，改动风险最低。</p>
+             */
+            public static final int BUILTIN_TRUNCATED_RGB = 0xF8C858;
 
             /** builtin 档六槽（彼此不同；用户裁定「默认颜色按大模式区分」）。 */
             public static final Colors BUILTIN = new Colors(
