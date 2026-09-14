@@ -14,13 +14,29 @@ import org.junit.Test;
  *
  * <p>三件事必须在纯 JVM 内可证伪，否则「换成显式 uniform」只是把不可观测的失败换个位置：</p>
  * <ol>
- *   <li><b>矩阵来源</b>：applyUniforms 必须取 <b>plan 的 origin</b>（与 renderer 的
- *       {@code glTranslated}、legacy 后端同源），不得再用上传期缓存的 origin；</li>
- *   <li><b>显式化</b>：必须读固定管线矩阵 → CPU 相乘 → 上传 uModelView/uModelViewProjection，
- *       且 draw 必须被自检结果门控（矩阵不可信时一帧都不画）；</li>
- *   <li><b>失败出口</b>：自检失败 ⇒ 一次性 {@code unavailable} ⇒ {@link ChainPreviewShaderBackend#ensureReady()}
- *       恒返回 false（renderer 既有的一次性永久回退 legacy 路径随之生效，不新增回退机制）。</li>
+ *   <li><b>矩阵来源</b>：相机相对 origin 必须取 <b>plan 的 origin</b>（与 renderer 的
+ *       {@code glTranslated}、legacy 后端同源），且在 double 域相减——取值路径已下沉为纯函数
+ *       {@link ChainPreviewShaderBackend#originRelativeTo(ChainPreviewDrawPlan, double, double, double, double[])}，
+ *       断言其数值而不是源码文本；</li>
+ *   <li><b>失败出口</b>：自检 / 读取失败 ⇒ 一次性 {@code unavailable} ⇒
+ *       {@link ChainPreviewShaderBackend#ensureReady()} 恒返回 false（renderer 既有的一次性永久回退
+ *       legacy 路径随之生效，不新增回退机制），且失败原因进 {@code describe()}；</li>
+ *   <li><b>必备 uniform</b>：链接后必须校验 location，缺失即整体不可用（清单内容用反射对账）。</li>
  * </ol>
+ *
+ * <p><b>为什么不再读 Java 源码文本</b>：原先这一层断言「applyUniforms 里有没有写
+ * {@code plan.getOriginX()} / {@code uploadCameraMatrices(} / {@code if (!program.setModelView(…))}」——
+ * 重命名即误报、把上传整段删掉却可能照样绿。现在：能下沉成纯函数的（origin 换算、相机扭曲判定）
+ * 按数值断言；失败路径按<strong>实际调用</strong>断言（headless 下矩阵读取必然失败，走的就是真机上
+ * 「内建矩阵失同步」的同一失败出口）。<b>矩阵读回 / 相乘 / 上传本身需要真实 GL 上下文</b>
+ * （headless 下固定管线矩阵栈不存在），这部分只有真机验证能覆盖，见类注释与 shader 头部记录。</p>
+ *
+ * <p><b>可达性边界（实测）</b>：{@code applyUniforms} 的第一步是读 {@code RenderManager.renderPosX}，
+ * 而测试运行时初始化原版渲染类会抛
+ * {@code NoSuchMethodError: org.lwjgl.opengl.DisplayMode.<init>(int, int)}（lwjgl3ify 兼容层）；
+ * {@code draw} 的第一步 {@code glGetInteger} 在无上下文时同样先失败。故「读回 → CPU 相乘 → 上传
+ * mvp/mv → 自检」整条链在 headless 下不可达（真机验证覆盖），本类改按可到达的等价面断言：
+ * 纯函数数值（origin / 相机扭曲）+ 失败出口的实际后果链（锁存 ⇒ describe ⇒ ensureReady）。</p>
  */
 public class ChainPreviewShaderMatrixSourceTest {
 
@@ -54,56 +70,78 @@ public class ChainPreviewShaderMatrixSourceTest {
                 backend.describe().contains("matrix=unchecked"));
     }
 
-    /** applyUniforms 必须用 plan origin + 显式矩阵，并且自检失败时返回 false（不再用上传期缓存 origin）。 */
+    /**
+     * 相机相对 origin 必须取 plan 的 origin，且在 double 域相减。
+     *
+     * <p>断言打在 {@link ChainPreviewShaderBackend#originRelativeTo} 的<b>数值</b>上：函数的入参只有
+     * plan 与相机世界坐标，源码里不再存在「上传期缓存的 origin」这条岔路（T48c-A 的语义分叉根因）；
+     * 「上传期缓存」的回归表现为「换 plan 而 uniform 值不变」——本用例用两个 origin 不同的 plan
+     * 证明取值确实跟着 plan 走。</p>
+     *
+     * <p>double 域不是形式主义：float 在 3e7 处的间距是 4，30M 级坐标下相减会把 0.75 格算成 0
+     * （表型是整链相对方块抖动）。</p>
+     */
     @Test
-    public void applyUniformsUsesPlanOriginAndExplicitCameraMatrices() throws Exception {
-        String body = methodBody(BACKEND_PATH, "private boolean applyUniforms(", "applyUniforms");
+    public void originRelativeComesFromPlanOriginInDoubleDomain() {
+        double[] out = new double[3];
 
-        Assert.assertTrue("必须取 plan 的 origin X", body.contains("plan.getOriginX()"));
-        Assert.assertTrue("必须取 plan 的 origin Y", body.contains("plan.getOriginY()"));
-        Assert.assertTrue("必须取 plan 的 origin Z", body.contains("plan.getOriginZ()"));
-        Assert.assertFalse("不得再用上传期缓存的 origin（会与 legacy 侧语义分叉）",
-                body.contains("(double) originX"));
+        ChainPreviewShaderBackend.originRelativeTo(planWithOrigin(10, 64, -3), 1.5D, 2.5D, 3.5D, out);
+        Assert.assertEquals(8.5D, out[0], 0.0D);
+        Assert.assertEquals(61.5D, out[1], 0.0D);
+        Assert.assertEquals(-6.5D, out[2], 0.0D);
 
-        Assert.assertTrue("必须读固定管线相机矩阵", body.contains("uploadCameraMatrices("));
-        Assert.assertTrue("自检失败必须返回 false（draw 据此不画）", body.contains("return false"));
+        ChainPreviewDrawPlan moved = planWithOrigin(11, 64, -3);
+        ChainPreviewShaderBackend.originRelativeTo(moved, 1.5D, 2.5D, 3.5D, out);
+        Assert.assertEquals("取值必须跟着 plan 的 origin 走（不得来自任何缓存）", 9.5D, out[0], 0.0D);
+        Assert.assertEquals(61.5D, out[1], 0.0D);
+        Assert.assertEquals(-6.5D, out[2], 0.0D);
+
+        // 大世界坐标：差值必须精确（float 域相减会把 -0.75 / 1.5 算成 0.0 / 2.0）
+        ChainPreviewShaderBackend.originRelativeTo(planWithOrigin(30000000, -30000000, 30000000),
+                30000000.75D, -29999999.25D, 29999998.5D, out);
+        Assert.assertEquals("不得丢掉亚格精度", -0.75D, out[0], 0.0D);
+        Assert.assertEquals(-0.75D, out[1], 0.0D);
+        Assert.assertEquals(1.5D, out[2], 0.0D);
     }
 
-    /** 上传路径必须「读 → CPU 相乘 → 上传 mvp/mv → 自检」，且失败原因可读。 */
+    /**
+     * 矩阵来源不可信 ⇒ 一次性锁存为不可用 ⇒ 下一帧 {@code ensureReady()} 返回 false
+     * （renderer 既有的一次性永久回退 legacy 随之生效，不新增回退机制），且原因可读。
+     *
+     * <p>断言打在<b>失败出口本身</b>（{@code markMatrixSourceUntrusted}）的后果链上，而不是
+     * 「这个方法里有没有写 {@code unavailable = true} / {@code matrixSourceFailure = reason}」：
+     * 锁存后必须同时满足「describe 标 untrusted 且带原因」「failure 同步非空」「ensureReady 恒 false」。</p>
+     *
+     * <p><b>为什么不到</b> {@code applyUniforms}：它第一步就读 {@code RenderManager.renderPosX}，
+     * 而本测试运行时（lwjgl3ify 兼容层）初始化原版渲染类的 {@code <clinit>} 会直接抛
+     * {@code NoSuchMethodError: org.lwjgl.opengl.DisplayMode.<init>(int, int)} ⇒ 该路径在纯 JVM 内
+     * 不可达，只能真机验证。同理 {@code draw} 的第一句 {@code glGetInteger} 在无上下文时也先失败。</p>
+     */
     @Test
-    public void matrixUploadReadsMultipliesUploadsAndSelfChecks() throws Exception {
-        String body = methodBody(BACKEND_PATH, "private boolean uploadCameraMatrices(", "uploadCameraMatrices");
+    public void matrixFailureLatchMakesBackendUnavailableAndObservable() throws Exception {
+        ChainPreviewShaderBackend backend = new ChainPreviewShaderBackend();
+        java.lang.reflect.Method latch = ChainPreviewShaderBackend.class
+                .getDeclaredMethod("markMatrixSourceUntrusted", String.class);
+        latch.setAccessible(true);
+        String reason = "FFP 矩阵栈平移列模长 0.0 与期望 4.079 不符";
+        latch.invoke(backend, reason);
 
-        Assert.assertTrue("必须从程序层读回投影/modelview", body.contains("readCameraMatrices(projectionMatrix, modelViewMatrix)"));
-        Assert.assertTrue("必须在 CPU 侧相乘出 MVP（列主序，投影 × modelview）",
-                body.contains("multiply4x4(") && body.contains("modelViewProjectionMatrix, projectionMatrix, modelViewMatrix"));
-        Assert.assertTrue("自检必须用加固后的总判据（T48c-C）",
-                body.contains("verifyCameraMatrices(") && body.contains("translationMagnitude(modelViewMatrix)"));
-        Assert.assertTrue("不得再只查平移列模长（投影/刚性/方向三类漏过已登记）",
-                body.contains("MatrixVerdict.TRUSTWORTHY"));
-        Assert.assertTrue("期望值必须是 |origin − renderPos| 的模长",
-                body.contains("magnitude(") && body.contains("originRelativeX"));
-        Assert.assertTrue("必须上传 uModelViewProjection", body.contains("setModelViewProjection(modelViewProjectionMatrix)"));
-        Assert.assertTrue("必须上传 uModelView", body.contains("setModelView(modelViewMatrix)"));
-        Assert.assertTrue("硬矩阵 uModelViewProjection 未上传必须走同一失败出口（T48c-C 第 1 条）",
-                body.contains("uModelViewProjection 未上传") && body.contains("markMatrixSourceUntrusted"));
-        Assert.assertTrue("uModelView 未上传必须走同一失败出口（T51 起它是必备项：aDirection 位移要用它）",
-                body.contains("if (!program.setModelView(modelViewMatrix))")
-                        && body.contains("uModelView 未上传"));
-
-        String untrusted = methodBody(BACKEND_PATH, "private void markMatrixSourceUntrusted(", "markMatrixSourceUntrusted");
-        Assert.assertTrue("失败必须锁成一次性 unavailable", untrusted.contains("unavailable = true"));
-        Assert.assertTrue("失败原因必须留存给 describe", untrusted.contains("matrixSourceFailure = reason"));
+        String described = backend.describe();
+        Assert.assertTrue("矩阵来源必须标成不可信并带原因: " + described,
+                described.contains("matrix=untrusted(" + reason + ")"));
+        Assert.assertTrue("失败原因必须同时进 failure（describe 可观测）: " + described,
+                described.contains("failure="));
+        Assert.assertFalse("一次性不可用后 ensureReady() 必须返回 false（renderer 据此回退 legacy）",
+                backend.ensureReady());
+        Assert.assertFalse("重复调用必须仍为 false（不每帧重试）", backend.ensureReady());
     }
 
-    /** draw 必须被自检结果门控：不可信时一帧都不画（绝不留错误空间的一帧）。 */
-    @Test
-    public void drawIsGatedBySelfCheckResult() throws Exception {
-        String draw = methodBody(BACKEND_PATH, "public void draw(ChainPreviewDrawPlan plan)", "draw");
-        Assert.assertTrue("一次性不可用后不得再绘制", draw.contains("unavailable"));
-        Assert.assertTrue("必须由 applyUniforms 的返回值门控绘制",
-                draw.contains("if (!applyUniforms(plan))"));
-        Assert.assertTrue("门控分支必须提前结束本帧", draw.contains("return"));
+    /** 指定 origin 的 plan（已 sanitize：可见索引范围 = 索引数）。 */
+    private static ChainPreviewDrawPlan planWithOrigin(int originX, int originY, int originZ) {
+        return new ChainPreviewDrawPlan(
+                0, 12, null, ChainPreviewDrawPlan.Visuals.BASELINE,
+                ChainPreviewDrawPlan.SEMANTIC_MASK_ALL,
+                originX, originY, originZ, 8, false, 0, 0L, 0L).sanitized();
     }
 
     /**
@@ -163,31 +201,63 @@ public class ChainPreviewShaderMatrixSourceTest {
                 0, capability.length);
     }
 
-    /** 矩阵上传必须返回成功与否，且 location<0 时不得伪装成功。 */
+    /**
+     * 矩阵上传必须返回成功与否，且 location&lt;0 时不得伪装成功（T48c-C 第 1 条）。
+     *
+     * <p>断言打在<b>实际调用结果</b>上：非法入参（null / 长度不足）任何环境都必须 false；
+     * 无 GL 上下文时 location 查不到 ⇒ 必须 false 且把「矩阵 uniform 缺失」记进诊断，
+     * 而不是静默跳过让 shader 拿零矩阵绘制。</p>
+     */
     @Test
-    public void matrixUploadReportsFailureInsteadOfSilentSkip() throws Exception {
-        String upload = methodBody(PROGRAM_PATH, "private boolean setUniformMatrix4(", "setUniformMatrix4");
-        Assert.assertTrue("location<0 必须返回 false", upload.contains("return false"));
-        Assert.assertTrue("必须记录「矩阵 uniform 缺失」（诊断可观测）", upload.contains("missingMatrices = true"));
-        Assert.assertTrue("成功后必须返回 true", upload.contains("return true"));
+    public void matrixUploadReportsFailureInsteadOfSilentSkip() {
+        ChainPreviewShaderProgram program = new ChainPreviewShaderProgram();
+        boolean ready = program.ensureReady();
 
-        String projection = methodBody(PROGRAM_PATH, "public boolean setModelViewProjection(", "setModelViewProjection");
-        Assert.assertTrue("setModelViewProjection 必须把上传结果透出给后端", projection.contains("return setUniformMatrix4("));
+        Assert.assertFalse("null 入参不得伪装成功", program.setModelViewProjection(null));
+        Assert.assertFalse("null modelview 不得伪装成功", program.setModelView(null));
+        Assert.assertFalse("长度不足不得伪装成功", program.setModelView(new float[15]));
+        Assert.assertFalse("长度不足不得伪装成功（MVP）", program.setModelViewProjection(new float[3]));
+
+        if (ready) {
+            // 真机开发环境（GL 上下文可用）：必备 uniform 齐全 ⇒ 上传必须真的成功
+            Assert.assertTrue("就绪后 MVP 必须上传成功", program.setModelViewProjection(new float[16]));
+            Assert.assertTrue("就绪后 modelview 必须上传成功", program.setModelView(new float[16]));
+        } else {
+            // 无 GL 上下文：location < 0 ⇒ 必须返回 false，且缺失必须可观测
+            Assert.assertFalse("location<0 必须返回 false", program.setModelViewProjection(new float[16]));
+            Assert.assertFalse("location<0 必须返回 false（modelview）", program.setModelView(new float[16]));
+            Assert.assertTrue("「矩阵 uniform 缺失」必须记录给 describe（不得静默）",
+                    program.hasMissingMatrixUniforms());
+        }
     }
 
     /**
      * T48c-C 第 2 条的原版相机扭曲例外：传送门/反胃时 modelview 被施加非均匀缩放，
      * 无条件刚性判据会误判并永久回退（比原缺陷更重）。
+     *
+     * <p>判定本体是纯函数 {@link ChainPreviewShaderBackend#cameraWarpActive(float, float)}，按数值断言：
+     * <b>prev 也必须看</b>——渲染用的是两者的插值，只看当前值会漏掉首末过渡帧。读取客户端状态的那一层
+     * 由反射直接调用，断言「取不到客户端状态时安全退化为 false」而不是「源码里有没有写 catch」。</p>
      */
     @Test
-    public void vanillaCameraWarpExceptionIsWired() throws Exception {
-        String warp = methodBody(BACKEND_PATH, "private static boolean vanillaCameraWarpActive()", "vanillaCameraWarpActive");
-        Assert.assertTrue("必须读 timeInPortal", warp.contains("player.timeInPortal"));
-        Assert.assertTrue("必须读 prevTimeInPortal（覆盖首末过渡帧）", warp.contains("player.prevTimeInPortal"));
-        Assert.assertTrue("取不到客户端状态必须安全退化", warp.contains("catch (Throwable failure)"));
+    public void vanillaCameraWarpWidensJudgementOnlyWhileWarping() throws Exception {
+        Assert.assertTrue("timeInPortal > 0 必须视为扭曲生效",
+                ChainPreviewShaderBackend.cameraWarpActive(0.5F, 0.0F));
+        Assert.assertTrue("prevTimeInPortal > 0 同样必须生效（覆盖首末过渡帧）",
+                ChainPreviewShaderBackend.cameraWarpActive(0.0F, 0.5F));
+        Assert.assertFalse("常态不得放宽判据（否则会漏掉真实的矩阵失同步）",
+                ChainPreviewShaderBackend.cameraWarpActive(0.0F, 0.0F));
 
-        String upload = methodBody(BACKEND_PATH, "private boolean uploadCameraMatrices(", "uploadCameraMatrices");
-        Assert.assertTrue("扭曲状态必须传进总判据", upload.contains("vanillaCameraWarpActive()"));
+        java.lang.reflect.Method warp = ChainPreviewShaderBackend.class
+                .getDeclaredMethod("vanillaCameraWarpActive");
+        warp.setAccessible(true);
+        try {
+            // 两种「取不到客户端状态」都走同一出口：thePlayer 为 null，或客户端类根本不可加载
+            // （测试运行时初始化原版渲染类会抛 NoSuchMethodError）。任一情形都必须返回 false 而不是抛出。
+            Assert.assertEquals("取不到客户端状态必须安全退化为 false", Boolean.FALSE, warp.invoke(null));
+        } catch (java.lang.reflect.InvocationTargetException failure) {
+            Assert.fail("取不到客户端状态不得抛出: " + failure.getCause());
+        }
     }
 
     /** 程序层的矩阵 API 在任何环境下都必须安全退化：非法入参返回 false、绝不抛。 */

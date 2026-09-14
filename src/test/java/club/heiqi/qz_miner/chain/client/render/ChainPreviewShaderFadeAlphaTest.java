@@ -1,11 +1,5 @@
 package club.heiqi.qz_miner.chain.client.render;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -16,15 +10,14 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
  *
  * <p>规范要求：{@code fadeAlpha = 0} ⇒ 全透明、{@code 0.5} ⇒ 半透、{@code 1} ⇒ 与今天逐值一致，
  * 且与 legacy 乘子路径的最终 alpha 逐值相等。这里用参考模型逐值断言（纯 JVM）；
+ * 后端把 plan 的包络映射成 uniform 取值的那一步、以及宿主安全初值同样是纯函数/常量
+ * （{@link ChainPreviewShaderBackend#fadeAlphaFor(ChainPreviewDrawPlan)}、
+ * {@link ChainPreviewShaderProgram#sanitizeFadeAlpha(float)}、
+ * {@link ChainPreviewShaderProgram#INITIAL_FADE_ALPHA}），按数值断言。
  * 「GLSL 真的乘了该 uniform」不再用源码文本断言，改为「uFadeAlpha 登记为硬必备 uniform
  * + 真机验证 + shader 头部「实机验证记录」标记」（注释改动本身不触发重验）。</p>
  */
 public class ChainPreviewShaderFadeAlphaTest {
-
-    private static final String PROGRAM_PATH =
-            "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderProgram.java";
-    private static final String BACKEND_PATH =
-            "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
     private static final float FADE_START = 2.0F;
     private static final float FADE_END = 6.0F;
@@ -101,43 +94,62 @@ public class ChainPreviewShaderFadeAlphaTest {
         Assert.assertFalse("NaN 包络不得产生 NaN alpha", Float.isNaN(nanResult));
     }
 
-    /** 后端必须真的消费 plan 的包络（否则文档声称的「shader 路径有淡入淡出」不成立）。 */
+    // ------------------------------------------------------------------ 后端 uniform 数值（plan → uniform）
+
+    /**
+     * 后端把 plan 的包络映射成 {@code uFadeAlpha} 的取值，且取值恒在 [0,1]。
+     *
+     * <p>断言打在 {@link ChainPreviewShaderBackend#fadeAlphaFor(ChainPreviewDrawPlan)} 的<b>数值</b>上
+     * ——「给定 plan 产出什么包络」才是接线契约；「源码里有没有写 {@code plan.getFadeAlpha()} /
+     * {@code program.setFadeAlpha(}」重命名即误报、改成恒传 1.0 却照样绿（那会让淡入淡出静默失效）。</p>
+     */
     @Test
-    public void backendConsumesPlanFadeAlpha() throws Exception {
-        String body = stripComments(read(BACKEND_PATH));
-        Assert.assertTrue("后端必须从 plan 读 getFadeAlpha()",
-                body.contains("plan.getFadeAlpha()"));
-        Assert.assertTrue("读到的包络必须写进 uniform",
-                body.contains("program.setFadeAlpha("));
+    public void fadeAlphaUniformFollowsPlanAndStaysInUnitRange() {
+        Assert.assertEquals("包络必须原样进 uniform", 0.5F,
+                ChainPreviewShaderBackend.fadeAlphaFor(planWithFadeAlpha(0.5F)), 0.0F);
+        Assert.assertEquals("fadeAlpha=0 ⇒ 全透明", 0.0F,
+                ChainPreviewShaderBackend.fadeAlphaFor(planWithFadeAlpha(0.0F)), 0.0F);
+        Assert.assertEquals("fadeAlpha=1 ⇒ 与今天逐值一致", 1.0F,
+                ChainPreviewShaderBackend.fadeAlphaFor(planWithFadeAlpha(1.0F)), 0.0F);
+        Assert.assertEquals("负包络必须收敛为全透明", 0.0F,
+                ChainPreviewShaderBackend.fadeAlphaFor(planWithFadeAlpha(-3.0F)), 0.0F);
+        Assert.assertEquals("超界包络必须收敛为不透明", 1.0F,
+                ChainPreviewShaderBackend.fadeAlphaFor(planWithFadeAlpha(4.0F)), 0.0F);
+        Assert.assertEquals("NaN 包络必须收敛为不透明（不得让整链静默消失）", 1.0F,
+                ChainPreviewShaderBackend.fadeAlphaFor(planWithFadeAlpha(Float.NaN)), 0.0F);
+
+        // 宿主安全初值：uniform 未赋值时为 0，漏设会让整链透明 ⇒ 初值必须是不透明的 1（精确值）
+        Assert.assertEquals("安全初值必须精确为 1.0（不透明）", 1.0F,
+                ChainPreviewShaderProgram.INITIAL_FADE_ALPHA, 0.0F);
+        Assert.assertEquals("安全初值必须原样通过收敛（不被 clamp 改动）", 1.0F,
+                ChainPreviewShaderProgram.sanitizeFadeAlpha(ChainPreviewShaderProgram.INITIAL_FADE_ALPHA), 0.0F);
     }
 
-    /** 宿主必须提供安全初值：uniform 未赋值时为 0，漏设会让整链透明。 */
+    /**
+     * 无 GL 上下文时写包络必须安全退化：{@link ChainPreviewShaderProgram#setFadeAlpha(float)}
+     * 存在且可调用，绝不向渲染帧抛异常（uniform 写不进去只是能力缺失，不是故障）。
+     */
     @Test
-    public void programWritesSafeInitialEnvelope() throws Exception {
-        String body = stripComments(read(PROGRAM_PATH));
-        Assert.assertTrue("必须提供 setFadeAlpha（含 clamp/NaN 兜底）",
-                body.contains("public void setFadeAlpha(float fadeAlpha)"));
-        Assert.assertTrue("ensureReady 成功后必须写入安全初值 1",
-                body.contains("setFadeAlpha(1.0F);"));
-    }
-
-    private static String read(String relativePath) throws Exception {
-        Path direct = Paths.get(relativePath);
-        if (!Files.isRegularFile(direct)) {
-            Path dir = Paths.get("").toAbsolutePath();
-            while (dir != null) {
-                Path candidate = dir.resolve(relativePath);
-                if (Files.isRegularFile(candidate)) {
-                    return new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
-                }
-                dir = dir.getParent();
+    public void fadeAlphaUploadDegradesSafelyWithoutGlContext() {
+        ChainPreviewShaderProgram program = new ChainPreviewShaderProgram();
+        program.ensureReady();
+        try {
+            for (float envelope : new float[] {0.0F, 0.5F, 1.0F, -1.0F, 2.0F, Float.NaN}) {
+                program.setFadeAlpha(envelope);
             }
+        } catch (Throwable failure) {
+            Assert.fail("setFadeAlpha 不得向渲染帧抛出: " + failure);
         }
-        Assert.assertTrue("找不到文件: " + relativePath, Files.isRegularFile(direct));
-        return new String(Files.readAllBytes(direct), StandardCharsets.UTF_8);
     }
 
-    private static String stripComments(String source) {
-        return Glsl120StaticChecker.stripComments(source, "src", new ArrayList<Glsl120StaticChecker.Finding>());
+    /** 指定包络的 plan（raw 构造：不做 sanitize，故 NaN / 越界会被原样带进来）。 */
+    private static ChainPreviewDrawPlan planWithFadeAlpha(float fadeAlpha) {
+        return new ChainPreviewDrawPlan(
+                0, 24, null,
+                new ChainPreviewDrawPlan.Visuals(
+                        0.045F, 0.0F, 1.0F, FADE_START, FADE_END, MAX_ALPHA, MIN_ALPHA,
+                        ChainPreviewDrawPlan.DepthChannel.XRAY, fadeAlpha),
+                ChainPreviewDrawPlan.SEMANTIC_MASK_ALL,
+                0, 0, 0, 8, false, 0, 0L, 0L);
     }
 }

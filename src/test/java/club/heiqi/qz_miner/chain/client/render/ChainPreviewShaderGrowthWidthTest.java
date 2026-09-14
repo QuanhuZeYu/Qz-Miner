@@ -1,11 +1,5 @@
 package club.heiqi.qz_miner.chain.client.render;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -26,15 +20,14 @@ import club.heiqi.qz_miner.chain.planner.ChainTarget;
  *       位移受与真描边**共用**的世界空间预算约束（A1/A2/T52 修复）。</li>
  * </ol>
  *
- * <p><strong>不读 shader 源码做文本匹配</strong>：GLSL 表达式的形状不再被
+ * <p><strong>不读 shader 源码或 Java 源码做文本匹配</strong>：GLSL 表达式与后端接线的形状不再被
  * {@code body.contains(...)} 钉住（重命名即误报、改系数却照样绿）。参考模型的数值形状在此逐值
- * 断言，GLSL 与参考模型的一致性由「真机验证 + shader 头部「实机验证记录」追加标记」承担——
- * 且<strong>注释改动本身不触发重验</strong>（否则加标记会形成死循环）。</p>
+ * 断言，后端把 plan 映射成生长 uniform 的那一步是纯函数
+ * （{@link ChainPreviewShaderBackend#growthUniforms(ChainPreviewDrawPlan, float, float[])}），
+ * 同样在此按数值断言；GLSL 与参考模型的一致性由「真机验证 + shader 头部「实机验证记录」追加标记」
+ * 承担——且<strong>注释改动本身不触发重验</strong>（否则加标记会形成死循环）。</p>
  */
 public class ChainPreviewShaderGrowthWidthTest {
-
-    private static final String BACKEND_PATH =
-            "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
     /** 与 GLSL 一致的半厚度（0.045 / 2）。 */
     private static final float HALF_THICKNESS = 0.0225F;
@@ -426,15 +419,60 @@ public class ChainPreviewShaderGrowthWidthTest {
         }
     }
 
-    // ------------------------------------------------------------------ 后端接线（Java 源面）
+    // ------------------------------------------------------------------ 后端 uniform 数值（plan → uniform）
 
-    /** backend 必须把 u 与目标总数传进着色器，且 u>=1 时关闭逐顶点比较。 */
+    /**
+     * 后端把 plan 的进度与同代序号总数映射成生长 uniform 的取值（{@code out[0] = uAnimProgress}、
+     * {@code out[1] = uAppearSpan}）。
+     *
+     * <p>判据是「给定 plan 与 aAux 扫描结果产出什么 uniform 值」，而不是「源码里有没有写
+     * {@code plan.getAnimationU()} / {@code appearSpan + 1.0F} / {@code ANIMATION_COMPLETE}」：
+     * 后者重命名即误报、把「最大序号 + 1」改成「最大序号」却照样绿。三条语义必须都在数值上成立：</p>
+     * <ol>
+     *   <li>序号总数 = 最大出现序号 + 1（单目标 maxOrder=0 ⇒ 总数 1，生长仍开启，T13-D1）；</li>
+     *   <li>无 aAux（maxOrder &lt; 0）⇒ 整段可见 {@code (1, 0)}；</li>
+     *   <li>{@code u >= ANIMATION_COMPLETE} ⇒ 整段可见 {@code (1, 0)}，GLSL 完全跳过逐顶点比较。</li>
+     * </ol>
+     */
     @Test
-    public void backendPassesProgressAndTotalTargets() throws Exception {
-        String body = methodBody(BACKEND_PATH, "private boolean applyUniforms(", "applyUniforms");
-        Assert.assertTrue("必须读 plan 的 animationU", body.contains("plan.getAnimationU()"));
-        Assert.assertTrue("必须把目标总数（maxOrder + 1）传给着色器", body.contains("appearSpan + 1.0F"));
-        Assert.assertTrue("u>=1 必须走整段可见分支", body.contains("ANIMATION_COMPLETE"));
+    public void growthUniformsCarryProgressAndOrderCount() {
+        float[] out = new float[2];
+
+        ChainPreviewShaderBackend.growthUniforms(planWithAnimationU(0.5F), 5.0F, out);
+        Assert.assertEquals("进度必须原样进 uniform", 0.5F, out[0], 0.0F);
+        Assert.assertEquals("序号总数必须是「最大出现序号 + 1」", 6.0F, out[1], 0.0F);
+
+        // T13-D1：单目标（maxOrder = 0）不得被当成「关闭生长」而立即全显
+        ChainPreviewShaderBackend.growthUniforms(planWithAnimationU(0.25F), 0.0F, out);
+        Assert.assertEquals(0.25F, out[0], 0.0F);
+        Assert.assertEquals("单目标必须仍然生长（总数 1）", 1.0F, out[1], 0.0F);
+
+        // 无 aAux（maxOrder < 0）：无语义序号信息 ⇒ 整段可见
+        ChainPreviewShaderBackend.growthUniforms(planWithAnimationU(0.5F), -1.0F, out);
+        Assert.assertEquals("无序号信息必须整段可见", 1.0F, out[0], 0.0F);
+        Assert.assertEquals(0.0F, out[1], 0.0F);
+
+        // u >= 1：走「整段可见」出口（GLSL 侧 uAppearSpan <= 0 即不比 appearOrder）
+        ChainPreviewShaderBackend.growthUniforms(
+                planWithAnimationU(ChainPreviewDrawPlan.ANIMATION_COMPLETE), 5.0F, out);
+        Assert.assertEquals(1.0F, out[0], 0.0F);
+        Assert.assertEquals("u>=1 必须关闭逐顶点比较", 0.0F, out[1], 0.0F);
+
+        // 非法进度不得把 NaN 送进 uniform（GLSL 侧 NaN 比较会让整代条柱丢弃）
+        ChainPreviewShaderBackend.growthUniforms(planWithAnimationU(Float.NaN), 5.0F, out);
+        Assert.assertEquals("NaN 进度必须收敛为整段可见", 1.0F, out[0], 0.0F);
+        Assert.assertFalse("序号总数不得为 NaN", Float.isNaN(out[1]));
+    }
+
+    /** 指定动画完成度的 plan（其余视觉字段取基线；本组只读 animationU）。 */
+    private static ChainPreviewDrawPlan planWithAnimationU(float animationU) {
+        return new ChainPreviewDrawPlan(
+                0, 24, null,
+                new ChainPreviewDrawPlan.Visuals(
+                        0.045F, 0.0F, animationU, 2.0F, 6.0F, 0.78F, 0.15F,
+                        ChainPreviewDrawPlan.DepthChannel.XRAY),
+                ChainPreviewDrawPlan.SEMANTIC_MASK_ALL,
+                0, 0, 0, 8, false, 0, 0L, 0L);
     }
 
     // ------------------------------------------------------------------ 辅助
@@ -494,47 +532,4 @@ public class ChainPreviewShaderGrowthWidthTest {
         return visible;
     }
 
-    /** 抽取方法体（按花括号配平），用于「GLSL/Java 表达式同形」断言。 */
-    private static String methodBody(String relativePath, String signature, String label) throws Exception {
-        String code = stripComments(read(relativePath));
-        int at = code.indexOf(signature);
-        Assert.assertTrue("找不到 " + label + "（签名=" + signature + "）", at >= 0);
-        int open = code.indexOf('{', at);
-        Assert.assertTrue(label + " 缺函数体", open > at);
-        int depth = 0;
-        for (int index = open; index < code.length(); index++) {
-            char ch = code.charAt(index);
-            if (ch == '{') {
-                depth++;
-            } else if (ch == '}') {
-                depth--;
-                if (depth == 0) {
-                    return code.substring(at, index + 1);
-                }
-            }
-        }
-        Assert.fail(label + " 花括号不平衡");
-        return "";
-    }
-
-    private static String read(String relativePath) throws Exception {
-        Path direct = Paths.get(relativePath);
-        if (!Files.isRegularFile(direct)) {
-            Path dir = Paths.get("").toAbsolutePath();
-            while (dir != null) {
-                Path candidate = dir.resolve(relativePath);
-                if (Files.isRegularFile(candidate)) {
-                    return new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
-                }
-                dir = dir.getParent();
-            }
-        }
-        Assert.assertTrue("找不到文件: " + relativePath, Files.isRegularFile(direct));
-        return new String(Files.readAllBytes(direct), StandardCharsets.UTF_8);
-    }
-
-    private static String stripComments(String source) {
-        return Glsl120StaticChecker.stripComments(
-                source, "src", new ArrayList<Glsl120StaticChecker.Finding>());
-    }
 }

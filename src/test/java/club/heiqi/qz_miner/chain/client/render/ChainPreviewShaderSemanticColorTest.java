@@ -19,7 +19,9 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass;
  *   <li><b>aAux.x → 类别 id</b>：归一化 ubyte 精确还原（round(x×255)）；</li>
  *   <li><b>类别 id → 调色板槽位</b>：0→主、1→子模式、2→远端、3→截断，4/5/255→主色兜底；</li>
  *   <li><b>槽位 → 最终 RGB</b>：builtin 档四槽同为精确基线常量 (0.25,0.9,1.0) ⇒ 逐字节等于现状；
- *       config 档按 8bit 量化（差异只在该档）；</li>
+ *       config 档按 8bit 量化（差异只在该档）；后端把 plan 映射成四槽 uniform 取值的那一步是纯函数
+ *       （{@link ChainPreviewShaderBackend#paletteUniforms(ChainPreviewDrawPlan, float[][])}），
+ *       同样按数值断言——「源码里有没有写 plan.getColorPrimary()」这种文本匹配已移除；</li>
  *   <li><b>插值语义（F1）</b>：选色必须在<strong>顶点阶段</strong>完成。varying 是 smooth 插值的，
  *       同一 quad 内两顶点类别不同时插值落在两整数之间——若片元再用 {@code == 2.0} 比较就会整片
  *       落空、丢失远端/截断色。本段用「顶点颜色 → 插值 → 片元输出」的模型证明颜色不再丢失；
@@ -177,27 +179,78 @@ public class ChainPreviewShaderSemanticColorTest {
     /**
      * config 档接线：后端必须按 plan 的四色设 uniform，且 builtin 档必须传精确常量。
      *
-     * <p>两处关键不能退化：</p>
+     * <p>断言打在 {@link ChainPreviewShaderBackend#paletteUniforms(ChainPreviewDrawPlan, float[][])}
+     * 的<b>四槽数值</b>上（「给定 plan 产出什么颜色」才是接线契约）：</p>
      * <ol>
-     *   <li>builtin 档若误用 plan 的 {@code BUILTIN_RGB}（0x40E6FF 量化值）会引入 1.96e-3 色差，
-     *       破坏「逐字节等于现状」；</li>
-     *   <li>config 档必须真的读 plan 四色，而不是继续传常量（否则配置色永远不生效）。</li>
+     *   <li>config 档必须真的取 plan 四色并按 8bit 量化（否则配置色永远不生效）；</li>
+     *   <li>builtin 档必须是精确基线常量 (0.25, 0.9, 1.0)——若误用 plan 的 {@code BUILTIN_RGB}
+     *       （0x40E6FF 量化值）会引入 1.96e-3 色差，破坏「逐字节等于现状」。</li>
      * </ol>
+     *
+     * <p>「builtin 档不得消费量化基线」另有一条<strong>引用面</strong>断言（{@code BUILTIN_RGB}
+     * 字样不得出现在后端）：两条互补——数值层拦「取错值」，引用面拦「把量化常量搬进渲染路径」，
+     * 后者一旦发生，数值层只能证明当前取值恰好正确，挡不住后续把该常量接到别的槽位上。</p>
      */
     @Test
-    public void backendWiresConfigPaletteFromPlanAndKeepsBuiltinExact() throws Exception {
-        String body = stripComments(read(BACKEND_PATH));
-        Assert.assertTrue("必须读取 plan 的颜色来源", body.contains("plan.getColorSourceId()"));
-        Assert.assertTrue("config 档必须读 plan 四色",
-                body.contains("plan.getColorPrimary()") && body.contains("plan.getColorSecondary()")
-                        && body.contains("plan.getColorRemote()") && body.contains("plan.getColorTruncated()"));
-        Assert.assertTrue("config 档必须按 int RGB 量化设 uniform",
-                body.contains("setSemanticColorRgb("));
-        Assert.assertTrue("builtin 档必须仍然传精确基线常量（不得走量化值）",
-                body.contains("BUILTIN_COLOR_RED") && body.contains("BUILTIN_COLOR_GREEN")
-                        && body.contains("BUILTIN_COLOR_BLUE"));
+    public void paletteUniformsFollowPlanColorSourceWithoutQuantizingBuiltin() throws Exception {
+        float[][] configScratch = new float[4][3];
+        float[][] configured = ChainPreviewShaderBackend.paletteUniforms(configPlan(
+                CONFIG_PRIMARY, CONFIG_SECONDARY, CONFIG_REMOTE, CONFIG_TRUNCATED), configScratch);
+        Assert.assertSame("config 档必须写进调用方缓冲（每帧零分配）", configScratch, configured);
+        assertPaletteSlot("config 主色", configured, ChainPreviewShaderMath.PALETTE_PRIMARY, CONFIG_PRIMARY);
+        assertPaletteSlot("config 子模式色", configured, ChainPreviewShaderMath.PALETTE_SECONDARY, CONFIG_SECONDARY);
+        assertPaletteSlot("config 远端色", configured, ChainPreviewShaderMath.PALETTE_REMOTE, CONFIG_REMOTE);
+        assertPaletteSlot("config 截断色", configured, ChainPreviewShaderMath.PALETTE_TRUNCATED, CONFIG_TRUNCATED);
+
+        float[][] builtin = ChainPreviewShaderBackend.paletteUniforms(builtinPlan(), configScratch);
+        Assert.assertSame("builtin 档必须复用静态精确常量表（每帧零分配）",
+                ChainPreviewShaderMath.builtinColorTable(), builtin);
+        for (int slot = ChainPreviewShaderMath.PALETTE_PRIMARY;
+                slot <= ChainPreviewShaderMath.PALETTE_TRUNCATED; slot++) {
+            Assert.assertEquals("builtin 槽位 " + slot + " 的 R 必须逐位等于 0.25", BASE_R,
+                    builtin[slot][0], 0.0F);
+            Assert.assertEquals("builtin 槽位 " + slot + " 的 G 必须逐位等于 0.9", BASE_G,
+                    builtin[slot][1], 0.0F);
+            Assert.assertEquals("builtin 槽位 " + slot + " 的 B 必须逐位等于 1.0", BASE_B,
+                    builtin[slot][2], 0.0F);
+        }
+        Assert.assertNotEquals("builtin 档的 G 不得是量化值 230/255",
+                ChainPreviewShaderMath.colorChannel(ChainPreviewDrawPlan.Visuals.Colors.BUILTIN_RGB, 8),
+                builtin[ChainPreviewShaderMath.PALETTE_PRIMARY][1]);
+
         Assert.assertFalse("builtin 档不得消费 plan 的量化基线值 BUILTIN_RGB",
-                body.contains("BUILTIN_RGB"));
+                stripComments(read(BACKEND_PATH)).contains("BUILTIN_RGB"));
+    }
+
+    /** §D 基线常量语义色 plan（builtin 来源，四色都是 0x40E6FF 的量化口径）。 */
+    private static ChainPreviewDrawPlan builtinPlan() {
+        return planWithColors(ChainPreviewDrawPlan.Visuals.Colors.BUILTIN);
+    }
+
+    /** config 色源 plan（四色彼此可区分，便于断言逐槽对应）。 */
+    private static ChainPreviewDrawPlan configPlan(int primary, int secondary, int remote, int truncated) {
+        return planWithColors(ChainPreviewDrawPlan.Visuals.Colors.fromConfig(
+                ChainPreviewShaderMath.COLOR_SOURCE_CONFIG, primary, secondary, remote, truncated));
+    }
+
+    private static ChainPreviewDrawPlan planWithColors(ChainPreviewDrawPlan.Visuals.Colors colors) {
+        return new ChainPreviewDrawPlan(
+                0, 4, null,
+                new ChainPreviewDrawPlan.Visuals(
+                        0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F,
+                        ChainPreviewDrawPlan.DepthChannel.XRAY, 1.0F, colors),
+                ChainPreviewDrawPlan.SEMANTIC_MASK_ALL,
+                0, 0, 0, 4, false, 0, 0L, 0L);
+    }
+
+    /** 逐通道断言某槽位等于 int RGB 的 8bit 量化结果（delta=0：量化必须逐位一致）。 */
+    private static void assertPaletteSlot(String label, float[][] palette, int slot, int expectedRgb) {
+        Assert.assertEquals(label + " 的 R", ChainPreviewShaderMath.colorChannel(expectedRgb, 16),
+                palette[slot][0], 0.0F);
+        Assert.assertEquals(label + " 的 G", ChainPreviewShaderMath.colorChannel(expectedRgb, 8),
+                palette[slot][1], 0.0F);
+        Assert.assertEquals(label + " 的 B", ChainPreviewShaderMath.colorChannel(expectedRgb, 0),
+                palette[slot][2], 0.0F);
     }
 
     /** plan 的 builtin 量化值与精确常量的差必须被显式认知（防止有人「顺手」改用它）。 */

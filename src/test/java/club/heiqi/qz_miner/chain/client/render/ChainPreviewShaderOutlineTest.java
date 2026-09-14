@@ -1,11 +1,5 @@
 package club.heiqi.qz_miner.chain.client.render;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -13,8 +7,10 @@ import org.junit.Test;
  * B3.x 真描边（着色器扩边）的契约。
  *
  * <p>断言只落在两类可证伪的东西上：<b>纯 JVM 参考模型的数值</b>（{@link ChainPreviewShaderMath}
- * 的 px→world 换算、宽度收敛、世界上界与联合预算）与<b>后端接口行为</b>。这里<strong>不再</strong>
- * 对 shader 源码做文本匹配（断言某一行/某个表达式写成什么样）：那种断言重命名即误报、改语义却照样绿。
+ * 的 px→world 换算、宽度收敛、世界上界与联合预算）与<b>后端 uniform 数值</b>
+ * （{@link ChainPreviewShaderBackend#outlineWidthFor(ChainPreviewDrawPlan)}：给定 plan 产出什么宽度）。
+ * 这里<strong>不再</strong>对 shader 源码或 Java 源码做文本匹配（断言某一行/某个表达式写成什么样）：
+ * 那种断言重命名即误报、改语义却照样绿。
  * GLSL 侧改动的口径改为「真机验证 + 在 shader 头部「实机验证记录」追加一行标记」，
  * 且<strong>注释改动本身不触发重验</strong>（否则加标记会形成死循环）。</p>
  *
@@ -29,9 +25,6 @@ import org.junit.Test;
  * 真描边只用剩余额度，故联合位移恒不越界（T52 联合上界，Lead 裁定「功能性优先于装饰性」）。</p>
  */
 public class ChainPreviewShaderOutlineTest {
-
-    private static final String BACKEND_PATH =
-            "src/main/java/club/heiqi/qz_miner/chain/client/render/ChainPreviewShaderBackend.java";
 
     /** plan 契约里的默认描边宽度（1.5 物理像素，Lead 批准，不新增配置键）。 */
     private static final float DEFAULT_OUTLINE_PX = ChainPreviewDrawPlan.OUTLINE_WIDTH_DEFAULT_PX;
@@ -269,16 +262,52 @@ public class ChainPreviewShaderOutlineTest {
                         DEFAULT_OUTLINE_PX, Float.POSITIVE_INFINITY, thickness)));
     }
 
-    /** 后端必须真的消费 plan 的描边面：只有壳段传非 0，其余精确为 0。 */
+    /**
+     * 后端把 plan 的描边面映射成 uniform 取值：只有壳段非 0，且宽度经 host 侧收敛。
+     *
+     * <p>断言打在 {@link ChainPreviewShaderBackend#outlineWidthFor(ChainPreviewDrawPlan)} 的<b>数值</b>
+     * 上——「给定 plan 产出什么 uniform 值」才是接线契约；「源码里有没有写
+     * {@code plan.isOutlineShell() ? ... : 0.0F}」重命名即误报、把三元改成恒 0 却照样绿。</p>
+     */
     @Test
-    public void backendConsumesOutlineShellOnly() throws Exception {
-        String body = stripComments(read(BACKEND_PATH));
-        Assert.assertTrue("必须读 plan 的壳段标志", body.contains("plan.isOutlineShell()"));
-        Assert.assertTrue("必须读 plan 的描边宽度", body.contains("plan.getOutlineWidthPx()"));
-        Assert.assertTrue("非壳段必须传 0（矩阵恒等）",
-                body.contains("plan.isOutlineShell() ? plan.getOutlineWidthPx() : 0.0F"));
-        Assert.assertTrue("宽度必须经 host 侧收敛后再进 uniform",
-                body.contains("ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx)"));
+    public void outlineWidthUniformFollowsShellFlagAndHostClamp() {
+        ChainPreviewDrawPlan shell = planWithVisuals(
+                ChainPreviewDrawPlan.Visuals.BASELINE.withOutlinePass(true, DEFAULT_OUTLINE_PX));
+        Assert.assertTrue("测试前提：必须是描边壳段", shell.isOutlineShell());
+        Assert.assertEquals("壳段宽度必须原样进 uniform", DEFAULT_OUTLINE_PX,
+                ChainPreviewShaderBackend.outlineWidthFor(shell), 0.0F);
+
+        ChainPreviewDrawPlan legacy = planWithVisuals(ChainPreviewDrawPlan.Visuals.BASELINE);
+        Assert.assertFalse("测试前提：默认档不是壳段", legacy.isOutlineShell());
+        Assert.assertEquals("非壳段（xray / occlude / 主体段）必须精确为 0 ⇒ 位移矩阵恒等",
+                0.0F, ChainPreviewShaderBackend.outlineWidthFor(legacy), 0.0F);
+
+        // 未收敛的壳段（raw 构造绕过 withOutlinePass / sanitize 的收窄口径）：host 侧必须收敛
+        Assert.assertEquals("超限宽度必须收敛到上限", ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX,
+                ChainPreviewShaderBackend.outlineWidthFor(rawShellPlan(1000.0F)), 0.0F);
+        Assert.assertEquals("非有限宽度必须收敛到上限", ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX,
+                ChainPreviewShaderBackend.outlineWidthFor(rawShellPlan(Float.POSITIVE_INFINITY)), 0.0F);
+    }
+
+    /** 非壳段 / 默认档 plan（只读视觉参数，其余字段不参与本组断言）。 */
+    private static ChainPreviewDrawPlan planWithVisuals(ChainPreviewDrawPlan.Visuals visuals) {
+        return new ChainPreviewDrawPlan(
+                0, 24, null, visuals, ChainPreviewDrawPlan.SEMANTIC_MASK_ALL,
+                0, 0, 0, 8, false, 0, 0L, 0L);
+    }
+
+    /**
+     * 绕开 {@code withOutlinePass} / {@code sanitized()} 收窄口径的畸形壳段（raw 构造）。
+     *
+     * <p>用途：证明「收敛」这一步真的发生在后端取值路径上，而不是只依赖 plan 侧规范化——
+     * 生产入口是 {@code derive}（内部已 sanitize），这里刻意构造它拦不住的输入。</p>
+     */
+    private static ChainPreviewDrawPlan rawShellPlan(float widthPx) {
+        return planWithVisuals(new ChainPreviewDrawPlan.Visuals(
+                0.045F, 0.0F, 1.0F, 2.0F, 6.0F, 0.78F, 0.15F,
+                ChainPreviewDrawPlan.DepthChannel.OUTLINE, 1.0F,
+                ChainPreviewDrawPlan.Visuals.Colors.BUILTIN, ChainPreviewDrawPlan.Visuals.Lod.OFF,
+                true, widthPx));
     }
 
     /** 常量单一真源：参考模型的像素上限必须引用 plan，而不是自己写一份。 */
@@ -289,25 +318,5 @@ public class ChainPreviewShaderOutlineTest {
                 ChainPreviewShaderMath.MAX_OUTLINE_WIDTH_PX, 0.0F);
         Assert.assertEquals("plan 默认宽度必须是 1.5px", 1.5F,
                 ChainPreviewDrawPlan.OUTLINE_WIDTH_DEFAULT_PX, 0.0F);
-    }
-
-    private static String read(String relativePath) throws Exception {
-        Path direct = Paths.get(relativePath);
-        if (!Files.isRegularFile(direct)) {
-            Path dir = Paths.get("").toAbsolutePath();
-            while (dir != null) {
-                Path candidate = dir.resolve(relativePath);
-                if (Files.isRegularFile(candidate)) {
-                    return new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
-                }
-                dir = dir.getParent();
-            }
-        }
-        Assert.assertTrue("找不到文件: " + relativePath, Files.isRegularFile(direct));
-        return new String(Files.readAllBytes(direct), StandardCharsets.UTF_8);
-    }
-
-    private static String stripComments(String source) {
-        return Glsl120StaticChecker.stripComments(source, "src", new ArrayList<Glsl120StaticChecker.Finding>());
     }
 }

@@ -51,17 +51,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     public static final String ID = "shader";
 
-    /**
-     * builtin 档语义色 = legacy 精确基线常量 (0.25, 0.9, 1.0)。
-     *
-     * <p>刻意不用 0x40E6FF 的 8bit 量化值（量化后 R=0.25098…/G=0.90196…，与 legacy
-     * 有 ≤0.002 色差）。片元直接输出该绝对色，不再乘顶点基色——否则会二次乘色
-     * （0.25×0.25 = 0.0625、0.9×0.9 = 0.81），与「builtin 逐字节等于现状」冲突。</p>
-     */
-    private static final float BUILTIN_COLOR_RED = ChainPreviewShaderMath.BUILTIN_COLOR_RED;
-    private static final float BUILTIN_COLOR_GREEN = ChainPreviewShaderMath.BUILTIN_COLOR_GREEN;
-    private static final float BUILTIN_COLOR_BLUE = ChainPreviewShaderMath.BUILTIN_COLOR_BLUE;
-
     private static final int INITIAL_CAPACITY = 16 * 1024;
 
     /** 顶点属性显式 stride（字节）：core profile 下不依赖 stride=0 的"紧凑"语义。 */
@@ -103,6 +92,13 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     private String matrixSourceFailure = "";
     /** 同代最大出现序号（扫描 aAux 得到）；< 0 表示无 aAux（关闭生长比较），0 表示单目标。 */
     private float appearSpan = -1.0F;
+
+    /** 生长 uniform 复用缓冲：out[0] = uAnimProgress，out[1] = uAppearSpan（每帧零分配）。 */
+    private final float[] animationUniform = new float[2];
+    /** config 档四槽调色板复用缓冲（每帧零分配；builtin 档直接复用静态精确常量表）。 */
+    private final float[][] colorPaletteScratch = new float[4][3];
+    /** 相机相对 origin 复用缓冲（double 域相减结果，每帧零分配）。 */
+    private final double[] originRelative = new double[3];
 
     /*
      * shader 后端统一使用三角形。Mesh 和 ChainPreviewDrawPlan 继续以 quad 索引为
@@ -468,6 +464,144 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         return "translation=" + matrixTranslationMagnitude + "/expected=" + matrixExpectedMagnitude;
     }
 
+    // ---------------------------------------------------------------- plan → uniform 数值（纯函数）
+
+    /*
+     * 为什么把「接线」下沉成纯函数：uniform 组接线的判据本应是「给定 plan 是否产出正确的值」，
+     * 而不是「源码里有没有写 plan.getXxx()」——后者重命名即误报、改系数却照样绿。以下函数就是
+     * applyUniforms 实际调用的那几段计算，不含 GL，可在 headless 下逐值断言（见
+     * ChainPreviewShaderOutlineTest / GrowthWidthTest / SemanticColorTest / FadeAlphaTest）。
+     * 参数里的复用缓冲是每帧零分配的实现细节：调用方持有，函数只写不建。
+     */
+
+    /**
+     * 描边宽度 uniform（{@code uOutlineWidthPx}）的取值：只有 OUTLINE 的描边壳段非 0。
+     *
+     * <p>xray（默认）/ occlude / OUTLINE 主体段一律精确 0 ⇒ 顶点位移矩阵恒等、逐值等于启用描边前；
+     * 壳段宽度还要经 host 侧收敛（{@link ChainPreviewShaderMath#outlineWidthPx(float)}：上限 8px、
+     * NaN / 负值 → 0），不把非法值送进 uniform。</p>
+     *
+     * @param plan 当前 draw plan（draw 入口已拒绝 null）
+     * @return {@code [0, MAX_OUTLINE_WIDTH_PX]} 的物理像素宽度
+     */
+    static float outlineWidthFor(ChainPreviewDrawPlan plan) {
+        if (!plan.isOutlineShell()) {
+            return 0.0F;
+        }
+        return ChainPreviewShaderMath.outlineWidthPx(plan.getOutlineWidthPx());
+    }
+
+    /**
+     * 生长 uniform（{@code uAnimProgress} / {@code uAppearSpan}）的取值。
+     *
+     * <p>序号总数语义（T13-D1）：{@code appearSpan} 是「最大出现序号」，单目标时为 0——拿它当关闭
+     * 条件会把 1 个目标的链路误判成「关闭生长」而立即全显；真正表示「无序号信息」的是 aux 缺失
+     * （{@code appearSpan < 0}）。进度 {@code u >= 1} 或序号总数为 0 时写成 {@code (1, 0)}：
+     * GLSL 侧 {@code uAppearSpan <= 0} 即整段可见，完全不读 appearOrder（无逐顶点分支开销）。
+     * 进度经 {@code clamp01} 收敛，NaN 收敛为 1（整段可见），不产生整链丢弃。</p>
+     *
+     * @param plan       当前 draw plan（进度来源）
+     * @param appearSpan 同代最大出现序号（{@link #maxAppearOrder(byte[], int)} 的结果；&lt; 0 = 无 aAux）
+     * @param out        输出缓冲（长度 &ge; 2）：out[0] = uAnimProgress，out[1] = uAppearSpan
+     */
+    static void growthUniforms(ChainPreviewDrawPlan plan, float appearSpan, float[] out) {
+        float orderCount = appearSpan >= 0.0F ? appearSpan + 1.0F : 0.0F;
+        float animationU = plan.getAnimationU();
+        if (animationU >= ChainPreviewDrawPlan.ANIMATION_COMPLETE || orderCount <= 0.0F) {
+            out[0] = 1.0F;
+            out[1] = 0.0F;
+            return;
+        }
+        out[0] = clamp01(animationU);
+        out[1] = orderCount;
+    }
+
+    /**
+     * 四槽语义调色板 uniform 的取值（顺序 = {@link ChainPreviewShaderMath#PALETTE_PRIMARY} …
+     * {@link ChainPreviewShaderMath#PALETTE_TRUNCATED}）。
+     *
+     * <p>两档走不同精度通道：</p>
+     * <ul>
+     *   <li><b>builtin（生产默认）</b>：返回<b>静态复用的精确基线常量</b> (0.25, 0.9, 1.0)。
+     *       刻意不消费 plan 的 {@code Colors.BUILTIN_RGB}（= 0x40E6FF 的 8bit 量化值）——
+     *       量化后 R=0.25098…、G=0.90196…，与 legacy 颜色流有 ≤0.002 色差，会破坏
+     *       「builtin 逐字节等于现状」；plan 侧该量化值只用于值相等与诊断。</li>
+     *   <li><b>config</b>：四槽取 plan 的四色（配置本以 int RGB 存储），按 8bit 量化（{@code /255}）
+     *       写进调用方提供的复用缓冲；该量化差异只出现在本档，已登记。</li>
+     * </ul>
+     *
+     * @param plan          当前 draw plan（颜色来源只经 plan 传入，遵守 §H 单通道）
+     * @param configScratch config 档输出缓冲（4 × 3 槽位数组，调用方复用）；builtin 档不使用
+     * @return 长度 4 的 RGB 表；builtin 档为<b>静态只读表</b>，调用方不得修改
+     */
+    static float[][] paletteUniforms(ChainPreviewDrawPlan plan, float[][] configScratch) {
+        if (!ChainPreviewShaderMath.COLOR_SOURCE_CONFIG.equals(plan.getColorSourceId())) {
+            return ChainPreviewShaderMath.builtinColorTable();
+        }
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_PRIMARY], plan.getColorPrimary());
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_SECONDARY], plan.getColorSecondary());
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_REMOTE], plan.getColorRemote());
+        fillSemanticColor(configScratch[ChainPreviewShaderMath.PALETTE_TRUNCATED], plan.getColorTruncated());
+        return configScratch;
+    }
+
+    /** int RGB → 0..1 三通道（按 8bit 量化），写入长度 3 的复用槽位。 */
+    private static void fillSemanticColor(float[] slot, int rgb) {
+        slot[0] = ChainPreviewShaderMath.colorChannel(rgb, 16);
+        slot[1] = ChainPreviewShaderMath.colorChannel(rgb, 8);
+        slot[2] = ChainPreviewShaderMath.colorChannel(rgb, 0);
+    }
+
+    /**
+     * 淡入淡出包络 uniform（{@code uFadeAlpha}）的取值：clamp 到 [0,1]，NaN 收敛为不透明。
+     *
+     * <p>默认档 {@code getFadeAlpha() == 1} ⇒ 逐值等于启用动画前（乘 1 不改变结果）；异常配置
+     * 不得让整条链路静默消失，故 NaN 走「不透明」而不是「传播」。收敛口径的单一真源在
+     * {@link ChainPreviewShaderProgram#sanitizeFadeAlpha(float)}（uniform 的写入边界）。</p>
+     *
+     * @param plan 当前 draw plan
+     * @return [0,1] 的包络
+     */
+    static float fadeAlphaFor(ChainPreviewDrawPlan plan) {
+        return ChainPreviewShaderProgram.sanitizeFadeAlpha(plan.getFadeAlpha());
+    }
+
+    /**
+     * 相机相对 origin 的偏移（plan origin − 相机世界坐标），在 double 域相减后再由调用方收窄为 float。
+     *
+     * <p><b>来源恒为 plan 的 origin</b>（与 renderer 的 {@code glTranslated}、legacy 后端同源）：
+     * 上传期缓存的 origin 会在「同 mesh 换 plan」时让两后端语义分叉（T48c-A）。double 域相减不是
+     * 形式主义：30M 级世界坐标下 float 相减会把 0.75 格差算成 0（float 在 3e7 处的间距是 4），
+     * 表型是整链相对方块抖动。</p>
+     *
+     * @param plan       当前 draw plan
+     * @param renderPosX 相机世界 X（{@code RenderManager.renderPosX}）
+     * @param renderPosY 相机世界 Y
+     * @param renderPosZ 相机世界 Z
+     * @param out        输出缓冲（长度 &ge; 3）：out[0..2] = X / Y / Z
+     */
+    static void originRelativeTo(
+            ChainPreviewDrawPlan plan, double renderPosX, double renderPosY, double renderPosZ, double[] out) {
+        out[0] = (double) plan.getOriginX() - renderPosX;
+        out[1] = (double) plan.getOriginY() - renderPosY;
+        out[2] = (double) plan.getOriginZ() - renderPosZ;
+    }
+
+    /**
+     * 原版相机扭曲是否生效（纯判定）：{@code timeInPortal} 与 {@code prevTimeInPortal} 任一 &gt; 0。
+     *
+     * <p>必须看 prev：渲染用的是两者的插值，只看当前值会漏掉首末过渡帧
+     * （{@code EntityPlayerSP:136} 每 tick 同步 prev）⇒ 过渡帧被误判为「矩阵失同步」⇒ 永久回退
+     * legacy（比原缺陷更重）。读取客户端状态的那一层见 {@link #vanillaCameraWarpActive()}。</p>
+     *
+     * @param timeInPortal     当前 tick 的传送门扭曲强度
+     * @param prevTimeInPortal 上一 tick 的传送门扭曲强度
+     * @return 是否处于原版相机扭曲状态
+     */
+    static boolean cameraWarpActive(float timeInPortal, float prevTimeInPortal) {
+        return timeInPortal > 0.0F || prevTimeInPortal > 0.0F;
+    }
+
     // ---------------------------------------------------------------- 内部
 
     /**
@@ -479,9 +613,11 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * @return 相机矩阵来源是否可信；false 表示本帧不得绘制（后端已置一次性不可用）
      */
     private boolean applyUniforms(ChainPreviewDrawPlan plan) {
-        double originRelativeX = (double) plan.getOriginX() - RenderManager.renderPosX;
-        double originRelativeY = (double) plan.getOriginY() - RenderManager.renderPosY;
-        double originRelativeZ = (double) plan.getOriginZ() - RenderManager.renderPosZ;
+        originRelativeTo(plan, RenderManager.renderPosX, RenderManager.renderPosY, RenderManager.renderPosZ,
+            originRelative);
+        double originRelativeX = originRelative[0];
+        double originRelativeY = originRelative[1];
+        double originRelativeZ = originRelative[2];
         program.setOriginRel((float) originRelativeX, (float) originRelativeY, (float) originRelativeZ);
 
         if (!uploadCameraMatrices(plan, originRelativeX, originRelativeY, originRelativeZ)) {
@@ -497,26 +633,17 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         program.setBarThickness(plan.getBarThickness());
         program.setPixelScale(program.readPixelScale());
 
-        float animationU = plan.getAnimationU();
-        // 序号总数语义（T13-D1）：appearSpan 是「最大出现序号」，单目标时为 0，
-        // 若拿它当关闭条件会把 1 个目标的链路误判成「关闭生长」而立即全显。
-        // 真正表示「无序号信息」的是 aux 缺失（appearSpan < 0），而不是序号为 0。
-        float orderCount = appearSpan >= 0.0F ? appearSpan + 1.0F : 0.0F;
-        if (animationU >= ChainPreviewDrawPlan.ANIMATION_COMPLETE || orderCount <= 0.0F) {
-            // u >= 1（或无语义序号）：整段可见，shader 完全不读 appearOrder，无逐顶点分支开销。
-            program.setAnimation(1.0F, 0.0F);
-        } else {
-            program.setAnimation(clamp01(animationU), orderCount);
-        }
+        // 序号总数语义（T13-D1）与 u >= 1 的整段可见出口都折进 growthUniforms（纯函数，可 headless 断言）。
+        growthUniforms(plan, appearSpan, animationUniform);
+        program.setAnimation(animationUniform[0], animationUniform[1]);
 
         // 淡入淡出包络（B3.2 / L5）：与距离淡出、逐波生长相乘得到最终 alpha。
         // 默认档 getFadeAlpha() == 1 ⇒ 逐值等于启用动画前（乘 1 不改变结果）。
-        program.setFadeAlpha(plan.getFadeAlpha());
+        program.setFadeAlpha(fadeAlphaFor(plan));
 
         // B3.x 真描边：只有 OUTLINE 的**描边壳段**传非 0 宽度。
         // xray（默认）/ occlude / OUTLINE 主体段一律 0 ⇒ 顶点位移矩阵恒等，逐值等于现状。
-        float outlineWidthPx = plan.isOutlineShell() ? plan.getOutlineWidthPx() : 0.0F;
-        program.setOutlineWidthPx(ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx));
+        program.setOutlineWidthPx(outlineWidthFor(plan));
 
         // 面朝向明暗：默认关闭传 0，GLSL 侧整段乘色分支不执行 ⇒ 逐字节等于现状。
         program.setFaceShading(plan.isFaceShadingEnabled() ? 1.0F : 0.0F);
@@ -623,8 +750,9 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
      * ⇒ 线性部分合法地非刚性、平移-线性一致性也不再成立（被缩放）。此时跳过刚性/方向两项判据，
      * 否则会把正常相机状态判成不可用并<b>永久回退</b> legacy（误判代价比原缺陷更重）。
      *
-     * <p>取 {@code timeInPortal} 与 {@code prevTimeInPortal} 的较大者：渲染用的是两者的插值，
-     * 只看当前值会漏掉首末过渡帧（{@code EntityPlayerSP:136} 每 tick 同步 prev）。</p>
+     * <p>判定本体是 {@link #cameraWarpActive(float, float)}：{@code timeInPortal} 与
+     * {@code prevTimeInPortal} 任一 &gt; 0 即生效（渲染用的是两者的插值，只看当前值会漏掉首末
+     * 过渡帧——{@code EntityPlayerSP:136} 每 tick 同步 prev）。</p>
      *
      * @return 是否处于原版相机扭曲状态；取不到客户端状态时按 false（保持既有严格度）
      */
@@ -635,7 +763,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             if (player == null) {
                 return false;
             }
-            return player.timeInPortal > 0.0F || player.prevTimeInPortal > 0.0F;
+            return cameraWarpActive(player.timeInPortal, player.prevTimeInPortal);
         } catch (Throwable failure) {
             // 客户端状态不可读（生命周期早期 / 非客户端线程）不得影响渲染帧。
             return false;
@@ -693,29 +821,17 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     /**
      * 设置四色调色板（uniform 声明在**顶点**着色器：选色在顶点阶段完成，F1）。
      *
-     * <p>两档分别走不同精度通道：</p>
-     * <ul>
-     *   <li><b>builtin（生产默认）</b>：四槽传**精确基线常量** (0.25, 0.9, 1.0)。
-     *       刻意不消费 plan 的 {@code Colors.BUILTIN_RGB}（= 0x40E6FF 的 8bit 量化值）——
-     *       量化后 R=0.25098…、G=0.90196…，与 legacy 颜色流有 ≤0.002 色差，
-     *       会破坏「builtin 逐字节等于现状」。plan 侧该量化值只用于值相等与诊断。</li>
-     *   <li><b>config</b>：四槽取 plan 的四色（配置本以 int RGB 存储），按 8bit 量化
-     *       （{@code /255}）；该量化差异只出现在本档，已登记。</li>
-     * </ul>
+     * <p>取值规则见 {@link #paletteUniforms(ChainPreviewDrawPlan, float[][])}（纯函数，可 headless
+     * 断言数值）：builtin 档四槽传精确基线常量 (0.25, 0.9, 1.0)，config 档按 8bit 量化传 plan 的四色。</p>
      *
      * @param plan 当前 draw plan（配置只经 plan 传入，保持「只读 plan + uniform」单通道，遵守 §H）
      */
     private void applyColorPalette(ChainPreviewDrawPlan plan) {
-        if (ChainPreviewShaderMath.COLOR_SOURCE_CONFIG.equals(plan.getColorSourceId())) {
-            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_PRIMARY, plan.getColorPrimary());
-            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_SECONDARY, plan.getColorSecondary());
-            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_REMOTE, plan.getColorRemote());
-            program.setSemanticColorRgb(ChainPreviewShaderMath.PALETTE_TRUNCATED, plan.getColorTruncated());
-            return;
-        }
+        float[][] palette = paletteUniforms(plan, colorPaletteScratch);
         for (int slot = ChainPreviewShaderMath.PALETTE_PRIMARY;
                 slot <= ChainPreviewShaderMath.PALETTE_TRUNCATED; slot++) {
-            program.setSemanticColor(slot, BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE);
+            float[] rgb = palette[slot];
+            program.setSemanticColor(slot, rgb[0], rgb[1], rgb[2]);
         }
     }
 

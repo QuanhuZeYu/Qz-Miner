@@ -168,7 +168,7 @@ public final class ChainPreviewShaderProgram {
             bindAttributeLocations();
             compileAndLink();
             // 安全初值：uniform 未赋值时为 0，会让 uFadeAlpha 把整链 alpha 归零。
-            setFadeAlpha(1.0F);
+            setFadeAlpha(INITIAL_FADE_ALPHA);
             // 必备 uniform 校验放在最后：缺失即抛 ⇒ 由下方 catch 收敛为「程序不可用」⇒ 后端一次性回退。
             verifyRequiredUniforms();
             // T50：属性槽位同样必须问驱动要，不能假设 0/1/2（原因见 resolveAttributeLocations）。
@@ -376,6 +376,31 @@ public final class ChainPreviewShaderProgram {
         return matrix != null && matrix.length >= ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS;
     }
 
+    /**
+     * 宿主安全初值：{@code ensureReady()} 链接成功后写入的不透明包络（{@code uFadeAlpha}）。
+     *
+     * <p>GLSL uniform 未赋值时为 0，会让整链 alpha 归零（观感是「着色器档什么都不画」）；
+     * {@code 1} 与「未启用动画」逐值同义（乘 1 不改变结果），故初值必须是它而不是 0。</p>
+     */
+    static final float INITIAL_FADE_ALPHA = 1.0F;
+
+    /**
+     * 包络 uniform 的合法域收敛：clamp 到 [0,1]，NaN 收敛为不透明（{@link #INITIAL_FADE_ALPHA}）。
+     *
+     * <p>写入边界（{@link #setFadeAlpha(float)}）与后端取值路径（backend 的 {@code fadeAlphaFor}）
+     * 共用本函数，避免两处各写一份 clamp 规则而漂移。NaN 走「不透明」而不是传播：异常配置不得让
+     * 整条链路静默消失。</p>
+     *
+     * @param fadeAlpha 原始包络（可为 NaN / 越界）
+     * @return [0,1] 的包络
+     */
+    static float sanitizeFadeAlpha(float fadeAlpha) {
+        if (Float.isNaN(fadeAlpha)) {
+            return INITIAL_FADE_ALPHA;
+        }
+        return fadeAlpha < 0.0F ? 0.0F : (fadeAlpha > 1.0F ? 1.0F : fadeAlpha);
+    }
+
     // ---------------------------------------------------------------- uniform 设置
 
     public void setOriginRel(float x, float y, float z) {
@@ -465,16 +490,12 @@ public final class ChainPreviewShaderProgram {
      *
      * <p>{@code fadeAlpha = 1} 表示完全不透明，与启用动画前逐值一致。宿主必须每帧显式设置：
      * GLSL uniform 未赋值时为 0，若宿主漏设会让整链透明（因此 {@link #ensureReady()} 成功后
-     * 会先写入安全初值 1）。</p>
+     * 会先写入安全初值 {@link #INITIAL_FADE_ALPHA}）。收敛规则见 {@link #sanitizeFadeAlpha(float)}。</p>
      *
-     * @param fadeAlpha [0,1]；越界被 clamp
+     * @param fadeAlpha [0,1]；越界被 clamp，NaN 收敛为不透明
      */
     public void setFadeAlpha(float fadeAlpha) {
-        float safe = fadeAlpha < 0.0F ? 0.0F : (fadeAlpha > 1.0F ? 1.0F : fadeAlpha);
-        if (Float.isNaN(safe)) {
-            safe = 1.0F;
-        }
-        setUniform1f("uFadeAlpha", safe);
+        setUniform1f("uFadeAlpha", sanitizeFadeAlpha(fadeAlpha));
     }
 
     /**
@@ -495,22 +516,6 @@ public final class ChainPreviewShaderProgram {
         } else {
             setUniform3f("uColorPrimary", red, green, blue);
         }
-    }
-
-    /**
-     * 设置某个调色板槽位的颜色（int RGB 口径，config 档用；按 8bit 量化）。
-     *
-     * <p>builtin 档请用 {@link #setSemanticColor(int, float, float, float)} 直传精确常量，
-     * 避免 {@code 0.9 → 230/255 = 0.9019608} 这种 1.96e-3 色差。</p>
-     *
-     * @param paletteSlot 槽位
-     * @param rgb         0xRRGGBB
-     */
-    public void setSemanticColorRgb(int paletteSlot, int rgb) {
-        setSemanticColor(paletteSlot,
-                ChainPreviewShaderMath.colorChannel(rgb, 16),
-                ChainPreviewShaderMath.colorChannel(rgb, 8),
-                ChainPreviewShaderMath.colorChannel(rgb, 0));
     }
 
     // ---------------------------------------------------------------- 内部
