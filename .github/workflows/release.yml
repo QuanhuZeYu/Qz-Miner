@@ -1,3 +1,8 @@
+# 注：本文件自 5.3.3 起启用（由旧的 release-tags.yml 迁来，已删除 tag-push 自动触发）。
+# GitHub 对新 workflow 文件的索引有延迟，注册完成前 `gh workflow run "Release"` 会报
+# "could not find any workflows named Release"；`gh api repos/<owner>/<repo>/actions/workflows`
+# 中出现本文件即已就绪，等待数分钟后重试即可（首次发布 5.3.3 实测约十余分钟）。
+#
 # 手动发布的唯一路径（对齐 Qz-UILib 的 Publish Release Assets）：
 #   gh workflow run "Release" --ref <分支> -f tag=5.3.3 -f confirmation="PUBLISH 5.3.3"
 #   gh run watch --exit-status
