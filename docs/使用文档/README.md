@@ -1,103 +1,85 @@
 # 使用文档
 
-本目录用于记录面向使用者或接入方的公开说明。
+本文件是 Qz-Miner 的对外使用说明：配置项语义与 5.3 联机版本边界。安装、操作与模式见根 [README.md](../../README.md)。
 
-## 当前状态
-
-- 当前仓库的对外使用说明暂以根目录 `README.md` 为主。
-- 若后续新增配置说明、接入方式或示例流程，再补充到本目录。
+每个配置项只回答四件事：效果、默认值与合法范围、何时生效、限制。键名即 `config/qz_miner.yaml` 中的配置路径：`general.*` 是服务端权威配置；`client.*` 多数为本机客户端配置，但 `autoToolSwapEnabled` / `autoToolPrioritySelectors` 虽沿用 `client.*` 路径名，生效权威在服务端自己的已提交配置，以各条目说明为准。
 
 ## 配置项
 
-- `general.tickBudgetMs`：planning、客户端 preview 与非 GT 普通执行在对应 Tick stage 内共享的 soft deadline，默认 `15ms`，合法范围 `1..40ms`。deadline 只在世界读取、Forge 回调或目标事务之间的安全点观察；已经开始的事务会完整收口，不承诺硬实时中断。
-- 5.3 不再配置或统计 work-unit，也不再使用空气 `1024:1`、余数、`maxBreakPerTick` 或 50ms 节流。精确 `Blocks.air` 仍走不调用 matcher/consumer、也不扩展 CHAIN frontier 的语义快速路径；容量、队列回压、watchdog 与 `chainMaxBlocks` 仍分别约束系统。
+- `general.tickBudgetMs`：planning、客户端 preview 与非 GT 普通执行共享的每 Tick soft deadline，默认 `15ms`，合法范围 `1..40ms`。只在安全点观察，已经开始的事务会执行完，不承诺硬实时中断。
+- 系统规模由容量、队列回压与 `chainMaxBlocks` 共同约束。精确 `Blocks.air` 不触发模式匹配、也不扩展连锁范围。
 - `client.tunnelDirectionSource`：每位玩家的 `AREA_TUNNEL` 方向偏好，默认 `look_direction`。`look_direction` 取玩家视线中绝对值最大的轴；`hit_face` 取左键命中方块面的反向，也就是从被点击表面朝方块内部开掘。六个视线轴与六个命中面均受支持。
-  - 服务端只使用已经整包接受并回执的偏好；客户端预览也只使用服务端 ACK 后的 accepted 值，保存后等待 ACK 期间不会乐观切换方向。
-  - `hit_face` 的左键命中只与随后同维度、同坐标的破坏事件匹配一次；缺失、非法或失配时回退该次破坏时冻结的视线方向。松键、切换模式/子模式及玩家生命周期清理都会使未消费命中失效。
-  - legacy C2S 8 字节与 legacy S2C 12 字节 decoder 仍固定降级为 `look_direction`；extended C2S 为 16 字节、S2C 为 20 字节，并保留旧字段前缀。严格 5.3 握手只允许 5.3 family 建连，decoder 的存在不构成 5.2 或更旧端可部署混连的承诺。
-- `client.autoToolSwapEnabled`：是否启用自动工具换位，默认 `true`。路径名为兼容既有 schema 保持不变，但新普通 `CHAIN/AREA` 热路读取的是**服务器自己的**已提交 YAML 值；远程客户端不会把本地 enable 上传给服务器。活动连锁 session 冻结创建时策略，服务器 reload 只影响下一 session。创造模式不换位。
-- `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。服务端只读取自己的已提交列表，远程客户端值不会覆盖服务器 Authority。
-  - **运行节奏**：普通 `CHAIN/AREA` 每个服务端 tick 建立本地 batch，并在每个目标前实时重读 block/meta、当前手和个人库存 `0..35`。当前手能收获且至少保留 2 点耐久时零换位；否则服务器可完成首次二槽交换及后续三槽轮转，并在共享 deadline 仍有时间时继续消费，不等待客户端网络往返。无候选、目标/候选漂移、低耐久或 mutation 后实时采掘拒绝只跳当前目标；后来补入库存仍可影响尚未消费目标。未声明 harvestTool 的未知工具使用通用 `Item.canHarvestBlock`，不依赖 TiC/模组白名单。GT 线缆 SPECIAL 与 INTERACT 不接入自动工具换位；INTERACT 仍受普通 deadline 约束。
-  - **规划边界**：普通 `CHAIN` 在规划启动时冻结当时的主手、背包全部工具和空手能力；无冻结能力可收获的节点断链。`AREA` 爆破、隧道、同块区域、矿石区域和区段清理仍按空间/结构宽进并逐个交服务端主线程尝试；confirmed/预览表示“待尝试目标”，不是全部可破坏承诺。执行中工具损坏不改写已规划拓扑。
-  - **库存与同步**：客户端按键激活 round 后直接发送零库存 mutation 的 `FREEZE`，不再做初始预挖 SWAP。一个服务端 batch 内可多次换位，但每玩家每 server tick 最多发布一次完整 window 0；普通批次在 tick END 可见，terminal 批次先恢复最终布局再发布。同步失败只在下一 tick 重发完整库存，不回滚或重放换位，因此客户端库存显示与预览允许在批内短暂滞后。
-  - **收口边界**：自然完成、松键、取消、STOP、watchdog、登出、重生、切维度、clone 与服务停止都先由服务端恢复借用工具或明确分类冲突，再清执行状态。打开非个人库存 GUI、切换热栏锚点或受保护槽出现未知第三布局会 fail closed；系统不会为第三方库存改写搬运、合并或覆盖物品，也不会伪报恢复成功。完整库存连续发送失败只保留无写权的可见性重试，不无限阻塞连锁 cleanup。
-  - **预览与验收状态**：预览是 observer，不阻塞服务端执行，可能到后续 phase/采样或最终 vanilla inventory publication 才收敛。服务端本地 ledger、deadline 安全点、publication gate 与 lifecycle 已有自动化证据，但真实 client/dedicated、大批次连续接替、HUD/预览和第三方库存冲突仍为 **INCOMPLETE**。
+  - 方向偏好以服务端确认值为准：保存后存在确认延迟，期间不乐观切换预览方向。`hit_face` 的命中只与随后同维度、同坐标的破坏事件匹配一次，缺失或失配时回退到该次破坏时冻结的视线方向；松键、切换模式与玩家生命周期清理都会使未消费命中失效。
+  - 与 5.2 及更旧端不建立连接；旧格式数据固定降级为 `look_direction`。
+- `client.autoToolSwapEnabled`：是否启用自动工具换位，默认 `true`；生效值取自**服务器自己的**已提交配置，远程客户端不会上传本地值。活动连锁 session 冻结创建时的策略，服务器 reload 只影响下一 session；创造模式不换位。
+- `client.autoToolPrioritySelectors`：自动工具候选的有序优先级列表，不是白名单。支持 `<namespace:path>@*`、`<namespace:path>@<meta>` 与 `ore:<name>`；先按最早命中的规则排序，同优先级及未命中的合格候选按个人库存槽位 `0..35` 排序。服务端只读取自己的已提交列表，远程客户端值不会覆盖服务端。
+  - **逐目标判定**：每个目标前重读方块与当前手；当前手能收获且至少保留 2 点耐久时零换位，低耐久、无候选、目标漂移或采掘拒绝只跳过当前目标。未声明 harvestTool 的未知工具按通用 `Item.canHarvestBlock` 判定，不依赖模组白名单。GT 线缆 SPECIAL 与 INTERACT 不接入自动工具换位。
+  - **规划边界**：普通 `CHAIN` 在规划启动时冻结当时的主手、背包工具与空手能力，无冻结能力可收获的节点断链；`AREA` 类按空间/结构宽进并逐个尝试。执行中工具损坏不改写已规划拓扑。
+  - **收口边界**：自然完成、松键、取消、登出、重生、切维度与服务停止前都会先恢复借用工具或明确分类冲突，再清执行状态；打开非个人库存 GUI、切换热栏锚点或受保护槽出现未知布局时 fail closed。系统不会为第三方库存改写、合并或覆盖物品，也不会伪报恢复成功。
+  - **预览**：只观察、不阻塞服务端执行，收敛可能晚于执行本身，客户端库存显示与预览允许在批内短暂滞后。
 - `AREA_CUBOID_CLEAR`：切换到该子模式并松开连锁键后，左键命中方块选择 point1，右键命中方块选择 point2；两个动作都会取消原版破坏/交互。按住连锁键时左键恢复正常触发语义，触发方块可以位于选区外。
-  - 服务端在主线程重验 endpoint、当前模式、按键状态和精确射线命中，只接受体积不超过当前 accepted `chainMaxBlocks` 的同维度 inclusive 选区。客户端只保存并渲染服务端 ACK，不乐观显示本地点击。
-  - 两点齐全后常驻渲染 `[min,max+1]` AABB 的 6 面与 12 边；执行轮次冻结当时 bounds，执行中重选只影响下一轮。选区扫描不预展开坐标列表，并与其它规划共用 deadline、yield 与 cancel 边界。
-- 服务端管理员可使用 `/qzminer config list [prefix]`、`get <path>`、`set <path> <value...>` 和 `reload`。命令要求 permission level `4`，只允许显式 `general.*` scalar 白名单；`set/reload` 成功提交后按 epoch 幂等热发布，并在 `chainMaxBlocks` 下调时重裁在线玩家 accepted 值与超限选区。
+  - 服务端重验坐标、模式、按键与射线命中，只接受体积不超过当前 `chainMaxBlocks` 的同维度选区；客户端只渲染服务端确认结果，不乐观显示本地点击。
+  - 两点齐全后常驻渲染选区 AABB 的 6 面与 12 边；执行轮次冻结当时 bounds，执行中重选只影响下一轮。
+- **服务端配置命令**：权限等级 `4` 的 `/qzminer config list [prefix]`、`get <path>`、`set <path> <value...>`、`reload` 只允许显式 `general.*` scalar 白名单（STRING/NUMBER/BOOLEAN）；`parallelBudgetMode`、`parallelSliceBudgetMs` 等 CHOICE 键不在白名单内，只能通过 `config/qz_miner.yaml` 或配置界面修改。`set`/`reload` 成功后热发布，并在 `chainMaxBlocks` 下调时重裁在线玩家的已接受值与超限选区。
 - `client.objectGroups`：每个客户端玩家自己的对象组列表。每行必须有唯一非空 `id` 和至少一个成员；成员可选择全部、单个或多个 metadata，也可直接使用完整 registry 语法，例如 `minecraft:log@0`、`minecraft:log@*`、`minecraft:log@[0,16,24902,65535,16777216,2147483647]`。单值与集合只接受十进制 `0..Integer.MAX_VALUE`；负数和超出 int 的文本拒绝。
-  - **管理入口**：`members` 使用 Qz-UILib 的成员管理选择器。配置行常驻“已配置/无效/重复”摘要与管理入口，原始列表默认折叠在“高级编辑原始规则”中。
-  - **portal 布局**：管理 portal 的宽、高受当前视口约束；搜索固定在顶部，当前规则与搜索结果按 3:5 目标动态分区。overlay 打开时焦点约束在 portal 内，关闭后恢复原界面焦点。
-  - **编辑与删除**：每个成员拥有稳定 ID；编辑只替换目标成员，新选择追加为新成员。删除可在管理 portal 内一键发起，点击“删除”立即按稳定 ID 提交；提交失败（编码/事务拒绝）零写并显示错误，不再要求只去 raw 列表删除。
-  - **诊断与无损性**：重复 registry 会显示提示但不会自动合并。malformed 成员在常规配置行和 portal 中只显示通用错误说明，不泄露原始文本；高级 raw 仍无损保留并可用于修正。合法但当前未枚举的 selector 继续以 canonical 文本显示。
-  - **候选边界**：Picker 枚举客户端 `Block.blockRegistry` 中全部合法方块，因此空气、火、传送门等技术块也会出现。正常方块只采用 `getSubBlocks` 实际暴露的非负 int 物品子类型，高 metadata 会去重排序显示；无 ItemBlock 的方块仍提供逻辑 meta 0，可选择 `@0` 或 `@*`，但不伪造物品身份并使用占位图标。Picker 不依赖世界或 NEI，不会为了完整值域凭空枚举 `0..Integer.MAX_VALUE`，也不推断其它未暴露 metadata；对象组匹配只使用 registry + metadata，不使用 NBT、TileEntity 或矿辞推断。每个 selector 仍受 1024-byte 字符串边界，组数、成员数与 payload 上限不变。
+  - **管理入口**：`members` 使用 Qz-UILib 的成员管理选择器，配置行常驻「已配置/无效/重复」摘要，原始列表默认折叠在「高级编辑原始规则」中。管理浮层受当前视口约束，打开时焦点限制在浮层内、关闭后恢复原界面焦点。每个成员拥有稳定 ID：编辑只替换目标成员，新选择追加为新成员；删除按稳定 ID 提交，提交失败（编码/事务拒绝）零写并显示错误。
+  - **诊断与无损性**：重复 registry 会显示提示但不会自动合并。malformed 成员只显示通用错误说明，不泄露原始文本；高级 raw 仍无损保留并可用于修正。合法但当前未枚举的 selector 继续以 canonical 文本显示。
+  - **候选边界**：Picker 枚举客户端 `Block.blockRegistry` 中全部合法方块，因此空气、火、传送门等技术块也会出现。正常方块只采用 `getSubBlocks` 实际暴露的非负 int 物品子类型，高 metadata 会去重排序显示；无 ItemBlock 的方块仍提供逻辑 meta 0，可选择 `@0` 或 `@*`，但不伪造物品身份并使用占位图标。Picker 不依赖世界或 NEI，不凭空枚举 `0..Integer.MAX_VALUE`，也不推断其它未暴露 metadata；对象组匹配只使用 registry + metadata，不使用 NBT、TileEntity 或矿辞推断。每个 selector 仍受 1024-byte 字符串边界，组数、成员数与 payload 上限不变。
 - `INTERACT` 在 HUD 中显示为“范围交互”，滚轮顺序固定为“同类方块 → 液体源 → 全部作物 → 未成熟作物施肥”，默认仍为同类方块。四个子模式统一以宽泛右键为入口，既观察 `RIGHT_CLICK_BLOCK`，也在 `RIGHT_CLICK_AIR` 的物品动作生效前从当前射线解析语义目标；AIR event 的占位坐标不作为 seed。四模式的服务端规划与客户端预览继续使用可按 deadline 恢复的完整立方盒扫，范围边长为 `2 x radius + 1`，无需目标相邻；候选拒绝只跳过当前坐标。
-  - **同类方块**：严格匹配触发时冻结的 block、完整 metadata 与方块实体纯值身份；对象组 X 仍可作为旧扩展。
+  - **同类方块**：严格匹配触发时冻结的 block、完整 metadata 与方块实体纯值身份；对象组仍可作为旧扩展。
   - **液体源**：只匹配与触发 source 同种的当前静态可排液 source。服务端 BLOCK/AIR 入口与客户端预览都使用包含液体的共享射线；每目标重新读取当前非空手持物，经精确液体射线、Forge `RIGHT_CLICK_AIR` 与正常 Item 使用。系统不按桶、工业单元或未知物品类型预判接收能力，由物品自行决定是否处理；不直接 `drain`、修改液体块、搜索背包或构造容器。
-  - **全部作物**：包含可靠识别的成熟和未成熟作物；对象组 X 仍可扩展到当前非空、非空气、非液体方块。
+  - **全部作物**：包含可靠识别的成熟和未成熟作物；对象组仍可扩展到当前非空、非空气、非液体方块。
   - **未成熟作物施肥**：只接受当前可靠确认的 `IMMATURE`，`MATURE/UNKNOWN` 均拒绝；使用每目标当前手持物走正常目标化方块右键，不调用兼容层施肥 API。
-  - **执行边界**：规划接受不等于执行授权。服务端主线程在每目标调用前重验 live 身份，并继续守 `blockExists`、世界保护、编辑权限与 Forge event；当前手持在每个目标动态读取，单目标无动作、拒绝、返回 false、耗尽或异常不停止后续队列。同一动作若同时出现 BLOCK/AIR 观测，由既有连锁状态门收口迟到观测，不额外建立复杂事务。真实 vanilla bucket / GT 或 IC2 单元 / 第三方 Item / GT CropCard / EFR / 保护插件、client/dedicated 与连续四模式运行态仍为 **INCOMPLETE**。
+  - **执行边界**：规划接受不等于执行授权。服务端主线程在每目标调用前重验 live 身份，并继续守 `blockExists`、世界保护、编辑权限与 Forge event；当前手持在每个目标动态读取，单目标无动作、拒绝、返回 false、耗尽或异常不停止后续队列。同一动作若同时出现 BLOCK/AIR 观测，由既有连锁状态门收口迟到观测。真实模组与连续运行态的覆盖情况见文末「验证边界」。
 - 对象组是现有模式的筛选扩展，不是独立滚轮模式。可扩展模式仍恰好为连锁基础/矿石/伐木、区域同类/矿石、交互基础/全部作物；液体源与未成熟作物施肥不取得对象组 bit。原模式匹配始终保留，对象组无命中时行为不变。保存、RELOAD 或连接建立后，客户端发送同一 `CommittedSnapshot` 中的 revision 与完整配置；HUD 的 `Confirmed` 只表示服务端已接受该请求。服务端按玩家隔离规则，并在任务启动时冻结扩展，运行中的 reload 不改变任务；客户端预览只使用服务端已确认规则，pending 时回退原模式。
-- 游戏内无界面打开时，按住连锁键滚轮切换子模式；同时按住游戏设置中的潜行键则切换主模式。该组合键会独占滚轮，不改变快捷栏选中槽；未按连锁键或打开界面时保留原版滚轮行为。
-- HUD 布局编辑：打开聊天输入框后，工具栏的「编辑 HUD」按钮进入 UILib 布局编辑子模式，拖动连锁状态 HUD 预览调整屏幕位置。拖动、边界夹取、草稿/提交/取消与 Esc 优先级全部归 UILib 编辑宿主，Miner 只声明可编辑目标与预览内容；缩放 `- / 1:1 / +` 只在编辑子模式由 UILib 编辑层统一提供（关闭态 HUD 不挂常驻工具栏——连锁 HUD 无内容时整窗隐藏，工具栏本来不可见）；编辑会话中的预览不跟随 HUD 显示门（否则连锁键松开时预览零尺寸、无法拖动）。布局提交后由 UILib 负责持久化（宿主只做配置目录下 `qz_miner-hud-layout.txt` 的纯文本整串原子读写，编解码、schemaVersion 判定与损坏降级归 UILib），因此不随退出游戏丢失；该持久化路径已接线，本轮未做跨重启实机验证。
+- HUD 布局编辑：打开聊天输入框后，工具栏的「编辑 HUD」按钮进入 UILib 布局编辑子模式，拖动连锁状态 HUD 预览调整屏幕位置，缩放 `- / 1:1 / +` 只在编辑子模式提供。拖动、边界夹取、草稿/提交/取消与 Esc 优先级全部归 UILib 编辑宿主，Miner 只声明可编辑目标与预览内容。提交后布局由 UILib 持久化到配置目录下的 `qz_miner-hud-layout.txt`（编解码、schemaVersion 判定与损坏降级归 UILib），设计上不随退出游戏丢失。
+- 并行执行预算（`general` 段，服务端权威）：`parallelBudgetMode` 默认 `deadline`（沿用 `tickBudgetMs` 共享 soft deadline），可选 `slice`；`parallelSliceBudgetMs` 默认 `4`，合法 `1..40`，仅 `slice` 档生效。
 
-- 连锁预览观感档位（`client.clientPreview*`，全部为本机客户端配置、不参与网络同步）：默认值逐键等于本轮已接线的行为，唯一例外是 `clientPreviewFaceShading`（本轮唯一上调的观感默认，用户 2026-09-14 裁定默认档需要体积感；其余预览档位键默认仍逐键等于接线前行为，详见下方同名条目）；默认档位不超前于实现——尚未接线的档位（逐波生长 / signal 淡出 / 截断展示 / 版本化快照）默认停在基线档（`animation=off`、`fadeMode=timer`、`truncationSignal=false`、`versionedInputs=false`），避免「开关有值但无效果」。已接线：`renderBackend`（着色器主路径，`auto` 探测失败回退 legacy）、`remoteTimeoutMs`（远端预览超时）、`maxTargetsHardCap`（预览目标硬顶）、`minScreenWidthPx`（屏幕最小宽度钳制）、`outlineWidthPx`（`outline` 档描边壳外扩宽度）、`faceShading`（面朝向烘焙明暗，两后端共用同一张亮度表）——屏幕空间两项仅着色器后端生效；其余档位键的效果随后续批次接线，默认值保持与基线一致。
-  - 要回到本轮之前的全部行为：保持上面六个键的默认档；需要固定固定管线时把 `renderBackend` 设为 `legacy`。
-  - `clientPreviewRenderBackend`：预览渲染后端，默认 `auto`（能力探测通过用 shader，否则 legacy）；可选 `auto`/`shader`/`legacy`。显式 `shader` 探测失败仍回退 legacy 并记录一次诊断，不在每帧重试。
-  - `clientPreviewBarThickness`：预览条柱粗细，默认 `0.045`，合法 `0.005..0.2`。
-  - `clientPreviewColorSource`：颜色来源，默认 `builtin`（内置六色 + 距离 α；CHAIN 一档与历史逐字节一致）；`config` 时使用下面六个 RGB 键做语义配色。
-  - `clientPreviewColorChain` / `clientPreviewColorArea` / `clientPreviewColorInteract`：CHAIN / AREA / INTERACT 三个大模式默认子模式本地预测的颜色，默认 `0x40E6FF` / `0xE8503C` / `0x58E07A`。
-  - `clientPreviewColorSecondary` / `clientPreviewColorRemote` / `clientPreviewColorTruncated`：扩展子模式本地预测 / 远端预测 / 截断目标的颜色，默认 `0xB08CFF` / `0x8FA9D0` / `0xF8C858`。六键合法范围均 `0x000000..0xFFFFFF`。
-  - `clientPreviewDepthMode`：深度通道，默认 `xray`（恒可见，等于历史）；可选 `occlude`（参与深度测试）/ `outline`（主体遮挡 + 置顶轮廓）。只改绘制通道，不改拓扑。
-  - `clientPreviewAnimation`：预览动画，默认 `off`（等于基线行为）；可选 `flow`（整体流动）/ `wave`（按出现顺序逐波生长，接线属下一批）。
-  - `clientPreviewAnimationDurationMs`：单代动画时长（毫秒），默认 `120`，合法 `0..2000`（`0` 瞬时完成）。
-  - `clientPreviewAnimationPhase`：相位来源，默认 `order`（出现序号）；可选 `hash`（坐标 + 代次稳定哈希）。**预留档：本轮未接线**——渲染路径只读 `animationId` / `animationDurationMs`，改此键只会触发一次重建而观感零变化；「保留出现顺序」由 `animation=wave` 体现，hash 相位留待后续评估。
-  - `clientPreviewFadeMode`：距离淡出刷新，默认 `timer`（1 Hz 兜底，等于现状）；可选 `signal`（相机变更信号驱动，消除 1 Hz 台阶，接线属下一批）/ `gpu`（着色器逐帧计算）。
-  - `clientPreviewFadeRefreshDistance`：`signal` 档相机位移阈值（格），默认 `0.5`，合法 `0..8`；达到阈值才提升 visual revision。
-  - `clientPreviewFadeFallbackMs`：`signal` 档无位移时的兜底刷新间隔（毫秒），默认 `250`，合法 `50..5000`。
-  - `clientPreviewMinScreenWidthPx`：条柱在屏幕上的最小宽度（像素），默认 `0`（关闭钳制，等于现状），合法 `0..8`；`1..8` 时着色器后端沿面法线单向外扩，把条柱投影宽抬到该像素值，消除远距亚像素闪烁（legacy 固定管线无此能力）。**交付量按条柱总厚度换算**（投影宽 = 厚度 × 像素/世界单位）：配置 8px 实际交付 8px，与描边共用同一世界上界 `max(0, 0.5 − 厚度)`，因此像素/世界单位极小时外扩量收敛（不会把条柱推出方块或与相邻条柱粘连）。
-  - `clientPreviewOutlineWidthPx`：`outline` 深度档描边壳沿面方向的外扩宽度（物理像素），默认 `1.5`（等于接线前渲染器写死值，观感不变），合法 `0..8`；`0` 关闭描边，`>0` 时着色器后端在主体之外绘制描边壳（legacy 固定管线无此能力）。与外扩世界上界 `max(0, 0.5 − 厚度)` 同口径（接口冻结 §L）。
-  - `clientPreviewFaceShading`：是否按面朝向烘焙明暗（顶面最亮、底面最暗），默认 `true`。**这是本轮唯一上调的观感默认**（用户 2026-09-14 裁定默认档需要体积感），与其它「默认等于历史行为」的键性质不同：查询「默认值是否等于历史行为」时本项是例外。开启后**两个后端共用同一张亮度表**（`1.00 / 0.90 / 0.84 / 0.78 / 0.72`，顶 / +Z / −Z / ±X / 底）：legacy 把系数乘进 CPU 颜色流，着色器在顶点阶段查同一张表，两侧都是「字面常量 × 同一调色板常量」的单次单精度乘法，因此逐位一致。面朝向是视角无关量，转动相机不改变明暗。默认上调后的实机观感确认尚未完成。
-  - `clientPreviewTruncationSignal`：预览被目标上限截断时是否给出可见提示，默认 `false`（截断 HUD 展示接线属下一批）。
-  - `clientPreviewMaxTargetsHardCap`：预览目标数量硬顶，默认 `4096`，合法 `1..4096`；实际预览数量取该值、`clientPreviewMaxTargets` 与服务端 `chainMaxBlocks` 的较小值。
-  - `clientPreviewLod`：极端规模 LOD，默认 `off`（等于历史行为）；`auto` 才启用距离合并与 alpha 剔除。
-  - `clientPreviewLodMinAlpha`：LOD alpha 剔除阈值，默认 `0.05`，合法 `0..1`；低于阈值的条柱不参与构建。
-  - `clientPreviewSuppressVanillaHighlight`：预览激活且瞄准同一目标时取消原版方块高亮，避免双重指示，默认 `false`。
-  - `clientPreviewVersionedInputs`：是否使用版本化预览输入快照（含目标去抖），默认 `false`（接线属下一批）；关闭时走逐字段比较。
-  - `clientPreviewPresentationOverlay`：是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源），默认 `false`。
-  - `clientPreviewExecutionProgress`：是否在 HUD 展示执行进度（已执行 / 匹配），默认 `false`；进度由**客户端世界采样**得到（零协议改动、可回退），开启后随投影 header 每 tick 更新。关闭时**不采样、不计数**（默认档零开销、行为不变）。采样口径如实标注：只统计「目标位置所在区块已加载且方块已消失为空气」的目标，因此破坏 / 采掘类模式准确，交互类与替换类目标不产生空气态、不计入。
-  - `clientPreviewRemoteTimeoutMs`：远端预览请求超时（毫秒），默认 `5000`，合法 `250..60000`；超时丢弃陈旧响应并清预览激活。
-  - 预览视觉参数的运行期读取面唯一：session-core 的 `ChainPreviewVisualSettings.fromConfig()` 聚合上表键位后随构建任务下发；渲染与几何路径不直连 `Config` 静态字段。
-  - **重复目标语义（B5.4 维持现状，仅文档化）**：`clientPreviewMaxTargetsHardCap` 的 4096 配额按**唯一坐标**占用——同一坐标重复进入预览只保留一次，不占配额、不进入拓扑、语义类别取首次出现（B0.7 去重先于配额）；而 `ChainPreviewState` 的计数与 HUD「预览已匹配」仍按**原始读取数**（重复调用计入 `matchedCount`，既有契约由 `ChainPreviewStateTest` 锁定）。两者口径不同是刻意的：网格侧关注几何唯一性与内存上界，HUD 侧关注上游实际送来的目标数；读取时不要把去重后的唯一数当作 HUD 数字，也不要把 HUD 原始数当作配额占用。`lod=auto` 的远处散点剔除同样不占配额。
-- 并行执行预算（`general` 段，服务端权威）：`parallelBudgetMode` 默认 `deadline`（沿用 `tickBudgetMs` 共享 soft deadline，等于基线行为），可选 `slice`；`parallelSliceBudgetMs` 默认 `4`，合法 `1..40`，仅 `slice` 档生效。
-  - **命令层写入缺口（登记下一批）**：`/qzminer config set` 的写白名单当前仍只覆盖既有 9 个 `general.*` scalar 键（STRING/NUMBER/BOOLEAN）；这两个新键不在白名单内，需通过 YAML 权威或配置页修改。命令层的 CHOICE 写入支持（含白名单与校验）登记为下一批，与本轮实现无关。
+### 连锁预览观感档位
+
+`client.clientPreview*` 全部为本机客户端配置、不参与网络同步。各键的效果、默认值与限制如下；其中 `clientPreviewVersionedInputs`、`clientPreviewPresentationOverlay`、`clientPreviewAnimationPhase`、`clientPreviewFadeMode` 当前无消费者，改动只触发一次配置重读、观感与行为不变。
+
+- `clientPreviewRenderBackend`：预览渲染后端，默认 `auto`（能力探测通过用 shader，否则 legacy）；可选 `auto`/`shader`/`legacy`。需要固定管线时显式设为 `legacy`；显式 `shader` 探测失败仍回退 legacy 并记录一次诊断，不在每帧重试。
+- `clientPreviewBarThickness`：预览条柱粗细，默认 `0.045`，合法 `0.005..0.2`。
+- `clientPreviewColorSource`：颜色来源，默认 `builtin`（内置六色 + 距离 α）；`config` 时使用下面六个 RGB 键做语义配色。
+- `clientPreviewColorChain` / `clientPreviewColorArea` / `clientPreviewColorInteract`：CHAIN / AREA / INTERACT 三个大模式默认子模式本地预测的颜色，默认 `0x40E6FF` / `0xE8503C` / `0x58E07A`。
+- `clientPreviewColorSecondary` / `clientPreviewColorRemote` / `clientPreviewColorTruncated`：扩展子模式本地预测 / 远端预测 / 截断目标的颜色，默认 `0xB08CFF` / `0x8FA9D0` / `0xF8C858`。六键合法范围均 `0x000000..0xFFFFFF`。
+- `clientPreviewDepthMode`：深度通道，默认 `xray`（恒可见）；可选 `occlude`（参与深度测试）/ `outline`（主体遮挡 + 置顶轮廓）。只改绘制通道，不改拓扑。
+- `clientPreviewAnimation`：预览动画，默认 `off`；可选 `flow`（整体流动）/ `wave`（按出现顺序逐波生长）。档位为 `flow`/`wave` 且时长 `> 0` 时，预览出现与结束带淡入淡出（两个后端都生效）；逐波生长按每条条柱的出现序号逐顶点推进，只有着色器后端具备（legacy 固定管线整体绘制）。
+- `clientPreviewAnimationDurationMs`：单代动画时长（毫秒），默认 `120`，合法 `0..2000`（`0` 瞬时完成）；仅 `flow`/`wave` 档生效。
+- `clientPreviewAnimationPhase`：相位来源，默认 `order`（出现序号，也是 `wave` 生长实际使用的相位）；可选 `hash`（坐标 + 代次稳定哈希）。渲染路径不读该键：`hash` 与 `order` 观感相同，只保留键位。
+- `clientPreviewFadeMode`：距离淡出刷新档位，默认 `timer`（1 Hz 兜底）；可选 `signal`（相机位移达阈值或兜底时间到期时提升刷新）/ `gpu`（着色器逐帧计算，当前与 `timer` 行为相同）。
+- `clientPreviewFadeRefreshDistance`：`signal` 档相机位移阈值（格），默认 `0.5`，合法 `0..8`；达到阈值才提升刷新，`0` 等价每帧刷新；`timer`/`gpu` 档不读此键。
+- `clientPreviewFadeFallbackMs`：`signal` 档无位移时的兜底刷新间隔（毫秒），默认 `250`，合法 `50..5000`；`timer`/`gpu` 档不读此键。
+- `clientPreviewMinScreenWidthPx`：条柱在屏幕上的最小宽度（像素），默认 `0`（关闭钳制），合法 `0..8`；`1..8` 时着色器后端沿面法线单向外扩，把条柱投影宽抬到该像素值，消除远距亚像素闪烁（legacy 固定管线无此能力）。外扩与描边共用同一世界上界 `max(0, 0.5 − 厚度)`。
+- `clientPreviewOutlineWidthPx`：`outline` 深度档描边壳沿面方向的外扩宽度（物理像素），默认 `1.5`，合法 `0..8`；`0` 关闭描边，`>0` 时着色器后端在主体之外绘制描边壳（legacy 固定管线无此能力）。与外扩世界上界同口径。
+- `clientPreviewFaceShading`：是否按面朝向烘焙明暗（顶面最亮、底面最暗），默认 `true`（用户 2026-09-14 裁定默认档需要体积感）。两个后端共用同一张亮度表，面朝向是视角无关量，转动相机不改变明暗。默认 `true` 的真机观感确认尚未完成（真机观感属 **INCOMPLETE**）。
+- `clientPreviewTruncationSignal`：预览因目标上限或远端上限被截断时，是否在 HUD 显示截断行（截断数量与原因），默认 `false`；打开后随预览 header 每 tick 更新。
+- `clientPreviewMaxTargetsHardCap`：预览目标数量硬顶，默认 `4096`，合法 `1..4096`；实际预览数量取该值、`clientPreviewMaxTargets` 与服务端 `chainMaxBlocks` 的较小值。
+- `clientPreviewLod`：极端规模 LOD，默认 `off`；`auto` 才启用距离合并与 alpha 剔除。
+- `clientPreviewLodMinAlpha`：LOD alpha 剔除阈值，默认 `0.05`，合法 `0..1`；低于阈值的条柱不参与构建。
+- `clientPreviewSuppressVanillaHighlight`：预览激活且瞄准同一目标时取消原版方块高亮，避免双重指示，默认 `false`。
+- `clientPreviewOrderMinBrightness`：连锁序亮度权重下限，默认 `0.55`，合法 `0..1`；按条柱的出现序号把**颜色亮度**从 `1.0` 线性降到该值，不改动透明度，仅着色器后端生效；`1.0` 关闭该能力。
+- `clientPreviewInteriorDim`：内部结构亮度系数，默认 `0.65`，合法 `0..1`；把内部格线（junction 补块与共享顶点）的颜色亮度乘上该系数，外轮廓保持原亮度，不改动透明度，描边 pass 不参与，仅着色器后端生效；`1.0` 关闭该能力。
+- `clientPreviewVersionedInputs`：是否使用版本化预览输入快照（含目标去抖），默认 `false`（逐字段比较）。当前无消费者：开关只触发一次配置重读，观感与行为不变。
+- `clientPreviewPresentationOverlay`：是否启用统一表现投影覆盖层（HUD 截断 / 进度 / 远端失败的单一事实源），默认 `false`。当前无消费者：开启不改变 HUD 与预览行为。
+- `clientPreviewExecutionProgress`：是否在 HUD 展示执行进度（已执行 / 匹配），默认 `false`；进度由**客户端世界采样**得到（零协议改动、可回退），开启后随投影 header 每 tick 更新。关闭时**不采样、不计数**。采样口径如实标注：只统计「目标位置所在区块已加载且方块已消失为空气」的目标，因此破坏 / 采掘类模式准确，交互类与替换类目标不产生空气态、不计入。
+- `clientPreviewBackendDiagnostics`：是否在 HUD 显示预览后端诊断行（当前生效后端与一次性回退原因），默认 `false`；数据来自渲染线程发布的后端状态快照，关闭时不触碰该快照。
+- `clientPreviewRemoteTimeoutMs`：远端预览请求超时（毫秒），默认 `5000`，合法 `250..60000`；超时丢弃陈旧响应并清预览激活。
+- **重复目标语义**：`clientPreviewMaxTargetsHardCap` 的 4096 配额按**唯一坐标**占用——同一坐标重复进入预览只保留一次，不占配额、不进入拓扑，语义类别取首次出现（去重先于配额）；HUD「预览已匹配」与内部计数仍按**原始读取数**。两者口径不同是刻意的：网格侧关注几何唯一性与内存上界，HUD 侧关注上游实际送来的目标数。`lod=auto` 的远处散点剔除同样不占配额。
 
 ## 5.3 联机版本边界
 
-- 连接双方都安装 Qz-Miner 时，完整合法的 `5.3.x[-prerelease][+build]` 版本忽略 patch 与
-  qualifier 互通；stable、prerelease、branch/dirty dev 都属于同一 family。
+- 连接双方都安装 Qz-Miner 时，完整合法的 `5.3.x[-prerelease][+build]` 版本忽略 patch 与 qualifier 互通；stable、prerelease、branch/dirty dev 都属于同一 family。
 - `5.0.x`、`5.1.x`、`5.2.x`、`5.10.x`、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
-- 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端
-  都必须是合法 5.3 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务
-  主动发送仍可能失败。
-- 5.3 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与
-  20-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为
-  **INCOMPLETE**，不因自动化通过而升级证据等级。
-- GTNH 基线：本轮起为**单基线构建**，唯一真源是 `dependencies.gradle` 的
-  `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib）；CI 与发布不再使用基线矩阵，
-  `gradle/gtnh-baselines.json`、`scripts/verify-gtnh-baselines.ps1` 与 `verifyGtnhBaseline` 任务已删除。
-- `2.9.0-beta-3` 的运行期组件版本（2026-09-11 实测解析）：GT5 5.09.54.133、GTNHLib 0.11.46、
-  Hodgepodge 2.7.196、NewHorizonsCoreMod 2.9.61、Et-Futurum-Requiem 2.6.58-GTNH、lwjgl3ify 3.0.31、
-  Angelica 2.2.10。
-- 同一份 jar 的运行期兼容范围含 `2.9.0-beta-2` 与 `2.9.0-beta-3`：依据是源码对 GTNH 侧组件零静态链接
-  （main/test 无 `gregtech.*` / `com.gtnewhorizons.*` / `gtnhlib.*` 等静态 import，GT 侧只走反射能力档案与
-  Mixin 字符串目标）+ 双基线编译实证（两基线 `compileJava`/`compileTestJava` 均通过，2026-09-11）。
-  该实证采集于 HUD 迁移前的工作树（GTNH 侧零静态链接，故与 UILib 版本无关）；HUD 迁移完成后由本轮验证流程复测。
-  这是编译期证据：真机运行态未验证，不因编译通过升级证据等级。
-- `2.8.4` 基线于 2026-08-17 从基线承诺移除（当时经 CI 矩阵移除）：上游 POM 缺陷
-  （`Thaumic_Exploration:1.4.2-GTNH` 引用不存在的 `com.github.GTNewHorizons:CodeChickenLib:1.3.0`，
-  正确 group 为 `codechicken`）使该基线依赖图无法解析；该历史结论不因矩阵机制退役而改变，`2.8.4` 仍不在承诺内。
+- 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端都必须是合法 5.3 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务主动发送仍可能失败。
+- 5.3 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与 20-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为 **INCOMPLETE**，不因自动化通过而升级证据等级。
+- GTNH 基线：当前为**单基线构建**，唯一真源是 `dependencies.gradle` 的 `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib），CI 与发布不使用基线矩阵。同一份 jar 的运行期兼容范围含 `2.9.0-beta-2` 与 `2.9.0-beta-3`，依据是源码对 GTNH 侧组件零静态链接 + 双基线编译实证；这是编译期证据，真机运行态未验证，不因编译通过升级证据等级。`2.8.4` 不在兼容承诺内。机制取舍与上游依赖缺陷依据见 [反馈层/errors/](../反馈层/errors/ERROR-20260911-gtnh-single-baseline-matrix-retirement.md)。
+
+## 验证边界
+
+- 服务端换位与库存发布路径已有自动化证据；真实 client/dedicated 运行态、大批次连续接替、第三方库存冲突，以及交互类目标的真实模组覆盖（vanilla bucket / GT 或 IC2 单元 / 第三方 Item / GT CropCard / EFR / 保护插件）仍为 **INCOMPLETE**。
+- HUD 布局持久化已实现，跨重启实机验证尚未完成。
 
 ## 维护规则
 
