@@ -62,7 +62,14 @@ dependencies {
     // 4.9.1 相对 4.9.0 为纯增量（公开面零删除零改签名），当时的 acceptableRemoteVersions [4.9.0,4.10.0) 同时接受两者
     // （该声明已于 2026-09-12 上抬为 [4.9.0,5.0.0)，原因见本段末尾「无法进入世界」修复说明）；
     // 该制品已于 2026-09-11 随 4.9.1 正式 Release 上线，资产 sha256 与本注释一致，无需再回填。
-    // 【P2-B 开发期依赖切换·过渡态】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
+    // 【当前件·正式 Release 资产（2026-09-15 成对升级完成）】本两行引用的 libs/qz_uilib-4.10.0-dev.jar
+    //   = Qz-UILib Release https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.10.0 的资产：
+    //   sha256 CB592124A4DA7D485960623221BB7B07EFE29AD3EAD5266DB18AF0168DFAF6C8 / 3973704 bytes；
+    //   jar 内 mcmod.info version=4.10.0，其自身 acceptableRemoteVersions=[4.9.0,4.11.0) 已包含自身版本。
+    //   配对声明：Miner @Mod 依赖下界同步抬到 4.10.0（required-after:qz_uilib@[4.10.0,5.0.0)）——本版颜色
+    //   字段使用 4.10.0 才提供的 ColorSpec 族，与 4.9.x 混用会在类加载期 NoClassDefFoundError。
+    //   集成与发布以本段 sha256 为准（同名同版本内容漂移警示见下方历史段）。
+    // 【历史·P2-B 开发期依赖切换】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
     // PickerIconCache / PickerRevisionBridge 等）只在 Qz-UILib 4.10.0 构建中存在；4.9.1 件不含新 SPI，
     // 会让 P2-B 代码无法编译。本行因此改指本机构建的 4.10.0 dev 制品：
     //   来源 = Qz-UILib 分支 4.0 HEAD e1c55eff + 历史工作区增量（分类筛选/hover 与左栏质感、无法进入
@@ -121,11 +128,11 @@ dependencies {
     //   现声明改为 [4.9.0,5.0.0)（与 Miner 依赖上界成对同源），并由 Qz-UILib 的
     //   FmlRemoteVersionCompatibilityContractTest#declaredRangeMustContainOwnBuildVersion 守卫
     //   「区间必须含自身构建版本」；禁止把本两行回退到 104B6940 件。
-    // 过渡态删除条件（P6 成对升级，需用户确认）：Qz-UILib 出 5.0.0 Release 资产（T-1/T-6 旧路径删除的同一批）
-    //   + Miner 把 @Mod 依赖上界同步到 5.0.0，此时本两行改指 5.0.0 Release 资产并删除本段注释。
-    // 过渡态回退方式：4.8.0 / 4.9.0 / 4.9.1 三件旧 dev jar 已于 2026-09-12 从本仓 libs/ 移除（git 索引中为删除态），
+    // 过渡态已闭合（2026-09-15）：原计划「Qz-UILib 出 Release 资产后改指正式资产 + 同步依赖下界」已执行——
+    //   上游发布口径由 5.0.0 改为次版本号 4.10.0，本两行现指该 Release 资产，依赖下界为 4.10.0。
+    // 回退方式：4.8.0 / 4.9.0 / 4.9.1 三件旧 dev jar 已于 2026-09-12 从本仓 libs/ 移除（git 索引中为删除态），
     //   回退需先从 Qz-UILib Release 资产取回对应 dev jar 放回 libs/，再把下面两行的文件名改回去；
-    //   回退后 P2-B 的新 SPI 代码无法编译，必须先 revert 对应的 Miner 提交。
+    //   回退后 P2-B 的新 SPI 代码与颜色字段（ColorSpec）都无法编译，必须先 revert 对应的 Miner 提交。
     devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
     testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
 
