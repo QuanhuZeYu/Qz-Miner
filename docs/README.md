@@ -25,6 +25,6 @@
 ## 构建与验证
 
 - 完整构建（代码改动的交付门槛）：`gradlew.bat build`（Windows）/ `./gradlew build`（Unix），经仓库自带 wrapper 执行，不使用系统 Gradle。
-- 本地开发件：`libs/qz_uilib-<版本>-dev.jar` 经本地文件解析消费，不经 JitPack，也不等同于 Qz-UILib 的正式 Release 资产。
+- 本地开发件：`libs/qz_uilib-<版本>-dev.jar` 经本地文件解析消费，不等同于 Qz-UILib 的正式 Release 资产。
 - CI（`.github/workflows/branch-ci.yml`）按 `setupCIWorkspace` → `test` → `check` → `build` 顺序执行；本机复现以 `build` 为准。
 - 实机运行（`runClient21` 等）与发布动作交用户或 CI，agent 不自动执行。
