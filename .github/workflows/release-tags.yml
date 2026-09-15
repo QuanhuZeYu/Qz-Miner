@@ -1,6 +1,6 @@
 # 注：本文件原为 tag-push 自动发布（release-tags.yml）。发布触发改为手动 workflow_dispatch 后曾改名为 release.yml，
-# 但 GitHub 对新 workflow 文件的索引长时间未生效（gh workflow run 报 could not find），首次发布被迫回落到本已注册路径。
-# 内容与 release.yml 完全相同；待新文件索引生效后可删本文件、只保留 release.yml（两份同时注册会产生同名 workflow）。
+# 但 GitHub 对新 workflow 文件的索引长时间未生效（gh workflow run 报 could not find），发布被迫回落到本已注册路径，
+# release.yml 已在树内删除——当前本文件就是唯一的发布 workflow，改名与否只影响文件路径、不影响注册名（Release）。
 
 name: Release
 
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 目标 release tag，如 5.3.3
+        description: 目标 release tag，如 5.3.4
         required: true
         type: string
       confirmation:
