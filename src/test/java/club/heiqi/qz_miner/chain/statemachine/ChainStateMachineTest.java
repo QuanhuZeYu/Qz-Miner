@@ -196,13 +196,14 @@ public class ChainStateMachineTest {
         Assert.assertEquals(0, h.sm.getCurrentGeneration(PLAYER_A));
     }
 
-    /** 4. ARMED → IDLE：模式切换。 */
+    /** 4. 按住期间切模式保持 ARMED（电平授权：T3 不再解除武装）。 */
     @Test
-    public void armedToIdleOnModeSwitched() {
+    public void modeSwitchedWhileHeldKeepsArmed() {
         Harness h = newHarness();
         drive(h, key(true));
         drive(h, modeSwitched(0));
-        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("按住连锁键滚轮切模式后应保持武装（README 组合键手势）",
+                ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(0, h.sm.getCurrentGeneration(PLAYER_A));
     }
 
@@ -233,6 +234,8 @@ public class ChainStateMachineTest {
         Harness h = newHarness();
         drive(h, key(true));
         drive(h, breakObserved(0));
+        // 松键（电平 false）是"收尾停 IDLE"的前提；按住时收尾走 T11 自动再武装
+        drive(h, key(false));
         drive(h, planCancelled(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -247,6 +250,7 @@ public class ChainStateMachineTest {
         h.bus.subscribe(ChainPhaseChanged.class, captured::add);
         drive(h, key(true));
         drive(h, breakObserved(0));
+        drive(h, key(false));
         captured.clear();
 
         drive(h, new PlanCancelled(PLAYER_A, serverRoundId, 1, TICK, NANOS, "shadow-runtime-null"));
@@ -267,6 +271,7 @@ public class ChainStateMachineTest {
         h.bus.subscribe(ChainPhaseChanged.class, captured::add);
         drive(h, key(true));
         drive(h, breakObserved(0));
+        drive(h, key(false));
         captured.clear();
 
         drive(h, planCancelled(1));
@@ -297,6 +302,7 @@ public class ChainStateMachineTest {
         drive(h, key(true));
         drive(h, breakObserved(0));
         drive(h, planCompleted(1));
+        drive(h, key(false));
         drive(h, watchdog(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -309,6 +315,7 @@ public class ChainStateMachineTest {
         drive(h, key(true));
         drive(h, breakObserved(0));
         drive(h, planCompleted(1));
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -322,6 +329,7 @@ public class ChainStateMachineTest {
         drive(h, breakObserved(0));
         drive(h, planCompleted(1));
         drive(h, execFinished(1));
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -349,6 +357,8 @@ public class ChainStateMachineTest {
         drive(h, execFinished(1));
         Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
 
+        // 松键后收尾停 IDLE（按住则由 T11 自动再武装，见 heldKeyRearmsOn* 回归用例）
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -452,6 +462,7 @@ public class ChainStateMachineTest {
     public void lifecycleCleanupFromArmed() {
         Harness h = newHarness();
         drive(h, key(true));
+        drive(h, key(false));
         drive(h, cleanup(0));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(0, h.sm.getCurrentGeneration(PLAYER_A));
@@ -463,6 +474,7 @@ public class ChainStateMachineTest {
         Harness h = newHarness();
         drive(h, key(true));
         drive(h, breakObserved(0));
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -474,6 +486,7 @@ public class ChainStateMachineTest {
         Harness h = newHarness();
         drive(h, key(true));
         drive(h, breakObserved(0));
+        drive(h, key(false));
         drive(h, watchdog(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -489,7 +502,8 @@ public class ChainStateMachineTest {
         drive(h, planCompleted(1));
         drive(h, execFinished(1));
         Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
-        // FINISHING → IDLE via WatchdogTimeout（gen=1 匹配当前代际）
+        // 松键后 FINISHING → IDLE via WatchdogTimeout（gen=1 匹配当前代际）
+        drive(h, key(false));
         drive(h, watchdog(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -646,6 +660,7 @@ public class ChainStateMachineTest {
         // A 经 PlanCompleted/ExecutionFinished/LifecycleCleanup 回 IDLE 后再武装再破坏
         drive(h, planCompleted(1));
         drive(h, execFinished(1));
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         drive(h, key(PLAYER_A, 0, true));
@@ -979,6 +994,8 @@ public class ChainStateMachineTest {
                 ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
 
         // 匹配 gen=1 LifecycleCleanup 正常 T8 FINISHING→IDLE（E4-b 桥验证）
+        // 松键后收尾停 IDLE（按住则 T11 再武装，另见 heldKeyRearmsOnExecutionCleanup）
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
     }
@@ -1005,14 +1022,15 @@ public class ChainStateMachineTest {
         h.bus.publish(new LifecycleCleanup(PLAYER_A, 1, TICK, NANOS, "phase5-temporary-cleanup-bridge"));
         h.bus.drain();
 
-        // T7 RUNNING→FINISHING → T8 FINISHING→IDLE
-        Assert.assertEquals("E4-b 桥应驱动状态机回 IDLE，避免玩家槽卡 FINISHING 致二次连锁哑火",
-                ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        // T7 RUNNING→FINISHING → T8 FINISHING→IDLE → T11 IDLE→ARMED（按键电平仍按下）
+        Assert.assertEquals("按住不放时收尾应回到 ARMED（持续授权），避免玩家槽停 IDLE 致二次连锁哑火",
+                ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
-        // 验证后续连锁能正常触发（玩家槽已回 IDLE，T1 合法）
+        // 自动换位 fresh key 会重复补发 pressed=true：ARMED 态幂等，不改态、不推动 gen
         drive(h, key(true));
         Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
     }
 
     // ============================ 阶段7：F.1 W1 + F.2 S1 ============================
@@ -1033,7 +1051,8 @@ public class ChainStateMachineTest {
         Assert.assertEquals(ChainPhase.RUNNING, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
-        // forced=true + gen=999（明显不匹配 slot gen=1）→ 应豁免 genCheck 强制回 IDLE
+        // forced=true + gen=999（明显不匹配 slot gen=1）→ 应豁免 genCheck 强制离开活跃态
+        drive(h, key(false));
         drive(h, forcedCleanup(PLAYER_A, 999, false));
         Assert.assertEquals("F.1 W1：forced LifecycleCleanup 应豁免 genCheck 强制回 IDLE",
                 ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
@@ -1100,7 +1119,8 @@ public class ChainStateMachineTest {
         Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
-        // forced=true + removeSlot=false → 回 IDLE 但保槽保 gen
+        // forced=true + removeSlot=false → 回 IDLE 但保槽保 gen（松键后不触发 T11）
+        drive(h, key(false));
         drive(h, forcedCleanup(PLAYER_A, 0, false));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals("F.2 S1：removeSlot=false 应保槽保 gen 单调", 1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -1125,6 +1145,7 @@ public class ChainStateMachineTest {
         drive(h, breakObserved(0));
         drive(h, planCompleted(1));
         drive(h, execFinished(1));
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals("前置：玩家槽在 IDLE 且 gen=1", 1, h.sm.getCurrentGeneration(PLAYER_A));
@@ -1152,6 +1173,7 @@ public class ChainStateMachineTest {
         drive(h, breakObserved(0));
         drive(h, planCompleted(1));
         drive(h, execFinished(1));
+        drive(h, key(false));
         drive(h, cleanup(1));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
@@ -1180,7 +1202,8 @@ public class ChainStateMachineTest {
         Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
-        // 模拟松键：forced=true + removeSlot=false（玩家在线保 gen 单调）
+        // 模拟松键：先落电平 false（对齐 PacketKeyState 的真实 publish 顺序），再 forced=true + removeSlot=false
+        drive(h, key(false));
         drive(h, forcedCleanup(PLAYER_A, 1, false));
         Assert.assertEquals("E2：PLANNING 收 forced LifecycleCleanup 应走 T9 回 IDLE",
                 ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
@@ -1204,7 +1227,8 @@ public class ChainStateMachineTest {
         Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
-        // 模拟松键：forced=true + removeSlot=false
+        // 模拟松键：先落电平 false（对齐 PacketKeyState 的真实 publish 顺序），再 forced=true + removeSlot=false
+        drive(h, key(false));
         drive(h, forcedCleanup(PLAYER_A, 1, false));
         Assert.assertEquals("E2：FINISHING 收 forced LifecycleCleanup 应走 T8 回 IDLE",
                 ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
@@ -1250,9 +1274,12 @@ public class ChainStateMachineTest {
         }
     }
 
-    /** 新 round 的 fresh key 只能先合法武装，随后带新 round 的观测才进入规划。 */
+    /**
+     * 本轮缺陷回归（按住连锁键持续连锁）：一轮收尾后必须自动回到 ARMED，
+     * 第二次观测无需新的物理边沿、也无需 fresh key 重述即可点火（gen 继续自增）。
+     */
     @Test
-    public void freshKeyArmsBeforeSecondRoundObservationStartsPlanning() {
+    public void heldKeyRearmsAndSecondObservationStartsPlanning() {
         final long firstRoundId = 901L;
         final long secondRoundId = 902L;
         Harness h = newHarness();
@@ -1260,15 +1287,93 @@ public class ChainStateMachineTest {
         drive(h, new BlockBreakObserved(PLAYER_A, firstRoundId, 0, TICK, NANOS,
                 1, 2, 3, 0, 1, null, 0));
         drive(h, new PlanCancelled(PLAYER_A, firstRoundId, 1, TICK, NANOS, "round-one-finished"));
-        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
-
-        drive(h, new ChainKeyPressed(PLAYER_A, secondRoundId, 1, TICK, NANOS, true));
-        Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("按住不放：收尾后必须回到 ARMED，否则第二次观测会被 T4 丢弃",
+                ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
 
         drive(h, new BlockBreakObserved(PLAYER_A, secondRoundId, 1, TICK, NANOS,
                 4, 5, 6, 0, 1, null, 0));
         Assert.assertEquals(ChainPhase.PLANNING, h.sm.getCurrentPhase(PLAYER_A));
         Assert.assertEquals(2, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 收尾 T11：按住时执行完成收尾（T8）应自动再武装。 */
+    @Test
+    public void heldKeyRearmsOnExecutionCleanup() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        Assert.assertEquals(ChainPhase.FINISHING, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, cleanup(1));
+        Assert.assertEquals("按住不放：T8 收尾后应回到 ARMED",
+                ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("再武装不改代际（gen 只由 T4 自增）", 1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 收尾 T11：按住时看门狗兜底（T10）应自动再武装。 */
+    @Test
+    public void heldKeyRearmsOnWatchdog() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, watchdog(1));
+        Assert.assertEquals("按住不放：T10 兜底后应回到 ARMED",
+                ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 收尾 T11：按住时规划取消（T6）应自动再武装。 */
+    @Test
+    public void heldKeyRearmsOnPlanCancelled() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCancelled(1));
+        Assert.assertEquals("按住不放：T6 取消后应回到 ARMED",
+                ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 松键收尾对照：电平 false 时收尾停 IDLE，不产生 T11。 */
+    @Test
+    public void releasedKeySettlesIdleAfterCleanup() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        drive(h, key(false));
+        drive(h, cleanup(1));
+        Assert.assertEquals(ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(1, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** LOGOUT（removeSlot=true）不重武装：槽即将删除，武装无意义。 */
+    @Test
+    public void logoutCleanupDoesNotRearm() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        drive(h, breakObserved(0));
+        drive(h, planCompleted(1));
+        drive(h, execFinished(1));
+        drive(h, forcedCleanup(PLAYER_A, 999, true));
+        Assert.assertEquals("LOGOUT 不重武装", ChainPhase.IDLE, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals("removeSlot=true 删槽：gen 重新从 0 起算",
+                0, h.sm.getCurrentGeneration(PLAYER_A));
+    }
+
+    /** 自动换位 fresh key 的重复 pressed=true 在 ARMED 态幂等（不改态、不推动 gen）。 */
+    @Test
+    public void repeatedKeyPressedWhileArmedIsIdempotent() {
+        Harness h = newHarness();
+        drive(h, key(true));
+        Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        drive(h, key(true));
+        drive(h, key(true));
+        Assert.assertEquals(ChainPhase.ARMED, h.sm.getCurrentPhase(PLAYER_A));
+        Assert.assertEquals(0, h.sm.getCurrentGeneration(PLAYER_A));
     }
 }

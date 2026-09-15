@@ -62,6 +62,17 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  * T4 ARMED→PLANNING 由 {@link BlockBreakObserved} 或 {@link RightClickObserved} 或 {@link LeftClickObserved}
  * 三事件入口触发，三者均 {@code ++generation}。
  * 其余派生事件（{@link PlanCompleted}/{@link PlanCancelled} 等仍由功能订阅者发，如 bridge worker）。</p>
+ *
+ * <h3>输入语义：按住 = 电平授权（T11 收尾自动再武装）</h3>
+ * <p>{@link ChainKeyPressed} 是<b>按键电平</b>通知而非一次性边沿：handler 无条件把 {@code slot.keyDown}
+ * 写成事件携带的电平，再按「电平 × 当前态」决定是否转移。收尾路径（T6/T10/T8+T9）先回到 {@code IDLE}
+ * （保留看门狗清条目、自动换位 round 的 {@code closesRound(IDLE)}、客户端相位投影等既有收尾语义），
+ * 随后若 {@code slot.keyDown} 仍为 true 则追加一次 <b>T11 {@code IDLE→ARMED}</b>。</p>
+ * <p>根因背景：客户端只在物理边沿发 {@code PacketKeyState}，"按住不放"期间没有任何重述，而每次连锁
+ * 收尾都回 IDLE，于是第二次观测被 T4 前置条件丢弃——玩家表现为"按住连锁键只能连锁一次"。修复前该缺口
+ * 只被自动换位 round 的 fresh-key 副作用偶然掩盖（该通道带 configuredEnabled/breakCapable/creative/
+ * chainActive 四道 fail-closed 守卫，创造模式必失效）。实机证据见
+ * docs/反馈层/errors/ERROR-20260915-hold-chain-key-no-rearm.md。</p>
  */
 public class ChainStateMachine {
 
@@ -116,6 +127,10 @@ public class ChainStateMachine {
      */
     private void onChainKeyPressed(ChainKeyPressed event) {
         PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
+        // 输入语义（电平授权）：无条件先把事件电平写进槽。keyDown 是本 handler 独占写的电平镜像
+        // （phase/generation 仍只写 applyTransition：电平是转移的输入，不是转移结果）。
+        // 按住期间"收尾后自动再武装"(T11) 与"活跃态收到 true"都只靠这次写入生效。
+        slot.keyDown = event.isPressed();
         ChainPhase to = null;
         if (event.isPressed()) {
             // T1: IDLE → ARMED
@@ -131,8 +146,11 @@ public class ChainStateMachine {
         if (to != null) {
             applyTransition(slot, slot.phase, to, event, slot.generation);
         } else {
-            // 越界（矩阵 —）：丢弃 + debug
-            logIllegalDrop(event, slot.phase, event.isPressed() ? ChainPhase.ARMED : ChainPhase.IDLE);
+            // 幂等：电平与当前态同义（ARMED 收 true / IDLE 收 false），或活跃态收到电平变化
+            // （PLANNING/RUNNING/FINISHING 期间收 true 是常态——按住不放不会再有物理边沿）。
+            // 只更新电平、不转移、不记越界，避免把持续意图误报成非法转移。
+            MyMod.LOG.debug("[ChainStateMachine] key level {} in phase={} player={}",
+                    event.isPressed() ? "down" : "up", slot.phase, event.getPlayerUUID());
         }
     }
 
@@ -236,9 +254,16 @@ public class ChainStateMachine {
      */
     private void onModeSwitched(ModeSwitched event) {
         PlayerPhaseSlot slot = slots.computeIfAbsent(event.getPlayerUUID(), k -> new PlayerPhaseSlot());
-        // T3: ARMED → IDLE
+        // T3: ARMED → IDLE。但"按住连锁键 + 滚轮切模式/子模式"是文档化手势
+        // （README「按住连锁键后滚轮」）：此时电平仍为按下，解除武装会让玩家切完模式后再也连锁不了，
+        // 故按住期间保持武装（幂等静默）；真正松开时由 T2 回 IDLE。
         if (slot.phase == ChainPhase.ARMED) {
-            applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+            if (slot.keyDown) {
+                MyMod.LOG.debug("[ChainStateMachine] keep ARMED on ModeSwitched (key held) player={}",
+                        event.getPlayerUUID());
+            } else {
+                applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+            }
         } else {
             logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
         }
@@ -278,9 +303,9 @@ public class ChainStateMachine {
         if (!genCheck(slot, event)) {
             return;
         }
-        // T6: PLANNING → IDLE
+        // T6: PLANNING → IDLE（T11：按键仍按住则立刻回到 ARMED）
         if (slot.phase == ChainPhase.PLANNING) {
-            applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+            settleToIdle(slot, event, true);
             // 永久 reason 日志：PlanCancelled 携带的可空取消原因落盘，便于实机诊断（shadow-seed-unresolvable 等）
             // log4j {} 占位打印 null 不抛异常
             MyMod.LOG.info("[ChainStateMachine] PlanCancelled reason={} gen={} player={}",
@@ -326,7 +351,8 @@ public class ChainStateMachine {
         if (slot.phase == ChainPhase.PLANNING
                 || slot.phase == ChainPhase.RUNNING
                 || slot.phase == ChainPhase.FINISHING) {
-            applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+            // T10 + T11：异常兜底回 IDLE 后，若按键仍按住则恢复授权
+            settleToIdle(slot, event, true);
         } else {
             // ARMED/IDLE 不纳入 T10，越界丢弃
             logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
@@ -370,8 +396,9 @@ public class ChainStateMachine {
             logIllegalDrop(event, slot.phase, ChainPhase.IDLE);
             return;
         }
-        // T8 + T9 合流：任意非 IDLE → IDLE
-        applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+        // T8 + T9 合流：任意非 IDLE → IDLE；T11 追加：按键仍按住则再武装
+        // （removeSlot=true 的 LOGOUT 不重武装——槽即将删除，武装无意义）
+        settleToIdle(slot, event, !event.isRemoveSlot());
         // F.2 S1：LOGOUT 删槽防泄漏；RESPAWN/维度切换/执行完成保槽保 gen 单调。
         // 守唯一写权威：slots 容器唯一写权威内的 remove（与 applyTransition 唯一写点同处 handler）。
         if (event.isRemoveSlot()) {
@@ -380,6 +407,29 @@ public class ChainStateMachine {
     }
 
     // ============================ 共用逻辑 ============================
+
+    /**
+     * 收尾转移：任意非 IDLE 态 → IDLE，若按键电平仍为按下则紧接 T11 {@code IDLE→ARMED}。
+     *
+     * <p><b>为什么仍先经过 IDLE</b>：看门狗按 {@code to == IDLE} 清条目、自动换位 round 的
+     * {@code closesRound(IDLE)} 结束 wire projection、客户端相位投影与 HUD 也以 IDLE 为收尾信号；
+     * 这些既有消费者语义不变，ARMED 只是同 drain 帧内的第二次进态广播。</p>
+     *
+     * <p><b>T11 存在的理由</b>：客户端只在物理边沿发送按键电平（{@code PacketKeyState}），按住不放
+     * 期间不会再有边沿。收尾一律停回 IDLE 会让第二次观测被 T4 前置条件丢弃，玩家表现为
+     * "按住连锁键只能连锁一次"。键电平表达的是持续意图，收尾后必须按它恢复授权。</p>
+     *
+     * @param slot       玩家槽
+     * @param event      触发收尾的事件
+     * @param allowRearm 是否允许 T11（removeSlot=true 的 LOGOUT 传 false）
+     */
+    private void settleToIdle(PlayerPhaseSlot slot, ChainEvent event, boolean allowRearm) {
+        applyTransition(slot, slot.phase, ChainPhase.IDLE, event, slot.generation);
+        if (allowRearm && slot.keyDown) {
+            // T11: IDLE → ARMED（按键电平仍按下 → 持续授权，等下一次观测点火）
+            applyTransition(slot, ChainPhase.IDLE, ChainPhase.ARMED, event, slot.generation);
+        }
+    }
 
     /**
      * 派生事件代际陈旧判定。仅对派生事件调用，按玩家槽比对。
@@ -474,5 +524,13 @@ public class ChainStateMachine {
         ChainPhase phase = ChainPhase.IDLE;
         /** 玩家当前代际，T4 ARMED→PLANNING 自增，唯一写在 {@link #applyTransition}。 */
         int generation = 0;
+        /**
+         * 按键电平镜像（true = 玩家仍按住连锁键）。
+         *
+         * <p>唯一写在 {@link #onChainKeyPressed}——与 phase/generation 的写点分离：电平不是转移结果，
+         * 而是转移的输入。收尾路径 {@link #settleToIdle} 读它决定是否 T11 再武装；玩家登出删槽后
+         * 重建为 false，客户端重连/切世界会重发一次真实电平。</p>
+         */
+        boolean keyDown;
     }
 }
