@@ -36,7 +36,7 @@ Qz-UILib 的 JitPack 标准坐标是 `com.github.QuanhuZeYu:Qz-UILib:<tag>:dev`�
 
 ## 预防措施
 
-- 发布依赖策略以 `docs/反馈层/决策/jitpack-release-dependencies.md` 为权威；主动 GTNH Maven 发布不是前置，也不再索要 Maven 凭据。
+- 发布依赖策略当时另有独立决策件（已随 JitPack 通道一并移除）；主动 GTNH Maven 发布不是前置，也不再索要 Maven 凭据。
 - 诊断 JitPack 时记录失败域、阶段、错误类型和多次构建推进深度，先分清瞬时 runner 故障与稳定源码 / 脚本错误。
 - 发布验收不得启用 Maven Local 证明远端可消费；必须直接核验目标 tag 的 JitPack URL 矩阵。
 - 已发布 tag 坚持不可移动；任何确定性修复通过新 tag 交付。
