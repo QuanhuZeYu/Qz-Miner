@@ -45,94 +45,19 @@ dependencies {
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NewHorizonsCoreMod"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Hodgepodge"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("Galaxy-Space-GTNH"))
-    // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装
-    // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath
-    // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析
-    // 当前为含 HUD 公开编辑契约（HudEditTarget/HudEditService）+ overlay 相对倍率 + 锚定浮层跨树坐标换算 +
-    // HUD 布局/缩放持久化端口（HudLayoutStore/HudLayoutPersistence）的本机构建 dev 制品：
-    // 来源 Qz-UILib 提交 ecce000b（在 f3bae7a7 基础上新增「编辑态预览按自身倍率渲染与命中」「缩放后 tooltip 位置错修复」
-    // 与「四角锚点 + 行程百分比 + 缩放百分比」持久化契约），已随 Qz-UILib 4.9.1 正式 Release 发布
-    // （https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.9.1，2026-09-11）：本 libs 件与 Release 资产
-    // qz_uilib-4.9.1-dev.jar 逐字节一致（sha256 相同），可直接替换为该 Release 资产。
-    // 构建时以 VERSION=4.9.1 注入版本（jar 内 mcmod.info version=4.9.1，满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)）；
-    // sha256 1AB9DFE7427B2CED0BA205420AB4BD21518523C238D2807034E77AE7FDBEF9B9（3795995 bytes）；
-    // ⚠ 同名同版本内容漂移：旧 4.9.1 件（7E0A8EF2…/57BAB4C2…）不含 HudLayoutStore/HudLayoutPersistence，
-    // 混用会在类加载期 NoClassDefFoundError；QzUiLibArtifactContractTest 只判版本区间、识别不了内容漂移，
-    // 集成与发布必须以本注释的 sha256 为准（详见 .changelogs/5.3.1.md「同版本内容漂移」条）。
-    // 4.9.1 相对 4.9.0 为纯增量（公开面零删除零改签名），当时的 acceptableRemoteVersions [4.9.0,4.10.0) 同时接受两者
-    // （该声明已于 2026-09-12 上抬为 [4.9.0,5.0.0)，原因见本段末尾「无法进入世界」修复说明）；
-    // 该制品已于 2026-09-11 随 4.9.1 正式 Release 上线，资产 sha256 与本注释一致，无需再回填。
-    // 【当前件·正式 Release 资产（2026-09-15 成对升级完成）】本两行引用的 libs/qz_uilib-4.10.0-dev.jar
-    //   = Qz-UILib Release https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.10.0 的资产：
-    //   sha256 CB592124A4DA7D485960623221BB7B07EFE29AD3EAD5266DB18AF0168DFAF6C8 / 3973704 bytes；
-    //   jar 内 mcmod.info version=4.10.0，其自身 acceptableRemoteVersions=[4.9.0,4.11.0) 已包含自身版本。
-    //   配对声明：Miner @Mod 依赖下界同步抬到 4.10.0（required-after:qz_uilib@[4.10.0,5.0.0)）——本版颜色
-    //   字段使用 4.10.0 才提供的 ColorSpec 族，与 4.9.x 混用会在类加载期 NoClassDefFoundError。
-    //   集成与发布以本段 sha256 为准（同名同版本内容漂移警示见下方历史段）。
-    // 【历史·P2-B 开发期依赖切换】P2-A 的候选源 SPI（PickerCandidateSource / PickerIconSource /
-    // PickerIconCache / PickerRevisionBridge 等）只在 Qz-UILib 4.10.0 构建中存在；4.9.1 件不含新 SPI，
-    // 会让 P2-B 代码无法编译。本行因此改指本机构建的 4.10.0 dev 制品：
-    //   来源 = Qz-UILib 分支 4.0 HEAD e1c55eff + 历史工作区增量（分类筛选/hover 与左栏质感、无法进入
-    //   世界版本区间、结果网格末排裁切；见工作站 team/R5-实施记录-分类筛选与hover质感.md）
-    //   + 本轮「平台文本通道可诊断化 + picker 焦点消费加固」工作区增量（2026-09-12；该增量已随
-    //   Qz-UILib 4.0 提交 0363ee8b 落地，诊断与日志清单见工作站 temp/uilib-textdiag-report.md）；
-    //   + 【本轮·搜索 lane 无窗口上限（A 方案）】搜索 lane 的 totalItems 回归真实命中数（原被
-    //   min(hits, searchMaxItems=64) 夹取，症状 = 「全部分类搜『木』看不到原版『橡木原木』」），并整链移除
-    //   maxItems/searchMaxItems 上限概念（SearchPickerSpec / Values / Registry /
-    //   CandidateSourceValueEditorProvider / SearchPickerFieldSupport / ScenePickerPanel 接线）；
-    //   方案与验收见工作站 temp/picker-lane-a-design.md，规格修订见 team/P0-ADR-契约与测量.md §0-R 修订 R-02。命令
-    //   VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks（544 类 / 5645 例 / 0 失败 / 0 错误 / 7 跳过）；
-    //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 FCCFBCE8F054A8B8C38AD4B8CA371DE42287C86EB793DBDCB08D61E654BC317E（3939700 bytes）
-    //   ——该件已被下一段「背景滤镜档位」增量取代，禁止回退。
-    //   + 【本轮·背景滤镜档位与玻璃成本优化】配置项 general.backdropQuality（full 默认 / eco / solid）：
-    //   full 与改动前逐像素一致（13 抽头 GLSL 段逐字节保留）；eco 换 9 抽头向日葵核（片元采样 −30.8%、
-    //   覆盖半径 1.6001 vs 1.5996 步、等效模糊强度 −0.069%）；solid 令玻璃链路整体早退并由主题回落
-    //   SceneTheme.withoutBackdrop() 实色替代（取值用 solid 而非 off：YAML 1.1 裸词 off 会被解析为
-    //   Boolean，手改配置会让 bootstrap 失败、配置页打不开）。同批零观感优化：ds==1 时不再生成无消费者
-    //   的 mipmap 链、玻璃表面与当前 clip 无交集时整链早退、诊断 detail 按 diagnosticsEnabled 门控；
-    //   并新增 useDebug 下 frame.backdrop.surfaces/areaPx/captures/taps 计数（真机 full/eco/solid A/B 用）。
-    //   症状与根因：打开配置页笔记本风扇狂转——每帧 26-46 个玻璃表面 / 1.76-2.53 屏 × 13 次纹理采样
-    //   （CPU 侧已由 headless 基准排除：净 scene 核心 0.0238 ms/帧）。
-    //   [背景滤镜档位件] 命令 VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks
-    //   （主源 class 1529 个；550 suites / 5688 例 / 0 失败 / 0 错误 / 7 跳过）；
-    //   sha256 9951D2EA5FD1633B587234690466E1D03CEF36D768829715FC04B5344DA89688（3946495 bytes）
-    //   ——已被下一段「通用颜色字段能力」增量取代，禁止回退。
-    //   + 【本轮·通用颜色字段能力迁移】来源 Qz-UILib 分支 4.0 提交 5f02aa7b：上游交付通用颜色字段能力
-    //   （ColorSpec / HexColorCodec / ColorFieldRenderer + DSL SectionSpec.Builder.color(String) /
-    //   FieldSpec.Builder.color()；值语义仍是 0xRRGGBB 的 NUMBER，未显式 range 时补 [0,0xFFFFFF]，
-    //   输入接受 #RRGGBB / 0xRRGGBB / 无前缀六位十六进制 / 纯十进制，编辑期保留未完成原文）。
-    //   Miner 侧随本件删除私有 HexColorCodec / PreviewColorFieldRenderer 与四个 path 覆盖注册，
-    //   四个颜色键改由 .color(...) 声明（按 widget 分发，值域 / 默认值来源不变）。
-    //   命令 VERSION=4.10.0 gradlew.bat --no-configuration-cache build --rerun-tasks
-    //   （553 suites / 5701 例 / 0 失败 / 0 错误 / 7 跳过；其中 HexColorCodecTest 与
-    //   ColorFieldRendererEditTextTest 各 4 例，颜色编解码与编辑期原文行为在上游成对钉住）；
-    //   jar 内 mcmod.info version=4.10.0（满足 @Mod required-after:qz_uilib@[4.9.1,5.0.0)），
-    //   sha256 6BDB7AB1584BF4FCBDDE326612854296BFF9187238B7C2D50697F84C69EF261F（3955603 bytes）。
-    //   ⚠ 同名同版本内容漂移照旧：本件与 9951D2EA… 同名同版本、内容不同，混用会因缺
-    //   ColorSpec/HexColorCodec/ColorFieldRenderer 在类加载期 NoClassDefFoundError；集成与发布以本注释 sha256 为准。
-    //   [背景滤镜档位件] 取代 FCCFBCE8…（3939700 bytes，搜索 lane A 方案制品）、3C7B2F0B…（3940946 bytes，文本通道诊断制品）、C44547F6…（3935630 bytes，对象组编辑视图改动期制品）、44788B81…（3927386 bytes，
-    //   标签可读性修复版）与更早的 56A9C0FB…：本轮新增平台文本通道可诊断化（统一前缀 [文本通道]，
-    //   桥可用性/注册结果/external 实际写入值/被吞字符/TEXT 无接收者等 11 条限流日志）与 picker 焦点
-    //   消费双依赖加固（意图早于目标就绪不再永久丢焦点）；此前累计的分类筛选修复（浏览 lane 总量按
-    //   命中数 + 结果切片「修订」失效通道）、分类导航 pill 行与成员卡悬停面、分类行文本按当前快照
-    //   刷新（keyed 复用下计数不再停留在构建期）仍在件内。
-    //   内容漂移警示同 4.9.1 段：同版本名不同内容会在类加载期炸，集成与发布以本注释 sha256 为准。
-    //   本件声明 acceptableRemoteVersions=[4.9.0,4.11.0)（同 major；上界取制品版本 4.10.0 的下一 minor 边界）。
-    //   历史件（同名不同内容，禁止回退）：C44547F6…/3935630（对象组编辑视图改动期制品，无文本通道诊断）、
-    //   E18C5F6E…/3926208（声明为跨 major 的 [4.9.0,5.0.0)，多承诺一个 major）、
-    //   A24A1532…/3925676（仅版本修复、无布局修复）、104B6940…/3925675（错声明 [4.9.0,4.10.0)，自我拒绝致无法进入世界）。
-    //   ⚠ 更早一件（sha256 104B6940…/3925675 bytes）携带 UILib 侧声明 acceptableRemoteVersions=[4.9.0,4.10.0)，
-    //   该区间开上界不含制品自身版本 4.10.0：FML 启动期报「mod qz_uilib appears to reject its own version
-    //   number (4.10.0)」，进入世界时集成服务器 Rejecting connection CLIENT 后卸载全部维度（症状=无法进入世界）。
-    //   现声明改为 [4.9.0,5.0.0)（与 Miner 依赖上界成对同源），并由 Qz-UILib 的
-    //   FmlRemoteVersionCompatibilityContractTest#declaredRangeMustContainOwnBuildVersion 守卫
-    //   「区间必须含自身构建版本」；禁止把本两行回退到 104B6940 件。
-    // 过渡态已闭合（2026-09-15）：原计划「Qz-UILib 出 Release 资产后改指正式资产 + 同步依赖下界」已执行——
-    //   上游发布口径由 5.0.0 改为次版本号 4.10.0，本两行现指该 Release 资产，依赖下界为 4.10.0。
-    // 回退方式：4.8.0 / 4.9.0 / 4.9.1 三件旧 dev jar 已于 2026-09-12 从本仓 libs/ 移除（git 索引中为删除态），
-    //   回退需先从 Qz-UILib Release 资产取回对应 dev jar 放回 libs/，再把下面两行的文件名改回去；
-    //   回退后 P2-B 的新 SPI 代码与颜色字段（ColorSpec）都无法编译，必须先 revert 对应的 Miner 提交。
+    // 运行时硬依赖 qz_uilib（@Mod required-after）；发布包不内嵌，由 modpack 安装。
+    // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath。
+    // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析。
+    //
+    // 当前件 = Qz-UILib 4.10.0 正式 Release 资产（assets 中的 qz_uilib-4.10.0-dev.jar）：
+    //   https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.10.0
+    //   jar 内 mcmod.info version=4.10.0，其自身 acceptableRemoteVersions 已含自身版本。
+    // 配对声明：@Mod 依赖下界与本件同源（required-after:qz_uilib@[4.10.0,5.0.0)）——本版颜色字段
+    //   使用了 4.10.0 才提供的 ColorSpec 族，与 4.9.x 混用会在类加载期 NoClassDefFoundError。
+    // ⚠ 同名同版本内容漂移：4.10.0 存在过多个同名但内容不同的开发期构建件；本件与 Release 资产
+    //   逐字节一致。集成与发布一律以 Qz-UILib Release 页登记的资产哈希为准——哈希台账不进本文件。
+    // 回退方式：旧 dev jar 已从 libs/ 移除；回退需先从 Qz-UILib Release 取回对应件放回 libs/、
+    //   改回下面两行的文件名，并先 revert 依赖新 SPI / ColorSpec 的 Miner 提交（否则无法编译）。
     devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
     testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
 
