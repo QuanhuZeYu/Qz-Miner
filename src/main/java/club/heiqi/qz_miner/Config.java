@@ -55,7 +55,9 @@ public class Config {
      * 每次成功破坏一个方块消耗的饥饿值（general 段，服务端权威）。
      *
      * <p>结算点是 {@code chain.executor.BlockHarvestActionExecutor} 的真实破坏成功点；
-     * 数值边界与「为何只补差额」见 {@code chain.executor.HarvestExhaustionSettlement}。</p>
+     * 结算按实测增量覆盖：破坏前后各读一次 exhaustion，追加「配置值 - 原版本次实际增量」，
+     * 因此 {@code 0} 表示连锁完全不消耗、负值表示净回补，覆写 {@code harvestBlock} 的方块同样生效；
+     * 数值边界与已知边界见 {@code chain.executor.HarvestExhaustionSettlement}。</p>
      */
     public static double harvestExhaustionPerBlock = QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK;
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;

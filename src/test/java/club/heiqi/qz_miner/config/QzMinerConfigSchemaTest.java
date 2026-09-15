@@ -88,7 +88,8 @@ public class QzMinerConfigSchemaTest {
 
     /**
      * Issue #242 契约：每方块饥饿值消耗默认 {@code 0.025}（= 需求原文 = 原版 {@code Block.harvestBlock}
-     * 固定值），合法区间 {@code [0, 40]}（{@code 0} = 关闭；{@code 40} = 原版 exhaustion 累加上限）。
+     * 固定值），合法区间 {@code [-40, 40]}（用户裁定 2026-09-15：{@code 0} = 连锁完全不消耗、
+     * 负值 = 净回补；{@code 40} = 原版 exhaustion 累加上限，{@code -40} 与之对称）。
      */
     @Test
     public void harvestExhaustionKeyKeepsIssue242DefaultAndRange() {
@@ -96,7 +97,10 @@ public class QzMinerConfigSchemaTest {
         Assert.assertNotNull("schema 缺少 issue #242 的饥饿值消耗键", exhaustion);
         Assert.assertEquals(FieldType.NUMBER, exhaustion.type());
         Assert.assertEquals(Double.valueOf(0.025D), exhaustion.defaultValue());
-        Assert.assertEquals(0.0D, exhaustion.constraints().min(), 0.0D);
+        Assert.assertEquals(QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK_MIN,
+                exhaustion.constraints().min(), 0.0D);
+        Assert.assertTrue("0 与负值必须落在合法域内（0 = 不消耗、负值 = 净回补）",
+                exhaustion.constraints().min() < 0.0D);
         Assert.assertEquals(40.0D, exhaustion.constraints().max(), 0.0D);
         Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK),
                 exhaustion.defaultValue());

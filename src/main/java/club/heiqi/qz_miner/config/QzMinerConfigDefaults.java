@@ -40,14 +40,26 @@ public final class QzMinerConfigDefaults {
     /** slice 档每 tick 并行分片预算（毫秒），仅 slice 档生效。 */
     public static final int PARALLEL_SLICE_BUDGET_MS = 4;
     /**
-     * 每次成功破坏一个方块消耗的饥饿值（原版 {@code exhaustion} 单位）。
+     * 每次成功破坏一个方块消耗的饥饿值（原版 {@code exhaustion} 单位），可为 {@code 0} 或负数。
      *
      * <p>需求原文：{@code double addExhaustion = 0.025; // 每次挖掘增加的饥饿值}
-     * （dev_docs/技术需求.md，提交 a3f1f312 移除前）。取值等于原版
-     * {@code Block.harvestBlock} 内固定的 {@code player.addExhaustion(0.025F)}，
-     * 因此默认档逐值等于现状、不改变既有手感。</p>
+     * （dev_docs/技术需求.md，提交 a3f1f312 移除前）。用户裁定（2026-09-15）：该值必须可取任意档位——
+     * {@code 0} 表示连锁完全不消耗、负值表示每方块净回补，故合法域为
+     * {@link #HARVEST_EXHAUSTION_PER_BLOCK_MIN}..{@link #HARVEST_EXHAUSTION_PER_BLOCK_MAX}。</p>
+     *
+     * <p>默认 {@code 0.025} 等于原版 {@code Block.harvestBlock} 内固定的
+     * {@code player.addExhaustion(0.025F)}，因此默认档逐值等于改动前行为、不改变既有手感。</p>
      */
     public static final double HARVEST_EXHAUSTION_PER_BLOCK = 0.025D;
+    /**
+     * 单方块饥饿值消耗的合法下界：负值 = 每个方块净回补的 exhaustion。
+     *
+     * <p>取 {@code -40.0} 与原版累加上限 {@code 40.0} 对称：单个方块即可预存满一整池 exhaustion
+     * （40 点，约合 10 点饥饿值/饱和度的消耗额度）。原版对累加值只有上界、没有下界夹取，
+     * 更低的取值会如实记成更深的负值（只是需要更长的正常消耗才能回到 0），因此这里不宣称
+     * 「更低取值无额外效果」。结算语义见 {@code chain.executor.HarvestExhaustionSettlement}。</p>
+     */
+    public static final double HARVEST_EXHAUSTION_PER_BLOCK_MIN = -40.0D;
     /**
      * 单方块饥饿值消耗的合法上界。
      *

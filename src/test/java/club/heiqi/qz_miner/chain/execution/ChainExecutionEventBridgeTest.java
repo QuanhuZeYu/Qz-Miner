@@ -479,6 +479,12 @@ public class ChainExecutionEventBridgeTest {
                 "必须委派原版收获入口");
         JavaSourceSlices.assertAbsent(execute.replaceAll("\\s+", " "), "return true",
                 "不得假定成功：返回值必须来自原版收获结果");
+        // Issue #242：覆盖结算必须夹住 tryHarvestBlock——破坏前采集 exhaustion 基线，
+        // 成功后再按实测增量结算；整段删掉会让「覆盖成配置值」静默失效，故在此对钉接线。
+        JavaSourceSlices.assertContains(execute, "HarvestExhaustionSettlement.captureExhaustion(",
+                "破坏前必须采集 exhaustion 基线，否则覆盖结算缺少实测口径");
+        JavaSourceSlices.assertContains(execute, "HarvestExhaustionSettlement.settleAfterSuccessfulHarvest(",
+                "破坏成功后必须按实测增量覆盖饥饿值消耗");
     }
 
     @Test
