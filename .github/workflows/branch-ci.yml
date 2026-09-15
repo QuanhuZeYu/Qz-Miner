@@ -18,7 +18,7 @@ jobs:
   # 也不再按基线矩阵分别构建。
   #
   # 验证定义唯一：本 job 与发布 workflow 共用 .github/actions/verify（工作站 发布流程.md §3），
-  # 因此两处不会漂移。VERSION 前缀（5.3.3）是分支 CI 的定档常量，随版本定档更新这一处。
+  # 因此两处不会漂移。VERSION 前缀（5.3.4）是分支 CI 的定档常量，随版本定档更新这一处。
   #
   # 兼容承诺：运行期兼容范围含 GTNH 2.9.0-beta-2 与 2.9.0-beta-3；依据是源码对 GTNH 侧组件零静态链接
   # + 双基线编译实证（beta-2/beta-3 均 compileJava/compileTestJava 通过）；真机运行态未验证。
@@ -37,4 +37,4 @@ jobs:
       - name: Verify
         uses: ./.github/actions/verify
         with:
-          version: 5.3.3-ci+${{ github.sha }}
+          version: 5.3.4-ci+${{ github.sha }}
