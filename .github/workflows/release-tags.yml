@@ -101,6 +101,12 @@ jobs:
       - name: Build the mod
         run: ./gradlew --build-cache --info --stacktrace -PmavenPublishUrl='${{ env.MAVEN_PUBLISHING_URL }}' assemble
 
+      # 发布口径：release notes 正文里未被反引号（code span）包裹的 @token 会被 GitHub
+      # 解析成用户提及，并挂到该 Release 页面的 Contributors 区块上——注解名最容易踩：
+      # @Mod / @Mod.EventHandler / @SubscribeEvent / @ModifyExpressionValue。
+      # 实例：5.3.1 的 changelog 有 3 处裸 @Mod → Release 页 Contributors 出现无关账号 @mod。
+      # 修法只有反引号有效（&#64; 实体与 \@ 转义实测无效）；发布前用工作站
+      # temp/check-changelog-mentions.py 自检 .changelogs/*.md。
       - name: Release under current tag
         run: |
           PRERELEASE_FLAG=""
