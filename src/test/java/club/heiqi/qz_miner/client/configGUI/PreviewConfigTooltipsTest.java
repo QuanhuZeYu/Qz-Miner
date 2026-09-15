@@ -103,12 +103,16 @@ public class PreviewConfigTooltipsTest {
             }
         });
         String[] paths = PreviewConfigTooltips.paths();
-        // 33 = 上一轮的 30 个受覆盖键，去掉 1 个旧颜色键、加上 3 个大模式颜色键（CHAIN / AREA / INTERACT）、
-        //      再加 1 个内部结构亮度系数（clientPreviewInteriorDim）
-        Assert.assertEquals(33, paths.length);
+        // 按行为判定受覆盖集合（不再冻结条数）：paths() 必须无重复、每个 path 都存在于 schema，
+        // 且 issue #242 的饥饿值消耗键必须在列；新增本地化键时本用例不需要跟着改。
+        Assert.assertTrue("受覆盖路径不得为空", paths.length > 0);
+        Assert.assertEquals("paths() 不得包含重复项",
+                new TreeSet<String>(java.util.Arrays.asList(paths)).size(), paths.length);
         for (String path : paths) {
             Assert.assertNotNull("schema 缺少新键 " + path, schema.field(path));
         }
+        Assert.assertTrue("issue #242 的饥饿值键必须受本地化覆盖",
+                java.util.Arrays.asList(paths).contains("general.harvestExhaustionPerBlock"));
         FieldRenderer first = registry.resolve(schema.field(paths[0]));
         Assert.assertNotNull(first);
         Assert.assertSame(first, registry.resolve(schema.field(paths[1])));

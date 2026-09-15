@@ -511,12 +511,12 @@ final class ObjectGroupEditorTestSupport {
     /**
      * 测试夹具：历史上的 3 组 vanilla 对象组。
      *
-     * <p>生产默认 {@code client.objectGroups} 已改为单组「红石矿石」，而 M9 的多组行为用例
-     * （移动/复制/重命名身份/列表导航/窄挡下钻）需要 ≥3 组才有判别力。这些用例不再借用生产默认值，
-     * 改用本夹具显式提供；夹具经 {@link #bootstrap(File)} 装到 authority 层，与真机「用户已有 3 组配置」
-     * 的启动态等价（草稿 base/current 都是夹具 ⇒ 初始不脏）。</p>
+     * <p>生产默认 {@code client.objectGroups} 现为两组（「红石矿石」+「暮色森林极光方块」，modes/members
+     * 均非空）且会随 issue 增补，而 M9 的多组行为用例（移动/复制/重命名身份/列表导航/窄挡下钻）需要 ≥3 组
+     * 才有判别力。这些用例不再借用生产默认值，改用本夹具显式提供；夹具经 {@link #bootstrap(File)} 装到
+     * authority 层，与真机「用户已有 3 组配置」的启动态等价（草稿 base/current 都是夹具 ⇒ 初始不脏）。</p>
      *
-     * @return 3 组对象组值（modes 全空，与历史默认同形）
+     * @return 3 组对象组值（modes 全空，沿用重构前的历史默认形状；现生产默认的 modes 已非空）
      */
     static List<Map<String, Object>> threeGroupFixture() {
         List<Map<String, Object>> groups = new ArrayList<Map<String, Object>>();

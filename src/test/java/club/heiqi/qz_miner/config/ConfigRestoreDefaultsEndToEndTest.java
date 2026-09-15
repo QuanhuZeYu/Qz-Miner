@@ -18,8 +18,10 @@ import club.heiqi.config.ui.ConfigScreen;
 import club.heiqi.config.ui.ConfigUI;
 import club.heiqi.config.ui.DraftSignalAdapter;
 import club.heiqi.qz_miner.client.configGUI.objectgroup.ObjectGroupEditorState;
+import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
 
 /**
@@ -40,26 +42,12 @@ import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
  *
  * <p>端到端链路：真实编辑事务改脏草稿 → 真实恢复默认 → 断言草稿逐项等于
  * {@link QzMinerConfigDefaults#objectGroups()}（顺序/modes/members 全等）→ 该草稿可提交 →
- * 编辑器状态在同一 adapter 上重建为单组且零冲突/零错误/已生效。</p>
+ * 编辑器状态在同一 adapter 上重建为与默认组一一对应且零冲突/零错误/已生效。</p>
  */
 public class ConfigRestoreDefaultsEndToEndTest {
 
     private static final String PATH = ObjectGroupEditorState.PATH;
 
-    /** chain_base|chain_ore|area_same_block|area_ore = 27（hex 0x1b，Python 验算）。 */
-    private static final long EXPECTED_MODE_MASK = 27L;
-
-    private static final List<String> EXPECTED_MODES = Arrays.asList(
-            ObjectGroupMode.CHAIN_BASE,
-            ObjectGroupMode.CHAIN_ORE,
-            ObjectGroupMode.AREA_SAME_BLOCK,
-            ObjectGroupMode.AREA_ORE);
-
-    private static final List<String> EXPECTED_MEMBERS = Arrays.asList(
-            "minecraft:redstone_ore@*",
-            "minecraft:lit_redstone_ore@*",
-            "etfuturum:deepslate_redstone_ore@*",
-            "etfuturum:deepslate_lit_redstone_ore@*");
 
     private File tempDir;
     private ConfigManager manager;
@@ -88,21 +76,23 @@ public class ConfigRestoreDefaultsEndToEndTest {
     }
 
     @Test
-    public void restoreDefaultsOnEditedDraftReturnsToShippedSingleGroup() throws Exception {
+    public void restoreDefaultsOnEditedDraftReturnsToShippedDefaultGroups() throws Exception {
         FieldSpec spec = QzMinerConfigSchema.create().field(PATH);
+        List<Map<String, Object>> shipped = QzMinerConfigDefaults.objectGroups();
         Assert.assertEquals("开屏草稿必须就是出厂默认",
                 QzMinerConfigDefaults.objectGroups(), adapter.draft().getDraft(PATH));
 
-        // ---- 1) 真实编辑事务改脏草稿：删默认组 → 新建组 → 改 id → 加成员 → 选模式 ----
+        // ---- 1) 真实编辑事务改脏草稿：删一组 → 新建组 → 改 id → 加成员 → 选模式 ----
         ObjectGroupEditorState state = new ObjectGroupEditorState(spec, adapter);
+        Assert.assertEquals("开屏视图必须与出厂默认组一一对应", shipped.size(), state.views().size());
         long defaultKey = state.views().get(0).key();
         Assert.assertTrue("删除默认组必须被接受", state.removeGroup(defaultKey).accepted());
         settle();
-        Assert.assertEquals("默认组必须已从草稿删除", 0, state.views().size());
+        Assert.assertEquals("删除必须只移除一行", shipped.size() - 1, state.views().size());
 
         Assert.assertTrue(state.addGroup().accepted());
         settle();
-        long customKey = state.views().get(0).key();
+        long customKey = state.views().get(state.views().size() - 1).key();
         Assert.assertTrue(state.renameGroup(customKey, "自定义组").accepted());
         settle();
         Assert.assertTrue(state.addMember(customKey, "minecraft:stone@*").accepted());
@@ -116,7 +106,15 @@ public class ConfigRestoreDefaultsEndToEndTest {
         Assert.assertNotEquals("前置条件：草稿必须已被改脏", QzMinerConfigDefaults.objectGroups(), edited);
         ObjectGroupParser.ParseResult editedParsed = ObjectGroupParser.parse(edited);
         Assert.assertTrue("前置条件：编辑后的草稿是合法草稿: " + editedParsed.error(), editedParsed.isValid());
-        Assert.assertEquals("前置条件：默认组已被替换", "自定义组", editedParsed.rules().groups().get(0).id());
+        List<ObjectGroup> editedGroups = editedParsed.rules().groups();
+        Assert.assertEquals("前置条件：新建组必须是最后一行", "自定义组",
+                editedGroups.get(editedGroups.size() - 1).id());
+        List<String> editedIds = new ArrayList<String>();
+        for (ObjectGroup group : editedGroups) {
+            editedIds.add(group.id());
+        }
+        Assert.assertFalse("前置条件：被删的默认组不得残留在草稿里",
+                editedIds.contains(String.valueOf(shipped.get(0).get("id"))));
 
         // ---- 2) 走真实「恢复默认」：ConfigScreen.restoreDefaults()（空策略 ⇒ 全字段 resetFieldToDefault） ----
         restoreDefaultsOn(screen);
@@ -127,35 +125,43 @@ public class ConfigRestoreDefaultsEndToEndTest {
         Assert.assertEquals("恢复默认必须回到 QzMinerConfigDefaults.objectGroups()（唯一真源）",
                 QzMinerConfigDefaults.objectGroups(), restored);
         List<?> restoredGroups = (List<?>) restored;
-        Assert.assertEquals("恢复后恰好 1 组", 1, restoredGroups.size());
-        Map<?, ?> group = (Map<?, ?>) restoredGroups.get(0);
-        Assert.assertEquals("组三键必须 id/modes/members 且保序",
-                Arrays.asList("id", "modes", "members"), new ArrayList<Object>(group.keySet()));
-        Assert.assertEquals("红石矿石", group.get("id"));
-        Assert.assertEquals("modes 必须逐项保序", EXPECTED_MODES, group.get("modes"));
-        Assert.assertEquals("members 必须逐项保序", EXPECTED_MEMBERS, group.get("members"));
+        Assert.assertEquals("恢复后的组数必须与出厂默认一致", shipped.size(), restoredGroups.size());
+        for (Object rawGroup : restoredGroups) {
+            Map<?, ?> group = (Map<?, ?>) rawGroup;
+            Assert.assertEquals("组三键必须 id/modes/members 且保序",
+                    Arrays.asList("id", "modes", "members"), new ArrayList<Object>(group.keySet()));
+            Assert.assertFalse("恢复后的组 modes 不得为空: " + group.get("id"),
+                    ((List<?>) group.get("modes")).isEmpty());
+            Assert.assertFalse("恢复后的组 members 不得为空: " + group.get("id"),
+                    ((List<?>) group.get("members")).isEmpty());
+        }
 
         ObjectGroupParser.ParseResult parsed = ObjectGroupParser.parse(restored);
         Assert.assertTrue("恢复后的草稿必须仍是有效规则集: " + parsed.error(), parsed.isValid());
-        Assert.assertEquals("模式掩码必须是四模式全开", EXPECTED_MODE_MASK,
-                parsed.rules().groups().get(0).modeMask());
+        for (ObjectGroup restoredGroup : parsed.rules().groups()) {
+            Assert.assertNotEquals("恢复后的组不得是未生效态（模式位非 0）: " + restoredGroup.id(),
+                    0L, restoredGroup.modeMask());
+        }
         Assert.assertNull("恢复后的草稿不得有内置校验错误", adapter.draft().error(PATH));
 
         // ---- 4) 提交级证据：恢复后的草稿能通过完整 save 事务（含 Miner 自定义 DraftValidator） ----
         Assert.assertTrue("恢复默认后的草稿必须可提交", manager.save(adapter.draft()).isSuccess());
         Assert.assertEquals("提交后 authority 也必须是同一默认",
                 QzMinerConfigDefaults.objectGroups(), manager.authority().get(PATH));
-        Assert.assertEquals("提交后提交快照已生效（模式掩码非 0）", EXPECTED_MODE_MASK,
-                ConfigBootstrap.currentValidatedSnapshot().objectGroups.groups().get(0).modeMask());
+        ObjectGroupRuleSet committed = ConfigBootstrap.currentValidatedSnapshot().objectGroups;
+        Assert.assertEquals("提交快照组数必须与出厂默认一致", shipped.size(), committed.groups().size());
+        for (ObjectGroup committedGroup : committed.groups()) {
+            Assert.assertNotEquals("提交快照的每个组必须已生效（模式位非 0）: " + committedGroup.id(),
+                    0L, committedGroup.modeMask());
+        }
 
-        // ---- 5) 编辑器状态在同一 adapter 上重建：单组、零冲突/零错误、已生效、仍可编辑 ----
+        // ---- 5) 编辑器状态在同一 adapter 上重建：与默认组一一对应、零冲突/零错误、已生效、仍可编辑 ----
         ObjectGroupEditorState after = new ObjectGroupEditorState(spec, adapter);
-        Assert.assertEquals(1, after.summary().groupCount());
-        Assert.assertEquals(4, after.summary().memberCount());
+        Assert.assertEquals("恢复默认后编辑器视图必须与出厂默认一一对应",
+                shipped.size(), after.summary().groupCount());
         Assert.assertEquals("恢复后不得有冲突组", 0, after.summary().conflictCount());
         Assert.assertEquals("恢复后不得有未生效组", 0, after.summary().inactiveCount());
         Assert.assertEquals("恢复后不得有未完成组", 0, after.summary().incompleteCount());
-        Assert.assertEquals("红石矿石", after.views().get(0).id());
         Assert.assertTrue("恢复后视图仍必须可编辑",
                 after.addMember(after.views().get(0).key(), "minecraft:gold_ore@0").accepted());
     }

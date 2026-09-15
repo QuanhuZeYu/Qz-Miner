@@ -39,6 +39,22 @@ public final class QzMinerConfigDefaults {
     public static final String PARALLEL_BUDGET_MODE = PARALLEL_BUDGET_MODE_DEADLINE;
     /** slice 档每 tick 并行分片预算（毫秒），仅 slice 档生效。 */
     public static final int PARALLEL_SLICE_BUDGET_MS = 4;
+    /**
+     * 每次成功破坏一个方块消耗的饥饿值（原版 {@code exhaustion} 单位）。
+     *
+     * <p>需求原文：{@code double addExhaustion = 0.025; // 每次挖掘增加的饥饿值}
+     * （dev_docs/技术需求.md，提交 a3f1f312 移除前）。取值等于原版
+     * {@code Block.harvestBlock} 内固定的 {@code player.addExhaustion(0.025F)}，
+     * 因此默认档逐值等于现状、不改变既有手感。</p>
+     */
+    public static final double HARVEST_EXHAUSTION_PER_BLOCK = 0.025D;
+    /**
+     * 单方块饥饿值消耗的合法上界。
+     *
+     * <p>原版 {@code FoodStats.addExhaustion} 把 exhaustion 累加封顶在 40.0，再高的单次值不产生额外效果
+     * （40.0 = 每次直接扣完一个满饥饿条组 10 点饱和度/饥饿值）。</p>
+     */
+    public static final double HARVEST_EXHAUSTION_PER_BLOCK_MAX = 40.0D;
     /** 合法并行预算档位（Schema options 与语义校验共用的稳定顺序）。 */
     public static final java.util.List<String> PARALLEL_BUDGET_MODES = java.util.Collections.unmodifiableList(
             java.util.Arrays.asList(PARALLEL_BUDGET_MODE_DEADLINE, PARALLEL_BUDGET_MODE_SLICE));
@@ -189,6 +205,8 @@ public final class QzMinerConfigDefaults {
         target.put("general.enableFortuneForPlacedOre", Boolean.valueOf(ENABLE_FORTUNE_FOR_PLACED_ORE));
         target.put("general.parallelBudgetMode", PARALLEL_BUDGET_MODE);
         target.put("general.parallelSliceBudgetMs", Double.valueOf(PARALLEL_SLICE_BUDGET_MS));
+        target.put("general.harvestExhaustionPerBlock",
+                Double.valueOf(HARVEST_EXHAUSTION_PER_BLOCK));
         target.put("client.clientEnablePreviewRender", Boolean.valueOf(CLIENT_ENABLE_PREVIEW_RENDER));
         target.put("client.tunnelDirectionSource", CLIENT_TUNNEL_DIRECTION_SOURCE);
         target.put("client.autoToolSwapEnabled", Boolean.valueOf(CLIENT_AUTO_TOOL_SWAP_ENABLED));
@@ -237,29 +255,60 @@ public final class QzMinerConfigDefaults {
     }
 
     /**
-     * 出厂默认对象组：单组「红石矿石」，chain/area 四模式全开。
+     * 出厂默认对象组：「红石矿石」+「暮色森林极光方块」，chain/area 四模式全开。
      *
      * <p>本方法是该字段的唯一真源：{@code QzMinerConfigSchema} 的 {@code defaultValue} 与配置页
      * 「恢复默认」（UILib {@code ConfigScreen.restoreDefaults()} 逐字段 {@code resetFieldToDefault}
      * ⇒ {@code DraftBuffer} ⇒ 本方法）都取这里；改默认只改本方法，不在 schema 二次抄写。</p>
      *
-     * @return 恰好 1 组的不可变列表（组本身三键 id/modes/members 保序且不可变）
+     * <p><b>极光方块条目（issue #249）</b>：Twilight Forest 的 {@code BlockTFAuroraBrick} 把 metadata
+     * 写成位置相位 {@code Math.abs(x + z) % 16}（上游 1.7.10 的 {@code onBlockAdded}/{@code onBlockPlaced}），
+     * 相位相同的相邻方块因此只出现在 x + z 恒定方向上：竖直列（y 变化、x + z 不变）与
+     * {@code (x+1, z-1)} / {@code (x-1, z+1)} 对角；折返带 {@code x + z = -1} 上
+     * {@code (x+1, z+1)} / {@code (x-1, z-1)} 对角也恰好同相。水平直连 {@code (x+1, z)} /
+     * {@code (x, z+1)} 在任何位置都不同相（相位差恒为 ±1 mod 16）。相位值本身在同侧以 16 格周期复现
+     * （{@code |x + z|} 在 {@code x + z = 0} 处折返、跨零点相位镜像）。而 CHAIN_BASE /
+     * AREA_SAME_BLOCK 的同块身份门要求 metadata 精确相等（{@code chain.planner.ChainBlockIdentity}），
+     * 所以修复前只能连同余相位，不是「只能沿竖直一列连锁」。
+     * 反证实验：{@code (x+1, z-1)}（对角、x + z 不变）应能连，{@code (x+1, z)}（水平、相位 +1）不能连。
+     * 本条用 {@code @*} 通配把该 registry 声明为「忽略 metadata 的同类」，
+     * 在不放宽其它方块 meta 语义的前提下恢复连锁。</p>
+     *
+     * <p>注册名字符串的复核口径：上游 {@code TFBlocks} 以 {@code setBlockName("TFAuroraBrick")} +
+     * {@code registerBlock(block, itemClass, block.getUnlocalizedName())} 注册，FML 再按 modid 前缀，
+     * 故候选名为 {@code TwilightForest:tile.TFAuroraBrick}；该字符串**未实机验证**，实机可用两条可执行路径确认：
+     * ① 在对象组编辑器的方块选择器里读该方块的 registry 名——picker 侧
+     * {@code client.picker.BlockRegistrySnapshot.capture()} 与匹配侧
+     * {@code chain.planner.ObjectGroupBlockPredicate.registryName(Block)} 都调
+     * {@code Block.blockRegistry.getNameForObject(...)}，所以界面显示值与对象组匹配值同源；
+     * ② 开启 DEBUG 后在 {@code logs/fml-client-latest.log} 里 grep
+     * {@code stage=PlanStarted read=main-seed seed=}（Forge log4j2 的 Root=all、FmlFile 无级别过滤，
+     * DEBUG 必进文件），该行输出本次连锁起点方块的 registry@meta（
+     * {@code chain.planner.ChainPlanningRuntimeFactory.logPlanStarted}），与选择器值不一致即改这一行。</p>
+     *
+     * @return 保序不可变的默认组列表（组本身三键 id/modes/members 保序且不可变）
      */
     public static java.util.List<java.util.Map<String, Object>> objectGroups() {
         java.util.List<java.util.Map<String, Object>> groups =
                 new java.util.ArrayList<java.util.Map<String, Object>>();
+        // 采集模式集合取自 ObjectGroupMode 常量（禁止另写字面量）；两组共用同一集合，group() 内部各自拷贝。
+        java.util.List<String> harvestModes = java.util.Arrays.asList(
+                ObjectGroupMode.CHAIN_BASE,
+                ObjectGroupMode.CHAIN_ORE,
+                ObjectGroupMode.AREA_SAME_BLOCK,
+                ObjectGroupMode.AREA_ORE);
         groups.add(group(
                 "红石矿石",
-                java.util.Arrays.asList(
-                        ObjectGroupMode.CHAIN_BASE,
-                        ObjectGroupMode.CHAIN_ORE,
-                        ObjectGroupMode.AREA_SAME_BLOCK,
-                        ObjectGroupMode.AREA_ORE),
+                harvestModes,
                 java.util.Arrays.asList(
                         "minecraft:redstone_ore@*",
                         "minecraft:lit_redstone_ore@*",
                         "etfuturum:deepslate_redstone_ore@*",
                         "etfuturum:deepslate_lit_redstone_ore@*")));
+        groups.add(group(
+                "暮色森林极光方块",
+                harvestModes,
+                java.util.Collections.singletonList("TwilightForest:tile.TFAuroraBrick@*")));
         return java.util.Collections.unmodifiableList(groups);
     }
 

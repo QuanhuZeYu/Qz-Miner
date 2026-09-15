@@ -25,7 +25,12 @@ public class BlockHarvestActionExecutor implements ChainActionExecutor {
     @Override
     public boolean execute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
         try {
-            return player.theItemInWorldManager.tryHarvestBlock(target.getX(), target.getY(), target.getZ());
+            boolean harvested = player.theItemInWorldManager
+                    .tryHarvestBlock(target.getX(), target.getY(), target.getZ());
+            if (harvested) {
+                HarvestExhaustionSettlement.settleAfterSuccessfulHarvest(player);
+            }
+            return harvested;
         } catch (Exception e) {
             MyMod.LOG.error("[BlockHarvestActionExecutor] Failed to harvest block for player {} at ({}, {}, {})",
                 player.getUniqueID(), target.getX(), target.getY(), target.getZ(), e);

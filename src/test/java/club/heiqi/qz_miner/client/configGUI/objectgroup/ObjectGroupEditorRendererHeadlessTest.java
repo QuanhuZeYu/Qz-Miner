@@ -649,10 +649,13 @@ public class ObjectGroupEditorRendererHeadlessTest {
     // ==================================================================
 
     /**
-     * 配置页「恢复默认」对 {@code client.objectGroups} 的真实调用是
+     * <p>配置页「恢复默认」对 {@code client.objectGroups} 的真实调用是
      * {@code DraftSignalAdapter.resetFieldToDefault(path)}（ConfigScreen 逐字段恢复；Miner 为空策略，
      * 无跳过/自定义）。本用例在<b>编辑视图已挂载</b>时执行该调用，覆盖最易踩的行 key 失效场景：
-     * 草稿整值被替换后，列表行投影必须重建且视图仍可交互。
+     * 草稿整值被替换后，列表行投影必须重建且视图仍可交互。</p>
+     *
+     * <p>出厂默认对象组是<b>列表</b>（当前「红石矿石」+「暮色森林极光方块」），且会随 issue 增补；
+     * 本用例的行级断言一律按 {@link QzMinerConfigDefaults#objectGroups()} 驱动，不绑定组数。</p>
      */
     @Test
     public void editorViewStaysInteractiveAfterFieldResetToDefault() {
@@ -664,7 +667,8 @@ public class ObjectGroupEditorRendererHeadlessTest {
         harness.frame();
         Assert.assertFalse("前置条件：hay 行必须已被删除", hasText(editorRoot(), "vanilla_hay"));
 
-        // 真机恢复默认动作（单字段）：整值替换为出厂默认「红石矿石」单组。
+        // 真机恢复默认动作（单字段）：整值替换为出厂默认组列表（当前含「红石矿石」与「暮色森林极光方块」）；
+        // 后续断言按 QzMinerConfigDefaults.objectGroups() 驱动，不假设「恰好 1 组」。
         fixture.adapter.resetFieldToDefault(ObjectGroupEditorState.PATH);
         harness.frame();
 
@@ -691,13 +695,24 @@ public class ObjectGroupEditorRendererHeadlessTest {
         harness.click(newRow);
         Assert.assertTrue("恢复后点行仍须选中并构建详情", hasText(editorRoot(), idLabel()));
 
-        // 5) 视图仍能写草稿：Delete 必须删掉被选中的新行（证明行仍绑定活 key，不是失效残影）。
+        // 5) 视图仍能写草稿：Delete 必须删掉被选中的那一个默认行（证明行仍绑定活 key，不是失效残影），
+        //    但不得清空整表——默认组不止一组，剩余行数必须是「默认组数 - 1」，且剩余行都还在默认组 id 集合内。
         harness.pressKey(SceneKey.DELETE);
         harness.frame();
         Assert.assertFalse("恢复后的行必须仍绑定活 key（Delete 生效）",
                 hasText(editorRoot(), "红石矿石"));
-        Assert.assertEquals("删除后草稿必须为空列表", 0,
-                ((java.util.List<?>) fixture.adapter.draftSignal(ObjectGroupEditorState.PATH).get()).size());
+        List<?> remainingGroups = (List<?>) fixture.adapter.draftSignal(ObjectGroupEditorState.PATH).get();
+        Assert.assertEquals("Delete 只删被选中的默认行，其余默认组必须保留",
+                QzMinerConfigDefaults.objectGroups().size() - 1, remainingGroups.size());
+        List<Object> shippedIds = new ArrayList<Object>();
+        for (Map<String, Object> shippedGroup : QzMinerConfigDefaults.objectGroups()) {
+            shippedIds.add(shippedGroup.get("id"));
+        }
+        for (Object rawGroup : remainingGroups) {
+            Object remainingId = ((Map<?, ?>) rawGroup).get("id");
+            Assert.assertTrue("删除后草稿只能剩默认组: " + remainingId, shippedIds.contains(remainingId));
+            Assert.assertNotEquals("被删的默认行不得残留在草稿里", "红石矿石", remainingId);
+        }
 
         // 6) 视图生命周期健全：仍可正常关闭（无 NPE、无残留 overlay）。
         harness.click(findText(editorRoot(), doneLabel()));

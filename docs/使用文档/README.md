@@ -34,6 +34,7 @@
 - 对象组是现有模式的筛选扩展，不是独立滚轮模式。可扩展模式仍恰好为连锁基础/矿石/伐木、区域同类/矿石、交互基础/全部作物；液体源与未成熟作物施肥不取得对象组 bit。原模式匹配始终保留，对象组无命中时行为不变。保存、RELOAD 或连接建立后，客户端发送同一 `CommittedSnapshot` 中的 revision 与完整配置；HUD 的 `Confirmed` 只表示服务端已接受该请求。服务端按玩家隔离规则，并在任务启动时冻结扩展，运行中的 reload 不改变任务；客户端预览只使用服务端已确认规则，pending 时回退原模式。
 - HUD 布局编辑：打开聊天输入框后，工具栏的「编辑 HUD」按钮进入 UILib 布局编辑子模式，拖动连锁状态 HUD 预览调整屏幕位置，缩放 `- / 1:1 / +` 只在编辑子模式提供。拖动、边界夹取、草稿/提交/取消与 Esc 优先级全部归 UILib 编辑宿主，Miner 只声明可编辑目标与预览内容。提交后布局由 UILib 持久化到配置目录下的 `qz_miner-hud-layout.txt`（编解码、schemaVersion 判定与损坏降级归 UILib），设计上不随退出游戏丢失。
 - 并行执行预算（`general` 段，服务端权威）：`parallelBudgetMode` 默认 `deadline`（沿用 `tickBudgetMs` 共享 soft deadline），可选 `slice`；`parallelSliceBudgetMs` 默认 `4`，合法 `1..40`，仅 `slice` 档生效。
+- `general.harvestExhaustionPerBlock`（`general` 段，服务端权威）：连锁（CHAIN）与爆破（AREA）每成功破坏一个方块消耗的饥饿值（原版 exhaustion 单位），默认 `0.025`（等于原版每方块消耗，逐值等于改动前行为），合法 `0..40`（`40` 等于原版 exhaustion 累加上限）。`0` 表示关闭；`0..0.025` 无法进一步降低单方块消耗，等效原版基线（原版 `Block.harvestBlock` 已固定消耗 0.025，本键只补差额）。只覆盖连锁/爆破的增量目标：玩家手动挖掉的起点方块与原版单方块挖掘仍按原版 0.025 结算；`INTERACT` 右键与 GT 线缆 `SPECIAL` 不结算；创造模式与假玩家不消耗。服务端主线程在破坏成功时结算，配置页保存或 `/qzminer config reload` 后下一次破坏即生效。
 
 ### 连锁预览观感档位
 

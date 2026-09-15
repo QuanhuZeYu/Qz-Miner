@@ -42,6 +42,7 @@ public final class PreviewConfigTooltips {
     private static final String[] PATHS = {
             "general.parallelBudgetMode",
             "general.parallelSliceBudgetMs",
+            "general.harvestExhaustionPerBlock",
             "client.clientPreviewRenderBackend",
             "client.clientPreviewBarThickness",
             "client.clientPreviewColorSource",

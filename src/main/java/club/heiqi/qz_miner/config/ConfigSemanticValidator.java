@@ -82,6 +82,8 @@ public final class ConfigSemanticValidator {
         putChoice(typed, errors, draft, "general.parallelBudgetMode",
                 QzMinerConfigDefaults.PARALLEL_BUDGET_MODES.toArray(new String[0]));
         putIntNumber(typed, errors, draft, "general.parallelSliceBudgetMs", 1, 40);
+        putDoubleNumber(typed, errors, draft, "general.harvestExhaustionPerBlock",
+                0.0D, QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK_MAX);
         putBoolean(typed, errors, draft, "client.clientEnablePreviewRender");
         putTunnelDirectionSource(typed, errors, draft);
         putBoolean(typed, errors, draft, "client.autoToolSwapEnabled");
@@ -363,6 +365,8 @@ public final class ConfigSemanticValidator {
         public final boolean enableFortuneForPlacedOre;
         public final String parallelBudgetMode;
         public final int parallelSliceBudgetMs;
+        /** 每次成功破坏一个方块消耗的饥饿值；0 表示关闭（合法域 0..40）。 */
+        public final double harvestExhaustionPerBlock;
         public final boolean clientEnablePreviewRender;
         public final TunnelDirectionSource tunnelDirectionSource;
         public final boolean autoToolSwapEnabled;
@@ -418,6 +422,7 @@ public final class ConfigSemanticValidator {
             enableFortuneForPlacedOre = ((Boolean) typed.get("general.enableFortuneForPlacedOre")).booleanValue();
             parallelBudgetMode = (String) typed.get("general.parallelBudgetMode");
             parallelSliceBudgetMs = exactInt(typed, "general.parallelSliceBudgetMs");
+            harvestExhaustionPerBlock = number(typed, "general.harvestExhaustionPerBlock");
             clientEnablePreviewRender = ((Boolean) typed.get("client.clientEnablePreviewRender")).booleanValue();
             tunnelDirectionSource = (TunnelDirectionSource) typed.get("client.tunnelDirectionSource");
             autoToolSwapEnabled = ((Boolean) typed.get("client.autoToolSwapEnabled")).booleanValue();

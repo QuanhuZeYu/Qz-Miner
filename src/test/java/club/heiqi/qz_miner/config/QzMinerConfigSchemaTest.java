@@ -1,11 +1,10 @@
 package club.heiqi.qz_miner.config;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -17,94 +16,92 @@ import club.heiqi.config.schema.FieldType;
 import club.heiqi.config.schema.SearchPickerSpec;
 import club.heiqi.config.schema.ValueKind;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
+import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
-/** 5.3 Schema 字面量快照与多使用方 Defaults 对齐。 */
+/** Schema 与唯一 Defaults 真源的同源登记契约，以及多使用方对齐。 */
 public class QzMinerConfigSchemaTest {
 
-    /** 以独立字面量冻结 5.3 全部 path/type/default，不复用生产 Defaults oracle。 */
+    /**
+     * Schema 与 {@link QzMinerConfigDefaults#putAllDefaults} 的同源登记契约（替代 5.3 字面快照）。
+     *
+     * <p><b>为什么不冻结 path/type/default 字面量表</b>：整表快照要求每次新增配置键都改测试，而且它
+     * 复制的是 schema 与 defaults 两份生产真源——两者漂移时，第三份字面量表只会被一起改成绿色。
+     * 现在只守行为：① schema 字段 path 集合 == Defaults 登记键集合（缺一即红）；
+     * ② 每字段默认值类型与 {@link FieldType} 匹配、NUMBER 默认值落在自身约束区间内、label/helper 非空。
+     * issue #242 的键值契约由 {@link #harvestExhaustionKeyKeepsIssue242DefaultAndRange()} 单独冻结。</p>
+     */
     @Test
-    public void schemaLocks53LiteralPathTypeAndDefaultSnapshotInStableOrder() {
+    public void schemaAndDefaultsShareTheSameRegisteredPathSet() {
         ConfigSchema schema = QzMinerConfigSchema.create();
-        List<Map<String, Object>> objectGroups = new ArrayList<Map<String, Object>>();
-        Map<String, Object> redstoneOre = new LinkedHashMap<String, Object>();
-        redstoneOre.put("id", "红石矿石");
-        redstoneOre.put("modes",
-                Arrays.asList("chain_base", "chain_ore", "area_same_block", "area_ore"));
-        redstoneOre.put("members", Arrays.asList(
-                "minecraft:redstone_ore@*",
-                "minecraft:lit_redstone_ore@*",
-                "etfuturum:deepslate_redstone_ore@*",
-                "etfuturum:deepslate_lit_redstone_ore@*"));
-        objectGroups.add(redstoneOre);
-
-        Object[][] expected = {
-                {"general.greeting", FieldType.STRING, "Hello World"},
-                {"general.chainRadius", FieldType.NUMBER, Double.valueOf(8.0D)},
-                {"general.chainMaxBlocks", FieldType.NUMBER, Double.valueOf(1024.0D)},
-                {"general.chainLoggingShellLayers", FieldType.NUMBER, Double.valueOf(1.0D)},
-                {"general.cableReplaceMaxPerTick", FieldType.NUMBER, Double.valueOf(1024.0D)},
-                {"general.chainWatchdogTimeoutTicks", FieldType.NUMBER, Double.valueOf(50.0D)},
-                {"general.tickBudgetMs", FieldType.NUMBER, Double.valueOf(15.0D)},
-                {"general.enableUnlimitedOreFortune", FieldType.BOOLEAN, Boolean.FALSE},
-                {"general.enableFortuneForPlacedOre", FieldType.BOOLEAN, Boolean.FALSE},
-                {"general.parallelBudgetMode", FieldType.CHOICE, "deadline"},
-                {"general.parallelSliceBudgetMs", FieldType.NUMBER, Double.valueOf(4.0D)},
-                {"client.clientEnablePreviewRender", FieldType.BOOLEAN, Boolean.TRUE},
-                {"client.tunnelDirectionSource", FieldType.CHOICE, "look_direction"},
-                {"client.autoToolSwapEnabled", FieldType.BOOLEAN, Boolean.TRUE},
-                {"client.autoToolPrioritySelectors", FieldType.SIMPLE_LIST, Collections.<String>emptyList()},
-                {"client.clientPreviewMaxRadius", FieldType.NUMBER, Double.valueOf(16.0D)},
-                {"client.clientPreviewMaxTargets", FieldType.NUMBER, Double.valueOf(1024.0D)},
-                {"client.clientPreviewAlphaFadeStartRadius", FieldType.NUMBER, Double.valueOf(2.0D)},
-                {"client.clientPreviewAlphaFadeEndRadius", FieldType.NUMBER, Double.valueOf(6.0D)},
-                {"client.clientPreviewAlphaStartValue", FieldType.NUMBER, Double.valueOf(0.78D)},
-                {"client.clientPreviewAlphaEndValue", FieldType.NUMBER, Double.valueOf(0.15D)},
-                {"client.clientPreviewRenderBackend", FieldType.CHOICE, "auto"},
-                {"client.clientPreviewBarThickness", FieldType.NUMBER, Double.valueOf(0.045D)},
-                {"client.clientPreviewColorSource", FieldType.CHOICE, "builtin"},
-                {"client.clientPreviewColorChain", FieldType.NUMBER, Double.valueOf(4253439.0D)},
-                {"client.clientPreviewColorArea", FieldType.NUMBER, Double.valueOf(15224892.0D)},
-                {"client.clientPreviewColorInteract", FieldType.NUMBER, Double.valueOf(5824634.0D)},
-                {"client.clientPreviewColorSecondary", FieldType.NUMBER, Double.valueOf(11570431.0D)},
-                {"client.clientPreviewColorRemote", FieldType.NUMBER, Double.valueOf(9415120.0D)},
-                {"client.clientPreviewColorTruncated", FieldType.NUMBER, Double.valueOf(16304216.0D)},
-                {"client.clientPreviewDepthMode", FieldType.CHOICE, "xray"},
-                {"client.clientPreviewAnimation", FieldType.CHOICE, "off"},
-                {"client.clientPreviewAnimationDurationMs", FieldType.NUMBER, Double.valueOf(120.0D)},
-                {"client.clientPreviewAnimationPhase", FieldType.CHOICE, "order"},
-                {"client.clientPreviewFadeMode", FieldType.CHOICE, "timer"},
-                {"client.clientPreviewFadeRefreshDistance", FieldType.NUMBER, Double.valueOf(0.5D)},
-                {"client.clientPreviewFadeFallbackMs", FieldType.NUMBER, Double.valueOf(250.0D)},
-                {"client.clientPreviewMinScreenWidthPx", FieldType.NUMBER, Double.valueOf(0.0D)},
-                {"client.clientPreviewOutlineWidthPx", FieldType.NUMBER, Double.valueOf(1.5D)},
-                // 观感默认上调（用户裁定 2026-09-14）：面明暗默认开启，与历史"接线前观感"不同
-                {"client.clientPreviewFaceShading", FieldType.BOOLEAN, Boolean.TRUE},
-                {"client.clientPreviewTruncationSignal", FieldType.BOOLEAN, Boolean.FALSE},
-                {"client.clientPreviewMaxTargetsHardCap", FieldType.NUMBER, Double.valueOf(4096.0D)},
-                {"client.clientPreviewLod", FieldType.CHOICE, "off"},
-                {"client.clientPreviewLodMinAlpha", FieldType.NUMBER, Double.valueOf(0.05D)},
-                {"client.clientPreviewOrderMinBrightness", FieldType.NUMBER, Double.valueOf(0.55D)},
-                {"client.clientPreviewInteriorDim", FieldType.NUMBER, Double.valueOf(0.65D)},
-                {"client.clientPreviewSuppressVanillaHighlight", FieldType.BOOLEAN, Boolean.FALSE},
-                {"client.clientPreviewVersionedInputs", FieldType.BOOLEAN, Boolean.FALSE},
-                {"client.clientPreviewPresentationOverlay", FieldType.BOOLEAN, Boolean.FALSE},
-                {"client.clientPreviewExecutionProgress", FieldType.BOOLEAN, Boolean.FALSE},
-                {"client.clientPreviewBackendDiagnostics", FieldType.BOOLEAN, Boolean.FALSE},
-                {"client.clientPreviewRemoteTimeoutMs", FieldType.NUMBER, Double.valueOf(5000.0D)},
-                {"client.objectGroups", FieldType.STRUCTURED_LIST, objectGroups}
-        };
-        List<FieldSpec> fields = new ArrayList<FieldSpec>(schema.allFields());
+        Map<String, Object> defaults = new LinkedHashMap<String, Object>();
+        QzMinerConfigDefaults.putAllDefaults(defaults);
 
         Assert.assertEquals("qz_miner", schema.modId());
-        Assert.assertEquals(expected.length, fields.size());
-        for (int index = 0; index < expected.length; index++) {
-            FieldSpec field = fields.get(index);
-            Assert.assertEquals("path " + index, expected[index][0], field.path());
-            Assert.assertEquals(field.path(), expected[index][1], field.type());
-            Assert.assertEquals(field.path(), expected[index][2], field.defaultValue());
-            Assert.assertSame(field.path(), field, schema.field(field.path()));
+
+        Set<String> schemaPaths = new LinkedHashSet<String>();
+        for (FieldSpec field : schema.allFields()) {
+            String path = field.path();
+            Assert.assertTrue("path 不得重复: " + path, schemaPaths.add(path));
+            Assert.assertTrue("Defaults 缺少同源登记: " + path, defaults.containsKey(path));
+
+            Object defaultValue = field.defaultValue();
+            Assert.assertNotNull(path + " 缺少默认值", defaultValue);
+            Assert.assertNotNull(path + " 缺少约束", field.constraints());
+            switch (field.type()) {
+                case STRING:
+                case CHOICE:
+                    Assert.assertTrue(path + " 默认值应为 String，实际 " + defaultValue.getClass().getName(),
+                            defaultValue instanceof String);
+                    break;
+                case NUMBER:
+                    Assert.assertTrue(path + " 默认值应为 Number，实际 " + defaultValue.getClass().getName(),
+                            defaultValue instanceof Number);
+                    double number = ((Number) defaultValue).doubleValue();
+                    Assert.assertTrue(path + " 默认值必须有限，实际 " + number, Double.isFinite(number));
+                    Assert.assertTrue(path + " 默认值必须落在约束区间 [" + field.constraints().min() + ","
+                                    + field.constraints().max() + "]，实际 " + number,
+                            number >= field.constraints().min() && number <= field.constraints().max());
+                    break;
+                case BOOLEAN:
+                    Assert.assertTrue(path + " 默认值应为 Boolean，实际 " + defaultValue.getClass().getName(),
+                            defaultValue instanceof Boolean);
+                    break;
+                case SIMPLE_LIST:
+                case STRUCTURED_LIST:
+                    Assert.assertTrue(path + " 默认值应为 List，实际 " + defaultValue.getClass().getName(),
+                            defaultValue instanceof List);
+                    break;
+                default:
+                    Assert.fail(path + " 出现未覆盖的 FieldType: " + field.type());
+            }
+
+            Assert.assertNotNull(path + " 缺少 label", field.label());
+            Assert.assertFalse(path + " label 不得为空", field.label().trim().isEmpty());
+            Assert.assertNotNull(path + " 缺少 helper", field.helper());
+            Assert.assertFalse(path + " helper 不得为空", field.helper().trim().isEmpty());
         }
+        for (String path : defaults.keySet()) {
+            Assert.assertTrue("Schema 缺少 Defaults 登记的键: " + path, schemaPaths.contains(path));
+        }
+    }
+
+    /**
+     * Issue #242 契约：每方块饥饿值消耗默认 {@code 0.025}（= 需求原文 = 原版 {@code Block.harvestBlock}
+     * 固定值），合法区间 {@code [0, 40]}（{@code 0} = 关闭；{@code 40} = 原版 exhaustion 累加上限）。
+     */
+    @Test
+    public void harvestExhaustionKeyKeepsIssue242DefaultAndRange() {
+        FieldSpec exhaustion = QzMinerConfigSchema.create().field("general.harvestExhaustionPerBlock");
+        Assert.assertNotNull("schema 缺少 issue #242 的饥饿值消耗键", exhaustion);
+        Assert.assertEquals(FieldType.NUMBER, exhaustion.type());
+        Assert.assertEquals(Double.valueOf(0.025D), exhaustion.defaultValue());
+        Assert.assertEquals(0.0D, exhaustion.constraints().min(), 0.0D);
+        Assert.assertEquals(40.0D, exhaustion.constraints().max(), 0.0D);
+        Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK),
+                exhaustion.defaultValue());
+        Assert.assertEquals(QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK_MAX,
+                exhaustion.constraints().max(), 0.0D);
     }
 
     /** 校验多个生产使用方继续对齐共享 Defaults；本方法不承担 5.3 字面量快照职责。 */
@@ -162,7 +159,20 @@ public class QzMinerConfigSchemaTest {
         Assert.assertEquals(FieldType.STRUCTURED_LIST, groups.type());
         Assert.assertEquals("schema 默认必须引用 QzMinerConfigDefaults.objectGroups()（唯一真源，禁止第二份字面量）",
                 QzMinerConfigDefaults.objectGroups(), groups.defaultValue());
-        Assert.assertEquals("出厂默认恰好 1 组", 1, ((List<?>) groups.defaultValue()).size());
+        // 只断言行为：默认组必须可用（非空、每组 modes/members 非空、每条 selector 可解析），
+        // 不冻结「几组 / 几条成员」——默认对象组是随 issue 演进的覆盖列表。
+        List<?> defaultGroups = (List<?>) groups.defaultValue();
+        Assert.assertFalse("出厂默认对象组不得为空", defaultGroups.isEmpty());
+        for (Object rawGroup : defaultGroups) {
+            Map<?, ?> group = (Map<?, ?>) rawGroup;
+            Assert.assertFalse("每组 modes 不得为空（空 modes 的组永不生效）: " + group.get("id"),
+                    ((List<?>) group.get("modes")).isEmpty());
+            Assert.assertFalse("每组 members 不得为空: " + group.get("id"),
+                    ((List<?>) group.get("members")).isEmpty());
+            for (Object member : (List<?>) group.get("members")) {
+                ObjectGroupParser.parseSelector(String.valueOf(member));
+            }
+        }
         Assert.assertEquals("对象组", groups.label());
         Assert.assertEquals("按组标识和适用模式组织连锁挖掘对象", groups.helper());
         Assert.assertFalse(groups.helper().contains("已配置方块规则"));

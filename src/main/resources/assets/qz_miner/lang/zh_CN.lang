@@ -131,6 +131,7 @@ config.qz_miner.object_group.picker.unavailable=方块选择器不可用
 # 配置页 tooltip（并行预算 + 连锁预览观感档位）
 config.qz_miner.parallelBudgetMode.tooltip=并行执行预算档位：deadline 沿用 tickBudgetMs 共享 deadline（默认，等于现状）；slice 改为每 tick 独立分片预算，主线程不再等满 deadline
 config.qz_miner.parallelSliceBudgetMs.tooltip=slice 档每 tick 的并行分片预算（毫秒），合法 1..40；deadline 档不生效
+config.qz_miner.harvestExhaustionPerBlock.tooltip=连锁/爆破每成功破坏一个方块消耗的饥饿值（原版 exhaustion 单位）：0.025 等于原版每方块消耗（默认，逐值等于现状），0 表示关闭（0..0.025 无法再降低，等效原版基线）；合法 0..40，40 等于原版 exhaustion 累加上限。只覆盖连锁/爆破的增量目标；创造模式与假玩家不消耗
 config.qz_miner.clientPreviewRenderBackend.tooltip=预览渲染后端：auto 能力探测通过用 shader、否则 legacy（默认）；shader 档探测失败仍回退 legacy 并记录诊断；legacy 恒为固定管线
 config.qz_miner.clientPreviewBarThickness.tooltip=预览条柱粗细（方块坐标偏移缩放），默认 0.045，合法 0.005..0.2
 config.qz_miner.clientPreviewColorSource.tooltip=预览颜色来源：builtin 内置六色（默认，按大模式区分；CHAIN 与历史逐字节一致）；config 使用下方六个 RGB 键的语义配色
@@ -149,6 +150,7 @@ config.qz_miner.clientPreviewColorInteract.label=INTERACT 模式颜色
 config.qz_miner.clientPreviewColorSecondary.label=扩展子模式颜色
 config.qz_miner.clientPreviewColorRemote.label=远端预测颜色
 config.qz_miner.clientPreviewColorTruncated.label=截断目标颜色
+config.qz_miner.harvestExhaustionPerBlock.label=每方块饥饿值消耗
 config.qz_miner.clientPreviewDepthMode.tooltip=深度通道：xray 恒可见（默认，等于现状）；occlude 参与深度测试；outline 主体遮挡 + 置顶轮廓
 config.qz_miner.clientPreviewAnimation.tooltip=预览动画：off 关闭（默认，等于本轮基线）；flow 整体流动；wave 按出现顺序逐波生长（接线属下一批）
 config.qz_miner.clientPreviewAnimationDurationMs.tooltip=单代动画时长（毫秒），0 表示瞬时完成，合法 0..2000

@@ -131,6 +131,7 @@ config.qz_miner.object_group.picker.unavailable=Block picker unavailable
 # Config screen tooltips (parallel budget + chain preview appearance)
 config.qz_miner.parallelBudgetMode.tooltip=Parallel budget mode: deadline shares the tickBudgetMs soft deadline (default, same as before); slice uses a per-tick slice budget so the main thread no longer waits for the full deadline
 config.qz_miner.parallelSliceBudgetMs.tooltip=Per-tick parallel slice budget in milliseconds for slice mode (1..40); ignored in deadline mode
+config.qz_miner.harvestExhaustionPerBlock.tooltip=Exhaustion consumed per successfully broken block in CHAIN/AREA modes: 0.025 equals the vanilla per-block cost (default, identical to the pre-change behavior), 0 disables it (values 0..0.025 cannot go lower and match the vanilla baseline); valid range 0..40, where 40 is the vanilla exhaustion cap. Covers chain/area extra targets only; creative mode and fake players never consume
 config.qz_miner.clientPreviewRenderBackend.tooltip=Preview render backend: auto uses shader when capability detection passes, otherwise legacy (default); explicit shader still falls back to legacy and records a diagnostic; legacy always uses the fixed pipeline
 config.qz_miner.clientPreviewBarThickness.tooltip=Preview bar thickness (block-space offset scale), default 0.045, range 0.005..0.2
 config.qz_miner.clientPreviewColorSource.tooltip=Preview color source: builtin six-color palette (default, distinguished by chain mode; CHAIN is byte-for-byte identical to before); config uses the six RGB keys below for semantic colors
@@ -150,6 +151,7 @@ config.qz_miner.clientPreviewColorInteract.label=INTERACT mode color
 config.qz_miner.clientPreviewColorSecondary.label=Extension sub-mode color
 config.qz_miner.clientPreviewColorRemote.label=Remote prediction color
 config.qz_miner.clientPreviewColorTruncated.label=Truncated target color
+config.qz_miner.harvestExhaustionPerBlock.label=Hunger per block
 config.qz_miner.clientPreviewDepthMode.tooltip=Depth channel: xray is always visible (default, same as before); occlude uses depth testing; outline adds a body pass plus a top-most outline pass
 config.qz_miner.clientPreviewAnimation.tooltip=Preview animation: off disables animation (default, current baseline); flow grows uniformly; wave grows wave by wave in appearance order (wired in a later batch)
 config.qz_miner.clientPreviewAnimationDurationMs.tooltip=Animation duration per generation in milliseconds; 0 completes instantly; range 0..2000

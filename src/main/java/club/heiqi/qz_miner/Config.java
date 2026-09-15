@@ -51,6 +51,13 @@ public class Config {
     public static String parallelBudgetMode = QzMinerConfigDefaults.PARALLEL_BUDGET_MODE;
     /** slice 档每 tick 并行分片预算（毫秒）；deadline 档不生效。 */
     public static int parallelSliceBudgetMs = QzMinerConfigDefaults.PARALLEL_SLICE_BUDGET_MS;
+    /**
+     * 每次成功破坏一个方块消耗的饥饿值（general 段，服务端权威）。
+     *
+     * <p>结算点是 {@code chain.executor.BlockHarvestActionExecutor} 的真实破坏成功点；
+     * 数值边界与「为何只补差额」见 {@code chain.executor.HarvestExhaustionSettlement}。</p>
+     */
+    public static double harvestExhaustionPerBlock = QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK;
     public static boolean clientEnablePreviewRender = QzMinerConfigDefaults.CLIENT_ENABLE_PREVIEW_RENDER;
     public static TunnelDirectionSource tunnelDirectionSource = TunnelDirectionSource.legacyDefault();
     public static boolean autoToolSwapEnabled = QzMinerConfigDefaults.CLIENT_AUTO_TOOL_SWAP_ENABLED;

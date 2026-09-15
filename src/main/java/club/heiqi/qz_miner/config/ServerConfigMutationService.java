@@ -27,6 +27,7 @@ public final class ServerConfigMutationService {
                     "general.cableReplaceMaxPerTick",
                     "general.chainWatchdogTimeoutTicks",
                     "general.tickBudgetMs",
+                    "general.harvestExhaustionPerBlock",
                     "general.enableUnlimitedOreFortune",
                     "general.enableFortuneForPlacedOre")));
 

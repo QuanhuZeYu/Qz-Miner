@@ -15,6 +15,8 @@ import org.junit.Test;
 import club.heiqi.config.ConfigChangeEvent;
 import club.heiqi.config.ConfigChangeListener;
 import club.heiqi.config.runtime.ConfigManager;
+import club.heiqi.config.schema.FieldSpec;
+import club.heiqi.config.schema.FieldType;
 import cpw.mods.fml.relauncher.FMLInjectionData;
 
 /** 服务端配置白名单、严格解析与提交令牌语义。 */
@@ -48,12 +50,22 @@ public class ServerConfigMutationServiceTest {
     @Test
     public void listAndGetExposeOnlyExplicitGeneralScalarWhitelist() {
         List<String> all = service.list("").lines();
-        Assert.assertEquals(9, all.size());
+        Assert.assertFalse("白名单不得为空", all.isEmpty());
         Assert.assertTrue(all.get(0).startsWith("general.greeting = "));
         Assert.assertTrue(all.toString(), all.toString().contains("general.tickBudgetMs = "));
+        // 白名单内容按行为判定（不再冻结条数）：每条必须是 schema 中真实存在的 general.* scalar 字段，
+        // 新增可热改键时本用例不需要跟着改；「恰好 N 条」会随每次正常增补而红。
         for (String line : all) {
-            Assert.assertFalse(line.startsWith("client."));
+            String path = line.substring(0, line.indexOf(" = "));
+            Assert.assertTrue("白名单只能列 general 段: " + path, path.startsWith("general."));
+            FieldSpec field = manager.schema().field(path);
+            Assert.assertNotNull("白名单 path 必须在 schema 中存在: " + path, field);
+            FieldType type = field.type();
+            Assert.assertTrue("白名单只能列 scalar 字段: " + path + " type=" + type,
+                    type == FieldType.STRING || type == FieldType.NUMBER || type == FieldType.BOOLEAN);
         }
+        Assert.assertTrue("白名单必须覆盖 issue #242 的饥饿值消耗键",
+                all.toString().contains("general.harvestExhaustionPerBlock = "));
         Assert.assertEquals(2, service.list("general.enable").lines().size());
         Assert.assertFalse(service.get("client.clientEnablePreviewRender").isSuccess());
         Assert.assertFalse(service.get("general.unknown").isSuccess());

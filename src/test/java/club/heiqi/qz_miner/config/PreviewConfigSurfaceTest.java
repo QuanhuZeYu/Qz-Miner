@@ -33,6 +33,7 @@ public class PreviewConfigSurfaceTest {
     private static final String[][] NEW_KEYS = {
             {"general.parallelBudgetMode", "deadline"},
             {"general.parallelSliceBudgetMs", "4.0"},
+            {"general.harvestExhaustionPerBlock", "0.025"},
             {"client.clientPreviewRenderBackend", "auto"},
             {"client.clientPreviewBarThickness", "0.045"},
             {"client.clientPreviewColorSource", "builtin"},
@@ -71,6 +72,7 @@ public class PreviewConfigSurfaceTest {
     /** 每行：字段全路径、下界（含）、上界（含）、低于下界的值、高于上界的值。 */
     private static final String[][] RANGE_CASES = {
             {"general.parallelSliceBudgetMs", "1", "40", "0", "41"},
+            {"general.harvestExhaustionPerBlock", "0", "40", "-0.1", "40.1"},
             {"client.clientPreviewBarThickness", "0.005", "0.2", "0.004", "0.21"},
             {"client.clientPreviewColorChain", "0", "16777215", "-1", "16777216"},
             {"client.clientPreviewColorArea", "0", "16777215", "-1", "16777216"},
@@ -362,6 +364,9 @@ public class PreviewConfigSurfaceTest {
     }
 
     private static double maxOf(String leaf) {
+        if (leaf.equals("harvestExhaustionPerBlock")) {
+            return 40.0D;
+        }
         if (leaf.equals("clientPreviewBarThickness")) {
             return 0.2D;
         }

@@ -49,6 +49,7 @@ public final class ConfigValueBridge {
         Config.enableFortuneForPlacedOre = snapshot.enableFortuneForPlacedOre;
         Config.parallelBudgetMode = snapshot.parallelBudgetMode;
         Config.parallelSliceBudgetMs = snapshot.parallelSliceBudgetMs;
+        Config.harvestExhaustionPerBlock = snapshot.harvestExhaustionPerBlock;
     }
 
     /**

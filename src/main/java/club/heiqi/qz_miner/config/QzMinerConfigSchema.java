@@ -89,6 +89,15 @@ public final class QzMinerConfigSchema {
                         .label("parallelSliceBudgetMs")
                         .helper("slice 档每 tick 的并行分片预算（毫秒），合法 1..40；deadline 档不生效")
                         .build()
+                    .number("harvestExhaustionPerBlock")
+                        .defaultValue(Double.valueOf(QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK))
+                        .range(0.0D, QzMinerConfigDefaults.HARVEST_EXHAUSTION_PER_BLOCK_MAX)
+                        .label("harvestExhaustionPerBlock")
+                        .helper("连锁/爆破每成功破坏一个方块消耗的饥饿值（原版 exhaustion 单位）："
+                                + "0.025 等于原版每方块消耗（默认，逐值等于现状），"
+                                + "0 表示关闭（0..0.025 无法再降低，等效原版基线）；"
+                                + "合法 0..40，40 等于原版 exhaustion 累加上限")
+                        .build()
                 .endSection()
                 .section("client")
                     .title("Client")
