@@ -17,7 +17,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 ### 安装依赖
 
 - Qz-Miner 5.3 要求 Qz-UILib `>=4.9.1,<5.0.0`（`@Mod` 依赖声明为 `required-after:qz_uilib@[4.9.1,5.0.0)`）；发布包不内嵌 UILib，运行时由 modpack 提供。
-- 开发与测试使用 `libs/qz_uilib-4.10.0-dev.jar` 入库本地解析（不再经 JitPack；`dependencies.gradle` 的 `devOnlyNonPublishable` / `testImplementation` 引用该文件）；该本机构建件 jar 内版本为 4.10.0，含公开 HUD 编辑契约，满足 `@Mod` 的 `required-after:qz_uilib@[4.9.1,5.0.0)`，且不等同于 Qz-UILib 4.9.1 正式 Release 的 dev 资产。
+- 开发与构建细节见 [docs/README.md](docs/README.md)；对外兼容边界见 [docs/开发者文档/README.md](docs/开发者文档/README.md)。
 
 ### 基本操作
 
@@ -25,8 +25,8 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - 按住连锁键：启用当前模式，并显示当前目标预览；按住连锁键后滚轮：切换当前主模式下的子模式；按住连锁键与游戏设置中的潜行键后滚轮：上下切换主模式。
 - 该组合键独占滚轮，不改变快捷栏选中槽；未按连锁键或打开界面时保留原版滚轮行为。
 - 每个主模式都会记住自己上一次使用的子模式，切回该主模式时会自动恢复。
-- 连锁状态由 Qz-UILib 的 HUD 虚拟窗口在屏幕左上角以液态玻璃卡片统一显示（内容随状态变化经 Signal 刷新，空状态整窗隐藏）；关闭态 HUD 不挂常驻工具栏；打开 GUI 时由 UILib 自动隐藏。
-- 打开聊天输入框后，工具栏的「编辑 HUD」按钮进入 UILib 布局编辑子模式：拖动连锁状态 HUD 预览调整屏幕位置，缩放 `- / 1:1 / +` 也在该编辑态统一提供；取消/Esc 放弃本次修改；提交后布局由 UILib 持久化到配置目录下的纯文本文件（代码已接线，本轮未做跨重启实机验证）。
+- 连锁状态由 Qz-UILib 的 HUD 虚拟窗口在屏幕左上角以液态玻璃卡片统一显示，内容随状态变化刷新、空状态整窗隐藏；关闭态不挂常驻工具栏，打开 GUI 时自动隐藏。
+- 打开聊天输入框后，工具栏的「编辑 HUD」按钮进入 UILib 布局编辑子模式：拖动连锁状态 HUD 预览调整屏幕位置，缩放 `- / 1:1 / +` 也在该编辑态统一提供；取消/Esc 放弃本次修改；提交后布局由 UILib 持久化到配置目录下的纯文本文件。
 - 登录、重生、切维度、退出等场景会清理连锁状态。
 
 ### 主模式与子模式
@@ -54,15 +54,14 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 ## 关键配置与限制
 
 - `chainRadius`：连锁搜索半径；`chainMaxBlocks`：最大连锁数量；`chainLoggingShellLayers`：`CHAIN` 伐木子模式每次向外扩张的壳层数。
-- `tickBudgetMs`：planning、客户端 preview 与非 GT 普通执行共享的每 Tick soft deadline，默认 `15`，合法范围 `1..40`。deadline 只在世界读取、Forge 回调或目标事务之间的安全点观察；已经开始的事务会完整收口，不承诺硬实时中断。GT 线缆替换在完整规划与资源/规模预校验通过后仍单 tick 原子执行，显式绕过该 deadline。
+- `tickBudgetMs`：planning、客户端 preview 与非 GT 普通执行共享的每 Tick soft deadline，默认 `15`，合法范围 `1..40`；不承诺硬实时中断。GT 线缆替换在预校验通过后仍单 tick 原子执行。
 - `clientEnablePreviewRender`：是否启用客户端预览计算与渲染；`clientPreviewMaxRadius` / `clientPreviewMaxTargets`：客户端最大预览半径与预览目标数。客户端卡顿明显时可关闭预览，或调低这两项。
 - `tunnelDirectionSource`：`AREA_TUNNEL` 的方向来源；`look_direction` 沿视线主轴，`hit_face` 沿命中面朝方块内部，默认 `look_direction`。
 - `enableUnlimitedOreFortune`：是否解除 GT / BW / GT++ 普通矿的时运上限；`enableFortuneForPlacedOre`：是否允许非自然生成的 GT / BW 矿石享受时运。
 - 服务端配置命令：权限等级 4 的 `/qzminer config list|get|set|reload` 可受限读写 `general.*` scalar 白名单并热发布。
-- `INTERACT` 四个子模式与 `AREA` 范围子模式的服务端规划、客户端预览都使用以触发点为中心、边长 `2 x radius + 1` 的完整立方盒扫；目标无需相邻，不匹配坐标只会被跳过。
-- 规划结果不是执行授权：服务端主线程在每个目标执行前都会重新校验世界与目标身份、方块存在、世界保护与玩家编辑权限，并对每个目标重新读取当前手持物品；单目标无动作、被拒绝或异常只结算该目标，后续计划目标继续尝试。
-- 对象组（`client.objectGroups`）是现有模式的筛选扩展，不是独立滚轮模式；可扩展模式为连锁基础/矿石/伐木、区域同类/矿石、交互基础/全部作物，液体源与未成熟作物施肥不取得对象组 bit。完整语义见 [docs/使用文档/README.md](docs/使用文档/README.md)。
-- 本地自动化不能替代真实模组运行态：vanilla bucket / GT 或 IC2 单元 / 第三方 Item / GT CropCard / EFR / 保护插件、client 与 dedicated server 的连续四模式验证仍为 **INCOMPLETE**。
+- 对象组（`client.objectGroups`）是现有模式的筛选扩展，不是独立滚轮模式，其完整语义见 [docs/使用文档/README.md](docs/使用文档/README.md)。
+- 范围扫描与执行边界：`INTERACT` 四个子模式与 `AREA` 范围子模式使用以触发点为中心、边长 `2 x radius + 1` 的完整立方盒扫；规划结果不是执行授权，服务端主线程在每个目标执行前重新校验世界、目标身份与编辑权限，单目标失败只结算该目标。
+- 本地自动化不能替代真实模组运行态；尚未验证的组合集中列在 [使用文档](docs/使用文档/README.md) 的「验证边界」。
 
 ## 版本兼容边界
 
@@ -71,7 +70,9 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 - `5.3.x` 客户端与服务端只要版本字符串完整合法，就忽略 patch、prerelease 与 build qualifier 互通；stable、prerelease、branch/dirty dev 均适用。
 - `5.0.x`、`5.1.x`、`5.2.x`、`5.10.x` 与畸形版本不会被当成 5.3；5.3 family 内的 packet ID/Side、wire framing、协议与配置 schema 已冻结，不兼容变更必须升级新 minor。
 - 远端模组表缺少 `qz_miner` 时 Forge checker 在 CLIENT/SERVER 两侧都会放行，但这只表示不由 mod-list 检查拒绝；它不会为无 Qz-Miner 对端创建网络 channel，也不是无 Mod 运行安全保证。
-- 当前真实 5.3 mixed-patch / missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或 branch CI 不能替代实机证据。完整合同见 [docs/使用文档/README.md](docs/使用文档/README.md) 的「5.3 联机版本边界」。
+- 当前真实 5.3 mixed-patch / missing client 与 dedicated server 运行态仍为 **INCOMPLETE**；本地测试或 branch CI 不能替代实机证据。
+
+完整合同（版本 family 判定、已冻结面、GTNH 基线）见 [docs/使用文档/README.md](docs/使用文档/README.md) 的「5.3 联机版本边界」。
 
 ### 从旧版本升级
 
@@ -79,8 +80,8 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ## 文档导航
 
-- 文档分区与职责分工：`docs/README.md`
-- 使用文档（配置项语义与 5.3 联机版本边界）：`docs/使用文档/README.md`
-- 开发者文档（对外开放边界）：`docs/开发者文档/README.md`
-- 踩坑记录：`docs/反馈层/errors/`
-- 协作规范：`AGENTS.md`
+- [文档分区与职责分工](docs/README.md)
+- [使用文档](docs/使用文档/README.md)：配置项语义与 5.3 联机版本边界
+- [公共接口与兼容边界](docs/开发者文档/公共接口与兼容边界.md)：对外开放边界与变更处理
+- [踩坑记录](docs/反馈层/errors/)
+- [协作规范](AGENTS.md)
