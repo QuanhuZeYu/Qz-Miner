@@ -76,7 +76,7 @@ public final class QzMinerMixinPlugin implements IMixinConfigPlugin {
         targets.put("club.heiqi.qz_miner.mixins.MixinBWOreAdapter", new TargetCapability("gregtech.common.ores.BWOreAdapter", "getBigOreDrops", adapterDescriptor, "getOreDrops", oreDropsDescriptor, "gregtech/common/ores/OreInfo", "isNatural", "Z", 4));
         targets.put("club.heiqi.qz_miner.mixins.MixinGTPPOreAdapter", new TargetCapability("gregtech.common.ores.GTPPOreAdapter", "getBigOreDrops", adapterDescriptor, null, null, null, 4));
         targets.put("club.heiqi.qz_miner.mixins.MixinTileEntityOresLegacy", new TargetCapability("gregtech.common.blocks.TileEntityOres", "getDrops", "(Lnet/minecraft/block/Block;I)Ljava/util/ArrayList;", "gregtech/common/blocks/TileEntityOres", "mNatural", "Z", 2));
-        targets.put("club.heiqi.qz_miner.mixins.MixinBWTileEntityMetaGeneratedOreLegacy", new TargetCapability("bartworks.system.material.BWTileEntityMetaGeneratedOre", "getDrops", "(I)Ljava/util/ArrayList;", "bartworks/system/material/BWTileEntityMetaGeneratedOre", "natural", "Z", 1));
+        targets.put("club.heiqi.qz_miner.mixins.MixinBWTileEntityMetaGeneratedOreLegacy", new TargetCapability("bartworks.system.material.BWTileEntityMetaGeneratedOre", "getDrops", "(I)Ljava/util/ArrayList;", "bartworks/system/material/BWTileEntityMetaGeneratedOre", "mNatural", "Z", 1));
         targets.put("club.heiqi.qz_miner.mixins.MixinBlockBaseOreLegacy", new TargetCapability("gtPlusPlus.core.block.base.BlockBaseOre", "getDrops", "(Lnet/minecraft/world/World;IIIII)Ljava/util/ArrayList;", null, null, null, 6));
         return Collections.unmodifiableMap(targets);
     }

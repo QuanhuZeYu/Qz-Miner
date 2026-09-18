@@ -37,7 +37,7 @@ public class LegacyNaturalMixinStructureTest {
     @Test
     public void bwMixinContainsExactFieldTargetWithoutLinkedClassConstant() throws Exception {
         assertFieldTarget(MixinBWTileEntityMetaGeneratedOreLegacy.class, "bartworks/",
-                "Lbartworks/system/material/BWTileEntityMetaGeneratedOre;natural:Z");
+                "Lbartworks/system/material/BWTileEntityMetaGeneratedOre;mNatural:Z");
     }
 
     private static void assertFieldTarget(Class<?> mixin, String thirdPartyPrefix, String fieldTarget)
