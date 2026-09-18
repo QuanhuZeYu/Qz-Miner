@@ -883,7 +883,8 @@ public final class ObjectGroupMemberPane {
                 .densityPreference(PickerDensityPreferenceSource.installed());
         wireCategories(builder, provider, categoryKey, dimension);
         if (source != null) {
-            final PickerRevisionBridge bridge = PickerRevisionBridge.forSource(source);
+            final PickerRevisionBridge bridge =
+                    PickerRevisionBridge.forSource(source, rt.environment());
             bridge.bindTo(rt);
             final Computed<PickerQuery> sourceQuery = Computed.create(() -> PickerQuery.text(
                     editor.query.get(), dimension.get().intValue(), categoryKey.get()));
@@ -1037,7 +1038,8 @@ public final class ObjectGroupMemberPane {
 
     /** 展示适配器：provider 给出图标源时接上 UILib 有界图标缓存（缓存释放随当前 Owner）。 */
     private static VisualAdapter visualAdapterOf(SceneRuntime rt, ValueEditorProvider provider) {
-        final PickerIconResolver resolver = PickerIconResolver.of(provider);
+        final PickerIconResolver resolver =
+                PickerIconResolver.of(provider, rt.environment().resources());
         if (resolver == null) {
             return provider.visualAdapter();
         }

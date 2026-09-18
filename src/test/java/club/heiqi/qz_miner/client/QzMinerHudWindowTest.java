@@ -16,6 +16,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+import club.heiqi.uilib.ui.env.UiEnvironment;
 import club.heiqi.uilib.ui.render.UiBackdrop;
 import club.heiqi.uilib.ui.render.UiBackdropEffect;
 import club.heiqi.uilib.ui.scene.layout.Constraints;
@@ -75,7 +76,7 @@ public class QzMinerHudWindowTest {
         fixture.state.setRequestedChainMaxBlocks(99);
         fixture.state.setServerChainMaxBlocks(80);
 
-        SceneRuntime runtime = new SceneRuntime();
+        SceneRuntime runtime = new SceneRuntime(null, UiEnvironment.empty());
         SceneNode content = fixture.window.build(runtime);
         fixture.window.refresh();
         runtime.flush();
@@ -136,7 +137,7 @@ public class QzMinerHudWindowTest {
     @Test
     public void emptyModelUnmountsCardAndKeepsContentRootZeroSized() {
         Fixture fixture = new Fixture();
-        SceneRuntime runtime = new SceneRuntime();
+        SceneRuntime runtime = new SceneRuntime(null, UiEnvironment.empty());
         SceneNode content = fixture.window.build(runtime);
         fixture.window.refresh();
         runtime.flush();
@@ -159,7 +160,7 @@ public class QzMinerHudWindowTest {
         Fixture fixture = new Fixture();
         fixture.state.setSelectedMode(ChainMode.CHAIN);
         fixture.state.setSelectedSubMode(ChainSubMode.CHAIN_ORE);
-        SceneRuntime runtime = new SceneRuntime();
+        SceneRuntime runtime = new SceneRuntime(null, UiEnvironment.empty());
 
         // 门关闭（默认状态）：HUD 工厂内容根不可命中；编辑预览根必须可命中，否则拖动 handler 收不到指针事件。
         SceneNode preview = fixture.window.previewFactory().build(runtime);
@@ -187,7 +188,7 @@ public class QzMinerHudWindowTest {
         Assert.assertTrue("预览必须有可拖动面积，实际 " + box, box.getWidth() > 0);
         Assert.assertTrue("预览必须有可拖动面积，实际 " + box, box.getHeight() > 0);
 
-        SceneRuntime hudRuntime = new SceneRuntime();
+        SceneRuntime hudRuntime = new SceneRuntime(null, UiEnvironment.empty());
         SceneNode hud = fixture.window.build(hudRuntime);
         Assert.assertFalse("关闭态 HUD 内容根不得拦截玩家输入", hud.isHitTestable());
     }
@@ -198,7 +199,7 @@ public class QzMinerHudWindowTest {
         fixture.state.setSelectedMode(ChainMode.CHAIN);
         fixture.state.setSelectedSubMode(ChainSubMode.CHAIN_ORE);
         fixture.openGate(ChainPhase.RUNNING);
-        SceneRuntime runtime = new SceneRuntime();
+        SceneRuntime runtime = new SceneRuntime(null, UiEnvironment.empty());
         SceneNode content = fixture.window.build(runtime);
         fixture.window.refresh();
         runtime.flush();
@@ -235,7 +236,7 @@ public class QzMinerHudWindowTest {
         fixture.preview.addPreviewTarget(
                 fixture.preview.getGeneration(), new ChainTarget(1, 0, 0));
 
-        SceneRuntime runtime = new SceneRuntime();
+        SceneRuntime runtime = new SceneRuntime(null, UiEnvironment.empty());
         SceneNode content = fixture.window.build(runtime);
         fixture.window.refresh();
         runtime.flush();
@@ -268,7 +269,7 @@ public class QzMinerHudWindowTest {
         fixture.state.setPreviewActive(true);
         fixture.preview.begin(new ChainTarget(0, 0, 0));
 
-        SceneRuntime runtime = new SceneRuntime();
+        SceneRuntime runtime = new SceneRuntime(null, UiEnvironment.empty());
         SceneNode content = fixture.window.build(runtime);
         fixture.window.refresh();
         runtime.flush();

@@ -31,6 +31,7 @@ import club.heiqi.config.ui.editor.ValueEditorProvider;
 import club.heiqi.qz_miner.client.picker.BlockPickerProvider;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.QzMinerConfigSchema;
+import club.heiqi.uilib.ui.env.UiEnvironment;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
 import club.heiqi.uilib.ui.scene.input.InputFrameBuilder;
 import club.heiqi.uilib.ui.scene.input.RawInputEvent;
@@ -231,7 +232,7 @@ final class ObjectGroupEditorTestSupport {
     /** 单屏 headless harness：主树 + 各 overlay root 独立布局引擎（生产帧管线的测试等价物）。 */
     static final class Harness implements AutoCloseable {
         final MiniMeasurer measurer = new MiniMeasurer();
-        final SceneRuntime rt = new SceneRuntime(measurer);
+        final SceneRuntime rt = new SceneRuntime(measurer, UiEnvironment.empty());
         final SceneLayoutEngine engine = new SceneLayoutEngine(measurer);
         final SceneNode root;
         private final Map<SceneNode, SceneLayoutEngine> overlayEngines =

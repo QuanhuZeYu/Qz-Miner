@@ -28,6 +28,7 @@ import club.heiqi.config.runtime.ConfigManager;
 import club.heiqi.qz_miner.client.ClientI18n;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.testsupport.LanguageFiles;
+import club.heiqi.uilib.ui.env.UiEnvironment;
 import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
 import club.heiqi.uilib.ui.scene.input.InputFrameBuilder;
 import club.heiqi.uilib.ui.scene.input.RawInputEvent;
@@ -482,7 +483,7 @@ public class ObjectGroupEditorDensityHeadlessTest {
 
         DensityHarness(SceneTextMeasurer measurer, int width, int height) {
             this.measurer = measurer;
-            this.rt = new SceneRuntime(measurer);
+            this.rt = new SceneRuntime(measurer, UiEnvironment.empty());
             this.engine = new SceneLayoutEngine(measurer);
             this.width = width;
             this.height = height;

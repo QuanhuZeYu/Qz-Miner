@@ -49,17 +49,20 @@ dependencies {
     // devOnlyNonPublishable = compileOnly + runtimeOnlyNonPublishable，不进入 test classpath。
     // 4.7.0 起改用 libs 目录本地 devjar，不再经 JitPack 解析。
     //
-    // 当前件 = Qz-UILib 4.10.0 正式 Release 资产（assets 中的 qz_uilib-4.10.0-dev.jar）：
-    //   https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.10.0
-    //   jar 内 mcmod.info version=4.10.0，其自身 acceptableRemoteVersions 已含自身版本。
-    // 配对声明：@Mod 依赖下界与本件同源（required-after:qz_uilib@[4.10.0,5.0.0)）——本版颜色字段
-    //   使用了 4.10.0 才提供的 ColorSpec 族，与 4.9.x 混用会在类加载期 NoClassDefFoundError。
+    // 当前件 = Qz-UILib 4.11.0 正式 Release 资产（assets 中的 qz_uilib-4.11.0-dev.jar）：
+    //   https://github.com/QuanhuZeYu/Qz-UILib/releases/tag/4.11.0
+    //   4018905 bytes，sha256 52f45c855b726d2bb2c4b62752aeacdc09d33ff87cc7390ce8a8dfe54843eae5
+    //   jar 内 mcmod.info version=4.11.0，其自身 acceptableRemoteVersions 已含自身版本。
+    // 配对声明：@Mod 依赖下界与本件同源（required-after:qz_uilib@[4.11.0,5.0.0)）——4.11.0 相对 4.10.0
+    //   含公共面删除与签名变更（SceneRuntime 构造器、PickerIconResolver.of、PickerRevisionBridge.forSource
+    //   均改为必须显式传环境端口），且上游已把远端范围收紧为 [4.11.0,4.12.0)：4.11.0 与 4.10.x 双向
+    //   不承诺混用，故下界必须与本件同版。
     // ⚠ 同名同版本内容漂移：4.10.0 存在过多个同名但内容不同的开发期构建件；本件与 Release 资产
     //   逐字节一致。集成与发布一律以 Qz-UILib Release 页登记的资产哈希为准——哈希台账不进本文件。
     // 回退方式：旧 dev jar 已从 libs/ 移除；回退需先从 Qz-UILib Release 取回对应件放回 libs/、
-    //   改回下面两行的文件名，并先 revert 依赖新 SPI / ColorSpec 的 Miner 提交（否则无法编译）。
-    devOnlyNonPublishable(project.files("libs/qz_uilib-4.10.0-dev.jar"))
-    testImplementation(project.files("libs/qz_uilib-4.10.0-dev.jar"))
+    //   改回下面两行的文件名，并先 revert 依赖环境端口签名的 Miner 提交（否则无法编译）。
+    devOnlyNonPublishable(project.files("libs/qz_uilib-4.11.0-dev.jar"))
+    testImplementation(project.files("libs/qz_uilib-4.11.0-dev.jar"))
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("NotEnoughItems"))

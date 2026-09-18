@@ -16,7 +16,7 @@ Qz-Miner 是一个面向 `Minecraft 1.7.10 + Forge + GTNH` 环境的连锁挖掘
 
 ### 安装依赖
 
-- Qz-Miner 5.3.x 要求 Qz-UILib `>=4.10.0,<5.0.0`（`@Mod` 依赖声明为 `required-after:qz_uilib@[4.10.0,5.0.0)`）；发布包不内嵌 UILib，运行时由 modpack 提供。
+- Qz-Miner 5.3.x 要求 Qz-UILib `>=4.11.0,<5.0.0`（`@Mod` 依赖声明为 `required-after:qz_uilib@[4.11.0,5.0.0)`）；发布包不内嵌 UILib，运行时由 modpack 提供。5.3.5 起下界抬到 4.11.0：上游 4.11.0 与 4.10.x 双向不承诺混用，须成对升级。
 - 开发与构建细节见 [docs/README.md](docs/README.md)；对外兼容边界见 [docs/开发者文档/README.md](docs/开发者文档/README.md)。
 
 ### 基本操作
