@@ -20,7 +20,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-val buildVersion = providers.environmentVariable("VERSION").orElse("5.3.4-dev").get()
+val buildVersion = providers.environmentVariable("VERSION").orElse("5.3.5-dev").get()
 version = buildVersion
 extra["modVersion"] = buildVersion
 
