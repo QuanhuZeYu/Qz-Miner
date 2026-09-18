@@ -75,7 +75,7 @@
 - `5.0.x`、`5.1.x`、`5.2.x`、`5.10.x`、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
 - 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端都必须是合法 5.3 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务主动发送仍可能失败。
 - 5.3 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与 20-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为 **INCOMPLETE**，不因自动化通过而升级证据等级。
-- GTNH 基线：当前为**单基线构建**，唯一真源是 `dependencies.gradle` 的 `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib），CI 与发布不使用基线矩阵。同一份 jar 的运行期兼容范围含 `2.9.0-beta-2` 与 `2.9.0-beta-3`，依据是源码对 GTNH 侧组件零静态链接 + 双基线编译实证；这是编译期证据，真机运行态未验证，不因编译通过升级证据等级。`2.8.4` 不在兼容承诺内。机制取舍与上游依赖缺陷依据见 [反馈层/errors/](../反馈层/errors/ERROR-20260911-gtnh-single-baseline-matrix-retirement.md)。
+- GTNH 基线：当前为**单基线构建**，唯一真源是 `dependencies.gradle` 的 `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib），CI 与发布不使用基线矩阵。同一份 jar 的运行期兼容范围含 `2.8.0` / `2.8.4` / `2.9.0-beta-2` / `2.9.0-beta-3`，依据是源码对 GTNH 侧组件零静态链接 + 跨基线编译实证 + 宿主能力核验（适配器可用性、反射档案成员面、普通矿时运注入点形状）；这是编译期与静态证据，真机运行态未验证，不因核验通过升级证据等级。机制取舍与上游依赖缺陷依据见 [反馈层/errors/](../反馈层/errors/ERROR-20260911-gtnh-single-baseline-matrix-retirement.md) 与 [ERROR-20260817](../反馈层/errors/ERROR-20260817-gtnh-284-baseline-upstream-pom-defect.md)。
 
 ## 验证边界
 

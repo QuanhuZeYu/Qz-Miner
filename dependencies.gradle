@@ -34,7 +34,10 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 dependencies {
-    // GTNH 基线唯一真源（对齐 Qz-UILib）：单值声明，不再经 gradle.properties 的 elytra.manifest.version
+    // GTNH 基线唯一真源（对齐 Qz-UILib）：单值声明，不再经 gradle.properties 的 elytra.manifest.version。
+    // 运行期兼容范围含 2.8.0 / 2.8.4 / 2.9.0-beta-2 / 2.9.0-beta-3（依据见 build.gradle.kts 顶部说明）。
+    // 2.8.x 的跨基线编译实证需临时排除指向已废弃坐标 com.github.GTNewHorizons:CodeChickenLib 的
+    // 传递依赖（经 Thaumic_Exploration 引入）；该坐标只出现在 2.8.x 的依赖图里，故不写进本文件的生产配置。
     elytraModpackVersion {
         setGtnhVersion("2.9.0-beta-3")
     }

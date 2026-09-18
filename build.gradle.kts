@@ -20,17 +20,20 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-val buildVersion = providers.environmentVariable("VERSION").orElse("5.3.5-dev").get()
+val buildVersion = providers.environmentVariable("VERSION").orElse("5.4.0-dev").get()
 version = buildVersion
 extra["modVersion"] = buildVersion
 
 // 不再存在 gradle/gtnh-baselines.json 基线清单与 verifyGtnhBaseline 校验任务，
 // CI/发布也不再传递 -Pqz.gtnh.expectedGregTechVersion / -Pelytra.manifest.version 覆盖。
 //
-// 兼容承诺：运行期兼容范围含 GTNH 2.9.0-beta-2 与 2.9.0-beta-3；依据是源码对 GTNH 侧组件零静态链接
-// + 双基线编译实证（beta-2/beta-3 均 compileJava/compileTestJava 通过）；真机运行态未验证。
+// 兼容承诺：运行期兼容范围含 GTNH 2.8.0 / 2.8.4 / 2.9.0-beta-2 / 2.9.0-beta-3；依据是源码对
+// GTNH 侧组件零静态链接 + 跨基线编译实证（四个基线均 compileJava/compileTestJava 通过）
+// + 宿主能力核验（适配器可用性、反射档案成员面、普通矿时运注入点形状，四档逐条比对）；
+// 这是编译期与静态证据，真机运行态未验证，不因核验通过升级证据等级。
 // 源码不得静态链接任一基线独有的上游 API，跨版本差异只能以源码级运行期兼容消化；
-// 双基线编译实证按工作站任务笔记的人工流程执行（临时切换基线编译后按原始字节恢复并校验 sha256）。
+// 跨基线编译实证按工作站任务笔记的人工流程执行（临时切换基线编译后按原始字节恢复并校验 sha256）；
+// 其中 2.8.x 还需临时排除一条指向已废弃坐标的上游传递依赖——它只出现在 2.8.x 的依赖图里。
 
 // ---------------------------------------------------------------------------
 // 离线 GLSL 校验闸门（T49）
