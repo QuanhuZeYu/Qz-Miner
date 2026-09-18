@@ -71,10 +71,11 @@
 
 ## 联机版本边界
 
-- **族 = 当前构建版本的 `major.minor`**，由制品版本推导（不手写族常量）：完整合法的 `<major>.<minor>.x[-prerelease][+build]` 版本忽略 patch 与 qualifier 互通，stable、prerelease、branch/dirty dev 都属于同一 family。
-- 跨族版本（`major.minor` 与本构建不同的，含 `5.10.x` 这类易被字符串前缀匹配误放的）、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
-- 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端都必须属于同一合法 minor 族。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务主动发送仍可能失败。
-- 当前 minor 族已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与 20-path schema；后续不兼容变化必须升新 minor——升 minor 即自动切族。真实 mixed-patch/missing client/dedicated 仍为 **INCOMPLETE**，不因自动化通过而升级证据等级。
+- 兼容范围是一个**版本区间** `[X.Y.0-alpha, X.(Y+1).0-alpha)`（`X.Y` = 当前构建版本的 `major.minor`）：由构建从制品版本派生、写进 `@Mod.acceptableRemoteVersions`，判定复用 FML 的 Maven 版本序语义。区间内的 patch、prerelease 与 build qualifier 一律互通——stable、prerelease、branch/dirty dev 都在同一区间内。
+- 区间外的版本一律拒绝，含相邻族的最小形态 `X.(Y+1).0-alpha`。
+- 判定沿用 Maven 版本语义，因此**不做额外的严格语法校验**：`X.Y` 等价于 `X.Y.0` 而被接受，前导零、溢出、Unicode 等形态按该语义解析后参与比较，不再单独拒绝。
+- 远端版本表完全缺少精确 `qz_miner` key 时 FML 双向放行；若 key 存在，则双方版本都必须落在各自声明的区间内。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务主动发送仍可能失败。
+- 当前区间已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与 20-path schema；后续不兼容变化必须升新 minor——升 minor 即自动换区间。真实 mixed-patch/missing client/dedicated 仍为 **INCOMPLETE**，不因自动化通过而升级证据等级。
 - GTNH 基线：当前为**单基线构建**，唯一真源是 `dependencies.gradle` 的 `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib），CI 与发布不使用基线矩阵。同一份 jar 的运行期兼容范围含 `2.8.0` / `2.8.4` / `2.9.0-beta-2` / `2.9.0-beta-3`，依据是源码对 GTNH 侧组件零静态链接 + 跨基线编译实证 + 宿主能力核验（适配器可用性、反射档案成员面、普通矿时运注入点形状）；这是编译期与静态证据，真机运行态未验证，不因核验通过升级证据等级。机制取舍与上游依赖缺陷依据见 [反馈层/errors/](../反馈层/errors/ERROR-20260911-gtnh-single-baseline-matrix-retirement.md) 与 [ERROR-20260817](../反馈层/errors/ERROR-20260817-gtnh-284-baseline-upstream-pom-defect.md)。
 
 ## 验证边界

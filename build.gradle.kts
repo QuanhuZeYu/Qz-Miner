@@ -24,6 +24,63 @@ val buildVersion = providers.environmentVariable("VERSION").orElse("5.4.1-dev").
 version = buildVersion
 extra["modVersion"] = buildVersion
 
+// ---------------------------------------------------------------------------
+// 联机版本区间常量（编译期常量，供 @Mod.acceptableRemoteVersions 使用）
+//
+// 为什么必须生成：acceptableRemoteVersions 是注解属性，值必须是编译期常量，而区间上界要算
+// minor + 1，注解里做不到。真源仍是制品版本 buildVersion（与 Tags.VERSION 同源），不引入第二个真源。
+//
+// 为什么是这个形态：[X.Y.0-alpha, X.(Y+1).0-alpha) —— FML 用 Maven ComparableVersion 的序语义，
+// 其中只有 alpha / beta / milestone / rc / snapshot 五个已知限定符被判为「预发布」（排在正式版之前），
+// alpha 是其中最小者；因此该区间恰好覆盖 X.Y 族（含其预发布与任意未知限定符），并排除 X.(Y+1) 族。
+// 不用自定义 @NetworkCheckHandler：FML 的 NetworkModHolder 里两者互斥，声明了 handler 时
+// acceptableRange 根本不会创建（握手与「接受自身版本」自检都读不到它），区间会变成死配置。
+// ---------------------------------------------------------------------------
+val generatedVersionRangeDir = layout.buildDirectory.dir("generated/sources/versionRange/java")
+
+val generateVersionRange = tasks.register("generateVersionRange") {
+    val versionValue = buildVersion
+    val outputDir = generatedVersionRangeDir
+    inputs.property("version", versionValue)
+    outputs.dir(outputDir)
+    doLast {
+        val core = versionValue.split('.', '-', '+')
+        if (core.size < 2) {
+            throw GradleException("制品版本不是 major.minor.patch 形态，无法推导联机版本区间：" + versionValue)
+        }
+        val major = core[0].toIntOrNull()
+            ?: throw GradleException("制品版本 major 段不是整数：" + versionValue)
+        val minor = core[1].toIntOrNull()
+            ?: throw GradleException("制品版本 minor 段不是整数：" + versionValue)
+        val range = "[" + major + "." + minor + ".0-alpha," + major + "." + (minor + 1) + ".0-alpha)"
+        val packageDir = outputDir.get().asFile.resolve("club/heiqi/qz_miner")
+        packageDir.mkdirs()
+        packageDir.resolve("NetworkVersionRange.java").writeText(
+            listOf(
+                "package club.heiqi.qz_miner;",
+                "",
+                "/**",
+                " * 联机兼容的远端版本区间（由构建生成，勿手改）。",
+                " *",
+                " * <p>真源是制品版本 {@link Tags#VERSION}；区间形态与边界判据见 {@code NetworkVersionRangeTest}。</p>",
+                " */",
+                "public final class NetworkVersionRange {",
+                "",
+                "    /** 远端版本必须落在 {@code [X.Y.0-alpha, X.(Y+1).0-alpha)} 内。 */",
+                "    public static final String VALUE = \"" + range + "\";",
+                "",
+                "    private NetworkVersionRange() {",
+                "    }",
+                "}",
+                ""
+            ).joinToString("\n")
+        )
+    }
+}
+
+sourceSets.named("main") { java.srcDir(generateVersionRange) }
+
+
 // 不再存在 gradle/gtnh-baselines.json 基线清单与 verifyGtnhBaseline 校验任务，
 // CI/发布也不再传递 -Pqz.gtnh.expectedGregTechVersion / -Pelytra.manifest.version 覆盖。
 //

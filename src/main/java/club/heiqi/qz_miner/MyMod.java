@@ -1,7 +1,5 @@
 package club.heiqi.qz_miner;
 
-import java.util.Map;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,14 +43,17 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
-import cpw.mods.fml.common.network.NetworkCheckHandler;
-import cpw.mods.fml.relauncher.Side;
 
 @Mod(
     modid = MyMod.MODID,
     version = Tags.VERSION,
     name = MyMod.MOD_NAME,
     acceptedMinecraftVersions = "[1.7.10]",
+    // 联机版本区间：编译期常量，由构建从制品版本派生（build.gradle.kts 的 generateVersionRange）。
+    // 形态 [X.Y.0-alpha, X.(Y+1).0-alpha) 由 FML 的 Maven ComparableVersion 序语义确定，恰好覆盖
+    // 本构建的 major.minor 族。声明区间后不得再有 @NetworkCheckHandler —— FML 的 NetworkModHolder
+    // 里两者互斥：有 handler 时 acceptableRange 根本不会创建，区间与「接受自身版本」自检一并失效。
+    acceptableRemoteVersions = NetworkVersionRange.VALUE,
     dependencies = "required-after:qz_uilib@[4.11.0,5.0.0);",
     guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory")
 public class MyMod {
@@ -115,23 +116,6 @@ public class MyMod {
 
     @SidedProxy(clientSide = "club.heiqi.qz_miner.ClientProxy", serverSide = "club.heiqi.qz_miner.CommonProxy")
     public static CommonProxy proxy;
-
-    /**
-     * 检查远端 Qz-Miner 是否属于与本构建版本可互通的 minor 族。
-     *
-     * <p>族由制品版本 {@link Tags#VERSION} 推导，见 {@link QzMinerNetworkVersionPolicy}。
-     * FML 启动日志里的「The mod qz_miner accepts its own version」读的是
-     * {@code @Mod.acceptableRemoteVersions} 区间（本模组留空 ⇒ 退化为字符串精确相等），
-     * 不经过本入口，因此那条日志不能作为策略放行的证据。</p>
-     *
-     * @param remoteVersions 远端模组版本表
-     * @param side 发起检查的一侧
-     * @return Forge 是否允许继续建立连接
-     */
-    @NetworkCheckHandler
-    public boolean checkNetworkVersions(Map<String, String> remoteVersions, Side side) {
-        return QzMinerNetworkVersionPolicy.accepts(Tags.VERSION, remoteVersions, MODID, side);
-    }
 
     @Mod.EventHandler
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
