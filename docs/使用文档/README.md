@@ -1,6 +1,6 @@
 # 使用文档
 
-本文件是 Qz-Miner 的对外使用说明：配置项语义与 5.3 联机版本边界。安装、操作与模式见根 [README.md](../../README.md)。
+本文件是 Qz-Miner 的对外使用说明：配置项语义与联机版本边界。安装、操作与模式见根 [README.md](../../README.md)。
 
 每个配置项只回答四件事：效果、默认值与合法范围、何时生效、限制。键名即 `config/qz_miner.yaml` 中的配置路径：`general.*` 是服务端权威配置；`client.*` 多数为本机客户端配置，但 `autoToolSwapEnabled` / `autoToolPrioritySelectors` 虽沿用 `client.*` 路径名，生效权威在服务端自己的已提交配置，以各条目说明为准。
 
@@ -69,12 +69,12 @@
 - `clientPreviewRemoteTimeoutMs`：远端预览请求超时（毫秒），默认 `5000`，合法 `250..60000`；超时丢弃陈旧响应并清预览激活。
 - **重复目标语义**：`clientPreviewMaxTargetsHardCap` 的 4096 配额按**唯一坐标**占用——同一坐标重复进入预览只保留一次，不占配额、不进入拓扑，语义类别取首次出现（去重先于配额）；HUD「预览已匹配」与内部计数仍按**原始读取数**。两者口径不同是刻意的：网格侧关注几何唯一性与内存上界，HUD 侧关注上游实际送来的目标数。`lod=auto` 的远处散点剔除同样不占配额。
 
-## 5.3 联机版本边界
+## 联机版本边界
 
-- 连接双方都安装 Qz-Miner 时，完整合法的 `5.3.x[-prerelease][+build]` 版本忽略 patch 与 qualifier 互通；stable、prerelease、branch/dirty dev 都属于同一 family。
-- `5.0.x`、`5.1.x`、`5.2.x`、`5.10.x`、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
-- 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端都必须是合法 5.3 family。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务主动发送仍可能失败。
-- 5.3 family 已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与 20-path schema；后续不兼容变化必须升新 minor。真实 mixed-patch/missing client/dedicated 仍为 **INCOMPLETE**，不因自动化通过而升级证据等级。
+- **族 = 当前构建版本的 `major.minor`**，由制品版本推导（不手写族常量）：完整合法的 `<major>.<minor>.x[-prerelease][+build]` 版本忽略 patch 与 qualifier 互通，stable、prerelease、branch/dirty dev 都属于同一 family。
+- 跨族版本（`major.minor` 与本构建不同的，含 `5.10.x` 这类易被字符串前缀匹配误放的）、缺段、前导零、overflow、空 qualifier、Unicode 或前后垃圾版本均拒绝。
+- 远端版本表完全缺少精确 `qz_miner` key 时 Forge checker 双向放行；若 key 存在，则本地和远端都必须属于同一合法 minor 族。missing 放行不是无 Mod 运行保证，SimpleNetworkWrapper channel 或业务主动发送仍可能失败。
+- 当前 minor 族已冻结 17 个 packet discriminator/Side、现有 wire/protocol/ordinal/code/mask 与 20-path schema；后续不兼容变化必须升新 minor——升 minor 即自动切族。真实 mixed-patch/missing client/dedicated 仍为 **INCOMPLETE**，不因自动化通过而升级证据等级。
 - GTNH 基线：当前为**单基线构建**，唯一真源是 `dependencies.gradle` 的 `elytraModpackVersion { setGtnhVersion("2.9.0-beta-3") }`（对齐 Qz-UILib），CI 与发布不使用基线矩阵。同一份 jar 的运行期兼容范围含 `2.8.0` / `2.8.4` / `2.9.0-beta-2` / `2.9.0-beta-3`，依据是源码对 GTNH 侧组件零静态链接 + 跨基线编译实证 + 宿主能力核验（适配器可用性、反射档案成员面、普通矿时运注入点形状）；这是编译期与静态证据，真机运行态未验证，不因核验通过升级证据等级。机制取舍与上游依赖缺陷依据见 [反馈层/errors/](../反馈层/errors/ERROR-20260911-gtnh-single-baseline-matrix-retirement.md) 与 [ERROR-20260817](../反馈层/errors/ERROR-20260817-gtnh-284-baseline-upstream-pom-defect.md)。
 
 ## 验证边界

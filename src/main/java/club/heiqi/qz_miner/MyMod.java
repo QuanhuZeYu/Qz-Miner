@@ -117,7 +117,12 @@ public class MyMod {
     public static CommonProxy proxy;
 
     /**
-     * 检查远端 Qz-Miner 是否属于可互通的 5.3 版本族。
+     * 检查远端 Qz-Miner 是否属于与本构建版本可互通的 minor 族。
+     *
+     * <p>族由制品版本 {@link Tags#VERSION} 推导，见 {@link QzMinerNetworkVersionPolicy}。
+     * FML 启动日志里的「The mod qz_miner accepts its own version」读的是
+     * {@code @Mod.acceptableRemoteVersions} 区间（本模组留空 ⇒ 退化为字符串精确相等），
+     * 不经过本入口，因此那条日志不能作为策略放行的证据。</p>
      *
      * @param remoteVersions 远端模组版本表
      * @param side 发起检查的一侧
