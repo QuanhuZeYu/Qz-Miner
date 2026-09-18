@@ -7,6 +7,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
  * 函数式事件总线。
  *
@@ -19,6 +22,11 @@ public final class EventBus {
      * 全局默认事件总线实例。
      */
     public static final EventBus INSTANCE = new EventBus();
+
+    /**
+     * 本类独立于 {@code MyMod}（可被其他模组直接复用），日志走 log4j 直连。
+     */
+    private static final Logger LOG = LogManager.getLogger("QzMiner/EventBus");
 
     private final Map<Class<? extends Event>, List<ListenerEntry<? extends Event>>> listeners = new HashMap<>();
 
@@ -98,7 +106,8 @@ public final class EventBus {
             try {
                 ((EventListener<T>) entry.listener).onEvent(event);
             } catch (Exception e) {
-                e.printStackTrace();
+                // 单个监听器异常隔离，不影响其余监听器；走日志系统而非 stderr，便于过滤与归档
+                LOG.error("[EventBus] 监听器抛出异常，已隔离：event={}", event, e);
             }
         }
     }
