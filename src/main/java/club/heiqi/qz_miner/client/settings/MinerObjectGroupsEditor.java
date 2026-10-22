@@ -93,8 +93,11 @@ final class MinerObjectGroupsEditor {
                 Map<String, Object> values = new LinkedHashMap<String, Object>();
                 values.put("id", group.id.get());
                 List<String> modes = new ArrayList<String>();
+                for (String original : group.modeOrder) {
+                    if (group.modes.get(original).get()) modes.add(original);
+                }
                 for (Map.Entry<String, Signal<Boolean>> mode : group.modes.entrySet()) {
-                    if (mode.getValue().get()) modes.add(mode.getKey());
+                    if (!group.modeOrder.contains(mode.getKey()) && mode.getValue().get()) modes.add(mode.getKey());
                 }
                 values.put("modes", modes); values.put("members", group.members.get()); raw.add(values);
             }
@@ -125,10 +128,13 @@ final class MinerObjectGroupsEditor {
     private final class Group {
         final Signal<String> id;
         final Map<String, Signal<Boolean>> modes = new LinkedHashMap<String, Signal<Boolean>>();
+        final List<String> modeOrder;
         final Signal<List<String>> members;
         Group(Map<String, Object> raw) {
             id = context.domain().signal((String) raw.get("id"));
             List<String> selectedModes = strings(raw.get("modes"));
+            // 展示顺序保持稳定；提交保留原模式顺序，新启用的才按展示顺序追加。
+            modeOrder = Collections.unmodifiableList(new ArrayList<String>(selectedModes));
             for (String mode : ObjectGroupMode.ids()) modes.put(mode, context.domain().signal(selectedModes.contains(mode)));
             members = context.domain().signal(Collections.unmodifiableList(new ArrayList<String>(strings(raw.get("members")))));
         }
