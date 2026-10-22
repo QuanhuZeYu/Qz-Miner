@@ -101,6 +101,7 @@ public class ClientProxy extends CommonProxy {
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
     /** 新版自动工具换位唯一长寿命客户端 adapter。 */
     public static AutoToolSwapClientAdapter autoToolSwapAdapter;
+    public static club.heiqi.qz_miner.client.hud.MinerHudController minerHudController;
 
     @Override
     public void init(FMLInitializationEvent event) {
@@ -108,6 +109,8 @@ public class ClientProxy extends CommonProxy {
         initializeClientProjections();
         registerWorldPreview();
         registerClientInteraction();
+        minerHudController = new club.heiqi.qz_miner.client.hud.MinerHudController();
+        minerHudController.register();
         MyMod.LOG.info("[ClientInit] stage=client-integrations-ready "
                 + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,key-listener");
     }
@@ -218,6 +221,7 @@ public class ClientProxy extends CommonProxy {
                         MyMod.chainStateService.getClientState().setServerChainMaxBlocks(maxBlocks);
                         MyMod.chainStateService.getClientState().setServerMatchedTargetCount(matchedCount);
                         MyMod.chainStateService.getClientState().setAcceptedTunnelDirectionSource(source);
+                        club.heiqi.qz_miner.client.settings.ClientServerConfigFacts.received(capturedToken);
                         if (connectionListener != null) {
                             connectionListener.handleServerReady(capturedToken);
                         }

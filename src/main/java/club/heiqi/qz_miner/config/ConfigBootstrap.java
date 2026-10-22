@@ -73,9 +73,18 @@ public final class ConfigBootstrap {
 
     /** 整批组候选 → 全量业务校验 → 内存编码 → 原子替换 → 更换权威 → 成功通知。 */
     public static CommittedSnapshot commit(Map<ConfigKey<?>, ?> updates) throws IOException {
+        return commit(null, updates);
+    }
+
+    /** 页面草稿用文档身份作基线；比较与原事务共锁，旧草稿必须显式重新载入。 */
+    public static CommittedSnapshot commit(ConfigDocument expectedBaseline, Map<ConfigKey<?>, ?> updates)
+            throws IOException {
         CommittedSnapshot committed;
         synchronized (ConfigBootstrap.class) {
             State previous = requireState();
+            if (expectedBaseline != null && previous.document != expectedBaseline) {
+                throw new IllegalStateException("配置已由其他入口提交，请重新载入后再保存草稿");
+            }
             ConfigDocument candidate = previous.document.withAll(updates);
             ValidatedSnapshot snapshot = ConfigSemanticValidator.requireValid(candidate);
             long epoch = nextEpoch();

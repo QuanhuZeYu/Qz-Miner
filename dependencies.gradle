@@ -51,14 +51,17 @@ dependencies {
     // Core 是独立 Java8 公共库；Forge 宿主单独安装，不内嵌到 Miner。
     // 正式宿主由 GitHub Release 解析后反混淆；本地组合仅消费显式 Maven 仓的开发件。
     def uilibVersion = providers.gradleProperty("uilibVersion").get()
+    if (uilibVersion.contains("-miner-ui") && !project.hasProperty("uilibRepository")) {
+        throw new GradleException("此分支需要尚未发布的 UILib ${uilibVersion}，请显式提供 -PuilibRepository=<Maven URI>；参数见 README。")
+    }
     def core = "asia.quanhuzeyu.uilib:core:${uilibVersion}:java8"
     def host = project.hasProperty("uilibRepository")
         ? "asia.quanhuzeyu.uilib:minecraft-host:${uilibVersion}:development-java8"
         : rfg.deobf("qz-uilib-release:qz_uilib:${uilibVersion}")
     devOnlyNonPublishable(core) { transitive = false }
     testImplementation(core) { transitive = false }
-    runtimeOnlyNonPublishable(host) { transitive = false }
-    testRuntimeOnly(host) { transitive = false }
+    devOnlyNonPublishable(host) { transitive = false }
+    testImplementation(host) { transitive = false }
     runtimeOnlyNonPublishable("asia.quanhuzeyu.uilib:font-adapter:${uilibVersion}:java8") { transitive = false }
 
     runtimeOnlyNonPublishable(project.elytraModpackVersion.gtnhdev("ServerUtilities"))

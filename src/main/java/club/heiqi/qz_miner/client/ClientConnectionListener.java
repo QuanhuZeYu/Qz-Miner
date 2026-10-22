@@ -398,6 +398,8 @@ public class ClientConnectionListener {
      * <p>须在 connection-active gate 内调用。网络发送仍在本路径（P2：monitor 内 I/O）。</p>
      */
     void initializeConnectionState(ClientConnectionLifecycle.Token connectionToken) {
+        // 连接 fallback 投影重置同时失效确认；换世界不触碰连接级已确认事实。
+        club.heiqi.qz_miner.client.settings.ClientServerConfigFacts.clear();
         if (initHookForTests != null) {
             initHookForTests.run();
             return;
@@ -454,6 +456,9 @@ public class ClientConnectionListener {
             return;
         }
         MyMod.LOG.debug("[ChainPreview] Cleaning preview lifecycle resources, reason={}", reason);
+        runCleanupStep("miner-hud", () -> {
+            if (ClientProxy.minerHudController != null) ClientProxy.minerHudController.clear();
+        });
         runCleanupStep("tunnel-direction", new Runnable() { @Override public void run() {
             if (MyMod.chainStateService != null) {
                 MyMod.chainStateService.getClientState().resetAcceptedTunnelDirectionSource();

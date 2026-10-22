@@ -11,12 +11,11 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 
-/** HUD 退役后仍约束原版 HUD 渲染类型与 UILib 内部实现包，不保留旧窗口注册及源码快照断言。 */
+/** 防止渲染/输入旁路及 private API 接入；读取 GUI Scale 属宿主事实，不视为自绘 HUD。 */
 public class HudArchitectureBoundaryTest {
 
     private static final String[] FORBIDDEN_RENDERING_TYPES = {
             "net/minecraftforge/client/event/RenderGameOverlayEvent",
-            "net/minecraft/client/gui/ScaledResolution",
             "net/minecraft/client/gui/FontRenderer",
     };
 

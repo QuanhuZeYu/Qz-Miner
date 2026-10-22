@@ -16,9 +16,11 @@ public class MyModMetadataTest {
         Assert.assertTrue(declaration.startsWith(prefix));
         String range = declaration.substring(prefix.length()).replace(";", "");
         VersionRange versions = VersionRange.createFromVersionSpec(range);
-        Assert.assertTrue(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3")));
+        Assert.assertTrue(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r5")));
+        Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3")));
         Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "4.11.0")));
         Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "6.0.0")));
-        Assert.assertTrue("退役配置界面不保留空壳入口", metadata.guiFactory().isEmpty());
+        Assert.assertEquals("配置工厂只用字符串声明，FML 在客户端按需加载",
+                "club.heiqi.qz_miner.client.settings.MinerConfigGuiFactory", metadata.guiFactory());
     }
 }

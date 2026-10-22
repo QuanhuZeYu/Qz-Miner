@@ -69,11 +69,15 @@ public class KeyListener {
      */
     private boolean wasPressed = false;
 
+    public static KeyBinding settings = new KeyBinding(
+            "key.qz_miner.settings", Keyboard.KEY_NONE, "key.categories.qz_miner");
+
     /**
      * 注册按键绑定和事件监听。
      */
     public void register() {
         ClientRegistry.registerKeyBinding(chainSwitch);
+        ClientRegistry.registerKeyBinding(settings);
         FMLCommonHandler.instance().bus().register(this);
         MinecraftForge.EVENT_BUS.register(this);
     }
@@ -155,6 +159,11 @@ public class KeyListener {
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
             return;
+        }
+
+        net.minecraft.client.Minecraft client = FMLClientHandler.instance().getClient();
+        if (settings.isPressed() && client.currentScreen == null) {
+            club.heiqi.qz_miner.client.settings.MinerSettingsScreens.open(null);
         }
 
         if (FMLClientHandler.instance().getClient().theWorld == null) {

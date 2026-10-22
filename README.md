@@ -7,4 +7,6 @@
 - 操作：默认连锁键为 `~` 所在键位，可在按键设置修改；按住连锁键使用当前模式，滚轮切子模式，叠加潜行键切主模式，各主模式记忆子模式。该组合独占滚轮，打开 GUI 时保留原版行为。
 - 配置：编辑 `config/qz_miner.yaml`；服务端权限等级 4 可使用 `/qzminer config list|get|set|reload`。
 
-合同、暂撤的客户端功能与验收边界见[正式规格](<specs/README.md>)；协作入口见 [AGENTS](<AGENTS.md>)。
+本功能分支依赖尚未发布的 UILib `5.0.0-beta3-miner-ui-r5`；构建时显式传入 `-PuilibRepository=<Maven URI>`（可加 `-PuilibVersion=5.0.0-beta3-miner-ui-r5`）。Core、字体适配与 Minecraft 宿主须来自该仓的同版制品，普通 beta3 不含本分支所需的设置模板和 HUD API。仓库 URI 由本地环境提供，不写入项目。
+
+合同与验收边界见[正式规格](<specs/README.md>)；协作入口见 [AGENTS](<AGENTS.md>)。

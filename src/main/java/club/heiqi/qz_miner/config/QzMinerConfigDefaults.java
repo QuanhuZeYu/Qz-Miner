@@ -263,6 +263,12 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewBackendDiagnostics", Boolean.valueOf(CLIENT_PREVIEW_BACKEND_DIAGNOSTICS));
         target.put("client.clientPreviewRemoteTimeoutMs", Double.valueOf(CLIENT_PREVIEW_REMOTE_TIMEOUT_MS));
         target.put("client.objectGroups", objectGroups());
+        // HUD 默认只声明在 schema；兼容默认值投影不复制第二套常量。
+        for (club.heiqi.uilib.ui.config.ConfigKey<?> key : java.util.Arrays.asList(
+                QzMinerConfigSchema.HUD_ENABLED, QzMinerConfigSchema.HUD_ANCHOR,
+                QzMinerConfigSchema.HUD_OFFSET_X, QzMinerConfigSchema.HUD_OFFSET_Y, QzMinerConfigSchema.HUD_SCALE)) {
+            target.put(key.name(), key.defaultValue());
+        }
     }
 
     /**

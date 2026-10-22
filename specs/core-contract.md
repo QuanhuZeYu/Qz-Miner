@@ -6,7 +6,7 @@
 
 Miner 维护 CHAIN / AREA / INTERACT / SPECIAL 的业务、服务端执行权威、网络、掉落及宿主接入；Qz-UILib 提供通用配置与 UI 能力。依赖只从 Miner 指向 UILib，业务不得复制通用框架或绕开已有抽象。
 
-运行基线为 Minecraft 1.7.10 / Forge、GTNH 2.9.0-beta-3、Java 8 字节码。UILib 5.0 使用同一明确版本的制品：Core 与 Platform 字体适配 Java 8 经 Maven，Minecraft 1.7.10 宿主经正式 Release 或显式 Maven。构建不读取上游 classes，发布包不内嵌 UILib。
+运行基线为 Minecraft 1.7.10 / Forge、GTNH 2.9.0-beta-3、Java 8 字节码。UILib 5.0 使用同一明确版本的制品：Core 与 Platform 字体适配 Java 8 经 Maven，Minecraft 1.7.10 宿主经正式 Release 或显式 Maven。构建不读取上游 classes，发布包不内嵌 UILib。本功能分支的设置模板和 HUD 以同版 `5.0.0-beta3-miner-ui-r5` 开发 Maven 组合为基线，构建须显式提供仓库；运行依赖下界与构建默认版本一致，旧 beta3 不满足新增 API。
 
 世界、worker、掉落与事务边界归[挖矿生命周期](<mining-lifecycle.md>)；权威配置与稳定文本归[配置](<configuration.md>)；客户端能力与资源归[客户端接入](<client-integration.md>)。内部类、算法、队列、parser 与事务端口不是第三方 Java API。
 

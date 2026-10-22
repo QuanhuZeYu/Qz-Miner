@@ -15,6 +15,9 @@ import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 public final class QzMinerConfigSchema {
     private QzMinerConfigSchema() { }
 
+    private static final Map<ConfigKey<?>, List<String>> CHOICES =
+            new java.util.LinkedHashMap<ConfigKey<?>, List<String>>();
+
     private static final ConfigCodec<Map<String, Object>> OBJECT_GROUP_CODEC =
             ConfigCodecs.<Map<String, Object>>object()
                     .requiredField("id", ConfigCodecs.STRING, group -> (String) group.get("id"))
@@ -208,6 +211,19 @@ public final class QzMinerConfigSchema {
     public static final ConfigKey<List<Map<String, Object>>> OBJECT_GROUPS =
             new ConfigKey<List<Map<String, Object>>>("client.objectGroups", ConfigCodecs.listOf(OBJECT_GROUP_CODEC), QzMinerConfigDefaults.objectGroups()).withComment("按组标识和适用模式组织连锁挖掘对象");
 
+    public static final ConfigKey<Boolean> HUD_ENABLED =
+            new ConfigKey<Boolean>("client.hudEnabled", ConfigCodecs.BOOLEAN, true).withComment("显示 Miner 状态 HUD");
+    public static final ConfigKey<String> HUD_ANCHOR =
+            choice("client.hudAnchor", "TOP_LEFT", "TOP_LEFT", "TOP_CENTER", "TOP_RIGHT",
+                    "CENTER_LEFT", "CENTER", "CENTER_RIGHT", "BOTTOM_LEFT", "BOTTOM_CENTER", "BOTTOM_RIGHT")
+                    .withComment("HUD 相对屏幕的锚点");
+    public static final ConfigKey<Double> HUD_OFFSET_X =
+            number("client.hudOffsetX", 12, -16384, 16384, false).withComment("HUD 水平逻辑偏移");
+    public static final ConfigKey<Double> HUD_OFFSET_Y =
+            number("client.hudOffsetY", 12, -16384, 16384, false).withComment("HUD 垂直逻辑偏移");
+    public static final ConfigKey<Double> HUD_SCALE =
+            number("client.hudScale", 1, 0.5, 3, false).withComment("HUD 内容缩放");
+
     public static final ConfigSchema SCHEMA = ConfigSchema.of(
             GREETING,
             CHAIN_RADIUS,
@@ -262,7 +278,7 @@ public final class QzMinerConfigSchema {
             CLIENT_PREVIEW_EXECUTION_PROGRESS,
             CLIENT_PREVIEW_BACKEND_DIAGNOSTICS,
             CLIENT_PREVIEW_REMOTE_TIMEOUT_MS,
-            OBJECT_GROUPS);
+            OBJECT_GROUPS, HUD_ENABLED, HUD_ANCHOR, HUD_OFFSET_X, HUD_OFFSET_Y, HUD_SCALE);
 
     /** 命令与显式旧配置导入共用路径解析，返回的始终是已声明实例。 */
     public static ConfigKey<?> key(String path) {
@@ -278,8 +294,17 @@ public final class QzMinerConfigSchema {
                 number -> number >= min && number <= max && (!integer || number == Math.rint(number)));
     }
 
-    private static ConfigKey<String> choice(String path, String value, String[] options) {
-        return new ConfigKey<String>(path, ConfigCodecs.STRING, value, Arrays.asList(options)::contains);
+    /** 页面从同一声明读取选择域，不另维护容易漂移的选项表。 */
+    public static List<String> choices(ConfigKey<?> key) {
+        List<String> values = CHOICES.get(key);
+        return values == null ? Collections.<String>emptyList() : values;
+    }
+
+    private static ConfigKey<String> choice(String path, String value, String... options) {
+        List<String> values = Collections.unmodifiableList(Arrays.asList(options.clone()));
+        ConfigKey<String> key = new ConfigKey<String>(path, ConfigCodecs.STRING, value, values::contains);
+        CHOICES.put(key, values);
+        return key;
     }
 
     @SuppressWarnings("unchecked")

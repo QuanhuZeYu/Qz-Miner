@@ -48,13 +48,14 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     modid = MyMod.MODID,
     version = Tags.VERSION,
     name = MyMod.MOD_NAME,
+    guiFactory = "club.heiqi.qz_miner.client.settings.MinerConfigGuiFactory",
     acceptedMinecraftVersions = "[1.7.10]",
     // 联机版本区间：编译期常量，由构建从制品版本派生（build.gradle.kts 的 generateVersionRange）。
     // 形态 [X.Y.0-alpha, X.(Y+1).0-alpha) 由 FML 的 Maven ComparableVersion 序语义确定，恰好覆盖
     // 本构建的 major.minor 族。声明区间后不得再有 @NetworkCheckHandler —— FML 的 NetworkModHolder
     // 里两者互斥：有 handler 时 acceptableRange 根本不会创建，区间与「接受自身版本」自检一并失效。
     acceptableRemoteVersions = NetworkVersionRange.VALUE,
-    dependencies = "required-after:qz_uilib@[5.0.0-beta3,6.0.0);")
+    dependencies = "required-after:qz_uilib@[5.0.0-beta3-miner-ui-r5,6.0.0);")
 public class MyMod {
 
     public static final String MODID = "qz_miner";
