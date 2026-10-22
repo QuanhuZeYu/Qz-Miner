@@ -4,7 +4,7 @@ import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
-import club.heiqi.config.runtime.ConfigManager;
+import club.heiqi.uilib.ui.config.ConfigDocument;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 import club.heiqi.qz_miner.config.PreviewAnimationMode;
 import club.heiqi.qz_miner.config.PreviewAnimationPhase;
@@ -20,9 +20,9 @@ import club.heiqi.qz_miner.toolswap.ToolSelector;
 /**
  * 运行时配置静态字段门面。
  *
- * <p>权威源为 UILib {@link ConfigManager}（YAML {@code config/qz_miner.yaml}）。
+ * <p>权威源为 UILib {@link ConfigDocument}（YAML {@code config/qz_miner.yaml}）。
  * 静态字段初值来自 {@link QzMinerConfigDefaults}；启动经 {@link #init} 全量回灌；
- * 运行时 BATCH_SAVE/RELOAD 分侧发布（client 主线程 / general 主线程），见 ClientConfigChangeListener。</p>
+ * 运行时成功提交后分侧发布（client 主线程 / general 主线程），见 ClientConfigChangeListener。</p>
  */
 public class Config {
 
@@ -150,11 +150,11 @@ public class Config {
      * @param legacyCfg 旧 Forge cfg，仅一次性导入源
      */
     public void init(File configDir, File legacyCfg) {
-        ConfigManager manager = ConfigBootstrap.bootstrap(configDir, legacyCfg);
+        ConfigDocument document = ConfigBootstrap.bootstrap(configDir, legacyCfg);
         File yaml = ConfigBootstrap.yamlFile();
         configPath = yaml == null ? "" : yaml.getAbsolutePath();
-        if (manager == null) {
-            throw new IllegalStateException("ConfigBootstrap returned null manager");
+        if (document == null) {
+            throw new IllegalStateException("ConfigBootstrap returned null document");
         }
     }
 

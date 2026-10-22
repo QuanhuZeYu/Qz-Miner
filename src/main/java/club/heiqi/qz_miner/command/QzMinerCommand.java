@@ -1,13 +1,16 @@
 package club.heiqi.qz_miner.command;
 
+import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.config.ServerConfigHotApplyService;
 import club.heiqi.qz_miner.config.ServerConfigMutationService;
 import club.heiqi.qz_miner.config.ServerConfigMutationService.Result;
 import net.minecraft.command.CommandBase;
+import net.minecraft.command.CommandException;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
 
-/** 运维服务端配置的 {@code /qzminer config} 根命令。 */
+/** 服务端运维入口：配置提交与明确指定玩家的停止资产恢复。 */
 public final class QzMinerCommand extends CommandBase {
 
     private final ServerConfigMutationService mutationService;
@@ -31,7 +34,7 @@ public final class QzMinerCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/qzminer config list [prefix]|get <path>|set <path> <value...>|reload";
+        return "/qzminer config list [prefix]|get <path>|set <path> <value...>|reload; /qzminer drops recover <player>";
     }
 
     @Override
@@ -41,6 +44,10 @@ public final class QzMinerCommand extends CommandBase {
 
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
+        if (args != null && args.length > 0 && "drops".equals(args[0])) {
+            recoverDrops(sender, args);
+            return;
+        }
         Result result = route(args);
         if (result.isSuccess() && result.committed() != null) {
             try {
@@ -53,6 +60,25 @@ public final class QzMinerCommand extends CommandBase {
         }
         for (String line : result.lines()) {
             sender.addChatMessage(new ChatComponentText(line));
+        }
+    }
+
+    private void recoverDrops(ICommandSender sender, String[] args) {
+        if (args.length != 3 || !"recover".equals(args[1])) {
+            sender.addChatMessage(new ChatComponentText("Usage: /qzminer drops recover <player>"));
+            return;
+        }
+        if (MyMod.chainStateService == null) {
+            sender.addChatMessage(new ChatComponentText("Drop recovery unavailable: server state not initialized"));
+            return;
+        }
+        try {
+            EntityPlayerMP player = getPlayer(sender, args[2]);
+            int pending = MyMod.chainStateService.releaseSuspendedPlayerDrops(player);
+            sender.addChatMessage(new ChatComponentText(
+                    "Drop recovery for " + player.getCommandSenderName() + ": " + pending + " stack(s) pending"));
+        } catch (CommandException unavailable) {
+            sender.addChatMessage(new ChatComponentText("Drop recovery requires an online player: " + args[2]));
         }
     }
 
@@ -78,7 +104,7 @@ public final class QzMinerCommand extends CommandBase {
 
     private Result usageFailure() {
         return ServerConfigMutationService.Result.commandFailure(
-                "Usage: /qzminer config list [prefix]|get <path>|set <path> <value...>|reload");
+                "Usage: " + getCommandUsage(null));
     }
 
     private static String join(String[] values, int start) {

@@ -2,304 +2,71 @@ package club.heiqi.qz_miner.chain.planner;
 
 import club.heiqi.qz_miner.parallel.ParallelTickControl;
 
-/**
- * 伐木壳层预算化遍历器。
- */
+/** 伐木复用 BFS 恢复流程，仅由立方邻接游标定义原木壳层范围。 */
 public class LoggingFloodFillTraverser implements BudgetedChainTraverser {
-
-    private final int shellLayers;
-    private TraversalPhase budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
-    private ChainTarget currentTarget;
-    private ChainTarget pendingNeighbor;
-    private int offsetX;
-    private int offsetY;
-    private int offsetZ;
+    private final ChainSearchAlgorithm.BudgetState budgetState;
 
     public LoggingFloodFillTraverser(int shellLayers) {
-        this.shellLayers = Math.max(1, shellLayers);
+        budgetState = new ChainSearchAlgorithm.BudgetState(new LoggingNeighbors(Math.max(1, shellLayers)));
     }
 
     @Override
     public void seed(ChainSearchContext context) {
-        resetBudgetState();
         ChainTarget origin = context.getOrigin();
         context.getVisited().add(origin);
-        beginNeighborGeneration(origin);
+        budgetState.beginSeedNeighborGeneration(origin);
     }
 
     @Override
-    public TraversalStepResult step(ChainSearchContext context, ParallelTickControl control, ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
-        if (context == null || control == null || matcher == null || consumer == null) {
-            return TraversalStepResult.COMPLETED;
+    public TraversalStepResult step(ChainSearchContext context, ParallelTickControl control,
+            ChainTargetMatcher matcher, ChainTargetConsumer consumer) {
+        return ChainSearchAlgorithm.step(context, control, budgetState, matcher, consumer);
+    }
+
+    /** X、Y、Z 依次递增；伐木沿用局部壳层连通，不套用普通 CHAIN 的 origin 半径门。 */
+    private static final class LoggingNeighbors extends TraversalNeighbors {
+        private final int layers;
+        private int x;
+        private int y;
+        private int z;
+
+        private LoggingNeighbors(int layers) {
+            this.layers = layers;
         }
 
-        while (true) {
-            if (control.isCancelRequested()) {
-                return TraversalStepResult.TERMINATED;
-            }
-            if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                resetBudgetState();
-                return TraversalStepResult.COMPLETED;
-            }
-            if (control.shouldYield()) {
-                return TraversalStepResult.YIELDED;
-            }
-
-            if (budgetPhase == TraversalPhase.ROTATE_FRONTIER) {
-                TraversalStepResult rotateResult = rotateFrontier(context, control);
-                if (rotateResult != TraversalStepResult.CONTINUE) {
-                    return rotateResult;
-                }
-                continue;
-            }
-
-            if (budgetPhase == TraversalPhase.GENERATE_NEIGHBORS) {
-                TraversalStepResult neighborResult = generateNeighbors(context, control);
-                if (neighborResult != TraversalStepResult.CONTINUE) {
-                    return neighborResult;
-                }
-                continue;
-            }
-
-            if (budgetPhase == TraversalPhase.CHECK_CURRENT_FILTER) {
-                if (currentTarget == null) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                PlanningCandidateGate.FilterResult filterResult =
-                        context.tryCommitPlanningCandidateFilter(control, currentTarget);
-                if (filterResult == PlanningCandidateGate.FilterResult.YIELDED) {
-                    return TraversalStepResult.YIELDED;
-                }
-                if (filterResult == PlanningCandidateGate.FilterResult.TERMINATED) {
-                    return TraversalStepResult.TERMINATED;
-                }
-                if (filterResult == PlanningCandidateGate.FilterResult.REJECTED) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                budgetPhase = TraversalPhase.CHECK_CURRENT_MATCHER;
-                continue;
-            }
-
-            if (budgetPhase == TraversalPhase.CHECK_CURRENT_MATCHER) {
-                if (currentTarget == null) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                if (control.shouldYield()) {
-                    return yieldOrTerminate(control);
-                }
-                if (!matcher.matches(currentTarget)) {
-                    // CHAIN_LOGGING 的 matcher 同时承担冻结采掘能力门；拒绝节点既不入队，
-                    // 也不得生成邻居，避免无可用能力的原木桥接后续拓扑。
-                    clearCurrentTarget();
-                    continue;
-                }
-                budgetPhase = TraversalPhase.SUBMIT_CURRENT_TARGET;
-                continue;
-            }
-
-            if (budgetPhase == TraversalPhase.SUBMIT_CURRENT_TARGET) {
-                if (currentTarget == null) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                if (control.shouldYield()) {
-                    return yieldOrTerminate(control);
-                }
-                if (control.isCancelRequested()) {
-                    return TraversalStepResult.TERMINATED;
-                }
-                consumer.accept(currentTarget);
-                context.incrementConfirmedCount();
-
-                if (context.getConfirmedCount() >= context.getMaxTargets()) {
-                    clearCurrentTarget();
-                    return TraversalStepResult.COMPLETED;
-                }
-
-                beginNeighborGeneration(currentTarget);
-                continue;
-            }
-
-            if (currentTarget == null && context.getCurrentFrontier().isEmpty()) {
-                if (control.shouldYield()) {
-                    return yieldOrTerminate(control);
-                }
-                if (!context.getNextFrontier().isEmpty()) {
-                    budgetPhase = TraversalPhase.ROTATE_FRONTIER;
-                    continue;
-                }
-                resetBudgetState();
-                return TraversalStepResult.COMPLETED;
-            }
-
-            if (currentTarget == null) {
-                ChainTarget queuedTarget = context.getCurrentFrontier().peek();
-                PlanningCandidateGate.CommitResult candidateResult =
-                        context.tryCommitPlanningCandidate(control, queuedTarget);
-                TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
-                if (committed != null) {
-                    return committed;
-                }
-                currentTarget = context.getCurrentFrontier().poll();
-                if (currentTarget == null) {
-                    continue;
-                }
-                if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
-                    clearCurrentTarget();
-                    continue;
-                }
-                budgetPhase = TraversalPhase.CHECK_CURRENT_FILTER;
-                continue;
-            }
-            budgetPhase = TraversalPhase.CHECK_CURRENT_FILTER;
-        }
-    }
-
-    private TraversalStepResult rotateFrontier(ChainSearchContext context, ParallelTickControl control) {
-        while (!context.getNextFrontier().isEmpty()) {
-            if (control.shouldYield()) {
-                return yieldOrTerminate(control);
-            }
-            ChainTarget target = context.getNextFrontier().poll();
-            if (target != null) {
-                context.getCurrentFrontier().add(target);
-                context.recordDurableProgress();
-            }
-        }
-        budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
-        return TraversalStepResult.CONTINUE;
-    }
-
-    private TraversalStepResult generateNeighbors(ChainSearchContext context, ParallelTickControl control) {
-        if (currentTarget == null) {
-            clearCurrentTarget();
-            return TraversalStepResult.CONTINUE;
+        @Override protected boolean hasNext() { return center != null && x <= layers; }
+        @Override protected boolean isExcluded(ChainSearchContext context, ChainTarget next) {
+            return context.getVisited().contains(next);
         }
 
-        while (hasMoreOffsets()) {
-            if (control.isCancelRequested()) {
-                return TraversalStepResult.TERMINATED;
-            }
-            if (control.shouldYield()) {
-                return TraversalStepResult.YIELDED;
-            }
-
-            if (pendingNeighbor != null) {
-                PlanningCandidateGate.FilterResult filterResult =
-                        context.tryCommitPlanningCandidateFilter(control, pendingNeighbor);
-                TraversalStepResult filtered = PlanningCandidateGate.filterStep(filterResult, control);
-                if (filtered != null) {
-                    return filtered;
-                }
-                ChainTarget committedNeighbor = pendingNeighbor;
-                pendingNeighbor = null;
-                advanceOffsetCursor();
-                if (context.getVisited().add(committedNeighbor)
-                        && filterResult == PlanningCandidateGate.FilterResult.ACCEPTED) {
-                    context.getNextFrontier().add(committedNeighbor);
-                }
-                continue;
-            }
-
-            int dx = offsetX;
-            int dy = offsetY;
-            int dz = offsetZ;
-
-            if (dx == 0 && dy == 0 && dz == 0) {
-                if (control.shouldYield()) {
-                    return yieldOrTerminate(control);
-                }
-                advanceOffsetCursor();
-                context.recordDurableProgress();
-                continue;
-            }
-
-            ChainTarget next = new ChainTarget(
-                currentTarget.getX() + dx,
-                currentTarget.getY() + dy,
-                currentTarget.getZ() + dz);
-            if (context.getVisited().contains(next)) {
-                if (control.shouldYield()) {
-                    return yieldOrTerminate(control);
-                }
-                advanceOffsetCursor();
-                context.recordDurableProgress();
-                continue;
-            }
-
-            PlanningCandidateGate.CommitResult candidateResult =
-                    context.tryCommitPlanningCandidate(control, next);
-            TraversalStepResult committed = PlanningCandidateGate.commitStep(candidateResult, control);
-            if (committed != null) {
-                return committed;
-            }
-
-            if (candidateResult == PlanningCandidateGate.CommitResult.AIR_COMMITTED) {
-                advanceOffsetCursor();
-                context.getVisited().add(next);
-                continue;
-            }
-            pendingNeighbor = next;
+        @Override
+        protected void resetCursor() {
+            x = -layers;
+            y = -layers;
+            z = -layers;
         }
 
-        clearCurrentTarget();
-        return TraversalStepResult.CONTINUE;
-    }
-
-    private void beginNeighborGeneration(ChainTarget center) {
-        currentTarget = center;
-        pendingNeighbor = null;
-        offsetX = -shellLayers;
-        offsetY = -shellLayers;
-        offsetZ = -shellLayers;
-        budgetPhase = TraversalPhase.GENERATE_NEIGHBORS;
-    }
-
-    private boolean hasMoreOffsets() {
-        return offsetX <= shellLayers;
-    }
-
-    private void advanceOffsetCursor() {
-        offsetZ++;
-        if (offsetZ <= shellLayers) {
-            return;
+        @Override
+        protected ChainTarget currentNeighbor() {
+            if (x == 0 && y == 0 && z == 0) {
+                return null;
+            }
+            return new ChainTarget(center.getX() + x, center.getY() + y, center.getZ() + z);
         }
-        offsetZ = -shellLayers;
-        offsetY++;
-        if (offsetY <= shellLayers) {
-            return;
+
+        @Override
+        protected void advanceCursor() {
+            z++;
+            if (z <= layers) {
+                return;
+            }
+            z = -layers;
+            y++;
+            if (y <= layers) {
+                return;
+            }
+            y = -layers;
+            x++;
         }
-        offsetY = -shellLayers;
-        offsetX++;
-    }
-
-    private TraversalStepResult yieldOrTerminate(ParallelTickControl control) {
-        return PlanningCandidateGate.yieldOrTerminate(control);
-    }
-
-    private void clearCurrentTarget() {
-        budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
-        currentTarget = null;
-        pendingNeighbor = null;
-        offsetX = -shellLayers;
-        offsetY = -shellLayers;
-        offsetZ = -shellLayers;
-    }
-
-    private void resetBudgetState() {
-        clearCurrentTarget();
-        budgetPhase = TraversalPhase.PROCESS_CURRENT_FRONTIER;
-    }
-
-    private enum TraversalPhase {
-        PROCESS_CURRENT_FRONTIER,
-        CHECK_CURRENT_FILTER,
-        CHECK_CURRENT_MATCHER,
-        SUBMIT_CURRENT_TARGET,
-        GENERATE_NEIGHBORS,
-        ROTATE_FRONTIER
     }
 }

@@ -167,6 +167,33 @@ public class ChainStateMachineTest {
         }
     }
 
+    /** 授权读取真实槽位；重连后相同generation也不能接受旧round。 */
+    @Test
+    public void planningPermissionRequiresCurrentPhaseGenerationAndRound() {
+        Harness h = newHarness();
+        Assert.assertFalse(h.sm.permitsPlanning(PLAYER_A, 1, 501L));
+        h.bus.publish(new ChainKeyPressed(PLAYER_A, 501L, 0, TICK, NANOS, true));
+        h.bus.publish(new BlockBreakObserved(PLAYER_A, 501L, 0, TICK, NANOS,
+                1, 2, 3, 0, 1, null, 0));
+        h.bus.drain();
+        Assert.assertTrue(h.sm.permitsPlanning(PLAYER_A, 1, 501L));
+        Assert.assertFalse(h.sm.permitsPlanning(PLAYER_A, 2, 501L));
+        Assert.assertFalse(h.sm.permitsPlanning(PLAYER_A, 1, 502L));
+        Assert.assertFalse(h.sm.permitsPlanning(PLAYER_B, 1, 501L));
+
+        drive(h, new LifecycleCleanup(PLAYER_A, 501L, 0, TICK, NANOS, "logout", true, true));
+        Assert.assertFalse(h.sm.permitsPlanning(PLAYER_A, 1, 501L));
+        h.bus.publish(new ChainKeyPressed(PLAYER_A, 502L, 0, TICK, NANOS, true));
+        h.bus.publish(new BlockBreakObserved(PLAYER_A, 502L, 0, TICK, NANOS,
+                1, 2, 3, 0, 1, null, 0));
+        h.bus.drain();
+        Assert.assertEquals("新连接generation可重新从1开始", 1, h.sm.getCurrentGeneration(PLAYER_A));
+        Assert.assertTrue(h.sm.permitsPlanning(PLAYER_A, 1, 502L));
+        Assert.assertFalse("generation重用不代表旧round仍获授权", h.sm.permitsPlanning(PLAYER_A, 1, 501L));
+        drive(h, new PlanCompleted(PLAYER_A, 502L, 1, TICK, NANOS, 1));
+        Assert.assertFalse("离开PLANNING即不能新登记规划", h.sm.permitsPlanning(PLAYER_A, 1, 502L));
+    }
+
     // ============================ 1-11：单项合法转移 ============================
 
     /** 1. 初始态为 IDLE，代际为 0。 */

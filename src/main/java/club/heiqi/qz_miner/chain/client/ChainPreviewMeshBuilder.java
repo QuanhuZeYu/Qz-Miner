@@ -1418,9 +1418,20 @@ public class ChainPreviewMeshBuilder {
             if (mesh != null) {
                 return true;
             }
+            if (!collectTargets(effectiveGate) || !collectVisibleEdges(effectiveGate)) {
+                return false;
+            }
+            if (!buildJunctions(effectiveGate) || !buildTubes(effectiveGate)) {
+                return false;
+            }
+            finishMesh();
+            return true;
+        }
 
+        /** 收集阶段只在读取目标前让出；类别索引、去重与 LOD 配额仍按原始目标流推进。 */
+        private boolean collectTargets(WorkGate gate) {
             while (!truncated && targetIterator.hasNext()) {
-                if (effectiveGate.shouldYield()) {
+                if (gate.shouldYield()) {
                     return false;
                 }
                 ChainTarget target = targetIterator.next();
@@ -1449,10 +1460,14 @@ public class ChainPreviewMeshBuilder {
                     meshOrigin = position;
                 }
             }
+            return true;
+        }
 
+        /** 可见边阶段保留当前目标与段游标，恢复时不重读目标、不重复登记边。 */
+        private boolean collectVisibleEdges(WorkGate gate) {
             while (pointCursor < positions.size() || currentPoint != null) {
                 if (currentPoint == null) {
-                    if (effectiveGate.shouldYield()) {
+                    if (gate.shouldYield()) {
                         return false;
                     }
                     int appearOrder = pointCursor++;
@@ -1471,7 +1486,7 @@ public class ChainPreviewMeshBuilder {
                 }
 
                 while (segmentCursor < currentSegments.length) {
-                    if (effectiveGate.shouldYield()) {
+                    if (gate.shouldYield()) {
                         return false;
                     }
                     registerEdge(currentPoint, currentSegments[segmentCursor++], currentAppearOrder);
@@ -1479,68 +1494,85 @@ public class ChainPreviewMeshBuilder {
                 currentPoint = null;
                 currentSegments = new LineSegment[0];
             }
+            return true;
+        }
 
+        /** 接头必须先于管段装配，首写顶点与最小 incident 目标的顺序由此保持。 */
+        private boolean buildJunctions(WorkGate gate) {
             if (geometryPhase == 0) {
                 junctionIterator = incidence.entrySet().iterator();
                 geometryPhase = 1;
             }
-            if (geometryPhase == 1) {
-                while (junctionIterator.hasNext() || currentCorners != null) {
-                    if (currentCorners == null) {
-                        if (effectiveGate.shouldYield()) {
-                            return false;
-                        }
-                        Map.Entry<GridPoint, Integer> entry = junctionIterator.next();
-                        int mask = entry.getValue().intValue();
-                        if (isStraight(mask)) {
-                            continue;
-                        }
-                        Integer appearOrder = junctionAppearOrders.get(entry.getKey());
-                        currentAppearOrder = appearOrder == null
-                            ? ChainPreviewMesh.APPEAR_ORDER_UNDEFINED
-                            : appearOrder.intValue();
-                        currentFacesAreTube = false;
-                        currentCorners = junctionCorners(entry.getKey());
-                        currentFaces = junctionFaces(mask);
-                        currentFaceCursor = 0;
-                        currentFaceCount = currentFaces.length;
-                    }
-                    while (currentFaceCursor < currentFaceCount) {
-                        if (effectiveGate.shouldYield()) {
-                            return false;
-                        }
-                        appendCurrentFace();
-                    }
-                    clearCurrentGeometry();
-                }
-                edgeIterator = edges.iterator();
-                geometryPhase = 2;
+            if (geometryPhase != 1) {
+                return true;
             }
-            if (geometryPhase == 2) {
-                while (edgeIterator.hasNext() || currentCorners != null) {
-                    if (currentCorners == null) {
-                        if (effectiveGate.shouldYield()) {
-                            return false;
-                        }
-                        GridEdge edge = edgeIterator.next();
-                        currentAppearOrder = edge.appearOrder;
-                        currentFacesAreTube = true;
-                        currentCorners = tubeCorners(edge);
-                        currentFaces = TUBE_FACES_BY_AXIS[edge.axis];
-                        currentFaceCursor = 0;
-                        currentFaceCount = currentFaces.length;
+            while (junctionIterator.hasNext() || currentCorners != null) {
+                if (currentCorners == null) {
+                    if (gate.shouldYield()) {
+                        return false;
                     }
-                    while (currentFaceCursor < currentFaceCount) {
-                        if (effectiveGate.shouldYield()) {
-                            return false;
-                        }
-                        appendCurrentFace();
+                    Map.Entry<GridPoint, Integer> entry = junctionIterator.next();
+                    int mask = entry.getValue().intValue();
+                    if (isStraight(mask)) {
+                        continue;
                     }
-                    clearCurrentGeometry();
+                    Integer appearOrder = junctionAppearOrders.get(entry.getKey());
+                    currentAppearOrder = appearOrder == null
+                        ? ChainPreviewMesh.APPEAR_ORDER_UNDEFINED
+                        : appearOrder.intValue();
+                    currentFacesAreTube = false;
+                    currentCorners = junctionCorners(entry.getKey());
+                    currentFaces = junctionFaces(mask);
+                    currentFaceCursor = 0;
+                    currentFaceCount = currentFaces.length;
                 }
-                geometryPhase = 3;
+                if (!appendCurrentFaces(gate)) {
+                    return false;
+                }
             }
+            edgeIterator = edges.iterator();
+            geometryPhase = 2;
+            return true;
+        }
 
+        private boolean buildTubes(WorkGate gate) {
+            if (geometryPhase != 2) {
+                return true;
+            }
+            while (edgeIterator.hasNext() || currentCorners != null) {
+                if (currentCorners == null) {
+                    if (gate.shouldYield()) {
+                        return false;
+                    }
+                    GridEdge edge = edgeIterator.next();
+                    currentAppearOrder = edge.appearOrder;
+                    currentFacesAreTube = true;
+                    currentCorners = tubeCorners(edge);
+                    currentFaces = TUBE_FACES_BY_AXIS[edge.axis];
+                    currentFaceCursor = 0;
+                    currentFaceCount = currentFaces.length;
+                }
+                if (!appendCurrentFaces(gate)) {
+                    return false;
+                }
+            }
+            geometryPhase = 3;
+            return true;
+        }
+
+        /** 面发射完成后才清理当前几何；让出时保留 corners、类别、管段槽位及面游标。 */
+        private boolean appendCurrentFaces(WorkGate gate) {
+            while (currentFaceCursor < currentFaceCount) {
+                if (gate.shouldYield()) {
+                    return false;
+                }
+                appendCurrentFace();
+            }
+            clearCurrentGeometry();
+            return true;
+        }
+
+        private void finishMesh() {
             // T51 方案 A 收尾：顶点按面分裂后，appearOrder / semanticClass 仍在位置级取最小值。
             // 必须早于 aux.exactArray()——后者可能返回副本，之后再改 builder 就落不到 mesh 上。
             normalizeAppearOrderByPosition();
@@ -1566,7 +1598,6 @@ public class ChainPreviewMeshBuilder {
                 lodCulledPositions.retainAll(lodCulledThisBuild);
             }
             consumeLodHysteresisReset();
-            return true;
         }
 
         /** 构建线程消费主线程的清理请求；返回是否实际清理。 */

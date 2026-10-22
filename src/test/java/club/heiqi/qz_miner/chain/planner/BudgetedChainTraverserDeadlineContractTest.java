@@ -190,6 +190,24 @@ public class BudgetedChainTraverserDeadlineContractTest {
                 ChainSubMode.AREA_CUBOID_CLEAR, 1);
     }
 
+    /** 邻居读取已提交而 filter 尚未提交时，恢复必须留在同一候选事务。 */
+    @Test
+    public void pendingNeighborFilterFailureResumesWithoutRepeatingWorldRead() {
+        assertPendingFilterFailureResumes(new FloodFillTraverser(), ChainSubMode.CHAIN_BASE);
+        assertPendingFilterFailureResumes(new LoggingFloodFillTraverser(1), ChainSubMode.CHAIN_LOGGING);
+    }
+
+    /** AREA 的候选拒绝只排除该坐标，不能截断空间扫描或改变后续顺序。 */
+    @Test
+    public void rejectedSpatialCandidatePreservesOrderAcrossDeadlineWindows() {
+        assertRejectedSpatialCandidate(new BoxScanTraverser(), new BoxScanTraverser(),
+                ChainSubMode.AREA_HARVESTABLE_ALL, ORIGIN, 2);
+        assertRejectedSpatialCandidate(new SectionClearTraverser(), new SectionClearTraverser(),
+                ChainSubMode.AREA_SECTION_CLEAR, new ChainTarget(-1, -1, -1), 16);
+        assertRejectedSpatialCandidate(new TunnelBoxScanTraverser(5), new TunnelBoxScanTraverser(5),
+                ChainSubMode.AREA_TUNNEL, ORIGIN, 2);
+    }
+
     @Test
     public void absoluteNanoDeadlineStopsBeforeCandidateFilter() {
         MutableBlocks blocks = new MutableBlocks(false);
@@ -211,6 +229,81 @@ public class BudgetedChainTraverserDeadlineContractTest {
         Assert.assertEquals(ParallelTickStage.SERVER_PRE, control.getStage());
         Assert.assertEquals("绝对 deadline 必须在首次空气探测后耗尽", 1, blocks.getTotalProbes());
         Assert.assertEquals("deadline 已耗尽时不得启动 candidate filter", 0, filterCalls.get());
+    }
+
+    private static void assertPendingFilterFailureResumes(
+            BudgetedChainTraverser traverser, ChainSubMode subMode) {
+        MutableBlocks blocks = new MutableBlocks(false);
+        ChainSearchContext context = context(subMode, ORIGIN, 4, 1, blocks);
+        MutableDeadlineControl firstWindow = new MutableDeadlineControl();
+        List<ChainTarget> accepted = new ArrayList<ChainTarget>();
+        traverser.seed(context);
+        blocks.afterNextProbe(firstWindow::expire);
+        Assert.assertEquals(TraversalStepResult.YIELDED,
+                traverser.step(context, firstWindow, target -> true, accepted::add));
+        ChainTarget pending = blocks.lastProbed;
+        AtomicInteger filterCalls = new AtomicInteger();
+        context.setCandidateFilter(target -> {
+            filterCalls.incrementAndGet();
+            throw new IllegalStateException("candidate filter fixture");
+        });
+        try {
+            traverser.step(context, new MutableDeadlineControl(), target -> true, accepted::add);
+            Assert.fail("filter 异常应交还 worker 收口");
+        } catch (IllegalStateException expected) {
+            Assert.assertEquals("candidate filter fixture", expected.getMessage());
+        }
+        Assert.assertEquals(1, filterCalls.get());
+        Assert.assertEquals("失败 filter 不得重做已提交的世界读取", 1, blocks.getTotalProbes());
+        Assert.assertFalse(context.getVisited().contains(pending));
+        Assert.assertTrue(context.getCurrentFrontier().isEmpty());
+        Assert.assertTrue(context.getNextFrontier().isEmpty());
+        Assert.assertEquals(0, context.getConfirmedCount());
+
+        context.setCandidateFilter(pending::equals);
+        Assert.assertEquals(TraversalStepResult.COMPLETED,
+                runToCompletion(traverser, context, 8, target -> true, accepted));
+        Assert.assertEquals(singleton(pending), accepted);
+        Assert.assertEquals("邻居发现与队首重验各读一次，异常恢复不增加读取", 2,
+                blocks.getProbeCount(pending));
+    }
+
+    private static void assertRejectedSpatialCandidate(BudgetedChainTraverser fullTraverser,
+            BudgetedChainTraverser slicedTraverser, ChainSubMode subMode, ChainTarget origin, int maxRadius) {
+        List<ChainTarget> full = spatialPrefix(fullTraverser, subMode, origin, maxRadius, 1000000);
+        List<ChainTarget> sliced = spatialPrefix(slicedTraverser, subMode, origin, maxRadius, 8);
+        Assert.assertEquals(full, sliced);
+        if (subMode == ChainSubMode.AREA_SECTION_CLEAR) {
+            Assert.assertEquals(java.util.Arrays.asList(
+                    new ChainTarget(-2, -2, -1), new ChainTarget(-2, -1, -2),
+                    new ChainTarget(-2, -1, -1)), full);
+        } else if (subMode == ChainSubMode.AREA_TUNNEL) {
+            Assert.assertEquals(java.util.Arrays.asList(
+                    new ChainTarget(0, -1, 0), new ChainTarget(0, -1, 1),
+                    new ChainTarget(0, 0, -1)), full);
+        } else {
+            Assert.assertEquals(java.util.Arrays.asList(
+                    new ChainTarget(-1, -1, 0), new ChainTarget(-1, -1, 1),
+                    new ChainTarget(-1, 0, -1)), full);
+        }
+    }
+
+    private static List<ChainTarget> spatialPrefix(BudgetedChainTraverser traverser, ChainSubMode subMode,
+            ChainTarget origin, int maxRadius, int checkpointBudget) {
+        MutableBlocks blocks = new MutableBlocks(false);
+        ChainSearchContext context = context(subMode, origin, maxRadius, 3, blocks);
+        ChainTarget rejected = subMode == ChainSubMode.AREA_SECTION_CLEAR
+                ? new ChainTarget(-2, -2, -2)
+                : subMode == ChainSubMode.AREA_TUNNEL
+                        ? new ChainTarget(0, -1, -1) : new ChainTarget(-1, -1, -1);
+        context.setCandidateFilter(target -> !rejected.equals(target));
+        traverser.seed(context);
+        List<ChainTarget> accepted = new ArrayList<ChainTarget>();
+        Assert.assertEquals(TraversalStepResult.COMPLETED,
+                runToCompletion(traverser, context, checkpointBudget, target -> true, accepted));
+        Assert.assertTrue(context.getVisited().contains(rejected));
+        Assert.assertEquals(3, context.getConfirmedCount());
+        return accepted;
     }
 
     private static TraversalOutcome floodOutcome(int checkpointBudget) {
@@ -404,9 +497,12 @@ public class BudgetedChainTraverserDeadlineContractTest {
 
     private static void installConnectedDirections(GregTechCableTraverser traverser,
             ForgeDirection... directions) throws Exception {
-        Field field = GregTechCableTraverser.class.getDeclaredField("neighborDirections");
+        Field owner = GregTechCableTraverser.class.getDeclaredField("neighbors");
+        owner.setAccessible(true);
+        Object cursor = owner.get(traverser);
+        Field field = cursor.getClass().getDeclaredField("neighborDirections");
         field.setAccessible(true);
-        field.set(traverser, new ArrayList<ForgeDirection>(java.util.Arrays.asList(directions)));
+        field.set(cursor, new ArrayList<ForgeDirection>(java.util.Arrays.asList(directions)));
     }
 
     private static final class TraversalOutcome {
@@ -430,6 +526,7 @@ public class BudgetedChainTraverserDeadlineContractTest {
         private final Map<ChainTarget, Integer> probes = new HashMap<ChainTarget, Integer>();
         private Runnable afterNextProbe;
         private int totalProbes;
+        private ChainTarget lastProbed;
 
         private MutableBlocks(boolean defaultAir) { this.defaultAir = defaultAir; }
 
@@ -443,6 +540,7 @@ public class BudgetedChainTraverserDeadlineContractTest {
 
         @Override
         public boolean isOriginalAir(ChainTarget target) {
+            lastProbed = target;
             totalProbes++;
             probes.put(target, Integer.valueOf(getProbeCount(target) + 1));
             Runnable callback = afterNextProbe;

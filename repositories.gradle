@@ -1,9 +1,24 @@
-// Add any additional repositories for your dependencies here.
-
 repositories {
-    // 正式发布来源；beta 发布后即使本机没有 Maven Local 也应从这里解析。
+    mavenCentral()
     maven {
-        name = 'GTNHReleases'
-        url = 'https://nexus.gtnewhorizons.com/repository/releases/'
+        name = "GTNHReleases"
+        url = "https://nexus.gtnewhorizons.com/repository/releases/"
+    }
+    ivy {
+        name = "UILibReleases"
+        url = "https://github.com/QuanhuZeYu/Qz-UILib/releases/download"
+        patternLayout { artifact("[revision]/[artifact]-[revision].[ext]") }
+        metadataSources { artifact() }
+        content { includeGroup("qz-uilib-release") }
+    }
+    if (project.hasProperty("uilibRepository")) {
+        def local = maven {
+            name = "UILibWorkspace"
+            url = uri(project.property("uilibRepository"))
+        }
+        exclusiveContent {
+            forRepositories(local)
+            filter { includeGroup("asia.quanhuzeyu.uilib") }
+        }
     }
 }

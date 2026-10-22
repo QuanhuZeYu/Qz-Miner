@@ -1,93 +1,63 @@
 package club.heiqi.qz_miner.config;
 
+import java.io.StringReader;
+
 import org.junit.Assert;
 import org.junit.Test;
 
-import club.heiqi.config.Config;
-import club.heiqi.config.ConfigFormat;
-import club.heiqi.config.ConfigNode;
-import club.heiqi.config.schema.ConfigSchema;
+import club.heiqi.uilib.ui.config.ConfigDocument;
+import club.heiqi.uilib.ui.config.ConfigException;
 
-/** Raw YAML NodeType 预检。 */
+/** 严格类型由实际 UILib 文档读取保证，Miner 不再重复实现 YAML 预检器。 */
 public class RawYamlPreflightTest {
-
     @Test
     public void rejectsQuotedNumber() throws Exception {
         assertInvalid("general:\n  chainRadius: '12'\n", "general.chainRadius");
     }
-
     @Test
     public void rejectsQuotedBoolean() throws Exception {
         assertInvalid("general:\n  enableUnlimitedOreFortune: 'true'\n", "general.enableUnlimitedOreFortune");
     }
-
     @Test
     public void rejectsNumericStringField() throws Exception {
         assertInvalid("general:\n  greeting: 123\n", "general.greeting");
     }
-
     @Test
     public void rejectsExplicitNullButDistinguishesMissing() throws Exception {
-        ConfigNode nullRoot = Config.parse("general:\n  greeting: null\n", ConfigFormat.YAML);
-        Assert.assertTrue(nullRoot.asMap().containsKey("general"));
-        Assert.assertTrue(nullRoot.get("general").asMap().containsKey("greeting"));
-        Assert.assertEquals(ConfigNode.NodeType.NULL, nullRoot.get("general.greeting").getType());
-        assertInvalid(nullRoot, QzMinerConfigSchema.create(), "general.greeting");
-
-        RawYamlPreflight.Result missing = validate("general:\n  greeting: ok\n");
-        Assert.assertTrue(missing.summary(), missing.isValid());
+        assertInvalid("general:\n  greeting: null\n", "general.greeting");
+        ConfigDocument missing = read("general:\n  greeting: ok\n");
+        Assert.assertEquals("ok", missing.get(QzMinerConfigSchema.GREETING));
+        Assert.assertEquals(Double.valueOf(QzMinerConfigDefaults.CHAIN_RADIUS), missing.get(QzMinerConfigSchema.CHAIN_RADIUS));
     }
-
     @Test
     public void rejectsNonMapSection() throws Exception {
         assertInvalid("general: nope\n", "general");
     }
-
     @Test
-    public void acceptsMissingFieldsForSchemaDefaults() throws Exception {
-        RawYamlPreflight.Result result = validate("general:\n  greeting: hello\n");
-        Assert.assertTrue(result.summary(), result.isValid());
+    public void acceptsExactScalarTypesAndOldWholeDouble() throws Exception {
+        ConfigDocument document = read("general:\n  greeting: hello\n  chainRadius: 12.0\n"
+                + "  enableUnlimitedOreFortune: true\nclient:\n  clientEnablePreviewRender: false\n");
+        Assert.assertEquals("hello", document.get(QzMinerConfigSchema.GREETING));
+        Assert.assertEquals(Double.valueOf(12.0), document.get(QzMinerConfigSchema.CHAIN_RADIUS));
+        Assert.assertEquals(Boolean.TRUE, document.get(QzMinerConfigSchema.ENABLE_UNLIMITED_ORE_FORTUNE));
+        Assert.assertEquals(Boolean.FALSE, document.get(QzMinerConfigSchema.CLIENT_ENABLE_PREVIEW_RENDER));
     }
-
     @Test
-    public void acceptsExactScalarTypes() throws Exception {
-        String yaml = "general:\n"
-                + "  greeting: hello\n"
-                + "  chainRadius: 12\n"
-                + "  enableUnlimitedOreFortune: true\n"
-                + "client:\n"
-                + "  clientEnablePreviewRender: false\n";
-        RawYamlPreflight.Result result = validate(yaml);
-        Assert.assertTrue(result.summary(), result.isValid());
+    public void rejectsUnknownFieldsAndWrongListShape() throws Exception {
+        assertInvalid("unknown:\n  future: 1\n", "unknown");
+        assertInvalid("client:\n  autoToolPrioritySelectors: a\n", "client.autoToolPrioritySelectors");
+        assertInvalid("client:\n  autoToolPrioritySelectors: [a, 1]\n", "client.autoToolPrioritySelectors[1]");
+        assertInvalid("general.chainRadius: 12\n", "general.chainRadius");
     }
-
-    @Test
-    public void acceptsUnknownFieldsAndChecksSimpleListGenerically() throws Exception {
-        RawYamlPreflight.Result unknown = validate("unknown:\n  future: 1\n");
-        Assert.assertTrue(unknown.summary(), unknown.isValid());
-
-        ConfigSchema listSchema = ConfigSchema.builder("test")
-                .section("general")
-                    .simpleList("names").build()
-                .endSection()
-                .build();
-        ConfigNode legal = Config.parse("general:\n  names: [a, b]\n", ConfigFormat.YAML);
-        Assert.assertTrue(RawYamlPreflight.validate(legal, listSchema).isValid());
-        ConfigNode illegal = Config.parse("general:\n  names: a\n", ConfigFormat.YAML);
-        assertInvalid(illegal, listSchema, "general.names");
+    private static ConfigDocument read(String yaml) throws Exception {
+        return ConfigDocument.read(QzMinerConfigSchema.SCHEMA, new StringReader(yaml), "test.yaml");
     }
-
-    private static RawYamlPreflight.Result validate(String yaml) throws Exception {
-        return RawYamlPreflight.validate(Config.parse(yaml, ConfigFormat.YAML), QzMinerConfigSchema.create());
-    }
-
     private static void assertInvalid(String yaml, String path) throws Exception {
-        assertInvalid(Config.parse(yaml, ConfigFormat.YAML), QzMinerConfigSchema.create(), path);
-    }
-
-    private static void assertInvalid(ConfigNode root, ConfigSchema schema, String path) {
-        RawYamlPreflight.Result result = RawYamlPreflight.validate(root, schema);
-        Assert.assertFalse(result.isValid());
-        Assert.assertTrue("errors=" + result.errors(), result.errors().containsKey(path));
+        try {
+            read(yaml);
+            Assert.fail("必须拒绝非法 YAML: " + yaml);
+        } catch (ConfigException expected) {
+            Assert.assertEquals(path, expected.path());
+        }
     }
 }

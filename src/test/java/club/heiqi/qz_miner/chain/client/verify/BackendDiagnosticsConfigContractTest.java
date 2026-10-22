@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.chain.client.verify;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -9,8 +10,7 @@ import java.util.Properties;
 import org.junit.Assert;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
+import club.heiqi.uilib.ui.config.ConfigDocument;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.chain.client.ChainPreviewBackendDiagnostics;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
@@ -22,14 +22,7 @@ import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 import club.heiqi.qz_miner.config.QzMinerConfigSchema;
 import club.heiqi.qz_miner.testsupport.LanguageFiles;
 
-/**
- * Q4 预览后端诊断配置面契约：五处同源 + 默认 off + 中英对称 + 值对象语义 + 投影透传。
- *
- * <p>形状照 {@link ExecutionProgressConfigContractTest}（同一「配置 → 投影位 → HUD 行」范式）：
- * 该开关是 Q4（HUD 展示「当前生效后端 / 一次性回退原因」）的唯一门控件，因此必须与
- * {@code clientPreviewExecutionProgress} 一样在 Schema / Defaults / Config / Bridge / Validator
- * 五处同源，并由语言文件提供中英文案。</p>
- */
+/** 预览后端诊断的配置读写、默认关闭、值语义与世界预览投影透传，不依赖 HUD。 */
 public class BackendDiagnosticsConfigContractTest {
 
     private static final String SHORT_KEY = "clientPreviewBackendDiagnostics";
@@ -63,37 +56,25 @@ public class BackendDiagnosticsConfigContractTest {
         assertSymmetricTooltip("config.qz_miner." + SHORT_KEY);
     }
 
-    /** HUD 行文案（标签 + 回退片段）中英必须都在，且不得直接复制同一文案。 */
     @Test
-    public void hudLanguageEntriesArePresentInBothLanguages() throws Exception {
-        assertSymmetricTooltip("hud.qz_miner.preview.backend.label");
-        assertSymmetricTooltip("hud.qz_miner.preview.backend.fallback");
-    }
-
-    @Test
-    public void draftSaveRoundTripBridgesTheKeyIntoConfig() throws Exception {
+    public void yamlRoundTripBridgesTheKeyIntoConfig() throws Exception {
         boolean saved = Config.clientPreviewBackendDiagnostics;
         File yaml = File.createTempFile("qz-backend-diagnostics", ".yaml");
         try {
-            ConfigManager manager = ConfigManager.bootstrap(
-                yaml, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
+            ConfigDocument document = ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA);
             Assert.assertFalse("初始必须为 off", Config.clientPreviewBackendDiagnostics);
-            DraftBuffer draft = manager.openDraft();
-            draft.setDraft(CONFIG_PATH, Boolean.TRUE);
-            club.heiqi.config.runtime.SaveOutcome outcome = manager.save(draft);
-            Assert.assertEquals("合法键必须保存成功（Schema 已声明）: " + outcome.status(),
-                club.heiqi.config.runtime.SaveOutcome.Status.OK, outcome.status());
+            document = document.withAll(Collections.singletonMap(QzMinerConfigSchema.key(CONFIG_PATH), Boolean.TRUE));
+            document.write(yaml.toPath());
             ConfigSemanticValidator.ValidatedSnapshot enabled =
-                ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+                ConfigSemanticValidator.validate(ConfigDocument.read(QzMinerConfigSchema.SCHEMA, yaml.toPath())).snapshot;
             Assert.assertTrue("YAML true 必须解析进快照", enabled.clientPreviewBackendDiagnostics);
             ConfigValueBridge.applyClientFromSnapshot(enabled);
             Assert.assertTrue("桥接必须把 true 写进 Config", Config.clientPreviewBackendDiagnostics);
 
-            DraftBuffer offDraft = manager.openDraft();
-            offDraft.setDraft(CONFIG_PATH, Boolean.FALSE);
-            manager.save(offDraft);
+            document = document.withAll(Collections.singletonMap(QzMinerConfigSchema.key(CONFIG_PATH), Boolean.FALSE));
+            document.write(yaml.toPath());
             ConfigSemanticValidator.ValidatedSnapshot disabled =
-                ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+                ConfigSemanticValidator.validate(ConfigDocument.read(QzMinerConfigSchema.SCHEMA, yaml.toPath())).snapshot;
             Assert.assertFalse("YAML false 必须解析进快照", disabled.clientPreviewBackendDiagnostics);
             ConfigValueBridge.applyClientFromSnapshot(disabled);
             Assert.assertFalse("恢复默认必须写回 off", Config.clientPreviewBackendDiagnostics);
@@ -152,7 +133,7 @@ public class BackendDiagnosticsConfigContractTest {
         ChainPreviewPresentationHeader disabled = projection.sampleAndPublish(
             state, null, null, 1L, 1L, 1L, 1L, 1L, false, false, 0,
             ChainPreviewBackendDiagnostics.DISABLED);
-        Assert.assertFalse("关闭态 header 不得让 HUD 产出诊断行", disabled.isBackendDiagnosticsEnabled());
+        Assert.assertFalse("关闭态 header 不得携带启用的诊断位", disabled.isBackendDiagnosticsEnabled());
         Assert.assertEquals("", disabled.getActiveBackendId());
 
         ChainPreviewPresentationHeader enabled = projection.sampleAndPublish(

@@ -246,7 +246,7 @@ public final class LegacyCfgImporter {
         if (property != null) {
             int legacyValue = property.getInt(QzMinerConfigDefaults.TICK_BUDGET_MS);
             values.put("general.tickBudgetMs", Double.valueOf(
-                    ConfigBootstrap.normalizeLegacyCfgTickDuration(legacyValue)));
+                    ConfigStartupMigration.normalizeLegacyCfgTickDuration(legacyValue)));
         }
     }
 

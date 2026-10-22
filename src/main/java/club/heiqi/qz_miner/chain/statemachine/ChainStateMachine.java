@@ -71,8 +71,8 @@ import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
  * <p>根因背景：客户端只在物理边沿发 {@code PacketKeyState}，"按住不放"期间没有任何重述，而每次连锁
  * 收尾都回 IDLE，于是第二次观测被 T4 前置条件丢弃——玩家表现为"按住连锁键只能连锁一次"。修复前该缺口
  * 只被自动换位 round 的 fresh-key 副作用偶然掩盖（该通道带 configuredEnabled/breakCapable/creative/
- * chainActive 四道 fail-closed 守卫，创造模式必失效）。实机证据见
- * docs/反馈层/errors/ERROR-20260915-hold-chain-key-no-rearm.md。</p>
+ * chainActive 四道 fail-closed 守卫，创造模式必失效）。收尾再武装的合同见
+ * {@code specs/mining-lifecycle.md}。</p>
  */
 public class ChainStateMachine {
 
@@ -471,6 +471,10 @@ public class ChainStateMachine {
         slot.phase = to;
         // T4 时 nextGen = slot.generation + 1，其余路径 nextGen == slot.generation，写回幂等
         slot.generation = nextGen;
+        if (to == ChainPhase.PLANNING) {
+            // 与T4的代际一起冻结，不从随后排队的相位广播缓存授权。
+            slot.planningServerRoundId = event.getServerRoundId();
+        }
         UUID player = event.getPlayerUUID();
         MyMod.LOG.debug("[ChainStateMachine] transition {} -> {} on {} gen={} player={}",
                 from, to, event.getClass().getSimpleName(), nextGen, player);
@@ -492,6 +496,17 @@ public class ChainStateMachine {
     private void logIllegalDrop(ChainEvent event, ChainPhase from, ChainPhase attemptedTo) {
         MyMod.LOG.debug("[ChainStateMachine] drop illegal {} in phase={} (would-be {}) gen={} player={}",
                 event.getClass().getSimpleName(), from, attemptedTo, event.getGeneration(), event.getPlayerUUID());
+    }
+
+    /**
+     * 服务端主线程查询当前规划授权，不建槽、不改态。
+     * PlanStarted可能在同次drain的cleanup之后才出队，必须重验真实槽位；
+     * round同时防止登出删槽后generation重用让旧连接重新取得授权。
+     */
+    public boolean permitsPlanning(UUID playerUUID, int generation, long serverRoundId) {
+        PlayerPhaseSlot slot = slots.get(playerUUID);
+        return slot != null && slot.phase == ChainPhase.PLANNING
+                && slot.generation == generation && slot.planningServerRoundId == serverRoundId;
     }
 
     // ============================ package-private getter 供单测 ============================
@@ -524,6 +539,8 @@ public class ChainStateMachine {
         ChainPhase phase = ChainPhase.IDLE;
         /** 玩家当前代际，T4 ARMED→PLANNING 自增，唯一写在 {@link #applyTransition}。 */
         int generation = 0;
+        /** 最近T4冻结的规划轮次，与phase/generation在同一主线程写点更新。 */
+        long planningServerRoundId = ChainEvent.NO_SERVER_ROUND_ID;
         /**
          * 按键电平镜像（true = 玩家仍按住连锁键）。
          *

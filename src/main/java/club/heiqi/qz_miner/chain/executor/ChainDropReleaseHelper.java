@@ -139,24 +139,6 @@ public final class ChainDropReleaseHelper {
         return releaseAtCoordinates(world, target.getX(), target.getY(), target.getZ(), buffer, playerIdentity, reason + "-remembered-fallback");
     }
 
-    /**
-     * 无法恢复上下文时清空缓冲并打印警告。
-     *
-     * @param playerIdentity 玩家标识
-     * @param buffer 掉落缓冲
-     * @param reason 清理原因
-     */
-    public static void discard(String playerIdentity, ChainPlayerDropBuffer buffer, String reason) {
-        if (buffer == null || buffer.isEmpty()) {
-            return;
-        }
-
-        int pending = buffer.size();
-        buffer.clear();
-        MyMod.LOG.warn("[ChainDropCollector] Discarded {} buffered drop stack(s) for player {} reason={}",
-            Integer.valueOf(pending), playerIdentity, reason);
-    }
-
     private static boolean releaseAtCoordinates(World world, double x, double y, double z, ChainPlayerDropBuffer buffer, String playerIdentity, String reason) {
         if (world == null || buffer == null || buffer.isEmpty()) {
             return false;

@@ -19,6 +19,7 @@ import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ConfigTestSupport;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
@@ -172,7 +173,7 @@ public class ClientConnectionListenerTest {
         File tempDir = Files.createTempDirectory("qz-miner-objectgroup-").toFile();
         ChainStateService previousService = MyMod.chainStateService;
         try {
-            ConfigBootstrap.resetForTests();
+            ConfigTestSupport.reset();
             ConfigBootstrap.bootstrap(tempDir, null);
             ChainStateService service = new ChainStateService();
             MyMod.chainStateService = service;
@@ -212,7 +213,7 @@ public class ClientConnectionListenerTest {
         } finally {
             MyMod.chainStateService = previousService;
             ClientConnectionLifecycle.resetForTests();
-            ConfigBootstrap.resetForTests();
+            ConfigTestSupport.reset();
             deleteRecursively(tempDir);
         }
     }

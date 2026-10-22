@@ -29,13 +29,13 @@ public class ServerConfigHotApplyServiceTest {
         minecraftHomeField.setAccessible(true);
         previousMinecraftHome = minecraftHomeField.get(null);
         minecraftHomeField.set(null, tempDir);
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         ConfigBootstrap.bootstrap(tempDir, null);
     }
 
     @After
     public void tearDown() throws Exception {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         minecraftHomeField.set(null, previousMinecraftHome);
         deleteRecursively(tempDir);
     }

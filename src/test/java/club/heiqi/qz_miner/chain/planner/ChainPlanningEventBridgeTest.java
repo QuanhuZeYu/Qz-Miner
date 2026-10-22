@@ -228,6 +228,6 @@ public class ChainPlanningEventBridgeTest {
         String planStarted = JavaSourceSlices.methodBody(JavaSourceSlices.stripped(BRIDGE_PATH),
                 "private void onPlanStarted(", "ChainPlanningEventBridge.onPlanStarted");
         JavaSourceSlices.assertBefore(planStarted, "buildUnresolvedSeedIdentityPlanCancelled(",
-                "executionContextRegistry.put(", "UNRESOLVED fail-closed 必须先于 worker/context 登记");
+                "executionBridge.registerPlanningContext(", "UNRESOLVED fail-closed 必须先于 worker/context 登记");
     }
 }

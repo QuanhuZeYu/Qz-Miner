@@ -18,7 +18,6 @@ import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
-import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.executor.ChainActionExecutor;
 import club.heiqi.qz_miner.chain.executor.GregTechCableSessionState;
@@ -50,8 +49,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *
  * <p>订阅 {@link PlanCompleted}（领取执行上下文）+ {@link TickEvent.ServerTickEvent#START}
  * （主线程每 tick 消费队列），实现新链路完整执行闭环：
- * worker publish PlanCompleted → 主线程 drain：状态机 T5 进 RUNNING + 本桥登记 ExecutionContext
- * （G1 此时 setExecuting(true) 开掉落收集窗口）→ 后续每 tick START 在共享 soft deadline 内消费，
+ * 主线程规划入口成功登记 ExecutionContext 并开启掉落窗口 → worker 发布规划结果 →
+ * 每 tick START 在共享 soft deadline 内消费，
  * 真实破坏经 {@link ChainActionExecutor#execute}）→ 队列空 publish ExecutionFinished（G1 setExecuting(false) 关窗口）
  * → 状态机 T7 RUNNING→FINISHING → 同 tick publish LifecycleCleanup(reason="execution-complete") → 状态机 T8 FINISHING→IDLE。</p>
  *
@@ -77,10 +76,10 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *   <li><b>真实破坏</b>：consumeContext 调 {@link ChainActionExecutor#execute}（tryHarvestBlock/activateBlockOrUseItem），
  *       由 session 携带的 mode/subMode 经 ChainModeRegistry 解析执行器。守边界不越权：consumeContext 由
  *       onServerTick 在 {@code ServerTickEvent.START} 主线程调用，破坏在主线程。</li>
- *   <li><b>G1 掉落窗口</b>：五点 setExecuting 接线（onPlanStarted 流式开窗 true /
+ *   <li><b>G1 掉落窗口</b>：成功 registerPlanningContext 流式开窗 true /
  *       onPlanCompleted 登记 true / publishExecutionFinishedWithCleanup
  *       完成 false / onWatchdogTimeout 兜底 false / onLifecycleCleanup 幂等 false /
- *       onPlanCancelled 取消 false），让
+ *       onPlanCancelled 取消 false，让
  *       {@code ChainDropCollector}:32 收集开关 + :58 释放开关正确工作（I5 生命线）。</li>
  * </ul>
  *
@@ -91,8 +90,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  *   <li><b>掉落窗口正确</b>：G1 四点 setExecuting 全覆盖，ChainDropCollector 收集/释放窗口正确；
  *       flushPlayerDrops 保留在 ChainStateService（I5 兜底）。</li>
  *   <li><b>跨线程只经事件总线</b>：消费在主线程 ServerTickEvent.START，publish 经事件总线入队→主线程 drain。
- *       跨线程只发生在 worker put registry 与主线程 get registry，{@link java.util.concurrent.ConcurrentHashMap}
- *       保证可见性。</li>
+ *       context 登记与窗口写均在主线程；worker 只推进队列并发布规划结果。</li>
  *   <li><b>唯一写权威</b>：本桥 <b>只 publish 不 transition</b>。状态机仍是 phase/generation 唯一写权威。</li>
  * </ul>
  *
@@ -112,7 +110,7 @@ public class ChainExecutionEventBridge {
 
     /** 注入的事件总线（与状态机共享同一实例）。 */
     private final ChainEventBus bus;
-    /** 注入的执行上下文注册表（worker put，本桥 get）。 */
+    /** 注入的执行上下文注册表（主线程登记和领取）。 */
     private final ChainExecutionContextRegistry registry;
     /** 普通 CHAIN/AREA 的服务端本地候选与唯一 physical ledger owner。 */
     private final AutoToolSwapServerBatchService localToolSwap;
@@ -126,8 +124,8 @@ public class ChainExecutionEventBridge {
      * 不触碰 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE）。
      * FML bus 注册由 {@link #bootstrap()} 显式触发，与 {@code ChainEventBusDrainer.bootstrap()} 模式一致。</p>
      *
-     * <p>接线顺序（{@link MyMod#init}）：状态机 → registry → planningBridge（注入 registry）
-     * → <b>本桥</b>（注入 bus + registry，订阅 PlanCompleted）→ ChainEventBusDrainer.bootstrap() → 本桥.bootstrap()。
+     * <p>接线顺序（{@link MyMod#init}）：状态机 → registry → 本桥（注入 bus + registry）
+     * → planningBridge（注入本桥）→ ChainEventBusDrainer.bootstrap() → 本桥.bootstrap()。
      * Drainer 先注册 FML bus，故 ServerTickEvent 触发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
      * → 本桥.onServerTick（消费 context），同 tick 完成登记+消费，无延迟。</p>
      *
@@ -149,7 +147,6 @@ public class ChainExecutionEventBridge {
         this.bus = bus;
         this.registry = registry;
         this.localToolSwap = localToolSwap;
-        bus.subscribe(PlanStarted.class, this::onPlanStarted);
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
         bus.subscribe(PlanCancelled.class, this::onPlanCancelled);
         // 阶段7 B.4：订阅 WatchdogTimeout + LifecycleCleanup 清理 registry 幽灵队列（两容器清理分工）。
@@ -169,25 +166,25 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * C 流式执行：PlanStarted 进态广播 → 立即开掉落收集窗口。
+     * 主线程流式入口：登记成功与开启收集窗口一起完成，早期拒绝不触碰窗口。
      *
-     * <p>修复边搜边破坏丢失：withstreaming 改造后，{@link ChainPlanningEventBridge#onPlanStarted}
-     * 在注册 worker 前已 registry.put(context)（planningComplete=false），主线程执行订阅者
-     * 在下一 tick 的 {@link #onServerTick} 即可 snapshot 到 context 并开始 poll shadowQueue 破坏。
-     * worker 边搜边 shadowQueue.add，主线程边消费边破坏——破坏产生的掉落必须由
-     * {@code ChainDropCollector} 收集，而收集开关是 {@code isExecuting()}（I5 生命线）。
-     * 若窗口仍按旧 {@link #onPlanCompleted} 才打开，PLANNING 期间 worker 已 add 但消费未启的
-     * 边界也会有同步破坏掉落（主线程边搜边消费）， collector 守卫 isExecuting()=false 会丢弃 → 丢感。</p>
+     * <p>规划桥在注册 worker 前调用；陈旧 context 被 registry 拒绝后不能开窗，
+     * worker 仅填充已登记队列。取消仍按 UUID/generation/serverRoundId 三元身份关窗。</p>
      *
-     * <p>守掉落窗口正确：窗口提前到 PlanStarted，保证 PLANNING 期间边搜边破坏的掉落全部进 buffer。
-     * 后续 {@link #onPlanCompleted} 仍幂等 setExecutionWindow(true, "plan-completed") 保窗，
-     * {@link #publishExecutionFinishedWithCleanup} / {@link #onPlanCancelled} /
-     * {@link #onWatchdogTimeout} / {@link #onLifecycleCleanup} 关窗。</p>
-     *
-     * @param event 规划启动事件
+     * @return 是否取得该玩家当前执行上下文的所有权
      */
-    private void onPlanStarted(PlanStarted event) {
-        setExecutionWindow(event.getPlayerUUID(), true, "plan-started-stream");
+    public boolean registerPlanningContext(ChainExecutionContext context) {
+        // 空registry不代表仍获执行授权，cleanup之后的旧任务不得重新开窗。
+        if (MyMod.chainStateMachine == null || !MyMod.chainStateMachine.permitsPlanning(
+                context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId())) {
+            return false;
+        }
+        registry.put(context);
+        if (registry.get(context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId()) != context) {
+            return false;
+        }
+        setExecutionWindow(context.getPlayerUUID(), true, "planning-context-registered");
+        return true;
     }
 
     /**

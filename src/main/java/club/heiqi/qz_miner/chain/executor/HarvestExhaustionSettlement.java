@@ -9,8 +9,7 @@ import net.minecraftforge.common.util.FakePlayer;
 /**
  * 连锁/爆破真实破坏成功后的饥饿值消耗覆盖（Issue #242）。
  *
- * <p>需求原文：{@code double addExhaustion = 0.025; // 每次挖掘增加的饥饿值}
- * （dev_docs/技术需求.md §3.1，提交 a3f1f312 移除前）。目标口径（用户裁定 2026-09-15）：
+ * <p>结算口径：
  * <b>玩家按下连锁后经执行器破坏的每个方块，其饥饿值消耗等于
  * {@code general.harvestExhaustionPerBlock} 配置值</b>——默认 0.025 等于原版每方块消耗，
  * {@code 0} 表示完全不消耗，负值表示净回补。</p>

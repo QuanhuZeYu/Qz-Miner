@@ -18,6 +18,8 @@ import org.junit.Test;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ConfigTestSupport;
+import club.heiqi.qz_miner.config.QzMinerConfigSchema;
 import club.heiqi.qz_miner.config.ServerConfigHotApplyService;
 import club.heiqi.qz_miner.config.ServerConfigMutationService;
 import cpw.mods.fml.relauncher.FMLInjectionData;
@@ -41,7 +43,7 @@ public class QzMinerCommandTest {
         minecraftHomeField.setAccessible(true);
         previousMinecraftHome = minecraftHomeField.get(null);
         minecraftHomeField.set(null, tempDir);
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         ConfigBootstrap.bootstrap(tempDir, null);
         messages = new ArrayList<String>();
         hotApplyCallbacks = new AtomicInteger();
@@ -62,7 +64,7 @@ public class QzMinerCommandTest {
 
     @After
     public void tearDown() throws Exception {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         minecraftHomeField.set(null, previousMinecraftHome);
         deleteRecursively(tempDir);
     }
@@ -75,6 +77,15 @@ public class QzMinerCommandTest {
     }
 
     @Test
+    public void invalidDropRecoveryDoesNotMutateConfiguration() {
+        CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
+        command.processCommand(sender(), new String[] { "drops", "recover" });
+        Assert.assertTrue(messages.toString(), messages.get(0).contains("drops recover <player>"));
+        Assert.assertSame(before, ConfigBootstrap.currentCommittedSnapshot());
+        Assert.assertEquals(0, hotApplyCallbacks.get());
+    }
+
+    @Test
     public void setJoinsRemainingArgumentsAndHotAppliesSuccessfulCommit() {
         command.processCommand(sender(), new String[] {
                 "config", "set", "general.greeting", "Hello", "Dedicated", "Server"
@@ -82,7 +93,7 @@ public class QzMinerCommandTest {
 
         Assert.assertEquals("Hello Dedicated Server", Config.greeting);
         Assert.assertEquals("Hello Dedicated Server",
-                ConfigBootstrap.manager().authority().get("general.greeting"));
+                ConfigBootstrap.document().get(QzMinerConfigSchema.GREETING));
         Assert.assertEquals(2, hotApplyCallbacks.get());
         Assert.assertTrue(messages.toString(), messages.get(0).contains("Hello Dedicated Server"));
     }

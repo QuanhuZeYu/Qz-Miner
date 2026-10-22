@@ -18,15 +18,9 @@ import net.minecraftforge.event.world.BlockEvent;
  */
 public class ChainDropCollector {
 
-    /**
-     * world-tick 掉落释放连续失败上限（守四级降级链终点）。
-     *
-     * <p>{@code onWorldTick} 释放路径四级降级链（当前位置→重生/出生点→已记忆兜底→discard）
-     * 全部失败时累加玩家级失败计数，达此上限才触发 {@code ChainDropReleaseHelper.discard} 兜底丢弃，
-     * 避免单次 spawn 失败导致每帧死循环重试（实机曾 35 秒刷 1.8 万行直到 ServerStopped）。
-     * 1.7.10 服务端 20 TPS，100 次 ≈ 5 秒，留足降级链恢复窗口又不致长时间吞物品。</p>
-     */
-    private static final int DROP_RELEASE_MAX_RETRIES = 100;
+    /** 达阈值后延后重试并输出摘要，失败次数不授权丢弃资产。 */
+    private static final int DROP_RELEASE_FAST_RETRIES = 100;
+    private static final long DROP_RELEASE_RETRY_INTERVAL_TICKS = 100L;
 
     public ChainDropCollector() {
         MinecraftForge.EVENT_BUS.register(this);
@@ -71,76 +65,57 @@ public class ChainDropCollector {
             return;
         }
 
+        long serverTick = Math.max(0L, ChainTickSource.currentServerTick());
         for (ChainPlayerState playerState : MyMod.chainStateService.getPlayerStates()) {
             ChainPlayerDropBuffer dropBuffer = playerState.getDropBuffer();
+            if (dropBuffer.isEmpty()) {
+                MyMod.chainStateService.removeDeliveredDropOwner(playerState);
+                continue;
+            }
             if (playerState.getExecutionStatus() != ChainExecutionStatus.IDLE
-                || dropBuffer.isEmpty()) {
+                    || !playerState.isDropReleaseReady(serverTick)) {
                 continue;
             }
 
+            // 一个服务端 tick 只尝试一次，多个维度的 WorldTick 不得放大重试和日志。
+            playerState.deferDropReleaseUntil(serverTick + 1L);
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
-            if (!(player instanceof EntityPlayerMP)) {
-                // 玩家缺失分支（LOGOUT/异步延迟导致 playerManager 暂时拿不到 EntityPlayerMP）：
-                // 与玩家存在分支对称，二级 respawn/出生点 → 三级 已记忆兜底 → 全链失败累加，
-                // 达 DROP_RELEASE_MAX_RETRIES 才 discard 兜底，防 buffer 残留每帧非空无限刷屏。
-                String missingPlayerUUID = playerState.getPlayerUUID().toString();
-
-                // 二级：玩家重生点或世界出生点（玩家非 MP 实例时退一步用 player 句柄尝试）
-                if (player != null && ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(player, dropBuffer, "world-tick-missing-player")) {
-                    playerState.resetDropReleaseFailure();
-                    continue;
-                }
-                // 三级：已记忆的兜底坐标（onHarvestDrops 起手 rememberRespawnOrWorldSpawn 预存）
-                if (ChainDropReleaseHelper.releaseAtRememberedTarget(dropBuffer, missingPlayerUUID, "world-tick-missing-player")) {
-                    // 阶段8 块3：删旧 syncPlayerState（八字段同步链已删，掉落释放后无状态需同步客户端）。
-                    playerState.resetDropReleaseFailure();
-                    continue;
-                }
-                // 全链失败：累加失败计数，达上限 discard 兜底（与玩家存在分支对称，守信条四终点）
-                int failures = playerState.incrementDropReleaseFailure();
-                if (failures >= DROP_RELEASE_MAX_RETRIES) {
-                    ChainDropReleaseHelper.discard(missingPlayerUUID, dropBuffer, "world-tick-missing-exhausted");
-                    playerState.resetDropReleaseFailure();
-                } else {
-                    MyMod.LOG.warn("[ChainDropCollector] Missing EntityPlayerMP for {}, keeping {} pending drop stack(s) (consecutive failures={}/{})",
-                        playerState.getPlayerUUID(), dropBuffer.size(), failures, DROP_RELEASE_MAX_RETRIES);
-                }
+            boolean released = false;
+            try {
+                released = releaseDrops(player, playerState);
+            } catch (RuntimeException e) {
+                MyMod.LOG.debug("[ChainDropCollector] Drop release context failed for player {}, keeping pending assets",
+                        playerState.getPlayerUUID(), e);
+            }
+            if (released) {
+                playerState.resetDropReleaseFailure();
+                MyMod.chainStateService.removeDeliveredDropOwner(playerState);
                 continue;
             }
 
-            MyMod.LOG.debug("[ChainDropCollector] Ready to release aggregated drops for player {}, pending aggregated stacks={}",
-                playerState.getPlayerUUID(), dropBuffer.size());
-            // 信条四四级降级链：当前位置 → 重生/出生点 → 已记忆兜底 → 连续失败超上限 discard 兜底。
-            // 实机 BUG 根因：原仅接通第一级，releaseAtCoordinates spawn 失败时 restoreUnreleasedDrops 回填 buffer，
-            // 下帧再次非空再次同坐标失败回填 → 死循环（35 秒刷 1.8 万行）。此重构补全四级至 discard 终点。
-            String playerUUID = playerState.getPlayerUUID().toString();
-
-            // 一级：玩家当前位置
-            if (ChainDropReleaseHelper.releaseAtPlayer((EntityPlayerMP) player, dropBuffer, "world-tick")) {
-                playerState.resetDropReleaseFailure();
-                continue;
-            }
-            // 二级：玩家重生点或世界出生点（玩家在线但因坐标 chunk 未加载等导致当前位置释放失败）
-            if (ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(player, dropBuffer, "world-tick-respawn")) {
-                playerState.resetDropReleaseFailure();
-                continue;
-            }
-            // 三级：已记忆的兜底坐标（onHarvestDrops 起手 rememberRespawnOrWorldSpawn 预存）
-            if (ChainDropReleaseHelper.releaseAtRememberedTarget(dropBuffer, playerUUID, "world-tick-remembered")) {
-                playerState.resetDropReleaseFailure();
-                continue;
-            }
-            // 四级：全链失败累加，达上限 discard 兜底丢弃（守信条四终点），防每帧死循环重试
             int failures = playerState.incrementDropReleaseFailure();
-            if (failures >= DROP_RELEASE_MAX_RETRIES) {
-                ChainDropReleaseHelper.discard(playerUUID, dropBuffer, "world-tick-release-exhausted");
-                playerState.resetDropReleaseFailure();
-            } else {
-                // 玩家存在分支对称 WARN 摘要（与玩家缺失分支 :105-106 一致，含 consecutive failures 计数）
-                MyMod.LOG.warn("[ChainDropCollector] All 4-level release failed for player {}, keeping {} pending drop stack(s) (consecutive failures={}/{})",
-                    playerState.getPlayerUUID(), dropBuffer.size(), failures, DROP_RELEASE_MAX_RETRIES);
+            if (failures >= DROP_RELEASE_FAST_RETRIES) {
+                playerState.deferDropReleaseUntil(serverTick + DROP_RELEASE_RETRY_INTERVAL_TICKS);
             }
-            // 未达上限时 buffer 仍非空（restoreUnreleasedDrops 已回填），下帧重试；达上限后 buffer 已清空，自然跳过。
+            if (failures == 1 || failures >= DROP_RELEASE_FAST_RETRIES) {
+                MyMod.LOG.warn("[ChainDropCollector] Keeping {} pending drop stack(s) for player {} after {} failed release attempt(s)",
+                        dropBuffer.size(), playerState.getPlayerUUID(), failures);
+            }
         }
+    }
+
+    /** 当前位置、重生/出生点、已记忆位置依次尝试；未生成部分由 helper 回填原 buffer。 */
+    private boolean releaseDrops(EntityPlayer player, ChainPlayerState state) {
+        ChainPlayerDropBuffer buffer = state.getDropBuffer();
+        if (player instanceof EntityPlayerMP
+                && ChainDropReleaseHelper.releaseAtPlayer((EntityPlayerMP) player, buffer, "world-tick")) {
+            return true;
+        }
+        if (player != null
+                && ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(player, buffer, "world-tick-respawn")) {
+            return true;
+        }
+        return ChainDropReleaseHelper.releaseAtRememberedTarget(
+                buffer, state.getPlayerUUID().toString(), "world-tick-remembered");
     }
 }

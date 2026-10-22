@@ -1,19 +1,16 @@
 package club.heiqi.qz_miner.config;
 
+import java.io.IOException;
 import java.util.ArrayList;
+
+import club.heiqi.uilib.ui.config.ConfigCodecs;
+import club.heiqi.uilib.ui.config.ConfigKey;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-import club.heiqi.config.ConfigException;
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
-import club.heiqi.config.runtime.SaveOutcome;
-import club.heiqi.config.runtime.ValidationResult;
-import club.heiqi.config.schema.FieldSpec;
-import club.heiqi.config.schema.FieldType;
 
 /** 服务端命令对 YAML Authority 的受限事务修改入口。 */
 public final class ServerConfigMutationService {
@@ -31,23 +28,11 @@ public final class ServerConfigMutationService {
                     "general.enableUnlimitedOreFortune",
                     "general.enableFortuneForPlacedOre")));
 
-    private final ConfigManager manager;
+    private ServerConfigMutationService() { }
 
-    /** @param manager 已启动且由 ConfigBootstrap 持有的 Authority manager */
-    public ServerConfigMutationService(ConfigManager manager) {
-        if (manager == null) {
-            throw new IllegalArgumentException("manager must not be null");
-        }
-        this.manager = manager;
-    }
-
-    /** @return 当前 ConfigBootstrap manager 对应的生产服务 */
     public static ServerConfigMutationService fromBootstrap() {
-        ConfigManager manager = ConfigBootstrap.manager();
-        if (manager == null) {
-            throw new IllegalStateException("ConfigBootstrap.manager() is null");
-        }
-        return new ServerConfigMutationService(manager);
+        if (ConfigBootstrap.document() == null) throw new IllegalStateException("配置尚未启动");
+        return new ServerConfigMutationService();
     }
 
     /** 列出显式服务端 scalar 白名单，可按完整 path 前缀过滤。 */
@@ -56,7 +41,7 @@ public final class ServerConfigMutationService {
         List<String> lines = new ArrayList<String>();
         for (String path : WRITABLE_PATHS) {
             if (path.startsWith(filter)) {
-                lines.add(formatValue(path, manager.authority().get(path)));
+                lines.add(formatValue(path, ConfigBootstrap.document().get(QzMinerConfigSchema.key(path))));
             }
         }
         return Result.success(lines, null);
@@ -68,95 +53,55 @@ public final class ServerConfigMutationService {
         if (error != null) {
             return Result.failure(error);
         }
-        return Result.success(Collections.singletonList(formatValue(path, manager.authority().get(path))), null);
+        return Result.success(Collections.singletonList(formatValue(path, ConfigBootstrap.document().get(QzMinerConfigSchema.key(path)))), null);
     }
 
-    /** 严格按 schema FieldType 解析，并经 UILib draft/save 事务提交。 */
+    /** 仅显式 general scalar 白名单，完整候选校验和落盘由业务事务入口负责。 */
     public Result set(String path, String rawValue) {
         String error = validatePath(path);
-        if (error != null) {
-            return Result.failure(error);
-        }
-        FieldSpec field = manager.schema().field(path);
-        ParseResult parsed = parse(field.type(), rawValue);
-        if (!parsed.success) {
-            return Result.failure(parsed.error);
-        }
-
-        CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft(path, parsed.value);
-        SaveOutcome outcome = manager.save(draft);
-        if (!outcome.isSuccess()) {
-            return Result.failure(describe(outcome));
-        }
-        CommittedSnapshot committed = ConfigBootstrap.currentOrCaptureAfterCommit(manager, before);
-        return Result.success(Collections.singletonList(formatValue(path, manager.authority().get(path))), committed);
-    }
-
-    /** 从磁盘执行 UILib 三阶段严格 reload；失败时 Authority 与运行态均不推进。 */
-    public Result reload() {
-        CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
+        if (error != null) return Result.failure(error);
+        ConfigKey<?> key = QzMinerConfigSchema.key(path);
+        ParseResult parsed = parse(key, rawValue);
+        if (!parsed.success) return Result.failure(parsed.error);
         try {
-            manager.reloadDraftFromDisk();
-        } catch (ConfigException e) {
-            return Result.failure("reload failed: " + message(e));
-        }
-        CommittedSnapshot committed = ConfigBootstrap.currentOrCaptureAfterCommit(manager, before);
-        return Result.success(Collections.singletonList("config reloaded"), committed);
-    }
-
-    private String validatePath(String path) {
-        if (!WRITABLE_PATHS.contains(path)) {
-            return "path is not writable: " + path;
-        }
-        FieldSpec field = manager.schema().field(path);
-        if (field == null || !isScalar(field.type())) {
-            return "path is not a scalar schema field: " + path;
-        }
-        return null;
-    }
-
-    private static boolean isScalar(FieldType type) {
-        return type == FieldType.STRING || type == FieldType.NUMBER || type == FieldType.BOOLEAN;
-    }
-
-    private static ParseResult parse(FieldType type, String rawValue) {
-        if (rawValue == null) {
-            return ParseResult.failure("value must not be null");
-        }
-        switch (type) {
-            case STRING:
-                return ParseResult.success(rawValue);
-            case BOOLEAN:
-                if ("true".equals(rawValue)) {
-                    return ParseResult.success(Boolean.TRUE);
-                }
-                if ("false".equals(rawValue)) {
-                    return ParseResult.success(Boolean.FALSE);
-                }
-                return ParseResult.failure("boolean value must be exactly true or false");
-            case NUMBER:
-                try {
-                    double value = Double.parseDouble(rawValue);
-                    if (!Double.isFinite(value)) {
-                        return ParseResult.failure("number value must be finite");
-                    }
-                    return ParseResult.success(Double.valueOf(value));
-                } catch (NumberFormatException e) {
-                    return ParseResult.failure("invalid number: " + rawValue);
-                }
-            default:
-                return ParseResult.failure("unsupported scalar type: " + type);
+            CommittedSnapshot committed = ConfigBootstrap.commit(Collections.singletonMap(key, parsed.value));
+            return Result.success(Collections.singletonList(formatValue(path, ConfigBootstrap.document().get(key))), committed);
+        } catch (IOException | RuntimeException failure) {
+            return Result.failure("save failed: " + message(failure));
         }
     }
 
-    private static String describe(SaveOutcome outcome) {
-        if (outcome.validation() != null) {
-            ValidationResult validation = outcome.validation();
-            return "save " + outcome.status() + ": " + validation.errors();
+    public Result reload() {
+        try {
+            CommittedSnapshot committed = ConfigBootstrap.reload();
+            return Result.success(Collections.singletonList("config reloaded"), committed);
+        } catch (IOException | RuntimeException failure) {
+            return Result.failure("reload failed: " + message(failure));
         }
-        return "save " + outcome.status() + ": " + outcome.errorMessage();
+    }
+
+    private static String validatePath(String path) {
+        return WRITABLE_PATHS.contains(path) ? null : "path is not writable: " + path;
+    }
+
+    private static ParseResult parse(ConfigKey<?> key, String rawValue) {
+        if (rawValue == null) return ParseResult.failure("value must not be null");
+        if (key.codec() == ConfigCodecs.STRING) return ParseResult.success(rawValue);
+        if (key.codec() == ConfigCodecs.BOOLEAN) {
+            if ("true".equals(rawValue)) return ParseResult.success(Boolean.TRUE);
+            if ("false".equals(rawValue)) return ParseResult.success(Boolean.FALSE);
+            return ParseResult.failure("boolean value must be exactly true or false");
+        }
+        if (key.codec() == ConfigCodecs.DOUBLE) {
+            try {
+                double value = Double.parseDouble(rawValue);
+                return Double.isFinite(value) ? ParseResult.success(value)
+                        : ParseResult.failure("number value must be finite");
+            } catch (NumberFormatException failure) {
+                return ParseResult.failure("invalid number: " + rawValue);
+            }
+        }
+        return ParseResult.failure("unsupported scalar type: " + key.name());
     }
 
     private static String formatValue(String path, Object value) {

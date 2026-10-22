@@ -30,6 +30,7 @@ public class ChainClientState extends AbstractChainModeState {
     private volatile ObjectGroupRuleSet serverObjectGroups = ObjectGroupRuleSet.EMPTY;
     private volatile long serverObjectGroupRevision;
     private volatile boolean objectGroupSyncAccepted;
+    private volatile long latestObjectGroupRequestedRevision = -1L;
     private volatile long lastObjectGroupRequestedRevision = -1L;
     private volatile long lastObjectGroupAuthoritativeRevision = -1L;
     private volatile boolean hasObjectGroupSyncResult;
@@ -136,7 +137,9 @@ public class ChainClientState extends AbstractChainModeState {
     }
 
     public boolean isObjectGroupSyncAccepted() {
-        return objectGroupSyncAccepted;
+        // 已确认旧快照仍供在途任务持有；新预览只在最新提交获确认后使用扩展。
+        return objectGroupSyncAccepted
+                && lastObjectGroupRequestedRevision >= latestObjectGroupRequestedRevision;
     }
 
     /**
@@ -154,6 +157,7 @@ public class ChainClientState extends AbstractChainModeState {
         }
         objectGroupConnectionToken = connectionToken;
         pendingObjectGroupRequests.clear();
+        latestObjectGroupRequestedRevision = -1L;
         lastObjectGroupRequestedRevision = -1L;
         lastObjectGroupAuthoritativeRevision = -1L;
         hasObjectGroupSyncResult = false;
@@ -169,6 +173,7 @@ public class ChainClientState extends AbstractChainModeState {
         if (connectionToken <= 0L || committed == null || connectionToken != objectGroupConnectionToken) {
             return;
         }
+        latestObjectGroupRequestedRevision = Math.max(latestObjectGroupRequestedRevision, committed.epoch);
         pendingObjectGroupRequests.put(committed.epoch,
                 new ObjectGroupRequest(connectionToken, committed));
         while (pendingObjectGroupRequests.size() > MAX_PENDING_OBJECT_GROUP_REQUESTS) {
@@ -228,6 +233,7 @@ public class ChainClientState extends AbstractChainModeState {
         pendingObjectGroupRequests.clear();
         objectGroupConnectionToken = -1L;
         hasObjectGroupSyncResult = false;
+        latestObjectGroupRequestedRevision = -1L;
         lastObjectGroupRequestedRevision = -1L;
         lastObjectGroupAuthoritativeRevision = -1L;
         lastObjectGroupResultAccepted = false;

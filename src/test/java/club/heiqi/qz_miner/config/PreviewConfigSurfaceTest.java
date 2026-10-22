@@ -5,17 +5,15 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import club.heiqi.uilib.ui.config.ConfigDocument;
+import club.heiqi.uilib.ui.config.ConfigKey;
+import club.heiqi.uilib.ui.config.ConfigSchema;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
-import club.heiqi.config.runtime.SaveOutcome;
-import club.heiqi.config.schema.ConfigSchema;
-import club.heiqi.config.schema.FieldSpec;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ParseOutcome;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
@@ -110,14 +108,14 @@ public class PreviewConfigSurfaceTest {
     @Before
     public void setUp() throws Exception {
         tempDir = Files.createTempDirectory("qz-miner-preview-config-").toFile();
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         resetStatics();
     }
 
     /** 清理静态持有。 */
     @After
     public void tearDown() throws Exception {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         resetStatics();
         deleteRecursively(tempDir);
     }
@@ -125,13 +123,13 @@ public class PreviewConfigSurfaceTest {
     /** Schema 默认、Defaults 默认 map、Config 静态字段、Authority 快照四处逐键一致。 */
     @Test
     public void newKeysShareOneDefaultAcrossSchemaDefaultsStaticsAndSnapshot() throws Exception {
-        ConfigSchema schema = QzMinerConfigSchema.create();
+        ConfigSchema schema = QzMinerConfigSchema.SCHEMA;
         Map<String, Object> defaults = defaultMap();
         ValidatedSnapshot snapshot = defaultsSnapshot();
         for (String[] row : NEW_KEYS) {
             String path = row[0];
             String expected = row[1];
-            FieldSpec spec = schema.field(path);
+            ConfigKey<?> spec = QzMinerConfigSchema.key(path);
             Assert.assertNotNull("schema 缺少 " + path, spec);
             Assert.assertEquals(path + " schema 默认", expected, normalize(spec.defaultValue()));
             Assert.assertEquals(path + " putAllDefaults 默认", expected, normalize(defaults.get(path)));
@@ -154,35 +152,35 @@ public class PreviewConfigSurfaceTest {
     /** 越界值一律拒绝（不夹取、不 round），边界内取值必须接受。 */
     @Test
     public void validatorNarrowsEveryNewNumberRange() throws Exception {
-        ConfigManager manager = newManager("range.yaml");
+        ConfigDocument document = newDocument("range.yaml");
         for (String[] row : RANGE_CASES) {
-            assertRejected(manager, row[0], Double.valueOf(row[3]), "低于下界");
-            assertRejected(manager, row[0], Double.valueOf(row[4]), "高于上界");
-            assertRejected(manager, row[0], Double.valueOf(Double.NaN), "NaN");
-            assertAccepted(manager, row[0], Double.valueOf(row[1]), "下界（含）");
-            assertAccepted(manager, row[0], Double.valueOf(row[2]), "上界（含）");
+            assertRejected(document, row[0], Double.valueOf(row[3]), "低于下界");
+            assertRejected(document, row[0], Double.valueOf(row[4]), "高于上界");
+            assertRejected(document, row[0], Double.valueOf(Double.NaN), "NaN");
+            assertAccepted(document, row[0], Double.valueOf(row[1]), "下界（含）");
+            assertAccepted(document, row[0], Double.valueOf(row[2]), "上界（含）");
         }
     }
 
     /** CHOICE 字段拒绝未知 id；合法 id 落到对应枚举（未知不回落默认）。 */
     @Test
     public void validatorRejectsUnknownChoices() throws Exception {
-        ConfigManager manager = newManager("choice.yaml");
+        ConfigDocument document = newDocument("choice.yaml");
         for (String path : CHOICE_KEYS) {
-            assertRejected(manager, path, "bogus", "未知 id");
-            assertRejected(manager, path, Double.valueOf(1.0), "非字符串");
+            assertRejected(document, path, "bogus", "未知 id");
+            assertRejected(document, path, Double.valueOf(1.0), "非字符串");
         }
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft("general.parallelBudgetMode", "slice");
-        draft.setDraft("client.clientPreviewRenderBackend", "legacy");
-        draft.setDraft("client.clientPreviewColorSource", "config");
-        draft.setDraft("client.clientPreviewDepthMode", "occlude");
-        draft.setDraft("client.clientPreviewAnimation", "wave");
-        draft.setDraft("client.clientPreviewAnimationPhase", "hash");
-        draft.setDraft("client.clientPreviewFadeMode", "signal");
-        draft.setDraft("client.clientPreviewLod", "auto");
-        Assert.assertTrue(manager.save(draft).isSuccess());
-        ValidatedSnapshot snapshot = ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+        Map<ConfigKey<?>, Object> draft = new LinkedHashMap<ConfigKey<?>, Object>();
+        draft.put(QzMinerConfigSchema.key("general.parallelBudgetMode"), "slice");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewRenderBackend"), "legacy");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewColorSource"), "config");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewDepthMode"), "occlude");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewAnimation"), "wave");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewAnimationPhase"), "hash");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewFadeMode"), "signal");
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewLod"), "auto");
+        document = document.withAll(draft);
+        ValidatedSnapshot snapshot = ConfigSemanticValidator.validate(document).snapshot;
         Assert.assertEquals("deadline 之外必须落到 slice", "slice", snapshot.parallelBudgetMode);
         Assert.assertEquals(PreviewRenderBackend.LEGACY, snapshot.clientPreviewRenderBackend);
         Assert.assertEquals(PreviewColorSource.CONFIG, snapshot.clientPreviewColorSource);
@@ -193,25 +191,23 @@ public class PreviewConfigSurfaceTest {
         Assert.assertEquals(PreviewLodMode.AUTO, snapshot.clientPreviewLod);
     }
 
-    /** 恢复默认：把 25 个键全改成非默认值后逐字段 resetFieldToDefault，必须回到目标默认。 */
+    /** 显式重置为类型键默认值后，派生快照必须恢复对应默认。 */
     @Test
     public void restoreDefaultsReturnsEveryNewKeyToTargetDefault() throws Exception {
-        ConfigManager manager = newManager("restore.yaml");
-        DraftBuffer mutated = manager.openDraft();
-        for (String[] row : NEW_KEYS) {
-            mutated.setDraft(row[0], nonDefaultFor(row[0]));
-        }
-        Assert.assertTrue(manager.save(mutated).isSuccess());
-        ValidatedSnapshot mutatedSnapshot = ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+        ConfigDocument document = newDocument("restore.yaml");
+        Map<ConfigKey<?>, Object> mutated = new LinkedHashMap<ConfigKey<?>, Object>();
+        for (String[] row : NEW_KEYS) mutated.put(QzMinerConfigSchema.key(row[0]), nonDefaultFor(row[0]));
+        document = document.withAll(mutated);
+        ValidatedSnapshot mutatedSnapshot = ConfigSemanticValidator.validate(document).snapshot;
         Assert.assertEquals("slice", mutatedSnapshot.parallelBudgetMode);
         Assert.assertEquals(1.0D, mutatedSnapshot.clientPreviewMaxTargetsHardCap, 1e-9);
-
-        DraftBuffer restored = manager.openDraft();
+        Map<ConfigKey<?>, Object> restored = new LinkedHashMap<ConfigKey<?>, Object>();
         for (String[] row : NEW_KEYS) {
-            restored.resetFieldToDefault(row[0]);
+            ConfigKey<?> key = QzMinerConfigSchema.key(row[0]);
+            restored.put(key, key.defaultValue());
         }
-        Assert.assertTrue(manager.save(restored).isSuccess());
-        ValidatedSnapshot snapshot = ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+        document = document.withAll(restored);
+        ValidatedSnapshot snapshot = ConfigSemanticValidator.validate(document).snapshot;
         for (String[] row : NEW_KEYS) {
             Assert.assertEquals(row[0] + " 恢复默认", row[1], normalize(snapshotField(row[0], snapshot)));
         }
@@ -226,9 +222,8 @@ public class PreviewConfigSurfaceTest {
                 + "client:\n"
                 + "  clientEnablePreviewRender: false\n"
                 + "  clientPreviewMaxRadius: 8\n").getBytes("UTF-8"));
-        ConfigManager manager = ConfigManager.bootstrap(
-                partial, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
-        ParseOutcome outcome = ConfigSemanticValidator.captureAndValidate(manager);
+        ConfigDocument document = ConfigDocument.read(QzMinerConfigSchema.SCHEMA, partial.toPath());
+        ParseOutcome outcome = ConfigSemanticValidator.validate(document);
         Assert.assertTrue(outcome.result.summary(), outcome.isValid());
         Assert.assertEquals("缺键不得改变既有键值", "Hi", outcome.snapshot.greeting);
         Assert.assertFalse(outcome.snapshot.clientEnablePreviewRender);
@@ -238,32 +233,26 @@ public class PreviewConfigSurfaceTest {
         }
     }
 
-    private void assertAccepted(ConfigManager manager, String path, Object value, String label) {
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft(path, value);
-        SaveOutcome outcome = manager.save(draft);
-        Assert.assertEquals(path + " " + label + " 必须接受", SaveOutcome.Status.OK, outcome.status());
+    private void assertAccepted(ConfigDocument document, String path, Object value, String label) {
+        ParseOutcome outcome = ConfigSemanticValidator.validate(document.withAll(ConfigTestSupport.changes(path, value)));
+        Assert.assertTrue(path + " " + label + " 必须接受: " + outcome.result.summary(), outcome.isValid());
     }
 
-    private void assertRejected(ConfigManager manager, String path, Object value, String label) {
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft(path, value);
-        SaveOutcome outcome = manager.save(draft);
-        Assert.assertEquals(path + " " + label + " 必须被拒绝", SaveOutcome.Status.INVALID, outcome.status());
-        Assert.assertNotNull(path + " " + label + " 必须带字段级错误",
-                outcome.validation() == null ? null : outcome.validation().errorFor(path));
+    private void assertRejected(ConfigDocument document, String path, Object value, String label) {
+        try {
+            document.withAll(ConfigTestSupport.changes(path, value));
+            Assert.fail(path + " " + label + " 必须被拒绝");
+        } catch (club.heiqi.uilib.ui.config.ConfigException expected) {
+            Assert.assertEquals(path, expected.path());
+        }
     }
 
-    private ConfigManager newManager(String fileName) throws Exception {
-        return ConfigManager.bootstrap(new File(tempDir, fileName),
-                QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
+    private ConfigDocument newDocument(String fileName) {
+        return ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA);
     }
 
-    private ValidatedSnapshot defaultsSnapshot() throws Exception {
-        ConfigManager manager = newManager("defaults.yaml");
-        ParseOutcome outcome = ConfigSemanticValidator.captureAndValidate(manager);
-        Assert.assertTrue(outcome.result.summary(), outcome.isValid());
-        return outcome.snapshot;
+    private ValidatedSnapshot defaultsSnapshot() {
+        return ConfigSemanticValidator.validate(ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA)).snapshot;
     }
 
     private static Map<String, Object> defaultMap() {

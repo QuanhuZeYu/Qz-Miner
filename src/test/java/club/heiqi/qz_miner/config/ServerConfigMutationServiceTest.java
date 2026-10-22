@@ -6,17 +6,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import club.heiqi.uilib.ui.config.ConfigCodecs;
+import club.heiqi.uilib.ui.config.ConfigKey;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import club.heiqi.config.ConfigChangeEvent;
-import club.heiqi.config.ConfigChangeListener;
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.schema.FieldSpec;
-import club.heiqi.config.schema.FieldType;
 import cpw.mods.fml.relauncher.FMLInjectionData;
 
 /** 服务端配置白名单、严格解析与提交令牌语义。 */
@@ -25,7 +22,6 @@ public class ServerConfigMutationServiceTest {
     private File tempDir;
     private Field minecraftHomeField;
     private Object previousMinecraftHome;
-    private ConfigManager manager;
     private ServerConfigMutationService service;
 
     @Before
@@ -35,14 +31,14 @@ public class ServerConfigMutationServiceTest {
         minecraftHomeField.setAccessible(true);
         previousMinecraftHome = minecraftHomeField.get(null);
         minecraftHomeField.set(null, tempDir);
-        ConfigBootstrap.resetForTests();
-        manager = ConfigBootstrap.bootstrap(tempDir, null);
-        service = new ServerConfigMutationService(manager);
+        ConfigTestSupport.reset();
+        ConfigBootstrap.bootstrap(tempDir, null);
+        service = ServerConfigMutationService.fromBootstrap();
     }
 
     @After
     public void tearDown() throws Exception {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         minecraftHomeField.set(null, previousMinecraftHome);
         deleteRecursively(tempDir);
     }
@@ -58,11 +54,10 @@ public class ServerConfigMutationServiceTest {
         for (String line : all) {
             String path = line.substring(0, line.indexOf(" = "));
             Assert.assertTrue("白名单只能列 general 段: " + path, path.startsWith("general."));
-            FieldSpec field = manager.schema().field(path);
-            Assert.assertNotNull("白名单 path 必须在 schema 中存在: " + path, field);
-            FieldType type = field.type();
-            Assert.assertTrue("白名单只能列 scalar 字段: " + path + " type=" + type,
-                    type == FieldType.STRING || type == FieldType.NUMBER || type == FieldType.BOOLEAN);
+            ConfigKey<?> key = QzMinerConfigSchema.key(path);
+            Assert.assertTrue("白名单只能列 scalar 字段: " + path,
+                    key.codec() == ConfigCodecs.STRING || key.codec() == ConfigCodecs.DOUBLE
+                            || key.codec() == ConfigCodecs.BOOLEAN);
         }
         Assert.assertTrue("白名单必须覆盖 issue #242 的饥饿值消耗键",
                 all.toString().contains("general.harvestExhaustionPerBlock = "));
@@ -72,7 +67,7 @@ public class ServerConfigMutationServiceTest {
     }
 
     @Test
-    public void setUsesStrictTypesAndFallsBackToSingleCaptureWithoutListener() {
+    public void setUsesStrictTypesAndReturnsOneCommittedToken() {
         CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
 
         ServerConfigMutationService.Result result = service.set("general.chainRadius", "23");
@@ -80,19 +75,13 @@ public class ServerConfigMutationServiceTest {
         Assert.assertTrue(result.lines().toString(), result.isSuccess());
         Assert.assertEquals(before.epoch + 1L, result.committed().epoch);
         Assert.assertSame(result.committed(), ConfigBootstrap.currentCommittedSnapshot());
-        Assert.assertEquals(Double.valueOf(23.0D), manager.authority().get("general.chainRadius"));
+        Assert.assertEquals(Double.valueOf(23.0D), ConfigBootstrap.document().get(QzMinerConfigSchema.key("general.chainRadius")));
     }
 
     @Test
-    public void successfulSaveReusesListenerCapturedCurrentWithoutExtraEpoch() {
+    public void successfulSaveNotifiesOnceWithoutExtraEpoch() {
         final AtomicInteger events = new AtomicInteger();
-        manager.eventBus().subscribe(new ConfigChangeListener() {
-            @Override
-            public void onConfigChanged(ConfigChangeEvent event) {
-                events.incrementAndGet();
-                ConfigBootstrap.captureCommittedSnapshot(manager);
-            }
-        });
+        ConfigBootstrap.subscribe(committed -> events.incrementAndGet());
         CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
 
         ServerConfigMutationService.Result result = service.set("general.greeting", "Hello server operators");
@@ -100,7 +89,7 @@ public class ServerConfigMutationServiceTest {
         Assert.assertTrue(result.isSuccess());
         Assert.assertEquals(1, events.get());
         Assert.assertEquals(before.epoch + 1L, result.committed().epoch);
-        Assert.assertEquals("Hello server operators", manager.authority().get("general.greeting"));
+        Assert.assertEquals("Hello server operators", ConfigBootstrap.document().get(QzMinerConfigSchema.key("general.greeting")));
     }
 
     @Test
@@ -121,7 +110,7 @@ public class ServerConfigMutationServiceTest {
     @Test
     public void strictReloadFailureLeavesAuthorityAndCurrentUntouched() throws Exception {
         CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
-        Object radiusBefore = manager.authority().get("general.chainRadius");
+        Object radiusBefore = ConfigBootstrap.document().get(QzMinerConfigSchema.key("general.chainRadius"));
         Files.write(ConfigBootstrap.yamlFile().toPath(),
                 "general:\n  chainRadius: '42'\n".getBytes(StandardCharsets.UTF_8));
 
@@ -129,17 +118,13 @@ public class ServerConfigMutationServiceTest {
 
         assertFailed(result);
         Assert.assertSame(before, ConfigBootstrap.currentCommittedSnapshot());
-        Assert.assertEquals(radiusBefore, manager.authority().get("general.chainRadius"));
+        Assert.assertEquals(radiusBefore, ConfigBootstrap.document().get(QzMinerConfigSchema.key("general.chainRadius")));
     }
 
     @Test
-    public void successfulStrictReloadReusesListenerCapture() throws Exception {
-        manager.eventBus().subscribe(new ConfigChangeListener() {
-            @Override
-            public void onConfigChanged(ConfigChangeEvent event) {
-                ConfigBootstrap.captureCommittedSnapshot(manager);
-            }
-        });
+    public void successfulStrictReloadNotifiesOnce() throws Exception {
+        final AtomicInteger events = new AtomicInteger();
+        ConfigBootstrap.subscribe(committed -> events.incrementAndGet());
         CommittedSnapshot before = ConfigBootstrap.currentCommittedSnapshot();
         Files.write(ConfigBootstrap.yamlFile().toPath(),
                 "general:\n  chainRadius: 31\n".getBytes(StandardCharsets.UTF_8));
@@ -148,7 +133,8 @@ public class ServerConfigMutationServiceTest {
 
         Assert.assertTrue(result.lines().toString(), result.isSuccess());
         Assert.assertEquals(before.epoch + 1L, result.committed().epoch);
-        Assert.assertEquals(Double.valueOf(31.0D), manager.authority().get("general.chainRadius"));
+        Assert.assertEquals(1, events.get());
+        Assert.assertEquals(Double.valueOf(31.0D), ConfigBootstrap.document().get(QzMinerConfigSchema.key("general.chainRadius")));
     }
 
     private static void assertFailed(ServerConfigMutationService.Result result) {

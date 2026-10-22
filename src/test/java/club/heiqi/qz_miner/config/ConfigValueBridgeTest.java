@@ -2,15 +2,16 @@ package club.heiqi.qz_miner.config;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import club.heiqi.uilib.ui.config.ConfigDocument;
+import club.heiqi.uilib.ui.config.ConfigKey;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
-import club.heiqi.config.schema.ConfigSchema;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
@@ -26,45 +27,43 @@ public class ConfigValueBridgeTest {
     public void setUp() throws Exception {
         tempDir = Files.createTempDirectory("qz-miner-bridge-").toFile();
         resetStaticDefaults();
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
     }
 
     @After
     public void tearDown() {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         resetStaticDefaults();
         deleteRecursively(tempDir);
     }
 
     @Test
     public void applyAllMapsAllRuntimeFields() throws Exception {
-        File yaml = new File(tempDir, "qz_miner.yaml");
-        ConfigSchema schema = QzMinerConfigSchema.create();
-        ConfigManager manager = ConfigManager.bootstrap(yaml, schema, ConfigSemanticValidator.draftValidator());
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft("general.greeting", "HiAll");
-        draft.setDraft("general.chainRadius", Double.valueOf(32.0));
-        draft.setDraft("general.chainMaxBlocks", Double.valueOf(2048.0));
-        draft.setDraft("general.chainLoggingShellLayers", Double.valueOf(3.0));
-        draft.setDraft("general.cableReplaceMaxPerTick", Double.valueOf(512.0));
-        draft.setDraft("general.chainWatchdogTimeoutTicks", Double.valueOf(40.0));
-        draft.setDraft("general.tickBudgetMs", Double.valueOf(25.0));
-        draft.setDraft("general.enableUnlimitedOreFortune", Boolean.TRUE);
-        draft.setDraft("general.enableFortuneForPlacedOre", Boolean.TRUE);
-        draft.setDraft("client.clientEnablePreviewRender", Boolean.FALSE);
-        draft.setDraft("client.tunnelDirectionSource", "hit_face");
-        draft.setDraft("client.autoToolSwapEnabled", Boolean.FALSE);
-        draft.setDraft("client.autoToolPrioritySelectors",
+        ConfigDocument document = ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA);
+        Map<ConfigKey<?>, Object> draft = new LinkedHashMap<ConfigKey<?>, Object>();
+        draft.put(QzMinerConfigSchema.key("general.greeting"), "HiAll");
+        draft.put(QzMinerConfigSchema.key("general.chainRadius"), Double.valueOf(32.0));
+        draft.put(QzMinerConfigSchema.key("general.chainMaxBlocks"), Double.valueOf(2048.0));
+        draft.put(QzMinerConfigSchema.key("general.chainLoggingShellLayers"), Double.valueOf(3.0));
+        draft.put(QzMinerConfigSchema.key("general.cableReplaceMaxPerTick"), Double.valueOf(512.0));
+        draft.put(QzMinerConfigSchema.key("general.chainWatchdogTimeoutTicks"), Double.valueOf(40.0));
+        draft.put(QzMinerConfigSchema.key("general.tickBudgetMs"), Double.valueOf(25.0));
+        draft.put(QzMinerConfigSchema.key("general.enableUnlimitedOreFortune"), Boolean.TRUE);
+        draft.put(QzMinerConfigSchema.key("general.enableFortuneForPlacedOre"), Boolean.TRUE);
+        draft.put(QzMinerConfigSchema.key("client.clientEnablePreviewRender"), Boolean.FALSE);
+        draft.put(QzMinerConfigSchema.key("client.tunnelDirectionSource"), "hit_face");
+        draft.put(QzMinerConfigSchema.key("client.autoToolSwapEnabled"), Boolean.FALSE);
+        draft.put(QzMinerConfigSchema.key("client.autoToolPrioritySelectors"),
                 java.util.Arrays.asList(" ore:toolPickaxe ", "mod:drill@4"));
-        draft.setDraft("client.clientPreviewMaxRadius", Double.valueOf(8.0));
-        draft.setDraft("client.clientPreviewMaxTargets", Double.valueOf(128.0));
-        draft.setDraft("client.clientPreviewAlphaFadeStartRadius", Double.valueOf(1.5));
-        draft.setDraft("client.clientPreviewAlphaFadeEndRadius", Double.valueOf(4.0));
-        draft.setDraft("client.clientPreviewAlphaStartValue", Double.valueOf(0.6));
-        draft.setDraft("client.clientPreviewAlphaEndValue", Double.valueOf(0.1));
-        Assert.assertTrue(manager.save(draft).isSuccess());
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewMaxRadius"), Double.valueOf(8.0));
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewMaxTargets"), Double.valueOf(128.0));
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewAlphaFadeStartRadius"), Double.valueOf(1.5));
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewAlphaFadeEndRadius"), Double.valueOf(4.0));
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewAlphaStartValue"), Double.valueOf(0.6));
+        draft.put(QzMinerConfigSchema.key("client.clientPreviewAlphaEndValue"), Double.valueOf(0.1));
+        document = document.withAll(draft);
 
-        ConfigSemanticValidator.ParseOutcome outcome = ConfigSemanticValidator.captureAndValidate(manager);
+        ConfigSemanticValidator.ParseOutcome outcome = ConfigSemanticValidator.validate(document);
         Assert.assertTrue(outcome.result.summary(), outcome.isValid());
         ValidatedSnapshot snap = outcome.snapshot;
         ConfigValueBridge.applyAll(snap);
@@ -110,26 +109,18 @@ public class ConfigValueBridgeTest {
     }
 
     @Test
-    public void nonIntegerDoesNotRoundViaValidator() throws Exception {
-        File yaml = new File(tempDir, "bad.yaml");
-        ConfigManager manager = ConfigManager.bootstrap(
-                yaml, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft("general.chainRadius", Double.valueOf(12.6));
-        Assert.assertEquals(club.heiqi.config.runtime.SaveOutcome.Status.INVALID, manager.save(draft).status());
-        // 静态字段保持默认，未应用非法值
-        Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
+    public void nonIntegerDoesNotRoundViaDocumentValidation() {
+        try {
+            ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA).withAll(
+                    ConfigTestSupport.changes("general.chainRadius", 12.6));
+            Assert.fail("小数半径不能 round 后发布");
+        } catch (RuntimeException expected) {
+            Assert.assertEquals(QzMinerConfigDefaults.CHAIN_RADIUS, Config.chainRadius);
+        }
     }
 
     private ValidatedSnapshot defaultsSnapshot() {
-        try {
-            File yaml = new File(tempDir, "def.yaml");
-            ConfigManager manager = ConfigManager.bootstrap(
-                    yaml, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
-            return ConfigSemanticValidator.captureAndValidate(manager).snapshot;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        return ConfigSemanticValidator.validate(ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA)).snapshot;
     }
 
     private static void resetStaticDefaults() {

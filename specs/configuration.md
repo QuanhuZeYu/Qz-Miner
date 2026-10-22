@@ -15,7 +15,7 @@
 
 ## 稳定文本与对象组
 
-- `client.objectGroups` 保持对象列表，每组有唯一非空 `id`、`modes` 和 `members`；成员是 `LIST<STRING>` 的 `namespace:path@meta` canonical 文本，只支持 `@*`、`@<meta>`、`@[集合]`。metadata 是十进制 `0..Integer.MAX_VALUE`，集合非空、不重复并按数值排序；合法但未注册的名字按文本保留。匹配只看 registry + metadata，不推断 NBT、TileEntity 或矿辞。
+- `client.objectGroups` 保持对象列表，每组有唯一非空 `id`、`members` 与缺省为空列表的 `modes`；成员是 `LIST<STRING>` 的 `namespace:path@meta` canonical 文本，只支持 `@*`、`@<meta>`、`@[集合]`。metadata 是十进制 `0..Integer.MAX_VALUE`，集合非空、不重复并按数值排序；合法但未注册的名字按文本保留。匹配只看 registry + metadata，不推断 NBT、TileEntity 或矿辞。
 - 对象组最多 64 组、每组 1..128 成员、总计最多 2048 成员；ID 最长 64 字符、registry 最长 256 字符、canonical 最长 1024 UTF-8 bytes，wire payload 最多 `32 * 1024` bytes。共享模式且 selector 重叠的组拒绝发布。
 - 扩展仅适用 `chain_base/chain_ore/chain_logging/area_same_block/area_ore/interact_base/interact_crop`；原匹配始终保留，无组命中时行为不变，不新增滚轮模式。
 - 工具优先列表 `client.autoToolPrioritySelectors` 另支持 `namespace:path@*`、`namespace:path@<meta>` 与 `ore:<name>`，不支持集合。它表达有序优先级而非白名单，未命中候选仍参与；对象组不接受 `ore:`。

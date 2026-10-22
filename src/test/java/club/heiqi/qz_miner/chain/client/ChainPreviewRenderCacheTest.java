@@ -169,6 +169,70 @@ public class ChainPreviewRenderCacheTest {
     }
 
     @Test
+    public void generationReplacementDuringBuildCannotPublishOldMesh() throws Exception {
+        final ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+        state.begin(new ChainTarget(0, 0, 0));
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(0, 0, 0));
+        cache.pollPublication();
+
+        ParallelTickTask task = scheduler.tasks.get(0).task;
+        ParallelTickControl replaceDuringBuild = new NeverYieldControl() {
+            private int checks;
+
+            @Override
+            public boolean shouldYield() {
+                if (++checks == 2) {
+                    state.clear();
+                    state.begin(new ChainTarget(30, 40, 50));
+                    state.addPreviewTarget(state.getGeneration(), new ChainTarget(30, 40, 50));
+                    Assert.assertTrue(cache.pollPublication().getMesh().isEmpty());
+                }
+                // 旧修订收尾后若错误发布，下一预算检查必须在此被观察到。
+                ChainPreviewMesh pending = peekPendingMesh(cache);
+                if (checks > 2 && pending != null && !pending.isEmpty()) {
+                    Assert.assertEquals("待发布网格必须属于新代锚点", 30, pending.getOriginX());
+                }
+                return false;
+            }
+        };
+        Assert.assertEquals(ParallelTaskResult.COMPLETED, task.run(replaceDuringBuild));
+        ChainPreviewRenderCache.MeshPublication publication = cache.pollPublication();
+        Assert.assertNotNull(publication);
+        Assert.assertEquals(state.getGeneration(), publication.getGeneration());
+        Assert.assertEquals(30, publication.getMesh().getOriginX());
+        Assert.assertEquals(40, publication.getMesh().getOriginY());
+        Assert.assertEquals(50, publication.getMesh().getOriginZ());
+        Assert.assertEquals(1, publication.getMesh().getBlockCount());
+        Assert.assertEquals("换代由当前 worker 收敛，无需重复调度", 1, scheduler.tasks.size());
+    }
+
+    @Test
+    public void cancelledSuspendedWorkerCannotPublishOrScheduleAgain() throws Exception {
+        ChainPreviewState state = new ChainPreviewState();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ChainPreviewRenderCache cache = cache(state, scheduler);
+        cache.observeState();
+        state.begin(new ChainTarget(0, 0, 0));
+        state.addPreviewTarget(state.getGeneration(), new ChainTarget(0, 0, 0));
+        cache.pollPublication();
+        ParallelTickTask task = scheduler.tasks.get(0).task;
+        Assert.assertEquals(ParallelTaskResult.YIELDED, task.run(new YieldAfterChecksControl(4)));
+
+        Assert.assertEquals(ParallelTaskResult.TERMINATED, task.run(new NeverYieldControl() {
+            @Override
+            public boolean isCancelRequested() {
+                return true;
+            }
+        }));
+        task.cleanupAfterTermination();
+        Assert.assertNull(cache.pollPublication());
+        Assert.assertEquals("取消收尾不得重新调度", 1, scheduler.tasks.size());
+    }
+
+    @Test
     public void resetDuringSchedulerRegistrationCancelsLostSubscriptionAndAllowsReplacement() {
         ChainPreviewState state = new ChainPreviewState();
         final RecordingScheduler scheduler = new RecordingScheduler();

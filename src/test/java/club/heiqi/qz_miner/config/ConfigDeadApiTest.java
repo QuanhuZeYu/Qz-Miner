@@ -22,7 +22,7 @@ public class ConfigDeadApiTest {
 
     @Test(expected = IllegalStateException.class)
     public void currentSnapshotGetterFailsFastBeforeBootstrap() {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         ConfigBootstrap.currentValidatedSnapshot();
     }
 

@@ -42,8 +42,7 @@ public final class QzMinerConfigDefaults {
     /**
      * 每次成功破坏一个方块消耗的饥饿值（原版 {@code exhaustion} 单位），可为 {@code 0} 或负数。
      *
-     * <p>需求原文：{@code double addExhaustion = 0.025; // 每次挖掘增加的饥饿值}
-     * （dev_docs/技术需求.md，提交 a3f1f312 移除前）。用户裁定（2026-09-15）：该值必须可取任意档位——
+     * <p>
      * {@code 0} 表示连锁完全不消耗、负值表示每方块净回补，故合法域为
      * {@link #HARVEST_EXHAUSTION_PER_BLOCK_MIN}..{@link #HARVEST_EXHAUSTION_PER_BLOCK_MAX}。</p>
      *
@@ -269,9 +268,8 @@ public final class QzMinerConfigDefaults {
     /**
      * 出厂默认对象组：「红石矿石」+「暮色森林极光方块」，chain/area 四模式全开。
      *
-     * <p>本方法是该字段的唯一真源：{@code QzMinerConfigSchema} 的 {@code defaultValue} 与配置页
-     * 「恢复默认」（UILib {@code ConfigScreen.restoreDefaults()} 逐字段 {@code resetFieldToDefault}
-     * ⇒ {@code DraftBuffer} ⇒ 本方法）都取这里；改默认只改本方法，不在 schema 二次抄写。</p>
+     * <p>{@code QzMinerConfigSchema.OBJECT_GROUPS} 的默认值直接取这里，文档默认构造与显式恢复
+     * 都复用键声明，不在调用方复制对象组内容。</p>
      *
      * <p><b>极光方块条目（issue #249）</b>：Twilight Forest 的 {@code BlockTFAuroraBrick} 把 metadata
      * 写成位置相位 {@code Math.abs(x + z) % 16}（上游 1.7.10 的 {@code onBlockAdded}/{@code onBlockPlaced}），
@@ -288,12 +286,8 @@ public final class QzMinerConfigDefaults {
      *
      * <p>注册名字符串的复核口径：上游 {@code TFBlocks} 以 {@code setBlockName("TFAuroraBrick")} +
      * {@code registerBlock(block, itemClass, block.getUnlocalizedName())} 注册，FML 再按 modid 前缀，
-     * 故候选名为 {@code TwilightForest:tile.TFAuroraBrick}；该字符串**未实机验证**，实机可用两条可执行路径确认：
-     * ① 在对象组编辑器的方块选择器里读该方块的 registry 名——picker 侧
-     * {@code client.picker.BlockRegistrySnapshot.capture()} 与匹配侧
-     * {@code chain.planner.ObjectGroupBlockPredicate.registryName(Block)} 都调
-     * {@code Block.blockRegistry.getNameForObject(...)}，所以界面显示值与对象组匹配值同源；
-     * ② 开启 DEBUG 后在 {@code logs/fml-client-latest.log} 里 grep
+     * 故候选名为 {@code TwilightForest:tile.TFAuroraBrick}；该字符串未实机验证。实机开启 DEBUG 后
+     * 在 {@code logs/fml-client-latest.log} 搜索
      * {@code stage=PlanStarted read=main-seed seed=}（Forge log4j2 的 Root=all、FmlFile 无级别过滤，
      * DEBUG 必进文件），该行输出本次连锁起点方块的 registry@meta（
      * {@code chain.planner.ChainPlanningRuntimeFactory.logPlanStarted}），与选择器值不一致即改这一行。</p>

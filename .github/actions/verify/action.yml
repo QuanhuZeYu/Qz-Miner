@@ -1,6 +1,4 @@
-# 单一验证定义：分支 CI 与发布 workflow 共用（工作站 发布流程.md §3）。
-# 调用方负责 checkout（发布需先 checkout 到目标 tag）；本 action 只做「环境准备 + 验证 + 版本注入校验」。
-# 注意：发布 workflow 通过 `uses: ./.github/actions/verify` 引用本文件，因此目标 tag 必须包含本文件所在提交。
+# 分支与发布共用真实 test/check/build；依赖从公开仓解析，调用方只负责 checkout 与版本。
 name: Verify
 description: 按指定版本构建并验证（setupCIWorkspace / test / check / build / 版本注入校验）
 
@@ -74,6 +72,7 @@ runs:
       shell: bash
       run: |
         python3 <<'PY'
+        import json
         import os
         import re
         import struct
@@ -99,13 +98,24 @@ runs:
         jars = sorted(Path("build/libs").glob("*.jar"))
         main_jars = [
             path for path in jars
-            if not path.name.endswith(("-dev.jar", "-sources.jar", "-javadoc.jar"))
+            if path.name.endswith(f"-{expected}.jar")
         ]
         if len(main_jars) != 1:
             raise SystemExit(f"expected one main JAR, found {[str(path) for path in main_jars]!r}")
 
         with zipfile.ZipFile(main_jars[0]) as archive:
             class_bytes = archive.read("club/heiqi/qz_miner/Tags.class")
+            metadata = json.loads(archive.read("mcmod.info"))["modList"]
+            if len(metadata) != 1 or metadata[0]["version"] != expected:
+                raise SystemExit("main JAR mcmod.info version mismatch")
+            names = archive.namelist()
+            if any(name.startswith("club/heiqi/uilib/") for name in names):
+                raise SystemExit("UILib must be installed independently, not embedded in Miner")
+            for name in names:
+                if name.startswith("club/heiqi/qz_miner/") and name.endswith(".class"):
+                    header = archive.read(name)[:8]
+                    if struct.unpack_from(">H", header, 6)[0] != 52:
+                        raise SystemExit(f"non-Java8 mod class: {name}")
         if class_bytes[:4] != b"\xca\xfe\xba\xbe":
             raise SystemExit("generated Tags.class has an invalid classfile header")
 

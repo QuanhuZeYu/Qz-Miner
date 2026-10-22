@@ -13,17 +13,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
-/**
- * T43 波次 9 重复目标语义契约（B5.4：维持现状 + 文档化）。
- *
- * <p>行为口径由独立构造的序列锁定：**上游计数按收到次数（含重复）**，而**几何/配额去重**
- * （B0.7 去重先于配额）。</p>
- *
- * <p><b>已删除的文档断言</b>：原 {@code usageDocumentationMatchesTheLockedSemantics} 读
- * {@code docs/使用文档/README.md} 的文本，断言出现「重复 / 计数 / 去重」等字样、且不出现若干反向表述。
- * 文档文本不是代码契约——改文档就红，却保护不了任何代码行为（同样的语义由本类的行为用例锁定），
- * 按裁定归入「读文本匹配」一并删除，该用例随之移除。文档口径本身仍是产品要求，只是不再由测试守。</p>
- */
+/** 目标投影保留收到次数，几何在配额检查前按坐标去重。 */
 public class DuplicateTargetSemanticsContractTest {
 
     private static final VisualParameters VISUALS =

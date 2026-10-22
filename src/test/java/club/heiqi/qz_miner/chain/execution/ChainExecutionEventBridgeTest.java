@@ -13,6 +13,8 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
+import club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved;
+import club.heiqi.qz_miner.chain.eventbus.event.ChainKeyPressed;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionAdvanced;
 import club.heiqi.qz_miner.chain.eventbus.event.ExecutionFinished;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
@@ -21,7 +23,10 @@ import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanStarted;
 import club.heiqi.qz_miner.chain.eventbus.event.WatchdogTimeout;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.planner.ChainPlanningEventBridge;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
+import club.heiqi.qz_miner.chain.statemachine.ChainStateMachine;
+import club.heiqi.qz_miner.core.PlayerManager;
 import club.heiqi.qz_miner.chain.state.ChainPlayerState;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
 import club.heiqi.qz_miner.parallel.ParallelTickContext;
@@ -223,12 +228,8 @@ public class ChainExecutionEventBridgeTest {
 
     // ============================ G1 掉落窗口接线（阶段8 块2） ============================
     //
-    // G1 四接线点均通过 MyMod.chainStateService.getPlayerState(uuid).setExecuting(...) 接线。
-    // 纯 JVM 单测无 Forge 运行时，MyMod.chainStateService 为 null，setExecutionWindow 早 return
-    // （null 防御）。此处验证：
-    //   1. 四接线点的代码路径可达且不抛（null 安全）；
-    //   2. registry 在各收口路径正确 remove（与 G1 联动）。
-    // 真实 setExecuting 时序（true/false 切换）由 runServer25 实机验证（I5 E 系列）。
+    // 无 context 提前取消、成功登记开窗和旧轮隔离用真实状态服务断言；
+    // 其余 registry 清理用例保留 null service 兼容覆盖，真实世界破坏与生成仍需实机。
 
     /**
      * G1 看门狗收口：publish WatchdogTimeout → bridge.onWatchdogTimeout 清 registry +
@@ -335,28 +336,74 @@ public class ChainExecutionEventBridgeTest {
 
     // ============================ C 流式执行：PlanStarted 开窗 + PlanCancelled 清理 ============================
 
-    /**
-     * C 流式开窗：publish PlanStarted → bridge.onPlanStarted 调 setExecutionWindow(true, ...)。
-     *
-     * <p>纯 JVM 单测 chainStateService=null，setExecutionWindow 早 return，此处验证订阅可达且不抛。
-     * 真实 setExecuting(true) 时序由 runServer25 实机验证。</p>
-     */
+    /** 同一次 drain 内观测排出的 PlanStarted 晚于松键清理，不能重新登记或开窗。 */
     @Test
-    public void planStartedOpensExecutionWindowReachable() {
-        ChainEventBus bus = new ChainEventBus();
-        bus.bindMainThread(Thread.currentThread());
-        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+    public void cleanupBeforeQueuedPlanStartedPreventsPlanningAndRegistration() {
+        ChainStateService previousService = MyMod.chainStateService;
+        ChainStateMachine previousMachine = MyMod.chainStateMachine;
+        PlayerManager previousManager = MyMod.playerManager;
+        MyMod.chainStateService = new ChainStateService();
+        MyMod.playerManager = null;
+        try {
+            ChainPlayerState state = MyMod.chainStateService.getOrCreatePlayerState(PLAYER);
+            ChainEventBus bus = new ChainEventBus();
+            bus.bindMainThread(Thread.currentThread());
+            MyMod.chainStateMachine = new ChainStateMachine(bus);
+            ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+            ChainExecutionEventBridge execution = new ChainExecutionEventBridge(bus, registry);
+            new ChainPlanningEventBridge(bus, execution);
+            List<PlanStarted> started = new ArrayList<>();
+            List<PlanCancelled> cancelled = new ArrayList<>();
+            bus.subscribe(PlanStarted.class, started::add);
+            bus.subscribe(PlanCancelled.class, cancelled::add);
 
-        @SuppressWarnings("unused")
-        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+            bus.publish(new ChainKeyPressed(PLAYER, 501L, 0, TICK, NANOS, true));
+            bus.publish(new BlockBreakObserved(PLAYER, 501L, 0, TICK, NANOS,
+                    1, 2, 3, 0, 1, null, 0));
+            bus.publish(new ChainKeyPressed(PLAYER, 501L, 0, TICK, NANOS, false));
+            bus.publish(new LifecycleCleanup(PLAYER, 501L, 0, TICK, NANOS,
+                    "user-abort", true, false));
+            bus.drain();
 
-        // PlanStarted 构造：最小必需字段（破坏路径：seedBlock=null, hitX/Y/Z=0）
-        PlanStarted started = new PlanStarted(PLAYER, 1, TICK, NANOS,
-                1, 2, 3, 0, 1, 0F, 0F, 0F, null, 0);
-        bus.publish(started);
-        bus.drain();
-        // 可达且不抛即视为通过（chainStateService=null 早 return，无副作用可断言）
-        Assert.assertTrue("PlanStarted 订阅应可达且不抛", true);
+            Assert.assertEquals("T4确实排出了迟到PlanStarted", 1, started.size());
+            Assert.assertTrue("失效规划必须在玩家解析前退出，不能再派生player-unavailable取消", cancelled.isEmpty());
+            PlanStarted late = started.get(0);
+            Assert.assertFalse(execution.registerPlanningContext(new ChainExecutionContext(PLAYER,
+                    late.getServerRoundId(), late.getGeneration(), new ConcurrentLinkedQueue<ChainTarget>(), null)));
+            Assert.assertTrue(registry.snapshot().isEmpty());
+            Assert.assertFalse("cleanup后迟到规划不能重新开窗", state.isExecuting());
+        } finally {
+            MyMod.chainStateService = previousService;
+            MyMod.chainStateMachine = previousMachine;
+            MyMod.playerManager = previousManager;
+        }
+    }
+
+    /** runtime/seed 等在 context 登记前拒绝时，不得留下阻塞后续采掘和释放的执行窗口。 */
+    @Test
+    public void planStartedThenCancelledWithoutContextLeavesExecutionWindowClosed() {
+        ChainStateService previousService = MyMod.chainStateService;
+        ChainStateService service = new ChainStateService();
+        MyMod.chainStateService = service;
+        try {
+            ChainPlayerState state = service.getOrCreatePlayerState(PLAYER);
+            ChainEventBus bus = new ChainEventBus();
+            bus.bindMainThread(Thread.currentThread());
+            ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+            new ChainExecutionEventBridge(bus, registry);
+
+            bus.publish(new PlanStarted(PLAYER, 501L, 1, TICK, NANOS,
+                    1, 2, 3, 0, 1, 0F, 0F, 0F, null, 0));
+            bus.drain();
+            Assert.assertFalse("PlanStarted 本身不代表 context 登记成功", state.isExecuting());
+
+            bus.publish(new PlanCancelled(PLAYER, 501L, 1, TICK, NANOS, "shadow-runtime-null"));
+            bus.drain();
+            Assert.assertTrue(registry.snapshot().isEmpty());
+            Assert.assertFalse("登记前取消后窗口必须保持关闭", state.isExecuting());
+        } finally {
+            MyMod.chainStateService = previousService;
+        }
     }
 
     /**
@@ -406,22 +453,52 @@ public class ChainExecutionEventBridgeTest {
     /** 同 generation 的 R1 PlanCancelled 不得清除或关闭 R2 的执行上下文。 */
     @Test
     public void oldRoundCancellationDoesNotClearNewRoundContext() {
-        ChainEventBus bus = new ChainEventBus();
-        bus.bindMainThread(Thread.currentThread());
-        ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
-        ChainExecutionContext r1 = new ChainExecutionContext(PLAYER, 501L, 4,
-                new ConcurrentLinkedQueue<ChainTarget>(), null);
-        ChainExecutionContext r2 = new ChainExecutionContext(PLAYER, 502L, 4,
-                new ConcurrentLinkedQueue<ChainTarget>(), null);
-        registry.put(r1);
-        registry.put(r2);
-        @SuppressWarnings("unused")
-        ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+        ChainStateService previousService = MyMod.chainStateService;
+        ChainStateMachine previousMachine = MyMod.chainStateMachine;
+        ChainStateService service = new ChainStateService();
+        MyMod.chainStateService = service;
+        try {
+            ChainPlayerState state = service.getOrCreatePlayerState(PLAYER);
+            ChainEventBus bus = new ChainEventBus();
+            bus.bindMainThread(Thread.currentThread());
+            MyMod.chainStateMachine = new ChainStateMachine(bus);
+            ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();
+            ChainExecutionEventBridge bridge = new ChainExecutionEventBridge(bus, registry);
+            ChainExecutionContext r1 = new ChainExecutionContext(PLAYER, 501L, 1,
+                    new ConcurrentLinkedQueue<ChainTarget>(), null);
+            ChainExecutionContext r2 = new ChainExecutionContext(PLAYER, 502L, 1,
+                    new ConcurrentLinkedQueue<ChainTarget>(), null);
+            Assert.assertFalse(state.isExecuting());
+            bus.publish(new ChainKeyPressed(PLAYER, 501L, 0, TICK, NANOS, true));
+            bus.publish(new BlockBreakObserved(PLAYER, 501L, 0, TICK, NANOS,
+                    1, 2, 3, 0, 1, null, 0));
+            bus.drain();
+            Assert.assertTrue(bridge.registerPlanningContext(r1));
+            Assert.assertTrue("成功登记即开窗", state.isExecuting());
 
-        bus.publish(new PlanCancelled(PLAYER, 501L, 4, TICK, NANOS, "late-r1"));
-        bus.drain();
+            // 登出删槽、重连后generation再次为1；以真实T4授权R2，不能绕过生产门禁。
+            bus.publish(new LifecycleCleanup(PLAYER, 501L, 1, TICK, NANOS, "logout", true, true));
+            bus.publish(new ChainKeyPressed(PLAYER, 502L, 0, TICK, NANOS, true));
+            bus.publish(new BlockBreakObserved(PLAYER, 502L, 0, TICK, NANOS,
+                    1, 2, 3, 0, 1, null, 0));
+            bus.drain();
+            Assert.assertFalse("旧round不能借重用generation登记", bridge.registerPlanningContext(r1));
+            Assert.assertTrue(bridge.registerPlanningContext(r2));
 
-        Assert.assertSame("旧轮取消不得移除新轮 context", r2, registry.get(PLAYER, 4, 502L));
+            bus.publish(new PlanCancelled(PLAYER, 501L, 1, TICK, NANOS, "late-r1"));
+            bus.drain();
+
+            Assert.assertSame("旧轮取消不得移除新轮 context", r2, registry.get(PLAYER, 1, 502L));
+            Assert.assertTrue("旧轮取消不得关闭新轮窗口", state.isExecuting());
+
+            bus.publish(new PlanCancelled(PLAYER, 502L, 1, TICK, NANOS, "cancel-r2"));
+            bus.drain();
+            Assert.assertNull(registry.get(PLAYER, 1, 502L));
+            Assert.assertFalse("当前轮取消正常关窗", state.isExecuting());
+        } finally {
+            MyMod.chainStateService = previousService;
+            MyMod.chainStateMachine = previousMachine;
+        }
     }
 
     @Test

@@ -54,8 +54,7 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     // 本构建的 major.minor 族。声明区间后不得再有 @NetworkCheckHandler —— FML 的 NetworkModHolder
     // 里两者互斥：有 handler 时 acceptableRange 根本不会创建，区间与「接受自身版本」自检一并失效。
     acceptableRemoteVersions = NetworkVersionRange.VALUE,
-    dependencies = "required-after:qz_uilib@[4.11.0,5.0.0);",
-    guiFactory = "club.heiqi.qz_miner.client.configGUI.QzMinerConfigGUIFactory")
+    dependencies = "required-after:qz_uilib@[5.0.0-beta3,6.0.0);")
 public class MyMod {
 
     public static final String MODID = "qz_miner";
@@ -150,17 +149,11 @@ public class MyMod {
         // restore barrier 必须早于状态机、执行桥等会清理 state/registry 的订阅者。
         autoToolSwapServerBatchService.subscribeLifecycle(chainEventBus);
         chainStateMachine = new ChainStateMachine(chainEventBus);
-        // 阶段5：执行上下文注册表（E1-c），先于规划桥实例化（规划桥构造器注入 registry）
         chainExecutionContextRegistry = new ChainExecutionContextRegistry();
-        // 阶段 4：规划事件桥，在状态机之后实例化（状态机 publish PlanStarted，bridge 订阅之发起影子 traverser）
-        // 注入 registry：worker 完成路径 put shadowQueue，解决"shadowQueue 局部变量断链"卡点
-        chainPlanningEventBridge = new ChainPlanningEventBridge(chainEventBus, chainExecutionContextRegistry);
-        // 阶段8 块2：执行事件桥，订阅 PlanCompleted + ServerTickEvent 真实破坏消费（块2 起不再 dry-run）。
-        // 接线顺序：状态机 → registry → 规划桥 → 执行桥（构造，订阅 PlanCompleted）→ Drainer.bootstrap() → 执行桥.bootstrap()。
-        // Drainer 先注册 FML bus，确保 ServerTickEvent 分发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
-        // → executionBridge.onServerTick（消费 context），同 tick 完成登记+消费，无延迟（阶段8 接管真实破坏时手感不受影响）。
+        // 执行桥统一登记 context 与掉落窗口，规划前置校验失败不会留下半开的执行态。
         chainExecutionEventBridge = ChainExecutionEventBridge.withLocalToolSwap(
                 chainEventBus, chainExecutionContextRegistry, autoToolSwapServerBatchService);
+        chainPlanningEventBridge = new ChainPlanningEventBridge(chainEventBus, chainExecutionEventBridge);
         // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
         // 守边界不越权：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
@@ -248,6 +241,9 @@ public class MyMod {
         }
         // 再完成玩家生命周期清理，最后关闭 dispatcher，避免 stop 后 FIFO 拒绝清理任务
         PlayerManager.clearAllPlayersOnServerStopping();
+        if (chainStateService != null) {
+            chainStateService.suspendDropsOnServerStopping();
+        }
         if (autoToolSwapRoundService != null) {
             autoToolSwapRoundService.clearAll();
         }

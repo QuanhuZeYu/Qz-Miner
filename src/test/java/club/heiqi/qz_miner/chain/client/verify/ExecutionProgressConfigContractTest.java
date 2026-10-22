@@ -2,6 +2,7 @@ package club.heiqi.qz_miner.chain.client.verify;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -9,8 +10,7 @@ import java.util.Properties;
 import org.junit.Assert;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
+import club.heiqi.uilib.ui.config.ConfigDocument;
 import club.heiqi.qz_miner.Config;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator;
 import club.heiqi.qz_miner.config.ConfigValueBridge;
@@ -74,34 +74,28 @@ public class ExecutionProgressConfigContractTest {
     }
 
     /**
-     * 端到端同源：YAML 草稿写入 true → 校验（Schema 必须声明该键）→ 桥接 → Config 静态字段变 true。
+     * 端到端同源：YAML 写入 true → 校验（Schema 必须声明该键）→ 桥接 → Config 静态字段变 true。
      * 覆盖 Schema / Validator / Bridge 三处，与前面的 Config / Defaults / 语言四处合起来为五处同源。
      */
     @Test
-    public void draftSaveRoundTripBridgesTheKeyIntoConfig() throws Exception {
+    public void yamlRoundTripBridgesTheKeyIntoConfig() throws Exception {
         boolean saved = Config.clientPreviewExecutionProgress;
         File yaml = File.createTempFile("qz-execution-progress", ".yaml");
         try {
-            ConfigManager manager = ConfigManager.bootstrap(
-                yaml, QzMinerConfigSchema.create(), ConfigSemanticValidator.draftValidator());
+            ConfigDocument document = ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA);
             Assert.assertFalse("初始必须为 off", Config.clientPreviewExecutionProgress);
-            DraftBuffer draft = manager.openDraft();
-            draft.setDraft(CONFIG_PATH, Boolean.TRUE);
-            club.heiqi.config.runtime.SaveOutcome outcome = manager.save(draft);
-            Assert.assertEquals("合法键必须保存成功（Schema 已声明）: " + outcome.status(),
-                club.heiqi.config.runtime.SaveOutcome.Status.OK, outcome.status());
-            // 生产提交路径 = 捕获已提交快照 → 桥接写回静态字段（与 ConfigBootstrap 分发一致）
+            document = document.withAll(Collections.singletonMap(QzMinerConfigSchema.key(CONFIG_PATH), Boolean.TRUE));
+            document.write(yaml.toPath());
             ConfigSemanticValidator.ValidatedSnapshot enabled =
-                ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+                ConfigSemanticValidator.validate(ConfigDocument.read(QzMinerConfigSchema.SCHEMA, yaml.toPath())).snapshot;
             Assert.assertTrue("YAML true 必须解析进快照", enabled.clientPreviewExecutionProgress);
             ConfigValueBridge.applyClientFromSnapshot(enabled);
             Assert.assertTrue("桥接必须把 true 写进 Config", Config.clientPreviewExecutionProgress);
 
-            DraftBuffer offDraft = manager.openDraft();
-            offDraft.setDraft(CONFIG_PATH, Boolean.FALSE);
-            manager.save(offDraft);
+            document = document.withAll(Collections.singletonMap(QzMinerConfigSchema.key(CONFIG_PATH), Boolean.FALSE));
+            document.write(yaml.toPath());
             ConfigSemanticValidator.ValidatedSnapshot disabled =
-                ConfigSemanticValidator.captureAndValidate(manager).snapshot;
+                ConfigSemanticValidator.validate(ConfigDocument.read(QzMinerConfigSchema.SCHEMA, yaml.toPath())).snapshot;
             Assert.assertFalse("YAML false 必须解析进快照", disabled.clientPreviewExecutionProgress);
             ConfigValueBridge.applyClientFromSnapshot(disabled);
             Assert.assertFalse("恢复默认必须写回 off", Config.clientPreviewExecutionProgress);

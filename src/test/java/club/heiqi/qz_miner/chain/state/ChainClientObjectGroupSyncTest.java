@@ -26,6 +26,26 @@ public class ChainClientObjectGroupSyncTest {
         Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 1));
         Assert.assertSame(n.snapshot.objectGroups, state.getServerObjectGroups());
         Assert.assertNotSame(nPlusOne.snapshot.objectGroups, state.getServerObjectGroups());
+        Assert.assertFalse("新请求待确认时旧ACK不能启用扩展", state.isObjectGroupSyncAccepted());
+        Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 6L, 6L, true, 1));
+        Assert.assertTrue(state.isObjectGroupSyncAccepted());
+    }
+
+    @Test
+    public void reloadFallsBackUntilLatestRequestIsConfirmedWithoutChangingFrozenRules() {
+        ChainClientState state = new ChainClientState();
+        CommittedSnapshot old = snapshot(5L, rules("logs", "minecraft:log@*"));
+        state.beginObjectGroupSync(1L, old);
+        Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 5L, 5L, true, 1));
+        Assert.assertTrue(state.isObjectGroupSyncAccepted());
+        ObjectGroupRuleSet frozen = state.getServerObjectGroups();
+
+        state.registerObjectGroupRequest(1L, snapshot(6L, ObjectGroupRuleSet.EMPTY));
+        Assert.assertFalse(state.isObjectGroupSyncAccepted());
+        Assert.assertSame("已冻结规则仍是原不可变值", old.snapshot.objectGroups, frozen);
+        Assert.assertTrue(state.applyObjectGroupSyncResult(1L, 6L, 6L, true, 0));
+        Assert.assertTrue(state.isObjectGroupSyncAccepted());
+        Assert.assertSame(ObjectGroupRuleSet.EMPTY, state.getServerObjectGroups());
     }
 
     @Test

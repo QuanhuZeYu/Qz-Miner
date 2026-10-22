@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.chain.state;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,6 +31,8 @@ import net.minecraft.item.ItemStack;
 public final class ChainStateService {
 
     private final Map<UUID, ChainPlayerState> playerStates = new ConcurrentHashMap<>();
+    // 已停止服务端的资产只供显式领取，不进入新世界的自动释放集合。
+    private final Map<UUID, List<ChainPlayerDropBuffer>> suspendedPlayerDrops = new ConcurrentHashMap<>();
     private final ChainClientState clientState = new ChainClientState();
 
     public ChainStateService() {
@@ -35,7 +40,10 @@ public final class ChainStateService {
     }
 
     public ChainPlayerState getOrCreatePlayerState(UUID playerUUID) {
-        return playerStates.computeIfAbsent(playerUUID, ChainPlayerState::new);
+        return playerStates.compute(playerUUID, (uuid, state) -> {
+            if (state == null) return new ChainPlayerState(uuid);
+            return state.isPendingRemoval() ? new ChainPlayerState(uuid, state.getDropBuffer()) : state;
+        });
     }
 
     public ChainPlayerState getPlayerState(UUID playerUUID) {
@@ -54,12 +62,10 @@ public final class ChainStateService {
         finalizeAutoToolSwapLocal(playerUUID, null);
         cleanupAutoToolSwapRound(playerUUID);
         GregTechCableSessionState.clear(playerUUID);
-        ChainPlayerState state = playerStates.remove(playerUUID);
+        ChainPlayerState state = playerStates.get(playerUUID);
         if (state != null) {
             flushPlayerDrops(state, null, reason);
-            state.clearObjectGroupRules();
-            state.clearCuboidSelection();
-            state.clearRuntimeState(reason);
+            retirePlayerState(state, reason);
         }
     }
 
@@ -81,7 +87,7 @@ public final class ChainStateService {
         flushPlayerDrops(state, player, reason);
 
         if (removeState) {
-            removePlayerState(playerUUID, reason);
+            retirePlayerState(state, reason);
             return;
         }
 
@@ -97,6 +103,82 @@ public final class ChainStateService {
         // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN/PlanCompleted 下发，无需此处兜底。
     }
 
+    private void retirePlayerState(ChainPlayerState state, String reason) {
+        state.retireRuntimeState(reason);
+        removeDeliveredDropOwner(state);
+    }
+
+    /** 仅服务端主线程调用；资产已交付后才回收退休 owner，不触碰新接管的运行态。 */
+    public void removeDeliveredDropOwner(ChainPlayerState state) {
+        if (state != null && state.isPendingRemoval() && state.getDropBuffer().isEmpty()) {
+            playerStates.remove(state.getPlayerUUID(), state);
+        }
+    }
+
+    /**
+     * 服务端停止时在玩家清理之后调用。旧资产仍在内存可领取，但不带入下个存档自动投放。
+     * 不持有 World/Player，也不提供 JVM 退出后的持久化保证。
+     */
+    public void suspendDropsOnServerStopping() {
+        suspendedPlayerDrops.values().forEach(buffers -> buffers.removeIf(ChainPlayerDropBuffer::isEmpty));
+        suspendedPlayerDrops.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+        for (ChainPlayerState state : playerStates.values()) {
+            state.retireRuntimeState("server-stopping");
+            if (!state.getDropBuffer().isEmpty()) {
+                suspendedPlayerDrops.computeIfAbsent(state.getPlayerUUID(), uuid -> new ArrayList<>())
+                        .add(state.getDropBuffer());
+            }
+            playerStates.remove(state.getPlayerUUID(), state);
+        }
+    }
+
+    /**
+     * 运维命令在服务端主线程显式恢复停止前资产，只释放到指定在线玩家当前位置。
+     * 每个 buffer 独立失败保留；已生成部分由既有 helper 从缓冲移出，重复执行不会再次生成。
+     * 不使用旧世界坐标或重生点，也不合并到当前运行态。
+     *
+     * @return 仍未交付的聚合掉落栈数；0 表示该玩家已无停止资产待恢复
+     */
+    public int releaseSuspendedPlayerDrops(EntityPlayerMP player) {
+        if (player == null) throw new IllegalArgumentException("recovery player must not be null");
+        UUID playerUUID = player.getUniqueID();
+        List<ChainPlayerDropBuffer> buffers = suspendedPlayerDrops.get(playerUUID);
+        if (buffers == null) return 0;
+
+        if (MyMod.playerManager != null && MyMod.playerManager.getPlayer(playerUUID) == player
+                && player.worldObj != null && !player.worldObj.isRemote) {
+            for (ChainPlayerDropBuffer buffer : buffers) {
+                if (buffer.isEmpty()) continue;
+                try {
+                    ChainDropReleaseHelper.releaseAtPlayer(player, buffer, "operator-recover-suspended-drops");
+                } catch (RuntimeException e) {
+                    MyMod.LOG.warn("[ChainState] Suspended drop recovery failed for player {}, keeping pending assets",
+                            playerUUID, e);
+                }
+            }
+        }
+        buffers.removeIf(ChainPlayerDropBuffer::isEmpty);
+        if (buffers.isEmpty()) {
+            suspendedPlayerDrops.remove(playerUUID, buffers);
+            return 0;
+        }
+        int pendingStacks = 0;
+        for (ChainPlayerDropBuffer buffer : buffers) pendingStacks += buffer.size();
+        return pendingStacks;
+    }
+
+    /** 包内资产快照供生命周期核对；游戏内恢复经显式命令入口，不向外暴露可变缓冲。 */
+    List<ChainPlayerDropBuffer> getSuspendedPlayerDrops(UUID playerUUID) {
+        List<ChainPlayerDropBuffer> buffers = suspendedPlayerDrops.get(playerUUID);
+        if (buffers == null) return Collections.emptyList();
+        buffers.removeIf(ChainPlayerDropBuffer::isEmpty);
+        if (buffers.isEmpty()) {
+            suspendedPlayerDrops.remove(playerUUID, buffers);
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(new ArrayList<>(buffers));
+    }
+
     public ChainClientState getClientState() {
         return clientState;
     }
@@ -109,7 +191,12 @@ public final class ChainStateService {
      */
     public void bufferPlayerDrop(UUID playerUUID, ItemStack stack) {
         if (playerUUID != null && stack != null && stack.stackSize > 0) {
-            getOrCreatePlayerState(playerUUID).getDropBuffer().add(stack);
+            ChainPlayerState owner = playerStates.computeIfAbsent(playerUUID, uuid -> {
+                ChainPlayerState state = new ChainPlayerState(uuid);
+                state.retireRuntimeState("buffer-player-drop");
+                return state;
+            });
+            owner.getDropBuffer().add(stack);
         }
     }
 
@@ -225,26 +312,30 @@ public final class ChainStateService {
             return;
         }
 
-        EntityPlayer playerSnapshot = player;
-        if (playerSnapshot == null && MyMod.playerManager != null) {
-            playerSnapshot = MyMod.playerManager.getPlayer(state.getPlayerUUID());
-        }
+        try {
+            EntityPlayer playerSnapshot = player;
+            if (playerSnapshot == null && MyMod.playerManager != null) {
+                playerSnapshot = MyMod.playerManager.getPlayer(state.getPlayerUUID());
+            }
 
-        if (playerSnapshot instanceof EntityPlayerMP
-            && ChainDropReleaseHelper.releaseAtPlayer((EntityPlayerMP) playerSnapshot, state.getDropBuffer(), reason)) {
-            return;
+            if (playerSnapshot instanceof EntityPlayerMP
+                && ChainDropReleaseHelper.releaseAtPlayer((EntityPlayerMP) playerSnapshot, state.getDropBuffer(), reason)) {
+                return;
+            }
+            if (playerSnapshot != null
+                && ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(playerSnapshot, state.getDropBuffer(), reason)) {
+                return;
+            }
+            if (ChainDropReleaseHelper.releaseAtRememberedTarget(
+                    state.getDropBuffer(), state.getPlayerUUID().toString(), reason)) {
+                return;
+            }
+        } catch (RuntimeException e) {
+            MyMod.LOG.warn("[ChainState] Drop release failed for player {} reason={}, keeping pending assets",
+                    state.getPlayerUUID(), reason, e);
         }
-
-        if (playerSnapshot != null
-            && ChainDropReleaseHelper.releaseAtRespawnOrWorldSpawn(playerSnapshot, state.getDropBuffer(), reason)) {
-            return;
-        }
-
-        if (ChainDropReleaseHelper.releaseAtRememberedTarget(state.getDropBuffer(), state.getPlayerUUID().toString(), reason)) {
-            return;
-        }
-
-        ChainDropReleaseHelper.discard(state.getPlayerUUID().toString(), state.getDropBuffer(), reason + "-missing-release-context");
+        MyMod.LOG.warn("[ChainState] Keeping {} pending drop stack(s) for player {} reason={}",
+                state.getDropBuffer().size(), state.getPlayerUUID(), reason);
     }
 
     /** 丢弃无库存写权的 v4 round projection。 */

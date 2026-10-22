@@ -566,79 +566,14 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             }
 
             while (true) {
-                RenderChange desiredChange;
-                synchronized (taskLock) {
-                    if (currentTask != this || lifecycleEpoch != ownerEpoch) {
-                        finish(false);
-                        return ParallelTaskResult.TERMINATED;
-                    }
-                    desiredChange = latestChange;
+                ParallelTaskResult preparation = prepareRevision(control);
+                if (preparation != ParallelTaskResult.CONTINUE) {
+                    return preparation;
                 }
-                if (desiredChange == null || !desiredChange.isActive()) {
-                    finish(true);
-                    return ParallelTaskResult.COMPLETED;
-                }
-                if (sessionKey != null && sessionKey.generation != desiredChange.getGeneration()) {
-                    session = null;
-                    sessionKey = null;
-                }
-
                 if (session == null) {
-                    if (!needsBuild()) {
-                        finish(true);
-                        return ParallelTaskResult.COMPLETED;
-                    }
-                    if (control.shouldYield()) {
-                        return ParallelTaskResult.YIELDED;
-                    }
-
-                    VisualState visuals = latestVisualState;
-                    ChainPreviewVisualSettings settingsSnapshot = visualSettings;
-                    synchronized (taskLock) {
-                        RenderChange currentChange = latestChange;
-                        boolean sameTopology = currentTask == this
-                            && lifecycleEpoch == ownerEpoch
-                            && currentChange != null
-                            && currentChange.isActive()
-                            && publishedKey.lifecycleEpoch == ownerEpoch
-                            && publishedKey.generation == currentChange.getGeneration()
-                            && publishedKey.stateRevision == currentChange.getRevision();
-                        if (sameTopology && publishedMesh.isEmpty()) {
-                            publishedKey = new BuildKey(
-                                ownerEpoch,
-                                currentChange.getGeneration(),
-                                currentChange.getRevision(),
-                                visuals.revision);
-                            continue;
-                        }
-                        if (sameTopology && publishedMesh.isRecolorable()) {
-                            sessionKey = new BuildKey(
-                                ownerEpoch,
-                                currentChange.getGeneration(),
-                                currentChange.getRevision(),
-                                visuals.revision);
-                            session = meshBuilder.beginRecolor(
-                                publishedMesh, visuals.toVisualParameters(settingsSnapshot));
-                            sessionTargetCount = publishedMesh.getBlockCount();
-                        }
-                    }
-                    if (session == null) {
-                        RenderSnapshot snapshot = state.captureRenderSnapshot();
-                        if (!snapshot.isActive()) {
-                            finish(true);
-                            return ParallelTaskResult.COMPLETED;
-                        }
-                        sessionKey = new BuildKey(
-                            ownerEpoch,
-                            snapshot.getGeneration(),
-                            snapshot.getRevision(),
-                            visuals.revision);
-                        sessionTargetCount = snapshot.getTargetCount();
-                        // B4.1 第二步：按代复用 GenerationSession 做增量装配（代内 extend 累积）。
-                        session = generationExtendSession(snapshot, visuals, settingsSnapshot);
-                    }
+                    // 空拓扑只追平视觉版本；重新核对最新状态，不消耗一次装配预算。
+                    continue;
                 }
-
                 boolean complete = session.advance(new ChainPreviewMeshBuilder.WorkGate() {
                     @Override
                     public boolean shouldYield() {
@@ -648,53 +583,136 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 if (!complete) {
                     return ParallelTaskResult.YIELDED;
                 }
-
-                boolean diagnosticsPublished = false;
-                long diagnosticsGeneration = 0L;
-                long diagnosticsRevision = 0L;
-                int diagnosticsMeshBlocks = 0;
-                int diagnosticsMeshIndices = 0;
-                int diagnosticsTargetCount = 0;
-                synchronized (taskLock) {
-                    RenderChange currentChange = latestChange;
-                    if (currentTask == this
-                            && lifecycleReady
-                            && lifecycleEpoch == ownerEpoch
-                            && currentChange != null
-                            && currentChange.isActive()
-                            && currentChange.getGeneration() == sessionKey.generation) {
-                        ChainPreviewMesh mesh = session.getMesh();
-                        publishedKey = sessionKey;
-                        publishedMesh = mesh;
-                        if (latestVisualState.revision == sessionKey.visualRevision) {
-                            pendingPublication.set(new MeshPublication(sessionKey, mesh));
-                            if (previewDiagnosticsEnabled()) {
-                                diagnosticsPublished = true;
-                                diagnosticsGeneration = sessionKey.generation;
-                                diagnosticsRevision = sessionKey.stateRevision;
-                                diagnosticsMeshBlocks = mesh.getBlockCount();
-                                diagnosticsMeshIndices = mesh.getIndexCount();
-                                diagnosticsTargetCount = sessionTargetCount;
-                            }
-                        }
-                    }
-                }
-                session = null;
-                sessionKey = null;
-                sessionTargetCount = 0;
-                // 真机故障自证出口：默认关闭（-Dqz_miner.preview.diagnostics=true 才输出），不改任何行为。
-                if (diagnosticsPublished) {
-                    logPreviewDiagnostics(
-                        diagnosticsGeneration,
-                        diagnosticsRevision,
-                        diagnosticsTargetCount,
-                        diagnosticsMeshBlocks,
-                        diagnosticsMeshIndices);
-                }
-
+                publishCompletedRevision();
                 if (control.shouldYield()) {
                     return ParallelTaskResult.YIELDED;
                 }
+            }
+        }
+
+        /** 每轮先核对 worker 所属代，再恢复现有修订或冻结新修订；同代追加不丢弃已做的工作。 */
+        private ParallelTaskResult prepareRevision(ParallelTickControl control) {
+            RenderChange desiredChange;
+            synchronized (taskLock) {
+                if (currentTask != this || lifecycleEpoch != ownerEpoch) {
+                    finish(false);
+                    return ParallelTaskResult.TERMINATED;
+                }
+                desiredChange = latestChange;
+            }
+            if (desiredChange == null || !desiredChange.isActive()) {
+                finish(true);
+                return ParallelTaskResult.COMPLETED;
+            }
+            if (sessionKey != null && sessionKey.generation != desiredChange.getGeneration()) {
+                session = null;
+                sessionKey = null;
+            }
+            if (session != null) {
+                return ParallelTaskResult.CONTINUE;
+            }
+            if (!needsBuild()) {
+                finish(true);
+                return ParallelTaskResult.COMPLETED;
+            }
+            if (control.shouldYield()) {
+                return ParallelTaskResult.YIELDED;
+            }
+
+            VisualState visuals = latestVisualState;
+            ChainPreviewVisualSettings settingsSnapshot = visualSettings;
+            if (reusePublishedTopology(visuals, settingsSnapshot)) {
+                return ParallelTaskResult.CONTINUE;
+            }
+            RenderSnapshot snapshot = state.captureRenderSnapshot();
+            if (!snapshot.isActive()) {
+                finish(true);
+                return ParallelTaskResult.COMPLETED;
+            }
+            sessionKey = new BuildKey(
+                ownerEpoch,
+                snapshot.getGeneration(),
+                snapshot.getRevision(),
+                visuals.revision);
+            sessionTargetCount = snapshot.getTargetCount();
+            // B4.1 第二步：按代复用 GenerationSession 做增量装配（代内 extend 累积）。
+            session = generationExtendSession(snapshot, visuals, settingsSnapshot);
+            return ParallelTaskResult.CONTINUE;
+        }
+
+        /** 相同拓扑可只更新空网格的版本或创建着色修订，无需重读目标快照。 */
+        private boolean reusePublishedTopology(
+                VisualState visuals, ChainPreviewVisualSettings settingsSnapshot) {
+            synchronized (taskLock) {
+                RenderChange currentChange = latestChange;
+                boolean sameTopology = currentTask == this
+                    && lifecycleEpoch == ownerEpoch
+                    && currentChange != null
+                    && currentChange.isActive()
+                    && publishedKey.lifecycleEpoch == ownerEpoch
+                    && publishedKey.generation == currentChange.getGeneration()
+                    && publishedKey.stateRevision == currentChange.getRevision();
+                if (!sameTopology) {
+                    return false;
+                }
+                if (publishedMesh.isEmpty()) {
+                    publishedKey = new BuildKey(
+                        ownerEpoch,
+                        currentChange.getGeneration(),
+                        currentChange.getRevision(),
+                        visuals.revision);
+                    return true;
+                }
+                if (!publishedMesh.isRecolorable()) {
+                    return false;
+                }
+                sessionKey = new BuildKey(
+                    ownerEpoch,
+                    currentChange.getGeneration(),
+                    currentChange.getRevision(),
+                    visuals.revision);
+                session = meshBuilder.beginRecolor(
+                    publishedMesh, visuals.toVisualParameters(settingsSnapshot));
+                sessionTargetCount = publishedMesh.getBlockCount();
+                return true;
+            }
+        }
+
+        /** 同代旧修订可成为后续 CPU 基线；仅视觉版本仍匹配时交接不可变网格，上传仍由渲染线程负责。 */
+        private void publishCompletedRevision() {
+            BuildKey completedKey = sessionKey;
+            int completedTargetCount = sessionTargetCount;
+            ChainPreviewMesh diagnosticMesh = null;
+            synchronized (taskLock) {
+                RenderChange currentChange = latestChange;
+                if (currentTask == this
+                        && lifecycleReady
+                        && lifecycleEpoch == ownerEpoch
+                        && currentChange != null
+                        && currentChange.isActive()
+                        && currentChange.getGeneration() == completedKey.generation) {
+                    ChainPreviewMesh mesh = session.getMesh();
+                    publishedKey = completedKey;
+                    publishedMesh = mesh;
+                    if (latestVisualState.revision == completedKey.visualRevision) {
+                        pendingPublication.set(new MeshPublication(completedKey, mesh));
+                        if (previewDiagnosticsEnabled()) {
+                            diagnosticMesh = mesh;
+                        }
+                    }
+                }
+            }
+            session = null;
+            sessionKey = null;
+            sessionTargetCount = 0;
+            // 真机故障自证出口：默认关闭（-Dqz_miner.preview.diagnostics=true 才输出），不改任何行为。
+            if (diagnosticMesh != null) {
+                logPreviewDiagnostics(
+                    completedKey.generation,
+                    completedKey.stateRevision,
+                    completedTargetCount,
+                    diagnosticMesh.getBlockCount(),
+                    diagnosticMesh.getIndexCount());
             }
         }
 

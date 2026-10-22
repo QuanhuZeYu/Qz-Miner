@@ -1,13 +1,16 @@
 package club.heiqi.qz_miner.chain.client.render;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
-import club.heiqi.uilib.gl.shader.ShaderProgramSupport;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
@@ -15,10 +18,12 @@ import org.lwjgl.opengl.GL20;
 /**
  * 连锁预览着色器程序：{@code preview.vert} + {@code preview.frag} 的编译、链接、验证与 uniform 缓存。
  *
- * <p>编译/链接/验证一律走 UILib 的 {@link ShaderProgramSupport}（{@code readText} /
- * {@code compileShader} / {@code linkAndValidateProgram}），本类<strong>不</strong>实现第二套
- * GLSL 编译链接逻辑，也不重复实现 uniform 缓存语义（沿用 UILib 的
- * 「命中缓存 → 未命中查询 → 缺失记入 missing 集合」三段式，缺失 uniform 静默跳过）。</p>
+ * <p>UILib 5 已撤除旧 shader helper；公开 GlApi 是绑定独立 context 的实例端口，不能代替
+ * 世界 renderer 现有的 GL20 上下文。本类只管理这一对业务 shader 的资源读取、编译、链接及
+ * uniform 缓存，不提供通用 shader 框架。每个创建成功的句柄都有独立失败清理，初始化和释放
+ * 不接管其它 program 的绑定。</p>
+ *
+ * <p>UILib 5 迁移尚未游戏实机验证：离线编译不能证明真实 GL 状态恢复、资源重载与退出重入正确。</p>
  *
  * <p>失败语义（功能优先级与落点（真源：preview.vert 头部落点表））：{@link #ensureReady()} 只尝试一次；失败后置
  * {@link #isUnavailable()} 为 true，后续调用直接返回 false，<strong>不会每帧重试</strong>。
@@ -44,6 +49,7 @@ public final class ChainPreviewShaderProgram {
     private static final String COMPILE_FRAGMENT_ERROR_PREFIX = "预览片元着色器编译失败: ";
     private static final String LINK_ERROR_PREFIX = "预览着色器链接失败: ";
     private static final String VALIDATE_ERROR_PREFIX = "预览着色器验证失败: ";
+    private static final int INFO_LOG_MAX_LENGTH = 8192;
 
     private static final int ATTRIB_POSITION = 0;
     private static final int ATTRIB_AUX = 1;
@@ -177,16 +183,10 @@ public final class ChainPreviewShaderProgram {
             // 属性槽位必须在 glLinkProgram 之前绑定，链接后再绑对已链接程序无效。
             bindAttributeLocations();
             compileAndLink();
-            // 安全初值：uniform 未赋值时为 0，会让 uFadeAlpha 把整链 alpha 归零。
-            setFadeAlpha(INITIAL_FADE_ALPHA);
-            // 同类安全初值：0 对本 uniform 不是恒等（见 INITIAL_ORDER_MIN_BRIGHTNESS），必须写 1.0。
-            setOrderMinBrightness(INITIAL_ORDER_MIN_BRIGHTNESS);
-            // 同上：0 会把内部格线直接压成纯黑（见 INITIAL_INTERIOR_DIM），必须写 1.0。
-            setInteriorDim(INITIAL_INTERIOR_DIM);
-            // 必备 uniform 校验放在最后：缺失即抛 ⇒ 由下方 catch 收敛为「程序不可用」⇒ 后端一次性回退。
             verifyRequiredUniforms();
-            // T50：属性槽位同样必须问驱动要，不能假设 0/1/2（原因见 resolveAttributeLocations）。
+            // 属性槽位必须查询驱动，不能假设绑定请求一定生效。
             resolveAttributeLocations();
+            initializeSafeUniforms();
             return true;
         } catch (Throwable failure) {
             // 编译 / 链接 / 验证失败，甚至 LWJGL native 不可用（UnsatisfiedLinkError /
@@ -198,16 +198,7 @@ public final class ChainPreviewShaderProgram {
             return false;
         } finally {
             if (unavailable) {
-                // 清理本身也可能失败（GL 上下文不可用），必须在独立 catch 内收敛，
-                // 否则「失败返回 false」会退化成「失败再抛一次」。
-                try {
-                    releaseResources();
-                } catch (Throwable cleanupFailure) {
-                    // 忽略：资源已在驱动侧随上下文失效，句柄本轮作废。
-                }
-                shaderProgramId = 0;
-                vertexShaderId = 0;
-                fragmentShaderId = 0;
+                releaseResources();
             }
         }
     }
@@ -259,7 +250,7 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 释放 GL 资源；可被帧外生命周期调用（dispose 是接口契约里唯一允许自行捕获绑定的路径）。
+     * 释放 GL 资源；可由帧外生命周期调用，只在本 program 当前绑定时解除，不改写其它 program。
      */
     public void dispose() {
         try {
@@ -638,23 +629,86 @@ public final class ChainPreviewShaderProgram {
     }
 
     private void compileAndLink() {
-        vertexShaderId = ShaderProgramSupport.compileShader(
-                ShaderProgramSupport.readText(getClass(), VERTEX_RESOURCE, READ_ERROR_PREFIX),
-                GL20.GL_VERTEX_SHADER,
-                COMPILE_VERTEX_ERROR_PREFIX);
+        boolean linked = false;
         try {
-            fragmentShaderId = ShaderProgramSupport.compileShader(
-                    ShaderProgramSupport.readText(getClass(), FRAGMENT_RESOURCE, READ_ERROR_PREFIX),
-                    GL20.GL_FRAGMENT_SHADER,
-                    COMPILE_FRAGMENT_ERROR_PREFIX);
+            vertexShaderId = compilePreviewShader(
+                    VERTEX_RESOURCE, GL20.GL_VERTEX_SHADER, COMPILE_VERTEX_ERROR_PREFIX);
+            fragmentShaderId = compilePreviewShader(
+                    FRAGMENT_RESOURCE, GL20.GL_FRAGMENT_SHADER, COMPILE_FRAGMENT_ERROR_PREFIX);
             GL20.glAttachShader(shaderProgramId, vertexShaderId);
             GL20.glAttachShader(shaderProgramId, fragmentShaderId);
-            ShaderProgramSupport.linkAndValidateProgram(shaderProgramId, LINK_ERROR_PREFIX, VALIDATE_ERROR_PREFIX);
+            GL20.glLinkProgram(shaderProgramId);
+            if (GL20.glGetProgrami(shaderProgramId, GL20.GL_LINK_STATUS) != GL11.GL_TRUE) {
+                throw new IllegalStateException(LINK_ERROR_PREFIX
+                        + GL20.glGetProgramInfoLog(shaderProgramId, INFO_LOG_MAX_LENGTH));
+            }
+            GL20.glValidateProgram(shaderProgramId);
+            if (GL20.glGetProgrami(shaderProgramId, GL20.GL_VALIDATE_STATUS) != GL11.GL_TRUE) {
+                throw new IllegalStateException(VALIDATE_ERROR_PREFIX
+                        + GL20.glGetProgramInfoLog(shaderProgramId, INFO_LOG_MAX_LENGTH));
+            }
+            linked = true;
         } finally {
-            deleteShader(vertexShaderId);
-            deleteShader(fragmentShaderId);
-            vertexShaderId = 0;
-            fragmentShaderId = 0;
+            // 失败时 shader 可能只完成部分 attach；标记删除后随失败 program 一并释放。
+            releaseShaders(linked);
+        }
+    }
+
+    /** 只读取本预览程序的打包资源，不引入另一套可配置 shader 加载器。 */
+    private static String readPreviewShader(String resource) {
+        try (InputStream input = ChainPreviewShaderProgram.class.getResourceAsStream("/" + resource)) {
+            if (input == null) {
+                throw new IOException("missing resource " + resource);
+            }
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int length;
+            while ((length = input.read(buffer)) != -1) {
+                output.write(buffer, 0, length);
+            }
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
+        } catch (IOException failure) {
+            throw new IllegalStateException(READ_ERROR_PREFIX + resource, failure);
+        }
+    }
+
+    /** 创建未提交给实例的 shader 由本方法兜底，编译异常也不能遗失句柄。 */
+    private static int compilePreviewShader(String resource, int type, String errorPrefix) {
+        String source = readPreviewShader(resource);
+        int shaderId = GL20.glCreateShader(type);
+        if (shaderId == 0) {
+            throw new IllegalStateException(errorPrefix + "glCreateShader returned 0");
+        }
+        boolean compiled = false;
+        try {
+            GL20.glShaderSource(shaderId, source);
+            GL20.glCompileShader(shaderId);
+            if (GL20.glGetShaderi(shaderId, GL20.GL_COMPILE_STATUS) != GL11.GL_TRUE) {
+                throw new IllegalStateException(errorPrefix
+                        + GL20.glGetShaderInfoLog(shaderId, INFO_LOG_MAX_LENGTH));
+            }
+            compiled = true;
+            return shaderId;
+        } finally {
+            if (!compiled) {
+                deleteShader(shaderId);
+            }
+        }
+    }
+
+    /** glUniform 只作用于当前 program；初始化发生在绘制围栏之外，必须就地保存并恢复绑定。 */
+    private void initializeSafeUniforms() {
+        int previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
+        try {
+            GL20.glUseProgram(shaderProgramId);
+            setFadeAlpha(INITIAL_FADE_ALPHA);
+            setOrderMinBrightness(INITIAL_ORDER_MIN_BRIGHTNESS);
+            setInteriorDim(INITIAL_INTERIOR_DIM);
+            if (unavailable) {
+                throw new IllegalStateException("预览着色器安全初值上传失败");
+            }
+        } finally {
+            GL20.glUseProgram(previousProgram);
         }
     }
 
@@ -717,13 +771,23 @@ public final class ChainPreviewShaderProgram {
 
 
     private void releaseResources() {
-        deleteShader(vertexShaderId);
-        deleteShader(fragmentShaderId);
-        vertexShaderId = 0;
-        fragmentShaderId = 0;
-        GL20.glUseProgram(0);
-        if (shaderProgramId != 0) {
-            GL20.glDeleteProgram(shaderProgramId);
+        releaseShaders(false);
+        int programId = shaderProgramId;
+        shaderProgramId = 0;
+        // 每个 native 句柄独立释放：一个调用失败不能阻断另一个句柄或 Java 缓存的清理。
+        if (programId != 0) {
+            try {
+                if (GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM) == programId) {
+                    GL20.glUseProgram(0);
+                }
+            } catch (Throwable ignored) {
+                // 上下文失效时仍继续尝试删除；不得改写其它 program 的绑定。
+            }
+            try {
+                GL20.glDeleteProgram(programId);
+            } catch (Throwable ignored) {
+                // 上下文不可用时由驱动回收，Java 句柄本轮已作废。
+            }
         }
         uniformLocations.clear();
         missingUniforms.clear();
@@ -732,9 +796,38 @@ public final class ChainPreviewShaderProgram {
         directionAttributeLocation = -1;
     }
 
+    private void releaseShaders(boolean attached) {
+        int vertex = vertexShaderId;
+        int fragment = fragmentShaderId;
+        vertexShaderId = 0;
+        fragmentShaderId = 0;
+        if (attached) {
+            detachShader(vertex);
+            detachShader(fragment);
+        }
+        deleteShader(vertex);
+        deleteShader(fragment);
+    }
+
+    private void detachShader(int shaderId) {
+        if (shaderProgramId == 0 || shaderId == 0) {
+            return;
+        }
+        try {
+            GL20.glDetachShader(shaderProgramId, shaderId);
+        } catch (Throwable ignored) {
+            // 上下文失效也必须继续删除两个 shader，不能阻断 program 的后续清理。
+        }
+    }
+
     private static void deleteShader(int shaderId) {
-        if (shaderId != 0) {
+        if (shaderId == 0) {
+            return;
+        }
+        try {
             GL20.glDeleteShader(shaderId);
+        } catch (Throwable ignored) {
+            // 释放失败不得遮盖原始编译/链接失败，或阻断另一个句柄的回收。
         }
     }
 

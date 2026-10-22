@@ -10,7 +10,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
 import club.heiqi.qz_miner.chain.execution.ChainExecutionContext;
-import club.heiqi.qz_miner.chain.execution.ChainExecutionContextRegistry;
+import club.heiqi.qz_miner.chain.execution.ChainExecutionEventBridge;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCancelled;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted;
 import club.heiqi.qz_miner.chain.eventbus.event.PlanProgress;
@@ -70,22 +70,18 @@ public class ChainPlanningEventBridge {
 
     /** 注入的事件总线，构造期订阅 PlanStarted。 */
     private final ChainEventBus bus;
-    /**
-     * 阶段5：注入的执行上下文注册表（E1-c 解决 shadowQueue 局部变量断链）。
-     *
-     * <p>worker 完成路径 put shadowQueue + planningGen，主线程执行订阅者收到 PlanCompleted 后 get 领取。</p>
-     */
-    private final ChainExecutionContextRegistry executionContextRegistry;
+    /** 主线程执行入口统一登记 context 并开窗，早期拒绝不取得执行所有权。 */
+    private final ChainExecutionEventBridge executionBridge;
 
     /**
      * 构造桥并订阅 {@link PlanStarted}。
      *
      * @param bus                      事件总线（与状态机共享同一实例）
-     * @param executionContextRegistry 阶段5 执行上下文注册表（worker 完成时 put shadowQueue）
+     * @param executionBridge         主线程执行上下文登记入口
      */
-    public ChainPlanningEventBridge(ChainEventBus bus, ChainExecutionContextRegistry executionContextRegistry) {
+    public ChainPlanningEventBridge(ChainEventBus bus, ChainExecutionEventBridge executionBridge) {
         this.bus = bus;
-        this.executionContextRegistry = executionContextRegistry;
+        this.executionBridge = executionBridge;
         bus.subscribe(PlanStarted.class, this::onPlanStarted);
     }
 
@@ -98,6 +94,11 @@ public class ChainPlanningEventBridge {
      * @param event 规划启动事件（携带 gen + origin/dimension/sideHit/hitOffset）
      */
     private void onPlanStarted(PlanStarted event) {
+        // cleanup可能已先于排队的PlanStarted完成；任何玩家/世界解析前核对当前授权。
+        if (MyMod.chainStateMachine == null || !MyMod.chainStateMachine.permitsPlanning(
+                event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId())) {
+            return;
+        }
         final UUID playerUUID = event.getPlayerUUID();
         // 轮次关联和代际一起在主线程冻结，worker 不得读取任何后来状态。
         final long serverRoundId = event.getServerRoundId();
@@ -217,15 +218,18 @@ public class ChainPlanningEventBridge {
         final ConcurrentLinkedQueue<ChainTarget> shadowQueue = new ConcurrentLinkedQueue<ChainTarget>();
         traverser.seed(searchContext);
 
-        // C 流式登记（修复边搜边破坏丢失）：worker 启动前先把 context 提前登记进 registry，
-        // 让主线程执行订阅者 onServerTick 立即可见此 context——边搜边消费。
+        // worker 启动前由同一主线程入口登记 context 并开窗，执行桥下 tick 可边搜边消费。
+        // 此前的种子、选区和 runtime 拒绝不会取得窗口所有权。
         // 构造时 planningComplete=false：worker 未完成时 queue 瞬时为空 != 执行完成，主线程消费订阅者
         // 据此跳过 publish ExecutionFinished（守 isCompleted 流式语义）。
         // 注意 put 早于 registerPre：若 registerPre 抛 RejectedExecutionException，PlanCancelled 路径
         // 由执行桥 onPlanCancelled 订阅者清 registry（见 ChainExecutionEventBridge）。
         final ChainExecutionContext context = new ChainExecutionContext(
                 playerUUID, serverRoundId, planningGen, shadowQueue, shadowSession, diagnostics);
-        executionContextRegistry.put(context);
+        if (!executionBridge.registerPlanningContext(context)) {
+            // 旧登记不得发布可能清理当前同身份 context 的取消，也不得再启动 worker。
+            return;
+        }
 
         // 影子 worker 注册（对齐旧 worker 结构，但去掉切态/stopExecution/syncState，改为 publish）
         try {

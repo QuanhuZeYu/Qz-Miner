@@ -18,18 +18,13 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
-import club.heiqi.config.schema.FieldSpec;
-import club.heiqi.config.ui.DraftSignalAdapter;
-import club.heiqi.qz_miner.client.configGUI.objectgroup.ObjectGroupEditorState;
 import club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot;
 import club.heiqi.qz_miner.objectgroup.ObjectGroup;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupParser;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 import club.heiqi.qz_miner.objectgroup.ObjectGroupSelector;
-import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
+import club.heiqi.uilib.ui.config.ConfigDocument;
 
 /**
  * 出厂默认对象组（{@code client.objectGroups}）的契约测试。
@@ -39,7 +34,7 @@ import club.heiqi.uilib.ui.reactive.ReactiveScheduler;
  * 会复发的形态错误（modes 空、成员不可解析、组间同 registry 重叠、条目永不命中）。本类因此只断言
  * <b>行为</b>：结构完整可解析、每个默认组四模式全开（mask=27）、每个声明模式位下每条成员都能真的 resolve、
  * 极光条目保持单 registry 白名单、两个历史回归场景（含全部成员与被桥接对象）仍成立、
- * 默认值能通过语义校验并落盘 round-trip、编辑器零冲突且可编辑。</p>
+ * 默认值能通过语义校验并落盘 round-trip。</p>
  *
  * <p><b>注册表边界</b>：{@code etfuturum} / {@code TwilightForest} 只做 selector 语法与默认覆盖断言，
  * 不查实机 mod 注册表；「未安装该 mod 时是否命中」不属于本层契约。极光方块的注册名字符串未实机验证，
@@ -65,14 +60,12 @@ public class QzMinerConfigDefaultsObjectGroupsTest {
     @Before
     public void setUp() throws Exception {
         tempDir = Files.createTempDirectory("qz-miner-default-objectgroups-").toFile();
-        ConfigBootstrap.resetForTests();
-        ReactiveScheduler.get().reset();
+        ConfigTestSupport.reset();
     }
 
     @After
     public void tearDown() {
-        ConfigBootstrap.resetForTests();
-        ReactiveScheduler.get().reset();
+        ConfigTestSupport.reset();
         delete(tempDir);
     }
 
@@ -218,9 +211,9 @@ public class QzMinerConfigDefaultsObjectGroupsTest {
 
     @Test
     public void shippedDefaultPassesSemanticValidatorAndCommitsActiveGroups() {
-        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
+        ConfigDocument document = ConfigBootstrap.bootstrap(tempDir, null);
 
-        ConfigSemanticValidator.ParseOutcome outcome = ConfigSemanticValidator.captureAndValidate(manager);
+        ConfigSemanticValidator.ParseOutcome outcome = ConfigSemanticValidator.validate(document);
         Assert.assertTrue("出厂默认必须通过 ConfigSemanticValidator（零错误）: "
                 + outcome.result.summary(), outcome.isValid());
         Assert.assertTrue("校验结果不得含任何字段错误", outcome.result.errors().isEmpty());
@@ -237,65 +230,7 @@ public class QzMinerConfigDefaultsObjectGroupsTest {
     }
 
     // ==================================================================
-    // 6. 编辑器状态：零冲突 / 零错误 / 已生效 / 可编辑（不冻结行数）
-    // ==================================================================
-
-    @Test
-    public void shippedDefaultIsConflictFreeErrorFreeActiveAndEditableInEditorState() {
-        ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
-        DraftBuffer draft = manager.openDraft();
-        DraftSignalAdapter adapter = new DraftSignalAdapter(null, draft);
-        try {
-            FieldSpec spec = QzMinerConfigSchema.create().field(ObjectGroupEditorState.PATH);
-            ObjectGroupEditorState state = new ObjectGroupEditorState(spec, adapter);
-
-            ObjectGroupEditorState.Summary summary = state.summary();
-            Assert.assertTrue("默认必须挂出至少一行组视图", summary.groupCount() >= 1);
-            Assert.assertEquals("默认不得存在「模式+选择器重叠」的组", 0, summary.conflictCount());
-            Assert.assertEquals("默认组 modes 非空 ⇒ 不得有未生效组", 0, summary.inactiveCount());
-            Assert.assertEquals("默认组成员非空 ⇒ 不得有未完成组", 0, summary.incompleteCount());
-            Assert.assertTrue("解析器真源必须零错误: " + state.parseResult().error(),
-                    state.parseResult().isValid());
-            Assert.assertTrue(state.parseResult().errors().isEmpty());
-
-            for (ObjectGroupEditorState.RowView view : state.views()) {
-                Assert.assertTrue("默认组不得含失效模式: " + view.id(), view.unknownModes().isEmpty());
-                Assert.assertFalse("默认组不得命中 [冲突] 谓词: " + view.id(),
-                        view.matches(ObjectGroupEditorState.Filter.CONFLICT));
-                Assert.assertFalse("默认组不得命中 [未生效] 谓词: " + view.id(),
-                        view.matches(ObjectGroupEditorState.Filter.INACTIVE));
-                for (ObjectGroupEditorState.Flag flag : new ObjectGroupEditorState.Flag[] {
-                        ObjectGroupEditorState.Flag.INACTIVE, ObjectGroupEditorState.Flag.INCOMPLETE,
-                        ObjectGroupEditorState.Flag.ERROR, ObjectGroupEditorState.Flag.CONFLICT}) {
-                    Assert.assertFalse("默认组不得带状态位 " + flag + ": " + view.id(), view.hasFlag(flag));
-                }
-                Assert.assertFalse("默认组模式不得为空: " + view.id(), view.modes().isEmpty());
-                Assert.assertFalse("默认组成员不得为空: " + view.id(), view.members().isEmpty());
-            }
-            Assert.assertEquals("行视图必须与默认组一一对应",
-                    QzMinerConfigDefaults.objectGroups().size(), state.views().size());
-
-            // 已生效的正面证据：真实编辑命令被接受并落到同一草稿（不是只读快照）
-            ObjectGroupEditorState.RowView first = state.views().get(0);
-            List<String> before = new ArrayList<String>(first.modes());
-            List<String> expectedAfter = new ArrayList<String>(before);
-            if (!expectedAfter.remove(ObjectGroupMode.CHAIN_LOGGING)) {
-                expectedAfter.add(ObjectGroupMode.CHAIN_LOGGING);
-            }
-            Assert.assertTrue("默认组必须可编辑",
-                    state.toggleGroupMode(first.key(), ObjectGroupMode.CHAIN_LOGGING).accepted());
-            ReactiveScheduler.get().flush();
-            Assert.assertEquals("切换模式必须只增删该模式并写回同一草稿", expectedAfter,
-                    draftModeList(draft, 0));
-            Assert.assertEquals("切换模式不得增删组",
-                    QzMinerConfigDefaults.objectGroups().size(), state.views().size());
-        } finally {
-            adapter.dispose();
-        }
-    }
-
-    // ==================================================================
-    // 7. 中文 id / 全量成员 的 UTF-8 写盘 + 读回 round-trip
+    // 6. 中文 id / 全量成员 的 UTF-8 写盘 + 读回 round-trip
     // ==================================================================
 
     @Test
@@ -326,9 +261,9 @@ public class QzMinerConfigDefaultsObjectGroupsTest {
                 + " snippet=\n"
                 + text.substring(Math.max(0, at - 160), Math.min(text.length(), at + 320)));
 
-        ConfigBootstrap.resetForTests();
-        ConfigManager reloaded = ConfigBootstrap.bootstrap(tempDir, null);
-        Object raw = reloaded.authority().get(PATH);
+        ConfigTestSupport.reset();
+        ConfigDocument reloaded = ConfigBootstrap.bootstrap(tempDir, null);
+        Object raw = reloaded.get(QzMinerConfigSchema.OBJECT_GROUPS);
         Assert.assertEquals("读回值必须与出厂默认全等（顺序/modes/members）",
                 QzMinerConfigDefaults.objectGroups(), raw);
 
@@ -375,17 +310,6 @@ public class QzMinerConfigDefaultsObjectGroupsTest {
             return 7;
         }
         return selector.metadata().get(0).intValue();
-    }
-
-    /** @return 草稿里第 index 组的 modes 字符串视图 */
-    private static List<String> draftModeList(DraftBuffer draft, int index) {
-        List<?> groups = (List<?>) draft.getDraft(PATH);
-        List<?> modes = (List<?>) ((Map<?, ?>) groups.get(index)).get("modes");
-        List<String> values = new ArrayList<String>();
-        for (Object mode : modes) {
-            values.add(String.valueOf(mode));
-        }
-        return values;
     }
 
     /** 严格 UTF-8 解码：遇到非法字节直接失败（用于证明文件确实是 UTF-8，而非平台默认编码）。 */

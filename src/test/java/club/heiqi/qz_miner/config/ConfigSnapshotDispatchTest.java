@@ -15,8 +15,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
 import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.qz_miner.config.ConfigSnapshotDispatch.Mailbox;
 
@@ -24,18 +22,17 @@ import club.heiqi.qz_miner.config.ConfigSnapshotDispatch.Mailbox;
 public class ConfigSnapshotDispatchTest {
 
     private File tempDir;
-    private ConfigManager manager;
 
     @Before
     public void setUp() throws Exception {
         tempDir = Files.createTempDirectory("qz-miner-mailbox-").toFile();
-        ConfigBootstrap.resetForTests();
-        manager = ConfigBootstrap.bootstrap(tempDir, null);
+        ConfigTestSupport.reset();
+        ConfigBootstrap.bootstrap(tempDir, null);
     }
 
     @After
     public void tearDown() {
-        ConfigBootstrap.resetForTests();
+        ConfigTestSupport.reset();
         deleteRecursively(tempDir);
     }
 
@@ -297,10 +294,11 @@ public class ConfigSnapshotDispatchTest {
     }
 
     private CommittedSnapshot commitRadius(int radius) {
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft("general.chainRadius", Double.valueOf(radius));
-        Assert.assertTrue(manager.save(draft).isSuccess());
-        return ConfigBootstrap.captureCommittedSnapshot(manager);
+        try {
+            return ConfigBootstrap.commit(ConfigTestSupport.changes("general.chainRadius", Double.valueOf(radius)));
+        } catch (java.io.IOException failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     private static Mailbox mailbox(

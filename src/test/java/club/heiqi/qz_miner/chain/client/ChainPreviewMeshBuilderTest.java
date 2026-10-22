@@ -150,19 +150,34 @@ public class ChainPreviewMeshBuilderTest {
             new ChainTarget(1, 0, 0),
             new ChainTarget(1, 1, 0));
         VisualParameters visuals = visuals(0.5D, 0.5D, 0.5D);
-        BuildSession session = builder.begin(targets, visuals);
+        int[] semanticClasses = {
+            ChainPreviewSemanticClass.CHAIN_LOCAL,
+            ChainPreviewSemanticClass.REMOTE_PREDICTED,
+            ChainPreviewSemanticClass.SUB_MODE_LOCAL
+        };
+        BuildSession session = builder.begin(targets, visuals, visuals.getBarThickness(), semanticClasses);
 
         int slices = 0;
         while (!session.advance(oneUnitGate())) {
             slices++;
             Assert.assertTrue("build session did not converge", slices < 10_000);
+            Assert.assertFalse("零预算不得跳过挂起的边或面", session.advance(() -> true));
+            Assert.assertFalse("挂起时不得提前完成网格", session.isComplete());
         }
         Assert.assertTrue(slices > targets.size());
         ChainPreviewMesh resumed = session.getMesh();
-        ChainPreviewMesh synchronous = builder.build(targets, visuals);
+        ChainPreviewMesh synchronous = builder.build(
+            targets, visuals, visuals.getBarThickness(), semanticClasses);
         Assert.assertArrayEquals(synchronous.getVertices(), resumed.getVertices(), 0.0F);
         Assert.assertArrayEquals(synchronous.getColors(), resumed.getColors(), 0.0F);
         Assert.assertArrayEquals(synchronous.getIndices(), resumed.getIndices());
+        Assert.assertArrayEquals(synchronous.getAux(), resumed.getAux());
+        Assert.assertArrayEquals(synchronous.getDirections(), resumed.getDirections());
+        Assert.assertTrue("已完成会话不再消耗预算", session.advance(() -> {
+            Assert.fail("已完成会话不得再查询 gate");
+            return true;
+        }));
+        Assert.assertSame(resumed, session.getMesh());
     }
 
     @Test

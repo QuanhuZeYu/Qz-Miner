@@ -14,15 +14,14 @@ import club.heiqi.qz_miner.objectgroup.ObjectGroupRuleSet;
 /**
  * 服务端玩家连锁状态。
  *
- * <p>字段 {@link #dropReleaseConsecutiveFailures}：掉落释放连续失败计数，
- * world-tick 释放路径用，累计超 {@code DROP_RELEASE_MAX_RETRIES} 上限触发 discard 兜底
- * （守四级降级链终点）；{@link #clearRuntimeState(String)} 收口清零，
- * 防跨生命周期残留脏计数（守生命周期收口）。</p>
+ * <p>掉落缓冲独立于运行态；退休状态只保留待交付资产的归属。
+ * 释放失败计数和下次重试 tick 只控制诊断与重试节奏，不改变资产。</p>
  */
 public class ChainPlayerState extends AbstractChainModeState {
 
     private final UUID playerUUID;
-    private final ChainPlayerDropBuffer dropBuffer = new ChainPlayerDropBuffer();
+    private final ChainPlayerDropBuffer dropBuffer;
+    private boolean pendingRemoval;
     private volatile boolean chainKeyPressed;
     private volatile ChainExecutionStatus executionStatus = ChainExecutionStatus.IDLE;
     private volatile int requestedChainRadius = -1;
@@ -34,19 +33,9 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile ChainSession session;
     private volatile CuboidSelection cuboidSelection = CuboidSelection.empty();
 
-    /**
-     * world-tick 掉落释放连续失败计数（守信条四四级降级链终点）。
-     *
-     * <p>由 {@link club.heiqi.qz_miner.chain.executor.ChainDropCollector#onWorldTick} 释放路径在
-     * 全链（当前位置→重生/出生点→已记忆兜底）均失败时 {@link #incrementDropReleaseFailure()} 累加，
-     * 达 {@code DROP_RELEASE_MAX_RETRIES} 上限触发 {@code ChainDropReleaseHelper.discard} 兜底丢弃。
-     * 释放成功任一级即 {@link #resetDropReleaseFailure()} 清零。</p>
-     *
-     * <p>独立于 {@link #executionStatus}/phase/generation，不复用状态机写入口（类比
-     * {@link #seedDropCaptureArmed} 独立字段自行管理）。{@link #clearRuntimeState(String)} 收口清零，
-     * 守生命周期收口：生命周期收口，防跨玩家/跨会话残留脏计数。</p>
-     */
+    /** 掉落失败仅影响主线程重试调度；不参与 phase/generation，也不授权清空缓冲。 */
     private volatile int dropReleaseConsecutiveFailures;
+    private long nextDropReleaseTick;
 
     /**
      * 起点方块掉落捕获一次性 armed 标志。
@@ -71,7 +60,27 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile long seedArmTick;
 
     public ChainPlayerState(UUID playerUUID) {
+        this(playerUUID, new ChainPlayerDropBuffer());
+    }
+
+    /** 同一服务端内重连时转移资产归属，运行态与配置重新初始化。 */
+    ChainPlayerState(UUID playerUUID, ChainPlayerDropBuffer dropBuffer) {
         this.playerUUID = playerUUID;
+        this.dropBuffer = dropBuffer;
+    }
+
+    boolean isPendingRemoval() {
+        return pendingRemoval;
+    }
+
+    /** 退休 owner 不再持有会话，仅留玩家标识与未交付缓冲供后续领取。 */
+    void retireRuntimeState(String reason) {
+        clearRuntimeState(reason);
+        setChainKeyPressed(false);
+        seedDropCaptureArmed = false;
+        clearObjectGroupRules();
+        clearCuboidSelection();
+        pendingRemoval = true;
     }
 
     public UUID getPlayerUUID() {
@@ -348,8 +357,7 @@ public class ChainPlayerState extends AbstractChainModeState {
                 clearSession();
             }
         }
-        // 守生命周期收口：掉落释放失败计数随运行时状态一并清零，防跨生命周期残留脏计数
-        // （玩家重生/切维度/克隆后下一轮释放从 0 起算，避免误触发 discard 兜底）。
+        // 新的运行态从即时重试开始；缓冲资产不随失败计数和节流状态清理。
         resetDropReleaseFailure();
         clearPendingTunnelHit();
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
@@ -401,14 +409,13 @@ public class ChainPlayerState extends AbstractChainModeState {
     /**
      * 累加 world-tick 掉落释放连续失败计数并返回累加后的值。
      *
-     * <p>由 {@link club.heiqi.qz_miner.chain.executor.ChainDropCollector#onWorldTick} 在四级降级链
-     * 全部失败后调用，达 {@code DROP_RELEASE_MAX_RETRIES} 上限即由调用方触发
-     * {@code ChainDropReleaseHelper.discard} 兜底丢弃。</p>
+     * <p>所有释放位置都失败后累加，仅用于延后重试和摘要日志。长期未交付也不得溢出回零。</p>
      *
      * @return 累加后的连续失败次数
      */
     public int incrementDropReleaseFailure() {
-        return ++dropReleaseConsecutiveFailures;
+        if (dropReleaseConsecutiveFailures < Integer.MAX_VALUE) dropReleaseConsecutiveFailures++;
+        return dropReleaseConsecutiveFailures;
     }
 
     /**
@@ -418,6 +425,16 @@ public class ChainPlayerState extends AbstractChainModeState {
      */
     public void resetDropReleaseFailure() {
         dropReleaseConsecutiveFailures = 0;
+        nextDropReleaseTick = 0L;
+    }
+
+    /** 主线程按服务端 tick 调度，避免同 tick 多维度重复重试。 */
+    public boolean isDropReleaseReady(long serverTick) {
+        return serverTick >= nextDropReleaseTick;
+    }
+
+    public void deferDropReleaseUntil(long serverTick) {
+        nextDropReleaseTick = serverTick;
     }
 
     /** 不持有 World/Player/Event 的一次性左键命中快照。 */

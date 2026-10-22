@@ -1,5 +1,8 @@
 package club.heiqi.qz_miner.network;
 
+import java.lang.ref.WeakReference;
+import java.util.UUID;
+
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.ChainConstants;
 import club.heiqi.qz_miner.chain.eventbus.ChainTickSource;
@@ -12,6 +15,7 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
 import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 import io.netty.buffer.ByteBuf;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
@@ -60,11 +64,16 @@ public class PacketKeyState implements IMessage {
         @Override
         public IMessage onMessage(PacketKeyState message, MessageContext ctx) {
             final EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+            if (player == null) return null;
+            final UUID playerId = player.getUniqueID();
+            final WeakReference<EntityPlayerMP> endpoint = new WeakReference<EntityPlayerMP>(player);
             final int keyId = message.keyId;
             final boolean pressed = message.pressed;
             ServerMainThreadDispatcher.run(() -> {
-                // 守跨线程只经事件总线：本 lambda 在 ServerMainThreadDispatcher.run 内收口主线程执行（line 60），状态读写已收口
-                if (player == null) {
+                // 同 UUID 重连后，旧 endpoint 的迟到松键不得 restore 或 forced-cleanup 新会话。
+                EntityPlayerMP captured = endpoint.get();
+                EntityPlayer current = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerId);
+                if (captured == null || current != captured) {
                     return;
                 }
 
@@ -73,22 +82,22 @@ public class PacketKeyState implements IMessage {
                 // LifecycleCleanup 消费者，确保 restore -> publication attempt -> cleanup。
                 if (keyId == ChainConstants.KEY_CHAIN && !pressed
                         && MyMod.autoToolSwapServerBatchService != null) {
-                    MyMod.autoToolSwapServerBatchService.finalizePlayer(player.getUniqueID(), player, null,
+                    MyMod.autoToolSwapServerBatchService.finalizePlayer(playerId, captured, null,
                             CloseCause.KEY_RELEASE, serverTick);
                 }
                 long serverRoundId = 0L;
                 if (keyId == ChainConstants.KEY_CHAIN) {
-                    serverRoundId = AutoToolSwapKeyStateBridge.onKeyState(player, pressed);
+                    serverRoundId = AutoToolSwapKeyStateBridge.onKeyState(captured, pressed);
                 }
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainStateService != null) {
-                    MyMod.chainStateService.setPlayerChainKeyPressed(player.getUniqueID(), pressed);
+                    MyMod.chainStateService.setPlayerChainKeyPressed(playerId, pressed);
                 }
                 // 守跨线程只经事件总线：publish 在 ServerMainThreadDispatcher.run lambda 内（line 60），已收口主线程
                 // 阶段3影子并行：保留旧 setPlayerChainKeyPressed，新链路仅推进状态机观测
                 // 输入事件 generation 传 0 豁免代际判定（由转移规则本身约束消费态）
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainEventBus != null) {
                     MyMod.chainEventBus.publish(new ChainKeyPressed(
-                            player.getUniqueID(), serverRoundId, 0,
+                            playerId, serverRoundId, 0,
                             serverTick, ChainTickSource.nowNanos(),
                             pressed));
                     // E2 松键即停修复：松键（pressed=false）额外 publish LifecycleCleanup(reason="user-abort",
@@ -99,13 +108,13 @@ public class PacketKeyState implements IMessage {
                     // 中断活跃执行链（边搜边破坏的活跃连锁松键即停）。
                     if (!pressed) {
                         MyMod.chainEventBus.publish(new LifecycleCleanup(
-                                player.getUniqueID(), serverRoundId, 0,
+                                playerId, serverRoundId, 0,
                                 serverTick, ChainTickSource.nowNanos(),
                                 "user-abort", true, false));
                     }
                 }
                 MyMod.LOG.debug("[Network] Player {} key state: keyId={}, pressed={}",
-                    player.getCommandSenderName(), keyId, pressed);
+                    captured.getCommandSenderName(), keyId, pressed);
             });
             return null;
         }

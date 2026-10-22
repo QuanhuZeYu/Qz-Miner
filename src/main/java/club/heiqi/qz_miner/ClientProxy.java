@@ -24,29 +24,16 @@ import club.heiqi.qz_miner.client.ClientConnectionLifecycle;
 import club.heiqi.qz_miner.client.ClientConnectionListener;
 import club.heiqi.qz_miner.client.ClientMainThreadDispatcher;
 import club.heiqi.qz_miner.client.KeyListener;
-import club.heiqi.qz_miner.client.MinerHudLayoutStore;
-import club.heiqi.qz_miner.client.QzMinerHudEditEntry;
-import club.heiqi.qz_miner.client.QzMinerHudTicker;
-import club.heiqi.qz_miner.client.QzMinerHudWindow;
 import club.heiqi.qz_miner.client.RateLimitedRejectDiagnostics;
-import club.heiqi.qz_miner.client.picker.BlockPickerCandidateSource;
-import club.heiqi.qz_miner.client.picker.BlockPickerRegistryWatcher;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapClientAdapter;
 import club.heiqi.qz_miner.client.toolswap.AutoToolSwapHooks;
 import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
 import club.heiqi.qz_miner.client.toolswap.QzAutoToolSwapClientTransport;
 import club.heiqi.qz_miner.client.toolswap.ToolSwapMinecraftFacade;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapAction;
-import club.heiqi.uilib.ui.hud.api.ClientHudService;
-import club.heiqi.uilib.ui.hud.api.HudAnchor;
-import club.heiqi.uilib.ui.hud.api.HudLayoutPersistence;
-import club.heiqi.uilib.ui.hud.api.HudRegistration;
-import club.heiqi.uilib.ui.hud.api.HudSpec;
 import club.heiqi.qz_miner.network.ObjectGroupWireConfig;
 import club.heiqi.qz_miner.network.PacketChainConfigSync;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
-import cpw.mods.fml.common.event.FMLLoadCompleteEvent;
-import cpw.mods.fml.common.event.FMLModIdMappingEvent;
 import net.minecraft.network.INetHandler;
 
 public class ClientProxy extends CommonProxy {
@@ -54,9 +41,8 @@ public class ClientProxy extends CommonProxy {
     private static final long CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS = TimeUnit.SECONDS.toNanos(10L);
     private static final RateLimitedRejectDiagnostics CONFIG_SYNC_REJECT_DIAG =
             new RateLimitedRejectDiagnostics(CONFIG_SYNC_REJECT_DIAG_INTERVAL_NS);
+    /** 事件订阅与合法配置下发后的 ready 回放必须共用同一监听器实例。 */
     private ClientConnectionListener connectionListener;
-    /** P2-B 候选源注册表代际监听（FML 事件由 {@link MyMod} 的 {@code @Mod.EventHandler} 转发进来）。 */
-    private BlockPickerRegistryWatcher blockPickerRegistryWatcher;
 
     private static final ClientChainConfigSyncDispatch.LifecycleGate LIFECYCLE_GATE =
             new ClientChainConfigSyncDispatch.LifecycleGate() {
@@ -106,104 +92,62 @@ public class ClientProxy extends CommonProxy {
     public static ChainPreviewRenderer chainPreviewRenderer;
     /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
     public static ClientPhaseProjection clientPhaseProjection;
-    /** B1.1：预览表现投影单例；HUD/诊断经 ChainPreviewPresentationProjection.installed() 只读。 */
+    /** 预览表现投影单例，诊断经 ChainPreviewPresentationProjection.installed() 只读。 */
     public static ChainPreviewPresentationProjection chainPreviewPresentationProjection;
     /** 服务端 ACK 唯一写入的双点选区投影。 */
     public static ClientCuboidSelectionState clientCuboidSelectionState;
     public static CuboidSelectionRenderer cuboidSelectionRenderer;
     /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
-    /** Qz-Miner 连锁状态 HUD 的 UILib 注册句柄；跨断线/世界切换保持有效，只在模组资源释放时关闭。 */
-    public static HudRegistration chainStatusHudRegistration;
     /** 新版自动工具换位唯一长寿命客户端 adapter。 */
     public static AutoToolSwapClientAdapter autoToolSwapAdapter;
 
     @Override
     public void init(FMLInitializationEvent event) {
         super.init(event);
-        // 守决策4：客户端独立事件总线，仅空跑 drain 骨架；不 publish 客户端事件、不持有独立状态机
-        // 预览订阅留阶段6接入；bindMainThread 锁定客户端主线程（ClientProxy.init 在客户端主线程执行）
+        initializeClientProjections();
+        registerWorldPreview();
+        registerClientInteraction();
+        MyMod.LOG.info("[ClientInit] stage=client-integrations-ready "
+                + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,key-listener");
+    }
+
+    /** 客户端事件总线和服务端状态的本地投影，全部绑定客户端主线程。 */
+    private void initializeClientProjections() {
         MyMod.clientChainEventBus = new ChainEventBus();
         MyMod.clientChainEventBus.bindMainThread(Thread.currentThread());
         new ClientChainEventBusDrainer(MyMod.clientChainEventBus).bootstrap();
-        // 阶段6 A2：客户端投影容器 + 订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged，
-        // ClientTickEvent.START drain 更新容器，守跨线程只经事件总线：主线程收口）
         clientPhaseProjection = new ClientPhaseProjection();
         clientCuboidSelectionState = new ClientCuboidSelectionState();
         clientPhaseProjectionSubscriber = new ClientPhaseProjectionSubscriber(
                 MyMod.clientChainEventBus, clientPhaseProjection);
+    }
+
+    /** 世界预览仍由原控制器、renderer 和表现投影共同承接，不依赖配置界面或 HUD。 */
+    private void registerWorldPreview() {
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
-        autoToolSwapAdapter = new AutoToolSwapClientAdapter(
-                Config.autoToolSwapEnabled,
-                new ToolSwapMinecraftFacade(),
-                new QzAutoToolSwapClientTransport());
-        AutoToolSwapHooks.install(autoToolSwapAdapter);
         chainPreviewRenderer = new ChainPreviewRenderer(chainPreviewController.getPreviewState());
         chainPreviewRenderer.register();
-        // B1.1：表现投影装配——单例 install + 每客户端 tick END 采样一次（O(1) header）。
         chainPreviewPresentationProjection = new ChainPreviewPresentationProjection();
         chainPreviewPresentationProjection.bindMainThread(Thread.currentThread());
         ChainPreviewPresentationProjection.install(chainPreviewPresentationProjection);
         new ChainPreviewPresentationTicker(chainPreviewPresentationProjection).register();
         cuboidSelectionRenderer = new CuboidSelectionRenderer();
         cuboidSelectionRenderer.register();
+    }
+
+    /** 输入、连接清理与配置热发布共用既有客户端生命周期入口。 */
+    private void registerClientInteraction() {
+        autoToolSwapAdapter = new AutoToolSwapClientAdapter(
+                Config.autoToolSwapEnabled,
+                new ToolSwapMinecraftFacade(),
+                new QzAutoToolSwapClientTransport());
+        AutoToolSwapHooks.install(autoToolSwapAdapter);
         connectionListener = new ClientConnectionListener();
         connectionListener.register();
         new ClientConfigChangeListener().register();
-        // UILib 4.9 虚拟窗口：窗口工厂在挂载时构建 scene 内容树，内容变化经 signal 驱动；
-        // 注册与 signal 写限定客户端主线程，断线只释放宿主 session 窗口、注册本身保留（不重注册、不 close）。
-        QzMinerHudWindow chainStatusHud = new QzMinerHudWindow(
-                MyMod.chainStateService.getClientState(), clientPhaseProjection);
-        // 内容自绘液态玻璃卡片，故关闭宿主外壳（chrome(false)）：避免「宿主半透明外壳 + 卡片玻璃」
-        // 双层底色；卡片自带内边距，窗口尺寸仍由宿主按内容盒测量、空内容整窗隐藏。
-        chainStatusHudRegistration = ClientHudService.getInstance().register(
-                HudSpec.builder(QzMinerHudWindow.HUD_ID)
-                        .anchor(HudAnchor.TOP_LEFT)
-                        .margin(QzMinerHudWindow.HUD_MARGIN_PX)
-                        .chrome(false)
-                        .build(),
-                chainStatusHud);
-        // 关闭态 HUD 不再注册常驻外接工具栏：连锁 HUD 无内容时整窗（含工具栏）隐藏，
-        // 常驻缩放工具平时根本看不到。缩放改由 UILib 编辑层在编辑子模式统一提供
-        // （Miner 只注册可编辑目标与聊天工具栏编辑入口，见 QzMinerHudEditEntry）。
-        // 编辑入口单点：可编辑目标（预览/默认放置）+ 聊天工具栏「编辑 HUD」动作。
-        // 内部幂等且逐件失败隔离，异常不外溢（HUD 主体不受影响）。
-        QzMinerHudEditEntry.install(chainStatusHud);
-        // HUD 布局持久化：纯文本端口（编解码/版本判定/降级归 UILib；宿主只整串读写）；
-        // save 由 UILib 在提交编辑/缩放变更合并后触发，宿主不主动 flush。
-        HudLayoutPersistence.install(new MinerHudLayoutStore(MinerHudLayoutStore.resolveConfigDir()));
-        new QzMinerHudTicker(chainStatusHud).register();
         new KeyListener(autoToolSwapAdapter).register();
-        // P2-B：候选源注册表代际接入（FMLLoadCompleteEvent / FMLModIdMappingEvent 标脏 + 20 tick 兜底探测）。
-        // 只写 volatile 标记，不在事件回调内重建；重建发生在候选源的下一次真实读取（ADR §2.4 / A-08）。
-        blockPickerRegistryWatcher = new BlockPickerRegistryWatcher(BlockPickerCandidateSource.getInstance());
-        blockPickerRegistryWatcher.register();
-        MyMod.LOG.info("[ClientInit] stage=uilib-integrations-ready "
-                + "components=auto-tool-swap,chain-preview,connection-lifecycle,config-listener,"
-                + "chain-status-hud,chain-status-hud-edit,hud-layout-persist,key-listener,"
-                + "block-picker-registry-watcher");
-    }
-
-    /**
-     * FML 加载完成 → 候选源注册表标脏（由 {@code MyMod#onLoadComplete} 经 SidedProxy 转发）。
-     *
-     * <p>FML 生命周期事件不能走 {@code @SubscribeEvent}（不是 {@code Event} 子类，注册期即抛异常，
-     * 真机崩溃 crash-2026-09-12_08.46.25），故只有 tick 事件留在事件总线路径。</p>
-     */
-    @Override
-    public void onLoadComplete(FMLLoadCompleteEvent event) {
-        if (blockPickerRegistryWatcher != null) {
-            blockPickerRegistryWatcher.onLoadComplete(event);
-        }
-    }
-
-    /** FML ID 重映射 → 候选源注册表标脏（转发；重复出现只标脏、不重建）。 */
-    @Override
-    public void onModIdMapping(FMLModIdMappingEvent event) {
-        if (blockPickerRegistryWatcher != null) {
-            blockPickerRegistryWatcher.onModIdMapping(event);
-        }
     }
 
     /**

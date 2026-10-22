@@ -16,8 +16,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import club.heiqi.config.runtime.ConfigManager;
-import club.heiqi.config.runtime.DraftBuffer;
 import club.heiqi.qz_miner.ClientProxy;
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.state.ChainStateService;
@@ -28,37 +26,13 @@ import club.heiqi.qz_miner.client.toolswap.ClientAutoToolSwapPacketDispatch;
 import club.heiqi.qz_miner.client.toolswap.ToolSwapLightContext;
 import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
+import club.heiqi.qz_miner.config.ConfigTestSupport;
 import club.heiqi.qz_miner.network.NetworkMain;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
-import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 
-/**
- * 自动工具客户端接线门禁。
- *
- * <p>形态：能用真实对象观测的（按键边沿下传、配置发布到 adapter、生命周期清理复位 projection、
- * S2C world gate）一律行为断言；装配位置（ClientProxy.init 内的构造/安装顺序与实参类型）用
- * methodBody 切片；adapter 薄壳与 common 分侧边界用反射字段集合与编译产物常量池结构化判定。
- * 旧类型/旧回调名黑名单已删除——那些类型已不存在（引用即编译失败），改名后的等价回退黑名单也守不住。</p>
- *
- * <p><b>删除项与覆盖来源</b>（均在原 client 段清单内）：
- * <ul>
- *   <li>{@code currentItem =}、takeover 回调名、{@code PreviewInvalidationListener}、
- *       {@code chainPreviewController.onToolLayoutVerified}、{@code public void onToolLayoutVerified}：
- *       纯拼写黑名单，改名/换写法即失守，无可行为化语义。</li>
- *   <li>{@code ChainPreviewController} 的世界身份门（{@code world != previewSeedWorld}）：
- *       属 chain.client 域（生产类与用例都由该域负责），本域删掉重复防线；同一语义当前由
- *       {@code chain.client.ChainPreviewControllerTest} 覆盖。</li>
- *   <li>{@code AutoToolSwapClientProtocolValidator} 的 {@code lastPhaseSequence} 黑名单：
- *       已被同方法内「声明字段数 = 0」的反射断言名称无关地覆盖。</li>
- * </ul>
- * </p>
- */
+/** 自动工具客户端的按键边沿、配置发布、生命周期及连接 gate 行为；不约束初始化方法的源码拼写。 */
 public class AutoToolClientWiringStructureTest {
-
-    private static final String KEY_LISTENER_SOURCE =
-            "src/main/java/club/heiqi/qz_miner/client/KeyListener.java";
-    private static final String PROXY_SOURCE = "src/main/java/club/heiqi/qz_miner/ClientProxy.java";
 
     private AutoToolSwapClientAdapter previousAdapter;
     private NetworkMain previousNetworkMain;
@@ -72,18 +46,18 @@ public class AutoToolClientWiringStructureTest {
     }
 
     @After
-    public void restoreWiring() {
+    public void restoreWiring() throws Exception {
         ClientConnectionLifecycle.resetForTests();
-        ClientConfigChangeListener.resetSubscriptionForTests();
-        ConfigBootstrap.resetForTests();
+        clearConfigSubscription();
+        ConfigTestSupport.reset();
         ClientProxy.autoToolSwapAdapter = previousAdapter;
         MyMod.networkMain = previousNetworkMain;
         MyMod.chainStateService = previousChainStateService;
     }
 
-    /** 物理按键边沿必须真的下传到唯一 adapter（行为），条数与先后关系由结构契约补足。 */
+    /** 物理按键边沿必须下传到唯一 adapter，重复按下不得重复起轮。 */
     @Test
-    public void keyListenerNotifiesEdgesAndAdvancesOncePerEndPathWithoutChangingSelection() throws Exception {
+    public void keyListenerNotifiesPressEdgesOnce() throws Exception {
         RecordingTransport transport = new RecordingTransport();
         AutoToolSwapClientAdapter adapter = new AutoToolSwapClientAdapter(true, new BreakCapableGame(), transport);
         KeyListener listener = new KeyListener(adapter);
@@ -94,46 +68,11 @@ public class AutoToolClientWiringStructureTest {
         Assert.assertEquals("重复的按下通知不得产生第二个 round", 1, transport.nonces.size());
         invokeUpdateChainKeyState(listener, false);
         Assert.assertEquals("松开边沿不得凭空发包", 1, transport.nonces.size());
-
-        String source = JavaSourceSlices.stripCommentsIgnoringStringLiterals(JavaSourceSlices.read(KEY_LISTENER_SOURCE));
-        String update = JavaSourceSlices.methodBody(source,
-                "private void updateChainKeyState(boolean pressed)", "updateChainKeyState");
-        JavaSourceSlices.assertBefore(update, "autoToolSwapAdapter.onChainKeyState(", "new PacketKeyState(", "边沿必须先进 adapter 再补发按键包");
-
-        String tick = JavaSourceSlices.methodBody(source,
-                "public void onClientTick(TickEvent.ClientTickEvent event)", "onClientTick");
-        Assert.assertEquals("每个 END tick 的两条路径各推进 adapter 一次", 2,
-                JavaSourceSlices.count(tick, "autoToolSwapAdapter.onClientTick()"));
-        JavaSourceSlices.assertBefore(tick, "if (autoToolSwapAdapter.onClientTick())", "sendFreshChainKeyPressedToServer()",
-                "fresh key 只能在 adapter 要求时补发");
-
-        String noWorld = JavaSourceSlices.block(tick,
-                "if (FMLClientHandler.instance().getClient().theWorld == null)", "no-world 分支");
-        Assert.assertEquals("no-world 分支只允许推进一次 adapter", 1,
-                JavaSourceSlices.count(noWorld, "autoToolSwapAdapter.onClientTick()"));
-        JavaSourceSlices.requireAbsent(noWorld, "no-world 分支不得伪造按键上升沿",
-                "sendFreshChainKeyPressedToServer");
     }
 
-    /** ClientProxy.init 单点接线：adapter 构造实参、Mixin 路由安装、KeyListener 挂载。 */
+    /** 保留可观测的接入签名：输入接受唯一 adapter，入包保留真实连接身份。 */
     @Test
-    public void proxyInstallsOneAdapterAndConfigAndLifecycleNotifyIt() throws Exception {
-        String proxy = JavaSourceSlices.stripCommentsIgnoringStringLiterals(JavaSourceSlices.read(PROXY_SOURCE));
-        String init = JavaSourceSlices.methodBody(proxy,
-                "public void init(FMLInitializationEvent event)", "ClientProxy.init");
-
-        Assert.assertEquals("adapter 必须在 init 内单点构造", 1,
-                JavaSourceSlices.count(init, "new AutoToolSwapClientAdapter("));
-        String arguments = JavaSourceSlices.callArgumentsFromPrefixEnd(init,
-                "new AutoToolSwapClientAdapter(", "adapter 构造实参");
-        Assert.assertTrue("adapter 必须接 Minecraft 事实 facade（不接库存面）",
-                arguments.contains("new ToolSwapMinecraftFacade()"));
-        Assert.assertTrue("adapter 必须接 Qz 报文 transport", arguments.contains("new QzAutoToolSwapClientTransport()"));
-
-        JavaSourceSlices.assertBefore(init, "new AutoToolSwapClientAdapter(", "AutoToolSwapHooks.install(autoToolSwapAdapter)",
-                "Mixin 静态路由必须在 adapter 构造后安装");
-        JavaSourceSlices.assertBefore(init, "new AutoToolSwapClientAdapter(", "new KeyListener(autoToolSwapAdapter)",
-                "KeyListener 必须在 adapter 构造后挂载");
+    public void clientInputAndPacketHandlersKeepConnectionAwareSignatures() throws Exception {
         Assert.assertTrue("KeyListener 必须存在接受唯一 adapter 的公开构造器",
                 hasConstructor(KeyListener.class, AutoToolSwapClientAdapter.class));
 
@@ -149,27 +88,27 @@ public class AutoToolClientWiringStructureTest {
     public void configPublicationReachesWiredAdapter() throws Exception {
         File tempDir = Files.createTempDirectory("qz-miner-wiring-").toFile();
         try {
-            ConfigBootstrap.resetForTests();
+            ConfigTestSupport.reset();
             MyMod.chainStateService = null;
             MyMod.networkMain = null;
-            ConfigManager manager = ConfigBootstrap.bootstrap(tempDir, null);
-            ClientConfigChangeListener listener = new ClientConfigChangeListener(manager);
+            ConfigBootstrap.bootstrap(tempDir, null);
+            ClientConfigChangeListener listener = new ClientConfigChangeListener();
 
             RecordingAdapter disabled = new RecordingAdapter();
             ClientProxy.autoToolSwapAdapter = disabled.adapter;
-            publishClientAndRequest(listener, saveAutoToolSwap(manager, false));
+            publishClientAndRequest(listener, saveAutoToolSwap(false));
             invokeUpdateChainKeyState(new KeyListener(disabled.adapter), true);
             Assert.assertEquals("配置关闭后按键不得再发 round（配置必须真的到达 adapter）",
                     0, disabled.transport.nonces.size());
 
             RecordingAdapter enabled = new RecordingAdapter();
             ClientProxy.autoToolSwapAdapter = enabled.adapter;
-            publishClientAndRequest(listener, saveAutoToolSwap(manager, true));
+            publishClientAndRequest(listener, saveAutoToolSwap(true));
             invokeUpdateChainKeyState(new KeyListener(enabled.adapter), true);
             Assert.assertEquals("配置打开后按键必须重新发 round", 1, enabled.transport.nonces.size());
         } finally {
-            ClientConfigChangeListener.resetSubscriptionForTests();
-            ConfigBootstrap.resetForTests();
+            clearConfigSubscription();
+            ConfigTestSupport.reset();
             deleteRecursively(tempDir);
         }
     }
@@ -288,12 +227,15 @@ public class AutoToolClientWiringStructureTest {
         method.invoke(listener, committed);
     }
 
-    private static CommittedSnapshot saveAutoToolSwap(ConfigManager manager, boolean enabled) {
-        DraftBuffer draft = manager.openDraft();
-        draft.setDraft("client.autoToolSwapEnabled", Boolean.valueOf(enabled));
-        Assert.assertTrue("配置保存必须成功", manager.save(draft).isSuccess());
-        // save 本身不刷新 ConfigBootstrap 的 current；生产由 config 事件监听 capture，测试显式捕获。
-        return ConfigBootstrap.captureCommittedSnapshot(manager);
+    private static CommittedSnapshot saveAutoToolSwap(boolean enabled) throws Exception {
+        return ConfigBootstrap.commit(ConfigTestSupport.changes("client.autoToolSwapEnabled", Boolean.valueOf(enabled)));
+    }
+
+    private static void clearConfigSubscription() throws Exception {
+        Field subscribed = ClientConfigChangeListener.class.getDeclaredField("subscribedListener");
+        subscribed.setAccessible(true);
+        ClientConfigChangeListener listener = (ClientConfigChangeListener) subscribed.get(null);
+        if (listener != null) listener.unregister();
     }
 
     private static ClientAutoToolSwapPacketDispatch.LifecycleGate lifecycleGate() throws Exception {
