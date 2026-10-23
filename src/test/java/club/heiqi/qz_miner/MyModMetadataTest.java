@@ -6,7 +6,7 @@ import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.versioning.DefaultArtifactVersion;
 import cpw.mods.fml.common.versioning.VersionRange;
 
-/** Forge 必须拒绝缺少新配置合同的旧宿主。 */
+/** Forge 必须拒绝不满足当前设置与 HUD 运行基线的旧宿主。 */
 public class MyModMetadataTest {
     @Test
     public void runtimeDependencyRequiresUilibFive() throws Exception {
@@ -16,7 +16,10 @@ public class MyModMetadataTest {
         Assert.assertTrue(declaration.startsWith(prefix));
         String range = declaration.substring(prefix.length()).replace(";", "");
         VersionRange versions = VersionRange.createFromVersionSpec(range);
-        Assert.assertTrue(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r5")));
+        Assert.assertTrue(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r7")));
+        Assert.assertFalse("必须拒绝仍有选择器与 HUD 编辑已知崩溃的 r6 组合",
+                versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r6")));
+        Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r5")));
         Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3")));
         Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "4.11.0")));
         Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "6.0.0")));

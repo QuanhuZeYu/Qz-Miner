@@ -154,7 +154,7 @@ public final class MinerHudLayoutPage implements ScenePage {
         actions.add(appearance.button(text("settings.qz_miner.discard"), SceneCommand.of(() -> !busy.get(), this::back), Role.OUTLINE));
         SceneNode keep = appearance.button(text("settings.qz_miner.keep"), SceneCommand.of(() -> !busy.get(), () -> confirm.set(false)), Role.GHOST);
         actions.add(keep);
-        return SceneDialog.create(c, appearance.editorTheme(), confirm, () -> new SceneDialog.Options("miner-hud-unsaved", 520, 220),
+        return SceneDialog.create(c, c.theme(), confirm, () -> new SceneDialog.Options("miner-hud-unsaved", 520, 220),
                 new SceneDialog.Content(appearance.label(text("hud.qz_miner.edit_action.label"), 1.1f, false),
                         appearance.label(text("settings.qz_miner.unsaved"), 1.0f, true), actions, keep, () -> confirm.set(false)));
     }

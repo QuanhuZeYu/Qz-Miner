@@ -310,7 +310,7 @@ public final class MinerSettingsPage implements ScenePage {
         }), Role.OUTLINE));
         SceneNode keep = appearance.button(text("settings.qz_miner.keep"), SceneCommand.of(navigable(), () -> confirm.set(false)), Role.GHOST);
         footer.add(keep);
-        return SceneDialog.create(c, appearance.editorTheme(), confirm,
+        return SceneDialog.create(c, c.theme(), confirm,
                 () -> new SceneDialog.Options("miner-unsaved", 520, 220),
                 new SceneDialog.Content(appearance.label(text("settings.qz_miner.title"), 1.1f, false),
                         body, footer, keep, () -> confirm.set(false)));
