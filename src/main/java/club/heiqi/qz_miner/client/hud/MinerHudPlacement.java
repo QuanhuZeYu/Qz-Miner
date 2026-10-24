@@ -12,8 +12,8 @@ public final class MinerHudPlacement {
     private MinerHudPlacement() { }
     public static SceneHudPlacement read(ConfigDocument document) {
         return new SceneHudPlacement(SceneHudPlacement.Anchor.valueOf(document.get(QzMinerConfigSchema.HUD_ANCHOR)),
-                document.get(QzMinerConfigSchema.HUD_OFFSET_X).floatValue(),
-                document.get(QzMinerConfigSchema.HUD_OFFSET_Y).floatValue(),
+                document.get(QzMinerConfigSchema.HUD_OFFSET_X),
+                document.get(QzMinerConfigSchema.HUD_OFFSET_Y),
                 document.get(QzMinerConfigSchema.HUD_SCALE).floatValue());
     }
     public static SceneHudPlacement defaults() { return read(ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA)); }
@@ -21,8 +21,8 @@ public final class MinerHudPlacement {
         SceneHudPlacement initial = read(baseline);
         Map<ConfigKey<?>, Object> values = new LinkedHashMap<ConfigKey<?>, Object>();
         values.put(QzMinerConfigSchema.HUD_ANCHOR, placement.anchor.name());
-        values.put(QzMinerConfigSchema.HUD_OFFSET_X, component(baseline, QzMinerConfigSchema.HUD_OFFSET_X, initial.offsetX, placement.offsetX));
-        values.put(QzMinerConfigSchema.HUD_OFFSET_Y, component(baseline, QzMinerConfigSchema.HUD_OFFSET_Y, initial.offsetY, placement.offsetY));
+        values.put(QzMinerConfigSchema.HUD_OFFSET_X, placement.offsetX);
+        values.put(QzMinerConfigSchema.HUD_OFFSET_Y, placement.offsetY);
         values.put(QzMinerConfigSchema.HUD_SCALE, component(baseline, QzMinerConfigSchema.HUD_SCALE, initial.scale, placement.scale));
         return values;
     }

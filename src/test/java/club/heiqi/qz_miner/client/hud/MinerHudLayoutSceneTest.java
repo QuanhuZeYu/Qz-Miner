@@ -37,7 +37,7 @@ public class MinerHudLayoutSceneTest {
             AtomicInteger returned = new AtomicInteger();
             domain.execute(() -> page[0] = new MinerHudLayoutPage(domain, ConfigBootstrap.document(),
                     new MinerSettingsSave(Runnable::run, task -> domain.execute(task), () -> true),
-                    domain.signal(1f), () -> true, key -> key.equals("settings.qz_miner.hud.preview_title") ? "Miner HUD" : "Tool",
+                    () -> true, key -> key.equals("settings.qz_miner.hud.preview_title") ? "Miner HUD" : "Tool",
                     returned::incrementAndGet));
             SceneHost host = new SceneHost() {
                 public int width() { return width; }
@@ -58,15 +58,13 @@ public class MinerHudLayoutSceneTest {
             Assert.assertArrayEquals(disk, Files.readAllBytes(ConfigBootstrap.yamlFile().toPath()));
         }
     }
-    @Test public void everyAnchorAndScaleKeepsTheSameViewportAsNormalHud() throws Exception {
+    @Test public void everyAnchorAndContentScaleKeepsTheSameViewportAsNormalHud() throws Exception {
         ReactiveDomain domain = ReactiveDomain.direct();
         MinerHudLayoutPage[] page = new MinerHudLayoutPage[1];
-        club.heiqi.uilib.ui.reactive.Signal<Float>[] guiScale = new club.heiqi.uilib.ui.reactive.Signal[1];
         domain.execute(() -> {
-            guiScale[0] = domain.signal(1f);
             page[0] = new MinerHudLayoutPage(domain, ConfigBootstrap.document(),
                     new MinerSettingsSave(Runnable::run, task -> domain.execute(task), () -> true),
-                    guiScale[0], () -> true, key -> key.equals("settings.qz_miner.hud.preview_title") ? "HUD preview" : "Tool", () -> { });
+                    () -> true, key -> key.equals("settings.qz_miner.hud.preview_title") ? "HUD preview" : "Tool", () -> { });
             page[0].toolsOpen.set(false);
         });
         SceneHost host = new SceneHost() {
@@ -82,20 +80,19 @@ public class MinerHudLayoutSceneTest {
             context.motionPolicy(() -> club.heiqi.uilib.ui.scene.motion.MotionPolicy.OFF);
             context.mountOwned(club.heiqi.uilib.ui.scene.hud.SceneHud.create(context,
                     new MinerHudModel(domain, key -> key.equals("settings.qz_miner.hud.preview_title") ? "HUD preview" : "Tool").content(context),
-                    page[0].placement, guiScale[0]));
+                    page[0].placement));
         })) {
             for (club.heiqi.uilib.ui.scene.hud.SceneHudPlacement.Anchor anchor : club.heiqi.uilib.ui.scene.hud.SceneHudPlacement.Anchor.values()) {
-                for (float scale : new float[] {1f, 2f}) {
+                for (float contentScale : new float[] {1f, 2f}) {
                     domain.execute(() -> domain.batch(() -> {
                         page[0].anchor.set(anchor);
-                        page[0].placement.set(new club.heiqi.uilib.ui.scene.hud.SceneHudPlacement(anchor, 12, 12, 1));
-                        guiScale[0].set(scale);
+                        page[0].placement.set(new club.heiqi.uilib.ui.scene.hud.SceneHudPlacement(anchor, 12, 12, contentScale));
                     }));
                     editor.frame(); normal.frame();
                     club.heiqi.uilib.ui.scene.layout.LayoutBox expected = title(normal);
                     club.heiqi.uilib.ui.scene.layout.LayoutBox actual = title(editor);
-                    Assert.assertEquals(anchor + " guiScale=" + scale + " x", expected.x, actual.x);
-                    Assert.assertEquals(anchor + " guiScale=" + scale + " y", expected.y, actual.y);
+                    Assert.assertEquals(anchor + " contentScale=" + contentScale + " x", expected.x, actual.x);
+                    Assert.assertEquals(anchor + " contentScale=" + contentScale + " y", expected.y, actual.y);
                     Assert.assertEquals(expected.width, actual.width);
                     Assert.assertEquals(expected.height, actual.height);
                 }
@@ -190,10 +187,10 @@ public class MinerHudLayoutSceneTest {
             domain.execute(() -> {
                 page[0] = new MinerHudLayoutPage(domain, ConfigBootstrap.document(),
                         new MinerSettingsSave(Runnable::run, task -> domain.execute(task), () -> true),
-                        domain.signal(1f), () -> true, key -> key, () -> { });
+                        () -> true, key -> key, () -> { });
                 Assert.assertFalse("打开合法小数布局不应变脏", page[0].dirty());
                 club.heiqi.uilib.ui.scene.hud.SceneHudPlacement p = page[0].initial;
-                page[0].placement.set(new club.heiqi.uilib.ui.scene.hud.SceneHudPlacement(p.anchor, 8.1f, p.offsetY, p.scale));
+                page[0].placement.set(new club.heiqi.uilib.ui.scene.hud.SceneHudPlacement(p.anchor, 8.1, p.offsetY, p.scale));
                 for (java.util.Map.Entry<club.heiqi.uilib.ui.config.ConfigKey<?>, Object> change :
                         MinerHudPlacement.updates(page[0].draft.baseline(), page[0].placement.get()).entrySet())
                     page[0].draft.set(change.getKey(), change.getValue());
@@ -202,7 +199,7 @@ public class MinerHudLayoutSceneTest {
                 for (java.util.Map.Entry<club.heiqi.uilib.ui.config.ConfigKey<?>, Object> change :
                         MinerHudPlacement.updates(page[0].draft.baseline(), p).entrySet()) page[0].draft.set(change.getKey(), change.getValue());
                 Assert.assertFalse("恢复初始展示投影撤掉对应编辑", page[0].draft.dirty());
-                page[0].placement.set(new club.heiqi.uilib.ui.scene.hud.SceneHudPlacement(p.anchor, 8.1f, p.offsetY, p.scale));
+                page[0].placement.set(new club.heiqi.uilib.ui.scene.hud.SceneHudPlacement(p.anchor, 8.1, p.offsetY, p.scale));
                 page[0].save();
             });
             Assert.assertEquals(Double.valueOf(scale), ConfigBootstrap.document().get(club.heiqi.qz_miner.config.QzMinerConfigSchema.HUD_SCALE));
@@ -211,7 +208,7 @@ public class MinerHudLayoutSceneTest {
             domain.execute(() -> {
                 MinerHudLayoutPage scaled = new MinerHudLayoutPage(domain, ConfigBootstrap.document(),
                         new MinerSettingsSave(Runnable::run, task -> domain.execute(task), () -> true),
-                        domain.signal(1f), () -> true, key -> key, () -> { });
+                        () -> true, key -> key, () -> { });
                 scaled.scale.set("1.7"); Assert.assertTrue(scaled.dirty()); scaled.save();
             });
             Assert.assertEquals(Double.valueOf(1.7), ConfigBootstrap.document().get(club.heiqi.qz_miner.config.QzMinerConfigSchema.HUD_SCALE));

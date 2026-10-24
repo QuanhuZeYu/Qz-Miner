@@ -11,7 +11,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 
-/** 防止渲染/输入旁路及 private API 接入；读取 GUI Scale 属宿主事实，不视为自绘 HUD。 */
+/** 防止渲染/输入旁路及 private API 接入；HUD 只消费公开 UILib 声明。 */
 public class HudArchitectureBoundaryTest {
 
     private static final String[] FORBIDDEN_RENDERING_TYPES = {

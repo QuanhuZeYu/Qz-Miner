@@ -37,7 +37,6 @@ public final class MinerHudLayoutPage implements ScenePage {
     final MinerSettingsDraft draft;
     final SceneHudPlacement initial;
     final Signal<SceneHudPlacement> placement;
-    final ReadableSignal<Float> guiScale;
     final Signal<Integer> snap;
     final Signal<String> scale;
     final Signal<String> notice;
@@ -54,13 +53,13 @@ public final class MinerHudLayoutPage implements ScenePage {
     private MinerSettingsAppearance appearance;
 
     public MinerHudLayoutPage(ReactiveDomain domain, ConfigDocument baseline, MinerSettingsSave saver,
-            ReadableSignal<Float> guiScale, BooleanSupplier current, Function<String, String> translate, Runnable back) {
-        this(domain, baseline, saver, guiScale, current, translate, back, new MinerHudModel(domain, translate));
+            BooleanSupplier current, Function<String, String> translate, Runnable back) {
+        this(domain, baseline, saver, current, translate, back, new MinerHudModel(domain, translate));
     }
     public MinerHudLayoutPage(ReactiveDomain domain, ConfigDocument baseline, MinerSettingsSave saver,
-            ReadableSignal<Float> guiScale, BooleanSupplier current, Function<String, String> translate, Runnable back,
+            BooleanSupplier current, Function<String, String> translate, Runnable back,
             MinerHudModel preview) {
-        this.domain = domain; this.saver = saver; this.guiScale = guiScale;
+        this.domain = domain; this.saver = saver;
         this.current = current; this.translate = translate; this.back = back; this.preview = preview;
         draft = new MinerSettingsDraft(baseline, MinerSettingsAccess.REMOTE);
         initial = MinerHudPlacement.read(baseline);
@@ -72,7 +71,7 @@ public final class MinerHudLayoutPage implements ScenePage {
     @Override public void build(ScenePageContext c) {
         c.own(saver); appearance = new MinerSettingsAppearance(c);
         SceneNode root = SceneLayouts.overlay().size(Size.fill(1), Size.fill(1)).own(appearance.scope);
-        root.add(SceneHud.edit(c, preview.content(c), placement, guiScale, snap)
+        root.add(SceneHud.edit(c, preview.content(c), placement, snap)
                 .bind(NodeBinding.value(() -> !busy.get(), SceneNode::enabled)));
         SceneNode panel = tools(c);
         panel.bind(SceneMotion.presence(toolsOpen, () -> new PresenceOptions(c.theme().get().feedbackMotion)));

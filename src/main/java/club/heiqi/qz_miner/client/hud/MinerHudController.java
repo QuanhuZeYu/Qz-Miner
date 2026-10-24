@@ -18,7 +18,6 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.ScaledResolution;
 
 /** 每个世界持有一个只读 HUD 宿主；普通 HUD 完全不接管输入。 */
 public final class MinerHudController {
@@ -27,7 +26,6 @@ public final class MinerHudController {
     private ReactiveDomain domain;
     private MinerHudModel model;
     private Signal<SceneHudPlacement> placement;
-    private Signal<Float> guiScale;
     private ConfigDocument document;
     private ClientConnectionLifecycle.Token lifecycle;
 
@@ -44,7 +42,6 @@ public final class MinerHudController {
             if (lifecycle != token) return;
             ConfigDocument next = ConfigBootstrap.document();
             if (document != next) { document = next; placement.set(MinerHudPlacement.read(next)); }
-            guiScale.set((float) new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor());
             model.context(MyMod.chainStateService == null ? null : MyMod.chainStateService.getClientState(),
                     ClientServerConfigFacts.confirmed(), mc.gameSettings.language);
         });
@@ -57,9 +54,8 @@ public final class MinerHudController {
         if (lifecycle != token) return;
         model = new MinerHudModel(domain, ClientI18n::tr);
         placement = domain.signal(MinerHudPlacement.read(ConfigBootstrap.document()));
-        guiScale = domain.signal(1f);
         hud = new MinecraftSceneHud(domain, context -> context.mountOwned(
-                SceneHud.create(context, model.content(context), placement, guiScale)), () -> {
+                SceneHud.create(context, model.content(context), placement)), () -> {
                     Minecraft mc = Minecraft.getMinecraft();
                     return mc.theWorld != null && mc.thePlayer != null && mc.currentScreen == null
                             && ConfigBootstrap.document().get(QzMinerConfigSchema.HUD_ENABLED);
