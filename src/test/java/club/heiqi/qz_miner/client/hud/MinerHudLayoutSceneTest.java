@@ -37,7 +37,7 @@ public class MinerHudLayoutSceneTest {
             AtomicInteger returned = new AtomicInteger();
             domain.execute(() -> page[0] = new MinerHudLayoutPage(domain, ConfigBootstrap.document(),
                     new MinerSettingsSave(Runnable::run, task -> domain.execute(task), () -> true),
-                    () -> true, key -> key.equals("settings.qz_miner.hud.preview_title") ? "Miner HUD" : "Tool",
+                    () -> true, key -> key.equals("hud.qz_miner.mode.chain") ? "Miner HUD" : "Tool",
                     returned::incrementAndGet));
             SceneHost host = new SceneHost() {
                 public int width() { return width; }
@@ -64,7 +64,7 @@ public class MinerHudLayoutSceneTest {
         domain.execute(() -> {
             page[0] = new MinerHudLayoutPage(domain, ConfigBootstrap.document(),
                     new MinerSettingsSave(Runnable::run, task -> domain.execute(task), () -> true),
-                    () -> true, key -> key.equals("settings.qz_miner.hud.preview_title") ? "HUD preview" : "Tool", () -> { });
+                    () -> true, key -> key.equals("hud.qz_miner.mode.chain") ? "HUD preview" : "Tool", () -> { });
             page[0].toolsOpen.set(false);
         });
         SceneHost host = new SceneHost() {
@@ -79,7 +79,7 @@ public class MinerHudLayoutSceneTest {
         }); ScenePageSession normal = ScenePageSession.open(domain, host, MEASURER, context -> {
             context.motionPolicy(() -> club.heiqi.uilib.ui.scene.motion.MotionPolicy.OFF);
             context.mountOwned(club.heiqi.uilib.ui.scene.hud.SceneHud.create(context,
-                    new MinerHudModel(domain, key -> key.equals("settings.qz_miner.hud.preview_title") ? "HUD preview" : "Tool").content(context),
+                    new MinerHudModel(domain, key -> key.equals("hud.qz_miner.mode.chain") ? "HUD preview" : "Tool").content(context, true),
                     page[0].placement));
         })) {
             for (club.heiqi.uilib.ui.scene.hud.SceneHudPlacement.Anchor anchor : club.heiqi.uilib.ui.scene.hud.SceneHudPlacement.Anchor.values()) {
@@ -123,6 +123,8 @@ public class MinerHudLayoutSceneTest {
                 context.motionPolicy(() -> policy); context.mountOwned(model[0].content(context));
             })) {
                 session.frame();
+                Assert.assertFalse("闲时 HUD 应完全隐藏", session.inspect().get().entries.stream().anyMatch(entry ->
+                        entry.visible && "hud.qz_miner.mode.chain".equals(entry.name)));
                 domain.execute(() -> { state.setChainKeyPressed(true); model[0].context(state, true, "en_US"); });
                 session.frame(); clock[0] += 1_000_000_000L; session.frame();
                 Assert.assertTrue(policy.toString(), session.inspect().get().entries.stream().anyMatch(entry ->
@@ -131,6 +133,10 @@ public class MinerHudLayoutSceneTest {
                 session.frame(); clock[0] += 1_000_000_000L; session.frame();
                 Assert.assertFalse(policy.toString(), session.inspect().get().entries.stream().anyMatch(entry ->
                         entry.visible && "hud.qz_miner.short.radius".equals(entry.name)));
+                clock[0] += 4_000_000_000L; session.frame();
+                clock[0] += 1_000_000_000L; session.frame();
+                Assert.assertFalse("短留结束后整个 HUD 应隐藏", session.inspect().get().entries.stream().anyMatch(entry ->
+                        entry.visible && "hud.qz_miner.mode.chain".equals(entry.name)));
             }
         }
     }
@@ -156,14 +162,14 @@ public class MinerHudLayoutSceneTest {
         };
         try (ScenePageSession session = ScenePageSession.open(domain, host, MEASURER, context -> {
             context.motionPolicy(() -> club.heiqi.uilib.ui.scene.motion.MotionPolicy.OFF);
-            context.mountOwned(new MinerHudModel(domain, key -> "HUD").content(context));
+            context.mountOwned(new MinerHudModel(domain, key -> "HUD").content(context, true));
         })) {
             for (club.heiqi.uilib.ui.scene.control.ThemeMode mode : new club.heiqi.uilib.ui.scene.control.ThemeMode[] {
                     club.heiqi.uilib.ui.scene.control.ThemeMode.LIGHT, club.heiqi.uilib.ui.scene.control.ThemeMode.DARK,
                     club.heiqi.uilib.ui.scene.control.ThemeMode.LIGHT}) {
                 domain.execute(() -> config[0].set(club.heiqi.uilib.ui.scene.control.ThemeConfiguration.KEY, mode));
                 session.frame();
-                int rgb = new club.heiqi.uilib.ui.scene.control.SceneAppearance.Palette(mode.sceneTheme()).background & 0xFFFFFF;
+                int rgb = new club.heiqi.uilib.ui.scene.control.SceneAppearance.Palette(mode.sceneTheme()).surface & 0xFFFFFF;
                 Assert.assertTrue(mode + " expected RGB=" + Integer.toHexString(rgb) + " actual="
                         + rendered.get().commands().stream().map(command -> command.kind + ":" + Integer.toHexString(command.color))
                                 .distinct().collect(java.util.stream.Collectors.joining(",")), rendered.get().commands().stream().anyMatch(command ->

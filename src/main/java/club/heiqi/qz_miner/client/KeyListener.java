@@ -118,6 +118,7 @@ public class KeyListener {
             }
 
             MyMod.chainStateService.setClientSelectedMode(nextMode);
+            MyMod.chainStateService.getClientState().recordSelectionIntent(dWheel < 0 ? 1 : -1);
             MyMod.networkMain.network.sendToServer(new PacketChainModeSwitch(nextMode));
             MyMod.LOG.debug("[KeyListener] Switched chain mode to {}", nextMode);
             return;
@@ -131,6 +132,7 @@ public class KeyListener {
         }
 
         MyMod.chainStateService.setClientSelectedSubMode(nextSubMode);
+        MyMod.chainStateService.getClientState().recordSelectionIntent(dWheel < 0 ? 1 : -1);
         MyMod.networkMain.network.sendToServer(new PacketChainSubModeSwitch(nextSubMode));
         MyMod.LOG.debug("[KeyListener] Switched sub mode to {} under mode {}", nextSubMode, selectedMode);
     }

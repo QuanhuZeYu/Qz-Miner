@@ -1,54 +1,82 @@
 package club.heiqi.qz_miner.client.hud;
 
+import club.heiqi.uilib.ui.reactive.ReadableSignal;
+import club.heiqi.uilib.ui.reactive.Signal;
+import club.heiqi.uilib.ui.scene.control.SceneAnimatedContent;
 import club.heiqi.uilib.ui.scene.control.SceneAppearance;
+import club.heiqi.uilib.ui.scene.control.SceneLabel;
 import club.heiqi.uilib.ui.scene.host.ScenePageContext;
 import club.heiqi.uilib.ui.scene.layout.SceneLayouts;
 import club.heiqi.uilib.ui.scene.layout.Size;
+import club.heiqi.uilib.ui.scene.motion.EntranceOptions;
 import club.heiqi.uilib.ui.scene.motion.PresenceOptions;
 import club.heiqi.uilib.ui.scene.motion.SceneMotion;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
 import club.heiqi.uilib.ui.scene.runtime.NodeBinding;
+import club.heiqi.uilib.ui.scene.text.FontStyle;
 
-/** HUD 只声明业务浮层令牌；圆角、边线、字体、主题与动效策略均由正式 Scene 提供。 */
+/** 业务决定何时展示，Core 持有短留期限、轨迹、退场快照及挂载释放。 */
 public final class MinerHudAppearance extends SceneAppearance {
-    private static final float SURFACE_ALPHA = 0.90f;
-    private static final float TITLE_EM = 0.95f;
-    private static final float BODY_EM = 0.84f;
-    private static final float STATUS_EM = 0.76f;
-    private static final float MIN_WIDTH_EM = 10f;
-    private static final float MAX_WIDTH_EM = 30f;
-    private static final float LABEL_WIDTH_EM = 8f;
+    private static final long RESULT_LINGER_NANOS = 3_200_000_000L;
+    private static final long NAVIGATION_LINGER_NANOS = 750_000_000L;
     private final ScenePageContext context;
     public MinerHudAppearance(ScenePageContext context) { super(context, context.theme()); this.context = context; }
 
-    public SceneNode content(MinerHudModel model) {
-        SceneNode body = column(0).size(Size.natural(), Size.natural());
-        body.bind(NodeBinding.value(colors, (node, palette) -> node.padding(palette.source.padding).gap(palette.source.gap)
-                .size(Size.natural().bounds(Math.round(palette.textStyle.logicalEm * MIN_WIDTH_EM),
-                        Math.round(palette.textStyle.logicalEm * MAX_WIDTH_EM)), Size.natural())));
-        SceneNode header = SceneLayouts.wrap(() -> colors.get().source.gap * 2).size(Size.natural(), Size.natural());
-        header.add(label(model.heading, TITLE_EM, false));
-        SceneNode badge = card(label(model.status, STATUS_EM, true),
-                () -> model.expanded.get() ? colors.get().selected : colors.get().surface)
-                .bind(NodeBinding.value(colors, (node, palette) -> node.padding(Math.max(2, palette.source.padding / 3))));
-        header.add(badge); body.add(header);
+    public SceneNode content(MinerHudModel model, boolean editing) {
+        Signal<Boolean> recent = context.domain().signal(false), recentNavigation = context.domain().signal(false);
+        ReadableSignal<Boolean> navigation = () -> editing || model.armed.get() || recentNavigation.get();
+        SceneNode outer = SceneLayouts.overlay().size(Size.natural(), Size.natural()).own(scope);
+        outer.bind(NodeBinding.transientValue(model.activity, RESULT_LINGER_NANOS, (node, value) -> recent.set(value != null)));
+        outer.bind(NodeBinding.transientValue(model.navigation, NAVIGATION_LINGER_NANOS, (node, value) -> recentNavigation.set(value != null)));
+        outer.add(SceneAnimatedContent.create(context,
+                () -> editing || model.sustained.get() || recent.get() ? model : null, value -> "hud",
+                value -> body(value.get(), navigation, editing),
+                () -> new EntranceOptions(context.theme().get().spatialMotion, context.theme().get().feedbackMotion,
+                        0, colors.get().textStyle.logicalEm * .7f)));
+        return outer;
+    }
+    private SceneNode body(MinerHudModel model, ReadableSignal<Boolean> navigation, boolean editing) {
+        SceneNode body = SceneLayouts.centeredColumn(() -> Math.round(colors.get().textStyle.logicalEm * .5f));
+        body.add(new MinerHudDial(this, context, model, navigation).create());
+        SceneNode status = SceneAnimatedContent.create(context, model.status, value -> value,
+                value -> ink(() -> (model.warning.get() ? "!  " : "•  ") + value.get(), .74f,
+                        () -> model.warning.get() ? MinerHudPalette.warning(colors.get()) : colors.get().muted),
+                () -> new EntranceOptions(context.theme().get().spatialMotion, context.theme().get().feedbackMotion,
+                        0, colors.get().textStyle.logicalEm * .45f));
+        SceneNode badge = panel(status, .4f);
+        body.add(badge);
+        SceneNode details = panel(rows(model), .65f)
+                .bind(SceneMotion.presence(() -> (editing || model.expanded.get()) && !model.rows.get().isEmpty(),
+                        () -> new PresenceOptions(context.theme().get().feedbackMotion)));
+        body.add(details);
+        body.bind(SceneMotion.layoutSize(() -> context.theme().get().spatialMotion));
+        return body;
+    }
+    private SceneNode rows(MinerHudModel model) {
         SceneNode values = column(0).size(Size.natural(), Size.natural())
-                .bind(NodeBinding.value(colors, (node, palette) -> node.gap(palette.source.gap)));
+                .bind(NodeBinding.value(colors, (node, palette) -> node.gap(Math.round(palette.textStyle.logicalEm * .3f))));
         values.bind(NodeBinding.repeat(model.rows, row -> row.id, row -> {
-            MinerHudAppearance rowAppearance = new MinerHudAppearance(context);
-            SceneNode pair = row(0).size(Size.natural(), Size.natural()).own(rowAppearance.scope)
-                    .bind(NodeBinding.value(colors, (node, palette) -> node.gap(palette.source.gap * 2)));
-            pair.add(rowAppearance.label(() -> row.get().label, BODY_EM, true)
-                    .bind(NodeBinding.value(colors, (node, palette) -> node.size(
-                            Size.fixed(Math.round(palette.textStyle.logicalEm * LABEL_WIDTH_EM)), Size.natural()))));
-            pair.add(rowAppearance.label(() -> row.get().value, BODY_EM, false).size(Size.natural(), Size.natural()));
+            SceneNode pair = row(0).size(Size.natural(), Size.natural())
+                    .bind(NodeBinding.value(colors, (node, palette) -> node.gap(palette.source.gap)));
+            pair.add(label(() -> row.get().label, .76f, true));
+            pair.add(label(() -> row.get().value, .76f, false));
             return pair;
         }));
-        values.bind(SceneMotion.presence(model.expanded, () -> new PresenceOptions(context.theme().get().feedbackMotion)));
-        body.add(values);
-        SceneNode surface = card(body, () -> SceneMotion.alpha(colors.get().background, SURFACE_ALPHA))
-                .size(Size.natural(), Size.natural()).own(scope);
-        surface.bind(SceneMotion.layoutSize(() -> context.theme().get().spatialMotion));
-        return surface;
+        return values;
+    }
+    SceneNode panel(SceneNode content, float padding) {
+        return card(content, () -> SceneMotion.alpha(colors.get().surface, .97f))
+                .size(Size.natural(), Size.natural())
+                .bind(NodeBinding.value(colors, (node, palette) -> node.padding(Math.round(palette.textStyle.logicalEm * padding))));
+    }
+    SceneNode ink(ReadableSignal<String> text, float scale, ReadableSignal<Integer> color) {
+        ReadableSignal<club.heiqi.uilib.ui.scene.text.TextStyle> typography = () ->
+                colors.get().theme(scale, colors.get().text, 0).textStyle
+                        .withFontStyle(new FontStyle(scale >= 1 ? 600 : 400, FontStyle.Posture.NORMAL));
+        return SceneLabel.create(context, text, () -> colors.get().theme(scale, colors.get().text, 0))
+                .size(Size.natural(), Size.natural())
+                .bind(NodeBinding.value(typography, (node, style) -> node.style(style.withColor(node.style().color))))
+                .bind(SceneMotion.color(color, () -> context.theme().get().feedbackMotion, "minerInk.color",
+                        (node, value) -> node.style(typography.get().withColor(value))));
     }
 }

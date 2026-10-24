@@ -17,6 +17,15 @@ import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 public class ChainClientState extends AbstractChainModeState {
 
     private volatile boolean chainKeyPressed;
+    private volatile Object selectionIntent;
+    private volatile int selectionDirection;
+
+    /** 输入方向属于客户端呈现事实；两项循环不能从最终枚举反推滚轮方向。 */
+    public void recordSelectionIntent(int direction) {
+        selectionDirection = Integer.signum(direction); selectionIntent = new Object();
+    }
+    public Object getSelectionIntent() { return selectionIntent; }
+    public int getSelectionDirection() { return selectionDirection; }
     private volatile boolean previewActive;
     // 阶段8 块3：删旧 serverChainKeyPressed/serverExecuting/serverExecutionStatus 三字段
     // （phase 已由 ClientPhaseProjection 承载，G2 夺权后 HUD/预览读投影，不再需要旧 executionStatus）。

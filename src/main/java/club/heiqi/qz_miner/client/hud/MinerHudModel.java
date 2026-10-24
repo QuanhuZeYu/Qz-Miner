@@ -23,6 +23,10 @@ public final class MinerHudModel {
     public final Signal<String> status;
     public final Signal<Boolean> expanded;
     public final Signal<List<Row>> rows;
+    public final Signal<MinerHudSelection> selection;
+    public final Signal<Boolean> armed, sustained, warning;
+    public final Signal<Object> activity, navigation;
+    public final Signal<Float> bearing;
     private ChainPreviewPresentationHeader header;
     private ChainMode mode;
     private ChainSubMode subMode;
@@ -31,20 +35,34 @@ public final class MinerHudModel {
     private boolean groupsAccepted;
     private int requestedRadius, acceptedRadius, requestedBlocks, acceptedBlocks, serverMatched;
     private String locale;
+    private long resources;
+    private Object selectionIntent;
+    private boolean contextSeen;
 
     public MinerHudModel(ReactiveDomain domain, Function<String, String> text) {
         this.text = text;
         heading = domain.signal(text.apply("settings.qz_miner.hud.preview_title"));
         status = domain.signal(text.apply("hud.qz_miner.phase.IDLE"));
         expanded = domain.signal(false); rows = domain.signal(Collections.<Row>emptyList());
+        selection = domain.signal(new MinerHudSelection(ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, null, text, false));
+        armed = domain.signal(false); sustained = domain.signal(false); warning = domain.signal(false);
+        activity = domain.signal(null); navigation = domain.signal(null); bearing = domain.signal(0f);
+        mode = ChainMode.CHAIN; subMode = ChainSubMode.CHAIN_BASE; rebuild();
     }
 
     public void header(ChainPreviewPresentationHeader next) {
         if (header == next) return;
+        boolean changed = header != null && next != null && (header.getPhase() != next.getPhase()
+                || header.isRemoteRequestPending() != next.isRemoteRequestPending()
+                || header.getCancelReason() != next.getCancelReason());
+        if (changed || header == null && next != null && next.getPhase() != ChainPhase.IDLE) activity.set(new Object());
         header = next; rebuild();
     }
 
-    public void context(ChainClientState state, boolean known, String language) {
+    public void context(ChainClientState state, boolean known, String language) { context(state, known, language, 0L); }
+
+    /** 宿主资源代际含同语言重载，稳定 tick 只比较标量，不重译所有文案。 */
+    public void context(ChainClientState state, boolean known, String language, long resourceRevision) {
         if (state == null) return;
         ChainMode nextMode = state.getSelectedMode();
         ChainSubMode nextSubMode = state.getSelectedSubMode();
@@ -53,19 +71,39 @@ public final class MinerHudModel {
         int rr = state.getRequestedChainRadius(), ar = state.getServerChainRadius();
         int rb = state.getRequestedChainMaxBlocks(), ab = state.getServerChainMaxBlocks();
         int matched = state.getServerMatchedTargetCount();
-        if (mode == nextMode && subMode == nextSubMode && key == nextKey && confirmed == known
+        if (contextSeen && mode == nextMode && subMode == nextSubMode && key == nextKey && confirmed == known
                 && groupsAccepted == nextGroups && requestedRadius == rr && acceptedRadius == ar
                 && requestedBlocks == rb && acceptedBlocks == ab && serverMatched == matched
-                && Objects.equals(locale, language)) return;
+                && Objects.equals(locale, language) && resources == resourceRevision) return;
+        boolean modeChanged = contextSeen && (mode != nextMode || subMode != nextSubMode);
+        boolean keyChanged = key != nextKey;
+        if (!contextSeen || mode != nextMode || subMode != nextSubMode || !Objects.equals(locale, language) || resources != resourceRevision) {
+            MinerHudSelection previous = contextSeen ? selection.get() : null;
+            MinerHudSelection selected = new MinerHudSelection(nextMode, nextSubMode, previous, text, true,
+                    selectionIntent != state.getSelectionIntent() ? state.getSelectionDirection() : 0);
+            selection.set(selected);
+            bearing.set(bearing.get() + selected.horizontal * 30f + selected.vertical * 7.5f);
+        }
+        if (modeChanged || keyChanged) {
+            Object event = new Object(); activity.set(event); navigation.set(event);
+        }
         mode = nextMode; subMode = nextSubMode; key = nextKey; confirmed = known; groupsAccepted = nextGroups;
         requestedRadius = rr; acceptedRadius = ar; requestedBlocks = rb; acceptedBlocks = ab; serverMatched = matched;
-        locale = language; rebuild();
+        locale = language; resources = resourceRevision; selectionIntent = state.getSelectionIntent(); contextSeen = true; rebuild();
     }
 
     private void rebuild() {
         if (mode == null) return;
         ChainPhase phase = header == null ? ChainPhase.IDLE : header.getPhase();
-        String currentStatus = text.apply(confirmed ? "hud.qz_miner.phase." + phase.name() : "hud.qz_miner.sync.pending");
+        boolean pending = header != null && header.isRemoteRequestPending();
+        boolean failed = header != null && (header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_TIMEOUT
+                || header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE);
+        armed.set(key); sustained.set(key || phase != ChainPhase.IDLE || pending); warning.set(failed);
+        String currentStatus = text.apply(confirmed ? "hud.qz_miner.phase."
+                + (key && phase == ChainPhase.IDLE ? ChainPhase.ARMED : phase).name() : "hud.qz_miner.sync.pending");
+        if (failed) currentStatus += " · " + text.apply(header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_TIMEOUT
+                ? "hud.qz_miner.preview.remote.timeout" : "hud.qz_miner.preview.remote.unavailable");
+        else if (pending) currentStatus += " · " + text.apply("hud.qz_miner.preview.remote.pending");
         String currentHeading = text.apply(mode.getDisplayNameKey())
                 + (subMode == null ? "" : " · " + text.apply(subMode.getDisplayNameKey()));
         heading.set(currentHeading); status.set(currentStatus);
@@ -73,10 +111,11 @@ public final class MinerHudModel {
                 || header.getCancelReason() != ChainPreviewState.CancelReason.NONE);
         expanded.set(showDetails);
         List<Row> next = new ArrayList<Row>();
-        if (showDetails) {
-            String pending = text.apply("hud.qz_miner.sync.pending");
-            add(next, "radius", "hud.qz_miner.short.radius", requestedRadius + " / " + (confirmed ? acceptedRadius : pending));
-            add(next, "blocks", "hud.qz_miner.short.blocks", requestedBlocks + " / " + (confirmed ? acceptedBlocks : pending));
+        {
+            // 明细是事实投影；是否展开由呈现决定，空闲编辑也可完整预览。
+            String pendingLabel = text.apply("hud.qz_miner.sync.pending");
+            add(next, "radius", "hud.qz_miner.short.radius", requestedRadius + " / " + (confirmed ? acceptedRadius : pendingLabel));
+            add(next, "blocks", "hud.qz_miner.short.blocks", requestedBlocks + " / " + (confirmed ? acceptedBlocks : pendingLabel));
             add(next, "groups", "hud.qz_miner.short.groups", text.apply(groupsAccepted ? "hud.qz_miner.sync.confirmed" : "hud.qz_miner.sync.pending"));
             if (confirmed && serverMatched > 0) add(next, "server", "hud.qz_miner.server_recent.label", String.valueOf(serverMatched));
             if (header != null) {
@@ -102,7 +141,10 @@ public final class MinerHudModel {
 
     private void add(List<Row> next, String id, String label, String value) { next.add(new Row(id, text.apply(label), value)); }
 
-    public SceneNode content(ScenePageContext context) { return new MinerHudAppearance(context).content(this); }
+    public SceneNode content(ScenePageContext context) { return content(context, false); }
+    public SceneNode content(ScenePageContext context, boolean editing) {
+        return new MinerHudAppearance(context).content(this, editing);
+    }
 
     public static final class Row {
         public final String id;

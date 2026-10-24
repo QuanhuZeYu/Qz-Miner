@@ -43,7 +43,7 @@ public final class MinerHudController {
             ConfigDocument next = ConfigBootstrap.document();
             if (document != next) { document = next; placement.set(MinerHudPlacement.read(next)); }
             model.context(MyMod.chainStateService == null ? null : MyMod.chainStateService.getClientState(),
-                    ClientServerConfigFacts.confirmed(), mc.gameSettings.language);
+                    ClientServerConfigFacts.confirmed(), mc.gameSettings.language, club.heiqi.uilib.host.client.font.MinecraftFontServices.resourceRevision());
         });
     }
 
@@ -55,7 +55,7 @@ public final class MinerHudController {
         model = new MinerHudModel(domain, ClientI18n::tr);
         placement = domain.signal(MinerHudPlacement.read(ConfigBootstrap.document()));
         hud = new MinecraftSceneHud(domain, context -> context.mountOwned(
-                SceneHud.create(context, model.content(context), placement)), () -> {
+                SceneHud.create(context, model.content(context), placement, SceneHud.Fit.CONTAIN)), () -> {
                     Minecraft mc = Minecraft.getMinecraft();
                     return mc.theWorld != null && mc.thePlayer != null && mc.currentScreen == null
                             && ConfigBootstrap.document().get(QzMinerConfigSchema.HUD_ENABLED);

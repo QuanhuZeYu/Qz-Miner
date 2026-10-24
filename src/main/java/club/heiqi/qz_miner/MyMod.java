@@ -55,7 +55,7 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     // 本构建的 major.minor 族。声明区间后不得再有 @NetworkCheckHandler —— FML 的 NetworkModHolder
     // 里两者互斥：有 handler 时 acceptableRange 根本不会创建，区间与「接受自身版本」自检一并失效。
     acceptableRemoteVersions = NetworkVersionRange.VALUE,
-    dependencies = "required-after:qz_uilib@[5.0.0-beta3-miner-ui-r10,6.0.0);")
+    dependencies = "required-after:qz_uilib@[5.0.0-beta3-miner-ui-r11,6.0.0);")
 public class MyMod {
 
     public static final String MODID = "qz_miner";

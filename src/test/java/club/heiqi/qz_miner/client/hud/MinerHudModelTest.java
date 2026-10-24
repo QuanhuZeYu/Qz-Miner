@@ -19,7 +19,6 @@ public class MinerHudModelTest {
             MinerHudModel model = new MinerHudModel(domain, key -> { translations.incrementAndGet(); return key; });
             ChainClientState state = new ChainClientState();
             model.context(state, true, "en_US");
-            Assert.assertTrue(model.rows.get().isEmpty());
             String heading = model.heading.get();
             int before = translations.get();
             model.context(state, true, "en_US");
@@ -38,7 +37,6 @@ public class MinerHudModelTest {
             Assert.assertFalse(model.rows.get().stream().anyMatch(row -> row.id.equals("backend")));
             Assert.assertFalse("零匹配确认不占用 HUD", model.rows.get().stream().anyMatch(row -> row.id.equals("server")));
             model.header(null);
-            Assert.assertTrue(model.rows.get().isEmpty());
         });
     }
 }

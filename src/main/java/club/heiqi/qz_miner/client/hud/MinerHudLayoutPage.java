@@ -44,6 +44,7 @@ public final class MinerHudLayoutPage implements ScenePage {
     final Signal<Boolean> confirm;
     final Signal<Boolean> toolsOpen;
     private final Signal<String> language;
+    private final Signal<Long> resources;
     final Signal<SceneHudPlacement.Anchor> anchor;
     final MinerSettingsSave saver;
     final BooleanSupplier current;
@@ -65,13 +66,13 @@ public final class MinerHudLayoutPage implements ScenePage {
         initial = MinerHudPlacement.read(baseline);
         placement = domain.signal(initial); snap = domain.signal(8); anchor = domain.signal(initial.anchor);
         scale = domain.signal(number(baseline.get(QzMinerConfigSchema.HUD_SCALE))); notice = domain.signal("");
-        busy = domain.signal(false); confirm = domain.signal(false); toolsOpen = domain.signal(true); language = domain.signal("");
+        busy = domain.signal(false); confirm = domain.signal(false); toolsOpen = domain.signal(true); language = domain.signal(""); resources = domain.signal(0L);
     }
 
     @Override public void build(ScenePageContext c) {
         c.own(saver); appearance = new MinerSettingsAppearance(c);
         SceneNode root = SceneLayouts.overlay().size(Size.fill(1), Size.fill(1)).own(appearance.scope);
-        root.add(SceneHud.edit(c, preview.content(c), placement, snap)
+        root.add(SceneHud.edit(c, preview.content(c, true), placement, snap, SceneHud.Fit.CONTAIN)
                 .bind(NodeBinding.value(() -> !busy.get(), SceneNode::enabled)));
         SceneNode panel = tools(c);
         panel.bind(SceneMotion.presence(toolsOpen, () -> new PresenceOptions(c.theme().get().feedbackMotion)));
@@ -143,7 +144,8 @@ public final class MinerHudLayoutPage implements ScenePage {
     }
     void back() { back.run(); }
     public void locale(String currentLanguage) { language.set(currentLanguage); }
-    ReadableSignal<String> text(String key) { return () -> { language.get(); return translate.apply(key); }; }
+    public void locale(String currentLanguage, long resourceRevision) { locale(currentLanguage); resources.set(resourceRevision); }
+    ReadableSignal<String> text(String key) { return () -> { language.get(); resources.get(); return translate.apply(key); }; }
     private static String number(double value) { return java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString(); }
     SceneNode dialog(ScenePageContext c) {
         SceneNode actions = SceneLayouts.wrap(8);

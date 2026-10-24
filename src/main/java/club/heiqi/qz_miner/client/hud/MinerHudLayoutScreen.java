@@ -30,7 +30,7 @@ public final class MinerHudLayoutScreen {
             MinerHudLayoutPage page = new MinerHudLayoutPage(domain, ConfigBootstrap.document(), saver,
                     () -> ClientConnectionLifecycle.capture() == token, ClientI18n::tr,
                     () -> MinerSettingsScreens.open(parent), model);
-            page.locale(mc.gameSettings.language);
+            page.locale(mc.gameSettings.language, club.heiqi.uilib.host.client.font.MinecraftFontServices.resourceRevision());
             created[0] = new MinecraftHudEditorScreen(domain, context -> {
                 context.own(new HudTicker(domain, model, token, page)); page.build(context);
             });
@@ -42,7 +42,8 @@ public final class MinerHudLayoutScreen {
         Minecraft mc = Minecraft.getMinecraft();
         model.context(club.heiqi.qz_miner.MyMod.chainStateService == null ? null
                 : club.heiqi.qz_miner.MyMod.chainStateService.getClientState(),
-                club.heiqi.qz_miner.client.settings.ClientServerConfigFacts.confirmed(), mc.gameSettings.language);
+                club.heiqi.qz_miner.client.settings.ClientServerConfigFacts.confirmed(), mc.gameSettings.language,
+                club.heiqi.uilib.host.client.font.MinecraftFontServices.resourceRevision());
         club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationProjection projection =
                 club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationProjection.installed();
         model.header(projection == null ? null : projection.currentHeader());
@@ -65,7 +66,7 @@ public final class MinerHudLayoutScreen {
             domain.execute(() -> {
                 if (closed || ClientConnectionLifecycle.capture() != token) return;
                 sample(model);
-                page.locale(mc.gameSettings.language);
+                page.locale(mc.gameSettings.language, club.heiqi.uilib.host.client.font.MinecraftFontServices.resourceRevision());
             });
         }
         @Override public void close() {
