@@ -43,9 +43,12 @@ public final class MinerHudAppearance extends SceneAppearance {
                         () -> model.warning.get() ? MinerHudPalette.warning(colors.get()) : colors.get().muted),
                 () -> new EntranceOptions(context.theme().get().spatialMotion, context.theme().get().feedbackMotion,
                         0, colors.get().textStyle.logicalEm * .45f));
-        SceneNode badge = panel(status, .4f);
+        SceneNode badge = panel(status, .4f).bind(MinerHudEntrance.enter(context, MinerHudEntrance.STATUS,
+                () -> 0f, () -> colors.get().textStyle.logicalEm * .4f));
         body.add(badge);
         SceneNode details = panel(rows(model), .65f)
+                .bind(MinerHudEntrance.enter(context, MinerHudEntrance.DETAILS,
+                        () -> 0f, () -> colors.get().textStyle.logicalEm * .5f))
                 .bind(SceneMotion.presence(() -> (editing || model.expanded.get()) && !model.rows.get().isEmpty(),
                         () -> new PresenceOptions(context.theme().get().feedbackMotion)));
         body.add(details);

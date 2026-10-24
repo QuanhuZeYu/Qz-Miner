@@ -30,8 +30,9 @@ final class MinerHudDial {
                 .bind(SceneMotion.background(() -> MinerHudPalette.mode(model.selection.get().mode, ui.colors.get()),
                         () -> page.theme().get().feedbackMotion));
         center.add(marker);
-        center = ui.panel(center, .8f);
-        SceneNode ring = part(MinerHudRing.create(page, model, ui.colors), 0, 0);
+        center = ui.panel(center, .8f).bind(MinerHudEntrance.enter(page, MinerHudEntrance.CENTER,
+                () -> 0f, () -> ui.colors.get().textStyle.logicalEm * .3f));
+        SceneNode ring = part(MinerHudRing.create(page, model, ui.colors, navigation), 0, 0);
         SceneNode north = neighbor(value -> value.above, 0, -1, true);
         SceneNode south = neighbor(value -> value.below, 0, 1, true);
         SceneNode west = neighbor(value -> value.left, -1, 0, false);
@@ -65,7 +66,12 @@ final class MinerHudDial {
                 : MinerHudPalette.secondary(x < 0 ? model.selection.get().previousMode : model.selection.get().nextMode, ui.colors.get());
         SceneNode label = ui.ink(() -> (y < 0 ? "⌃  " : x < 0 ? "‹  " : "") + value.get()
                 + (y > 0 ? "  ⌄" : x > 0 ? "  ›" : ""), .75f, color);
-        return part(ui.panel(label, .3f), x, y,
+        SceneNode item = ui.panel(label, .3f).bind(MinerHudEntrance.enter(page,
+                sub ? MinerHudEntrance.VERTICAL : MinerHudEntrance.HORIZONTAL,
+                () -> -x * ui.colors.get().textStyle.logicalEm * .85f,
+                () -> -y * ui.colors.get().textStyle.logicalEm * .85f));
+        // 入场与导航显隐分别作用于内外节点，避免争用同一透明度/位移通道。
+        return part(SceneLayouts.overlay().size(Size.natural(), Size.natural()).add(item), x, y,
                 () -> !value.get().isEmpty());
     }
     private SceneNode part(SceneNode node, int x, int y) { return part(node, x, y, () -> true); }
