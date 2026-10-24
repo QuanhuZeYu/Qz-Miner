@@ -22,15 +22,15 @@ final class MinerHudDial {
         this.ui = ui; this.page = page; this.model = model; this.navigation = navigation;
     }
     SceneNode create() {
-        SceneNode center = SceneLayouts.centeredColumn(() -> 0);
-        center.add(animated(value -> value.title, value -> value.mode, 1.08f, false));
-        center.add(animated(value -> value.subtitle, value -> value.subMode == null ? value.mode : value.subMode, .86f, true));
+        SceneNode center = SceneLayouts.centeredColumn(() -> Math.round(ui.colors.get().textStyle.logicalEm * .12f));
+        center.add(animated(value -> value.title, value -> value.mode, 1.16f, false));
+        center.add(animated(value -> value.subtitle, value -> value.subMode == null ? value.mode : value.subMode, .82f, true));
         SceneNode marker = new SceneNode().bind(NodeBinding.value(ui.colors, (node, palette) -> node
                 .size(Size.fixed(Math.round(palette.textStyle.logicalEm * 1.8f)), Size.fixed(2))))
                 .bind(SceneMotion.background(() -> MinerHudPalette.mode(model.selection.get().mode, ui.colors.get()),
                         () -> page.theme().get().feedbackMotion));
         center.add(marker);
-        center = ui.panel(center, .8f).bind(MinerHudEntrance.enter(page, MinerHudEntrance.CENTER,
+        center = ui.panel(center, .7f, () -> ui.colors.get().background).bind(MinerHudEntrance.enter(page, MinerHudEntrance.CENTER,
                 () -> 0f, () -> ui.colors.get().textStyle.logicalEm * .3f));
         SceneNode ring = part(MinerHudRing.create(page, model, ui.colors, navigation), 0, 0);
         SceneNode north = neighbor(value -> value.above, 0, -1, true);
@@ -49,7 +49,7 @@ final class MinerHudDial {
             float scale, boolean sub) {
         return SceneAnimatedContent.create(page, model.selection, key,
                 value -> SceneLayouts.center(ui.ink(() -> text.apply(value.get()), scale,
-                        () -> sub ? MinerHudPalette.secondary(value.get().mode, ui.colors.get())
+                        () -> sub ? MinerHudPalette.subtitle(value.get().mode, ui.colors.get())
                                 : MinerHudPalette.mode(value.get().mode, ui.colors.get())))
                         .size(Size.natural(), Size.natural()),
                 () -> entrance(sub));
@@ -65,8 +65,8 @@ final class MinerHudDial {
         ReadableSignal<Integer> color = () -> sub ? MinerHudPalette.secondary(model.selection.get().mode, ui.colors.get())
                 : MinerHudPalette.secondary(x < 0 ? model.selection.get().previousMode : model.selection.get().nextMode, ui.colors.get());
         SceneNode label = ui.ink(() -> (y < 0 ? "⌃  " : x < 0 ? "‹  " : "") + value.get()
-                + (y > 0 ? "  ⌄" : x > 0 ? "  ›" : ""), .75f, color);
-        SceneNode item = ui.panel(label, .3f).bind(MinerHudEntrance.enter(page,
+                + (y > 0 ? "  ⌄" : x > 0 ? "  ›" : ""), .72f, color);
+        SceneNode item = ui.panel(label, .3f, () -> ui.colors.get().background).bind(MinerHudEntrance.enter(page,
                 sub ? MinerHudEntrance.VERTICAL : MinerHudEntrance.HORIZONTAL,
                 () -> -x * ui.colors.get().textStyle.logicalEm * .85f,
                 () -> -y * ui.colors.get().textStyle.logicalEm * .85f));

@@ -43,7 +43,7 @@ public final class MinerHudAppearance extends SceneAppearance {
                         () -> model.warning.get() ? MinerHudPalette.warning(colors.get()) : colors.get().muted),
                 () -> new EntranceOptions(context.theme().get().spatialMotion, context.theme().get().feedbackMotion,
                         0, colors.get().textStyle.logicalEm * .45f));
-        SceneNode badge = panel(status, .4f).bind(MinerHudEntrance.enter(context, MinerHudEntrance.STATUS,
+        SceneNode badge = panel(status, .4f, () -> colors.get().background).bind(MinerHudEntrance.enter(context, MinerHudEntrance.STATUS,
                 () -> 0f, () -> colors.get().textStyle.logicalEm * .4f));
         body.add(badge);
         SceneNode details = panel(rows(model), .65f)
@@ -61,14 +61,17 @@ public final class MinerHudAppearance extends SceneAppearance {
         values.bind(NodeBinding.repeat(model.rows, row -> row.id, row -> {
             SceneNode pair = row(0).size(Size.natural(), Size.natural())
                     .bind(NodeBinding.value(colors, (node, palette) -> node.gap(palette.source.gap)));
-            pair.add(label(() -> row.get().label, .76f, true));
-            pair.add(label(() -> row.get().value, .76f, false));
+            pair.add(label(() -> row.get().label, .68f, true));
+            pair.add(ink(() -> row.get().value, .78f, () -> colors.get().text));
             return pair;
         }));
         return values;
     }
     SceneNode panel(SceneNode content, float padding) {
-        return card(content, () -> SceneMotion.alpha(colors.get().surface, .97f))
+        return panel(content, padding, () -> colors.get().surface);
+    }
+    SceneNode panel(SceneNode content, float padding, ReadableSignal<Integer> background) {
+        return card(content, background)
                 .size(Size.natural(), Size.natural())
                 .bind(NodeBinding.value(colors, (node, palette) -> node.padding(Math.round(palette.textStyle.logicalEm * padding))));
     }
