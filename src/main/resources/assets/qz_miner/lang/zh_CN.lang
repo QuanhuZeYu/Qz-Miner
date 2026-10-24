@@ -151,7 +151,7 @@ config.qz_miner.clientPreviewColorSecondary.label=扩展子模式颜色
 config.qz_miner.clientPreviewColorRemote.label=远端预测颜色
 config.qz_miner.clientPreviewColorTruncated.label=截断目标颜色
 config.qz_miner.harvestExhaustionPerBlock.label=每方块饥饿值消耗
-config.qz_miner.clientPreviewDepthMode.tooltip=深度通道：xray 恒可见（默认，等于现状）；occlude 参与深度测试；outline 主体遮挡 + 置顶轮廓
+config.qz_miner.clientPreviewDepthMode.tooltip=透视：全部按距离变淡；遮挡：隐藏被挡部分；描边：显示置顶轮廓；可见不透明：露出部分不透明，被挡部分按距离变淡，均保留动画过渡
 config.qz_miner.clientPreviewAnimation.tooltip=预览动画：off 关闭（默认，等于本轮基线）；flow 整体流动；wave 按出现顺序逐波生长（接线属下一批）
 config.qz_miner.clientPreviewAnimationDurationMs.tooltip=单代动画时长（毫秒），0 表示瞬时完成，合法 0..2000
 config.qz_miner.clientPreviewAnimationPhase.tooltip=动画相位来源：order 用出现序号（默认）；hash 用坐标 + 代次稳定哈希。预留档：本轮未接线（渲染只读 animationId 与时长，改此键观感不变；保留出现顺序由 animation=wave 体现），hash 相位留待后续评估
@@ -332,6 +332,7 @@ settings.qz_miner.choice.config=自定配色
 settings.qz_miner.choice.xray=透视
 settings.qz_miner.choice.occlude=遮挡
 settings.qz_miner.choice.outline=描边
+settings.qz_miner.choice.depthOpaque=可见不透明
 settings.qz_miner.choice.off=关闭
 settings.qz_miner.choice.flow=流动
 settings.qz_miner.choice.wave=波纹

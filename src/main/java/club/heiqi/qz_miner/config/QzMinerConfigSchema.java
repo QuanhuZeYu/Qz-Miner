@@ -129,7 +129,7 @@ public final class QzMinerConfigSchema {
 
     public static final ConfigKey<String> CLIENT_PREVIEW_DEPTH_MODE =
             choice("client.clientPreviewDepthMode", QzMinerConfigDefaults.CLIENT_PREVIEW_DEPTH_MODE, PreviewDepthMode.ids()).withComment("深度通道：xray 恒可见（默认，等于现状）；occlude 参与深度测试；"
-                                + "outline 主体遮挡 + 置顶轮廓");
+                                + "outline 主体遮挡 + 置顶轮廓；depthOpaque 可见部分不透明、遮挡部分保留距离透明度，均保留动画过渡");
 
     public static final ConfigKey<String> CLIENT_PREVIEW_ANIMATION =
             choice("client.clientPreviewAnimation", QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION, PreviewAnimationMode.ids()).withComment("预览动画：off 关闭（默认，等于本轮基线）；flow 整体流动；"

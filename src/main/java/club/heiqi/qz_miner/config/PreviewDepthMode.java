@@ -17,7 +17,10 @@ public enum PreviewDepthMode {
     OCCLUDE("occlude"),
 
     /** 主体遮挡 pass + 置顶轮廓 pass。 */
-    OUTLINE("outline");
+    OUTLINE("outline"),
+
+    /** 可见部分不按距离变透明，遮挡部分保留距离透明度；两者均保留动画包络。 */
+    DEPTH_OPAQUE("depthOpaque");
 
     /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
     private static final PreviewDepthMode DEFAULT_VALUE = XRAY;

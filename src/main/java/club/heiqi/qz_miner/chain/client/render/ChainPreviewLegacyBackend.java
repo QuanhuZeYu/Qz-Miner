@@ -6,6 +6,7 @@ import java.nio.IntBuffer;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -30,10 +31,13 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
  * （B4.3）评估，本轮不做。</p>
  *
  * <p>淡入淡出（T14/B3.2）：legacy 的逐顶点 α 是 CPU 烘焙值，plan 的 {@code fadeAlpha}
- * 乘子无法通过 uniform 施加；因此 fadeAlpha &lt; 1 时启用「1×1 白纹理 + GL_MODULATE」把乘子
- * 精确乘进逐顶点 α（fadeAlpha == 1 时零额外 GL 调用，逐字等于历史行为）。纹理在渲染线程
+ * 乘子无法通过 uniform 施加；普通距离透明阶段在 fadeAlpha &lt; 1 时启用「1×1 白纹理 + GL_MODULATE」
+ * 把乘子乘进逐顶点 α（该阶段 fadeAlpha == 1 时无额外纹理调用）。纹理在渲染线程
  * 惰性创建、dispose 释放；创建失败降级为「无过渡、retiring 只延迟消失」并写入 describe()，
  * 不每帧重试、不抛异常。</p>
+ *
+ * <p>可见不透明阶段复用同一纹理，以 COMBINE 保留 primary rgb、用纹理 alpha 替换烘焙距离 alpha；
+ * 全局淡入淡出仍写进纹理，稳态 alpha 为 1。失败时沿原调制降级路径保留距离透明显示。</p>
  */
 public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBackend {
 
@@ -89,7 +93,7 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
 
     /**
      * 纯决策：只有 fadeAlpha &lt; 1 时才启用 1×1 白纹理 × GL_MODULATE 乘子路径；
-     * fadeAlpha == 1（默认档 / 动画结束）零额外 GL 调用，逐字等于历史行为。
+     * 普通距离透明阶段 fadeAlpha == 1 时不启用纹理；可见不透明阶段另行请求 alpha 替换。
      *
      * @param fadeAlpha plan 的全局淡入淡出乘子
      * @return 是否启用纹理乘子
@@ -262,7 +266,7 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
             }
         }
 
-        boolean fadeRequested = shouldApplyFadeModulation(plan.getFadeAlpha());
+        boolean fadeRequested = shouldApplyFadeModulation(plan.getFadeAlpha()) || !plan.isDistanceFadeEnabled();
         ChainPreviewGlFences.Texture textureFence = null;
         if (fadeRequested) {
             textureFence = ChainPreviewGlFences.Texture.captureIfRequested(true, glAccess);
@@ -272,7 +276,7 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
         try {
             if (fadeRequested) {
                 try {
-                    applyFadeModulation(plan.getFadeAlpha());
+                    applyAlphaModulation(plan);
                 } catch (Throwable modulationFailure) {
                     fadeTextureUnavailable = true;
                     fadeTextureFailure = modulationFailure.getClass().getSimpleName()
@@ -385,18 +389,38 @@ public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBacken
     }
 
     /**
-     * 启用帧内淡出乘子：1×1 白纹理 + GL_MODULATE 把 fadeAlpha 精确乘进逐顶点 α。
+     * 复用淡出纹理施加阶段 alpha：普通段乘烘焙 alpha，可见不透明段替换烘焙 alpha。
      * 失败（驱动 / 上下文异常）时降级为无过渡并记录原因，不每帧重试、不抛异常；
      * 纹理绑定 / TEXTURE_ENV / enable 状态由调用方帧级围栏恢复。
      */
-    private void applyFadeModulation(float fadeAlpha) {
+    private void applyAlphaModulation(ChainPreviewDrawPlan plan) {
         if (fadeTextureUnavailable || !ensureFadeTexture()) {
             return;
         }
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, fadeTexture);
-        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, GL11.GL_MODULATE);
-        uploadFadeTexel(fadeAlpha);
+        uploadFadeTexel(plan.getFadeAlpha());
+        if (plan.isDistanceFadeEnabled()) {
+            GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, GL11.GL_MODULATE);
+        } else {
+            applyVisibleAlphaEnvironment();
+        }
+    }
+
+    /**
+     * RGB 保留颜色流（含面明暗），alpha 只取动画包络纹理；不从已烘焙的距离 alpha 反推原值。
+     * COMBINE 参数由调用方的 Frame 全状态围栏恢复，Texture 围栏另行恢复绑定与启用状态。
+     */
+    private static void applyVisibleAlphaEnvironment() {
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, GL13.GL_COMBINE);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_COMBINE_RGB, GL11.GL_REPLACE);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_SOURCE0_RGB, GL13.GL_PRIMARY_COLOR);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_OPERAND0_RGB, GL11.GL_SRC_COLOR);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_RGB_SCALE, 1);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_COMBINE_ALPHA, GL11.GL_REPLACE);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_SOURCE0_ALPHA, GL11.GL_TEXTURE);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_OPERAND0_ALPHA, GL11.GL_SRC_ALPHA);
+        GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_ALPHA_SCALE, 1);
     }
 
     private boolean ensureFadeTexture() {

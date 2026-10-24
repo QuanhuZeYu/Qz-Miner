@@ -3,24 +3,11 @@ package club.heiqi.qz_miner.chain.client.render;
 import org.lwjgl.opengl.GL11;
 
 /**
- * 深度分层 pass 选择与状态配方（纯函数 + 纯数据；本类不调用任何 GL）。
+ * 预览分层的深度与透明度配方（纯数据，本类不调用 GL）。
  *
- * <p>三档语义（{@link ChainPreviewDrawPlan.DepthChannel}）：</p>
- * <ul>
- *   <li>{@link Pass#XRAY}：单 pass，关深度测试 + depthMask(false) —— 与历史渲染逐字一致（默认档）。</li>
- *   <li>{@link Pass#OCCLUDE}：单 pass，开深度测试 + LEQUAL + depthMask(false) —— 被方块遮挡的条柱不可见。</li>
- *   <li>{@link Pass#OUTLINE}：两 pass —— B3.x 起为「描边壳 pass（关深度测试，沿用历史置顶配方，
- *       全可见）→ 主体 pass（自遮挡正确）」；壳段在顶点阶段外扩 {@code outlineWidthPx}，主体覆盖中心
- *       形成环带。段序固定（壳 → 主体），不引入随机闪烁；XRAY / OCCLUDE 逐字不变。
- *       <b>宽度收敛</b>：{@code outlineWidthPx <= 0} 时壳与主体是同一份几何，两段等于把同一处
- *       混合两次（叠色），故 {@link #resolvePass} 把 OUTLINE 降为单遍 XRAY——见该方法的推导。</li>
- * </ul>
- *
- * <p>混合排序说明（T15 要求 3，B3.x 升级后口径变化一次）：壳段先画、主体后画，可见处主体覆盖壳段中心；
- * 被完全遮挡的条柱呈现「外扩后的实心剪影」（与历史置顶段实心填充同性质，仅宽了外扩量）。</p>
- *
- * <p>pass 只依赖 plan 的 {@code getDepthChannel()}，不改拓扑；settings 引用比较保证 depthMode
- * 改动下一帧生效。</p>
+ * <p>XRAY 恒可见，OCCLUDE 仅显示可见部分，OUTLINE 先画外扩壳再画主体。
+ * DEPTH_OPAQUE 先用 GREATER 画遮挡部分，再用 LEQUAL 画可见部分；仅可见段关闭距离透明度，
+ * 生长与淡入淡出仍由后端消费同一份计划。所有阶段均不写深度，不改变拓扑或场景深度。</p>
  */
 public final class ChainPreviewDepthPass {
 
@@ -28,35 +15,45 @@ public final class ChainPreviewDepthPass {
     public enum Pass {
         XRAY,
         OCCLUDE,
-        OUTLINE
+        OUTLINE,
+        DEPTH_OPAQUE
     }
 
-    /** 一次绘制的深度状态配方（纯数据，与 renderer 施加的 GL 调用一一对应）。 */
+    /** 单次绘制的深度与距离透明度配方；实例常驻复用。 */
     public static final class Stage {
 
         private final boolean depthTestEnabled;
         private final boolean depthMaskEnabled;
         private final int depthFunc;
+        private final boolean distanceFadeEnabled;
 
         private Stage(boolean depthTestEnabled, boolean depthMaskEnabled, int depthFunc) {
+            this(depthTestEnabled, depthMaskEnabled, depthFunc, true);
+        }
+
+        private Stage(boolean depthTestEnabled, boolean depthMaskEnabled, int depthFunc,
+                boolean distanceFadeEnabled) {
             this.depthTestEnabled = depthTestEnabled;
             this.depthMaskEnabled = depthMaskEnabled;
             this.depthFunc = depthFunc;
+            this.distanceFadeEnabled = distanceFadeEnabled;
         }
 
-        /** @return 是否开启深度测试 */
         public boolean isDepthTestEnabled() {
             return depthTestEnabled;
         }
 
-        /** @return 是否写入深度 */
         public boolean isDepthMaskEnabled() {
             return depthMaskEnabled;
         }
 
-        /** @return 深度比较函数（仅 depthTestEnabled 时生效） */
         public int getDepthFunc() {
             return depthFunc;
+        }
+
+        /** @return 是否保留距离透明度；关闭时仍保留生长与淡入淡出 */
+        public boolean isDistanceFadeEnabled() {
+            return distanceFadeEnabled;
         }
 
         @Override
@@ -70,7 +67,8 @@ public final class ChainPreviewDepthPass {
             Stage that = (Stage) other;
             return depthTestEnabled == that.depthTestEnabled
                 && depthMaskEnabled == that.depthMaskEnabled
-                && depthFunc == that.depthFunc;
+                && depthFunc == that.depthFunc
+                && distanceFadeEnabled == that.distanceFadeEnabled;
         }
 
         @Override
@@ -78,6 +76,7 @@ public final class ChainPreviewDepthPass {
             int result = depthTestEnabled ? 1 : 0;
             result = 31 * result + (depthMaskEnabled ? 1 : 0);
             result = 31 * result + depthFunc;
+            result = 31 * result + (distanceFadeEnabled ? 1 : 0);
             return result;
         }
 
@@ -86,36 +85,36 @@ public final class ChainPreviewDepthPass {
             return "Stage{depthTest=" + depthTestEnabled
                 + ", depthMask=" + depthMaskEnabled
                 + ", depthFunc=0x" + Integer.toHexString(depthFunc)
+                + ", distanceFade=" + distanceFadeEnabled
                 + '}';
         }
     }
 
-    /** XRAY：与历史逐字一致的深度状态（关深测 + 不写深度，不设置 depthFunc）。 */
+    /** XRAY：关深测、不写深度，不设置 depthFunc。 */
     public static final Stage XRAY_STAGE = new Stage(false, false, GL11.GL_LEQUAL);
 
-    /** OCCLUDE：被方块遮挡不可见（开深测 + LEQUAL + 不写深度）。 */
+    /** OCCLUDE：开深测、LEQUAL、不写深度。 */
     public static final Stage OCCLUDE_STAGE = new Stage(true, false, GL11.GL_LEQUAL);
 
-    /** OUTLINE 主体 pass：自遮挡正确（段序末段）。 */
+    /** OUTLINE 主体段。 */
     public static final Stage OUTLINE_MAIN_STAGE = new Stage(true, false, GL11.GL_LEQUAL);
 
-    /**
-     * OUTLINE 描边壳 pass（B3.x 段序首段）：沿用历史「置顶」配方（关深测 + 不写深度）—— 全可见。
-     */
+    /** OUTLINE 外扩壳段：恒可见，先于主体绘制。 */
     public static final Stage OUTLINE_SHELL_STAGE = new Stage(false, false, GL11.GL_LEQUAL);
 
-    /** 历史名：等价于 {@link #OUTLINE_SHELL_STAGE}（B3.x 段序升级后壳段即原置顶段）。 */
+    /** 历史名称，保留为壳段别名。 */
     public static final Stage OUTLINE_OVERLAY_STAGE = OUTLINE_SHELL_STAGE;
+
+    /** 被场景遮挡的部分：沿用距离透明度。 */
+    public static final Stage DEPTH_OPAQUE_HIDDEN_STAGE = new Stage(true, false, GL11.GL_GREATER);
+
+    /** 可见部分：去掉距离透明度，保持动画包络。 */
+    public static final Stage DEPTH_OPAQUE_VISIBLE_STAGE = new Stage(true, false, GL11.GL_LEQUAL, false);
 
     private ChainPreviewDepthPass() {
     }
 
-    /**
-     * 纯函数：depthChannel → pass；null 兜底 {@link Pass#XRAY}。
-     *
-     * @param channel plan 的深度通道
-     * @return pass 档位，永不为 null
-     */
+    /** @return 通道对应的档位；null 按 XRAY */
     public static Pass select(ChainPreviewDrawPlan.DepthChannel channel) {
         if (channel == ChainPreviewDrawPlan.DepthChannel.OCCLUDE) {
             return Pass.OCCLUDE;
@@ -123,27 +122,19 @@ public final class ChainPreviewDepthPass {
         if (channel == ChainPreviewDrawPlan.DepthChannel.OUTLINE) {
             return Pass.OUTLINE;
         }
+        if (channel == ChainPreviewDrawPlan.DepthChannel.DEPTH_OPAQUE) {
+            return Pass.DEPTH_OPAQUE;
+        }
         return Pass.XRAY;
     }
 
     /**
-     * 纯函数：结合真描边宽度决定**实际执行**档。
+     * OUTLINE 外扩宽度关闭时收敛为单遍 XRAY：相同几何不能混合两次，且关闭描边仍须保留穿墙可见性。
+     * 其余档位与描边宽度无关。
      *
-     * <p>OUTLINE 档相对 XRAY 唯一多出来的就是描边壳段：壳沿面法线外扩 {@code outlineWidthPx}
-     * 后才与主体形成环带，两段的几何才不同。宽度为 0（或 NaN / 负值）时无外扩 ⇒ 壳段与主体
-     * 是<b>同一份几何</b>，此时仍按 {@link #stageCount} 的 2 段执行，只会让同一处 alpha
-     * 混合两次（0.78 → 0.9516），表现为「配置写着 0 = 关闭描边，实际却把预览画得更实」。
-     * 故此处收敛为 {@link Pass#XRAY} 单遍：保留 OUTLINE 的「全可见」语义，去掉无意义的第二遍。</p>
-     *
-     * <p>收敛到 XRAY 而不是 OCCLUDE：调用方选的是 OUTLINE（要穿墙可见性），不是 OCCLUDE；
-     * 关掉描边不应顺带把可见性改成「被遮挡即不可见」。</p>
-     *
-     * <p>{@code !(outlineWidthPx > 0.0F)} 的写法同时覆盖 NaN——NaN 参与 &gt; 比较恒 false，
-     * 因此也会收敛为单遍，不会留下两遍叠色的逃逸路径。</p>
-     *
-     * @param channel        plan 的深度通道
-     * @param outlineWidthPx 真描边外扩宽度（物理像素；&lt;= 0 / NaN 视为关闭）
-     * @return 实际执行的 pass，永不为 null
+     * @param channel 深度通道
+     * @param outlineWidthPx 描边外扩宽度；非正值或 NaN 表示关闭
+     * @return 实际执行档位
      */
     public static Pass resolvePass(ChainPreviewDrawPlan.DepthChannel channel, float outlineWidthPx) {
         Pass pass = select(channel);
@@ -153,21 +144,12 @@ public final class ChainPreviewDepthPass {
         return pass;
     }
 
-    /**
-     * @param pass pass 档位，null 按 {@link Pass#XRAY}
-     * @return 本档需要的绘制次数（XRAY / OCCLUDE = 1，OUTLINE = 2）
-     */
+    /** @return 本档绘制次数；null 按 XRAY */
     public static int stageCount(Pass pass) {
-        return pass == Pass.OUTLINE ? 2 : 1;
+        return pass == Pass.OUTLINE || pass == Pass.DEPTH_OPAQUE ? 2 : 1;
     }
 
-    /**
-     * 取某一 stage 的深度状态配方；越界索引返回该档最后一次绘制的配方（防御，不抛异常）。
-     *
-     * @param pass  pass 档位，null 按 {@link Pass#XRAY}
-     * @param index stage 序号（0 起）
-     * @return 状态配方，永不为 null
-     */
+    /** @return 对应阶段配方；负索引取首段，超出末段取末段，null 档位按 XRAY */
     public static Stage stage(Pass pass, int index) {
         if (pass == Pass.OCCLUDE) {
             return OCCLUDE_STAGE;
@@ -175,19 +157,13 @@ public final class ChainPreviewDepthPass {
         if (pass == Pass.OUTLINE) {
             return index >= 1 ? OUTLINE_MAIN_STAGE : OUTLINE_SHELL_STAGE;
         }
+        if (pass == Pass.DEPTH_OPAQUE) {
+            return index >= 1 ? DEPTH_OPAQUE_VISIBLE_STAGE : DEPTH_OPAQUE_HIDDEN_STAGE;
+        }
         return XRAY_STAGE;
     }
 
-    /**
-     * 纯函数：某一 stage 是否为 OUTLINE 描边壳段（B3.x 真描边）。
-     *
-     * <p>越界口径与 {@link #stage} 一致：负索引按首段（壳）处理，index &gt;= 1 为主体段；
-     * 非 OUTLINE 档恒 false。</p>
-     *
-     * @param pass  pass 档位，null 按 {@link Pass#XRAY}
-     * @param index stage 序号
-     * @return 仅 OUTLINE 档 index &lt; 1 时为 true
-     */
+    /** @return 是否为 OUTLINE 首段外扩壳；负索引按首段 */
     public static boolean isOutlineShellStage(Pass pass, int index) {
         return pass == Pass.OUTLINE && index < 1;
     }

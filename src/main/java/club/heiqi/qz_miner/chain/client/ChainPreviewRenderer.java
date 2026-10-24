@@ -44,7 +44,7 @@ import org.lwjgl.opengl.GL11;
  * 矩阵模式不再单独查询（glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）。着色器路径
  * 不再依赖固定管线内建矩阵：每次 draw 经 {@code ChainPreviewShaderProgram#readCameraMatrices}
  * 回读 GL_PROJECTION_MATRIX 与 GL_MODELVIEW_MATRIX 各 1 次 glGetFloat —— XRAY / OCCLUDE 每帧
- * 2 次，OUTLINE 两段 pass 每帧最多 4 次，legacy 路径 0 次。另有每次 draw 1 次
+ * 2 次，OUTLINE / DEPTH_OPAQUE 两段 pass 每帧最多 4 次，legacy 路径 0 次。另有每次 draw 1 次
  * GL_CURRENT_PROGRAM 恢复回读、以及按 viewport 变化缓存的 GL_VIEWPORT 回读；这些都不计入
  * 帧级围栏口径，由后端自行计数（T8-D3/D4）。</p>
  *
@@ -59,6 +59,7 @@ public class ChainPreviewRenderer {
 
     private static final String DEPTH_MODE_OCCLUDE = "occlude";
     private static final String DEPTH_MODE_OUTLINE = "outline";
+    private static final String DEPTH_MODE_OPAQUE = "depthOpaque";
 
     private final ChainPreviewRenderCache renderCache;
     private final ChainPreviewScaleCounters scaleCounters = new ChainPreviewScaleCounters();
@@ -528,6 +529,9 @@ public class ChainPreviewRenderer {
         if (DEPTH_MODE_OUTLINE.equals(depthModeId)) {
             return ChainPreviewDrawPlan.DepthChannel.OUTLINE;
         }
+        if (DEPTH_MODE_OPAQUE.equals(depthModeId)) {
+            return ChainPreviewDrawPlan.DepthChannel.DEPTH_OPAQUE;
+        }
         return ChainPreviewDrawPlan.DepthChannel.XRAY;
     }
 
@@ -569,9 +573,11 @@ public class ChainPreviewRenderer {
                 ? plan.withOutlinePass(true, outlineWidthPx)
                 : null;
             for (int stageIndex = 0; stageIndex < stageCount; stageIndex++) {
-                applyDepthStage(ChainPreviewDepthPass.stage(pass, stageIndex));
-                active.draw(
-                    ChainPreviewDepthPass.isOutlineShellStage(pass, stageIndex) ? shellPlan : plan);
+                ChainPreviewDepthPass.Stage stage = ChainPreviewDepthPass.stage(pass, stageIndex);
+                applyDepthStage(stage);
+                ChainPreviewDrawPlan stagePlan =
+                    ChainPreviewDepthPass.isOutlineShellStage(pass, stageIndex) ? shellPlan : plan;
+                active.draw(stagePlan.withDistanceFade(stage.isDistanceFadeEnabled()));
             }
         } finally {
             GL11.glPopMatrix();

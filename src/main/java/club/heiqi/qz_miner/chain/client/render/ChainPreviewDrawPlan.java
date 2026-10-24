@@ -24,7 +24,8 @@ public final class ChainPreviewDrawPlan {
     public enum DepthChannel {
         XRAY,
         OCCLUDE,
-        OUTLINE
+        OUTLINE,
+        DEPTH_OPAQUE
     }
 
     /** 语义类别位掩码全开：不做类别过滤，等价现状。 */
@@ -64,6 +65,7 @@ public final class ChainPreviewDrawPlan {
     private final int originY;
     private final int originZ;
     private final Visuals visuals;
+    private final boolean distanceFadeEnabled;
     private final int semanticMask;
     private final int vertexCount;
     private final boolean truncated;
@@ -1025,7 +1027,8 @@ public final class ChainPreviewDrawPlan {
             truncated,
             culledTargetCount,
             rebuilds,
-            uploads);
+            uploads,
+            true);
     }
 
     private ChainPreviewDrawPlan(
@@ -1044,7 +1047,8 @@ public final class ChainPreviewDrawPlan {
             boolean truncated,
             int culledTargetCount,
             long rebuilds,
-            long uploads) {
+            long uploads,
+            boolean distanceFadeEnabled) {
         this.indexOffset = indexOffset;
         this.indexCount = indexCount;
         this.quadCount = quadCount;
@@ -1055,6 +1059,7 @@ public final class ChainPreviewDrawPlan {
         this.originY = originY;
         this.originZ = originZ;
         this.visuals = visuals;
+        this.distanceFadeEnabled = distanceFadeEnabled;
         this.semanticMask = semanticMask;
         this.vertexCount = vertexCount;
         this.truncated = truncated;
@@ -1173,7 +1178,8 @@ public final class ChainPreviewDrawPlan {
             truncated,
             normalizedCulledTargets,
             normalizedRebuilds,
-            normalizedUploads);
+            normalizedUploads,
+            distanceFadeEnabled);
     }
 
     /** @return 本次绘制索引起点（相对网格） */
@@ -1256,8 +1262,27 @@ public final class ChainPreviewDrawPlan {
      * @return 派生计划或自身
      */
     public ChainPreviewDrawPlan withOutlinePass(boolean shell, float widthPx) {
-        Visuals derivedVisuals = visuals.withOutlinePass(shell, widthPx);
-        if (derivedVisuals == visuals) {
+        return withStageVisuals(visuals.withOutlinePass(shell, widthPx), distanceFadeEnabled);
+    }
+
+    /**
+     * 派生阶段的距离透明度策略；关闭时仅移除距离衰减，保留生长、淡入淡出与颜色。
+     * shader 消费有效 alpha 端点，legacy 替换颜色流中已烘焙的距离 alpha。
+     *
+     * @param enabled 是否保留距离透明度
+     * @return 派生计划；策略未变时返回自身
+     */
+    public ChainPreviewDrawPlan withDistanceFade(boolean enabled) {
+        return withStageVisuals(visuals, enabled);
+    }
+
+    /** @return 本阶段是否消费距离透明度 */
+    public boolean isDistanceFadeEnabled() {
+        return distanceFadeEnabled;
+    }
+
+    private ChainPreviewDrawPlan withStageVisuals(Visuals derivedVisuals, boolean distanceFade) {
+        if (derivedVisuals == visuals && distanceFade == distanceFadeEnabled) {
             return this;
         }
         return new ChainPreviewDrawPlan(
@@ -1276,7 +1301,8 @@ public final class ChainPreviewDrawPlan {
             truncated,
             culledTargetCount,
             rebuilds,
-            uploads);
+            uploads,
+            distanceFade);
     }
 
     /** @return 本计划是否为 OUTLINE 描边壳段（B3.x） */
@@ -1329,9 +1355,9 @@ public final class ChainPreviewDrawPlan {
         return visuals.getFadeEndRadius();
     }
 
-    /** @return 近端 α（距离淡出端点；全局乘子见 {@link #getFadeAlpha()}） */
+    /** @return 本阶段的近端 α；关闭距离透明度时为 1，全局乘子另行施加 */
     public float getAlphaStart() {
-        return visuals.getAlphaStart();
+        return distanceFadeEnabled ? visuals.getAlphaStart() : 1.0F;
     }
 
     /**
@@ -1341,9 +1367,9 @@ public final class ChainPreviewDrawPlan {
         return visuals.getFadeAlpha();
     }
 
-    /** @return 远端 α（距离淡出端点；全局乘子见 {@link #getFadeAlpha()}） */
+    /** @return 本阶段的远端 α；关闭距离透明度时为 1，全局乘子另行施加 */
     public float getAlphaEnd() {
-        return visuals.getAlphaEnd();
+        return distanceFadeEnabled ? visuals.getAlphaEnd() : 1.0F;
     }
 
     /**
@@ -1455,6 +1481,7 @@ public final class ChainPreviewDrawPlan {
             && truncated == that.truncated
             && rebuilds == that.rebuilds
             && uploads == that.uploads
+            && distanceFadeEnabled == that.distanceFadeEnabled
             && Arrays.equals(waveEnds, that.waveEnds)
             && visuals.equals(that.visuals);
     }
@@ -1471,6 +1498,7 @@ public final class ChainPreviewDrawPlan {
         result = 31 * result + originY;
         result = 31 * result + originZ;
         result = 31 * result + visuals.hashCode();
+        result = 31 * result + (distanceFadeEnabled ? 1 : 0);
         result = 31 * result + semanticMask;
         result = 31 * result + vertexCount;
         result = 31 * result + culledTargetCount;
@@ -1490,6 +1518,7 @@ public final class ChainPreviewDrawPlan {
             + ", visibleIndices=" + visibleIndexCount
             + ", origin=" + originX + "," + originY + "," + originZ
             + ", " + visuals
+            + ", distanceFade=" + distanceFadeEnabled
             + ", semanticMask=" + semanticMask
             + ", vertices=" + vertexCount
             + ", culledTargets=" + culledTargetCount

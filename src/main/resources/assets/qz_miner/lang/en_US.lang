@@ -152,7 +152,7 @@ config.qz_miner.clientPreviewColorSecondary.label=Extension sub-mode color
 config.qz_miner.clientPreviewColorRemote.label=Remote prediction color
 config.qz_miner.clientPreviewColorTruncated.label=Truncated target color
 config.qz_miner.harvestExhaustionPerBlock.label=Hunger per block
-config.qz_miner.clientPreviewDepthMode.tooltip=Depth channel: xray is always visible (default, same as before); occlude uses depth testing; outline adds a body pass plus a top-most outline pass
+config.qz_miner.clientPreviewDepthMode.tooltip=X-ray fades everything by distance; Occluded hides covered parts; Outline adds a visible contour; Visible opaque keeps exposed parts solid and covered parts faded by distance, preserving animation transitions
 config.qz_miner.clientPreviewAnimation.tooltip=Preview animation: off disables animation (default, current baseline); flow grows uniformly; wave grows wave by wave in appearance order (wired in a later batch)
 config.qz_miner.clientPreviewAnimationDurationMs.tooltip=Animation duration per generation in milliseconds; 0 completes instantly; range 0..2000
 config.qz_miner.clientPreviewAnimationPhase.tooltip=Animation phase source: order uses the appearance index (default); hash uses a stable coordinate + generation hash. Reserved, not wired this round: rendering reads only the animation id and duration, so changing this key has no visual effect; appearance order is carried by animation=wave, and the hash phase is deferred
@@ -333,6 +333,7 @@ settings.qz_miner.choice.config=Custom colors
 settings.qz_miner.choice.xray=X-ray
 settings.qz_miner.choice.occlude=Occluded
 settings.qz_miner.choice.outline=Outline
+settings.qz_miner.choice.depthOpaque=Visible opaque
 settings.qz_miner.choice.off=Off
 settings.qz_miner.choice.flow=Flow
 settings.qz_miner.choice.wave=Wave

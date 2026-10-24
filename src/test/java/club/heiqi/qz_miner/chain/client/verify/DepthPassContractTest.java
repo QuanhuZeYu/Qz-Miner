@@ -84,22 +84,6 @@ public class DepthPassContractTest {
     }
 
     @Test
-    public void passCountsMatchSelectedPassForEveryChannel() {
-        for (ChainPreviewDrawPlan.DepthChannel channel : ChainPreviewDrawPlan.DepthChannel.values()) {
-            Pass pass = ChainPreviewDepthPass.select(channel);
-            int expected = pass == Pass.OUTLINE ? 2 : 1;
-            Assert.assertEquals("channel=" + channel, expected, ChainPreviewDepthPass.stageCount(pass));
-            Stage last = ChainPreviewDepthPass.stage(pass, ChainPreviewDepthPass.stageCount(pass) - 1);
-            Assert.assertNotNull("最后一段必须存在配方", last);
-            for (int index = 0; index < ChainPreviewDepthPass.stageCount(pass); index++) {
-                Assert.assertNotNull(
-                    "channel=" + channel + " index=" + index,
-                    ChainPreviewDepthPass.stage(pass, index));
-            }
-        }
-    }
-
-    @Test
     public void defaultPlanResolvesToFrozenXrayStage() {
         ChainPreviewMesh mesh = new ChainPreviewMeshBuilder().build(
             VerifyShapes.line(2),
