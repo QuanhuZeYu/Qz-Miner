@@ -8,18 +8,21 @@ import java.util.function.Function;
 import club.heiqi.qz_miner.chain.client.ChainPreviewState;
 import club.heiqi.qz_miner.chain.client.projection.ChainPreviewPresentationHeader;
 import club.heiqi.qz_miner.chain.mode.ChainMode;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.state.ChainClientState;
 import club.heiqi.qz_miner.chain.statemachine.ChainPhase;
+import club.heiqi.uilib.ui.reactive.ReadableSignal;
 import club.heiqi.uilib.ui.reactive.ReactiveDomain;
 import club.heiqi.uilib.ui.reactive.Signal;
 import club.heiqi.uilib.ui.scene.host.ScenePageContext;
 import club.heiqi.uilib.ui.scene.node.SceneNode;
 
-/** 只消费固定标量事实；文字和行列表只在 header、模式、语言或确认事实变化时派生。 */
+/** 模式邻项、阶段状态与确认明细分别失效；稳定 tick 只读取固定标量事实。 */
 public final class MinerHudModel {
     private final Function<String, String> text;
-    public final Signal<String> heading;
+    /** 既有读取入口；标题只从 selection 派生，不再维护另一份模式事实。 */
+    public final ReadableSignal<String> heading;
     public final Signal<String> status;
     public final Signal<Boolean> expanded;
     public final Signal<List<Row>> rows;
@@ -27,27 +30,26 @@ public final class MinerHudModel {
     public final Signal<Boolean> armed, sustained, warning;
     public final Signal<Object> activity, navigation;
     public final Signal<Float> bearing;
+    private final ConfirmationFacts confirmation = new ConfirmationFacts();
     private ChainPreviewPresentationHeader header;
-    private ChainMode mode;
-    private ChainSubMode subMode;
     private boolean key;
-    private boolean confirmed;
-    private boolean groupsAccepted;
-    private int requestedRadius, acceptedRadius, requestedBlocks, acceptedBlocks, serverMatched;
     private String locale;
-    private long resources;
+    private long resources, capabilities;
     private Object selectionIntent;
     private boolean contextSeen;
 
     public MinerHudModel(ReactiveDomain domain, Function<String, String> text) {
         this.text = text;
-        heading = domain.signal(text.apply("settings.qz_miner.hud.preview_title"));
         status = domain.signal(text.apply("hud.qz_miner.phase.IDLE"));
         expanded = domain.signal(false); rows = domain.signal(Collections.<Row>emptyList());
         selection = domain.signal(new MinerHudSelection(ChainMode.CHAIN, ChainSubMode.CHAIN_BASE, null, text, false));
+        heading = domain.computed(() -> {
+            MinerHudSelection selected = selection.get();
+            return selected.title + (selected.subMode == null ? "" : " · " + selected.subtitle);
+        });
         armed = domain.signal(false); sustained = domain.signal(false); warning = domain.signal(false);
         activity = domain.signal(null); navigation = domain.signal(null); bearing = domain.signal(0f);
-        mode = ChainMode.CHAIN; subMode = ChainSubMode.CHAIN_BASE; rebuild();
+        projectStatus(); projectDetails();
     }
 
     public void header(ChainPreviewPresentationHeader next) {
@@ -56,90 +58,122 @@ public final class MinerHudModel {
                 || header.isRemoteRequestPending() != next.isRemoteRequestPending()
                 || header.getCancelReason() != next.getCancelReason());
         if (changed || header == null && next != null && next.getPhase() != ChainPhase.IDLE) activity.set(new Object());
-        header = next; rebuild();
+        header = next;
+        projectStatus(); projectDetails();
     }
 
     public void context(ChainClientState state, boolean known, String language) { context(state, known, language, 0L); }
 
-    /** 宿主资源代际含同语言重载，稳定 tick 只比较标量，不重译所有文案。 */
+    /** 资源与能力代际各自失效；保留宿主既有重载，读取能力代际不触发兼容探测。 */
     public void context(ChainClientState state, boolean known, String language, long resourceRevision) {
         if (state == null) return;
+        long capabilityRevision = ChainModeRegistry.availabilityRevision();
         ChainMode nextMode = state.getSelectedMode();
         ChainSubMode nextSubMode = state.getSelectedSubMode();
+        MinerHudSelection current = selection.get();
+        boolean choiceChanged = current.mode != nextMode || current.subMode != nextSubMode;
         boolean nextKey = state.isChainKeyPressed();
-        boolean nextGroups = state.isObjectGroupSyncAccepted();
-        int rr = state.getRequestedChainRadius(), ar = state.getServerChainRadius();
-        int rb = state.getRequestedChainMaxBlocks(), ab = state.getServerChainMaxBlocks();
-        int matched = state.getServerMatchedTargetCount();
-        if (contextSeen && mode == nextMode && subMode == nextSubMode && key == nextKey && confirmed == known
-                && groupsAccepted == nextGroups && requestedRadius == rr && acceptedRadius == ar
-                && requestedBlocks == rb && acceptedBlocks == ab && serverMatched == matched
-                && Objects.equals(locale, language) && resources == resourceRevision) return;
-        boolean modeChanged = contextSeen && (mode != nextMode || subMode != nextSubMode);
         boolean keyChanged = key != nextKey;
-        if (!contextSeen || mode != nextMode || subMode != nextSubMode || !Objects.equals(locale, language) || resources != resourceRevision) {
-            MinerHudSelection previous = contextSeen ? selection.get() : null;
-            MinerHudSelection selected = new MinerHudSelection(nextMode, nextSubMode, previous, text, true,
-                    selectionIntent != state.getSelectionIntent() ? state.getSelectionDirection() : 0);
-            selection.set(selected);
-            bearing.set(bearing.get() + selected.horizontal * 30f + selected.vertical * 7.5f);
+        boolean knownChanged = confirmation.confirmed != known;
+        boolean confirmationChanged = confirmation.update(state, known);
+        boolean labelsChanged = !Objects.equals(locale, language) || resources != resourceRevision;
+        boolean capabilitiesChanged = capabilities != capabilityRevision;
+        Object nextIntent = state.getSelectionIntent();
+        int direction = selectionIntent != nextIntent ? state.getSelectionDirection() : 0;
+        // 即使本次输入未改变选择也消费意图，资料失效不得重放旧滚轮方向。
+        selectionIntent = nextIntent;
+        if (contextSeen && !choiceChanged && !keyChanged && !confirmationChanged && !labelsChanged && !capabilitiesChanged) return;
+
+        if (!contextSeen || choiceChanged) {
+            projectChoice(nextMode, nextSubMode, contextSeen ? current : null, direction);
+        } else if (labelsChanged || capabilitiesChanged) {
+            // 能力与文案刷新不表达导航，不唤醒 HUD，也不推进刻度。
+            selection.set(current.refresh(text));
         }
-        if (modeChanged || keyChanged) {
+        if ((contextSeen && choiceChanged) || keyChanged) {
             Object event = new Object(); activity.set(event); navigation.set(event);
         }
-        mode = nextMode; subMode = nextSubMode; key = nextKey; confirmed = known; groupsAccepted = nextGroups;
-        requestedRadius = rr; acceptedRadius = ar; requestedBlocks = rb; acceptedBlocks = ab; serverMatched = matched;
-        locale = language; resources = resourceRevision; selectionIntent = state.getSelectionIntent(); contextSeen = true; rebuild();
+        key = nextKey;
+        locale = language; resources = resourceRevision; capabilities = capabilityRevision;
+        if (!contextSeen || keyChanged || knownChanged || labelsChanged) projectStatus();
+        if (!contextSeen || confirmationChanged || labelsChanged) projectDetails();
+        contextSeen = true;
     }
 
-    private void rebuild() {
-        if (mode == null) return;
+    private void projectChoice(ChainMode mode, ChainSubMode subMode, MinerHudSelection previous, int direction) {
+        MinerHudSelection selected = new MinerHudSelection(mode, subMode, previous, text, true, direction);
+        selection.set(selected);
+        if (selected.horizontal != 0 || selected.vertical != 0)
+            bearing.set(bearing.get() + selected.horizontal * 30f + selected.vertical * 7.5f);
+    }
+
+    private void projectStatus() {
         ChainPhase phase = header == null ? ChainPhase.IDLE : header.getPhase();
         boolean pending = header != null && header.isRemoteRequestPending();
         boolean failed = header != null && (header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_TIMEOUT
                 || header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE);
         armed.set(key); sustained.set(key || phase != ChainPhase.IDLE || pending); warning.set(failed);
-        String currentStatus = text.apply(confirmed ? "hud.qz_miner.phase."
+        String currentStatus = text.apply(confirmation.confirmed ? "hud.qz_miner.phase."
                 + (key && phase == ChainPhase.IDLE ? ChainPhase.ARMED : phase).name() : "hud.qz_miner.sync.pending");
         if (failed) currentStatus += " · " + text.apply(header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_TIMEOUT
                 ? "hud.qz_miner.preview.remote.timeout" : "hud.qz_miner.preview.remote.unavailable");
         else if (pending) currentStatus += " · " + text.apply("hud.qz_miner.preview.remote.pending");
-        String currentHeading = text.apply(mode.getDisplayNameKey())
-                + (subMode == null ? "" : " · " + text.apply(subMode.getDisplayNameKey()));
-        heading.set(currentHeading); status.set(currentStatus);
-        boolean showDetails = key || phase != ChainPhase.IDLE || header != null && (header.isRemoteRequestPending()
-                || header.getCancelReason() != ChainPreviewState.CancelReason.NONE);
-        expanded.set(showDetails);
+        status.set(currentStatus);
+        expanded.set(key || phase != ChainPhase.IDLE || header != null && (pending
+                || header.getCancelReason() != ChainPreviewState.CancelReason.NONE));
+    }
+
+    private void projectDetails() {
+        // 明细是事实投影；是否展开由呈现决定，空闲编辑也可完整预览。
         List<Row> next = new ArrayList<Row>();
-        {
-            // 明细是事实投影；是否展开由呈现决定，空闲编辑也可完整预览。
-            String pendingLabel = text.apply("hud.qz_miner.sync.pending");
-            add(next, "radius", "hud.qz_miner.short.radius", requestedRadius + " / " + (confirmed ? acceptedRadius : pendingLabel));
-            add(next, "blocks", "hud.qz_miner.short.blocks", requestedBlocks + " / " + (confirmed ? acceptedBlocks : pendingLabel));
-            add(next, "groups", "hud.qz_miner.short.groups", text.apply(groupsAccepted ? "hud.qz_miner.sync.confirmed" : "hud.qz_miner.sync.pending"));
-            if (confirmed && serverMatched > 0) add(next, "server", "hud.qz_miner.server_recent.label", String.valueOf(serverMatched));
-            if (header != null) {
-                if (header.isPreviewActive()) add(next, "preview", "hud.qz_miner.short.preview", header.getMatchedCount() + " · "
-                        + text.apply(header.isPreviewCompleted() ? "hud.qz_miner.preview.completed" : "hud.qz_miner.preview.calculating"));
-                if (header.isRemoteRequestPending()) add(next, "remote", "hud.qz_miner.short.remote", text.apply("hud.qz_miner.preview.remote.pending"));
-                if (header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_TIMEOUT)
-                    add(next, "remote", "hud.qz_miner.short.remote", text.apply("hud.qz_miner.preview.remote.timeout"));
-                if (header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE)
-                    add(next, "remote", "hud.qz_miner.short.remote", text.apply("hud.qz_miner.preview.remote.unavailable"));
-                if (header.isTruncationSignalEnabled() && header.getTruncationReason() != ChainPreviewState.TruncationReason.NONE)
-                    add(next, "truncated", "hud.qz_miner.preview.truncated.label", text.apply("hud.qz_miner.preview.truncated.reason."
-                            + header.getTruncationReason().name().toLowerCase(java.util.Locale.ROOT)) + " · " + header.getTruncatedCount());
-                if (header.isExecutionProgressEnabled() && header.getMatchedCount() > 0)
-                    add(next, "estimate", "hud.qz_miner.preview.estimate", header.getExecutedCount() + " / " + header.getMatchedCount());
-                if (header.isBackendDiagnosticsEnabled() && !header.getActiveBackendId().isEmpty())
-                    add(next, "backend", "hud.qz_miner.preview.backend.label", header.getActiveBackendId()
-                            + (header.getBackendFallbackReason().isEmpty() ? "" : " · " + header.getBackendFallbackReason()));
-            }
+        String pendingLabel = text.apply("hud.qz_miner.sync.pending");
+        add(next, "radius", "hud.qz_miner.short.radius", confirmation.requestedRadius + " / "
+                + (confirmation.confirmed ? confirmation.acceptedRadius : pendingLabel));
+        add(next, "blocks", "hud.qz_miner.short.blocks", confirmation.requestedBlocks + " / "
+                + (confirmation.confirmed ? confirmation.acceptedBlocks : pendingLabel));
+        add(next, "groups", "hud.qz_miner.short.groups", text.apply(confirmation.groupsAccepted
+                ? "hud.qz_miner.sync.confirmed" : "hud.qz_miner.sync.pending"));
+        if (confirmation.confirmed && confirmation.serverMatched > 0)
+            add(next, "server", "hud.qz_miner.server_recent.label", String.valueOf(confirmation.serverMatched));
+        if (header != null) {
+            if (header.isPreviewActive()) add(next, "preview", "hud.qz_miner.short.preview", header.getMatchedCount() + " · "
+                    + text.apply(header.isPreviewCompleted() ? "hud.qz_miner.preview.completed" : "hud.qz_miner.preview.calculating"));
+            if (header.isRemoteRequestPending()) add(next, "remote", "hud.qz_miner.short.remote", text.apply("hud.qz_miner.preview.remote.pending"));
+            if (header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_TIMEOUT)
+                add(next, "remote", "hud.qz_miner.short.remote", text.apply("hud.qz_miner.preview.remote.timeout"));
+            if (header.getCancelReason() == ChainPreviewState.CancelReason.REMOTE_UNAVAILABLE)
+                add(next, "remote", "hud.qz_miner.short.remote", text.apply("hud.qz_miner.preview.remote.unavailable"));
+            if (header.isTruncationSignalEnabled() && header.getTruncationReason() != ChainPreviewState.TruncationReason.NONE)
+                add(next, "truncated", "hud.qz_miner.preview.truncated.label", text.apply("hud.qz_miner.preview.truncated.reason."
+                        + header.getTruncationReason().name().toLowerCase(java.util.Locale.ROOT)) + " · " + header.getTruncatedCount());
+            if (header.isExecutionProgressEnabled() && header.getMatchedCount() > 0)
+                add(next, "estimate", "hud.qz_miner.preview.estimate", header.getExecutedCount() + " / " + header.getMatchedCount());
+            if (header.isBackendDiagnosticsEnabled() && !header.getActiveBackendId().isEmpty())
+                add(next, "backend", "hud.qz_miner.preview.backend.label", header.getActiveBackendId()
+                        + (header.getBackendFallbackReason().isEmpty() ? "" : " · " + header.getBackendFallbackReason()));
         }
         rows.set(Collections.unmodifiableList(next));
     }
 
     private void add(List<Row> next, String id, String label, String value) { next.add(new Row(id, text.apply(label), value)); }
+
+    /** 服务端确认与请求参数的独立事实源，不因模式邻项失效而重建明细。 */
+    private static final class ConfirmationFacts {
+        boolean confirmed, groupsAccepted;
+        int requestedRadius, acceptedRadius, requestedBlocks, acceptedBlocks, serverMatched;
+
+        boolean update(ChainClientState state, boolean known) {
+            boolean nextGroups = state.isObjectGroupSyncAccepted();
+            int rr = state.getRequestedChainRadius(), ar = state.getServerChainRadius();
+            int rb = state.getRequestedChainMaxBlocks(), ab = state.getServerChainMaxBlocks();
+            int matched = state.getServerMatchedTargetCount();
+            if (confirmed == known && groupsAccepted == nextGroups && requestedRadius == rr && acceptedRadius == ar
+                    && requestedBlocks == rb && acceptedBlocks == ab && serverMatched == matched) return false;
+            confirmed = known; groupsAccepted = nextGroups;
+            requestedRadius = rr; acceptedRadius = ar; requestedBlocks = rb; acceptedBlocks = ab; serverMatched = matched;
+            return true;
+        }
+    }
 
     public SceneNode content(ScenePageContext context) { return content(context, false); }
     public SceneNode content(ScenePageContext context, boolean editing) {

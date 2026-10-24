@@ -8,6 +8,7 @@ import club.heiqi.uilib.ui.scene.control.SceneControl;
 import club.heiqi.uilib.ui.scene.geometry.ScenePath;
 import club.heiqi.uilib.ui.scene.geometry.SceneStroke;
 import club.heiqi.uilib.ui.scene.geometry.SceneMesh;
+import club.heiqi.uilib.ui.scene.geometry.SceneClipRegion;
 import club.heiqi.uilib.ui.scene.geometry.SceneTransform;
 import club.heiqi.uilib.ui.scene.host.ScenePageContext;
 import club.heiqi.uilib.ui.scene.layout.Constraints;
@@ -111,26 +112,27 @@ final class MinerHudRing implements SceneControl {
         if (scale == 0) return;
         prepare(.25 / scale);
         SceneAppearance.Palette palette = colors.get();
+        SceneClipRegion clip = SceneClipRegion.rectangle(entry.clip);
         if (reveal < 1) {
-            paintEntrance(node, entry, target, fit, palette);
+            paintEntrance(node, clip, target, fit, palette);
             return;
         }
-        bezel.paint(target, entry.clip, fit, palette, node.background(), 1);
-        target.add(PaintCommand.path(track.transformed(fit), entry.clip, MinerHudPalette.track(palette)));
+        bezel.paint(target, clip, fit, palette, node.background(), 1);
+        target.add(PaintCommand.path(track, null, MinerHudPalette.track(palette)).withGeometry(fit, clip));
         SceneTransform turn = fit.multiply(SceneTransform.around(120, 120, SceneTransform.rotationDegrees(angle)));
-        for (int i = 0; i < ticks.length; i++) target.add(PaintCommand.path(ticks[i].transformed(turn),
-                entry.clip, MinerHudPalette.tick(palette, node.background(), i)));
+        for (int i = 0; i < ticks.length; i++) target.add(PaintCommand.path(ticks[i], null,
+                MinerHudPalette.tick(palette, node.background(), i)).withGeometry(turn, clip));
     }
-    private void paintEntrance(SceneNode node, SceneGeometryView.Entry entry, PaintPlanBuilder target,
+    private void paintEntrance(SceneNode node, SceneClipRegion clip, PaintPlanBuilder target,
             SceneTransform fit, SceneAppearance.Palette palette) {
         // 用最终尺寸准备的有限网格表达扫入；动画中不重建路径，落定后按刻度等级合并绘制。
         double remaining = 1 - reveal, radius = 1 - .08 * remaining * remaining * remaining;
         SceneTransform grow = fit.multiply(SceneTransform.around(120, 120, SceneTransform.scale(radius, radius)));
-        bezel.paint(target, entry.clip, grow, palette, node.background(), phase(reveal, 0, .12f));
+        bezel.paint(target, clip, grow, palette, node.background(), phase(reveal, 0, .12f));
         for (int i = 0; i < sweep.length; i++) {
             float opacity = phase(reveal, i * .62f / sweep.length, .28f);
-            if (opacity > 0) target.add(PaintCommand.path(sweep[i].transformed(grow), entry.clip,
-                    SceneMotion.alpha(MinerHudPalette.track(palette), opacity)));
+            if (opacity > 0) target.add(PaintCommand.path(sweep[i], null,
+                    SceneMotion.alpha(MinerHudPalette.track(palette), opacity)).withGeometry(grow, clip));
         }
         SceneTransform turn = grow.multiply(SceneTransform.around(120, 120,
                 SceneTransform.rotationDegrees(angle - 9 * remaining * remaining)));
@@ -138,8 +140,8 @@ final class MinerHudRing implements SceneControl {
             float opacity = phase(reveal, i * .68f / tickPairs.length, .24f);
             float glint = (float) (Math.max(0, 1 - Math.abs(reveal - (i + .5) / tickPairs.length) / .09) * remaining);
             int color = MinerHudPalette.highlight(MinerHudPalette.tick(palette, node.background(), level(i)), palette, glint);
-            if (opacity > 0) target.add(PaintCommand.path(tickPairs[i].transformed(turn), entry.clip,
-                    SceneMotion.alpha(color, opacity)));
+            if (opacity > 0) target.add(PaintCommand.path(tickPairs[i], null,
+                    SceneMotion.alpha(color, opacity)).withGeometry(turn, clip));
         }
     }
     private static float phase(float progress, float start, float duration) {

@@ -25,7 +25,9 @@ public final class ChainSubModeRegistry {
     private ChainSubModeRegistry() {}
 
     public static void clearDefinitions() {
+        if (DEFINITIONS.isEmpty()) return;
         DEFINITIONS.clear();
+        ChainModeRegistry.invalidateAvailability();
     }
 
     public static void register(ChainSubModeDefinition definition) {
@@ -37,7 +39,8 @@ public final class ChainSubModeRegistry {
         if (DEFINITIONS.containsKey(definition.getSubMode())) {
             MyMod.LOG.warn("[ChainSubModeRegistry] Duplicate sub mode definition detected, overriding subMode={}", definition.getSubMode());
         }
-        DEFINITIONS.put(definition.getSubMode(), definition);
+        ChainSubModeDefinition previous = DEFINITIONS.put(definition.getSubMode(), definition);
+        if (previous != definition) ChainModeRegistry.invalidateAvailability();
     }
 
     public static ChainSubModeDefinition getDefinition(ChainSubMode subMode) {

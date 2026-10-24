@@ -5,7 +5,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 
-/** 模式身份、可用邻项与本次输入方向；只在选择或文案资料变化时建立。 */
+/** 模式身份、可用邻项与本次输入方向；只在选择、能力或文案资料变化时建立。 */
 public final class MinerHudSelection {
     public final ChainMode mode, previousMode, nextMode;
     public final ChainSubMode subMode;
@@ -30,6 +30,12 @@ public final class MinerHudSelection {
         horizontal = mainDirection(previous, direction);
         vertical = subDirection(previous, registry, direction);
     }
+
+    /** 更新可用邻项和文案；当前业务选择保持原值，资料变化不推断导航方向。 */
+    MinerHudSelection refresh(Function<String, String> text) {
+        return new MinerHudSelection(mode, subMode, null, text, true);
+    }
+
     private String neighbor(ChainMode other, Function<String, String> text) {
         return other == null || other == mode ? "" : text.apply(other.getDisplayNameKey());
     }

@@ -5,7 +5,7 @@ import club.heiqi.uilib.ui.scene.geometry.SceneMesh;
 import club.heiqi.uilib.ui.scene.geometry.ScenePath;
 import club.heiqi.uilib.ui.scene.geometry.SceneStroke;
 import club.heiqi.uilib.ui.scene.geometry.SceneTransform;
-import club.heiqi.uilib.ui.scene.layout.LayoutBox;
+import club.heiqi.uilib.ui.scene.geometry.SceneClipRegion;
 import club.heiqi.uilib.ui.scene.motion.SceneMotion;
 import club.heiqi.uilib.ui.scene.paint.PaintCommand;
 import club.heiqi.uilib.ui.scene.paint.PaintPlanBuilder;
@@ -40,7 +40,7 @@ final class MinerHudBezel {
         error = nextError;
     }
 
-    void paint(PaintPlanBuilder target, LayoutBox clip, SceneTransform fit,
+    void paint(PaintPlanBuilder target, SceneClipRegion clip, SceneTransform fit,
             SceneAppearance.Palette palette, int accent, float opacity) {
         if (opacity <= 0) return;
         draw(target, clip, fit, shadow, 0x70000000, opacity);
@@ -55,8 +55,8 @@ final class MinerHudBezel {
         draw(target, clip, fit, faceLight, SceneMotion.alpha(palette.text, palette.dark ? .12f : .65f), opacity);
     }
 
-    private static void draw(PaintPlanBuilder target, LayoutBox clip, SceneTransform fit,
+    private static void draw(PaintPlanBuilder target, SceneClipRegion clip, SceneTransform fit,
             SceneMesh mesh, int color, float opacity) {
-        target.add(PaintCommand.path(mesh.transformed(fit), clip, SceneMotion.alpha(color, opacity)));
+        target.add(PaintCommand.path(mesh, null, SceneMotion.alpha(color, opacity)).withGeometry(fit, clip));
     }
 }

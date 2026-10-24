@@ -70,9 +70,7 @@ final class MinerHudDial {
                 sub ? MinerHudEntrance.VERTICAL : MinerHudEntrance.HORIZONTAL,
                 () -> -x * ui.colors.get().textStyle.logicalEm * .85f,
                 () -> -y * ui.colors.get().textStyle.logicalEm * .85f));
-        // 入场与导航显隐分别作用于内外节点，避免争用同一透明度/位移通道。
-        return part(SceneLayouts.overlay().size(Size.natural(), Size.natural()).add(item), x, y,
-                () -> !value.get().isEmpty());
+        return part(item, x, y, () -> !value.get().isEmpty());
     }
     private SceneNode part(SceneNode node, int x, int y) { return part(node, x, y, () -> true); }
     private SceneNode part(SceneNode node, int x, int y, ReadableSignal<Boolean> available) {

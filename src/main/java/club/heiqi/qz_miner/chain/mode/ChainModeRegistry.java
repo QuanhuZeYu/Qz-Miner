@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
@@ -18,6 +19,8 @@ import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
  */
 public final class ChainModeRegistry {
 
+    // 先于任何模式或兼容初始化建立；集成服降级可从服务端线程发布给客户端投影。
+    private static final AtomicLong AVAILABILITY_REVISION = new AtomicLong();
     private static final List<ChainMode> ALL_MODES = Collections.unmodifiableList(Arrays.asList(
         ChainMode.CHAIN,
         ChainMode.AREA,
@@ -27,8 +30,20 @@ public final class ChainModeRegistry {
 
     private ChainModeRegistry() {}
 
+    /** 注册表与可选能力的失效代际；读取不探测能力，也不枚举模式。 */
+    public static long availabilityRevision() {
+        return AVAILABILITY_REVISION.get();
+    }
+
+    /** 变更事实后发布；只使派生快照失效，不改写业务选中值。 */
+    public static void invalidateAvailability() {
+        AVAILABILITY_REVISION.incrementAndGet();
+    }
+
     public static void clearDefinitions() {
+        if (MODE_DEFINITIONS.isEmpty()) return;
         MODE_DEFINITIONS.clear();
+        invalidateAvailability();
     }
 
     public static void register(ChainModeDefinition definition) {
@@ -52,7 +67,8 @@ public final class ChainModeRegistry {
         if (MODE_DEFINITIONS.containsKey(definition.getMode())) {
             MyMod.LOG.warn("[ChainModeRegistry] Duplicate mode definition detected, overriding mode={}", definition.getMode());
         }
-        MODE_DEFINITIONS.put(definition.getMode(), definition);
+        ChainModeDefinition previous = MODE_DEFINITIONS.put(definition.getMode(), definition);
+        if (previous != definition) invalidateAvailability();
         MyMod.LOG.debug("[ChainModeRegistry] Registered mode definition: mode={}, subModes={}, defaultSubMode={}",
             definition.getMode(), definition.getSubModes().size(), definition.getDefaultSubMode());
     }
@@ -120,8 +136,7 @@ public final class ChainModeRegistry {
      * @return 下一个子模式
      */
     public static ChainSubMode nextSubMode(ChainMode mode, ChainSubMode currentSubMode) {
-        ChainModeDefinition definition = getDefinition(mode);
-        return definition == null ? null : definition.nextSubMode(currentSubMode);
+        return adjacentSubMode(mode, currentSubMode, 1);
     }
 
     /**
@@ -132,8 +147,21 @@ public final class ChainModeRegistry {
      * @return 上一个子模式
      */
     public static ChainSubMode previousSubMode(ChainMode mode, ChainSubMode currentSubMode) {
+        return adjacentSubMode(mode, currentSubMode, -1);
+    }
+
+    private static ChainSubMode adjacentSubMode(ChainMode mode, ChainSubMode currentSubMode, int direction) {
         ChainModeDefinition definition = getDefinition(mode);
-        return definition == null ? null : definition.previousSubMode(currentSubMode);
+        ChainSubMode resolved = definition == null ? null : definition.resolveSubMode(currentSubMode);
+        if (resolved == null) return null;
+        List<ChainSubMode> subModes = definition.getSubModes();
+        int size = subModes.size(), index = subModes.indexOf(resolved);
+        // 保留定义的规范化职责；相邻查询只跳过已经降级的能力，不迁移当前选择。
+        for (int offset = 1; offset <= size; offset++) {
+            ChainSubMode candidate = subModes.get((index + direction * offset + size) % size);
+            if (CompatAdapters.isSubModeAvailable(candidate)) return candidate;
+        }
+        return null;
     }
 
     public static ChainMode next(ChainMode currentMode) {

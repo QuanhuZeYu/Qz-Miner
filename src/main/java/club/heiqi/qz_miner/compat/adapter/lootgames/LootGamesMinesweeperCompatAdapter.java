@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 
 import club.heiqi.qz_miner.MyMod;
+import club.heiqi.qz_miner.chain.mode.ChainModeRegistry;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.compat.adapter.ClassNameCompatSupport;
 import club.heiqi.qz_miner.compat.adapter.MinesweeperCompatAdapter;
@@ -48,7 +49,6 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
     private final Object bombType;
     private final boolean available;
     private volatile boolean runtimeDisabled;
-    private volatile boolean reflectionFailureLogged;
 
     /**
      * 创建 LootGames 扫雷反射适配器。
@@ -340,12 +340,11 @@ public final class LootGamesMinesweeperCompatAdapter implements MinesweeperCompa
         }
     }
 
-    private void logReflectionFailure(Throwable exception) {
+    private synchronized void logReflectionFailure(Throwable exception) {
+        if (runtimeDisabled) return;
         runtimeDisabled = true;
-        if (reflectionFailureLogged) {
-            return;
-        }
-        reflectionFailureLogged = true;
+        // 先使共享能力不可用，再发布一次代际；后续反射失败不重复唤起派生更新。
+        ChainModeRegistry.invalidateAvailability();
         MyMod.LOG.warn("[Compat][LootGames] Reflection invocation failed, disable minesweeper adapter call path", exception);
     }
 
