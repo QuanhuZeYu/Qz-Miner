@@ -39,7 +39,7 @@ public final class ChainDropReleaseHelper {
     }
 
     /**
-     * 在玩家不可用时，尝试将缓冲掉落释放到重生点或世界出生点。
+     * 使用玩家实例解析重生点或世界出生点，尝试释放缓冲掉落。
      *
      * @param player 玩家实例
      * @param buffer 掉落缓冲
@@ -75,7 +75,7 @@ public final class ChainDropReleaseHelper {
     }
 
     /**
-     * 仅记录当前玩家可用的兜底释放坐标，不立即释放掉落。
+     * 记录当前玩家可用的重生点或世界出生点，供后续释放使用。
      *
      * @param player 玩家
      * @param buffer 掉落缓冲
@@ -151,14 +151,11 @@ public final class ChainDropReleaseHelper {
             ItemStack itemStack = drops.get(i);
             try {
                 EntityItem entityItem = new EntityItem(world, x, y, z, itemStack);
-                // forceSpawn=true 绕过 World.spawnEntityInWorld 内部 "!forceSpawn && !chunkExists(...)" 检查，
-                // 该检查是最常见的 spawn 失败真因（chunk 未加载）。设置后 spawn 失败的真因被压缩为
-                // 实体上限/远程世界等少数情形，便于诊断日志定性。
+                // forceSpawn=true 允许在未加载区块中尝试生成；拒绝或异常时回填当前项及剩余掉落。
                 entityItem.forceSpawn = true;
                 if (!world.spawnEntityInWorld(entityItem)) {
                     restoreUnreleasedDrops(buffer, drops, i);
-                    // 诊断日志：forceSpawn=true 仍失败时，输出 chunk 加载状态/实体列表规模/世界侧性/坐标，
-                    // 便于下次实机定性真因（实体上限/远程世界/其他）。
+                    // 记录区块坐标、实体规模与世界侧性，供生成拒绝诊断。
                     int chunkX = (int) Math.floor(x / 16.0);
                     int chunkZ = (int) Math.floor(z / 16.0);
                     MyMod.LOG.debug("[ChainDropCollector] Failed to spawn buffered drop stack for player {} reason={} restoredDrops={} chunkExists=({},{}) loadedEntityList.size()={} world.isRemote={} at=({},{},{})",

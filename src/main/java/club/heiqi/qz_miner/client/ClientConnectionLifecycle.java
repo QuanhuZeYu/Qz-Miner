@@ -4,42 +4,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 客户端连接 / 世界生命周期 token（绑定真实连接 identity）。
+ * 以真实 handler/world 对象引用和不可复用代际维护客户端生命周期 token。
  *
- * <p>连接身份生产值为 {@code INetHandler} 实例，按对象引用 {@code ==} 判定；
- * <strong>禁止</strong> {@code identityHashCode}/{@code equals} 作为身份。
- * 世界身份为客户端远端 world 对象，仅在 client 监听与本类内处理。</p>
- *
- * <h3>Token 字段</h3>
- * <ul>
- *   <li>不可复用 {@code connectionGeneration}：每次成功 connect 新 handler 递增</li>
- *   <li>不可复用 {@code worldGeneration}：bind/unbind/disconnect 推进世界代际</li>
- *   <li>{@code connectionActive} / {@code worldActive}</li>
- *   <li>{@code connectionIdentity} / {@code worldIdentity}</li>
- * </ul>
- *
- * <h3>线性化</h3>
- * <p>所有 connect/disconnect/bind/unbind 与 gate 执行共享同一私有 monitor。
- * 短小本地 publication（如 config 三字段、event bus offer）可在 monitor 内执行；
- * 回调<strong>禁阻塞、禁反向调用本类 lifecycle 入口</strong>。不引入第二把锁。</p>
- *
- * <h3>Gate 语义</h3>
- * <ul>
- *   <li>连接级（config）：connectionGeneration + connection identity + connectionActive；
- *       首次 world bind / 同连接切维度不废弃连接级 token</li>
- *   <li>世界级（phase/preview）：额外要求 worldGeneration + worldActive</li>
- *   <li>disconnect cleanup：仅 inactive 且 connectionGeneration 仍为 current 时执行</li>
- *   <li>world unbind cleanup：仅该次 unbind 产生的 world-inactive token 仍为 current 时执行</li>
- * </ul>
- *
- * <h3>接管收敛</h3>
- * <p>{@link #connect}/{@link #bindWorld} 返回 {@link TransitionResult}：
- * 仅 {@code transitioned=true} 时 Listener 调度 init/接管清理；
- * {@code replacedPreviousLifecycle=true} 表示替换了先前 active connection/world，
- * 新生命周期主线程任务须先执行统一 takeover cleanup（停预览/释 GPU/清 phase/pending），
- * 使旧 A disconnect/unload cleanup 在 B 建立后 no-op 也不残留资源。</p>
- *
- * <p>旧连接迟到 disconnect、重复 close、旧 world unload、旧包在新生命周期下均为 no-op。</p>
+ * <p>连接与世界各有 active 状态和代际；世界绑定变化保留连接级配置身份。
+ * 转移与 gate 共用 LIFECYCLE_MONITOR，使校验和副作用原子衔接。
+ * 连接 gate 用于配置发布，world-active gate 用于预览与阶段投影，inactive gate 用于对应清理。
+ * TransitionResult 指明首次绑定或接管，调用方仅在 transitioned 时调度，接管先清旧资源。
+ * 迟到事件由引用、代际及 active 条件筛选。回调保持短小，按单向入口获取生命周期锁。</p>
  */
 public final class ClientConnectionLifecycle {
 
@@ -127,7 +98,7 @@ public final class ClientConnectionLifecycle {
      * connect / bindWorld 转移结果。
      *
      * <ul>
-     *   <li>{@code transitioned=false}：相同 active handler 重复 connect / 相同 world 重复 load / null 入参 → 不得调度 init/接管</li>
+     *   <li>{@code transitioned=false}：相同 active handler 重复 connect / 相同 world 重复 load / null 入参 → 直接结束</li>
      *   <li>{@code transitioned=true, replacedPreviousLifecycle=false}：首次 connect 或首次 world bind</li>
      *   <li>{@code transitioned=true, replacedPreviousLifecycle=true}：不同 connection 接管，或 active world 被替换</li>
      * </ul>
@@ -230,7 +201,7 @@ public final class ClientConnectionLifecycle {
     /**
      * 所有 lifecycle 转移与 gate 内执行的统一线性化边界。
      *
-     * <p>持锁期间只做 token 读写与短小本地回调，禁止阻塞与反向获取本锁。</p>
+     * <p>持锁期间读写 token 并同步执行短小回调，调用方沿单向生命周期入口组织执行。</p>
      */
     private static final Object LIFECYCLE_MONITOR = new Object();
 
@@ -270,7 +241,7 @@ public final class ClientConnectionLifecycle {
     /**
      * 断线：仅当 handler 为当前连接 identity 且连接仍 active 时转为 inactive。
      *
-     * <p>旧连接迟到 / 重复 disconnect：no-op，且不得调度新清理。</p>
+     * <p>旧连接迟到或重复 disconnect 按幂等输入结束，仅实际转移调度清理。</p>
      *
      * @param handler 断线事件的 handler
      * @return 是否成功转移及 cleanup token
@@ -378,7 +349,7 @@ public final class ClientConnectionLifecycle {
     /**
      * 按连接 identity 捕获：仅当 handler 为当前连接且 connection active 时返回 current。
      *
-     * <p>Netty 入包路径：用 {@code ctx.netHandler} 捕获，避免全局 capture 误绑新连接。</p>
+     * <p>Netty 入包按 {@code ctx.netHandler} 捕获，使 token 沿用该包的真实连接。</p>
      *
      * @param handler 包上下文 netHandler
      * @return 匹配的 current token；不匹配或 inactive 时为 null
@@ -397,7 +368,7 @@ public final class ClientConnectionLifecycle {
     /**
      * 连接级只读：captured 的 connection 仍为 current 且 active。
      *
-     * <p>生产 publication 请用 {@link #publishIfConnectionCurrentAndActive}，避免 check 后裸写。</p>
+     * <p>生产 publication 经 {@link #publishIfConnectionCurrentAndActive}，在同一临界区内校验并写入。</p>
      *
      * @param captured 入队时捕获的 token
      * @return 仍有效时为 true

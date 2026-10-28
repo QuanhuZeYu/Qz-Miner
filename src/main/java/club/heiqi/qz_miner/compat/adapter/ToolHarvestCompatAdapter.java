@@ -7,7 +7,7 @@ import net.minecraft.item.ItemStack;
 /** 可选工具对无显式 Forge harvestTool 目标的窄采掘语义适配器。 */
 public interface ToolHarvestCompatAdapter {
 
-    /** 适配器判定结果；除 ALLOW 外均不得放行。 */
+    /** 适配器判定结果，仅 ALLOW 放行收获。 */
     enum Result {
         NOT_APPLICABLE,
         ALLOW,

@@ -15,7 +15,7 @@ import club.heiqi.uilib.ui.scene.node.SceneNode;
 import club.heiqi.uilib.ui.scene.paint.PaintPlanBuilder;
 import club.heiqi.uilib.ui.scene.text.SceneTextMeasurer;
 
-/** 仪表布局消费本批真实文字测量；方位关系不依赖语言长度、分辨率或预先写死的文字宽度。 */
+/** 按当前文字测量与 em 布置仪表方位，随语言、字号和可用尺寸更新。 */
 final class MinerHudDialLayout implements SceneControl {
     private final ReadableSignal<Float> em;
     private final ReadableSignal<Boolean> navigation;

@@ -55,7 +55,7 @@ public final class AutoToolSwapClientAdapter {
         return executeEffects(reducer.reduce(new TickEvent(context, physical)));
     }
 
-    /** 客户端仅保留总开关，不再读取 fallback 开关或候选 selector。 */
+    /** 应用客户端总开关，其余候选策略由服务端管理。 */
     public void onConfigChanged(boolean enabled) {
         executeEffects(reducer.reduce(new ConfigEvent(enabled)));
     }

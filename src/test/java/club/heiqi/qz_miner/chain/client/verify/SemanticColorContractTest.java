@@ -11,14 +11,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.Visuals.Colo
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.DepthChannel;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderMath;
 
-/**
- * T17 颜色语义与来源解耦独立探针（T16c + 语义类别表（真源：ChainPreviewSemanticClass）；本轮按大模式扩到六槽）。
- *
- * <p>独立口径：builtin 档 CHAIN 槽对任意「CHAIN 或未定义」类别都必须返回精确基线常量
- * (0.25, 0.9, 1.0)（逐位），其余类别返回各自槽位；config 档按类别选六色并按 8bit 量化（/255）；
- * 类别 6/7/255/未知一律兜底 CHAIN 色；颜色面 Colors 归一化来源 id 并按 0xFFFFFF 收窄通道；
- * plan 透传颜色面。</p>
- */
+/** 验证语义与颜色来源解耦、六槽取色、未知类别回退、builtin 精确基色及 plan 值传播。 */
 public class SemanticColorContractTest {
 
     private static final int CHAIN = 0x112233;

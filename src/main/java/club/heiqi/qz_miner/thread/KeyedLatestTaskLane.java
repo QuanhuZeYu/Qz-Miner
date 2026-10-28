@@ -13,14 +13,14 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>同一 key 仅占一个排队槽；新 key 在容量满时拒绝，已有 key 的更新始终允许。
  * 更新协议可线性化：{@code ConcurrentHashMap.replace(key, observed, next)} /
- * {@code remove(key)}，禁止对已脱离 map 的槽位写回。start/stop 使用不可复用的
+ * {@code remove(key)}，更新仅针对 map 中仍匹配的槽位。start/stop 使用不可复用的
  * lane identity 隔离旧生命周期；关闭后清空并拒绝旧提交。drain 每次最多消费
  * {@code drainBudget} 个槽。</p>
  *
  * <p><b>latest-wins 线性化契约</b>：成功提交在其线性化点成为该 key 的最新 pending，
  * 可被后续成功提交覆盖。lane 保持开放、生产静止且持续 drain 时，最后一次在线性化点
- * 成功的值最终执行。{@link #stop()} 清空 pending 是正常 close 语义，不保证关闭瞬间
- * 仍挂起的值可达。禁止将契约表述为「每个返回 true 的 submit 最终都执行」。</p>
+ * 成功的值最终执行。{@link #stop()} 关闭泳道并清空 pending，
+ * 已接受但随后被覆盖或关闭清理的任务按合并与关闭语义结束。</p>
  *
  * @param <K> 槽位键类型
  */
@@ -103,7 +103,7 @@ public final class KeyedLatestTaskLane<K> {
      *
      * <p>已有 key 必须经 {@code replace(key, observed, task)} 成功才算接受；
      * drain 已 remove 后 replace 失败则循环并可能创建新槽。成功 replace/insert
-     * 后复核 lane state，旧 lifecycle 不得返回 accepted。</p>
+     * 后复核 lane state，仅当前 lifecycle 仍有效时返回 accepted。</p>
      *
      * @param key  槽位键
      * @param task 最新任务
@@ -131,7 +131,7 @@ public final class KeyedLatestTaskLane<K> {
 
             int size = current.size.get();
             if (size >= capacity) {
-                // 容量压力下先回收过期弱键，避免 GC 后永久占槽
+                // 容量满时先回收过期弱键，释放失效 referent 的槽位。
                 if (purgeStaleKeys(current) > 0) {
                     continue;
                 }
@@ -307,7 +307,7 @@ public final class KeyedLatestTaskLane<K> {
     }
 
     /**
-     * 可选键能力：referent 失效后可被泳道回收，避免永久占容量。
+     * 可选键能力：referent 失效后，泳道可回收该键所占容量。
      */
     public interface StaleDetectableKey {
         /**

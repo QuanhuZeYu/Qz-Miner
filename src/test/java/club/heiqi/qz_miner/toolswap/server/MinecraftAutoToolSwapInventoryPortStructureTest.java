@@ -7,16 +7,8 @@ import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
- * 服务端 Minecraft 库存适配的结构边界。
- *
- * <p>原用例把「读了哪几个 live 字段」「先标脏再重发」写成整文件 {@code contains}：
- * 等价重构（抽局部变量、换调用写法）即误报，而把实现换成缓存读却仍可能绿。现在改为
- * ①方法体切片 + 词边界标识符（读的是哪几个 live 事实、调用先后、实参来源）
- * ②编译产物的成员引用面（不得走增量同步 / 槽位点击 / 网络包直发）。</p>
- *
- * <p><b>为什么不行为化</b>：三门前置条件读的是 {@code Container}，而 1.7.10 的 Container
- * 是抽象类，headless 无法造实例（实测编译期即报「Container 是抽象的；无法实例化」），
- * 裁定 A 又不允许为测试新增 fixture / seam。</p>
+ * 以编译依赖和方法体切片验证 Minecraft 库存端口的服务端归属、全量同步与原子轮转入口。
+ * 容器实际副作用由游戏运行确认。
  */
 public class MinecraftAutoToolSwapInventoryPortStructureTest {
 

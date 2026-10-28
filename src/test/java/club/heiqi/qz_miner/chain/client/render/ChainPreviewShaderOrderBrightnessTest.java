@@ -9,37 +9,9 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.client.ChainPreviewVisualSettings;
 
 /**
- * 连锁序渐弱（appearOrder → **颜色亮度**权重）的行为契约。
- *
- * <p>能力的真源只有两处：{@code preview.vert} 的 orderWeight 分支与 CPU 参考模型
- * {@link ChainPreviewShaderMath#orderWeight}。GLSL 在离线阶段无法编译，因此断言全部打在
- * <b>数值行为</b>上（float32 复算见工作站 {@code temp/qz-miner-order-weight-check.py} 与
- * {@code temp/qz-miner-order-brightness-math.py}）：</p>
- * <ol>
- *   <li><b>两个端点</b>：起点（order = 0）精确 1.0；最远（order &ge; 目标总数）等于配置下限
- *       （默认 0.55）；</li>
- *   <li><b>中间线性</b>：与「下限 + (1 − 下限) × (1 − 归一化序号)」这一独立闭式在整张网格上一致
- *       （容差 1e-6；100/256 处 Python 复算 = 0.82421875，与生产函数逐位相同），
- *       且权重随序号单调不增、恒落在 [下限, 1]；</li>
- *   <li><b>三条恒等出口</b>：下限 &ge; 1.0（关闭档）、出现序号未定义（u16 = 0xFFFF）、
- *       无同代目标总数（{@code uAppearSpan <= 0}）都必须<b>精确</b>返回 1.0 —— 这就是
- *       「1.0 = 关闭本能力并逐值等于现状」的可断言形式；</li>
- *   <li><b>作用位置（用户裁定）</b>：权重只乘颜色亮度（{@code color = color * orderWeight}），
- *       顶点 alpha 只由「距离淡出 × 逐波生长 × uFadeAlpha」决定 ⇒ 距离淡出与连锁序是两个
- *       <b>独立维度</b>、两个配置各自权威，不再抢同一个量
- *       （见 {@link #orderBrightnessAndDistanceFadeAreIndependentDimensions()}）；</li>
- *   <li><b>接线</b>：配置默认经读取面进入 plan，再由后端算成 {@code uOrderMinBrightness}；
- *       NaN / 越界一律收敛为恒等，且该 uniform 已登记在必备清单里。</li>
- * </ol>
- *
- * <p>GLSL 源码文本不做断言（重命名即误报、改系数却照样绿）：GLSL 逻辑改动走真机验证 +
- * shader 头部「实机验证记录」标记。</p>
- *
- * <p><b>默认档可见性</b>：本能力要在静止预览（{@code animation=off}，进度恒 1）下生效，
- * 因此 {@code uAppearSpan} 必须恒携带真实序号总数——推导见
- * {@code ChainPreviewShaderBackend#growthUniforms}（旧写法在 u &gt;= 1 时把 span 写成 0，
- * 会让本能力恒等失效）。{@code uAppearSpan <= 0} 现在只表示「无序号信息」（无 aAux），
- * 仍是恒等出口。</p>
+ * 数值验证连锁序 rgb 权重的端点、单调性、恒等出口及配置到 uniform 的取值链。
+ * 独立闭式与参考模型逐格对照，并验证距离 alpha 与序号亮度各沿自身计算。
+ * 静止态仍传真实目标总数，GLSL 像素结果按着色器既有实机记录核对。
  */
 public class ChainPreviewShaderOrderBrightnessTest {
 
@@ -127,19 +99,7 @@ public class ChainPreviewShaderOrderBrightnessTest {
         Assert.assertEquals("合法下限原样保留", 0.55F, ChainPreviewShaderMath.orderMinBrightness(0.55F), 0.0F);
     }
 
-    /**
-     * 核心语义（用户裁定）：距离淡出与连锁序是<b>两个独立维度</b>——权重只乘颜色亮度，alpha 不含它。
-     *
-     * <p>断言形式：固定顶点（距离 / 进度 / 包络都不变）时，alpha 组合
-     * （{@code fade * growth * uFadeAlpha}，经生产参考入口 {@link ChainPreviewShaderMath#finalAlpha}
-     * 组合）在「权重开启（下限 0.55）」与「关闭（下限 1.0）」以及极端下限 0.0 三档下必须<b>逐值相同</b>，
-     * 且近端 / 远端 alpha 的比值恒等于距离淡出曲线自身的 {@code 0.78 : 0.15}（Python 复算 5.1999998）。
-     * 若有人把 orderWeight 乘回 alpha（旧形态），最远端会被额外压低 0.55 倍，该比值立刻变成 9.454545
-     * ——这正是用户反馈的「两套『越远越淡』抢同一个量、配置语义互相污染」。</p>
-     *
-     * <p>同时断言另一半确实在动：亮度乘数在最远端必须等于权重下限、在起点恒为 1.0，
-     * 且基色乘 1.0 逐位不变。否则本用例会退化成「什么都没发生」的空转断言。</p>
-     */
+    /** 固定距离、生长与包络后，切换序号权重保持 alpha，相应 rgb 权重按端点变化。 */
     @Test
     public void orderBrightnessAndDistanceFadeAreIndependentDimensions() {
         float fadeNear = ChainPreviewShaderMath.fadeAlpha(1.0F, FADE_START, FADE_END, ALPHA_NEAR, ALPHA_FAR);

@@ -14,62 +14,8 @@ import java.util.Set;
 import org.junit.Assert;
 
 /**
- * 测试用 Java 源码「结构契约」切片工具：读源码 → 去注释 / 屏蔽字面量 → 切方法体、块、实参区间 →
- * 在切片内判定标识符的存在性、位置、先后与集合内容。
- *
- * <p><b>为什么存在</b>：白盒结构契约（调用顺序、委派边界、禁止清单、清单内容、数据流去向）在纯 JVM 里
- * 没有行为探针——它们握在 Minecraft 的玩家 / 世界实体上，构造不出来；此时唯一诚实的形态是「结构关系」：
- * 先按花括号与圆括号切出方法体或实参区间，再比标识符与位置。本类同时消灭「整段源码文本快照」：
- * 整段快照会因改格式、改局部变量名、等价重写而误报，也会因别处出现同样字符串而漏报；切片后只比标识符与位置，
- * 误报面收窄到「方法体里的这个调用 / 这个字段真的没了」。本类由三个并行批次的三份等价工具
- * （JavaSources / MainSourceSlices / JavaSourceScanner）收敛而来，是三者能力的并集；
- * 原 JavaSourceScanner 的实例状态收敛为「{@link #maskedMainSource(String)} 返回已屏蔽源码串」，
- * 其余 region 查询全部转为纯函数。</p>
- *
- * <p><b>能证伪什么</b>：被守的那次调用 / 那个分支 / 那个实参被删掉、被换到别的实现里、或顺序被调换；
- * 被禁的类型 / 调用 / 字段出现在不该出现的区域内；某清单里多出或少掉一个准入常量；
- * 捕获到的中间结果没被继续传下去。</p>
- *
- * <p><b>守不到什么</b>：调用的真实后果（那需要玩家 / 世界实体）；反射或字符串拼接出来的动态调用；
- * 本类不解析 Java 语法，只做「去注释、屏蔽字面量 + 花括号与圆括号配平 + 标识符 indexOf」，
- * 因此被截区域内的括号字面量、泛型与方法引用写法仍可能干扰配平——调用点应避开含括号字面量的表达式，
- * 也不得用本类做整段文本快照式断言。</p>
- *
- * <p><b>服务用例</b>：
- * <ul>
- *   <li>client 域：{@code AutoToolClientWiringStructureTest}、{@code ClientConnectionListenerTest}、
- *       {@code HudArchitectureBoundaryTest}、{@code KeyListenerMouseEventStructureTest}、
- *       {@code BlockPickerRegistryWatcherTest}、{@code ClientAutoToolSwapRuntimePacketDispatchTest}、
- *       {@code QzAutoToolSwapClientTransportStructureTest}、{@code ToolSwapMinecraftFacadeTest}</li>
- *   <li>chain.planner / chain.state 域：{@code AutoToolSwapRoundPropagationStructureTest}、
- *       {@code ChainHarvestRulesTest}、{@code ChainInteractPlannerSeedFreezeStructureTest}、
- *       {@code ChainPlanningConfirmedCountContractTest}、{@code ChainPlanningDiagnosticsTest}、
- *       {@code ChainPlanningEventBridgeTest}、{@code ChainPlanningInteractionSeedPropagationStructureTest}、
- *       {@code InteractionMatcherStructureTest}、{@code ModeExtensionMatcherDecoratorTest}、
- *       {@code PlanningToolCapabilitySnapshotTest}、{@code ChainStateServiceToolSwapLifecycleTest}</li>
- *   <li>chain.executor / chain.interaction 域：{@code BlockInteractActionExecutorStructureTest}、
- *       {@code InteractionInventorySupportStructureTest}、{@code LiquidSourceInteractActionExecutorStructureTest}、
- *       {@code ServerPlayerPoseTransactionStructureTest}、
- *       {@code TargetRevalidatingBlockInteractActionExecutorStructureTest}、{@code InteractionRayTraceTest}</li>
- * </ul>
- * </p>
- *
- * <p><b>形近方法刻意并存（差别即语义，未经裁定不得合并）</b>：
- * <ul>
- *   <li>{@link #methodBody(String, String, String)} 从签名起点切片且含签名；
- *       {@link #methodBodyWithoutSignature(String, String)} 按声明定位、只取花括号体（不含签名），且要求入参已屏蔽。</li>
- *   <li>{@link #callArguments(String, String, String)} 从签名起点找实参括号；
- *       {@link #callArgumentsFromPrefixEnd(String, String, String)} 从签名前缀末尾找实参括号；
- *       {@link #splitCallArguments(String, String)} 返回顶层实参清单，且调用缺失时给空清单而非断言。</li>
- *   <li>{@link #stripComments(String)} 识别并原样保留字符串 / 字符字面量；
- *       {@link #stripCommentsIgnoringStringLiterals(String)} 不识别字面量，行注释后还会多补一个换行。</li>
- *   <li>{@link #read(String)} 严格直读且失败抛受检异常；
- *       {@link #readLocated(String)} 带工作目录祖先回溯且失败走 {@code Assert.fail}。</li>
- *   <li>{@link #block(String, String, String)} 断言锚点存在、从锚点起点找花括号；
- *       {@link #blockAfter(String, String)} 锚点缺失返回空串、从锚点末尾找花括号。</li>
- *   <li>{@link #count(String, String)} 是裸计数；{@link #wordCount(String, String)} 是词边界计数。</li>
- * </ul>
- * </p>
+ * 为既有结构验证抽取 Java 方法体与 token，隔离注释、字面量和文件其他区域。
+ * 仅表达被检查的方法内结构，行为验证由相应用例承担。
  */
 public final class JavaSourceSlices {
 

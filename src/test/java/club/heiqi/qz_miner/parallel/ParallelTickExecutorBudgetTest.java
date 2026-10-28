@@ -10,13 +10,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.Config;
 
-/**
- * {@link ParallelTickExecutor} 预算档位的行为合同（纯 JVM，无 MC/GL 依赖）。
- *
- * <p>覆盖：默认档窗口预算逐值等于基线、未知档安全回退、slice 档只压缩客户端 stage、
- * slice 档在任务让出后不再等满 tick 预算、slice 档跨 tick 仍持续推进、以及两个档位下
- * {@code endStage} 的 worker 屏障语义不变。</p>
- */
+/** 以单调时钟和可恢复分片验证预算档位、跨 tick 推进、提前让出及 endStage 协作屏障。 */
 public class ParallelTickExecutorBudgetTest {
 
     private interface Scenario {

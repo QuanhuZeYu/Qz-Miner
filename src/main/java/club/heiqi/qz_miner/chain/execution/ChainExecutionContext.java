@@ -8,37 +8,11 @@ import club.heiqi.qz_miner.chain.state.ChainSession;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
 /**
- * 阶段5 起为单次执行承载目标队列与代际；阶段8 块2 起追加 session 字段，
- * 供真实破坏桥（{@link ChainExecutionEventBridge}）在主线程消费时解析 mode/subMode →
- * ChainModeRegistry → ChainActionExecutor。
+ * 承载一次连锁的身份、目标队列与会话配置，供执行桥在服务端主线程消费。
  *
- * <p>承载一次连锁会话的目标队列 + 代际 + session，由 {@link ChainPlanningEventBridge} worker
- * 完成时构造并存入 {@link ChainExecutionContextRegistry}，由
- * {@link ChainExecutionEventBridge} 在主线程消费。</p>
- *
- * <h3>与 ChainSession 的关系（E1 阶段8 接线）</h3>
- * <p>阶段8 块2 起，本类持有 worker 创建的 shadowSession 引用，作为真实破坏桥的 session 参数载体。
- * session 本身只承载配置性字段（mode/subMode/origin/interactFace/hit 偏移/radius/maxBlocks），
- * 真实破坏桥<b>不</b>读 session 的 pendingBreakTargets/plannerRunning 等运行态字段
- * （这些字段块3 字段瘦身时一起清）。session 是只读配置载体，不破坏 I1。</p>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>边界不越权</b>：本类只承载数据（队列 + 代际 + session），<b>不</b>触碰世界、
- *       <b>不</b>切执行态、<b>不</b>调任何破坏方块 API。真实破坏发生在主线程消费订阅者
- *       （{@link ChainExecutionEventBridge#onServerTick} ServerTickEvent.START）经
- *       {@link club.heiqi.qz_miner.chain.executor.ChainActionExecutor#execute} 调起，
- *       本类仅提供数据。</li>
- *   <li><b>跨线程只经事件总线</b>：跨线程安全——bridge worker 线程构造 + put registry，主线程消费订阅者 get + poll，
- *       队列与 registry 均为 {@code concurrent} 包线程安全实现。</li>
- *   <li><b>唯一写权威</b>：本类 <b>不</b>写状态机，generation 字段 final 不可变，由
- *       {@link ChainPlanningEventBridge} 经 {@code PlanStarted.getGeneration()} 注入。</li>
- * </ul>
- *
- * <h3>线程可见性</h3>
- * <p>{@link #targets} 与 {@link #generation} 经 {@link ChainExecutionContextRegistry#put}
- * （{@link java.util.concurrent.ConcurrentHashMap}）写入，经 registry get 读取时由
- * ConcurrentHashMap 的 happens-before 保证内存可见性，无需额外同步。</p>
+ * <p>规划桥登记上下文并由 worker 向并发队列追加目标；registry 发布引用，volatile 完成标志
+ * 发布最终规划结果。执行桥在规划完成且队列耗尽后结算执行。
+ * generation 与 serverRoundId 随事件注入并保持不可变，完成事件沿用这组身份。</p>
  */
 public final class ChainExecutionContext {
 
@@ -66,29 +40,11 @@ public final class ChainExecutionContext {
     private final int generation;
     /** 待消费的目标队列（与 bridge worker 的 shadowQueue 同一引用）。 */
     private final ConcurrentLinkedQueue<ChainTarget> targets;
-    /**
-     * 阶段8 块2：worker 装配的 shadowSession 引用。真实破坏桥据此解析 mode/subMode →
-     * ChainModeDefinition.resolveActionExecutor → ChainActionExecutor。session 仅承载
-     * 配置性字段，是只读载体。
-     */
+    /** 会话配置载体；执行桥据 mode/subMode 解析执行器。 */
     private final ChainSession session;
     /** round 级有界规划诊断器；仅持有纯值计数与文本快照。 */
     private final club.heiqi.qz_miner.chain.planner.ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics;
-    /**
-     * 流式执行标志：worker 是否已完成影子遍历（所有 confirmed target 已 shadowQueue.add）。
-     *
-     * <p>流式语义（C 修复）：</p>
-     * <ul>
-     *   <li>{@code false}：worker 仍在搜，主线程消费订阅者可边 poll 边破坏 worker 边 add 的目标，
-     *       但<b>不应</b>因 queue 瞬时为空判定 ExecutionFinished 提前 publish（避免卡 RUNNING）。</li>
-     *   <li>{@code true}：worker 已完成遍历 + publish PlanCompleted，主线程此后 queue 空 → publish ExecutionFinished。</li>
-     * </ul>
-     *
-     * <p>线程可见性：worker 线程写（{@link #markPlanningComplete}），主线程消费订阅者读
-     * （{@link #isPlanningComplete} / {@link #isCompleted}）。volatile 提供 happens-before，
-     * 与 {@link ChainExecutionContextRegistry#put}（ConcurrentHashMap）一同保证
-     * worker 在 markPlanningComplete 之前的所有 shadowQueue.add 操作对主线程可见。</p>
-     */
+    /** worker 完成遍历并发布 PlanCompleted 后置位；volatile 向主线程发布此前追加的全部目标。 */
     private volatile boolean planningComplete;
     /** worker 完成时冻结的确认目标数。 */
     private volatile int planningConfirmedCount;
@@ -117,7 +73,7 @@ public final class ChainExecutionContext {
      * @param generation 代际（必须与触发本次执行的 {@link club.heiqi.qz_miner.chain.eventbus.event.PlanCompleted}
      *                   的 generation 一致）
      * @param targets    目标队列引用（与 bridge worker 的 shadowQueue 同一引用）
-     * @param session    worker 装配的 shadowSession（阶段8 块2 真实破坏桥参数载体，可为 null 供单测用）
+     * @param session    会话配置载体；验证可传 null
      */
     public ChainExecutionContext(UUID playerUUID, int generation, ConcurrentLinkedQueue<ChainTarget> targets, ChainSession session) {
         this(playerUUID, club.heiqi.qz_miner.chain.eventbus.ChainEvent.NO_SERVER_ROUND_ID,
@@ -226,10 +182,10 @@ public final class ChainExecutionContext {
 
     /**
      * worker 在同一线性化点发布 PlanCompleted，并在 publication 成功返回后固化完成状态。
-     * publication 只能执行一次，且外部取消先胜出时不会执行。
+     * 仅规划仍为 ACTIVE 时执行一次 publication。
      *
      * <p>事件入队是先行线性化点：publication 尚未返回时，规划仍保持 ACTIVE，
-     * {@code planningComplete} 与 {@code isCompleted()} 均不可见为完成；publication 抛出
+     * {@code planningComplete} 与 {@code isCompleted()} 均保持等待；publication 抛出
      * {@link RuntimeException} 或 {@link LinkageError} 时同样保持 ACTIVE，由规划桥负责发布
      * 固定原因的 PlanCancelled。</p>
      */
@@ -246,12 +202,12 @@ public final class ChainExecutionContext {
         planningConfirmedCount = Math.max(0, confirmedCount);
         planningTargetLimitExceeded = targetLimitExceeded;
         planningTerminal = PlanningTerminal.COMPLETED;
-        // 最后写 volatile 标志，确保主线程不会在 PlanCompleted publication 之前观察到完成。
+        // 最后写 volatile 标志，向主线程发布 PlanCompleted 已入队及全部规划结果。
         planningComplete = true;
         return true;
     }
 
-    /** worker 仅在规划仍活跃时发布一次进度，避免外部取消胜出后出现迟到事件。 */
+    /** worker 在规划仍活跃时发布本次进度，取消后由终局门禁拒绝。 */
     public synchronized boolean publishPlanningProgressIfActive(Runnable publication) {
         if (publication == null) throw new IllegalArgumentException("progress publication must not be null");
         if (planningTerminal != PlanningTerminal.ACTIVE) return false;
@@ -279,7 +235,7 @@ public final class ChainExecutionContext {
         return executionStopPending;
     }
 
-    /** @return worker 是否已完成影子遍历（false 表示仍在搜，主线程消费 queue 空 不应 publish ExecutionFinished） */
+    /** @return worker 是否已完成遍历并发布规划完成事件 */
     public boolean isPlanningComplete() {
         return planningComplete;
     }
@@ -305,7 +261,7 @@ public final class ChainExecutionContext {
     }
 
     /**
-     * @return worker 装配的 shadowSession（阶段8 块2 真实破坏桥参数载体；可能为 null，单测可不传）
+     * @return 会话配置载体；验证构造可为 null
      */
     public ChainSession getSession() {
         return session;
@@ -341,7 +297,7 @@ public final class ChainExecutionContext {
         return executionSucceededCount == 1;
     }
 
-    /** 记录一个目标局部跳过；计数在 {@link Integer#MAX_VALUE} 饱和，避免长会话回绕。 */
+    /** 记录一个目标局部跳过；计数在 {@link Integer#MAX_VALUE} 饱和。 */
     public void recordExecutionSkipped() {
         if (executionSkippedCount < Integer.MAX_VALUE) executionSkippedCount++;
     }
@@ -361,22 +317,7 @@ public final class ChainExecutionContext {
         return executionSkippedCount;
     }
 
-    /**
-     * 执行是否已完成（流式语义）。
-     *
-     * <p>流式语义（C 修复）：返回 {@code planningComplete && targets.isEmpty()}，
-     * <b>必须</b>同时满足「worker 已完成遍历」和「目标队列已消费空」两个条件：
-     * 避免 worker 仍在搜、queue 瞬时为空就被误判 ExecutionFinished 提前 publish
-     * （否则卡死 RUNNING，玩家槽哑火）。</p>
-     *
-     * <ul>
-     *   <li>空规划边界（卡点5）：worker 完成时 markPlanningComplete + queue 初始即空 → 立即判定完成。</li>
-     *   <li>流式中途：planningComplete=false → 即便 queue 此刻空也返回 false（留 worker 继续搜）。</li>
-     *   <li>正常消费完成：planningComplete=true 且 queue poll 空 → 返回 true（触发 publish ExecutionFinished）。</li>
-     * </ul>
-     *
-     * @return true 表示 worker 已完成遍历且目标队列已空（可 publish ExecutionFinished）
-     */
+    /** @return 规划已完成且目标队列已耗尽，可发布 ExecutionFinished */
     public boolean isCompleted() {
         return planningComplete && targets.isEmpty();
     }

@@ -14,11 +14,8 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * B2.4（task-21）：构建期 LOD 剔除（alpha &lt;= lodMinAlpha）与进出双阈值防抖。
- *
- * <p>口径：lod=off 逐字等于现状（忽略阈值、无记忆、无剔除）；lod=auto 仅剔除远处散点目标
- * （整条柱不生成几何，不占配额），enter = lodMinAlpha、exit = lodMinAlpha + 0.05；
- * 剔除后索引/顶点/aux 三者一致且 appearOrder 重新连续编号。超距合并/外壳档位不在本轮范围。</p>
+ * 验证构建期目标中心 alpha 剔除、双阈值滞回、代际清理和几何流一致性。
+ * off 保留全部目标，auto 按进入与退出阈值维护目标包含集。
  */
 public class ChainPreviewLodCullingTest {
 

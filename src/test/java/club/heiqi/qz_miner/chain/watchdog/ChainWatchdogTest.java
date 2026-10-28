@@ -31,7 +31,7 @@ public class ChainWatchdogTest {
 
     private static final UUID PLAYER = UUID.fromString("00000000-0000-0000-0000-0000000000AB");
 
-    /** 新建 bus + watchdog（不 bootstrap，避免 FMLCommonHandler NPE）。 */
+    /** 直接装配 bus 与 watchdog，使用离线事件入口。 */
     private static Harness newHarness() {
         ChainEventBus bus = new ChainEventBus();
         bus.bindMainThread(Thread.currentThread());
@@ -300,12 +300,7 @@ public class ChainWatchdogTest {
         Assert.assertEquals(0, h.watchdog.activeCount());
     }
 
-    /**
-     * P1-1 防风暴：超时 publish 后镜像立即移除，后续 tick 不重复 publish（F.4 C1）。
-     *
-     * <p>验证 F.4 C1 裁决落地：publish WatchdogTimeout 后立即从镜像移除该条目，
-     * 避免下一 tick 重复 publish 致看门狗风暴。</p>
-     */
+    /** 超时发布后立即移除镜像，后续 tick 仅追踪新登记条目。 */
     @Test
     public void noRepeatedPublishAfterRemoval() {
         Harness h = newHarness();
@@ -329,13 +324,7 @@ public class ChainWatchdogTest {
         Assert.assertEquals("镜像应保持空", 0, h.watchdog.activeCount());
     }
 
-    /**
-     * P2-2：超时 publish 的 elapsedNanos 是真实 delta（nowNanos - lastNanos），非占位绝对值。
-     *
-     * <p>阶段8 块3 收口：原占位 {@code Math.max(0, nanos)} 是 System.nanoTime() 绝对值（几十亿纳秒级），
-     * P2-2 改为真 delta（进态到超时的时间差，毫秒级以内）。本测断言 elapsedNanos 落在合理小区间
-     * （&lt; 1 秒 = 1e9 纳秒），区分占位与真值。</p>
-     */
+    /** 验证 elapsedNanos 是登记到超时的单调时间差，并落在用例预期区间。 */
     @Test
     public void elapsedNanosIsRealDeltaNotPlaceholder() {
         Harness h = newHarness();
@@ -616,7 +605,7 @@ public class ChainWatchdogTest {
         Assert.assertEquals(0, h.watchdog.activeCount());
     }
 
-    /** 同 generation 的旧轮进度不得给新轮 entry 续命，timeout 必须携带新轮 round。 */
+    /** 同 generation 的进度按 round 隔离，超时事件沿用当前条目的 round。 */
     @Test
     public void oldRoundProgressDoesNotRefreshSameGenerationNewRound() {
         Harness h = newHarness();

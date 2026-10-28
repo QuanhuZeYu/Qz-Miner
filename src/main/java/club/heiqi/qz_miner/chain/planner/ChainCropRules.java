@@ -37,7 +37,7 @@ public final class ChainCropRules {
     /**
      * 判断目标是否已可靠确认未成熟。
      *
-     * <p>MATURE 与 UNKNOWN 都拒绝，禁止把兼容缺失误当作可施肥目标。</p>
+     * <p>仅 IMMATURE 放行施肥，MATURE 与 UNKNOWN 按拒绝处理。</p>
      */
     public static boolean isReliablyImmature(World world, int x, int y, int z, Block block, int metadata,
             TileEntity tileEntity) {

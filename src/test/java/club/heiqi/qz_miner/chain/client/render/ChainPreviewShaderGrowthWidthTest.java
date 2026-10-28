@@ -219,13 +219,7 @@ public class ChainPreviewShaderGrowthWidthTest {
 
     // ------------------------------------------------------------------ B) 屏幕最小宽度
 
-    /**
-     * px=0 / px&lt;0 / px=NaN（本轮默认档）必须严格恒等：输出与输入逐值相等，不留任何残差。
-     *
-     * <p>断言打在 {@link ChainPreviewShaderMath#displaceVertex}（与 {@code preview.vert} 的
-     * {@code main()} 同形）上：旧模型 {@code lateralClamp}「从 aPos 猜横向轴」已随 T51 删除，
-     * 继续断言它等于保护一个真机不存在的实现。</p>
-     */
+    /** 无效或关闭的最小像素宽度返回恒等位移，验证沿显式法线实现的数值。 */
     @Test
     public void minWidthDisabledIsExactIdentity() {
         float[][] probes = {
@@ -309,13 +303,7 @@ public class ChainPreviewShaderGrowthWidthTest {
             ChainPreviewShaderMath.neighbourGap(thickness, cap) >= 0.0F);
     }
 
-    /**
-     * 位移方向恒为显式面法线 {@code aDirection}；零方向顶点恒等退化。
-     *
-     * <p替代已删除的 T13-D2「格线残留不放大」与「最小 |分量| 轴」判据：那两条针对的是
-     * 「从 aPos 的绝对值猜横向轴」的旧实现，而 T51 起顶点身份 = (位置, 面)、位移恒沿该面法线，
-     * 因此不存在「放大某个坐标分量把几何拉歪」的路径；退化保护由零方向守卫承担。</p>
-     */
+    /** 验证位移沿显式面法线，零方向保留输入位置。 */
     @Test
     public void minWidthWidensAlongFaceDirectionOnly() {
         float[][] positions = {
@@ -346,15 +334,7 @@ public class ChainPreviewShaderGrowthWidthTest {
         }
     }
 
-    /**
-     * Lead 裁定（方案 a）：参考模型必须与 GLSL 表达式在 u × order 网格上逐值一致。
-     *
-     * <p>网格密度：257 个 u 采样 × 每个采样遍历全部 256 个 order = 65792 格，
-     * 远超 Lead 要求的 200 个采样点，且逐格比较（不是只比端点）。</p>
-     *
-     * <p>覆盖范围包含 u=0 与 u=1 两个端点：u=1 在 GLSL 里走「整段可见」出口
-     * （根本不进入逐顶点比较），参考模型必须给出同一结论，否则整代条柱会在边界偶发隐藏。</p>
-     */
+    /** 在包含两端点的 u × order 网格上，逐格对照参考函数和独立 GLSL 表达式镜像。 */
     @Test
     public void growthModelMatchesGlslExpressionAcrossFullGrid() {
         float total = 256.0F;

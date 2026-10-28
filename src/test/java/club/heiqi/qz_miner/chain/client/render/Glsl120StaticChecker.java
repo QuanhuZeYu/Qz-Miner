@@ -38,62 +38,10 @@ final class Glsl120StaticChecker {
     private static final Set<String> TYPE_NAMES = new LinkedHashSet<String>();
 
     /**
-     * 本项目着色器路径<b>禁止引用</b>的 GLSL 1.20 固定管线（compatibility）内建：名字 → 禁用理由。
-     *
-     * <p><b>两个正交的轴</b>：{@link #BUILTIN_VARIABLES} / {@link #BUILTIN_FUNCTIONS} 回答「GLSL 1.20
-     * 里这个符号是什么」（语言事实，拼错 {@code gl_ModleViewMatrix} 必须报「未知内建」）；本表回答
-     * 「本项目允不允许用它」（接口决策）。所以同一个名字可以「是合法内建」且「被本项目禁用」，
-     * 而报错只有一条、只讲真正的原因。</p>
-     *
-     * <p><b>为什么必须整词匹配</b>：禁用名之间有两种方向相反的重叠，一种让子串匹配漏报、另一种让它
-     * 误报——{@code gl_ModelViewMatrix} 与 {@code gl_ModelViewProjectionMatrix} 只共享 12 字符前缀
-     * {@code gl_ModelView} 而<b>互不为子串</b>，于是
-     * {@code "gl_ModelViewProjectionMatrix".contains("gl_ModelViewMatrix")} 为 {@code false}，
-     * 按短名匹配会整条漏报长名；而 {@code gl_ModelViewMatrix} 又确实是
-     * {@code gl_ModelViewMatrixInverse} / {@code …Transpose} / {@code …InverseTranspose} 的<b>真子串</b>
-     * （{@code gl_Normal} 之于 {@code gl_NormalMatrix} 同理，且两者都在禁用名单里），子串匹配会在这些
-     * 名字上冒充短名多报一条。非禁用名还贴着同一片前缀区：{@code gl_Position} / {@code gl_PointSize} /
-     * {@code gl_PointCoord} 与 {@code gl_ProjectionMatrix*} 只共享 4 字符前缀 {@code gl_P}，任何把族名
-     * 截短成词干的松匹配都会误伤它们。结论：安全判据只有「完整标识符相等」，判定统一走
-     * {@link #scanIdentifiers}——它只吐完整 GLSL 标识符 token，相等即命中。</p>
-     *
-     * <p><b>禁的是两类「静默失效」</b>：</p>
-     * <ol>
-     *   <li><b>几何/属性输入</b>（{@code gl_Vertex} / {@code gl_Normal} / {@code gl_Color} /
-     *       {@code gl_MultiTexCoord*} / {@code gl_FogCoord}）：取自兼容管线的 client array 槽位，
-     *       本项目着色器路径不填充（且会与顶点属性契约（真源：preview.vert 头部属性段） 的用户属性抢槽），几何类输入更是未经位移管线的
-     *       原始值。</li>
-     *   <li><b>矩阵状态</b>（{@code gl_ModelViewProjectionMatrix} 一族）与便捷函数 {@code ftransform}：
-     *       相机矩阵在本项目真机上不可信，{@code ftransform()} 内部还只用原始顶点位置。</li>
-     * </ol>
-     *
-     * <p><b>T48c-A 的历史教训（这条规则存在的原因）</b>：{@code preview.vert} 曾经写
-     * {@code gl_Position = ftransform();}。{@code ftransform()} 语义等价于
-     * {@code gl_ModelViewProjectionMatrix * gl_Vertex}——乘的是<b>原始顶点位置</b>，而不是上面刚算完
-     * 屏幕最小宽度位移的 {@code displaced}。于是那段位移<b>算完即丢</b>：着色器照常编译、照常出图，
-     * 观感「正常」，只是该生效的横向钳制从未生效（B2.1 在 shader 路径静默失效）。同族的第二类坑是
-     * 内建矩阵本身：真机（GTNH 2.9 + Angelica 2.2.10 的 GLSM 用生成着色器模拟固定管线，
-     * {@code use_no_error_g_l_context=true}）下 {@code gl_ModelViewProjectionMatrix} /
-     * {@code gl_ModelViewMatrix} 与真实相机矩阵失同步，整条预览链被画进错误空间（77px 窄竖条），
-     * 失败同样完全不可观测。修法是把相机矩阵显式化为 mat4 uniform（{@code uModelViewProjection} /
-     * {@code uModelView}），并<b>只对 {@code displaced} 做投影</b>。</p>
-     *
-     * <p>这两类坑原由三处「读 shader 源码做文本匹配」的断言钉住（{@code body.contains(...)}），
-     * 已随 T52 按裁定整体删除（文本快照重命名即误报、改语义却照样绿）。本规则是它的替代防线：
-     * 走词法分析而不是文本快照，可以被负例证伪（见 {@code ChainPreviewShaderContractTest}），
-     * 且「为什么」就写在这里。</p>
-     *
-     * <p><b>刻意不在禁列</b>（划边界，避免误伤）：</p>
-     * <ul>
-     *   <li>输出与片元接口：{@code gl_Position} / {@code gl_PointSize} / {@code gl_ClipVertex} /
-     *       {@code gl_FragColor} / {@code gl_FragData} / {@code gl_FragDepth} / {@code gl_FragCoord} /
-     *       {@code gl_FrontFacing} / {@code gl_PointCoord}——它们是着色器与管线之间的必要接口，
-     *       不是固定管线状态，禁掉等于禁掉着色器本身。</li>
-     *   <li>与相机矩阵无关的固定管线状态（{@code gl_DepthRange} / {@code gl_ClipPlane} /
-     *       {@code gl_LightSource} / {@code gl_FrontMaterial} / {@code gl_Fog} 等）：既不会绕过本项目的
-     *       位移管线，也不会被 GLSM 的矩阵模拟带偏；把它们一并禁掉属范围外扩张，只会在将来真需要时
-     *       逼出「为绕检查而改名」的坏味道。</li>
-     * </ul>
+     * 项目固定管线输入的禁用名与原因。scanIdentifiers 按完整标识符匹配，
+     * 使语言内建合法性与项目接口约束分别判定，输出和片元接口沿合法内建保留。
+     * client array 输入会绕开显式属性，ftransform 会投影原始位置；
+     * Angelica GLSM 的内建相机矩阵曾与真实相机失步，因此本路径使用显式 mat4 uniform。
      */
     private static final Map<String, String> FORBIDDEN_FIXED_PIPELINE = new LinkedHashMap<String, String>();
 

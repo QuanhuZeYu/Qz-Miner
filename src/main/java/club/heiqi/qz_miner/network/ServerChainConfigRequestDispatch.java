@@ -37,13 +37,13 @@ public final class ServerChainConfigRequestDispatch {
      * 端点键：UUID + 真实对象 identity（弱引用 referent），不强持 {@link EntityPlayerMP}。
      *
      * <p>相等语义：UUID 相等且双方弱引用 referent 均存活且 {@code ==}。
-     * referent 被 GC 后不得错误等于其他实例；过期键实现 {@link KeyedLatestTaskLane.StaleDetectableKey}
+     * referent 被 GC 后仅自身引用相等；过期键实现 {@link KeyedLatestTaskLane.StaleDetectableKey}
      * 供泳道在 submit/drain/生命周期点回收容量。</p>
      */
     public static final class EndpointKey implements KeyedLatestTaskLane.StaleDetectableKey {
         public final UUID uuid;
         private final WeakReference<Object> endpointRef;
-        /** 仅用于 hash 分桶稳定；相等性不依赖 identityHash，避免碰撞误合槽。 */
+        /** 稳定 hash 分桶值，相等性另按存活的真实 endpoint 引用判定。 */
         private final int identityHash;
 
         /**
@@ -101,7 +101,7 @@ public final class ServerChainConfigRequestDispatch {
             }
             Object a = endpointRef.get();
             Object b = that.endpointRef.get();
-            // 任一方 referent 失效：不得与其他实例错误相等
+            // referent 均存活时才比较 endpoint identity。
             if (a == null || b == null) {
                 return false;
             }
@@ -252,7 +252,7 @@ public final class ServerChainConfigRequestDispatch {
     /**
      * 可注入核心路径，便于纯 JVM 测试。
      *
-     * <p>pending 任务仅弱持有玩家端点，避免无界强引用存活；
+     * <p>pending 任务弱持有玩家端点，由真实生命周期决定端点存活；
      * 槽位键同样弱持有端点 identity，GC 后可被泳道回收。</p>
      *
      * @param uuid                    玩家 UUID

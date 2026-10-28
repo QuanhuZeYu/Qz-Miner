@@ -16,15 +16,9 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * T7 语义顶点流 aAux 独立契约探针（顶点属性契约（真源：preview.vert 头部属性段） + Lead 裁定）。
- *
- * <p>裁定口径：appearOrder = 顶点全部 incident 目标序号的最小值（顶点序 != 序号序）；
- * 夹具以相邻链为主、隔离方块作补充；tubeEdge 只在 tube 相新建顶点上定义，junction 相恒 255；
- * wave 的 legacy 路径整体绘制、shader 逐顶点比较。</p>
- *
- * <p>tubeEdge 直方图金值来自独立模型 cp_verify_aux_model.py（相位顺序模拟）：
- * junction 相先跑，其未覆盖的角点由 tube 相补建，因此只有 slot 0/1 会落到新顶点上
- * （跨相位共享的角点不再写入），故当前几何下 2/3 不可达。</p>
+ * 独立验证 aux 长度、u16 序号和 tubeEdge 值域。位置级序号取 incident 目标最小值，
+ * tubeEdge 沿首写归属，junction 与未定义值保留 255。
+ * 独立相位模型的既有统计用于核对首写行为，真实 GL 属性绑定另经实机确认。
  */
 public class AuxStreamContractTest {
 

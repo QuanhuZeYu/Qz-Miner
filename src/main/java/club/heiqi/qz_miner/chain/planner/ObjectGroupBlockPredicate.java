@@ -6,7 +6,7 @@ import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 
 /**
- * 对象组共享谓词：只按显式 registry + metadata 判断，不读取 NBT、TileEntity 或矿辞。
+ * 对象组共享谓词，按显式 registry + metadata 纯值判断。
  */
 public final class ObjectGroupBlockPredicate {
 

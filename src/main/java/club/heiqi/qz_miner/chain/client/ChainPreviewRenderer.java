@@ -31,28 +31,10 @@ import net.minecraftforge.common.MinecraftForge;
 import org.lwjgl.opengl.GL11;
 
 /**
- * 连锁目标预览渲染器。
- *
- * <p>每帧流程：采样相机 → 选择后端 → 取回 CPU publication → 帧级 GL 状态围栏内上传拓扑 /
- * 颜色并派生 {@link ChainPreviewDrawPlan} → 后端绘制。</p>
- *
- * <p>B3.2 淡入淡出：动画档位为 flow / wave 且 duration &gt; 0 时，出现按 {@link ChainPreviewFadeController}
- * 淡入、预览结束进入 retiring 保留最后一份网格淡出；off 档无过渡、结束立即清空，逐字等于历史行为。
- * 全局乘子经 plan 的 alpha 端点（shader 路径）与 1×1 白纹理 × GL_MODULATE（legacy 路径）施加。</p>
- *
- * <p>B0.4 口径（T48c-A 起更新）：绑定捕获每帧 3 次 glGetInteger（一次捕获、一次恢复），
- * 矩阵模式不再单独查询（glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖）。着色器路径
- * 不再依赖固定管线内建矩阵：每次 draw 经 {@code ChainPreviewShaderProgram#readCameraMatrices}
- * 回读 GL_PROJECTION_MATRIX 与 GL_MODELVIEW_MATRIX 各 1 次 glGetFloat —— XRAY / OCCLUDE 每帧
- * 2 次，OUTLINE / DEPTH_OPAQUE 两段 pass 每帧最多 4 次，legacy 路径 0 次。另有每次 draw 1 次
- * GL_CURRENT_PROGRAM 恢复回读、以及按 viewport 变化缓存的 GL_VIEWPORT 回读；这些都不计入
- * 帧级围栏口径，由后端自行计数（T8-D3/D4）。</p>
- *
- * <p>T26 / B4.3：GL 状态恢复、能力探测缓存、线程契约与资源重载令牌统一收敛到
- * {@link WorldOverlayBackend}；renderer 只消费其决策（{@link ChainPreviewOverlayPath}），
- * 并在能力不足（无 VAO / 无 GL20 / 探测失败）时显式降级不绘制 + 一次性诊断。
- * 默认档（xray / legacy / auto）的绘制语义与历史一致；着色器路径的相机矩阵来源自 T48c-A
- * 起改为显式 uniform（见上），并带平移列数值自检 + 一次性永久回退（T48c-B）。</p>
+ * 渲染线程消费 CPU 网格 publication，在帧级 GL 围栏内上传并派生绘制计划。
+ * WorldOverlayBackend 统一提供能力、资源代际与状态围栏，后端惰性创建，shader 失败按可用能力回退。
+ * flow/wave 启用入场和 retiring 淡出，结束后释放当前网格；off 立即清空。
+ * GPU 创建和释放留在渲染线程，配置及资源变化经信号在后续帧重建。
  */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewRenderer {
@@ -69,15 +51,15 @@ public class ChainPreviewRenderer {
     private String lastConfiguredBackendId;
     private boolean shaderAttemptFailed;
     private boolean shaderFallbackReported;
-    /** T48c-B：后端首次「就绪使用」只报一次（真机一眼可见跑的是 shader 还是 legacy）。 */
+    /** 后端首次就绪时记录一次实际使用路径。 */
     private boolean backendInUseReported;
     private String backendCreationFailure = "";
     /**
      * 后端诊断快照（渲染线程写、客户端 tick 线程只读）。
      *
      * <p>用 volatile String 引用发布：写入只在状态真正变化时发生（后端首次就绪 / 回退 / 路径不可用），
-     * 读取方每 tick 直接取引用，稳态零分配、零锁。这是 HUD 诊断行（Q4）的唯一数据面，
-     * 不让 HUD 触碰渲染线程的后端对象。</p>
+     * 读取方每 tick 直接取引用，稳态零分配、零锁。HUD 通过这组标量读取后端诊断，
+     * 后端对象由渲染线程持有。</p>
      */
     private volatile String activeBackendIdSnapshot = "";
     private volatile String backendFallbackReasonSnapshot = "";
@@ -147,17 +129,8 @@ public class ChainPreviewRenderer {
     }
 
     /**
-     * B2.5 原版高亮协同：本帧是否需要抑制原版方块选择框（渲染线程；零分配、无 GL、不写状态）。
-     *
-     * <p>三条件：视觉快照开关（读取面单通道（真源：ChainPreviewVisualSettings））→ 预览激活（renderCache）→ 瞄准方块与预览代 origin
-     * 坐标一致（controller 的 {@link ChainPreviewState#getOrigin()}；B4.1 后 draw plan 的 origin
-     * 是代内稳定锚点，不能作为匹配基准）。任一条件不满足 fail-open，原版行为逐字不变；
-     * 开关关闭时不再触碰 controller / state（默认档零开销）。</p>
-     *
-     * @param aimedX 瞄准方块 X
-     * @param aimedY 瞄准方块 Y
-     * @param aimedZ 瞄准方块 Z
-     * @return 是否抑制原版黑色选择框
+     * 开关开启、预览激活且瞄准位置等于预览代 origin 时抑制原版选择框。
+     * 比较使用 controller 的播种坐标，draw plan 的代内稳定几何锚点另作渲染换基。
      */
     public boolean shouldSuppressVanillaHighlight(int aimedX, int aimedY, int aimedZ) {
         ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
@@ -247,13 +220,7 @@ public class ChainPreviewRenderer {
         }
     }
 
-    /**
-     * retiring 帧：预览已结束但启用淡入淡出时保留最后一份网格淡出。
-     *
-     * <p>不 poll publication、不 refreshForCamera、不 selectBackend——retiring 期间不重建拓扑、
-     * 不触发后端切换；淡出结束（{@link ChainPreviewFadeController#isIdle()}）即清空索引，
-     * GPU 缓冲保留复用、不泄漏。</p>
-     */
+    /** 预览结束后复用最后网格和当前后端播放淡出，完成时清索引，GPU 缓冲保留复用。 */
     private void renderRetiringFrame(long nowNanos) {
         if (backend == null || activeMesh.isEmpty() || !fadeEnabled()) {
             clearMesh();
@@ -329,7 +296,7 @@ public class ChainPreviewRenderer {
      */
     private ChainPreviewRenderBackend createBackend(String id) {
         if (ChainPreviewBackendSelector.LEGACY.equals(id)) {
-            // T26：legacy 的纹理乘子 / dispose 绑定围栏共用封装的 GL 状态访问点
+            // legacy 纹理乘子与 dispose 围栏共用统一 GL 访问端口。
             return new ChainPreviewLegacyBackend(overlay.glAccess());
         }
         try {
@@ -386,7 +353,7 @@ public class ChainPreviewRenderer {
             MyMod.LOG.info("[ChainPreview] backend in use: id={}, configured={}, caps=[{}]",
                 active.id(), lastConfiguredBackendId, overlay.describeCapabilities());
         } catch (Throwable ignored) {
-            // 诊断日志异常不得影响渲染帧
+            // 诊断日志失败按独立子项结束，渲染继续。
         }
     }
 
@@ -400,15 +367,11 @@ public class ChainPreviewRenderer {
         return backendFallbackReasonSnapshot;
     }
 
-    /**
-     * 拓扑 / 颜色上传分派：拓扑变化走拓扑重传；同 generation + 同 stateRevision 时只有消费
-     * CPU 颜色流的后端才走颜色上传——shader 后端颜色由 GPU uniform 计算，同代刷新零上传，
-     * 不得退化为整份拓扑重传（B2.3 若需要 CPU 侧颜色，让该后端 usesCpuColors() 返回 true 即可）。
-     */
+    /** 拓扑变化上传网格，同拓扑仅向消费 CPU 颜色流的后端上传颜色；shader 使用 uniform 刷新视觉。 */
     private void applyPublication(
             ChainPreviewRenderBackend active,
             ChainPreviewRenderCache.MeshPublication publication) {
-        // B4.2：把当前代装配会话的容量峰值交接进规模计数器通道（渲染线程、零分配、无 GL）
+        // 将构建会话已采样的容量峰值并入渲染线程计数器。
         renderCache.publishCapacityInto(scaleCounters);
         ChainPreviewMesh mesh = publication.getMesh();
         boolean topologyChanged = mesh.isEmpty()
@@ -421,7 +384,7 @@ public class ChainPreviewRenderer {
         }
         if (upload == ChainPreviewRefreshDecision.Upload.TOPOLOGY) {
             active.uploadTopology(mesh);
-            // B2.4：剔除计数随拓扑上传累计（同代颜色刷新不重计）；lod=off 时 mesh 恒报 0
+            // 拓扑上传时累计剔除计数，颜色刷新沿用该统计，lod=off 报零。
             scaleCounters.recordCulled(mesh.getCulledTargetCount());
         }
         scaleCounters.record(upload, !mesh.isEmpty());
@@ -431,14 +394,8 @@ public class ChainPreviewRenderer {
     }
 
     /**
-     * 派生本帧 draw plan。
-     *
-     * <p>{@code animationU} 由 {@link ChainPreviewAnimationClock} 逐帧产出（off 恒 1、
-     * flow / wave 按 duration 线性、掉帧钳制到 1）；{@code fadeAlpha} 由
-     * {@link ChainPreviewFadeController} 产出并按等价缩放注入 α 端点（shader 路径生效）、
-     * 同时记录给 legacy 做纹理乘子。{@code waveEnds} 恒为 null：索引顺序 != appearOrder 顺序，
-     * 索引段无法表达逐波，本轮不生成索引段波表；逐波生长由 shader 按 aAux 逐顶点 appearOrder
-     * 比较实现（T11），legacy 路径整体绘制。</p>
+     * 动画时钟与淡入淡出控制器提供完成度和包络，派生本帧绘制计划。
+     * shader 以 aAux 的逐顶点 appearOrder 实现逐波生长，legacy 整体绘制，waveEnds 留空。
      */
     private ChainPreviewDrawPlan buildDrawPlan(float fadeAlpha) {
         ChainPreviewMesh mesh = activeMesh == null ? ChainPreviewMesh.EMPTY : activeMesh;
@@ -535,7 +492,7 @@ public class ChainPreviewRenderer {
         return ChainPreviewDrawPlan.DepthChannel.XRAY;
     }
 
-    /** 后端档位经 读取面单通道（真源：ChainPreviewVisualSettings）（ChainPreviewVisualSettings）获取，renderer 不再直连 Config（T8-D10）。 */
+    /** 从已发布的 ChainPreviewVisualSettings 读取本帧后端档位。 */
     private String configuredBackendId() {
         ChainPreviewVisualSettings settings = renderCache.getVisualSettings();
         return settings == null ? ChainPreviewBackendSelector.AUTO : settings.getRenderBackendId();
@@ -567,7 +524,7 @@ public class ChainPreviewRenderer {
                 plan.getDepthChannel(),
                 outlineWidthPx);
             int stageCount = ChainPreviewDepthPass.stageCount(pass);
-            // B3.x 真描边：仅 OUTLINE 档派生一次壳段计划（XRAY / OCCLUDE 零分配、逐字节等于现状）；
+            // OUTLINE 派生壳段计划，XRAY 与 OCCLUDE 使用普通段；
             // 外扩宽度取 读取面单通道（真源：ChainPreviewVisualSettings）（配置 clientPreviewOutlineWidthPx），进到这里必然 > 0。
             ChainPreviewDrawPlan shellPlan = pass == ChainPreviewDepthPass.Pass.OUTLINE
                 ? plan.withOutlinePass(true, outlineWidthPx)
@@ -584,10 +541,7 @@ public class ChainPreviewRenderer {
         }
     }
 
-    /**
-     * 施加一档深度状态。XRAY 档的调用序列与历史完全一致（关深度测试 + depthMask(false)，
-     * 不设置 depthFunc）；深度分层只重选 pass，不改拓扑、不重建（T15）。
-     */
+    /** 按 pass 配方施加深度状态，复用同一拓扑；XRAY 关闭深测并保持深度写入关闭。 */
     private static void applyDepthStage(ChainPreviewDepthPass.Stage stage) {
         if (stage.isDepthTestEnabled()) {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
@@ -598,12 +552,7 @@ public class ChainPreviewRenderer {
         GL11.glDepthMask(stage.isDepthMaskEnabled());
     }
 
-    /**
-     * 清理当前缓存的预览网格（空网格上传 = 清空索引）。
-     *
-     * <p>该路径可能在帧围栏之外被调用（预览未激活 / 世界为空 / 配置或生命周期早退），
-     * 因此自带绑定围栏（T8-D2b）；空网格上传按接口契约不得触碰 GL，围栏是防御后端违规的加固。</p>
-     */
+    /** 清空当前网格索引并复位动画；帧外路径通过独立绑定围栏保护 GL 状态。 */
     private void clearMesh() {
         animationClock.reset();
         fadeController.reset();
@@ -629,10 +578,7 @@ public class ChainPreviewRenderer {
         }
     }
 
-    /**
-     * 帧内消费资源重载信号：只作废后端 / 上传状态 / 失败记忆，真正的重建推迟到下一次后端选择
-     * （惰性，T26）——不跨代、不跨世界保留 GL 对象，也不在资源重载事件里做任何 GL 操作。
-     */
+    /** 帧内消费重载信号并作废后端、上传状态与失败记忆，下一次后端选择时惰性重建。 */
     private void handleOverlayResourceReload() {
         if (!overlay.consumeResourceReload()) {
             return;
@@ -652,7 +598,7 @@ public class ChainPreviewRenderer {
     }
 
     /**
-     * 纹理图集重载（F3+T / 资源包切换）即资源重载信号：只作废缓存，不做 GL 操作（T26）。
+     * 纹理图集重载时置位资源失效信号，由后续渲染帧重建 GL 资源。
      *
      * @param event 纹理缝合事件
      */
@@ -673,7 +619,7 @@ public class ChainPreviewRenderer {
     }
 
     /**
-     * 一次性回退 WARN（T48c-B：含原因串，真机一眼可见「是否回退 + 为什么」）。
+     * 按原因去重记录后端回退 WARN，供实机日志定位。
      *
      * @param selectedId 尝试使用但不可用的后端 id
      * @param configured 当前配置档位

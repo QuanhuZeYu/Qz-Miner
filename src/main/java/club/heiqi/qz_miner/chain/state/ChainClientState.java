@@ -27,11 +27,9 @@ public class ChainClientState extends AbstractChainModeState {
     public Object getSelectionIntent() { return selectionIntent; }
     public int getSelectionDirection() { return selectionDirection; }
     private volatile boolean previewActive;
-    // 阶段8 块3：删旧 serverChainKeyPressed/serverExecuting/serverExecutionStatus 三字段
-    // （phase 已由 ClientPhaseProjection 承载，G2 夺权后 HUD/预览读投影，不再需要旧 executionStatus）。
     private volatile int requestedChainRadius = Config.chainRadius;
     private volatile int requestedChainMaxBlocks = Config.chainMaxBlocks;
-    // 阶段8 块3：这三字段保留，写入源从旧八字段包改为新 PacketChainConfigSync（ChainConfigProjectionBridge 下发）。
+    // PacketChainConfigSync 更新本连接已接受的配置与匹配数。
     private volatile int serverChainRadius = Config.chainRadius;
     private volatile int serverChainMaxBlocks = Config.chainMaxBlocks;
     private volatile int serverMatchedTargetCount;
@@ -132,7 +130,7 @@ public class ChainClientState extends AbstractChainModeState {
                 ? TunnelDirectionSource.legacyDefault() : source;
     }
 
-    /** 连接初始化/清理时回落 legacy LOOK，禁止跨连接沿用 ACK。 */
+    /** 连接初始化与清理时重置为 legacy LOOK，按本连接 ACK 更新。 */
     public void resetAcceptedTunnelDirectionSource() {
         acceptedTunnelDirectionSource = TunnelDirectionSource.legacyDefault();
     }
@@ -237,7 +235,7 @@ public class ChainClientState extends AbstractChainModeState {
         return true;
     }
 
-    /** 连接生命周期清理：旧连接的请求不能被新连接 ACK 消费。 */
+    /** 连接清理时释放 pending 请求与结果水位，按连接代际隔离 ACK。 */
     public void clearObjectGroupSyncPending() {
         pendingObjectGroupRequests.clear();
         objectGroupConnectionToken = -1L;
@@ -273,9 +271,7 @@ public class ChainClientState extends AbstractChainModeState {
     }
 
     public boolean isChainActiveDisplay() {
-        // 阶段8 块3：删旧 serverChainKeyPressed/serverExecuting（phase 由 ClientPhaseProjection 承载）。
-        // HUD 显示权威改为：chainKeyPressed（客户端本地按键）或投影阶段非 IDLE/ARMED 时显示。
-        // 此处仅保留客户端本地按键判定，phase 维度由连锁状态 HUD 窗口据投影控制。
+        // 此处提供本机按键状态，HUD 另订阅 ClientPhaseProjection 组合任务阶段。
         return chainKeyPressed;
     }
 }

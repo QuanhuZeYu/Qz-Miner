@@ -4,23 +4,9 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 
 /**
- * 连锁预览语义类别（语义类别表（真源：ChainPreviewSemanticClass） 的稳定 id，B2.3 a 部分；本轮按【大模式】重排值域）。
- *
- * <p>类别载体与预览目标同序：由 {@link ChainPreviewState.RenderSnapshot#getSemanticClasses()}
- * 提供，随构建输入交给 ChainPreviewMeshBuilder 写入 aAux.x；着色器按类别从六色 uniform 取色。
- * 值域在语义类别表冻结，调用方不得自造 id。</p>
- *
- * <p><b>本轮值域变更（用户裁定 B 档：默认颜色按大模式区分）</b>：三个大模式的默认子模式
- * 各自获得稳定 id（{@link #CHAIN_LOCAL}/{@link #AREA_LOCAL}/{@link #INTERACT_LOCAL}），
- * 扩展子模式统一 {@link #SUB_MODE_LOCAL}，其余 id 顺延。旧值域的 0 号类别（三个大模式共用的
- * 「主模式本地预测」）已被这三个 id 取代——它同时服务三个大模式，正是「默认档三模式同色」的根因。</p>
- *
- * <p><b>本轮数据源边界（如实登记）</b>：{@link #TRUNCATED} 需要「被截断目标」这个对象，
- * 但规划到上限即停止、被截断目标不在目标集合内，远端响应被 cap 时客户端也拿不到丢弃数，
- * 因此 a 部分不产出 5——<b>5 是合法 id 但本轮无数据源产出，截断可见性由 B0.5 的
- * ChainPreviewState.getTruncationReason() / getTruncatedCount() 通道表达</b>。
- * {@link #DEFERRED}/{@link #EXECUTED} 按 语义类别表（真源：ChainPreviewSemanticClass） 未启用，同样不产出。
- * 消费者必须仍按合法值处理这三类（不得抛异常）。</p>
+ * 预览目标与 aAux.x 共用的稳定语义类别 id，着色器据此选择语义色。
+ * 默认子模式按大模式区分，本地扩展与远端预测各用统一类别。
+ * TRUNCATED、DEFERRED、EXECUTED 保留为合法分支；截断提示经 ChainPreviewState 的独立信号表达。
  */
 public final class ChainPreviewSemanticClass {
 
@@ -34,13 +20,13 @@ public final class ChainPreviewSemanticClass {
     public static final int SUB_MODE_LOCAL = 3;
     /** 远端预测（远端 provider 返回）。 */
     public static final int REMOTE_PREDICTED = 4;
-    /** 因上限被截断的目标；本轮数据源暂不产出（见类注释）。 */
+    /** 截断目标的保留类别。 */
     public static final int TRUNCATED = 5;
-    /** 待执行（本轮未启用）。 */
+    /** 待执行目标的保留类别。 */
     public static final int DEFERRED = 6;
-    /** 已执行（本轮未启用）。 */
+    /** 已执行目标的保留类别。 */
     public static final int EXECUTED = 7;
-    /** 无法判定；着色器必须兜底 CHAIN 色。 */
+    /** 未定义类别，着色器使用 CHAIN 色。 */
     public static final int UNDEFINED = 255;
 
     private static final int MIN_DEFINED = CHAIN_LOCAL;

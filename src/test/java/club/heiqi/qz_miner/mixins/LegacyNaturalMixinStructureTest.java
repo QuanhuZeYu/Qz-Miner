@@ -11,15 +11,7 @@ import org.junit.Test;
 
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 
-/**
- * Legacy natural 字段注入的编译产物结构门禁。
- *
- * <p>断言对象全部来自 {@code .class}：第三方类型不得进入常量池的类型引用面，
- * {@code @Definition(field=...)} / {@code @Expression} 的精确字面量必须出现在编译产物里，
- * 且这两个注解必须真的挂在该字段 handler 上（MixinExtras 注解是 CLASS 保留，反射不可见，
- * 因此只能读产物的注解表）。原来的 ISO-8859-1 全字节 {@code contains} 只看得到「某串出现过」，
- * 既会被调试名之类的同串误报，又漏掉真正的类型链接面。</p>
- */
+/** 验证 legacy 自然矿 mixin 的编译目标、注入描述符与 common 类型依赖边界。 */
 public class LegacyNaturalMixinStructureTest {
 
     private static final String DEFINITION = "Lcom/llamalad7/mixinextras/expression/Definition;";

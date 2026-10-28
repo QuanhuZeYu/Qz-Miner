@@ -4,25 +4,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * B3.x 真描边（着色器扩边）的契约。
- *
- * <p>断言只落在两类可证伪的东西上：<b>纯 JVM 参考模型的数值</b>（{@link ChainPreviewShaderMath}
- * 的 px→world 换算、宽度收敛、世界上界与联合预算）与<b>后端 uniform 数值</b>
- * （{@link ChainPreviewShaderBackend#outlineWidthFor(ChainPreviewDrawPlan)}：给定 plan 产出什么宽度）。
- * 这里<strong>不再</strong>对 shader 源码或 Java 源码做文本匹配（断言某一行/某个表达式写成什么样）：
- * 那种断言重命名即误报、改语义却照样绿。
- * GLSL 侧改动的口径改为「真机验证 + 在 shader 头部「实机验证记录」追加一行标记」，
- * 且<strong>注释改动本身不触发重验</strong>（否则加标记会形成死循环）。</p>
- *
- * <p>本项最硬的判据仍是「默认档不受影响」：</p>
- * <ul>
- *   <li><b>xray（默认）/ occlude</b>：{@code uOutlineWidthPx = 0}，顶点位移必须恒等 ⇒ 逐值等于现状；</li>
- *   <li><b>OUTLINE 主体 pass</b>：同样 {@code = 0}，走完全同现状的路径；</li>
- *   <li>只有 <b>OUTLINE 描边壳 pass</b> 传 &gt; 0，沿显式面法线 aDirection 外扩。</li>
- * </ul>
- *
- * <p>世界上界是<strong>一份预算</strong>（默认厚度 0.045 时为 0.455）：最小宽度优先取用、
- * 真描边只用剩余额度，故联合位移恒不越界（T52 联合上界，Lead 裁定「功能性优先于装饰性」）。</p>
+ * 以 CPU 参考模型和后端 uniform 数值验证描边像素换算、关闭恒等与共享世界预算。
+ * 最小宽度优先消耗预算，描边仅取剩余额度；GLSL 位移和像素另经实机确认。
  */
 public class ChainPreviewShaderOutlineTest {
 
@@ -174,12 +157,7 @@ public class ChainPreviewShaderOutlineTest {
         Assert.assertTrue("最大超出量必须为 0，实际 " + worstExcess, worstExcess <= 1.0e-6F);
     }
 
-    /**
-     * 回归锁核心条目：最小宽度吃满预算时，描边位移必须<strong>精确收敛为 0</strong>。
-     *
-     * <p>这正是 Lead 裁定「min-width 优先、描边让位」的可证伪形式：修复前两个分支各自吃满上界，
-     * 同一组参数下联合位移会是 {@code 2 × 0.455 = 0.91} 格。</p>
-     */
+    /** 最小宽度占满共享预算时，描边位移精确归零。 */
     @Test
     public void outlineYieldsToMinWidthWhenBudgetIsExhausted() {
         float thickness = DEFAULT_BAR_THICKNESS;

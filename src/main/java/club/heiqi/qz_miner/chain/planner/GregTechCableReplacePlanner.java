@@ -14,13 +14,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
-/**
- * GT 线缆替换模式左键规划入口。
- *
- * <p>阶段8 D1：旧链路 {@code startPlanning} 调用已删除，改为 publish {@link LeftClickObserved}
- * 走新链路 T4 左键入口（与 CHAIN/AREA 的 {@code BlockBreakObserved}、INTERACT 的
- * {@code RightClickObserved} 三事件入口对称），状态机统一推进 ARMED→PLANNING。</p>
- */
+/** 主手为 GT 线缆时接管左键动作，发布 LeftClickObserved 交状态机启动线缆规划。 */
 public class GregTechCableReplacePlanner {
 
     public GregTechCableReplacePlanner() {
@@ -53,18 +47,13 @@ public class GregTechCableReplacePlanner {
             return;
         }
 
-        // 用户边界1：主手非线缆则不触发连锁（直接 return，不 setCanceled、不 publish）
-        // 避免空手/镐子等误触发连锁却无法替换
+        // 仅主手线缆取得替换动作授权。
         ItemStack heldStack = player.inventory.getCurrentItem();
         if (!CompatAdapters.cable().isCableStack(heldStack)) {
             return;
         }
 
-        // 守边界不越权：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
-        // 阶段8 D1：旧 startPlanning 已删，改为 publish LeftClickObserved 走新链路 T4 第三入口
-        // 输入事件 generation 传 0 豁免代际判定
-        // hitX/Y/Z 填 0：1.7.10 PlayerInteractEvent 左键分支未暴露命中偏移，GT 线缆 flood fill 不依赖此值
-        // sideHit 取 event.face（Forge 1.7.10 PlayerInteractEvent 提供）
+        // 主线程接管左键并发布观测；面取 event.face，Forge 1.7.10 缺少左键命中偏移，故偏移填零。
         event.setCanceled(true);
         if (MyMod.chainEventBus != null) {
             long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
@@ -79,7 +68,7 @@ public class GregTechCableReplacePlanner {
     }
 
     /**
-     * 规范化点击面，避免异常值影响交互执行。
+     * 将异常点击面回退为上表面。
      *
      * @param face 原始点击面
      * @return 合法点击面

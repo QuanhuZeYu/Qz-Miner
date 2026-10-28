@@ -168,7 +168,7 @@ public final class ServerConfigMutationService {
             return new Result(false, Collections.singletonList(message), null);
         }
 
-        /** 命令语法失败工厂，避免命令层伪造提交结果。 */
+        /** 为命令语法错误创建失败结果，提交令牌保持为空。 */
         public static Result commandFailure(String message) {
             return failure(message);
         }

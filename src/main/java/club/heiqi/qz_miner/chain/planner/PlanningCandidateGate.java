@@ -55,8 +55,8 @@ final class PlanningCandidateGate {
     /**
      * 提交结果 → 遍历步骤结论：已提交（AIR/NORMAL）返回 null 表示调用方继续；
      * YIELDED/TERMINATED 返回对应步骤（YIELDED 在真实取消时升格 TERMINATED）。
-     * 需要保存 cursor 的调用方在拿到非 null 结论后自行保存（让出/终止才需保存，
-     * 避免 lambda 捕获循环变量）。全部 traverser 共用此映射，消除各文件手写的结果分支样板。
+     * 调用方在让出或终止结论后保存 cursor，保持循环游标所有权。
+     * 全部 traverser 共用此映射。
      */
     static TraversalStepResult commitStep(CommitResult result, ParallelTickControl control) {
         switch (result) {

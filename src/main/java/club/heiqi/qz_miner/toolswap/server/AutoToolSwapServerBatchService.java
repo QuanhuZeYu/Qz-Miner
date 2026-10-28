@@ -30,8 +30,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
 /**
  * 普通 CHAIN/AREA 的服务端本地批量自动工具服务。
  *
- * <p>本类是仓内唯一 physical ledger owner。wire round、客户端投影与连锁五态都只能观察结果，
- * 不能取得库存写权。所有入口预期在服务端主线程调用；同步只用于封闭重复生命周期入口。</p>
+ * <p>本类独占 physical ledger 与库存写权，wire round、客户端投影与连锁阶段消费执行结果。
+ * 所有入口在服务端主线程调用，同步用于串行化重复生命周期入口。</p>
  */
 public final class AutoToolSwapServerBatchService {
 
@@ -56,7 +56,7 @@ public final class AutoToolSwapServerBatchService {
         SERVER_STOP
     }
 
-    /** finalizer 对 physical layout 的分类，冲突与不可用绝不伪报成功。 */
+    /** finalizer 按实际 physical layout 区分恢复、冲突与不可用。 */
     public enum FinalizationStatus {
         NO_SESSION,
         NO_LEDGER,
@@ -72,7 +72,7 @@ public final class AutoToolSwapServerBatchService {
     /** 候选读取边界的结果。 */
     public enum ScanStatus { READY, TARGET_INVALID, INVENTORY_UNSAFE, BYPASS }
 
-    /** mutation 抛错后只按已知 pre/post image 分类，绝不盲重放。 */
+    /** mutation 抛错后按已知 pre/post image 分类，结果决定后续恢复动作。 */
     enum MutationExceptionImage { PRE_IMAGE, POST_IMAGE, UNKNOWN }
 
     /** 服务端实时候选读取边界。 */
@@ -421,7 +421,7 @@ public final class AutoToolSwapServerBatchService {
                 player.dimension, generation, serverRoundId, player.inventory.currentItem), serverTick);
     }
 
-    /** 签发本 tick 的唯一 mutation token；不匹配活动 owner 时 fail closed。 */
+    /** 为匹配的活动 owner 签发本 tick 唯一 mutation token，其余返回空。 */
     public synchronized BatchToken beginOrdinaryBatch(BatchContext context, long serverTick) {
         if (context == null || serverTick < 0L) return null;
         LocalSession session = sessions.get(context.playerId);
@@ -441,7 +441,7 @@ public final class AutoToolSwapServerBatchService {
     }
 
     /**
-     * 每目标实时读取目标与库存并在本地完成零次或一次 mutation。任何网络包都不参与返回值。
+     * 每目标实时读取目标与库存，在服务端本地完成零次或一次 mutation 并返回决策。
      */
     public synchronized PrepareResult prepareTarget(BatchToken token, ChainTarget target, long serverTick) {
         LocalSession session = matchingActiveSession(token, serverTick);
@@ -527,7 +527,7 @@ public final class AutoToolSwapServerBatchService {
         return finalizeSession(session, preferredEndpoint, alternateEndpoint, cause, serverTick);
     }
 
-    /** 服务停止兜底：逐 owner 恢复，不能用 map clear 丢弃 ledger。 */
+    /** 服务停止时逐 owner 结算恢复，ledger 经各自终局释放。 */
     public synchronized void finalizeAll(CloseCause cause, long serverTick) {
         for (UUID playerId : new ArrayList<UUID>(sessions.keySet())) {
             LocalSession session = sessions.get(playerId);
@@ -621,7 +621,7 @@ public final class AutoToolSwapServerBatchService {
         return executeMutation(session, inventory, plan);
     }
 
-    /** 无候选或 candidate==carrier 时恢复当前 segment，不把旧借用角色继续占着主手。 */
+    /** 无候选或 candidate==carrier 时恢复当前 segment，将主手交还 carrier。 */
     private PrepareResult restoreSegment(LocalSession session, TargetIdentity targetIdentity, ChainTarget target) {
         PhysicalLedger ledger = session.ledger;
         if (ledger == null) return PrepareResult.PROCEED;

@@ -3,22 +3,10 @@ package club.heiqi.qz_miner.chain.client.render;
 import org.lwjgl.opengl.GL11;
 
 /**
- * 预览 GL 状态围栏：状态捕获 / 恢复的唯一入口（T26 / B4.3）。
- *
- * <p>三类围栏集中在本类，renderer 与后端不再各自书写 try / finally 恢复：</p>
- *
- * <ul>
- *   <li>{@link Frame}：帧级状态栈（GL_ALL_ATTRIB_BITS + GL_CLIENT_VERTEX_ARRAY_BIT）与绑定快照，
- *       一次捕获一次恢复；异常路径必恢复（body 抛出、pop 抛出、上下文失效都不影响恢复动作被执行）；
- *       捕获失败不抛给渲染帧，只把原因记入 {@link Frame#getFailure()}；未成功 push 的状态栈不 pop；</li>
- *   <li>{@link Texture}：legacy 淡出乘子的纹理 enable + GL_TEXTURE_BINDING_2D 围栏
- *       （GL_TEXTURE_BINDING_2D 不受 glPushAttrib 覆盖，必须显式恢复到进入前状态）；</li>
- *   <li>{@link #captureBindingsQuietly} / {@link #restoreBindingsQuietly}：帧外入口
- *       （clearMesh / dispose / 后端热切换）的静默围栏，上下文失效不得逃逸渲染帧。</li>
- * </ul>
- *
- * <p>{@link Access} 是唯一 GL 直连点：注入假实现即可在纯 JVM 内断言「一次捕获一次恢复」
- * 「异常路径恢复」「未 push 不 pop」「请求关闭时零 GL 调用」。</p>
+ * 统一捕获并恢复预览 GL 状态：Frame 管属性栈及绑定，Texture 管 legacy 纹理启用与绑定，
+ * 静默绑定围栏服务帧外清空和释放。
+ * 成功 push 的栈才配对 pop，恢复按独立步骤尽力完成；失败原因留作诊断。
+ * Access 统一访问 GL，支持离线验证恢复顺序。
  */
 public final class ChainPreviewGlFences {
 

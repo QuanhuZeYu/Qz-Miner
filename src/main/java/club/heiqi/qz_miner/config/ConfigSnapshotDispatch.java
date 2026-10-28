@@ -40,10 +40,10 @@ public final class ConfigSnapshotDispatch {
      * 独立分侧的无锁单消费者 mailbox。
      *
      * <p>pending 只保留最大 epoch；draining 是唯一 drain owner。publication 不持有 bootstrap、manager
-     * 或 mailbox monitor。关闭后 queued drain 只清理 owner，不再执行 publication。</p>
+     * 或 mailbox monitor。关闭后 queued drain 仅释放 owner。</p>
      *
      * <p>{@code processedEpoch} 是已处理水位：stale current 未 publication 也会推进；
-     * publication 失败不推进。命名刻意不是 applied，避免与“已成功发布”混淆。</p>
+     * publication 失败保留原水位；该值表示处理完成，包含 stale 跳过。</p>
      */
     public static final class Mailbox implements AutoCloseable {
 

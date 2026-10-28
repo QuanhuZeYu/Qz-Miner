@@ -22,7 +22,7 @@ public class LoggingFloodFillTraverserTest {
     private static final ChainTarget B = new ChainTarget(1, 0, 0);
     private static final ChainTarget C = new ChainTarget(2, 0, 0);
 
-    /** matcher 能力拒绝的候选节点不入队、不计 confirmed，也不得桥接后续原木。 */
+    /** matcher 拒绝后目标保持未确认，并结束该节点的拓扑扩展。 */
     @Test
     public void matcherRejectedCandidateBlocksTraversal() {
         Set<ChainTarget> candidates = setOf(A, B, C);

@@ -7,22 +7,8 @@ import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 import io.netty.buffer.ByteBuf;
 
 /**
- * 连锁阶段快照下发包（阶段6 A1：服务端→客户端投影主线）。
- *
- * <p>服务端 {@code ChainStateProjectionBridge} 订阅 {@code ChainPhaseChanged} 后，
- * 通过本包下发"状态机已转移"的 to phase + generation + serverTick 给客户端。
- * Handler 将 {@code ctx.netHandler} 与快照字段转交 proxy；客户端主线程按 world-active
- * token gate 后才 publish 到 clientChainEventBus（禁止 Netty 直接写/发布语义状态）。</p>
- *
- * <p>守框架约束：</p>
- * <ul>
- *   <li><b>边界不越权</b>：本包是只读快照下发，不要求客户端切态；客户端投影容器可见但不夺权（P0-1=A 决议）。</li>
- *   <li><b>跨线程只经事件总线</b>：Handler 在 Netty 线程只捕获数据与 common INetHandler，不直接改投影容器。</li>
- *   <li><b>唯一写权威</b>：客户端投影容器与状态机物理隔离，客户端没有状态机实例，投影只可见不可切态。</li>
- * </ul>
- *
- * <p>阶段8 块3：旧 {@code PacketChainStateSync} 八字段同步链已删除（G2 夺权后 phase 由本包 + 投影承载，
- * radius/maxBlocks/matchedCount 由 {@link PacketChainConfigSync} 承载）。本包成为 phase 下发唯一主线。</p>
+ * 下发服务端已提交的阶段、代际与诊断 tick。
+ * Netty 捕获原始字段和真实 handler，客户端主线程经 world-active gate 后发布阶段投影事件。
  */
 public class PacketChainPhaseSnapshot implements IMessage {
 
@@ -61,11 +47,7 @@ public class PacketChainPhaseSnapshot implements IMessage {
         buf.writeLong(serverTick);
     }
 
-    /**
-     * Netty 线程 Handler：转交 proxy（含 {@code ctx.netHandler}）。
-     *
-     * <p>守跨线程只经事件总线：不在 Netty 线程改投影容器或 publish 语义状态；ClientProxy 主线程 world-active gate 后收口。</p>
-     */
+    /** Netty 捕获快照与 handler，转交 common proxy，由客户端主线程校验并发布。 */
     public static class Handler implements IMessageHandler<PacketChainPhaseSnapshot, IMessage> {
 
         @Override

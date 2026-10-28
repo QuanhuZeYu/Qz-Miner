@@ -13,8 +13,8 @@ import net.minecraft.entity.player.EntityPlayerMP;
 /**
  * 将不可变连锁阶段广播投影为工具换位 round 阶段包的服务端桥。
  *
- * <p>本桥只消费事件自带的 {@code serverRoundId}，由 round service 精确校验 endpoint 与 round；
- * 不读取可变的当前 round，因此陈旧事件不能被重新关联到新 round。</p>
+ * <p>本桥沿用事件冻结的 {@code serverRoundId}，由 round service 精确匹配 endpoint 与 round，
+ * 将迟到事件限定在其原轮次。</p>
  */
 public final class AutoToolSwapRoundPhaseProjectionBridge {
 

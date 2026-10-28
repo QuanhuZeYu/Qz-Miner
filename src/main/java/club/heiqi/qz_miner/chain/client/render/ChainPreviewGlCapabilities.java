@@ -6,18 +6,9 @@ import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GLContext;
 
 /**
- * 预览后端能力探测结果（不可变）。
- *
- * <p>{@link #detect()} 只允许在渲染线程调用：GL20 存在 + GLSL 版本可解析 + 顶点属性数量足够；
- * 任何异常（含无上下文、原生库缺失）都兜底为 {@link #UNSUPPORTED}（全 false），不抛给渲染帧。</p>
- *
- * <p>回退触发只看真实 GL 能力与上次失败，不看是否加载了某个模组：legacy 路径在 Angelica /
- * shader pack 环境下本来就能工作（Lead 裁定 2026-09-13）。</p>
- *
- * <p>T26 / B4.3：同时给出 shader 与 legacy 两条路径的支持性——legacy 依赖 VAO（GL30 /
- * ARB_vertex_array_object）+ GL20 顶点属性 + attrib 0/1，缺一即为
- * {@link #isLegacySupported()} false；无 VAO 环境不得再假定 legacy 可用。
- * {@link #detectDetailed()} 额外返回失败原因，供封装层写入 describe() 诊断。</p>
+ * 渲染线程探测的不可变 GL 能力事实，分别表示 shader 与 legacy 支持性。
+ * 探测失败返回 UNSUPPORTED 及失败原因，后端决策以真实能力和失败记录为依据。
+ * legacy 同样依赖 VAO、GL20 与足够属性槽位。
  */
 public final class ChainPreviewGlCapabilities {
 
@@ -54,7 +45,7 @@ public final class ChainPreviewGlCapabilities {
     }
 
     /**
-     * 完整构造（T26 / B4.3：legacy 路径可用性显式入参，不再由调用方假定）。
+     * 完整构造，显式接收两条路径的支持性。
      *
      * @param shaderSupported 着色器路径是否可用
      * @param legacySupported 固定管线 + VAO 路径是否可用
@@ -111,12 +102,7 @@ public final class ChainPreviewGlCapabilities {
             vaoSupported);
     }
 
-    /**
-     * 渲染线程内探测当前 GL 上下文能力；任何异常 → {@link #UNSUPPORTED}。
-     *
-     * @return 探测结果，永不为 null
-     */
-    /** 探测结果：能力值 + 失败原因（T26 / B4.3：探测失败可观察，不静默降级为「不支持」）。 */
+    /** 不可变探测结果，同时保留能力值与失败原因。 */
     public static final class ProbeResult {
 
         private final ChainPreviewGlCapabilities capabilities;
@@ -169,7 +155,7 @@ public final class ChainPreviewGlCapabilities {
     }
 
     /**
-     * 渲染线程内探测 + 失败原因（T26 / B4.3：探测失败必须可观察，不能静默当成「不支持」）。
+     * 渲染线程探测当前上下文能力并保留失败原因。
      *
      * @return 探测结果，永不为 null；上下文缺失 / 异常时为 UNSUPPORTED + failureReason
      */

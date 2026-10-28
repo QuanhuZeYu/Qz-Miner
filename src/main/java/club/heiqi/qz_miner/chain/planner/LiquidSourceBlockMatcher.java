@@ -7,7 +7,7 @@ import net.minecraft.world.World;
 /**
  * 与冻结 seed 同种的 live source 匹配器。
  *
- * <p>实例只保存流体纯值身份与 seed 可用性，不持有 World、TileEntity 或未来补源状态。</p>
+ * <p>实例保存流体纯值身份与 seed 可用性，匹配时读取当前 source 状态。</p>
  */
 public final class LiquidSourceBlockMatcher implements ChainBlockMatcher {
 

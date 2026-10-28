@@ -15,13 +15,7 @@ import club.heiqi.qz_miner.config.PreviewLodMode;
 import club.heiqi.qz_miner.config.PreviewRenderBackend;
 import club.heiqi.qz_miner.config.QzMinerConfigDefaults;
 
-/**
- * T7 默认档与回退组合独立契约探针（配置键位与默认值（真源：QzMinerConfigDefaults）/读取面单通道（真源：ChainPreviewVisualSettings） + Lead 裁定 3）。
- *
- * <p>Lead 裁定：默认值不得超前于实现（animation=off、minScreenWidthPx=0.0、fadeMode=timer、
- * truncationSignal=false、versionedInputs=false）。回退到今天的五开关组合与默认映射必须一致；
- * 唯一差异是 renderBackend（配置项，不进入视觉快照）。</p>
- */
+/** 验证 QzMinerConfigDefaults 到视觉读取面及 DrawPlan 的默认映射、非法值收窄与回退组合。 */
 public class DefaultSettingsContractTest {
 
     @Test

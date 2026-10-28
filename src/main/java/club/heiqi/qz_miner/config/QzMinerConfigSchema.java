@@ -11,7 +11,7 @@ import club.heiqi.uilib.ui.config.ConfigKey;
 import club.heiqi.uilib.ui.config.ConfigSchema;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 
-/** 唯一一组类型键；ConfigDocument 依赖键实例身份，禁止每次启动重建声明。 */
+/** 静态复用类型键声明，ConfigDocument 按键实例身份关联取值。 */
 public final class QzMinerConfigSchema {
     private QzMinerConfigSchema() { }
 
@@ -294,7 +294,7 @@ public final class QzMinerConfigSchema {
                 number -> number >= min && number <= max && (!integer || number == Math.rint(number)));
     }
 
-    /** 页面从同一声明读取选择域，不另维护容易漂移的选项表。 */
+    /** 页面从类型键声明读取合法选择域。 */
     public static List<String> choices(ConfigKey<?> key) {
         List<String> values = CHOICES.get(key);
         return values == null ? Collections.<String>emptyList() : values;

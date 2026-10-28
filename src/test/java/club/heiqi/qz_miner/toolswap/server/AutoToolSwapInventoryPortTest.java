@@ -6,13 +6,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 
 /**
- * 库存端口保持纯 Java 边界的结构合同。
- *
- * <p>断言对象是编译产物的常量池与接口方法签名：被禁类型一旦真的被链接就红，
- * 注释措辞、排版与局部变量改名都不影响判定。原先对本接口 javadoc 中文措辞的四条断言
- * （「交换已经应用」「不得通过再次调用本方法来重试交换」「完整个人库存 publication」「三槽引用轮转」）
- * 已删除：改注释即误报、删掉实现却仍可能绿，守不到任何回归；其语义由下面的签名反射
- * 与调用方（批次服务 / 库存适配）的行为用例承担。</p>
+ * 验证库存端口的纯 Java 依赖边界及公开 void 库存 API 签名。
  */
 public class AutoToolSwapInventoryPortTest {
 

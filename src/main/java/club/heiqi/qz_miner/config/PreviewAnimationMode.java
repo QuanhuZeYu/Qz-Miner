@@ -3,23 +3,21 @@ package club.heiqi.qz_miner.config;
 /**
  * {@code client.clientPreviewAnimation} 的取值域。
  *
- * <p>id 是 YAML / UI 选项的稳定文本，不随枚举序数变化；{@link #ids()} 供 Schema options，
- * {@link #fromId(String)} 供语义校验收窄（未知返回 null，由调用方报错，不夹取）。</p>
- *
- * <p>wave 保留出现顺序（appearOrder），off 等于历史行为。</p>
+ * <p>稳定文本 id 用于 YAML 与 UI；ids 提供 schema 选项，fromId 精确解析，未知值交调用方报错。</p>
+ * <p>wave 按 appearOrder 逐波生长，flow 整体生长，off 关闭动画。</p>
  */
 public enum PreviewAnimationMode {
 
-    /** 关闭动画（本轮默认，等于历史行为）。 */
+    /** 关闭动画。 */
     OFF("off"),
 
     /** 整体流动生长。 */
     FLOW("flow"),
 
-    /** 按出现顺序逐波生长（接线属下一批 B3.1/B3.3）。 */
+    /** 按出现顺序逐波生长。 */
     WAVE("wave");
 
-    /** 本轮默认（Lead 裁定：默认档位不得超前于实现）。 */
+    /** 默认档位。 */
     private static final PreviewAnimationMode DEFAULT_VALUE = OFF;
 
     private final String id;
@@ -56,7 +54,7 @@ public enum PreviewAnimationMode {
         return null;
     }
 
-    /** @return 本轮默认档（Lead 裁定：不得超前于实现） */
+    /** @return 默认档位 */
     public static PreviewAnimationMode defaultValue() {
         return DEFAULT_VALUE;
     }

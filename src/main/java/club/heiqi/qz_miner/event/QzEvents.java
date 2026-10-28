@@ -4,7 +4,7 @@ package club.heiqi.qz_miner.event;
  * Qz Miner 事件系统的公共 API 入口。
  *
  * 其他模组可以通过此类访问事件总线，注册监听器或触发事件。
- * 内部模组也可以直接使用此类，避免直接依赖 {@link EventBus} 实例。
+ * 内部模块同样经此入口复用全局 {@link EventBus}。
  */
 public final class QzEvents {
 

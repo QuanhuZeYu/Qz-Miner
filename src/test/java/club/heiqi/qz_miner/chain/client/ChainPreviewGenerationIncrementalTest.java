@@ -12,12 +12,7 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.GenerationSessio
 import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
-/**
- * B4.1 第二步（阶段 A）补充探针：
- * 1) 按**生产快照序（最新→最早）**喂入的差分——现有探针虽然快照也是最新→最早，
- *    但本类显式模拟「生产修订：新目标在天部」并在每一步比对参考，另用方向敏感断言防止方向被忽略；
- * 2) 代级增量与逐次全量重建的 headless 计时对比（数量级，真机待验证）。
- */
+/** 按生产快照的最新到最早顺序逐修订比较增量会话与全量参考，并记录离线装配计时。 */
 public class ChainPreviewGenerationIncrementalTest {
 
     private static final float THICKNESS = 0.045F;
@@ -118,10 +113,7 @@ public class ChainPreviewGenerationIncrementalTest {
         assertByteEqual("immediate", oneShot, immediate.getMesh());
     }
 
-    /**
-     * 生产生命周期契约（阶段 B 冻结口径）：代内复用同一会话；世代变化 = dispose 旧会话 + 新建；
-     * 新代锚点/序号从零开始，不携带上一代状态。
-     */
+    /** 代内复用会话，换代释放旧缓存并重新建立锚点与序号。 */
     @Test
     public void productionLifecycleReusesSessionWithinGenerationAndResetsAcross() {
         ChainPreviewMeshBuilder builder = new ChainPreviewMeshBuilder();

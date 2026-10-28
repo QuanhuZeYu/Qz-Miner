@@ -37,14 +37,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.world.World;
 
-/**
- * 客户端连锁预览控制器。
- *
- * 当前阶段只负责：
- * 1. 侦测玩家当前瞄准方块
- * 2. 启动/取消客户端并行预览任务
- * 3. 保存最小预览结果，供后续渲染层使用
- */
+/** 客户端采样输入与目标，按身份变化启动或取消预算化预览，并向状态容器发布规划结果。 */
 @SideOnly(Side.CLIENT)
 public class ChainPreviewController {
 
@@ -60,9 +53,9 @@ public class ChainPreviewController {
     private volatile int previewConcreteFace;
     private volatile ChainMode previewMode;
     private volatile ChainSubMode previewSubMode;
-    /** B1.2：当前已接受的输入快照（值相等即无需换 generation）。 */
+    /** 当前已接受的输入快照，值变化决定换代。 */
     private PreviewInputSnapshot currentInputSnapshot;
-    /** B1.2：仅目标抖动的稳定窗口（语义维度变化不进入本窗口）。 */
+    /** 仅目标抖动使用的稳定窗口，语义变化即时换代。 */
     private final PreviewTargetDebounce targetDebounce = new PreviewTargetDebounce();
 
     /** 目标抖动默认稳定窗口（tick）。 */
@@ -161,7 +154,7 @@ public class ChainPreviewController {
                 .getAcceptedTunnelDirectionSource();
         int concreteFace = resolveConcreteFace(
                 selectedSubMode, acceptedSource, player, lookHit, target);
-        // B1.2：零分配采样 + 快照判定——语义维度变化立即换 generation，仅目标抖动走 2 tick 窗口。
+        // 标量采样与快照比较决定换代，仅目标抖动经过稳定窗口。
         ChainPreviewVisualSettings inputSettings = ChainPreviewVisualSettings.current();
         int inputRadius = getEffectivePreviewRadius();
         int inputMaxTargets = getEffectivePreviewMaxTargets();
@@ -219,7 +212,7 @@ public class ChainPreviewController {
                 concreteFace, selectedMode, selectedSubMode, true);
     }
 
-    /** 以已捕获 seed 启动或刷新预览；刷新不得重读已破坏 origin。 */
+    /** 以启动时捕获的 seed 启动或刷新预览，保留 origin 破坏前的身份。 */
     private void startPreview(World world, ChainTarget target, BlockSeedSnapshot seedSnapshot,
             int concreteFace, ChainMode selectedMode, ChainSubMode selectedSubMode,
             boolean replaceSeedLease) {
@@ -239,7 +232,7 @@ public class ChainPreviewController {
             previewSeedSnapshot = seedSnapshot;
             previewSeedWorld = world;
         }
-        // B2.3 a：代内语义类别在 begin 时冻结——远端路径记 2，本地路径按主/扩展子模式记 0/1。
+        // begin 冻结本代语义类别，沿远端、本地大模式与扩展子模式分别标记。
         final boolean remotePreviewPath = ChainSubModeRegistry.usesRemotePreview(selectedSubMode);
         final int semanticClass = remotePreviewPath
             ? ChainPreviewSemanticClass.REMOTE_PREDICTED
@@ -452,7 +445,7 @@ public class ChainPreviewController {
         return Math.max(1L, (long) Config.clientPreviewRemoteTimeoutMs);
     }
 
-    /** @return 是否存在在途远端预览请求（仅客户端主线程读取，B1.1 表现投影采样用） */
+    /** @return 是否存在在途远端请求，供客户端主线程采样表现投影 */
     public boolean isRemotePreviewPending() {
         return remotePreviewRequest.isPending();
     }
@@ -576,17 +569,7 @@ public class ChainPreviewController {
             && subMode == previewSubMode;
     }
 
-    /**
-     * 判断当前是否应锁定已启动的预览计算。
-     *
-     * <p>阶段8 块3 G2 夺权：服务端阶段权威来自 {@link ClientPhaseProjection}。本地成功破坏
-     * origin 后只额外租赁当前 frozen seed，覆盖 phase 尚未投影的窗口；租约不切服务端状态。</p>
-     *
-     * <p>F1 锁定边界：未发生本地成功破坏时 ARMED 不锁，玩家仍可自由选目标；
-     * 无本地租约时 IDLE 不锁。</p>
-     *
-     * @return 是否锁定当前预览
-     */
+    /** 服务端活动阶段或本机成功破坏租约锁定当前种子，覆盖阶段投影抵达前的窗口。 */
     private boolean shouldLockCurrentPreview() {
         if (MyMod.chainStateService == null) {
             return false;
@@ -596,7 +579,7 @@ public class ChainPreviewController {
             return false;
         }
 
-        // G2 夺权：读客户端阶段投影（单玩家容器，ClientProxy 初始化；单人服务端侧可能为 null）
+        // ClientProxy 提供本机阶段投影；缺省时使用本地租约。
         ClientPhaseProjection projection = ClientProxy.clientPhaseProjection;
         if (projection == null) {
             return previewOriginLease.isActive();
@@ -604,14 +587,14 @@ public class ChainPreviewController {
         ChainPhase phase = projection.getCurrentPhase();
         int generation = projection.getCurrentGeneration();
         boolean localOriginLocked = previewOriginLease.shouldLock(phase, generation);
-        // F1：未触发的 ARMED/IDLE 不锁；本地租约与 active phase 任一成立即锁定。
+        // 本地租约或服务端活动阶段任一成立时保持种子。
         return localOriginLocked || phase == ChainPhase.PLANNING
             || phase == ChainPhase.RUNNING
             || phase == ChainPhase.FINISHING;
     }
 
     private void stopPreview() {
-        // B1.2：失活清空已接受快照与抖动窗口；下一次按键首 tick 立即重建（不延迟）。
+        // 失活清空输入快照和去抖窗口，下次按键从首 tick 建立新预览。
         currentInputSnapshot = null;
         targetDebounce.reset();
         resetPreview(true);
@@ -685,19 +668,7 @@ public class ChainPreviewController {
         return AxisAlignedTunnelDirection.resolveHitFaceOrLook(hit.sideHit, lookFace);
     }
 
-    /**
-     * B1.2 输入快照判定（契约入口）：快照不相等即需要换 generation，等价于 {@code !current.equals(next)}。
-     *
-     * <p>world / target / face / mode / subMode / radius / maxTargets / 视觉设置内容 /
-     * configRevision / objectGroupRevision 任一变化都返回 true。target 抖动的 2 tick 稳定窗口
-     * 由接线点保证（先判 {@link PreviewInputSnapshot#semanticIdentityDiffers} 与
-     * {@link PreviewInputSnapshot#targetDiffers}，再走 {@link PreviewTargetDebounce}），
-     * 契约入口本身不承担去抖语义。</p>
-     *
-     * @param current 当前已接受快照；null 表示无活动代（必须重建）
-     * @param next 本 tick 采样快照；null 保守判为需要重建
-     * @return 是否需要换 generation
-     */
+    /** 输入快照值发生变化时换代；目标去抖由调用点按语义身份分别处理。 */
     static boolean shouldRestartPreview(PreviewInputSnapshot current, PreviewInputSnapshot next) {
         return current == null || next == null || !current.equals(next);
     }

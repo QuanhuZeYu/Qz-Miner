@@ -11,14 +11,7 @@ import club.heiqi.qz_miner.chain.eventbus.ChainEventBus;
 import club.heiqi.qz_miner.chain.eventbus.event.LifecycleCleanup;
 import club.heiqi.qz_miner.event.PlayerStateEvent;
 
-/**
- * {@link ChainLifecycleBridge} 单测。
- *
- * <p>纯 JVM 逻辑测试：通过 {@link ChainLifecycleBridge#handlePlayerLifecycle} 包级可测接缝驱动，
- * 避免实例化 {@link net.minecraft.entity.player.EntityPlayer}（守传感层 §2.2，玩家类构造需 World/GL）。</p>
- *
- * <p>F.1 W1（forced=true）+ F.2 S1（removeSlot 分流）+ 5 类 reason 全覆盖。</p>
- */
+/** 经生命周期共享入口验证五类 reason、forced 清理及 removeSlot 分流，玩家事件接入另经实机确认。 */
 public class ChainLifecycleBridgeTest {
 
     private static final UUID PLAYER = UUID.fromString("00000000-0000-0000-0000-0000000000AB");

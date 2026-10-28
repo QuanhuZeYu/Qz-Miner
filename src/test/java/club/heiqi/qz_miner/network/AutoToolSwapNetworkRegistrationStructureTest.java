@@ -11,13 +11,8 @@ import org.junit.Test;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
- * 自动工具换位 packet 仅追加注册且 side 固定的结构门禁。
- *
- * <p><b>断言对象</b>：{@code NetworkMain.register()} 方法体内 {@code registerMessage(...)} 的调用顺序与实参 Side。
- * 顺序取自「解析出的注册清单下标」，不再拿整文件 {@code indexOf} 当位置——注释里提到某个 packet 名、
- * 或别处出现同样字串都不会再误判；而真的换位、把换位包插到既有包之间、或把 Side 翻面都会红。</p>
- *
- * <p><b>守不到什么</b>：注册是否真的被 FML 接受需要 NetworkRegistry 运行时；本用例只证注册表内容与冻结协议序一致。</p>
+ * 解析 NetworkMain.register 的调用清单，验证换位 packet 追加顺序与接收 Side。
+ * FML 运行时接受注册的结果另由游戏启动确认。
  */
 public class AutoToolSwapNetworkRegistrationStructureTest {
 

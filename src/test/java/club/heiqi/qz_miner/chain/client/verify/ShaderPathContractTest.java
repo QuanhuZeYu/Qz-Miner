@@ -10,15 +10,7 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewRenderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderBackend;
 import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderMath;
 
-/**
- * T7/T12 shader 路径独立契约探针（功能优先级与落点（真源：preview.vert 头部落点表）/后端热切换语义（下一帧生效） + 波次 2 cell 式裁定）。
- *
- * <p>只依赖当前公开 API：像素尺度、quadratic 距离淡出、顶点距离、最小宽度位移
- * （px<=0 严格恒等 / px>0 沿面法线单向加宽 / 交付配置像素宽 / 近处不变 / 单调 /
- * 与真描边同口径的世界上界）、逐波生长 cell 式
- * （u=0 全隐、u=1 全显、随 u 单调不减、随 order 单调不增、0xFFFF 恒可见、独立模型逐值交叉验证）、
- * visibleOrderCount 取整、字节还原与丢弃阈值，以及无 GL 上下文时 shader 后端的回退契约。</p>
- */
+/** 验证 shader 数学参考的距离曲线、位移预算、生长边界、字节还原及无 GL 上下文时的失败出口。 */
 public class ShaderPathContractTest {
 
     @Test

@@ -4,16 +4,8 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder;
 import club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass;
 
 /**
- * 预览着色器的 CPU 参考模型：与 {@code preview.vert} / {@code preview.frag} 里同名同形的纯函数。
- *
- * <p><strong>为什么要有这个类</strong>：着色器能不能编译、能不能出正确像素只能真机验证，
- * 但「数值形状」可以在纯 JVM 内断言。把 GLSL 的公式在 Java 里原样复刻一份，再与 CPU 端
- * {@link ChainPreviewMeshBuilder.VisualParameters#alphaFor} 做逐点比对，就能在离线阶段证明
- * <b>legacy 与 shader 两档的距离淡出曲线同形</b>；否则用户切换 backend 会看到两套观感。</p>
- *
- * <p>本类不加载任何 GL，可在 headless 测试中直接调用。GLSL 侧改动时必须同步本类，
- * {@code ChainPreviewShaderContractTest} 用两套独立实现（Java 参考模型 + Java 内实现 GLSL
- * 表达式的镜像）互证，而不是断言源码字符串。</p>
+ * preview.vert/preview.frag 纯计算的 CPU 参考模型，供离线数值互证及生产 uniform 归一化复用。
+ * 距离曲线与 VisualParameters.alphaFor 逐点对照，GL 编译、像素和状态恢复另经实机验证。
  */
 public final class ChainPreviewShaderMath {
 
@@ -42,19 +34,7 @@ public final class ChainPreviewShaderMath {
     /** legacy 基线常量色 B（= ChainPreviewMeshBuilder.BASE_BLUE）。 */
     public static final float BUILTIN_COLOR_BLUE = 1.0F;
 
-    /**
-     * builtin 调色板（静态复用，只读）：六槽与 {@link ChainPreviewDrawPlan.Visuals.Colors} 的
-     * {@code BUILTIN_*_RGB} 同源（键名一一对应），默认即按大模式可区分。
-     *
-     * <p>本表会在每帧 uniform 路径上被取用，因此<strong>静态复用、不 clone</strong>（F4）；
-     * 调用方只能读。</p>
-     *
-     * <p><b>CHAIN 槽（下标 0）刻意不走 8bit 量化往返</b>：{@code round(0.9×255)=230}、
-     * {@code 230/255=0.9019608} 与 0.9F 差 1.96e-3，而 CHAIN 是默认档唯一被绘制的类别
-     * （其余五槽只在切到大模式/扩展子模式/远端/截断时出现），必须逐位等于 legacy 颜色流；
-     * 其余五槽只以 0xRRGGBB 声明，按 {@link #colorChannel(int, int)} 的 /255 换算取浮点
-     * ——与 config 档同一换算规则，不另立第二套口径。</p>
-     */
+    /** 六槽静态只读调色板；CHAIN 保留 legacy 精确 float 基色，其余按 RGB 常量换算，供每帧复用。 */
     private static final float[][] BUILTIN_COLOR_TABLE = {
         {BUILTIN_COLOR_RED, BUILTIN_COLOR_GREEN, BUILTIN_COLOR_BLUE},
         rgbTriple(ChainPreviewDrawPlan.Visuals.Colors.BUILTIN_AREA_RGB),
@@ -71,8 +51,7 @@ public final class ChainPreviewShaderMath {
 
     // ---------------------------------------------------------------- 语义类别表（真源：ChainPreviewSemanticClass） 语义类别（冻结）
 
-    // 语义类别常量**单一真源**：session-core 的 ChainPreviewSemanticClass（F3）。
-    // 本类不再自造 id；GLSL 侧因无法共享 Java 常量而保留字面量，注释互指。
+    // Java 语义 id 引用 ChainPreviewSemanticClass，GLSL 保留对应字面量与来源引用。
     /** 0 CHAIN_LOCAL CHAIN 默认子模式本地预测 → CHAIN 色。 */
     public static final int SEMANTIC_CHAIN_LOCAL = ChainPreviewSemanticClass.CHAIN_LOCAL;
     /** 1 AREA_LOCAL AREA 默认子模式本地预测 → AREA 色。 */
@@ -212,7 +191,7 @@ public final class ChainPreviewShaderMath {
         return clamp(animationProgress * totalTargets - orderFloor, 0.0F, 1.0F);
     }
 
-    /** 连锁序**亮度**权重下限的恒等值：{@code 1.0} = 关闭本能力（起点与最远都乘 1.0，逐值等于接线前）。 */
+    /** 连锁序 rgb 权重的恒等下限。 */
     public static final float ORDER_MIN_BRIGHTNESS_OFF = 1.0F;
 
     /**
@@ -232,7 +211,7 @@ public final class ChainPreviewShaderMath {
         return clamp(requested, 0.0F, 1.0F);
     }
 
-    /** 内部结构亮度系数的恒等值：{@code 1.0} = 关闭本能力（内部格线也乘 1.0，逐值等于接线前）。 */
+    /** 内部结构 rgb 亮度的恒等系数。 */
     public static final float INTERIOR_DIM_OFF = 1.0F;
 
     /**
@@ -250,20 +229,7 @@ public final class ChainPreviewShaderMath {
      */
     public static final float INTERIOR_TUBEEDGE_THRESHOLD = 4.0F;
 
-    /**
-     * 内部结构亮度系数（{@code uInteriorDim}）的 host 侧收敛（与写入边界同口径）。
-     *
-     * <p>{@code 1.0} 是恒等值：{@code preview.vert} 在 {@code uInteriorDim >= 1.0} 时完全不进入内部
-     * 压暗分支。NaN / Infinity 收敛为恒等而不是传播——与 {@link #orderMinBrightness(float)} 同取向
-     * （非法即关闭）：异常配置不得让内部格线静默变黑，也不得变成「未知乘数」。</p>
-     *
-     * <p><b>作用位置</b>：只乘颜色 rgb（{@code color = color * uInteriorDim}），不乘 alpha——
-     * alpha 只由「距离淡出 × 逐波生长 × uFadeAlpha」决定（与 {@link #orderWeight} 同一口径）。
-     * 描边 pass 不消费本值（描边色 {@code uColorChain} 即外轮廓，压暗它等于取消「外轮廓强」）。</p>
-     *
-     * @param requested 配置 / plan 给出的系数（可为 NaN / 越界）
-     * @return [0,1] 的系数；非法输入为 {@link #INTERIOR_DIM_OFF}
-     */
+    /** 将内部格线 rgb 亮度系数收窄到 [0,1]，非有限输入回退恒等值，供 host 上传复用。 */
     public static float interiorDim(float requested) {
         if (!isFinite(requested)) {
             return INTERIOR_DIM_OFF;
@@ -272,41 +238,13 @@ public final class ChainPreviewShaderMath {
     }
 
     /**
-     * 连锁序（appearOrder）**亮度**权重：与 {@code preview.vert} 的 orderWeight 分支逐值同形。
+     * 将有效 appearOrder 按目标总数归一化，返回从恒等值递减到配置下限的 rgb 权重。
+     * floor 固定序号格，与生长边界一致；未定义序号、非法总数或恒等下限返回 1。
      *
-     * <p><b>消费位置是颜色亮度，不再乘 alpha</b>（用户裁定：两套「越远越淡」乘在同一个量上会让
-     * 距离淡出与连锁序两个配置的语义互相污染，且远距 alpha 本已很小、再乘权重落进视觉噪声）。
-     * GLSL 侧是 {@code color = color * orderWeight}，位于面朝向明暗乘法<b>之外层</b>（两者是彼此
-     * 独立的乘数，不合并化简）；顶点 alpha 则完全不含本权重（{@code fade * growth * uFadeAlpha}）。
-     * 本方法只给出该亮度乘数本身，与 alpha 链路无交集——这正是「两个维度各自权威」的可断言形式。</p>
-     *
-     * <p>GLSL 侧（{@code preview.vert} 的 {@code main()}，与 {@link #growthWeight} 共用同一次
-     * aAux u16 还原）：</p>
-     * <pre>
-     *   t           = clamp(floor(min(appearOrder, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)
-     *   orderWeight = 1.0 - (1.0 - uOrderMinBrightness) * t
-     * </pre>
-     *
-     * <p><b>三条恒等出口</b>（必须与 GLSL 的短路判据逐条对应）：</p>
-     * <ul>
-     *   <li>{@code uOrderMinBrightness >= 1.0} ⇒ GLSL 根本不进入该分支（本模型以
-     *       {@code orderMinBrightness >= ORDER_MIN_BRIGHTNESS_OFF} 表达），权重恒 1.0，逐值等于接线前；</li>
-     *   <li>{@code uAppearSpan <= 0}（无同代目标总数 / 无 aAux）⇒ 恒 1.0；</li>
-     *   <li>出现序号未定义（u16 == 0xFFFF）⇒ 恒 1.0，绝不能按「序号 65535」把远处条柱算成最低权重。</li>
-     * </ul>
-     *
-     * <p><b>为什么分子先 floor 再除</b>：分母是「同代目标总数」，分子是「出现序号」。起点
-     * {@code order = 0} 给出 {@code t = 0}（权重 1.0），最远 {@code order >= span} 给出 {@code t = 1}
-     * （权重 = 下限）。取整口径与 {@link #growthWeight} 一致（按序号格），故同一格内的顶点权重完全相同，
-     * 不会在同一条柱内部出现权重跳变。</p>
-     *
-     * <p>未定义判定写成 {@code !(appearOrder < 0xFFFF)} 而不是 {@code >= 0xFFFF}：GLSL 的判据是
-     * {@code if (appearOrder < 65535.0)}，NaN 比较恒为 false ⇒ 未定义出口，两侧必须同结论。</p>
-     *
-     * @param orderMinBrightness 亮度权重下限（配置值；{@link #ORDER_MIN_BRIGHTNESS_OFF} = 关闭）
-     * @param appearOrder   顶点出现序号；{@code >= 0xFFFF} 视为未定义（恒 1.0）
-     * @param appearSpan    同代目标总数（归一化分母）；{@code <= 0} 表示无序号信息（恒 1.0）
-     * @return 顶点颜色亮度权重（乘在 rgb 上），落在 {@code [orderMinBrightness, 1]}
+     * @param orderMinBrightness 权重下限，非法值回退恒等亮度
+     * @param appearOrder 已还原的 u16 序号，未定义值为 65535
+     * @param appearSpan 真实目标总数，与 shader uAppearSpan 同源
+     * @return 用于 rgb 乘色的 [0,1] 权重
      */
     public static float orderWeight(float orderMinBrightness, float appearOrder, float appearSpan) {
         if (!(orderMinBrightness < ORDER_MIN_BRIGHTNESS_OFF) || !(appearSpan > 0.0F)) {
@@ -460,38 +398,7 @@ public final class ChainPreviewShaderMath {
         return Math.min(outlineWidenWorld(widthPx, pixelsPerWorldUnit, barThickness), remaining);
     }
 
-    /**
-     * 沿面法线位移的世界量上界：{@code max(0, 0.5 − barThickness)}（与 GLSL 逐式同形）。
-     *
-     * <p><strong>本方法是「外扩世界量上界」的单一真源</strong>：真描边
-     * （{@link #outlineWidenWorld(float, float, float)}）与屏幕最小宽度
-     * （{@link #minWidthWidenWorld(float, float, float)}）共用同一口径，两者在
-     * {@code preview.vert} 里都以同式 {@code max(0.0, 0.5 - uBarThickness)} 收窄。
-     * 原方法名 {@code maxOutlineWorld} 已随最小宽度接入同一上界而改名。</p>
-     *
-     * <p><strong>为什么是 {@code 0.5 − t} 而不是固定 0.5</strong>：条柱自身已占用
-     * {@code barThickness}，相邻条柱中心距 1 格，既有口径把外扩量与整厚一起计入间隙
-     * {@code 1 − 2×(t + w)}。固定 0.5 在默认厚度 0.045 下给出 {@code 1 − 2×0.545 = −0.09} 格
-     * （相邻条柱粘连）；取 {@code 0.5 − t} 后上界处该式恰好为 0。</p>
-     *
-     * <p><strong>为什么是完整 {@code t} 而不是半厚 {@code t/2}</strong>：几何上单侧到达半径是
-     * {@code t/2 + w}，故「不越出自身方块」的自然上界是 {@code 0.5 − t/2}。既有口径取
-     * {@code 0.5 − t}，对应到达 {@code 0.5 − t/2 < 0.5}、真实间隙
-     * {@code 1 − 2×(t/2 + w) = t > 0} —— 比自然上界更保守（留了半个厚度的余量），
-     * 且表达式仍只依赖一个既有 uniform。这是世界预算算法第 138 行的 Lead 裁定与 F-1 独立复算
-     * （{@code OutlineStrokeBoundsContractTest#expandedNeighborBarsMustNotOverlapForAnyThickness}）
-     * 的结果，不得自行改回 {@code 0.5} 或另立半厚口径。</p>
-     *
-     * <p><strong>联合预算（T52 已裁定并落地）</strong>：本上界是<strong>一份</strong>预算，不是每项一份。
-     * 最小宽度优先取用（功能性需求：保证远距可见性），真描边只能用剩余额度（装饰性需求），
-     * 故联合位移恒 {@code <= maxWidenWorld}。旧行为两项各自取上界、联合可达 {@code 2×(0.5 − t)}
-     * （t=0.045 时单侧到达 0.9325 格，越出自身方块并使相邻条柱重叠），已由
-     * {@link #outlineWidenWithinBudget(float, float, float, float)} 与
-     * {@link #displaceVertex} 的消耗式预算消除。</p>
-     *
-     * @param barThickness 条柱厚度（配置范围 0.005 ~ 0.2）；NaN 按最保守处理（0）
-     * @return &gt;= 0 的世界量上界
-     */
+    /** 按条柱世界厚度计算两项外扩能力共用的上界，最小宽度优先、描边消耗剩余预算。 */
     public static float maxWidenWorld(float barThickness) {
         if (Float.isNaN(barThickness)) {
             return 0.0F;
@@ -752,34 +659,9 @@ public final class ChainPreviewShaderMath {
     }
 
     /**
-     * 顶点位移后的局部坐标：与 {@code preview.vert} 的 {@code main()} 逐式同形。
-     *
-     * <p>这是「参考模型 = 真机跑的东西」的落地形态：测试不再断言「从 aPos 猜横向轴」的旧模型
-     * （那条实现已随 T51 删除），而是断言与 GLSL 同序的两次位移——先按最小屏幕宽度从 {@code aPos}
-     * 沿 {@code aDirection.xyz} 外扩，再把描边量加到结果上。GLSL 侧两处各以 {@code > 0} 门控，
-     * 本模型把门控折进「关闭即精确 0」的返回值，算术顺序与结果逐值一致。
-     * 零方向顶点（{@code aDirection = 0}）两项位移都乘 0 ⇒ 恒等退化。</p>
-     *
-     * <p><strong>联合上界（T52 修复）</strong>：两项位移消耗<strong>同一份</strong>
-     * {@link #maxWidenWorld(float)} 预算——最小宽度优先取满，描边只能用剩余额度
-     * （{@link #outlineWidenWithinBudget(float, float, float, float)}）。因此本方法的联合位移
-     * 恒 {@code <= maxWidenWorld}：min-width 吃满预算时描边位移精确为 0。修复前两项各自取上界，
-     * 联合可达 {@code 2×(0.5 − t)}（t=0.045 ⇒ 单侧到达 0.9325 格）会越出自身方块并与相邻条柱重叠。</p>
-     *
-     * <p>算术顺序刻意与 GLSL 一致（两次「原值 + 方向 × 位移量」的加法），不合并成一次乘法：
-     * 合并会改变单精度舍入，破坏「参考模型与 GLSL 逐值同形」这一前提。</p>
-     *
-     * @param positionX          相对 meshOrigin 的 X（GLSL aPos.x）
-     * @param positionY          相对 meshOrigin 的 Y
-     * @param positionZ          相对 meshOrigin 的 Z
-     * @param directionX         该顶点的显式面法线 X（GLSL aDirection.x；零向量表示不位移）
-     * @param directionY         面法线 Y
-     * @param directionZ         面法线 Z
-     * @param pixelsPerWorldUnit 像素 / 世界单位
-     * @param minScreenWidthPx   目标最小屏幕宽度（像素）；&lt;= 0 关闭
-     * @param barThickness       条柱厚度
-     * @param outlineWidthPx     描边外扩宽度（像素）；&lt;= 0 关闭（非壳段传 0）
-     * @return 位移后的局部坐标（长度 3）；两项都关闭时逐值等于输入
+     * 按显式面法线计算最小宽度与描边的共享预算位移，返回 object-space 坐标。
+     * 最小宽度优先，零方向保留原位置，覆盖 junction、连接点及方向退化路径。
+     * 位置仅提供投影输入，方向归显式属性所有。
      */
     public static float[] displaceVertex(
             float positionX, float positionY, float positionZ,

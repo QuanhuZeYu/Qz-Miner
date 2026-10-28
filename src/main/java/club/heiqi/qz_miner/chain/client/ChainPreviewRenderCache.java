@@ -31,7 +31,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
 
     static final long EFFECT_REFRESH_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(1L);
 
-    /** B1.3 signal 档的 fadeMode 稳定 id（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
+    /** signal 刷新策略的稳定配置 id。 */
     static final String SIGNAL_FADE_MODE_ID = "signal";
 
     interface TaskScheduler {
@@ -68,7 +68,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     /** 只读诊断：最近一次渲染线程交接的规模计数器（未接线时 null → 诊断行打 -1）。 */
     private volatile ChainPreviewScaleCounters lastScaleCounters;
 
-    /** B4.1 第二步：当前代的增量装配会话（构建线程持有；代/lifecycle 变化时 dispose 另起）。 */
+    /** 构建线程持有的代级增量会话，代或生命周期变化时释放并重建。 */
     private GenerationSession generationSession;
     private int generationSessionGeneration = Integer.MIN_VALUE;
     private long generationSessionLifecycleEpoch = Long.MIN_VALUE;
@@ -147,7 +147,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         latestVisualState.revision);
                     publishedMesh = ChainPreviewMesh.EMPTY;
                     pendingPublication.set(new MeshPublication(publicationKey, ChainPreviewMesh.EMPTY));
-                    // Lead 必修项 L-a：换代必须清 LOD 滞回记忆（同一目标跨代存在也不得残留）。
+                    // 换代清空 LOD 滞回记忆，使新代从当前相机条件开始判定。
                     meshBuilder.resetLodHysteresis();
                 }
                 schedule = true;
@@ -170,37 +170,25 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     }
 
     /**
-     * RenderWorld 只采样相机；状态 targets 不在此读取。
-     *
-     * <p>B1.3 刷新触发：{@code fadeMode=timer}（默认，逐字等于历史行为）恒按
-     * {@link #EFFECT_REFRESH_INTERVAL_NANOS} 提升 visual revision；{@code fadeMode=signal} 改为
-     * 「相机位移 &gt;= clientPreviewFadeRefreshDistance 或距上次提升 &gt;= clientPreviewFadeFallbackMs」。</p>
-     *
-     * <p>每帧路径只做标量读写与纯函数判定（零分配）；视觉设置快照仍按既有 1 Hz 节奏采样，
-     * 不随 signal 档逐帧重建。generation / lifecycle / world 变化仍由状态信号立即失效。</p>
-     *
-     * <p><b>已知代价（登记）</b>：signal 档把 recolor 频率从固定 1 Hz 提高到「位移 &gt;= 阈值 或
-     * 兜底到期」，而 chain recolor 每次仍会新建一份颜色数组（Builder 的不可变 mesh 契约，
-     * 本轮明确不做原地复用，避免把新颜色写进渲染线程可能正在上传的数组）。大链路（如 4096 目标）
-     * 真机若观察到 GC 压力，下一批用双缓冲 + publication 上传完成回执来消除，不要在本轮改动。</p>
+     * 渲染帧仅记录相机标量并判定视觉失效，目标快照由构建 worker 读取。
+     * timer 按固定窗口刷新，signal 按位移或到期刷新；视觉设置独立定时采样。
+     * recolor 生成新颜色数组，供渲染线程安全消费已发布的不可变 mesh。
      */
     void refreshForCamera(double cameraX, double cameraY, double cameraZ, long nowNanos) {
         boolean schedule = false;
         synchronized (taskLock) {
-            // B0.4：每帧只记录相机标量（零分配）；VisualParameters 只在提升视觉 revision 时冻结一次。
+            // 每帧更新相机标量，提升视觉修订时再冻结 VisualParameters。
             latestCameraX = cameraX;
             latestCameraY = cameraY;
             latestCameraZ = cameraZ;
-            // 后端档位热切换必须「下一帧生效」（后端热切换语义（下一帧生效））：每帧只做一次枚举引用比较（零分配），
-            // 引用变化才重建不可变快照。
+            // 每帧比较后端枚举，变化时立即重建并发布不可变视觉快照。
             PreviewRenderBackend configuredBackend = Config.clientPreviewRenderBackend;
             if (configuredBackend != lastConfiguredBackend) {
                 lastConfiguredBackend = configuredBackend;
                 visualSettings = ChainPreviewVisualSettings.fromConfig();
                 ChainPreviewVisualSettings.publish(visualSettings);
             }
-            // 视觉设置按既有 1 Hz 节奏采样（配置热更新通道），与 visual revision 提升解耦：
-            // signal 档可能逐帧提升 revision，但不得逐帧重建设置快照。
+            // 视觉设置独立定时采样，signal 的高频视觉修订复用同一设置快照。
             if (lastSettingsSampleNanos == Long.MIN_VALUE
                     || nowNanos - lastSettingsSampleNanos >= EFFECT_REFRESH_INTERVAL_NANOS) {
                 lastSettingsSampleNanos = nowNanos;
@@ -218,7 +206,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                         (nowNanos - lastEffectRefreshNanos) / 1000000L,
                         sampled.getFadeFallbackMs());
             } else {
-                // timer（默认，等于现状）；gpu 档尚未接线（B5.3），一并保持固定 1 Hz 提升节奏。
+                // timer 与 gpu 配置使用固定窗口调度 CPU 视觉修订，shader 的距离效果另按帧消费。
                 refreshDue = lastEffectRefreshNanos == Long.MIN_VALUE
                     || nowNanos - lastEffectRefreshNanos >= EFFECT_REFRESH_INTERVAL_NANOS;
             }
@@ -238,10 +226,10 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     }
 
     /**
-     * 取与目标同序的类别载体（task-16a 契约）。
+     * 取与目标快照迭代顺序一致的类别载体。
      *
-     * <p>索引 i 对应 {@code snapshot.getTargets()} 第 i 个迭代目标；a 侧保证长度等于目标数。
-     * 若长度不一致则降级为 null（Builder 全部按 UNDEFINED 处理）并告警，绝不静默错位。</p>
+     * <p>索引 i 对应 {@code snapshot.getTargets()} 的第 i 个目标。
+     * 长度不一致时告警并返回 null，由 Builder 将全部类别按 UNDEFINED 处理。</p>
      *
      * @param snapshot 本次构建的状态快照
      * @return 类别数组，或 null 表示降级为全部 UNDEFINED
@@ -323,7 +311,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     }
 
     /**
-     * B4.2：把当前代装配会话的容量峰值交接进调用方计数器（渲染线程；null 安全、零分配、无 GL）。
+     * 渲染线程将构建会话已采样的容量峰值交接到计数器。
      *
      * <p>会话在构建线程采样峰值（volatile 读交接），本方法只做一次最大值合并：不重置会话峰值、
      * 不改动既有计数、不触碰 GL；无会话 / counters 为 null 时无操作。</p>
@@ -396,7 +384,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
             publishedKey = emptyKey;
             publishedMesh = ChainPreviewMesh.EMPTY;
             pendingPublication.set(new MeshPublication(emptyKey, ChainPreviewMesh.EMPTY));
-            // Lead 必修项 L-a：lifecycle/世界切换入口同样清 LOD 滞回记忆。
+            // 生命周期或世界切换同时清空 LOD 滞回记忆。
             meshBuilder.resetLodHysteresis();
             disposeGenerationSessionLocked();
             subscription = taskSubscription;
@@ -487,7 +475,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
     }
 
     /**
-     * B4.1 第二步：按代取（或新建）增量装配会话。
+     * 按代复用或新建构建线程的增量装配会话。
      *
      * <p>代内复用同一会话（保留增量缓存与 LOD 滞回）；世代变化 / lifecycle 变化时 dispose 旧会话
      * 并新建（等效一次全量重建）。会话切换只发生在构建线程；dispose 仅置 volatile 位，
@@ -635,7 +623,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
                 snapshot.getRevision(),
                 visuals.revision);
             sessionTargetCount = snapshot.getTargetCount();
-            // B4.1 第二步：按代复用 GenerationSession 做增量装配（代内 extend 累积）。
+            // 代内 extend 复用 GenerationSession 累积缓存并增量装配。
             session = generationExtendSession(snapshot, visuals, settingsSnapshot);
             return ParallelTaskResult.CONTINUE;
         }
@@ -786,7 +774,7 @@ final class ChainPreviewRenderCache implements ChainPreviewState.Observer {
          * @return 冻结本次视觉 revision 的视觉参数（只在构建时构造，不在每帧路径上）
          */
         private VisualParameters toVisualParameters(ChainPreviewVisualSettings settings) {
-            // B2.4：LOD 档位经 settings 快照注入（lod=off 时逐字等于现状）。
+            // LOD 档位随 settings 快照注入，off 保留全部目标。
             boolean lodEnabled = PreviewLodMode.AUTO.id().equals(settings.getLodId());
             return new VisualParameters(
                 cameraX,

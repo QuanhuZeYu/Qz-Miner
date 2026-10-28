@@ -24,7 +24,7 @@ public final class BlockSeedSnapshot {
         this(origin, sampleBlock, sampleMeta, CompatAdapters.captureTileIdentity(sampleTileEntity), sampleTileEntity);
     }
 
-    /** 创建不持有 live TileEntity 的纯值种子快照。 */
+    /** 以方块、metadata 和纯值身份令牌创建种子快照。 */
     public BlockSeedSnapshot(ChainTarget origin, Block sampleBlock, int sampleMeta,
             TileIdentityToken sampleTileIdentity) {
         this(origin, sampleBlock, sampleMeta, sampleTileIdentity, null);
@@ -57,7 +57,7 @@ public final class BlockSeedSnapshot {
         return sampleTileIdentity;
     }
 
-    /** @return 既有预览/特殊模式兼容字段；普通 same-block 匹配不得读取 */
+    /** @return 预览与特殊模式的兼容引用；普通 same-block 匹配使用纯值 token */
     public TileEntity getSampleTileEntity() {
         return sampleTileEntity;
     }

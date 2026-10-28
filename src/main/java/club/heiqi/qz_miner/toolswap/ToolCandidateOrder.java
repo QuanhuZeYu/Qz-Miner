@@ -6,7 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * 选择器优先、槽位次序兜底的稳定候选排序。
+ * 按选择器优先级排序，同级沿槽位次序保持稳定。
  */
 public final class ToolCandidateOrder {
 

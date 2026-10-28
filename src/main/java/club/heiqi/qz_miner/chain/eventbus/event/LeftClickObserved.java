@@ -5,20 +5,8 @@ import java.util.UUID;
 import club.heiqi.qz_miner.chain.eventbus.ChainEvent;
 
 /**
- * 玩家左键方块被观测到事件（GT 线缆替换模式专用，T4 第三入口）。
- *
- * <p>守边界不越权：不可变事件，所有字段 {@code final}，构造后不可修改，
- * 可安全跨线程传递（Netty IO 线程 publish → 主线程 drain）。</p>
- *
- * <p>阶段8 D1：GT 线缆左键替换观测事件，与 {@link BlockBreakObserved}（CHAIN/AREA 模式）
- * 及 {@link RightClickObserved}（INTERACT 模式）对称——三者共同构成 T4 ARMED→PLANNING 的
- * 三事件入口（见「唯一写权威」）。GT 线缆左键替换必须以左键触发
- * （{@code PlayerInteractEvent.Action.LEFT_CLICK_BLOCK}），原 {@code GregTechCableReplacePlanner}
- * 直接调 {@code startPlanning} 旧链路删除后改 publish 本事件由状态机统一推进。</p>
- *
- * <p>命中偏移 {@code hitX/Y/Z} 字段对称保留：1.7.10 {@code PlayerInteractEvent} 左键分支
- * 未暴露命中偏移，{@code GregTechCableReplacePlanner} publish 时填 0；右键路径才需精确命中点
- * 供 INTERACT 模式 flood fill 方向判定，GT 线缆替换走 flood fill 不依赖命中偏移。</p>
+ * GT 线缆左键观测的不可变上下文，供状态机从 ARMED 进入规划。
+ * Forge 1.7.10 左键事件缺少命中偏移，生产入口填零，线缆 flood fill 按结构连接遍历。
  */
 public final class LeftClickObserved extends ChainEvent {
 

@@ -3,20 +3,18 @@ package club.heiqi.qz_miner.config;
 /**
  * {@code client.clientPreviewAnimationPhase} 的取值域。
  *
- * <p>id 是 YAML / UI 选项的稳定文本，不随枚举序数变化；{@link #ids()} 供 Schema options，
- * {@link #fromId(String)} 供语义校验收窄（未知返回 null，由调用方报错，不夹取）。</p>
- *
- * <p>order 用 appearOrder 段；hash 用坐标稳定哈希，两档都不引入波表。</p>
+ * <p>稳定文本 id 用于 YAML 与 UI；ids 提供 schema 选项，fromId 精确解析，未知值交调用方报错。</p>
+ * <p>声明 order/hash 相位来源，供后续生产绘制接入。</p>
  */
 public enum PreviewAnimationPhase {
 
-    /** 相位来自出现序号 appearOrder（本轮目标默认）。 */
+    /** 相位来自出现序号 appearOrder。 */
     ORDER("order"),
 
     /** 相位来自坐标 + 代次的稳定哈希。 */
     HASH("hash");
 
-    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
+    /** 默认档位。 */
     private static final PreviewAnimationPhase DEFAULT_VALUE = ORDER;
 
     private final String id;
@@ -53,7 +51,7 @@ public enum PreviewAnimationPhase {
         return null;
     }
 
-    /** @return 本轮默认档（Lead 裁定：不得超前于实现） */
+    /** @return 默认档位 */
     public static PreviewAnimationPhase defaultValue() {
         return DEFAULT_VALUE;
     }

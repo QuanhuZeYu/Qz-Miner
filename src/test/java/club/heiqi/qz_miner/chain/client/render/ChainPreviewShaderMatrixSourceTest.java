@@ -10,34 +10,9 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * 显式相机矩阵的接线契约（T48c-A）。
- *
- * <p>三件事必须在纯 JVM 内可证伪，否则「换成显式 uniform」只是把不可观测的失败换个位置：</p>
- * <ol>
- *   <li><b>矩阵来源</b>：相机相对 origin 必须取 <b>plan 的 origin</b>（与 renderer 的
- *       {@code glTranslated}、legacy 后端同源），且在 double 域相减——取值路径已下沉为纯函数
- *       {@link ChainPreviewShaderBackend#originRelativeTo(ChainPreviewDrawPlan, double, double, double, double[])}，
- *       断言其数值而不是源码文本；</li>
- *   <li><b>失败出口</b>：自检 / 读取失败 ⇒ 一次性 {@code unavailable} ⇒
- *       {@link ChainPreviewShaderBackend#ensureReady()} 恒返回 false（renderer 既有的一次性永久回退
- *       legacy 路径随之生效，不新增回退机制），且失败原因进 {@code describe()}；</li>
- *   <li><b>必备 uniform</b>：链接后必须校验 location，缺失即整体不可用——清单内容用反射对账，
- *       失败语义按<b>实际调用</b>断言（未链接的程序在任何环境都查不到 location ⇒ 必须抛出<b>完整缺失名单</b>）。</li>
- * </ol>
- *
- * <p><b>为什么不再读 Java 源码文本</b>：原先这一层断言「applyUniforms 里有没有写
- * {@code plan.getOriginX()} / {@code uploadCameraMatrices(} / {@code if (!program.setModelView(…))}」——
- * 重命名即误报、把上传整段删掉却可能照样绿。现在：能下沉成纯函数的（origin 换算、相机扭曲判定）
- * 按数值断言；失败路径按<strong>实际调用</strong>断言（headless 下矩阵读取必然失败，走的就是真机上
- * 「内建矩阵失同步」的同一失败出口）。<b>矩阵读回 / 相乘 / 上传本身需要真实 GL 上下文</b>
- * （headless 下固定管线矩阵栈不存在），这部分只有真机验证能覆盖，见类注释与 shader 头部记录。</p>
- *
- * <p><b>可达性边界（实测）</b>：{@code applyUniforms} 的第一步是读 {@code RenderManager.renderPosX}，
- * 而测试运行时初始化原版渲染类会抛
- * {@code NoSuchMethodError: org.lwjgl.opengl.DisplayMode.<init>(int, int)}（lwjgl3ify 兼容层）；
- * {@code draw} 的第一步 {@code glGetInteger} 在无上下文时同样先失败。故「读回 → CPU 相乘 → 上传
- * mvp/mv → 自检」整条链在 headless 下不可达（真机验证覆盖），本类改按可到达的等价面断言：
- * 纯函数数值（origin / 相机扭曲）+ 失败出口的实际后果链（锁存 ⇒ describe ⇒ ensureReady）。</p>
+ * 按数值验证 plan 原点换基与相机扭曲判据，按真实调用验证矩阵失败锁存、诊断和 ensureReady 后果链。
+ * uniform 清单反射对账并验证未链接时的缺失结果。
+ * RenderManager 的 lwjgl3ify 初始化及 GL 上下文使完整读回、相乘、上传链在离线环境不可达，该链另经实机确认。
  */
 public class ChainPreviewShaderMatrixSourceTest {
 
@@ -105,19 +80,7 @@ public class ChainPreviewShaderMatrixSourceTest {
         Assert.assertEquals(1.5D, out[2], 0.0D);
     }
 
-    /**
-     * 矩阵来源不可信 ⇒ 一次性锁存为不可用 ⇒ 下一帧 {@code ensureReady()} 返回 false
-     * （renderer 既有的一次性永久回退 legacy 随之生效，不新增回退机制），且原因可读。
-     *
-     * <p>断言打在<b>失败出口本身</b>（{@code markMatrixSourceUntrusted}）的后果链上，而不是
-     * 「这个方法里有没有写 {@code unavailable = true} / {@code matrixSourceFailure = reason}」：
-     * 锁存后必须同时满足「describe 标 untrusted 且带原因」「failure 同步非空」「ensureReady 恒 false」。</p>
-     *
-     * <p><b>为什么不到</b> {@code applyUniforms}：它第一步就读 {@code RenderManager.renderPosX}，
-     * 而本测试运行时（lwjgl3ify 兼容层）初始化原版渲染类的 {@code <clinit>} 会直接抛
-     * {@code NoSuchMethodError: org.lwjgl.opengl.DisplayMode.<init>(int, int)} ⇒ 该路径在纯 JVM 内
-     * 不可达，只能真机验证。同理 {@code draw} 的第一句 {@code glGetInteger} 在无上下文时也先失败。</p>
-     */
+    /** 调用矩阵失败出口，验证锁存原因、describe 诊断与后续 ensureReady=false 的真实结果。 */
     @Test
     public void matrixFailureLatchMakesBackendUnavailableAndObservable() throws Exception {
         ChainPreviewShaderBackend backend = new ChainPreviewShaderBackend();

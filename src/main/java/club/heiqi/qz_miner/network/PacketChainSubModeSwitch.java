@@ -45,14 +45,7 @@ public class PacketChainSubModeSwitch implements IMessage {
         buf.writeInt(subModeOrdinal);
     }
 
-    /**
-     * 把 wire 上的 ordinal 解析为子模式：越界（负数与未知编号）一律回退 {@code null}，
-     * 调用方据此跳过玩家状态写入。
-     *
-     * <p>wire → 枚举的映射是纯计算，独立为包级纯函数后可在纯 JVM 内按值守
-     * （{@code PacketChainSubModeSwitchProtocolTest}）：删掉边界判断会直接数组越界，
-     * 把回退值改成兜底模式会被断言抓住。</p>
-     */
+    /** 将合法 wire ordinal 映射为子模式，越界返回 null 交主线程拒绝。 */
     static ChainSubMode resolveSubMode(int ordinal) {
         ChainSubMode[] subModes = ChainSubMode.values();
         return ordinal >= 0 && ordinal < subModes.length ? subModes[ordinal] : null;
@@ -85,13 +78,11 @@ public class PacketChainSubModeSwitch implements IMessage {
                 if (state.getSelectedSubMode() == previousSubMode) {
                     return;
                 }
-                // 守跨线程只经事件总线：publish 在 ServerMainThreadDispatcher.run lambda 内（line 49），已收口主线程
-                // 阶段3影子并行：保留旧 setPlayerSelectedSubMode，新链路仅推进状态机观测
-                // 输入事件 generation 传 0 豁免代际判定
+                // 主线程更新玩家子模式并发布观测，输入代际由状态机按当前阶段处理。
                 if (MyMod.chainEventBus != null) {
                     ChainMode newMode = state.getSelectedMode();
                     ChainSubMode newSubMode = state.getSelectedSubMode();
-                    // 子模式刚被 set，但若当前主模式不含子变体，newSubMode 可能为 null；防御性兜底
+                    // 主模式缺少子变体时，用 CHAIN_BASE 形成完整观测。
                     if (newSubMode == null) {
                         newSubMode = ChainSubMode.CHAIN_BASE;
                     }

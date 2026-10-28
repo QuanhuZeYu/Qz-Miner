@@ -99,8 +99,7 @@ public final class ChainStateService {
                     (EntityPlayerMP) player);
         }
         state.resetAcceptedTunnelDirectionSource();
-        // 阶段8 块3：删旧 syncPlayerState 调用（八字段同步链已删）。
-        // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN/PlanCompleted 下发，无需此处兜底。
+        // 客户端配置由 ChainConfigProjectionBridge 在登录与规划完成时刷新。
     }
 
     private void retirePlayerState(ChainPlayerState state, String reason) {
@@ -108,7 +107,7 @@ public final class ChainStateService {
         removeDeliveredDropOwner(state);
     }
 
-    /** 仅服务端主线程调用；资产已交付后才回收退休 owner，不触碰新接管的运行态。 */
+    /** 服务端主线程在资产交付完毕后，按 owner identity 回收退休状态。 */
     public void removeDeliveredDropOwner(ChainPlayerState state) {
         if (state != null && state.isPendingRemoval() && state.getDropBuffer().isEmpty()) {
             playerStates.remove(state.getPlayerUUID(), state);
@@ -116,8 +115,8 @@ public final class ChainStateService {
     }
 
     /**
-     * 服务端停止时在玩家清理之后调用。旧资产仍在内存可领取，但不带入下个存档自动投放。
-     * 不持有 World/Player，也不提供 JVM 退出后的持久化保证。
+     * 玩家清理后将待交付资产移入本进程的停止缓冲，供显式命令恢复。
+     * 缓冲仅持有玩家标识和掉落数据，存续期为当前 JVM。
      */
     public void suspendDropsOnServerStopping() {
         suspendedPlayerDrops.values().forEach(buffers -> buffers.removeIf(ChainPlayerDropBuffer::isEmpty));
@@ -134,8 +133,7 @@ public final class ChainStateService {
 
     /**
      * 运维命令在服务端主线程显式恢复停止前资产，只释放到指定在线玩家当前位置。
-     * 每个 buffer 独立失败保留；已生成部分由既有 helper 从缓冲移出，重复执行不会再次生成。
-     * 不使用旧世界坐标或重生点，也不合并到当前运行态。
+     * 每个 buffer 独立保留失败部分，helper 移出已生成部分；释放位置取当前玩家，资产继续独立于运行态。
      *
      * @return 仍未交付的聚合掉落栈数；0 表示该玩家已无停止资产待恢复
      */
@@ -167,7 +165,7 @@ public final class ChainStateService {
         return pendingStacks;
     }
 
-    /** 包内资产快照供生命周期核对；游戏内恢复经显式命令入口，不向外暴露可变缓冲。 */
+    /** 包内返回资产列表快照供生命周期核对；游戏内恢复经显式命令入口。 */
     List<ChainPlayerDropBuffer> getSuspendedPlayerDrops(UUID playerUUID) {
         List<ChainPlayerDropBuffer> buffers = suspendedPlayerDrops.get(playerUUID);
         if (buffers == null) return Collections.emptyList();
@@ -204,11 +202,7 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setChainKeyPressed(pressed);
 
-        // 阶段8 块2：删旧 stopPlayerExecution 收口（G1 掉落窗口保护）。
-        // 旧逻辑：松键+isExecuting → stopPlayerExecution（setExecuting false）会破坏 G1 掉落窗口——
-        // RUNNING 时松键 setExecuting false 致 ChainDropCollector:32 跳过收集。
-        // 新链路 ARMED 模型：RUNNING 时松键不中断连锁，跑完为止（已裁定可接受）。
-        // 阶段8 块3：删旧 syncPlayerState 调用（八字段同步链已删，chainKeyPressed 是服务端内部信号，不同步回客户端）。
+        // 此处存储按键电平；网络松键入口先结算工具恢复尝试，再发布强制清理，交执行桥关闭窗口。
         MyMod.LOG.debug("[ChainState] Player {} chain key pressed={}", playerUUID, pressed);
     }
 
@@ -216,9 +210,7 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedMode(mode);
 
-        // 阶段8 块2：删旧 isExecuting + stopPlayerExecution 收口（理由同上，保护 G1 掉落窗口）。
-        // 新链路：RUNNING 时切模式不中断连锁。
-        // 阶段8 块3：删旧 syncPlayerState 调用（mode 是客户端本地选择，不需服务端同步回客户端）。
+        // 新模式供后续任务使用，当前任务沿冻结会话继续执行。
         MyMod.LOG.debug("[ChainState] Player {} selected mode={}", playerUUID, mode);
     }
 
@@ -232,9 +224,7 @@ public final class ChainStateService {
         ChainPlayerState state = getOrCreatePlayerState(playerUUID);
         state.setSelectedSubMode(subMode);
 
-        // 阶段8 块2：删旧 isExecuting + stopPlayerExecution 收口（保护 G1 掉落窗口）。
-        // 新链路：RUNNING 时切子模式不中断连锁。
-        // 阶段8 块3：删旧 syncPlayerState 调用（subMode 是客户端本地选择，不需服务端同步回客户端）。
+        // 新子模式供后续任务使用，当前任务沿冻结会话继续执行。
         MyMod.LOG.debug("[ChainState] Player {} selected sub mode={}", playerUUID, state.getSelectedSubMode());
     }
 
@@ -266,17 +256,7 @@ public final class ChainStateService {
             clientState.getRequestedChainRadius(), clientState.getRequestedChainMaxBlocks());
     }
 
-    /**
-     * 阶段8 块3：删除旧 syncPlayerState（八字段同步链已删）。
-     *
-     * <p>原方法组装 {@code PacketChainStateSync} 下发 8 字段（chainKeyPressed/executing/mode/subMode/
-     * executionStatus/radius/maxBlocks/matchedCount）到客户端。阶段8 块3 后：</p>
-     * <ul>
-     *   <li>phase 由 {@code ClientPhaseProjection} 承载（阶段6 投影主线，块3 G2 夺权）。</li>
-     *   <li>radius/maxBlocks/matchedCount 由 {@code ChainConfigProjectionBridge} 订阅 PlanCompleted/LOGIN 下发新 config 包。</li>
-     *   <li>mode/subMode/chainKeyPressed 是客户端本地选择/服务端内部信号，不同步回客户端。</li>
-     * </ul>
-     */
+    /** 玩家生命周期入口统一维护运行态、工具轮次与待交付资产。 */
 
     private void onPlayerStateChanged(PlayerStateEvent event) {
         UUID playerUUID = event.player.getUniqueID();
@@ -284,8 +264,7 @@ public final class ChainStateService {
             case LOGIN:
                 cleanupAutoToolSwapRound(playerUUID);
                 getOrCreatePlayerState(playerUUID);
-                // 阶段8 块3：删旧 syncPlayerState（八字段链已删）。
-                // 客户端 config 由 ChainConfigProjectionBridge 订阅 LOGIN 下发基础 config 包。
+                // 配置投影桥订阅 LOGIN，下发本次连接的基础配置。
                 break;
             case RESPAWN:
                 getOrCreatePlayerState(playerUUID);

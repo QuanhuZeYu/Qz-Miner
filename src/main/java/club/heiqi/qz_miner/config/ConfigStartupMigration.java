@@ -62,7 +62,7 @@ final class ConfigStartupMigration {
                     } catch (ConfigException invalidMigration) {
                         return recoverInvalid(yaml, invalidMigration);
                     }
-                    // 合法业务候选的备份/写入失败必须传播，禁止误当无效配置回退默认。
+                    // 合法候选的备份与写入异常向上传递，由调用方保留失败状态。
                     backup(yaml, "pre-5.3-budget-migration");
                     ConfigStorage.write(yaml.toPath(), migrated);
                     return migrated;
@@ -111,7 +111,7 @@ final class ConfigStartupMigration {
         backup(yaml, "invalid");
         ConfigDocument defaults = ConfigDocument.defaults(QzMinerConfigSchema.SCHEMA);
         ConfigSemanticValidator.requireValid(defaults);
-        // 备份完成后原子替换；恢复写入失败也保留原文件，不提前删除。
+        // 备份成功后原子替换；写入失败保留原文件。
         ConfigStorage.write(yaml.toPath(), defaults);
         return defaults;
     }

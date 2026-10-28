@@ -12,16 +12,8 @@ import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import net.minecraft.network.INetHandler;
 
 /**
- * common 网络边界：CommonProxy / NetworkMain / S2C packet 签名不得引用 client / LWJGL。
- *
- * <p>JVM 反射只能证明<strong>已解析</strong>类型；对未加载 client 类的保证改用编译产物常量池文本判定
- * （{@link CompiledClasses#references(Class, String)}：按类加载器资源定位 .class，整池按 ISO-8859-1
- * 解码后做子串判定），既不触发 Class.forName 解析 client 类，也不实例化 {@link NetworkMain}——
- * 其构造函数会触碰 FML NetworkRegistry，纯 JVM 无 LaunchClassLoader）。</p>
- *
- * <p><b>这一形态证伪什么</b>：common 侧产物里出现 client / LWJGL 的类型引用、成员引用，或仅仅把它们
- * 写进字符串——{@code Class.forName("net.minecraft.client...")} 这类反射式依赖同样被拦下；
- * <b>守不到什么</b>：它也会命中「恰好提到该名字」的调试文案，故失败时先分辨是引用还是文案。</p>
+ * 验证 common 网络入口的签名与编译产物保持 dedicated server 可加载。
+ * CompiledClasses 读取常量池文本，类型引用及反射类名字符串均参与检查；命中文案时需人工区分来源。
  */
 public class CommonNetworkClassBoundaryTest {
 
@@ -148,8 +140,7 @@ public class CommonNetworkClassBoundaryTest {
     }
 
     /**
-     * 编译产物常量池不得出现 client / LWJGL 名字。定位（类加载器资源）与判定（ISO-8859-1 常量池文本子串）
-     * 全部走共享工具 {@link CompiledClasses#references(Class, String)}——本类不再自带私有常量池读取副本。
+     * 通过 {@link CompiledClasses#references(Class, String)} 检查编译产物中的 client/LWJGL 依赖文本。
      */
     private static void assertClassBytecodeClean(Class<?> type) {
         for (String forbidden : FORBIDDEN_SUBSTRINGS) {

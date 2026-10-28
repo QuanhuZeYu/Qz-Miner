@@ -43,7 +43,7 @@ public final class PlayerManager {
     /**
      * 仅服务端停止事件主线程调用的同步清理入口。
      *
-     * <p>先完成玩家生命周期清理，再由调用方关闭 dispatcher，避免 stop 后 FIFO 拒绝导致清理丢失。</p>
+     * <p>先完成玩家生命周期清理，再由调用方关闭 dispatcher，使清理事件在停机前完成分发。</p>
      */
     public static void clearAllPlayersOnServerStopping() {
         clearAllPlayersOnServerThread();
@@ -104,7 +104,7 @@ public final class PlayerManager {
         return players.size();
     }
 
-    /** vanilla 登录流程完全提交后登记 endpoint。重复提交不重复发布 LOGIN。 */
+    /** vanilla 登录流程提交后登记 endpoint，仅首次登记发布 LOGIN。 */
     public static void onVanillaLoginCommitted(EntityPlayerMP player) {
         if (instance == null || player == null) {
             return;
@@ -162,7 +162,7 @@ public final class PlayerManager {
         QzEvents.post(new PlayerStateEvent(player, Reason.DIMENSION_CHANGE));
     }
 
-    /** vanilla 断开开始时按 endpoint identity 摘除；旧连接不得误删新连接。 */
+    /** vanilla 断开开始时，按 endpoint identity 摘除对应连接。 */
     public static void onVanillaDisconnect(EntityPlayerMP player, IChatComponent reason) {
         if (instance == null || player == null) {
             return;

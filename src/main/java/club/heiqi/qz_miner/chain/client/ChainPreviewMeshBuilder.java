@@ -19,41 +19,17 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewScaleCounters;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * 把 preview target 增量转换为由 quad 面组成的无重叠边框网格。
+ * 将去重预览目标装配为 quad 边框网格，在目标、可见边和 quad 安全点观察 WorkGate。
  *
- * <p>拓扑会在每个 target、可见边和 quad 前观察 {@link WorkGate}；视觉参数在 session
- * 创建时冻结，后续可独立替换距离效果而不改变 target/邻接算法。</p>
+ * <p>目标容量有界于 MAX_RENDER_TARGETS，超限同时发布网格截断和会话 overflow 状态。
+ * aAux 的布局由 ChainPreviewMesh 声明：appearOrder 与 semanticClass 归属最小 incident 目标，
+ * tubeEdge 使用首写者；junction 先发射使当前槽位落在 0/1 与 AUX_UNDEFINED。非法类别保留几何并记降级计数。
+ * LOD 以目标中心 alpha 和双阈值滞回决定包含集，剔除目标释放配额；滞回记忆满时清空。
+ * LOD 包含集变化会压缩 appearOrder，动画生长窗口可能随修订跳变。</p>
  *
- * <p>B0.7：target 先做有界去重（{@link #MAX_RENDER_TARGETS} 个唯一坐标）再占用配额，
- * 重复 target 不再消耗配额，也不改变 {@code ChainPreviewState} 的计数语义。</p>
- *
- * <p>语义顶点流 aAux（顶点数 × {@link ChainPreviewMesh#AUX_BYTES_PER_VERTEX}）：x=semanticClass、
- * y=tubeEdge、z/w=appearOrder（u16 小端）。appearOrder 为 target 进入预览集合的序号（0 起，
- * 同代递增、跨代重置）；顶点按 {@link MeshVertexKey} 去重后，同一顶点的 appearOrder 取所有
- * incident 写入者的最小值，无归属时写 0xFFFF。tubeEdge 取首写者，本轮实测可达 {0, 1, 255}：
- * 相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点为
- * {@link ChainPreviewMesh#AUX_UNDEFINED}；槽位 2/3 在「junction 相先于 tube 相」的首写策略下
- * 不可达（每端点 4 角点已被 junction 的两个面全覆盖），留待 B2.3/B3.x 再评估。
- * <p>B2.4 LOD（lod=auto）：构建期按方块中心 alpha &lt;= lodMinAlpha 剔除远处散点目标，
- * 双阈值 enter=lodMinAlpha / exit=lodMinAlpha+{@link VisualParameters#LOD_EXIT_ALPHA_MARGIN} 防抖；
- * 剔除不占用 4096 配额，也不生成任何顶点/索引/aux。已知限制（本轮登记，不引入高风险改动）：
- * (a) 剔除集合变化会重排 appearOrder（连续性不变、序号压缩），lod=auto + animation 开启时
- * 生长窗口可能跳变一次；(b) 滞回记忆满 {@link #MAX_RENDER_TARGETS} 时整体清空，丢一次滞回。
- * 超距合并/外壳档位（拓扑改写）未实现，下一批评估。</p>
- *
- * semanticClass 由构建入口的类别载体按目标出现序号提供（id 冻结源 {@link ChainPreviewSemanticClass}，
- * 即语义类别表（真源：ChainPreviewSemanticClass） 的 0..5 或 255 UNDEFINED），去重后与 appearOrder 同源、取最小 incident 目标；
- * 载体缺失/越界/非法值一律按 255 兜底并计数，见
- * {@link BuildSession#getSemanticClassFallbackCount()} 与 {@link #getSemanticClassFallbackTotal()}。</p>
- *
- * <p>B4.2 有界容量与峰值：唯一上限仍是 {@link #MAX_RENDER_TARGETS}（= clientPreviewMaxTargetsHardCap 的
- * 默认/夹具上限 4096，不新造第二套上限语义）；超限走既有 truncated 语义（网格 {@code isTruncated()}
- * 与会话 {@link GenerationSession#isOverflowed()} 同时可见），不做静默截断。顶点/索引/aux/可见边均为
- * unique 目标的派生量，由 tests 断言其受 168×块数 / 288×块数 / 4×顶点 / 12×块数 的派生上界约束
- * （即孤立方块实测包络：168 顶点 / 288 索引 每块，见 {@code ChainPreviewMeshBuilderTest}；
- * T51 方案 A 顶点按面分裂前为 64 顶点 / 288 索引）。
- * 峰值由 {@link GenerationSession} 在构建线程采样，并经
- * {@link GenerationSession#publishCapacityInto(ChainPreviewScaleCounters)} 交接进既有规模计数器通道。</p>
+ * <p>代级会话按新增位置与邻域缓存可见段，装配仍遍历完整网格。
+ * 峰值计数在构建线程采样，经 ChainPreviewScaleCounters 发布。
+ * 所有缓存归构建线程，主线程通过请求位触发清理。</p>
  */
 public class ChainPreviewMeshBuilder {
 
@@ -63,12 +39,12 @@ public class ChainPreviewMeshBuilder {
     /** debug 计数器：加载语义类别载体时按 255 兜底的目标准数（跨 session 累加）。 */
     private static final AtomicLong SEMANTIC_CLASS_FALLBACKS = new AtomicLong();
     /**
-     * LOD 双阈值记忆：被剔除目标的位置，避免在 enter/exit 之间翻转闪烁。
+     * LOD 双阈值记忆保存被剔除位置，enter/exit 间沿用前次判定。
      * **只归构建线程所有**（无锁），有界于 {@link #MAX_RENDER_TARGETS}；
      * 生命周期/换代经 {@link #resetLodHysteresis()} 置位请求，由构建线程消费后清理。
      */
     private final Set<BlockPos> lodCulledPositions = new HashSet<BlockPos>();
-    /** 清理请求位：主线程置位、构建线程消费；避免主线程直接触碰构建线程的集合。 */
+    /** 主线程写入清理请求，构建线程消费并释放其自有集合。 */
     private final LodResetSignal lodHysteresisResetSignal = new LodResetSignal();
     private static final float BASE_RED = 0.25F;
     private static final float BASE_GREEN = 0.9F;
@@ -138,28 +114,9 @@ public class ChainPreviewMeshBuilder {
     private static final float FACE_SHADING_X = 0.78F;
 
     /**
-     * 面法线 → 亮度系数（view-independent face shading）。
-     *
-     * <p><b>取值依据</b>（三条，缺一不可）：</p>
-     * <ol>
-     *   <li><b>相对排序沿用原版固定管线的面明暗</b>（顶 &gt; 侧面 &gt; 底），但压缩了动态范围：
-     *       预览条柱是自发光提示（alpha 混合、不走光照模型），对比度过强会在暗背景上显得「脏」，
-     *       故取 0.72 ~ 1.00 而不是原版方块明暗的 0.5 ~ 1.0。</li>
-     *   <li><b>四个侧面分三级</b>（+Z 0.90 / −Z 0.84 / ±X 0.78），保证相邻两面之间有可见台阶、
-     *       棱线不糊；±X 同值是为了让相机绕圈时没有固定的「亮侧」偏置。</li>
-     *   <li><b>必须是可逐位复现的十进制字面量</b>：GLSL 侧 {@code preview.vert} 的
-     *       {@code faceShading()} 写同一组字面量，两侧都是「字面常量 × 同一 palette 常量」的
-     *       单次 IEEE 单精度乘法 ⇒ 结果逐位一致。一旦把系数改成表达式（mix / lerp / 点积），
-     *       这条性质立即失效——两侧会因运算顺序或精度差异分叉。</li>
-     * </ol>
-     *
-     * <p>零方向 / 未定义方向返回 1.0（恒等兜底）：不得压暗无方向顶点（T51 后顶点按面分裂，
-     * 正常路径不产生零方向顶点，这里是防御）。</p>
-     *
-     * @param normalX 面法线 X（±1 或 0）
-     * @param normalY 面法线 Y
-     * @param normalZ 面法线 Z
-     * @return 亮度系数（0.72 ~ 1.00，或恒等 1.0）
+     * 按面法线返回压缩动态范围的亮度系数，维持顶、侧、底的体积关系。
+     * Java 与 GLSL 使用同一字面系数和判定顺序，保持单次 float 乘色的舍入一致性。
+     * 零方向及未定义方向使用恒等亮度。
      */
     public static float faceShading(float normalX, float normalY, float normalZ) {
         if (normalY > 0.5F) {
@@ -237,7 +194,7 @@ public class ChainPreviewMeshBuilder {
     }
 
     /**
-     * 构建线程：LOD 双阈值判定（lod=auto），语义与 B2.4 完全一致——
+     * 构建线程按目标中心 alpha 与 LOD 双阈值判定包含集：
      * fresh 目标 alpha &lt;= enter 剔除；已在记忆中的目标必须 alpha &gt;= exit 才恢复；
      * 记忆满 {@link #MAX_RENDER_TARGETS} 时整体清空（登记：丢一次滞回）。判定顺序由调用方的
      * 目标顺序决定，增量路径必须按时间序逐个槽位判定，才能与全量扫描得到同一滞回状态。
@@ -265,7 +222,7 @@ public class ChainPreviewMeshBuilder {
             return false;
         }
         if (memory.size() >= MAX_RENDER_TARGETS) {
-            // 有界保护：记忆满即清空（登记为已知限制：丢一次滞回），重新进入双阈值周期。
+            // 记忆满时整体清空并开始新周期，该边界会丢弃一次滞回状态。
             memory.clear();
         }
         memory.add(position);
@@ -274,13 +231,8 @@ public class ChainPreviewMeshBuilder {
     }
 
     /**
-     * 创建可跨 tick 恢复的 CPU build session。
-     *
-     * <p><b>方向统一（B4.1 第二步）</b>：输入按**生产快照序（最新→最早）**解释，
-     * 装配按**时间序（最早→最新）**进行；meshOrigin = 代内首个（最早）目标，
-     * 顶点/aux 顺序与 {@link GenerationSession} 一致，避免出现方向相反的第二真相源。
-     * 本入口与生产同序、保留用于测试/参考，不再是生产装配路径（生产走
-     * {@link GenerationSession#beginRevision} 分片形态）。</p>
+     * 参考构建入口：输入按生产快照的最新到最早顺序接收，翻转后按时间序装配。
+     * 最早目标作为锚点，顶点与 aux 顺序与 GenerationSession 一致；生产使用代级分片修订入口。
      */
     public BuildSession begin(Iterable<ChainTarget> previewTargets, VisualParameters visualParameters) {
         List<ChainTarget> targets = productionOrder(previewTargets);
@@ -303,14 +255,9 @@ public class ChainPreviewMeshBuilder {
     }
 
     /**
-     * 携带目标语义类别的构建入口（B2.3）。
-     *
-     * <p>semanticClasses 与 previewTargets 的**喂入顺序**严格同序：索引 i 即第 i 个喂入目标
-     * （{@code RenderSnapshot.getTargets()} 为最新→最早）。装配时目标与类别数组一起翻转为
-     * 时间序，因此类别始终跟随其目标，不因方向统一而错位。取值见语义类别表（真源：ChainPreviewSemanticClass）：
-     * 0 CHAIN_LOCAL / 1 AREA_LOCAL / 2 INTERACT_LOCAL / 3 SUB_MODE_LOCAL / 4 REMOTE_PREDICTED /
-     * 5 TRUNCATED / 6 DEFERRED / 7 EXECUTED / 255 UNDEFINED。传 null 表示未提供类别（全部按 255，不计降级）；数组短于
-     * 目标数或元素非法时仅对应目标按 255 兜底并计数，前面的类别绝不错位。</p>
+     * 目标与类别按输入索引一一对应，并共同翻转为时间序装配。
+     * null 类别载体表示全部 UNDEFINED，载体不足或元素非法时相应目标降级并计数。
+     * 类别 id 见 ChainPreviewSemanticClass。
      */
     public BuildSession begin(
             Iterable<ChainTarget> previewTargets, VisualParameters visualParameters,
@@ -349,12 +296,7 @@ public class ChainPreviewMeshBuilder {
         return reversed;
     }
 
-    /**
-     * 创建代级增量会话（B4.1 第一步：锚点稳定 + 时间序装配；26 邻域增量跳过属第二步）。
-     *
-     * <p>与既有一次性 {@code begin/build} 入口相互独立：本入口的代内装配顺序为时间序
-     * （最早→最新），meshOrigin = 代内首个目标且代内稳定，超重锚距离时整代重锚。</p>
-     */
+    /** 按时间序累积代级缓存，首目标作为稳定锚点，超过重锚距离时重建整代坐标。 */
     public GenerationSession beginGeneration() {
         return new GenerationSession(this, DEFAULT_REANCHOR_DISTANCE);
     }
@@ -365,7 +307,7 @@ public class ChainPreviewMeshBuilder {
     }
 
     /**
-     * 内部：显式锚点 + **按给定顺序**（时间序，不再翻转）的构建入口；
+     * 内部显式锚点与已排序时间序目标的构建入口；
      * 代级会话与差分基线共用同一套装配代码。调用方保证列表已是时间序。
      */
     BuildSession beginWithOrigin(
@@ -482,7 +424,7 @@ public class ChainPreviewMeshBuilder {
         /**
          * 携带 LOD 策略的构造（面朝向明暗默认关闭）。
          *
-         * @param lodEnabled 是否启用构建期 LOD 剔除（clientPreviewLod=auto）；false 时逐字等于现状
+         * @param lodEnabled 是否按 clientPreviewLod=auto 启用构建期 LOD 剔除
          * @param lodMinAlpha 剔除进入阈值（clientPreviewLodMinAlpha）
          */
         public VisualParameters(
@@ -500,12 +442,7 @@ public class ChainPreviewMeshBuilder {
                 lodEnabled, lodMinAlpha, false);
         }
 
-        /**
-         * 完整构造（本轮追加面朝向明暗开关）。
-         *
-         * @param faceShadingEnabled 是否把面朝向亮度烘焙进颜色流（配置 clientPreviewFaceShading）；
-         *                           false 时不执行任何乘法，颜色流逐位等于现状
-         */
+        /** 冻结距离淡出、LOD 与面明暗参数；面明暗关闭时颜色保留输入值。 */
         public VisualParameters(
                 double cameraX,
                 double cameraY,
@@ -579,7 +516,7 @@ public class ChainPreviewMeshBuilder {
             return lodMinAlpha;
         }
 
-        /** @return 是否把面朝向亮度烘焙进颜色流（face shading；false = 颜色流逐位等于现状） */
+        /** @return 是否按面朝向烘焙颜色亮度 */
         public boolean isFaceShadingEnabled() {
             return faceShadingEnabled;
         }
@@ -611,44 +548,15 @@ public class ChainPreviewMeshBuilder {
     }
 
     /**
-     * 代级增量会话（B4.1：锚点稳定 + 时间序装配 + 26 邻域可见段缓存）。
+     * 代级会话按首次出现顺序累积目标，首个目标作为稳定几何锚点。
      *
-     * <p>目标按「首次出现」时间序累积；每次 {@link #extend} 接收当前完整快照（最新→最早），
-     * 反向取出新增目标追加到时间序尾部，并复用同一套 junction/tube 装配代码产出完整网格。</p>
+     * <p>完整快照反向追加新增目标，只重算新增位置及其 26 邻域的可见段；
+     * LOD 状态变化同样标脏邻域，装配发射仍遍历完整网格。容量溢出时走全量路径，
+     * 快照收缩时释放整代缓存重建，新增目标超过重锚距离时迁移锚点。
+     * appearOrder 以最早目标为零，语义类别与目标顺序一起保存。</p>
      *
-     * <p>增量边界（Option A，Lead 裁定）：真正跳过的是**逐位置邻域扫描**
-     * （{@code buildVisibleSegments}，1 Hz 全量重建里最贵的一块）——新增目标只重算自身及
-     * 26 邻域的可见段，其余位置复用代级缓存；装配发射仍是 O(网格)，**不是**「成本 ∝ 新增目标数」。
-     * append-only 局部发射与「逐字节等价全量」不相容（共享面重算 / 全局顶点去重 / min-incident aux），
-     * 已作为独立项留待将来评估。</p>
-     *
-     * <p>缓存线程契约：positions/positionIndex/cachedSegments/occupancy 只归构建线程所有；
-     * 缓存失效范围 = 新增目标 + 其 26 邻域（仅自身结果被替换）；{@link #dispose()} 释放全部缓存，
-     * 不跨代残留。lod=auto（B3.x）：逐槽位按时间序重判定剔除边界，只重算「包含状态变化 + 26 邻域 +
-     * 新增槽位」的可见段（被剔除槽位保留空段占位）；唯一仍走全量的子场景是**缓存未覆盖全部 unique 目标**
-     * （超容量快照）——此时无法在保等价下做增量，保持既有全量回退。</p>
-     *
-     * <p><b>增量语义（B4.2 更新，Lead 裁定）</b>：代内快照只增时走增量缓存；若快照收缩
-     * （目标数减少 / 位置不再覆盖全部缓存槽位），则**释放整代缓存与 mesh 引用**并以该快照重建
-     * （等价全新会话：锚点 = 新快照首个目标，块数 = 新快照块数；「新增→移除→再新增」已纳入
-     * 差分覆盖）。原 B4.1「只增（已登记）」是当时条件，B4.2 引入容量/回收后条件已更新。</p>
-     *
-     * <p>锚点契约：meshOrigin = 代内首个目标，代内不变；新增目标与锚点 Chebyshev 距离超过
-     * {@link #getReanchorDistance()} 时整代重锚（等效一次全量重建，锚点移到该目标）。</p>
-     *
-     * <p>线程契约：会话状态只归构建线程所有；{@link #dispose()} 可能由主线程调用，只置位
-     * volatile 请求位，实际释放与后续拒绝由构建线程在下次 {@link #extend} 入口消费，不跨代残留。</p>
-     *
-     * <p><b>生产接口契约（B4.1 第二步阶段 B 冻结）</b>：RenderCache 按代创建一个会话，
-     * 代内每次修订调用一次 {@link #extend}（传完整快照 + settings 快照派生的 visuals/类别），
-     * 世代变化 / 世界切换 / lifecycle 复位时 {@link #dispose()} 旧会话并按需新建；
-     * 每秒相机刷新复用同一会话（保 LOD 滞回与增量缓存）。</p>
-     *
-     * <p><b>装配顺序契约变更（有意，已登记）</b>：生产装配由既有一次性入口的「最新→最早」
-     * 改为本会话的「时间序（最早→最新）」，几何不变、顶点/aux 顺序变化。
-     * <b>appearOrder 方向修正</b>：由「最新目标=0」改为「最早出现=0」（符合用户拍板的
-     * 「保留出现顺序」）；默认 animation=off，生产默认观感不变；
-     * 真机验收项：开启 animation 后生长顺序必须等于出现顺序。</p>
+     * <p>RenderCache 在同代修订与相机刷新时复用会话，换代或生命周期结束时 dispose。
+     * 会话数据归构建线程；跨线程 dispose 只写请求位，构建线程在后续入口消费并释放。</p>
      */
     public static final class GenerationSession {
 
@@ -656,26 +564,23 @@ public class ChainPreviewMeshBuilder {
         private final int reanchorDistance;
         private final List<ChainTarget> chronology = new ArrayList<ChainTarget>();
         private final IntArrayBuilder chronologyClasses = new IntArrayBuilder();
-        /** 已保留目标的去重集合（与 {@link #positionIndex} 键集合同步，B4.2 起有界于 {@link #MAX_RENDER_TARGETS}）。 */
+        /** 已保留目标的去重集合（与 {@link #positionIndex} 键集合同步，有界于 {@link #MAX_RENDER_TARGETS}）。 */
         private final Set<BlockPos> knownPositions = new HashSet<BlockPos>();
-        /** Option A 代级缓存：与 chronology 同序的位置、位置索引、可见段与占用集。 */
+        /** 与 chronology 同序的代级位置、索引、可见段与占用缓存。 */
         private final List<BlockPos> positions = new ArrayList<BlockPos>(MAX_RENDER_TARGETS);
         private final Map<BlockPos, Integer> positionIndex = new HashMap<BlockPos, Integer>();
         private final List<LineSegment[]> cachedSegments =
             new ArrayList<LineSegment[]>(MAX_RENDER_TARGETS);
         private final Set<BlockPos> occupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
 
-        /**
-         * B4.2 收缩探测位图（只归构建线程所有，有界于 {@link #MAX_RENDER_TARGETS}）：
-         * 本次快照是否覆盖到每个缓存槽位；数组复用，不随修订分配。
-         */
+        /** 构建线程复用的有界槽位覆盖位图，用于检测快照收缩。 */
         private final boolean[] coveredSlots = new boolean[MAX_RENDER_TARGETS];
 
         private int visibleBlockCount;
         private boolean overflowed;
-        /** B3.x：cachedSegments 是否已按某占用模式构建过（未构建过时无「模式切换」成本）。 */
+        /** cachedSegments 是否已按当前占用模式完成首次构建。 */
         private boolean segmentsBuilt;
-        /** B3.x：cachedSegments 当前依据的占用模式（false=全目标 lod=off；true=lod=auto 剔除后）。 */
+        /** cachedSegments 的占用模式：false 使用全目标，true 使用 LOD 包含集。 */
         private boolean segmentsBuiltForLod;
         /** LOD 模式下逐槽位包含状态（与 positions 同序；有界 {@link #MAX_RENDER_TARGETS}，构建线程所有）。 */
         private final boolean[] lodIncluded = new boolean[MAX_RENDER_TARGETS];
@@ -685,10 +590,7 @@ public class ChainPreviewMeshBuilder {
         private final LinkedHashSet<Integer> lodDirty = new LinkedHashSet<Integer>();
         /** LOD 视图的包含集占用（决策期使用；由 {@link PreparedTopology} 构造时拷贝，不跨修订持有）。 */
         private final Set<BlockPos> lodOccupancy = new HashSet<BlockPos>(MAX_RENDER_TARGETS * 4 / 3 + 1);
-        /**
-         * B4.2 容量峰值：构建线程写、任意线程读；不随修订/收缩回落，{@link #resetCapacityPeaks()} 或 dispose 归零。
-         * {@code peakCacheEntries} 记六容器条目总数（每容器 ≤ MAX_RENDER_TARGETS，故 ≤ 6×上限）。
-         */
+        /** 构建线程累积容量峰值，任意线程可读；resetCapacityPeaks 或 dispose 时归零。 */
         private volatile int peakRetainedTargets;
         private volatile int peakCacheEntries;
         private volatile int peakVisibleSegments;
@@ -711,15 +613,13 @@ public class ChainPreviewMeshBuilder {
         }
 
         /**
-         * 开始一次代内修订：把快照并入代级缓存（仅新增目标 + 26 邻域刷新可见段），
-         * 返回**可分片、可续跑**的装配会话。安全点与既有 {@link BuildSession#advance} 完全一致
-         * （按位置/句柄块检查 gate），避免大网格单次装配超帧预算；半装配状态不对外可见
-         * （只有 advance 返回 true 后 getMesh() 才可用）。再次调用本方法即开始新修订并取代旧会话。
+         * 并入完整快照并返回可分片装配会话，新增或 LOD 状态变化的目标刷新邻域缓存。
+         * 半装配保留在会话内，advance 完成后公开 mesh；再次 beginRevision 取代旧修订。
          *
-         * @param snapshotNewestFirst 当前完整快照，顺序同 {@code RenderSnapshot.getTargets()}（最新→最早）
-         * @param semanticClasses 与快照同序的类别载体；null 表示全部 255
-         * @param visuals 视觉参数（相机/淡出/LOD），构建线程只读
-         * @param barThickness 显式条柱厚度
+         * @param snapshotNewestFirst 完整快照，按最新到最早排列
+         * @param semanticClasses 与快照同序的类别载体；null 使用未定义类别
+         * @param visuals 本次修订的视觉快照
+         * @param barThickness 条柱厚度
          */
         public MeshBuildSession beginRevision(
                 List<ChainTarget> snapshotNewestFirst, int[] semanticClasses,
@@ -760,7 +660,7 @@ public class ChainPreviewMeshBuilder {
             }
             recordCapacityPeaks(null);
             activeRevision = session;
-            // B4.2：装配完成时（生产路径读取 getMesh）采样本代容量占用，不改变装配语义与安全点。
+            // 包装 getMesh，在装配产物读取时采样本代容量。
             return new CapacityTrackedRevision(session);
         }
 
@@ -779,11 +679,8 @@ public class ChainPreviewMeshBuilder {
         }
 
         /**
-         * 把快照并入代级缓存：新增 unique 目标按时间序追加，锚点/重锚按契约更新。
-         *
-         * <p><b>B4.2 收缩回收</b>：若本快照已不再覆盖全部缓存位置（代内目标减少），先释放整代
-         * 缓存与 mesh 引用，再以本快照重建缓存与锚点（等价全新会话），避免陈旧条柱跨修订残留；
-         * 重建只重跑一次（保证终止），上限仍是 {@link #MAX_RENDER_TARGETS}。</p>
+         * 按时间序追加新增唯一目标。快照收缩时释放缓存与 mesh，再以当前快照重建锚点及有界缓存。
+         * 重建仅执行一次，保留当前快照对应的完整包含集。
          */
         private void mergeSnapshot(List<ChainTarget> snapshotNewestFirst, int[] semanticClasses) {
             List<ChainTarget> snapshot = snapshotNewestFirst == null
@@ -822,7 +719,7 @@ public class ChainPreviewMeshBuilder {
                 }
                 if (positions.size() >= MAX_RENDER_TARGETS) {
                     // 超配额：装配阶段按 truncated 语义只保留前 MAX 个；停止累积保持内存有界。
-                    // 此处不做 knownPositions 登记，避免超量快照把去重集合撑过上限。
+                    // 超量目标保持未登记，去重集合沿容量上限保留。
                     overflowed = true;
                     break;
                 }
@@ -946,7 +843,7 @@ public class ChainPreviewMeshBuilder {
                 for (Integer seed : lodDirty) {
                     int slot = seed.intValue();
                     if (!lodIncluded[slot]) {
-                        // 被剔除槽位保留空段占位（与 null「未计算」区分），避免每轮重复判脏。
+                        // 空段标记已计算且被剔除的槽位，null 表示待计算。
                         cachedSegments.set(slot, NO_SEGMENTS);
                         continue;
                     }
@@ -1474,7 +1371,7 @@ public class ChainPreviewMeshBuilder {
                     currentPoint = positions.get(appearOrder);
                     currentAppearOrder = appearOrder;
                     if (preparedSegments != null) {
-                        // Option A：复用代级缓存段（26 邻域内已重算），不再重复邻域扫描。
+                        // 装配复用已按 26 邻域更新的代级可见段缓存。
                         currentSegments = preparedSegments.get(appearOrder);
                     } else {
                         currentSegments = buildVisibleSegments(currentPoint, occupancy);
@@ -1573,7 +1470,7 @@ public class ChainPreviewMeshBuilder {
         }
 
         private void finishMesh() {
-            // T51 方案 A 收尾：顶点按面分裂后，appearOrder / semanticClass 仍在位置级取最小值。
+            // 顶点按面分裂，appearOrder 与 semanticClass 仍按位置合并最小 incident 值。
             // 必须早于 aux.exactArray()——后者可能返回副本，之后再改 builder 就落不到 mesh 上。
             normalizeAppearOrderByPosition();
 
@@ -1755,7 +1652,7 @@ public class ChainPreviewMeshBuilder {
             int faceOffset = face * 4;
             float[] normal = FACE_NORMALS[face];
             for (int corner = 0; corner < 4; corner++) {
-                // T51 方案 A：顶点身份 = (位置, 面)；每顶点只属一个面，外扩方向即该面法线。
+                // 顶点按位置与面共同标识，外扩方向取该面法线。
                 indices.add(vertexIndex(
                     corners[CUBOID_QUAD_INDICES[faceOffset + corner]], face, tubeEdge, appearOrder, normal));
             }
@@ -1766,7 +1663,7 @@ public class ChainPreviewMeshBuilder {
             Integer existing = vertexIndices.get(vertexKey);
             if (existing != null) {
                 int index = existing.intValue();
-                // 方向不再需要合并：顶点身份已含面，同一顶点只会被同一个面写入。
+                // 面归属已纳入顶点身份，同一顶点保持单一法线。
                 mergeAppearOrder(index, appearOrder);
                 return index;
             }

@@ -2,19 +2,7 @@ package club.heiqi.qz_miner.chain.client.render;
 
 import java.util.Locale;
 
-/**
- * 后端选择纯函数（无 GL、无状态）。
- *
- * <p>决策表：</p>
- * <ul>
- *   <li>{@code auto}：能力探测通过且上次未失败 → {@code shader}，否则 {@code legacy}<br>
- *   <li>{@code shader}：探测失败 / 上次失败时同样回退 {@code legacy}（配 {@link #explain} 记录诊断）<br>
- *   <li>{@code legacy}：恒 {@code legacy}<br>
- *   <li>null / 空 / 未知值：按 {@code auto} 处理；caps 为 null：{@code legacy}</li>
- * </ul>
- *
- * <p>只看真实 GL 能力与上次失败；不因加载了 Angelica / shader pack 而放弃 shader（Lead 裁定）。</p>
- */
+/** 按配置、真实 GL 能力和上次 shader 失败选择后端 id，实际路径可用性由 OverlayPath 复核。 */
 public final class ChainPreviewBackendSelector {
 
     public static final String AUTO = "auto";

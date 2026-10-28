@@ -18,7 +18,7 @@ import net.minecraftforge.event.world.BlockEvent;
  */
 public class ChainDropCollector {
 
-    /** 达阈值后延后重试并输出摘要，失败次数不授权丢弃资产。 */
+    /** 达阈值后延后重试并输出摘要，未交付资产继续保留。 */
     private static final int DROP_RELEASE_FAST_RETRIES = 100;
     private static final long DROP_RELEASE_RETRY_INTERVAL_TICKS = 100L;
 
@@ -77,7 +77,7 @@ public class ChainDropCollector {
                 continue;
             }
 
-            // 一个服务端 tick 只尝试一次，多个维度的 WorldTick 不得放大重试和日志。
+            // 按服务端 tick 统一重试，各维度共用一次尝试机会。
             playerState.deferDropReleaseUntil(serverTick + 1L);
             EntityPlayer player = MyMod.playerManager.getPlayer(playerState.getPlayerUUID());
             boolean released = false;

@@ -58,7 +58,7 @@ public final class ChainSearchAlgorithm {
         return TraversalStepResult.CONTINUE;
     }
 
-    /** 同一轮搜索唯一的可恢复状态；拓扑游标不再与目标终裁阶段混放。 */
+    /** 保存同一轮搜索的阶段、目标终裁和邻域游标，支持安全点恢复。 */
     public static final class BudgetState {
         private final TraversalTarget target = new TraversalTarget(true);
         private final TraversalNeighbors neighbors;

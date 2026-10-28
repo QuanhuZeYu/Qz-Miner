@@ -73,16 +73,13 @@ public class Config {
     public static double clientPreviewAlphaStartValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_START_VALUE;
     public static double clientPreviewAlphaEndValue = QzMinerConfigDefaults.CLIENT_PREVIEW_ALPHA_END_VALUE;
 
-    // ---- 连锁预览观感档位（client 段；键名/默认值与配置键位与默认值（真源：QzMinerConfigDefaults） 同源）----
-    // 本类只承载「键 → 静态字段 + 缺省兜底 + 分侧发布」（ConfigValueBridge）。
-    // 把多个键聚合成不可变观感快照的唯一消费面是 session-core 的
-    // ChainPreviewVisualSettings.fromConfig()；渲染/构建路径不得绕过快照直连这些字段。
+    // ConfigValueBridge 分侧发布运行字段；渲染和构建经 ChainPreviewVisualSettings.fromConfig() 读取聚合快照。
 
     /** 预览渲染后端：auto 能力探测通过用 shader、否则 legacy。 */
     public static PreviewRenderBackend clientPreviewRenderBackend = PreviewRenderBackend.defaultValue();
     /** 预览条柱粗细（方块坐标偏移缩放）。 */
     public static double clientPreviewBarThickness = QzMinerConfigDefaults.CLIENT_PREVIEW_BAR_THICKNESS;
-    /** 预览颜色来源：builtin 与历史行为逐字节一致。 */
+    /** 预览颜色来源：builtin 使用内置语义配色。 */
     public static PreviewColorSource clientPreviewColorSource = PreviewColorSource.defaultValue();
     /** CHAIN 大模式（默认子模式）本地预测颜色（0xRRGGBB）。 */
     public static int clientPreviewColorChain = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_CHAIN;
@@ -98,26 +95,26 @@ public class Config {
     public static int clientPreviewColorTruncated = QzMinerConfigDefaults.CLIENT_PREVIEW_COLOR_TRUNCATED;
     /** 深度通道：xray 等于历史行为。 */
     public static PreviewDepthMode clientPreviewDepthMode = PreviewDepthMode.defaultValue();
-    /** 预览动画：off / flow / wave；本轮默认 off。 */
+    /** 预览动画档位：off / flow / wave。 */
     public static PreviewAnimationMode clientPreviewAnimation = PreviewAnimationMode.defaultValue();
     /** 单代动画时长（毫秒）。 */
     public static int clientPreviewAnimationDurationMs = QzMinerConfigDefaults.CLIENT_PREVIEW_ANIMATION_DURATION_MS;
     /** 动画相位来源：order 用出现序号。 */
     public static PreviewAnimationPhase clientPreviewAnimationPhase = PreviewAnimationPhase.defaultValue();
-    /** 距离淡出刷新模式：timer / signal / gpu；本轮默认 timer。 */
+    /** 距离淡出刷新模式：timer / signal / gpu。 */
     public static PreviewFadeMode clientPreviewFadeMode = PreviewFadeMode.defaultValue();
     /** signal 档相机位移阈值（格）。 */
     public static double clientPreviewFadeRefreshDistance =
             QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_REFRESH_DISTANCE;
-    /** signal 档无位移时的兜底刷新间隔（毫秒）。 */
+    /** signal 档静止时的定期刷新间隔（毫秒）。 */
     public static int clientPreviewFadeFallbackMs = QzMinerConfigDefaults.CLIENT_PREVIEW_FADE_FALLBACK_MS;
     /** 条柱屏幕最小宽度（像素）；0 表示不钳制；默认 0。 */
     public static double clientPreviewMinScreenWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX;
-    /** 描边壳外扩宽度（物理像素）；默认 1.5（等于接线前写死值），0 表示关闭描边；仅着色器 OUTLINE 档消费。 */
+    /** shader OUTLINE 壳外扩宽度（物理像素），零关闭描边。 */
     public static double clientPreviewOutlineWidthPx = QzMinerConfigDefaults.CLIENT_PREVIEW_OUTLINE_WIDTH_PX;
-    /** 面朝向烘焙明暗（face shading）；默认 false（逐字节等于接线前观感），两后端共用同一张亮度表。 */
+    /** 面朝向烘焙明暗（face shading），两后端共用同一张亮度表。 */
     public static boolean clientPreviewFaceShading = QzMinerConfigDefaults.CLIENT_PREVIEW_FACE_SHADING;
-    /** 预览被上限截断时是否给出可见提示；本轮默认 false。 */
+    /** 预览被上限截断时是否显示提示。 */
     public static boolean clientPreviewTruncationSignal = QzMinerConfigDefaults.CLIENT_PREVIEW_TRUNCATION_SIGNAL;
     /** 预览目标数量硬顶。 */
     public static int clientPreviewMaxTargetsHardCap = QzMinerConfigDefaults.CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP;
@@ -132,11 +129,11 @@ public class Config {
     /** 预览激活时是否取消同目标的原版方块高亮。 */
     public static boolean clientPreviewSuppressVanillaHighlight =
             QzMinerConfigDefaults.CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT;
-    /** 是否使用版本化预览输入快照（含目标去抖）；本轮默认 false。 */
+    /** 是否使用版本化预览输入快照及目标去抖。 */
     public static boolean clientPreviewVersionedInputs = QzMinerConfigDefaults.CLIENT_PREVIEW_VERSIONED_INPUTS;
     /** 是否启用统一表现投影覆盖层。 */
     public static boolean clientPreviewPresentationOverlay = QzMinerConfigDefaults.CLIENT_PREVIEW_PRESENTATION_OVERLAY;
-    /** 是否在 HUD 展示执行进度（已执行 / 匹配，B5.2）。 */
+    /** 是否在 HUD 展示客户端采样的执行进度。 */
     public static boolean clientPreviewExecutionProgress = QzMinerConfigDefaults.CLIENT_PREVIEW_EXECUTION_PROGRESS;
     /** 是否在 HUD 展示预览后端诊断（当前生效后端 id 与一次性回退原因，默认关闭）。 */
     public static boolean clientPreviewBackendDiagnostics = QzMinerConfigDefaults.CLIENT_PREVIEW_BACKEND_DIAGNOSTICS;

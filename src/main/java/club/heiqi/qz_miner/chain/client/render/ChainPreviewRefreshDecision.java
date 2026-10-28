@@ -1,11 +1,8 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 /**
- * 同代刷新（topology 未变）的上传决策纯函数。
- *
- * <p>着色器后端颜色完全由 GPU uniform 计算（{@code usesCpuColors() == false}），同代刷新必须
- * 零上传，且不得因颜色流不可用而退化为整份拓扑重传；legacy 后端仍走 CPU 颜色流，只有颜色流
- * 上传被拒时才按历史行为重传拓扑。函数不触碰 GL，供 renderer 分派与 headless 断言共用。</p>
+ * 同拓扑刷新时按后端消费面决定上传动作：shader 通过 uniform 刷新，legacy 上传 CPU 颜色。
+ * legacy 颜色上传被拒时重传拓扑，renderer 与离线验证共用本决策。
  */
 public final class ChainPreviewRefreshDecision {
 

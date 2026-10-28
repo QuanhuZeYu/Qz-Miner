@@ -11,7 +11,7 @@ import io.netty.buffer.ByteBuf;
  *
  * <p>协议固定为 25 字节：protocolVersion、requestedRevision、
  * authoritativeRevision、accepted byte 和 groupCount。{@code fromBytes} 只捕获
- * 原始值及结构长度结果；协议语义由客户端主线程验证，且不持有 Forge ByteBuf。</p>
+ * 原始值及结构长度结果；客户端主线程验证协议语义，异步交接仅传纯值。</p>
  */
 public final class PacketObjectGroupConfigSync implements IMessage {
 
@@ -52,7 +52,7 @@ public final class PacketObjectGroupConfigSync implements IMessage {
             groupCount = buf.readInt();
             rawValid = true;
         } catch (IndexOutOfBoundsException e) {
-            // 固定长度预检后仍以 invalid 结束，不能让畸形包穿透 Handler。
+            // 解码越界统一标记 invalid，Handler 据此拒绝。
             rawValid = false;
         }
     }

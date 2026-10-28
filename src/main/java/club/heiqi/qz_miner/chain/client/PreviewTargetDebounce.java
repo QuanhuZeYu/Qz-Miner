@@ -3,17 +3,8 @@ package club.heiqi.qz_miner.chain.client;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * 目标抖动去抖窗口（B1.2 / task-20）。
- *
- * <p>语义：仅当「瞄准目标」在连续 {@code requiredTicks} 个 tick 内保持同一值时，才接受新目标；
- * 目标回到当前代已接受的目标时由调用方 {@link #reset()} 结算。语义维度（世界/模式/子模式/
- * 面/上限/配置/对象组）变化由 {@link PreviewInputSnapshot#differsInSemanticIdentity} 判定，
- * <b>不得</b>进入本窗口。</p>
- *
- * <p>首 tick 相位：无当前预览（快照为 null）时调用方直接启动，不经本窗口——即按键后的首 tick
- * 立即出预览。</p>
- *
- * <p>零分配：只持有目标引用与计数。</p>
+ * 累计瞄准目标连续稳定 tick，供控制器在同一语义身份内接受新目标。
+ * 首次预览与世界、模式等语义变化由调用方直接换代，回到当前目标或生命周期清理时 reset。
  */
 final class PreviewTargetDebounce {
 

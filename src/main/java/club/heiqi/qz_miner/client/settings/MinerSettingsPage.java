@@ -203,7 +203,7 @@ public final class MinerSettingsPage implements ScenePage {
     }
 
     private SceneNode readOnly(ConfigKey<?> key) {
-        // 远端未同步字段没有控件，也不读取本机草稿值作为远端事实。
+        // 远端只读行显示已同步事实，缺省字段由 serverFacts 显示未知。
         ReadableSignal<String> fact = () -> draft.access() == MinerSettingsAccess.REMOTE
                 ? serverFacts.get().get(key) : format(draft.baseline().get(key));
         return new SettingsFields(context).row(label(key), () -> source(key),

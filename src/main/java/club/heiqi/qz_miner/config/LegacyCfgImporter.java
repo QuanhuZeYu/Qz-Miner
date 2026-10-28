@@ -12,8 +12,7 @@ import net.minecraftforge.common.config.Property;
 /**
  * 一次性从旧 Forge {@code .cfg} 读取字段映射（唯一允许引用 {@link Configuration} 的迁移类）。
  *
- * <p>只读、禁止 {@link Configuration#save()}。Property getter 传入 {@link QzMinerConfigDefaults}
- * 真实默认（尤其 clientEnablePreviewRender=true 与 alpha 非零）。</p>
+ * <p>以瞬态 Configuration 读取旧属性，保持原文件；Property getter 统一使用 {@link QzMinerConfigDefaults}。</p>
  */
 public final class LegacyCfgImporter {
 
@@ -65,7 +64,7 @@ public final class LegacyCfgImporter {
      * 瞬态读取 cfg 中已声明属性。
      *
      * @param cfgFile 旧配置文件
-     * @return ImportResult（不把 FAILED 与「无键」混为 empty map）
+     * @return 区分读取失败、文件缺失与合法空映射的结果
      */
     public static ImportResult importValues(File cfgFile) {
         if (cfgFile == null || !cfgFile.isFile() || cfgFile.length() <= 0) {

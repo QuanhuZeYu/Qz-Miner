@@ -22,27 +22,9 @@ import net.minecraft.init.Blocks;
 import net.minecraft.world.World;
 
 /**
- * B1.1 表现投影的装配采样器：客户端 {@link TickEvent.ClientTickEvent#END} 采样一次并发布
- * {@link ChainPreviewPresentationProjection} 的 O(1) header。
- *
- * <p>数据源全部是 O(1) 只读访问器：链预览状态 / 控制器远端在途状态 / 客户端阶段投影 /
- * 世界身份 / 生命周期 epoch / 配置 epoch / 对象组 revision / 截断开关位。采样在主线程 tick，
- * 不触碰渲染帧路径。</p>
- *
- * <p>B5.2 追加执行进度数据源：{@link ChainPreviewExecutionProgress} 每 tick 按预算扫描本代目标坐标
- * （区块已加载且方块已消失 → 经 clientChainEventBus 投递 {@code BlockBreakObserved} 观测），
- * 计数在下一次 clientChainEventBus.drain（ClientTickEvent.START）内完成，故 header 里的
- * executedCount 可能比本 tick 的世界状态晚一拍（≤1 tick，可接受）。关闭档不采样不计数、零开销。</p>
- *
- * <h3>失效维度来源</h3>
- * <ul>
- *   <li>world：{@code Minecraft.theWorld} 的身份哈希 + 维度 id（换世界/换维度即变）</li>
- *   <li>lifecycle：{@link #bumpLifecycleEpoch()}（清理入口调用）</li>
- *   <li>configRevision：{@link ConfigBootstrap#currentCommittedSnapshot()} 的 epoch；无提交时为 0（未接线）</li>
- *   <li>objectGroupRevision：{@code ChainClientState.getServerObjectGroupRevision()}</li>
- *   <li>serverRoundId：客户端当前无来源，恒 0（未接线；服务端代际失效由 phase 投影的 generation 覆盖）</li>
- *   <li>generation：phase 投影 generation + 预览代 generation</li>
- * </ul>
+ * 在客户端 tick END 采样预览、阶段与身份，发布表现 header。
+ * 开启执行进度时按预算采样世界，观测在下一次 START drain 计数；关闭时跳过采样。
+ * 后端诊断读取渲染线程发布的标量快照，世界探针按世界实例复用。
  */
 @SideOnly(Side.CLIENT)
 public final class ChainPreviewPresentationTicker {
@@ -51,10 +33,10 @@ public final class ChainPreviewPresentationTicker {
     private static volatile long lifecycleEpoch;
 
     private final ChainPreviewPresentationProjection projection;
-    /** B5.2：执行进度采样与计数（长寿命单例，随 ticker 装配一次）。 */
+    /** 随 ticker 装配并按生命周期重置的执行进度采样器。 */
     private final ChainPreviewExecutionProgress executionProgress = new ChainPreviewExecutionProgress();
     private boolean registered;
-    /** 世界探针缓存：同一世界实例复用（避免每 tick 重建探针对象）。 */
+    /** 按真实世界实例复用的探针缓存。 */
     private World probeWorld;
     private ChainPreviewExecutionProgress.WorldProbe worldProbe;
     /** 最近一次发布的后端诊断（值未变时复用同一实例，稳态零分配）。 */
@@ -136,13 +118,7 @@ public final class ChainPreviewPresentationTicker {
             backendDiagnostics);
     }
 
-    /**
-     * 采样预览后端诊断（Q4）：开关关闭时恒返回 {@link ChainPreviewBackendDiagnostics#DISABLED}，
-     * 且不触碰渲染线程对象；打开时读渲染线程发布的 volatile 快照。
-     *
-     * <p>零分配口径：值与上次相同时复用上一实例（{@code equals} 值语义），
-     * 只在「后端切换 / 首次就绪 / 回退 / 路径不可用」时重建。</p>
-     */
+    /** 开启时由后端已发布的标量构造诊断候选，值相等则沿用旧引用；关闭时返回 DISABLED 并跳过后端读取。 */
     private ChainPreviewBackendDiagnostics currentBackendDiagnostics() {
         if (!Config.clientPreviewBackendDiagnostics) {
             lastBackendDiagnostics = ChainPreviewBackendDiagnostics.DISABLED;

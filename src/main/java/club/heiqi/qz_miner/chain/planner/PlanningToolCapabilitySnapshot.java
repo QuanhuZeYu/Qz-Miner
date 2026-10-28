@@ -14,7 +14,7 @@ import net.minecraft.block.Block;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 
-/** CHAIN 在 PlanStarted 主线程冻结的采掘能力集合；worker 不再读取实时玩家库存。 */
+/** CHAIN 在 PlanStarted 主线程冻结的采掘能力集合，供 worker 按启动事实匹配拓扑。 */
 public final class PlanningToolCapabilitySnapshot {
 
     /** 命中候选的稳定优先级分类。 */

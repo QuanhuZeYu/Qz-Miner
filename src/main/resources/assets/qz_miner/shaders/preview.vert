@@ -1,78 +1,21 @@
 #version 120
 
 /*
- * 连锁预览条柱 · 顶点主路径（GL 2.1 / GLSL 1.20 基线）
+ * 在顶点阶段计算预览条柱的位移、语义色、亮度与距离 alpha（GL 2.1 / GLSL 1.20）。
  *
- * 顶点属性契约（顶点属性契约（真源：preview.vert 头部属性段））：
- *   attribute 0 aPos   3 x float32  相对 meshOrigin 的方块坐标 + 偏移 x barThickness
- *   attribute 3 aDirection 4 x int8(normalized) 显式面方向（xyz；每组面一个顶点，恒为单位面法线）
- *   attribute 1 aAux   4 x uint8 normalized
- *                        x = semanticClass（0..255，255 = 未定义）
- *                        y = tubeEdge（0..3，255 = 未定义）
- *                        z/w = appearOrder u16 小端（0xFFFF = 未定义）
+ * aPos 是相对网格锚点的位置，aDirection 是 normalized int8 面法线，aAux 保存
+ * semanticClass、tubeEdge 与小端 u16 appearOrder。属性槽位由链接后运行时查询决定。
+ * 顶点先选语义色，再由片元插值输出，适配 GLSL 1.20 的 smooth varying。
  *
- *   **顶点属性契约修订（T51）**：原契约的「attribute 2 aColor 4 x float32（既有颜色流）」已从着色器路径移除。
- *   那份颜色流只服务 legacy 固定管线（其逐顶点 α 是 CPU 烘焙值）；着色器路径的颜色由
- *   aAux.semanticClass + uColor* 调色板在顶点阶段决定，从不读取 aColor——编译器因此把它整体优化掉
- *   （location = -1），契约里「保留该槽」的写法与实现不符，还会让下游以为这份颜色流仍参与计算。
- *   槽位编号同样不再写进契约：GLSL 1.20 无 layout 限定符，槽位是链接期事实，由
- *   ChainPreviewShaderProgram#resolveAttributeLocations 运行时解析，见
- *   docs/反馈层/errors/ERROR-20260914-preview-attribute-slot-assumption.md。
+ * 最小屏幕宽度与描边沿显式面方向外扩，共享世界位移预算，最小宽度优先。
+ * shader 路径支持真实描边；legacy OUTLINE 使用两 pass 叠色。
+ * 距离 alpha 与 CPU VisualParameters.alphaFor 同用 quadratic 曲线，生长和亮度共用序号解码。
+ * rgb 依次应用面明暗、连锁序权重及内部格线系数，alpha 独立取距离、生长与全局包络。
+ * 相机矩阵由 Java 显式读回并上传，适配 Angelica GLSM 的固定管线模拟。
+ * 亚像素边缘柔化保留为待实现能力。
  *
- * 功能优先级与落点（功能优先级与落点（真源：preview.vert 头部落点表））：
- *   1) 距离淡出      —— 顶点侧按 quadratic 曲线写入 vColor.a，片元直用，零 CPU 上传
- *   2) 屏幕最小宽度  —— 顶点侧沿面法线 aDirection 外扩，把条柱的屏幕投影宽抬到 uMinScreenWidthPx 像素；
- *                        与真描边**共用同一份世界空间预算** maxWidenWorld：最小宽度优先取用，
- *                        描边只能使用剩余额度（见 main() 与 ChainPreviewShaderMath.maxWidenWorld）
- *   3) 逐波生长      —— 读 aAux 的 appearOrder 归一化后与 uAnimProgress 逐顶点比较（不要求索引有序）
- *   4) 语义颜色      —— 顶点按 semanticClass 选 uColor* 并写进 vColor.rgb（片元只做插值输出）
- *                        选色必须在顶点：varying 是 smooth 插值的，片元用 == 比较会丢色（F1）
- *   5) 亚像素柔化    —— 横向屏幕宽度不足时收敛边缘 alpha；**本轮未实现**（本表是落点规划，
- *                        只有标了版本号的条目才代表已有代码；第 5 项至今无对应分支，
- *                        远处细线不做 alpha 收敛——需要时另立一项，勿按已实现读）
- *   6) 真描边（B3.x）—— OUTLINE 档的描边壳段沿面法线外扩 uOutlineWidthPx，且只使用最小宽度未占用的
- *                        剩余预算（仅着色器路径；预算耗尽时精确为 0）
- *   7) 面朝向明暗（face shading）—— 顶点按 aDirection.xyz 查表乘进 color；**默认关闭**（uFaceShading=0），
- *                        开启后与 legacy 颜色流用同一张亮度表（字面常量 × 同一 palette 常量）
- *   8) 相机矩阵       —— 一律走显式 uniform uModelViewProjection / uModelView（T48c-A）：
- *                        真机（GLSM 模拟固定管线 + no-error context）内建矩阵与真实相机矩阵失同步，
- *                        且失败不可观测；显式化后矩阵可读、可断言，后端可自检并回退 legacy
- *        **能力差异（登记）**：auto 档回退 legacy 时 OUTLINE 没有真描边，退化为既有
- *        「两 pass 叠色」行为——固定管线做外扩必须改 CPU 几何，会破坏 B4.1 的增量/差分等价。
- *   9) 连锁序渐弱（本项目新增，**非冻结项**）—— 与第 3 项**共用同一次** appearOrder 还原
- *                        （u16 只组装一次，任一消费方不需要时都不读），按归一化连锁序把**颜色亮度**
- *                        从 1.0 线性降到 uOrderMinBrightness（配置 clientPreviewOrderMinBrightness，默认 0.55）：
- *                        t = clamp(floor(min(order, uAppearSpan)) / max(uAppearSpan, 1.0), 0.0, 1.0)，
- *                        orderWeight = 1.0 − (1.0 − uOrderMinBrightness) × t，color = color * orderWeight。
- *                        **作用位置是颜色亮度（rgb），不乘 alpha**（用户裁定）：alpha 只由
- *                        「距离淡出 × 逐波生长 × uFadeAlpha」决定，「越远越淡」的两套配置因此各自权威、
- *                        互不污染（此前乘在 alpha 上会与距离淡出抢同一个量）。
- *                        门控：uOrderMinBrightness >= 1.0 时**完全不进入**该分支（逐值等于现状）；
- *                        序号未定义（0xFFFF）或 uAppearSpan <= 0 时权重恒 1.0。
- *                        分母 uAppearSpan 由 Java 侧逐帧供给，其取值语义见
- *                        ChainPreviewShaderBackend#orderMinBrightnessFor 的说明。
- *  10) 内部结构压暗（本项目新增，**非冻结项**）—— 按 aAux.y（tubeEdge）把顶点分成
- *                        「外轮廓」与「内部格线」两类：贯通管面槽位（0..3）保持原亮度，
- *                        其余（实测只有 255 = AUX_UNDEFINED 的 junction 补块 / 共享顶点）把
- *                        **颜色 rgb** 乘 uInteriorDim（配置 clientPreviewInteriorDim，默认 0.65）。
- *                        设计目标「外轮廓强 / 内部格线弱」：体积感来自面亮缝暗，而不是叠色。
- *                        **只乘 rgb，不乘 alpha**（与第 9 项同口径）：alpha 只由「距离淡出 × 逐波生长
- *                        × uFadeAlpha」决定，压暗内部不得改变透明度。
- *                        **描边 pass 不参与**：描边色 uColorChain 代表外轮廓本身，压暗它等于把本项的
- *                        设计目标自己抹掉，故门控额外要求 uOutlineWidthPx <= 0（与描边分支互斥）。
- *                        门控：uInteriorDim >= 1.0 时**完全不进入**该分支（乘 1.0 是精确恒等，
- *                        关闭档逐值等于现状）；Java 侧已把 NaN / 越界收敛为 1.0，非法值不进 uniform。
- *                        仅着色器后端消费：legacy 固定管线不消费 tubeEdge（其逐顶点色由 CPU 烘焙）。
- *
- * 距离淡出必须与 CPU 端 ChainPreviewMeshBuilder.VisualParameters.alphaFor 的 quadratic
- * 形状一致（d <= fadeStart → uMaxAlpha；d >= fadeEnd → uMinAlpha；之间按 t^2 插值），
- * 否则 legacy 与 shader 两档观感分叉。
- *
- * 实机验证记录（本节是注释：**注释改动不触发重验**；只有 GLSL 逻辑变化才需要重验）
- *   理由：加/改本标记本身若算「逻辑改动」，标记就永远落不下来——会形成死循环。
- *   口径：改 GLSL 逻辑 → 真机确认无异常 → 在列表末尾追加一行（并按仓库规范跑完整 build）。
- *   格式：@ <短commit> <日期> <验证了什么>
- *
+ * 实机记录仅作为对应逻辑版本的运行证据；后续 GLSL 逻辑变化经实机确认后追加记录。
+ * 本次整理只改注释，沿用以下既有证据：
  *    @ c390b681 2026-09-14  布局 / 最小宽度 / 真描边 / 面朝向明暗 —— 真机无异常
  *    @ 60d9dbd9 2026-09-14  默认档复验（最小屏幕宽度 0 / 面朝向明暗关，含 d60b94a4 起的宽度-描边共用世界预算）—— 真机无异常
  *    @ 767097b1 2026-09-14  面朝向明暗默认改开后首次真机执行（默认档：xray / 最小屏幕宽度 0）—— 真机无异常、观感可接受
@@ -83,15 +26,11 @@
  */
 
 attribute vec3 aPos;
-// T51：byte x4 归一化属性（xyz = 面法线，w = 对齐保留位），GL 按 c/127 映射到 [-1, 1]。
+// normalized byte 面法线，第四项为对齐保留位。
 attribute vec4 aDirection;
 attribute vec4 aAux;
 
-// 相机矩阵（T48c-A）：显式 uniform，由 Java 侧每帧从固定管线栈读取、CPU 相乘后上传。
-// 刻意不使用 gl_ModelViewProjectionMatrix / gl_ModelViewMatrix——在「固定管线由 Angelica GLSM
-// 用生成着色器模拟 + use_no_error_g_l_context=true」的真机环境下，这两个内建矩阵与真实相机矩阵
-// 失同步（整条预览链会被画进错误空间，表现为紧凑一束条柱），且失效时完全不可观测。
-// 显式上传后矩阵可读、可断言：后端用「modelview 平移列模长 ≈ |origin − renderPos|」自检来源。
+// Java 侧显式读取相机矩阵并相乘上传，后端用平移列与相机相对原点检查来源可信性。
 uniform mat4 uModelViewProjection; // 投影 × modelview（列主序，GL 约定）
 uniform mat4 uModelView;           // modelview；横向偏移与深度换算用
 
@@ -105,26 +44,24 @@ uniform float uAnimProgress;     // (出现序号 / 目标总数)；>= 1 表示�
 uniform float uAppearSpan;       // 同代目标总数（序号归一化分母），<= 0 时关闭生长比较
 uniform float uMinScreenWidthPx; // 0 = 关闭屏幕最小宽度钳制
 uniform float uBarThickness;
-uniform float uFadeAlpha;        // 淡入淡出包络（B3.2）[0,1]；1 = 完全不透明（默认档）
-                                 // 宿主每帧显式置 1，避免 uniform 未设时默认 0 导致整链透明
-uniform float uOutlineWidthPx;   // 真描边（B3.x）外扩宽度（物理像素）；0 = 关闭描边
-                                 // xray / occlude 与 OUTLINE 主体 pass 都必须为 0 ⇒ 逐值等于现状
-uniform float uFaceShading;      // 面朝向明暗（face shading）开关：0 = 关闭（默认，等于接线前观感），1 = 开启
-                                 // 关闭时必须**完全不进入乘色分支**，保证逐字节等于现状
-uniform float uOrderMinBrightness;    // 连锁序渐弱（第 9 项）的**亮度**权重下限：1 = 关闭（= 接线前观感）
-                                 // 关闭时必须**完全不进入 orderWeight 分支**，保证逐值等于现状；
-                                 // 序号未定义 / uAppearSpan <= 0 时该分支也保持恒等 1.0；
-                                 // 权重只乘颜色亮度（rgb），alpha 不消费本 uniform
-uniform float uInteriorDim;      // 内部结构压暗（第 10 项）的颜色亮度系数：1 = 关闭（= 接线前观感）
-                                 // 关闭时必须**完全不进入压暗分支**，保证逐值等于现状；
-                                 // 只乘内部格线（auxChannel(aAux.y) >= 4.0）的 rgb，不乘 alpha；
-                                 // 描边 pass（uOutlineWidthPx > 0）不消费本 uniform
+uniform float uFadeAlpha;        // 全局淡入淡出包络，1 为不透明
+                                 // Java 链接时初始化不透明值，每帧上传当前包络
+uniform float uOutlineWidthPx;   // 描边外扩宽度（物理像素），零关闭描边，最小宽度独立生效
+                                 // 普通 pass 使用零描边宽度
+uniform float uFaceShading;      // 面朝向明暗开关，大于 0.5 时开启
+                                 // 关闭时保留面明暗前的 rgb
+uniform float uOrderMinBrightness;    // 连锁序 rgb 权重下限，1 使用恒等亮度
+                                 // 关闭时 orderWeight 保持初始恒等值；
+                                 // 序号未定义或总数缺省时同样使用恒等权重；
+                                 // 权重作用 rgb，alpha 独立计算
+uniform float uInteriorDim;      // 主体内部格线的 rgb 系数，1 使用恒等亮度
+                                 // 关闭时保留内部格线原亮度；
+                                 // 按 tubeEdge 阈值作用内部格线 rgb，alpha 独立；
+                                 // 描边 pass 保留轮廓亮度
                                  // 阈值 4.0 与 Java 侧 ChainPreviewShaderMath.INTERIOR_TUBEEDGE_THRESHOLD
                                  // 同源：0..3 = 贯通管面槽位（外轮廓），255 = AUX_UNDEFINED（内部格线）
 
-// 语义调色板（按 aAux.x 的 semanticClass 选择，见 语义类别表（真源：ChainPreviewSemanticClass）；六色按【大模式】区分）。
-// builtin 档由 Java 侧 ChainPreviewShaderMath.builtinColorTable() 供给：CHAIN 槽是精确基线常量
-// (0.25, 0.9, 1.0) ⇒ 默认大模式输出逐字节等于现状；其余五槽是显式 0xRRGGBB 的内置色。
+// Java 提供六槽语义色；builtin 的 CHAIN 槽保留精确 float 基色，其余取配置默认 RGB。
 uniform vec3 uColorChain;
 uniform vec3 uColorArea;
 uniform vec3 uColorInteract;
@@ -140,22 +77,9 @@ float auxChannel(float value) {
 }
 
 /**
- * 语义类别 → 颜色，与语义类别表（真源：ChainPreviewSemanticClass）逐条对应（本轮按【大模式】重排值域）：
- *   0 CHAIN_LOCAL → uColorChain
- *   1 AREA_LOCAL → uColorArea
- *   2 INTERACT_LOCAL → uColorInteract
- *   3 SUB_MODE_LOCAL → uColorSecondary
- *   4 REMOTE_PREDICTED → uColorRemote
- *   5 TRUNCATED → uColorTruncated（本轮数据源不产出，保留合法分支）
- *   6 DEFERRED / 7 EXECUTED / 255 UNDEFINED 及任何未知值 → uColorChain 兜底
- *
- * <p><b>必须在顶点阶段选色</b>：varying 是 smooth 插值的，一个 quad 内若两顶点类别不同
- * （共享角点取相邻目标的最小类别序），插值结果会落在两整数之间——片元里用
- * {@code vSemantic == 2.0} 精确比较会整片落空、丢失远端/截断色。GLSL 1.20 没有 flat
- * 限定符，所以颜色本身必须逐顶点定下来，片元只用插值后的 vColor.rgb。</p>
- *
- * 类别常量与 Java 侧 {@code club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass}
- * 同源；GLSL 无法共享 Java 常量，改动时两处必须同步（GLSL 侧保留字面量）。
+ * 按 ChainPreviewSemanticClass 的稳定 id 选择颜色，未知值使用 CHAIN 色。
+ * 顶点选色使 smooth varying 只插值颜色；GLSL 1.20 的类别数值插值会落在整数之间。
+ * 类别 id 与 Java 常量同步维护。
  */
 vec3 previewSemanticColor(float semanticClass) {
     if (semanticClass == 1.0) {
@@ -177,14 +101,8 @@ vec3 previewSemanticColor(float semanticClass) {
 }
 
 /**
- * 面朝向亮度系数（view-independent face shading）：与 Java 侧
- * club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder#faceShading 同表、同判定顺序。
- *
- * 取值（顶 1.00 / +Z 0.90 / −Z 0.84 / ±X 0.78 / 底 0.72）与 Java 侧逐字相同：两侧都是
- * 「同一个十进制字面常量 × 同一 palette 常量」的单次 IEEE 单精度乘法，故结果逐位一致。
- * 系数一旦改成表达式（mix / lerp / 点积），这条性质立即失效——两侧会因运算顺序分叉。
- *
- * 零方向 / 未定义方向返回 1.0：不得压暗无方向顶点（T51 后顶点按面分裂，正常路径不产生）。
+ * 与 ChainPreviewMeshBuilder.faceShading 保持同一面系数表和判定顺序。
+ * 字面常量乘法保留 CPU/GPU 的舍入顺序，零方向使用恒等亮度。
  */
 float faceShading(vec3 normal) {
     if (normal.y > 0.5) {
@@ -226,13 +144,8 @@ void main(void) {
         fade = fadeAlpha(length(cameraRelative));
     }
 
-    // 3) 逐波生长 + 9) 连锁序渐弱：两个消费方**共用同一次** appearOrder 还原（u16 只组装一次）。
-    //    读取门控 = 「至少一个消费方需要」，不再只挂在生长上（那是第 3 项独占时的省开销短路）：
-    //      · 生长：uAnimProgress < 1.0 && uAppearSpan > 0.0 —— u >= 1 整段可见，无需读序号；
-    //      · 权重：uOrderMinBrightness < 1.0 && uAppearSpan > 0.0 —— uAppearSpan <= 0 时恒等（见下）。
-    //    两者都不需要时整段不读 aAux.z / aAux.w，逐顶点分支开销与接线前一致。
-    //    0xFFFF（未定义序号）在两个消费方都按「已出现 / 权重 1.0」处理，避免无归属顶点在任意
-    //    进度下出现空洞、或在任意进度下被异常压暗。
+    // 生长与连锁序亮度共享一次 appearOrder 解码，任一消费启用时读取。
+    // 未定义序号保持已出现与恒等亮度。
     float growth = 1.0;
     float orderWeight = 1.0;
     bool growthActive = uAnimProgress < 1.0 && uAppearSpan > 0.0;
@@ -240,126 +153,63 @@ void main(void) {
     if (growthActive || orderWeightActive) {
         float appearOrder = auxChannel(aAux.z) + auxChannel(aAux.w) * 256.0;
         if (appearOrder < 65535.0) {
-            // 序号格（两个消费方共用同一格边界，故同一条柱内不会出现生长与权重的格错位）。
+            // 两个消费者共用序号格，保持条柱内生长和亮度的边界一致。
             float orderFloor = floor(min(appearOrder, uAppearSpan));
             if (growthActive) {
-                // 判据：orderFloor <= u × 目标总数 ⟺ order <= round(u × 总数)。
-                // 用「序号格」而非「归一化相等」避免 float 边界抖动；u=0 时恒 0（全隐）。
+                // 在序号格内形成有界线性生长完成度。
                 growth = clamp(uAnimProgress * uAppearSpan - orderFloor, 0.0, 1.0);
             }
             if (orderWeightActive) {
-                // 9) 连锁序渐弱：序号越小越靠近瞄准起点。分母是「同代目标总数」，
-                //    起点 order = 0 ⇒ t = 0 ⇒ 权重 1.0；最远 order >= span ⇒ t = 1 ⇒ 权重 = uOrderMinBrightness。
-                //    权重**乘在颜色亮度上**（见下方 color 行），不参与上面的 alpha。
-                //    门控已在上面表达（uOrderMinBrightness >= 1.0 ⇒ orderWeightActive 为假 ⇒ 整段不执行），
-                //    这里不再重复判一次，避免出现第二个真源。
+                // 目标总数归一化序号，沿起点到远端递减 rgb 权重。
                 float t = clamp(orderFloor / max(uAppearSpan, 1.0), 0.0, 1.0);
                 orderWeight = 1.0 - (1.0 - uOrderMinBrightness) * t;
             }
         }
     }
-    //    本段（含权重的消费位置：alpha → 颜色亮度）是 GLSL **逻辑**变更：按头部「实机验证记录」口径，
-    //    需真机确认无异常后才追加标记行；现有标记行覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
+    // 逻辑版本的实机覆盖范围见头部既有记录。
 
-    // 几何位置必须保持与 legacy 完全一致。aPos 已经是 MeshBuilder 生成的
-    // 条柱/连接块顶点，不能从其相对 origin 的绝对坐标猜测横向轴：长条端点、
-    // junction 和跨轴线段都会被误判，导致整面被推离原始几何。
-    // 屏幕最小宽度与描边沿 Mesh 提供的显式面方向位移；零方向顶点恒等退化，
-    // 保证共享多面顶点不会被错误推向任一轴。
+    // 显式面法线决定外扩方向；零方向保留原顶点位置，覆盖 junction 和跨轴连接。
     vec3 displaced = aPos;
     float pixelsPerWorldUnit = max(uPixelScale / max(1e-4, -(uModelView * vec4(aPos, 1.0)).z), 1e-6);
-    // 世界空间位移预算（A2）：**最小宽度与真描边共用同一份**，单一真源是
-    // ChainPreviewShaderMath.maxWidenWorld（= max(0.0, 0.5 - uBarThickness)）。
-    // 推导（世界空间位移预算（真源：ChainPreviewShaderMath.maxWidenWorld） / F-1 独立复算）：条柱自身厚度 t 与单侧外扩量 w 共同计入相邻条柱的占用，
-    // 中心距 1 格时既有口径的间隙式 1 - 2(t + w) 在上界处恰好为 0；而真实几何到达半径
-    // t/2 + w = 0.5 - t/2 < 0.5，比「不越出自身方块」更保守。不用固定 0.5 是因为默认厚度下
-    // 相邻条柱会重叠 0.09 格。上界把它收敛到 0.955 格总宽（t=0.045），仍不粘连。
+    // 世界位移预算与 ChainPreviewShaderMath.maxWidenWorld 同源，控制相邻条柱占用。
     float maxWidenWorld = max(0.0, 0.5 - uBarThickness);
-    // 联合上界（T52 已修）：两项位移**消耗同一份预算**，故联合位移恒 <= maxWidenWorld。
-    // Lead 裁定「最小宽度优先、描边让位」：最小宽度是功能性需求（保证远距可见性），真描边是
-    // 装饰性的，两者争同一份世界空间预算时功能优先。修复前两者各自取 maxWidenWorld，
-    // 联合可达 2×(0.5 - t)：t=0.045 时单侧位移 0.91 格、到达半径 0.9325 格，越出自身方块
-    // 并使相邻条柱重叠（Python 复算见工作站 temp/qz-miner-t52-joint-budget.py）。
+    // 最小宽度优先占用共享预算，描边仅使用剩余额度。
     float minWidthWiden = 0.0;
     if (uMinScreenWidthPx > 0.0) {
-        // A1 修复：条柱的屏幕投影宽 = **总厚度** × pixelsPerWorldUnit。
-        // 旧式写 2.0 * uBarThickness 把激活阈值抬到 2t×ppwu、位移量减半，
-        // 于是配置 minW 只能交付 minW/2 像素（8px 档实测约 4px，Python 复算见
-        // temp/qz-miner-minwidth-a1a2-recheck.py）。
+        // 按条柱总厚度计算投影宽度，再换算单侧外扩量。
         float widthPx = max(uBarThickness * pixelsPerWorldUnit, 1e-6);
         minWidthWiden = min(0.5 * uBarThickness * max(0.0, uMinScreenWidthPx / widthPx - 1.0), maxWidenWorld);
     }
     displaced = aPos + aDirection.xyz * minWidthWiden;
     if (uOutlineWidthPx > 0.0) {
-        // 描边只能用最小宽度未占用的剩余额度：min-width 吃满预算时此处精确为 0（让位而非叠加）。
+        // 最小宽度占满预算时，描边外扩归零。
         float remainingWiden = max(0.0, maxWidenWorld - minWidthWiden);
         displaced = displaced + aDirection.xyz * min(uOutlineWidthPx / pixelsPerWorldUnit, remainingWiden);
     }
 
-    // 历史做法（从 aPos 的绝对值近似横向轴）已彻底移除：横向轴只认 Mesh 显式提供的 aDirection。
-    //
-    // T49 曾用 if (false) 占位保留那段代码，理由是 GLSL 对 if (false && …) 不做死代码豁免、
-    // 被关掉的语句同样要过语义检查，于是占位块能顺带护住 uniform 的声明与链接检查。该理由
-    // 已被取代：上面的活跃位移实打实引用了 uModelView / uPixelScale / uBarThickness，
-    // 保护作用由活跃分支承担，占位块遂删除（它同时是「读起来像在用 lateralAxis」的误导源）。
-    //
-    // 已修登记（T52 联合上界）：上面的消耗式预算就是原先的「未决点」——最小宽度与真描边不再
-    // 各自取上界，而是共用 maxWidenWorld，联合位移恒 <= 该上界，min-width 吃满时描边让位为 0。
-    // 参考模型 ChainPreviewShaderMath.displaceVertex / outlineWidenWithinBudget 与之同形；
-    // 回归锁见 ChainPreviewShaderOutlineTest#combinedDisplacementNeverExceedsTheSharedWorldBudget
-    // 与 #outlineYieldsToMinWidthWhenBudgetIsExhausted（t=0.045 时旧行为到达 0.9325 格已不复现）。
-    //
-    // 本次是 GLSL **逻辑**变更：按头部「实机验证记录」口径，需真机确认无异常后才追加标记行；
-    // 现有标记行 c390b681 覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
-    //
-    // 教训保留：T49 曾因误删 pixelsPerWorldUnit 声明导致 GLSL 编译失败，再被回退链吞成
-    // 「观感正常」。改动本段后必须过 glslang 闸门，且必须确认上方位移在真机上生效。
+    // 共享预算参考模型见 ChainPreviewShaderMath.displaceVertex / outlineWidenWithinBudget。
+    // GLSL 逻辑变更先经 glslang 编译，再核对实机位移；后端回退可能掩盖 shader 编译失败。
 
-    // 颜色与 alpha：vColor.rgb 是「语义类别色」（非预乘），alpha 单独传给混合。
-    // 共用混合是 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)（两后端共用）：
-    // 预乘 alpha 会让最终 src 变成 rgb × alpha²（alpha=0.15 时 0.0225 vs 0.15）。
-    // 最终 alpha = 距离淡出 × 逐波生长 × 淡入淡出包络（L5）——**不含连锁序权重（第 9 项）**：
-    // 距离淡出与连锁序是两个独立维度、各自权威（用户裁定：两套「越远越淡」不得乘在同一个量上，
-    // 否则两个配置的语义互相污染；且远距 alpha 本已很小，再乘权重只会落进视觉噪声）。
-    // uFadeAlpha = 1 是**精确 1.0 的乘法**，故关闭档逐值等于接线前。
+    // 非预乘颜色交 GL_SRC_ALPHA 混合；alpha 仅组合距离、生长与全局包络。
     float alpha = fade * growth * uFadeAlpha;
-    // 描边 pass 用 CHAIN 色（outline 轮廓统一色，不参与语义分类）；其余情况按 semanticClass 取色。
-    // 取色仍在顶点阶段（F1），alpha 包络 fade × growth × uFadeAlpha 不受描边分支影响。
+    // 描边统一用 CHAIN 色，其余按顶点语义色输出。
     vec3 color = previewSemanticColor(auxChannel(aAux.x));
     if (uOutlineWidthPx > 0.0) {
         color = uColorChain;
     }
-    // 面朝向明暗：门控关闭（默认，uFaceShading = 0）时整段不执行 ⇒ 输出逐字节等于现状。
-    // 开启时乘的是与 legacy 颜色流同一张表的同一组字面常量（见 faceShading 函数）。
+    // 按与 legacy 相同的面系数表应用亮度。
     if (uFaceShading > 0.5) {
         color = color * faceShading(aDirection.xyz);
     }
-    // 连锁序渐弱（第 9 项）作用在**颜色亮度**上：刻意放在面明暗**之外层**，两者是彼此独立的乘数
-    // （不合并化简、也不移进上面的 if——关闭面明暗时本行照旧生效；单精度舍入顺序保持
-    // 「先 color × 明暗系数、再 × 权重」，既有面明暗链路逐位不变）。
-    // orderWeight 在关闭档 / 未定义序号 / 无同代目标总数时保持初值 1.0，乘 1.0 精确恒等。
+    // 连锁序权重独立作用 rgb，保留先面明暗、后序号权重的乘法顺序。
     color = color * orderWeight;
-    // 10) 内部结构压暗：aAux.y 是 tubeEdge（byte 0..255）。0..3 = 贯通管面槽位（外轮廓，保持原亮度），
-    //     其余（实测只有 255 = AUX_UNDEFINED 的 junction 补块 / 共享顶点）是「内部格线」，乘本系数。
-    //     判据刻意写 >= 4.0 而不是 == 255.0：它同时覆盖「槽位 2/3 将来可达」与「未知大值」，
-    //     除了 0..3 这些贯通面以外的一切顶点都算内部结构；把 0..3 误判成内部会把整根条柱侧面压暗，
-    //     与「外轮廓强」直接矛盾（阈值同源见 Java 侧 ChainPreviewShaderMath.INTERIOR_TUBEEDGE_THRESHOLD）。
-    //     关闭档门控：uInteriorDim >= 1.0 时**完全不进入**该分支，乘 1.0 是精确恒等 ⇒ 逐值等于现状
-    //     （host 侧已把 NaN / 越界收敛为 1.0，见 ChainPreviewShaderMath.interiorDim）。
-    //     描边 pass 明确排除：uOutlineWidthPx > 0 时 color 是 uColorChain（外轮廓专用色），
-    //     压暗它等于把本项的设计目标「外轮廓强」自己抹掉，故 condition 里额外要求 uOutlineWidthPx <= 0
-    //     （与上面的取色分支互斥，不依赖两个 uniform 的取值巧合）。
-    //     只乘 rgb：alpha 已在上面独立算完，本项不得参与（与第 9 项 orderWeight 同口径）。
+    // 主体的非管面顶点应用内部亮度；0..3 管面与描边保持轮廓亮度，alpha 独立。
     if (uInteriorDim < 1.0 && uOutlineWidthPx <= 0.0 && auxChannel(aAux.y) >= 4.0) {
         color = color * uInteriorDim;
     }
-    //     本次是 GLSL **逻辑**变更（新增第 10 项内部结构压暗）：按头部「实机验证记录」口径，
-    //     需真机确认无异常后才追加标记行；现有标记行覆盖的是本次变更之前的行为，不得被读作已覆盖本变更。
+    // 内部亮度逻辑的实机覆盖按头部对应版本记录核对。
     vColor = vec4(color, alpha);
 
-    // 关键：必须对 displaced 做投影。此前这里写 ftransform()（内部用 aPos），
-    // 使上面的横向钳制算完即丢——B2.1 最小宽度在 shader 路径静默失效。
-    // MVP 来自显式 uniform（uModelViewProjection）；内建 gl_ModelViewProjectionMatrix 在真机
-    // 环境下与真实相机矩阵失同步，见文件头部 uniform 段与 功能优先级与落点（真源：preview.vert 头部落点表） 的能力差异登记。
+    // 投影使用已外扩的位置和显式 MVP，保留最小宽度及描边位移。
     gl_Position = uModelViewProjection * vec4(displaced, 1.0);
 }

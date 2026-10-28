@@ -10,12 +10,8 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
- * 自动工具换位服务、阶段桥和停止清理顺序的结构门禁。
- *
- * <p>断言对象是「装配顺序 + 数据流」，不是整文件字符位置：所有 indexOf 都先裁到
- * {@code MyMod} 对应方法体内再比较，注释形态与无关方法的同名串不会误命中；
- * 「唯一账本 / 唯一 local owner」改成读 {@link MyMod} 的静态字段类型清单
- * （编译产物层事实），不再数源码里 {@code new X()} 的拼写。</p>
+ * 检查生产请求、阶段投影与生命周期链路是否接入唯一服务，按调用顺序和编译依赖验证装配边界。
+ * 库存行为由决策及端口行为用例覆盖，真实世界时序另经实机确认。
  */
 public class AutoToolSwapRuntimeWiringStructureTest {
 

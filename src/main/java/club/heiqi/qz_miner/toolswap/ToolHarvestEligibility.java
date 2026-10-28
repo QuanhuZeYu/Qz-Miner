@@ -26,7 +26,7 @@ public final class ToolHarvestEligibility {
         return target != null && target.getMaterial().isToolNotRequired();
     }
 
-    /** 采样目标实际效率是否高于徒手基线；该事实不直接否决候选资格。 */
+    /** 采样高于徒手基线的效率事实，供候选排序；收获资格单独判定。 */
     public static boolean isEffective(ItemStack stack, Block target, int metadata) {
         if (stack == null || stack.getItem() == null || target == null) {
             return false;
@@ -51,7 +51,7 @@ public final class ToolHarvestEligibility {
         if (target.getMaterial().isToolNotRequired()) {
             return true;
         }
-        // 不维护模组类白名单；稳定 Item API 对未知工具同样适用。
+        // 未声明 harvestTool 的工具沿稳定 Item API 判定收获能力。
         try {
             return stack.getItem().canHarvestBlock(target, stack);
         } catch (RuntimeException failure) {

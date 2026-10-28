@@ -3,17 +3,9 @@ package club.heiqi.qz_miner.chain.client.render;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 
 /**
- * 连锁预览渲染后端契约（预览渲染后端契约（真源：ChainPreviewRenderBackend））。
- *
- * <p>线程契约：{@link #ensureReady()}、{@link #dispose()} 只在渲染线程调用；
- * GPU 释放必须回到渲染线程。</p>
- *
- * <p>状态契约：帧级 GL 绑定围栏由调用方（ChainPreviewRenderer）统一捕获 / 恢复，
- * 实现内部的 upload / draw 不得各自 glGetInteger 捕获绑定；{@link #dispose()} 可能被
- * 帧外生命周期调用，由实现自行围栏。</p>
- *
- * <p>空网格契约：{@link #uploadTopology(ChainPreviewMesh)} 收到空网格等价于清空当前
- * 绘制范围，不得触发 GL 初始化。</p>
+ * 预览后端的渲染线程接口，统一管理 GPU 初始化、上传、绘制与释放。
+ * 帧内 upload/draw 复用调用方状态围栏，帧外 dispose 自带绑定围栏。
+ * 空网格清空绘制范围并保持惰性初始化。
  */
 public interface ChainPreviewRenderBackend {
 
@@ -24,7 +16,7 @@ public interface ChainPreviewRenderBackend {
     boolean usesCpuColors();
 
     /**
-     * 惰性初始化；失败返回 false 且不抛异常，也不每帧重试。
+     * 惰性初始化；失败记录并返回 false，后续调用沿用失败结果。
      *
      * @return 可以继续上传 / 绘制时为 true
      */
@@ -34,7 +26,7 @@ public interface ChainPreviewRenderBackend {
     void uploadTopology(ChainPreviewMesh mesh);
 
     /**
-     * 同 topology 的距离效果刷新；语义与历史 uploadColors 一致。
+     * 同 topology 的 CPU 颜色效果刷新。
      *
      * @return 是否完成上传（topology 不匹配 / 未初始化时 false）
      */

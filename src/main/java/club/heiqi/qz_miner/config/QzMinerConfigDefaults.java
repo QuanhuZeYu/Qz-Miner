@@ -2,12 +2,7 @@ package club.heiqi.qz_miner.config;
 
 import club.heiqi.qz_miner.objectgroup.ObjectGroupMode;
 
-/**
- * 全部历史配置默认值的单一来源。
- *
- * <p>Schema 默认、{@code Config} 静态初值、LegacyCfgImporter Property getter 默认必须引用本类，
- * 避免三处漂移（尤其 clientEnablePreviewRender=true 与 alpha/fade 非零默认）。</p>
- */
+/** Schema、Config 初值和旧配置导入共用的默认值来源；HUD 默认值直接取类型键声明。 */
 public final class QzMinerConfigDefaults {
 
     public static final String GREETING = "Hello World";
@@ -39,32 +34,11 @@ public final class QzMinerConfigDefaults {
     public static final String PARALLEL_BUDGET_MODE = PARALLEL_BUDGET_MODE_DEADLINE;
     /** slice 档每 tick 并行分片预算（毫秒），仅 slice 档生效。 */
     public static final int PARALLEL_SLICE_BUDGET_MS = 4;
-    /**
-     * 每次成功破坏一个方块消耗的饥饿值（原版 {@code exhaustion} 单位），可为 {@code 0} 或负数。
-     *
-     * <p>
-     * {@code 0} 表示连锁完全不消耗、负值表示每方块净回补，故合法域为
-     * {@link #HARVEST_EXHAUSTION_PER_BLOCK_MIN}..{@link #HARVEST_EXHAUSTION_PER_BLOCK_MAX}。</p>
-     *
-     * <p>默认 {@code 0.025} 等于原版 {@code Block.harvestBlock} 内固定的
-     * {@code player.addExhaustion(0.025F)}，因此默认档逐值等于改动前行为、不改变既有手感。</p>
-     */
+    /** 每次成功破坏的净 exhaustion；零维持原值，负值净回补，默认取 Block.harvestBlock 原版常量。 */
     public static final double HARVEST_EXHAUSTION_PER_BLOCK = 0.025D;
-    /**
-     * 单方块饥饿值消耗的合法下界：负值 = 每个方块净回补的 exhaustion。
-     *
-     * <p>取 {@code -40.0} 与原版累加上限 {@code 40.0} 对称：单个方块即可预存满一整池 exhaustion
-     * （40 点，约合 10 点饥饿值/饱和度的消耗额度）。原版对累加值只有上界、没有下界夹取，
-     * 更低的取值会如实记成更深的负值（只是需要更长的正常消耗才能回到 0），因此这里不宣称
-     * 「更低取值无额外效果」。结算语义见 {@code chain.executor.HarvestExhaustionSettlement}。</p>
-     */
+    /** 净 exhaustion 合法下界，与原版累加池上界对称；负追加由 HarvestExhaustionSettlement 结算。 */
     public static final double HARVEST_EXHAUSTION_PER_BLOCK_MIN = -40.0D;
-    /**
-     * 单方块饥饿值消耗的合法上界。
-     *
-     * <p>原版 {@code FoodStats.addExhaustion} 把 exhaustion 累加封顶在 40.0，再高的单次值不产生额外效果
-     * （40.0 = 每次直接扣完一个满饥饿条组 10 点饱和度/饥饿值）。</p>
-     */
+    /** 净 exhaustion 合法上界，取 FoodStats.addExhaustion 的累加池上限。 */
     public static final double HARVEST_EXHAUSTION_PER_BLOCK_MAX = 40.0D;
     /** 合法并行预算档位（Schema options 与语义校验共用的稳定顺序）。 */
     public static final java.util.List<String> PARALLEL_BUDGET_MODES = java.util.Collections.unmodifiableList(
@@ -76,13 +50,9 @@ public final class QzMinerConfigDefaults {
     public static final String CLIENT_PREVIEW_RENDER_BACKEND = PreviewRenderBackend.defaultValue().id();
     /** 预览条柱粗细（方块坐标偏移缩放）。 */
     public static final double CLIENT_PREVIEW_BAR_THICKNESS = 0.045D;
-    /** 预览颜色来源：builtin 与历史行为逐字节一致。 */
+    /** 预览颜色来源：builtin 使用内置语义配色。 */
     public static final String CLIENT_PREVIEW_COLOR_SOURCE = PreviewColorSource.defaultValue().id();
-    // 六色语义默认（0xRRGGBB）：与 ChainPreviewDrawPlan.Visuals.Colors 的 BUILTIN_*_RGB 同值——
-    // 「builtin 档」与「config 档但未改过颜色」因此给出同一套可区分配色（用户裁定 B 档：
-    // 默认颜色按大模式区分）。CHAIN 保持历史主色 0x40E6FF，使默认大模式观感与接线前一致。
-    // 用户裁定：AREA（爆破模式）色相明确偏红、INTERACT（范围交互）色相明确偏绿；
-    // 三槽连带调整的取舍与可辨识度验算见 ChainPreviewDrawPlan.Visuals.Colors 的同名常量。
+    // 六色默认与 ChainPreviewDrawPlan.Visuals.Colors 的 BUILTIN_*_RGB 一致，按模式区分。
     /** CHAIN 大模式默认子模式本地预测颜色（0xRRGGBB）。 */
     public static final int CLIENT_PREVIEW_COLOR_CHAIN = 0x40E6FF;
     /** AREA 大模式默认子模式本地预测颜色（0xRRGGBB；H≈7° 偏红）。 */
@@ -97,44 +67,28 @@ public final class QzMinerConfigDefaults {
     public static final int CLIENT_PREVIEW_COLOR_TRUNCATED = 0xF8C858;
     /** 深度通道：xray 等于历史行为。 */
     public static final String CLIENT_PREVIEW_DEPTH_MODE = PreviewDepthMode.defaultValue().id();
-    /** 预览动画：本轮默认 off（逐波生长接线属下一批 B3.1/B3.3）。 */
+    /** 预览动画默认档位。 */
     public static final String CLIENT_PREVIEW_ANIMATION = PreviewAnimationMode.defaultValue().id();
     /** 单代动画时长（毫秒）。 */
     public static final int CLIENT_PREVIEW_ANIMATION_DURATION_MS = 120;
     /** 动画相位来源：order 用出现序号。 */
     public static final String CLIENT_PREVIEW_ANIMATION_PHASE = PreviewAnimationPhase.defaultValue().id();
-    /** 距离淡出刷新模式：本轮默认 timer（signal 接线属下一批 B1.3）。 */
+    /** 距离淡出刷新默认档位。 */
     public static final String CLIENT_PREVIEW_FADE_MODE = PreviewFadeMode.defaultValue().id();
     /** signal 档相机位移阈值（格）。 */
     public static final double CLIENT_PREVIEW_FADE_REFRESH_DISTANCE = 0.5D;
-    /** signal 档无位移时的兜底刷新间隔（毫秒）。 */
+    /** signal 档静止时的定期刷新间隔（毫秒）。 */
     public static final int CLIENT_PREVIEW_FADE_FALLBACK_MS = 250;
-    /** 条柱屏幕最小宽度（像素）；0 表示不钳制（默认；已接线：settings → DrawPlan → uMinScreenWidthPx）。 */
+    /** 条柱屏幕最小宽度（像素）；零使用原世界尺寸投影。 */
     public static final double CLIENT_PREVIEW_MIN_SCREEN_WIDTH_PX = 0.0D;
-    /**
-     * 描边壳外扩宽度（物理像素）；默认 1.5D（等于接线前渲染器内写死的 {@code OUTLINE_WIDTH_DEFAULT_PX}，
-     * 观感不变），0 表示关闭描边。
-     *
-     * <p>仅着色器后端的 OUTLINE 深度档消费（legacy 固定管线无屏幕空间描边能力），
-     * 取值区间与着色器内 {@code clamp(uOutlineWidthPx, 0.0, 8.0)} 一致。</p>
-     */
+    /** OUTLINE 着色器 pass 的物理像素外扩宽度；零关闭描边，合法域与 shader clamp 一致。 */
     public static final double CLIENT_PREVIEW_OUTLINE_WIDTH_PX = 1.5D;
     /**
-     * 面朝向烘焙明暗（view-independent face shading）；默认 true。
-     *
-     * <p>两个后端使用同一张「面法线 → 亮度系数」表，都是「字面常量 × 同一 palette 常量」的
-     * 单次 IEEE 单精度乘法 ⇒ 逐位一致。它只乘一个亮度系数：不动几何、不动拓扑、不改可见集合，
-     * 因此被选为唯一上调的观感默认（用户裁定 2026-09-14：默认档需要体积感）。</p>
-     *
-     * <p><b>与其它默认值的性质差异</b>：本项曾默认 false（"逐字节等于接线前观感"），
-     * 上调属**观感变更**而非等价接线——查询"默认值是否等于历史行为"时本项是例外。</p>
-     *
-     * <p><b>实机验证状态</b>：面明暗路径此前只在关闭态下过真机（preview.vert「实机验证记录」
-     * 两条都是"面朝向明暗关"）。默认开启后必须真机确认一次「无异常且观感可接受」，
-     * 确认后才在 preview.vert 追加标记行。</p>
+     * 两个后端共用面法线亮度系数，颜色烘焙与几何拓扑分别处理。
+     * 既有逻辑版本的实机记录见 preview.vert；UILib 5 迁移后的运行路径待实机确认。
      */
     public static final boolean CLIENT_PREVIEW_FACE_SHADING = true;
-    /** 预览被上限截断时是否给出可见提示（本轮默认 false；展示接线属下一批 B1.1）。 */
+    /** 预览被上限截断时是否显示提示。 */
     public static final boolean CLIENT_PREVIEW_TRUNCATION_SIGNAL = false;
     /** 预览目标数量硬顶。 */
     public static final int CLIENT_PREVIEW_MAX_TARGETS_HARD_CAP = 4096;
@@ -143,45 +97,23 @@ public final class QzMinerConfigDefaults {
     /** LOD alpha 剔除阈值。 */
     public static final double CLIENT_PREVIEW_LOD_MIN_ALPHA = 0.05D;
     /**
-     * 连锁序（appearOrder）**亮度**权重下限：预览集合里序号最大（离瞄准起点最远）处乘的权重。
-     *
-     * <p><b>作用位置是颜色亮度</b>（{@code color = color * orderWeight}），<b>不乘 alpha</b>——
-     * 距离淡出与连锁序因此是两个独立维度、各自权威（用户裁定：乘在同一个量上会让两个配置的语义
-     * 互相污染，且远距 alpha 本已很小、再乘权重落进视觉噪声）。{@code 1.0} = 关闭本能力
-     * （逐值等于现状），{@code 0.55}（默认）= 起点 1.0、最远 0.55。
-     * 归一化分母是「同代目标总数」{@code uAppearSpan}；公式、门控与「未定义序号恒 1.0」的判据见
-     * {@code chain.client.render.ChainPreviewShaderMath#orderWeight}（与 preview.vert 逐值同形）。</p>
+     * 同代 appearOrder 归一化后的亮度权重下限，仅作用颜色 rgb。
+     * 公式与门控复用 ChainPreviewShaderMath.orderWeight，距离 alpha 独立计算。
      */
     public static final double CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS = 0.55D;
     /**
-     * 内部结构亮度系数：连锁预览里<b>内部格线</b>（junction 补块 / 共享顶点，即
-     * {@code aAux.y == }{@value club.heiqi.qz_miner.chain.client.ChainPreviewMesh#AUX_UNDEFINED}）
-     * 的顶点颜色亮度乘数。
-     *
-     * <p>目的（连锁预览建议 2「外轮廓强 / 内部格线弱」）：贯通管面槽位（{@code tubeEdge ∈ 0..3}）
-     * 保持原亮度承担外轮廓，内部格线压暗一档，体积感来自「面亮、缝暗」而不是叠色。</p>
-     *
-     * <p><b>作用位置是颜色亮度</b>（{@code color = color * uInteriorDim}），<b>不乘 alpha</b>——
-     * 与 {@link #CLIENT_PREVIEW_ORDER_MIN_BRIGHTNESS} 同口径：alpha 只由「距离淡出 × 逐波生长 ×
-     * 包络」决定，内部压暗不得改变透明度（否则会与距离淡出抢同一个量）。{@code 1.0} = 关闭本能力
-     * （逐值等于现状），默认 {@code 0.65}。</p>
-     *
-     * <p><b>不参与描边 pass</b>：描边壳段（{@code uOutlineWidthPx > 0}）的颜色是外轮廓专用色
-     * {@code uColorChain}，压暗它等于把「外轮廓强」这条设计目标自己抹掉；门控因此额外要求
-     * {@code uOutlineWidthPx <= 0}，与描边分支互斥。</p>
-     *
-     * <p>仅着色器后端消费：legacy 固定管线不消费 tubeEdge（其逐顶点色由 CPU 烘焙，没有该通道的
-     * 语义）。消费点与 CPU 参考模型见
-     * {@code chain.client.render.ChainPreviewShaderMath#interiorDim}（与 preview.vert 逐值同形）。</p>
+     * shader 主体 pass 对 AUX_UNDEFINED 内部格线的 rgb 亮度系数。
+     * 贯通管面与描边保留原亮度，alpha 使用距离淡出、生长与动画包络。
+     * CPU 参考公式见 ChainPreviewShaderMath.interiorDim。
      */
     public static final double CLIENT_PREVIEW_INTERIOR_DIM = 0.65D;
     /** 预览激活时是否取消同目标的原版方块高亮。 */
     public static final boolean CLIENT_PREVIEW_SUPPRESS_VANILLA_HIGHLIGHT = false;
-    /** 是否使用版本化预览输入快照（含目标去抖；本轮默认 false；接线属下一批 B1.2）。 */
+    /** 是否使用版本化预览输入快照及目标去抖。 */
     public static final boolean CLIENT_PREVIEW_VERSIONED_INPUTS = false;
     /** 是否启用统一表现投影覆盖层。 */
     public static final boolean CLIENT_PREVIEW_PRESENTATION_OVERLAY = false;
-    /** 是否在 HUD 展示执行进度（已执行/匹配，B5.2 客户端世界采样；默认 off）。 */
+    /** 是否在 HUD 展示客户端世界采样的执行进度。 */
     public static final boolean CLIENT_PREVIEW_EXECUTION_PROGRESS = false;
     /**
      * 预览后端诊断（HUD 展示当前生效后端与一次性回退原因）缺省值。
@@ -263,7 +195,7 @@ public final class QzMinerConfigDefaults {
         target.put("client.clientPreviewBackendDiagnostics", Boolean.valueOf(CLIENT_PREVIEW_BACKEND_DIAGNOSTICS));
         target.put("client.clientPreviewRemoteTimeoutMs", Double.valueOf(CLIENT_PREVIEW_REMOTE_TIMEOUT_MS));
         target.put("client.objectGroups", objectGroups());
-        // HUD 默认只声明在 schema；兼容默认值投影不复制第二套常量。
+        // HUD 默认值直接从 schema 类型键投影。
         for (club.heiqi.uilib.ui.config.ConfigKey<?> key : java.util.Arrays.asList(
                 QzMinerConfigSchema.HUD_ENABLED, QzMinerConfigSchema.HUD_ANCHOR,
                 QzMinerConfigSchema.HUD_OFFSET_X, QzMinerConfigSchema.HUD_OFFSET_Y, QzMinerConfigSchema.HUD_SCALE)) {
@@ -272,38 +204,21 @@ public final class QzMinerConfigDefaults {
     }
 
     /**
-     * 出厂默认对象组：「红石矿石」+「暮色森林极光方块」，chain/area 四模式全开。
+     * 创建默认红石矿与暮色森林极光方块组，供 schema、文档初始化与恢复默认共用。
      *
-     * <p>{@code QzMinerConfigSchema.OBJECT_GROUPS} 的默认值直接取这里，文档默认构造与显式恢复
-     * 都复用键声明，不在调用方复制对象组内容。</p>
+     * <p>极光方块（issue #249）：上游 1.7.10 BlockTFAuroraBrick 的 onBlockAdded/onBlockPlaced
+     * 以 Math.abs(x + z) % 16 写入位置相位，@* 仅为该 registry 放宽 metadata 匹配。
+     * TFBlocks 通过 setBlockName("TFAuroraBrick") 与 registerBlock(block, itemClass, block.getUnlocalizedName())
+     * 注册，候选名 TwilightForest:tile.TFAuroraBrick 待实机复核。DEBUG 的
+     * stage=PlanStarted read=main-seed seed= 日志输出 registry@meta，入口见
+     * ChainPlanningRuntimeFactory.logPlanStarted，文件位置为 logs/fml-client-latest.log。</p>
      *
-     * <p><b>极光方块条目（issue #249）</b>：Twilight Forest 的 {@code BlockTFAuroraBrick} 把 metadata
-     * 写成位置相位 {@code Math.abs(x + z) % 16}（上游 1.7.10 的 {@code onBlockAdded}/{@code onBlockPlaced}），
-     * 相位相同的相邻方块因此只出现在 x + z 恒定方向上：竖直列（y 变化、x + z 不变）与
-     * {@code (x+1, z-1)} / {@code (x-1, z+1)} 对角；折返带 {@code x + z = -1} 上
-     * {@code (x+1, z+1)} / {@code (x-1, z-1)} 对角也恰好同相。水平直连 {@code (x+1, z)} /
-     * {@code (x, z+1)} 在任何位置都不同相（相位差恒为 ±1 mod 16）。相位值本身在同侧以 16 格周期复现
-     * （{@code |x + z|} 在 {@code x + z = 0} 处折返、跨零点相位镜像）。而 CHAIN_BASE /
-     * AREA_SAME_BLOCK 的同块身份门要求 metadata 精确相等（{@code chain.planner.ChainBlockIdentity}），
-     * 所以修复前只能连同余相位，不是「只能沿竖直一列连锁」。
-     * 反证实验：{@code (x+1, z-1)}（对角、x + z 不变）应能连，{@code (x+1, z)}（水平、相位 +1）不能连。
-     * 本条用 {@code @*} 通配把该 registry 声明为「忽略 metadata 的同类」，
-     * 在不放宽其它方块 meta 语义的前提下恢复连锁。</p>
-     *
-     * <p>注册名字符串的复核口径：上游 {@code TFBlocks} 以 {@code setBlockName("TFAuroraBrick")} +
-     * {@code registerBlock(block, itemClass, block.getUnlocalizedName())} 注册，FML 再按 modid 前缀，
-     * 故候选名为 {@code TwilightForest:tile.TFAuroraBrick}；该字符串未实机验证。实机开启 DEBUG 后
-     * 在 {@code logs/fml-client-latest.log} 搜索
-     * {@code stage=PlanStarted read=main-seed seed=}（Forge log4j2 的 Root=all、FmlFile 无级别过滤，
-     * DEBUG 必进文件），该行输出本次连锁起点方块的 registry@meta（
-     * {@code chain.planner.ChainPlanningRuntimeFactory.logPlanStarted}），与选择器值不一致即改这一行。</p>
-     *
-     * @return 保序不可变的默认组列表（组本身三键 id/modes/members 保序且不可变）
+     * @return 按配置顺序保存的不可变组列表，各组键顺序为 id/modes/members
      */
     public static java.util.List<java.util.Map<String, Object>> objectGroups() {
         java.util.List<java.util.Map<String, Object>> groups =
                 new java.util.ArrayList<java.util.Map<String, Object>>();
-        // 采集模式集合取自 ObjectGroupMode 常量（禁止另写字面量）；两组共用同一集合，group() 内部各自拷贝。
+        // 两组共用稳定模式常量集合，group() 为各组复制列表。
         java.util.List<String> harvestModes = java.util.Arrays.asList(
                 ObjectGroupMode.CHAIN_BASE,
                 ObjectGroupMode.CHAIN_ORE,
@@ -325,10 +240,10 @@ public final class QzMinerConfigDefaults {
     }
 
     /**
-     * 构造单个对象组（modes 非空，故与历史「空 modes」构造分离为显式三参 helper）。
+     * 构造包含明确适用模式的不可变对象组。
      *
      * @param id      组标识（配置数据，不本地化）
-     * @param modes   适用模式稳定标识，取自 {@link ObjectGroupMode} 常量，禁止另写字面量
+     * @param modes   适用模式稳定标识，取自 {@link ObjectGroupMode} 常量
      * @param members 成员 selector（{@code registry@meta} 语法）
      * @return 三键（id/modes/members，保序）不可变组
      */

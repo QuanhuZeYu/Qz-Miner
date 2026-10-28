@@ -39,7 +39,7 @@ public final class MinerSettingsSave implements AutoCloseable {
         }
         saving = true;
         try {
-            // 排队等待结束后回所属线程重新读取真实资格；worker 不读取 Minecraft/权限状态。
+            // 排队结束后回所属主线程重验资格，再冻结候选交 I/O worker。
             io.execute(() -> ui.execute(() -> admit(draft, validated, completion)));
         } catch (RuntimeException failure) {
             finish(new Result(null, failure.getMessage()), completion);

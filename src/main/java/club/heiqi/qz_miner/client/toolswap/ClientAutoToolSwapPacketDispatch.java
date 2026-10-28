@@ -4,8 +4,7 @@ package club.heiqi.qz_miner.client.toolswap;
  * 自动工具换位 S2C 包的纯主线程调度边界。
  *
  * <p>Netty 调用方按 {@code ctx.netHandler} 捕获 lifecycle token 后传入本类。inactive token 在入队前
- * 有意丢弃；已入队任务仅能通过 lifecycle gate 原子复核并执行短小 publication，避免旧连接或旧世界
- * 在客户端主线程写入状态。</p>
+ * 有意丢弃；已入队任务在 lifecycle gate 内原子复核连接和世界身份，仅当前活跃身份执行短小 publication。</p>
  */
 public final class ClientAutoToolSwapPacketDispatch {
 

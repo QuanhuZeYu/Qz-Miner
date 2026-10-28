@@ -8,15 +8,12 @@ import net.minecraft.util.Vec3;
 /**
  * 服务端规划、客户端预览与执行期共用的右键射线数学。
  *
- * <p>姿态与视线部分不依赖玩家/世界引用，单独下沉为包级纯函数：这样「Item 右键语义固定取当前帧
- * 姿态」「眼位 = 插值坐标 + 眼高偏移」「终点 = 眼位 + 视线 × reach」这些数值契约可以在纯 JVM 里
- * 直接证伪，而不必先造出一个 {@code EntityPlayer}（1.7.10 的玩家实体构造链要求真实
- * {@code WorldServer}）。{@link #trace(EntityPlayer, double, boolean)} 只负责把它们接到真实玩家上，
- * 并保持「不持有玩家引用」的既有约束。</p>
+ * <p>姿态与视线采用纯函数计算，trace 仅在本次调用读取玩家并查询世界。
+ * Item 右键取当前帧姿态，眼位、视线与 reach 共同决定射线终点。</p>
  */
 public final class InteractionRayTrace {
 
-    /** Item 右键语义取当前帧姿态：不做部分帧插值（渲染侧的部分帧与本路径无关）。 */
+    /** Item 右键语义固定取当前帧姿态。 */
     private static final float ITEM_POSE_PARTIAL_TICKS = 1.0F;
 
     private InteractionRayTrace() {}
@@ -48,7 +45,7 @@ public final class InteractionRayTrace {
         return player.worldObj.func_147447_a(eye, end, includeLiquids, false, false);
     }
 
-    /** 上一帧角度与当前角度的线性插值（保持 float 精度，避免射线方向漂移）。 */
+    /** 在 float 精度内插值角度，保留原版射线运算顺序。 */
     static float interpolateAngle(float previous, float current, float partialTicks) {
         return previous + (current - previous) * partialTicks;
     }

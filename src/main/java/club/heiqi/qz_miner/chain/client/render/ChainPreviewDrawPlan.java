@@ -5,22 +5,13 @@ import java.util.Arrays;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 
 /**
- * 连锁预览的纯数据绘制计划：描述“这一帧画什么”，不持有任何 GL 资源。
- *
- * <p>只保存索引范围、逐波生长波尾、平移基准、视觉参数、语义位掩码、深度通道与规模计数器；
- * 可在纯 JVM 内构造与断言。生产构造入口只有 {@link #derive}，
- * {@link #sanitized()} 负责把越界 / NaN / 乱序输入收窄且不抛异常（derive 内部已应用一次）。</p>
- *
- * <p>规模计数器语义：{@code rebuilds} = 渲染器发出的非空拓扑上传次数；
- * {@code uploads} = 拓扑 + 颜色流上传尝试次数（自渲染器创建起单调递增）。</p>
- *
- * <p>分配口径（T13-D4）：本类是每帧新建的短生命周期不可变对象；动画期间每帧 1 个 plan +
- * 1 个 {@link Visuals} 快照（{@link Visuals#withAnimationU} 在 u 未变化时返回自身）。
- * 为保持「纯数据 + 不可变」契约不做可变复用；动画 off / 完成后该路径零分配。</p>
+ * 本帧绘制范围、换基原点、视觉参数与统计的不可变计划，GL 资源由后端持有。
+ * derive 从本帧输入派生并应用 sanitized 收窄，视觉快照在值相同时复用。
+ * rebuilds 计非空拓扑上传，uploads 计拓扑与颜色上传尝试，均由 renderer 累积。
  */
 public final class ChainPreviewDrawPlan {
 
-    /** 深度通道；XRAY 即现状（关闭深度测试）。 */
+    /** 深度通道，XRAY 关闭深度测试。 */
     public enum DepthChannel {
         XRAY,
         OCCLUDE,
@@ -28,13 +19,13 @@ public final class ChainPreviewDrawPlan {
         DEPTH_OPAQUE
     }
 
-    /** 语义类别位掩码全开：不做类别过滤，等价现状。 */
+    /** 语义类别位掩码全开，接受所有类别。 */
     public static final int SEMANTIC_MASK_ALL = -1;
 
     /** 动画完成度：{@code animationU >= 1} 视为全部可见。 */
     public static final float ANIMATION_COMPLETE = 1.0F;
 
-    /** barThickness 基线默认值（与 B0.1 配置默认同值）。 */
+    /** 条柱厚度基线默认值。 */
     public static final float DEFAULT_BAR_THICKNESS = 0.045F;
 
     public static final float MIN_BAR_THICKNESS = 0.001F;
@@ -42,14 +33,7 @@ public final class ChainPreviewDrawPlan {
     public static final float MAX_MIN_SCREEN_WIDTH_PX = 8.0F;
     public static final float MIN_FADE_SPAN = 0.001F;
 
-    /**
-     * B3.x 真描边：OUTLINE 描边壳段的参考外扩宽度（物理像素；XRAY / OCCLUDE 不消费）。
-     *
-     * <p>本常量是 draw plan 层的参考值（壳段单元测试与契约文档口径）；生产生效宽度由配置
-     * {@code client.clientPreviewOutlineWidthPx} 提供（默认 1.5D，与本常量一致；0 = 关闭描边），
-     * renderer 经 读取面单通道（真源：ChainPreviewVisualSettings） {@code ChainPreviewVisualSettings#getOutlineWidthPx()} 传入
-     * {@link #withOutlinePass(boolean, float)}。</p>
-     */
+    /** 描边参考外扩宽度（物理像素）；生产宽度由视觉配置快照传入 withOutlinePass。 */
     public static final float OUTLINE_WIDTH_DEFAULT_PX = 1.5F;
 
     /** 描边外扩宽度收窄上限（物理像素）。 */
@@ -85,20 +69,10 @@ public final class ChainPreviewDrawPlan {
         /** 屏幕最小宽度基线默认（配置键位与默认值（真源：QzMinerConfigDefaults）：0.0 = 不钳制）。 */
         public static final float DEFAULT_MIN_SCREEN_WIDTH_PX = 0.0F;
 
-        /**
-         * 连锁序**亮度**权重下限的基线默认（{@code 1.0} = 关闭本能力，恒等）。
-         *
-         * <p>刻意<b>不</b>取配置默认 0.55（理由见 {@link #BASELINE}）：与 faceShading 同属例外项，
-         * 「拿不到配置」不能读作「用户选择了 0.55」。</p>
-         */
+        /** 配置不可用时使用恒等连锁序亮度，生产默认值由配置快照提供。 */
         public static final float DEFAULT_ORDER_MIN_BRIGHTNESS = 1.0F;
 
-        /**
-         * 内部结构亮度系数的基线默认（{@code 1.0} = 关闭本能力，恒等）。
-         *
-         * <p>刻意<b>不</b>取配置默认 0.65（理由见 {@link #BASELINE}）：与 faceShading 同属例外项，
-         * 「拿不到配置」不能读作「用户选择了 0.65」。</p>
-         */
+        /** 配置不可用时使用恒等内部亮度，生产默认值由配置快照提供。 */
         public static final float DEFAULT_INTERIOR_DIM = 1.0F;
 
         /** 距离淡出基线默认（与 ChainPreviewVisualSettings 的 NaN 兜底逐值同源）。 */
@@ -107,14 +81,7 @@ public final class ChainPreviewDrawPlan {
         public static final float DEFAULT_ALPHA_START = 0.78F;
         public static final float DEFAULT_ALPHA_END = 0.15F;
 
-        /**
-         * settings 缺失 / 字段 NaN 时的最后防线：除 faceShading、orderMinBrightness 与 interiorDim
-         * 外与配置默认逐项同值。
-         *
-         * <p>这三项是刻意的例外：本兜底路径的语义是「拿不到配置」，保持关闭 / 恒等才等于历史
-         * 观感；配置默认虽已上调（面明暗开启、连锁序亮度权重下限 0.55、内部结构亮度系数 0.65，
-         * 见 QzMinerConfigDefaults），但「读不到配置」不等于「用户选择了开启」。</p>
-         */
+        /** 配置缺省基线：面明暗关闭、两项亮度取恒等值，其余沿配置默认。 */
         public static final Visuals BASELINE = new Visuals(
             DEFAULT_BAR_THICKNESS,
             DEFAULT_MIN_SCREEN_WIDTH_PX,
@@ -146,37 +113,23 @@ public final class ChainPreviewDrawPlan {
             public static final int SLOT_COUNT = 6;
 
             /**
-             * builtin 档 CHAIN 槽：legacy 基线常量 (0.25, 0.90, 1.00) 的 0xRRGGBB 量化值
-             * （本值仅用于值相等 / 诊断口径，与精确 float 常量并非逐位相等：64/255≈0.25098、
-             * 230/255≈0.90196）；像素路径（shader uniform / legacy 颜色流）请使用精确常量
-             * 0.25F/0.9F/1.0F，不要反量化本值。
+             * CHAIN 语义色的 RGB 量化标识，供相等比较与诊断。
+             * shader uniform 和 legacy 颜色流使用精确 float 常量 0.25F/0.9F/1.0F，保留原色精度。
              */
             public static final int BUILTIN_CHAIN_RGB = 0x40E6FF;
 
-            /**
-             * builtin 档 AREA 槽（爆破模式）：色相明确偏红（H≈7°），不是「暖一点」的琥珀。
-             *
-             * <p>用户裁定：AREA 偏红、INTERACT 偏绿，CHAIN 保持青主色。取红橙而非正红是为了在
-             * 与 INTERACT 绿、TRUNCATED 琥珀拉开距离的同时保留「爆破」的暖色联想。</p>
-             */
+            /** AREA 使用红橙色，与 INTERACT 绿及截断琥珀区分，并保留爆破的暖色语义。 */
             public static final int BUILTIN_AREA_RGB = 0xE8503C;
             /** builtin 档 INTERACT 槽（范围交互）：色相明确偏绿（H≈135°），与 CHAIN 的青（H≈188°）区分。 */
             public static final int BUILTIN_INTERACT_RGB = 0x58E07A;
-            /** builtin 档扩展子模式槽（本轮新增）。 */
+            /** builtin 档扩展子模式槽。 */
             public static final int BUILTIN_SUB_MODE_RGB = 0xB08CFF;
-            /** builtin 档远端槽（本轮新增）。 */
+            /** builtin 档远端槽。 */
             public static final int BUILTIN_REMOTE_RGB = 0x8FA9D0;
-            /**
-             * builtin 档截断槽：琥珀 0xF8C858（原为珊瑚红 0xFF7A6B）。
-             *
-             * <p><strong>为什么避让</strong>：AREA 改红后，珊瑚红与 AREA 红在三档叠加的最坏档
-             * （连锁序亮度 × 面明暗最暗面 × 近处 alpha）ΔE00 只剩 ≈4，两槽会糊成一片；
-             * 换到琥珀后该对恢复到 ≈21，且琥珀本就是调色板内的色相（旧 INTERACT 槽），
-             * 不引入第七种色相。截断是「本轮数据源不产出」的保留分支，改动风险最低。</p>
-             */
+            /** 截断保留槽使用琥珀色，与 AREA 红区分。 */
             public static final int BUILTIN_TRUNCATED_RGB = 0xF8C858;
 
-            /** builtin 档六槽（彼此不同；用户裁定「默认颜色按大模式区分」）。 */
+            /** builtin 档按模式区分的六槽配色。 */
             public static final Colors BUILTIN = new Colors(
                 SOURCE_BUILTIN,
                 BUILTIN_CHAIN_RGB,
@@ -313,13 +266,8 @@ public final class ChainPreviewDrawPlan {
         }
 
         /**
-         * LOD 档位与 alpha 剔除阈值（不可变）：由 renderer 从 ChainPreviewVisualSettings 映射，plan 只读。
-         *
-         * <p>{@code off}（默认）＝ 不剔除、不合并，逐值等于现状；{@code auto} 启用构建期
-         * alpha ≤ lodMinAlpha 剔除（进出双阈值防抖 enter=lodMinAlpha / exit=lodMinAlpha+0.05
-         * 由 Builder 侧实现，本对象只承载生效档位与阈值）；null / 未知档位兜底 off。</p>
-         *
-         * <p>本轮「超距合并 / 外壳档位」未实现（Lead 裁定登记下一批），plan 不假设存在合并产物。</p>
+         * LOD 的不可变生效档位与 alpha 阈值，构建器按双阈值滞回决定目标包含集。
+         * off 保留全部目标，auto 启用剔除；未知档位归一为 off。
          */
         public static final class Lod {
 
@@ -505,16 +453,7 @@ public final class ChainPreviewDrawPlan {
                 0.0F);
         }
 
-        /**
-         * 描边壳两参构造（B3.x）：{@code outlineShell=false, outlineWidthPx=0} 即非描边段，
-         * 面朝向明暗默认关闭（face shading）。
-         *
-         * <p>规范化：{@code shell && widthPx > 0} 才算壳段，否则标志 false、宽度 0
-         * （NaN / 负值 / 关闭都收敛到同一形态，便于相等判定与后端分支）。</p>
-         *
-         * @param outlineShell   本段是否 OUTLINE 描边壳段
-         * @param outlineWidthPx 外扩宽度（物理像素）
-         */
+        /** 正宽度且 shell 开启时形成描边段，其余输入归一为普通段；面明暗使用关闭值。 */
         public Visuals(
                 float barThickness,
                 float minScreenWidthPx,
@@ -534,13 +473,7 @@ public final class ChainPreviewDrawPlan {
                 outlineShell, outlineWidthPx, false);
         }
 
-        /**
-         * 15 参构造：连锁序亮度权重与内部结构亮度系数都未显式传入时分别按
-         * {@link #DEFAULT_ORDER_MIN_BRIGHTNESS} / {@link #DEFAULT_INTERIOR_DIM}（都是 1.0 = 关闭）处理。
-         *
-         * @param faceShading 是否按面朝向烘焙明暗（配置 clientPreviewFaceShading）；
-         *                    false 时后端不进入乘色分支，输出逐字节等于现状
-         */
+        /** 补充面明暗开关，两项亮度沿兼容构造的恒等值。 */
         public Visuals(
                 float barThickness,
                 float minScreenWidthPx,
@@ -562,14 +495,7 @@ public final class ChainPreviewDrawPlan {
                 DEFAULT_INTERIOR_DIM);
         }
 
-        /**
-         * 16 参构造：内部结构亮度系数未显式传入时按 {@link #DEFAULT_INTERIOR_DIM}（= 1.0，关闭）处理。
-         *
-         * @param orderMinBrightness 连锁序**亮度**权重下限（配置 clientPreviewOrderMinBrightness，读取面已收窄到
-         *                      [0,1]）；{@code 1.0} = 后端传 1.0 给 {@code uOrderMinBrightness}，
-         *                      preview.vert 完全不进入 orderWeight 分支 ⇒ 输出逐值等于现状；
-         *                      非 1.0 时权重的消费位置是颜色亮度（{@code color * orderWeight}），不乘 alpha
-         */
+        /** 补充连锁序亮度，内部亮度沿兼容构造的恒等值。 */
         public Visuals(
                 float barThickness,
                 float minScreenWidthPx,
@@ -591,14 +517,7 @@ public final class ChainPreviewDrawPlan {
                 outlineShell, outlineWidthPx, faceShading, orderMinBrightness, DEFAULT_INTERIOR_DIM);
         }
 
-        /**
-         * 完整构造（本轮追加内部结构亮度系数一参）。
-         *
-         * @param interiorDim 内部结构亮度系数（配置 clientPreviewInteriorDim，读取面已收窄到 [0,1]）；
-         *                      {@code 1.0} = 后端传 1.0 给 {@code uInteriorDim}，
-         *                      preview.vert 完全不进入内部压暗分支 ⇒ 输出逐值等于现状；
-         *                      非 1.0 时乘在内部格线（tubeEdge 未定义的顶点）的颜色 rgb 上，不乘 alpha
-         */
+        /** 完整视觉构造；内部亮度作用于主体格线 rgb，描边与 alpha 分别处理。 */
         public Visuals(
                 float barThickness,
                 float minScreenWidthPx,
@@ -655,7 +574,7 @@ public final class ChainPreviewDrawPlan {
             if (Float.compare(animationU, nextAnimationU) == 0) {
                 return this;
             }
-            // 与既有 11 参构造同义（非壳段：shell=false、width=0）；面朝向明暗必须原样携带。
+            // 替换动画进度时保留面明暗，使用普通非描边段。
             return new Visuals(
                 barThickness,
                 minScreenWidthPx,
@@ -700,7 +619,7 @@ public final class ChainPreviewDrawPlan {
          *
          * <p>由后端按各自机制施加，且只施加一次：shader 路径乘进顶点 alpha（{@code uFadeAlpha}），
          * legacy 固定管线用 1×1 白纹理 × GL_MODULATE 乘进逐顶点 α。
-         * {@code alphaStart/alphaEnd} 保持距离淡出端点原值，不预乘本乘子（避免双乘 k²）。</p>
+         * {@code alphaStart/alphaEnd} 保留距离淡出端点值，由后端施加一次包络乘子。</p>
          */
         public float getFadeAlpha() {
             return fadeAlpha;

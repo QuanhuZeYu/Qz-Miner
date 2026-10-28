@@ -8,8 +8,7 @@ import java.util.concurrent.TimeUnit;
  * <p>零 MC / GL / 配置依赖，可在纯 JVM 内构造与断言；{@link ParallelTickExecutor}
  * 只消费本类结果，使预算语义与线程/锁实现可以分别验收。</p>
  *
- * <p>语义不变量：窗口预算只是供协作式观察的 soft deadline，两个档位都不改变
- * 「已开始的分片必须完整返回到安全边界」这一屏障契约。</p>
+ * <p>窗口预算在安全点协作观察，已开始的分片完整返回后由执行器屏障收口。</p>
  */
 public final class ParallelBudgetPolicy {
 
@@ -49,8 +48,7 @@ public final class ParallelBudgetPolicy {
      * 判断该档位是否对指定 stage 启用并行让出切片。
      *
      * <p>切片只作用于客户端 stage：客户端 stage 的并行让出直接消耗渲染帧时间，
-     * 而服务端 stage 承担规划吞吐，不应被预览优化牵动。未知档位与未知 stage
-     * 一律返回 false（等于基线行为）。</p>
+     * 服务端 stage 保留规划吞吐预算。缺省档位与缺省 stage 使用基线行为。</p>
      *
      * @param mode 预算档位，null 视为 {@link ParallelBudgetMode#DEFAULT}
      * @param stage 并行阶段，null 视为不启用
@@ -68,7 +66,7 @@ public final class ParallelBudgetPolicy {
      * 计算本次窗口冻结的并行预算（纳秒）。
      *
      * <p>未启用切片时等于基线（只受 tickBudgetMs 约束）；启用切片时取二者较小值，
-     * 使并行让出不再等于整个 tick 预算。</p>
+     * 将客户端并行让出限制在独立切片预算内。</p>
      *
      * @param sliceActive 是否启用切片预算
      * @param tickBudgetMs tick 预算毫秒
@@ -88,10 +86,9 @@ public final class ParallelBudgetPolicy {
      *
      * <p>基线（未启用切片）：只要该 stage 仍有注册任务就等到窗口 deadline。
      * 启用切片后增加两个提前返回条件——没有活跃分片、且每个注册任务都已获得
-     * 本 tick 的调度机会——从而不再为「已经让出的任务」空耗墙钟。</p>
+     * 本 tick 的调度机会，此时直接返回主线程。</p>
      *
-     * <p>注意：本函数只决定「还要不要给未启动的分片机会」，不参与窗口关闭后的
-     * worker 屏障等待；屏障等待不受本函数影响。</p>
+     * <p>本函数决定窗口内等待机会；窗口关闭后的 worker 屏障由执行器统一完成。</p>
      *
      * @param sliceActive 是否启用切片预算
      * @param registeredTasks 该 stage 当前注册任务数

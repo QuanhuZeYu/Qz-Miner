@@ -3,23 +3,21 @@ package club.heiqi.qz_miner.config;
 /**
  * {@code client.clientPreviewRenderBackend} 的取值域。
  *
- * <p>id 是 YAML / UI 选项的稳定文本，不随枚举序数变化；{@link #ids()} 供 Schema options，
- * {@link #fromId(String)} 供语义校验收窄（未知返回 null，由调用方报错，不夹取）。</p>
- *
- * <p>配置键取值覆盖全部三档；auto 之外的档位由 ChainPreviewBackendSelector 决定实际后端。</p>
+ * <p>稳定文本 id 用于 YAML 与 UI；ids 提供 schema 选项，fromId 精确解析，未知值交调用方报错。</p>
+ * <p>后端选择器综合请求档位、GL 能力与历史失败结果决定实际路径。</p>
  */
 public enum PreviewRenderBackend {
 
-    /** 能力探测通过则 shader，否则 legacy（本轮目标默认）。 */
+    /** 能力探测通过则 shader，否则 legacy。 */
     AUTO("auto"),
 
     /** 显式请求着色器后端；探测失败仍回退 legacy 并记录一次诊断。 */
     SHADER("shader"),
 
-    /** 恒定固定管线后端（回退到今天的渲染路径）。 */
+    /** 使用固定管线后端。 */
     LEGACY("legacy");
 
-    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
+    /** 默认档位。 */
     private static final PreviewRenderBackend DEFAULT_VALUE = AUTO;
 
     private final String id;
@@ -56,7 +54,7 @@ public enum PreviewRenderBackend {
         return null;
     }
 
-    /** @return 本轮默认档（Lead 裁定：不得超前于实现） */
+    /** @return 默认档位 */
     public static PreviewRenderBackend defaultValue() {
         return DEFAULT_VALUE;
     }

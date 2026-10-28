@@ -68,13 +68,7 @@ public class ClientPhaseProjectionTest {
         Assert.assertEquals(-1L, projection.getLastUpdateServerTick());
     }
 
-    /**
-     * P2-4 阶段8 块3 回归：G2 夺权后 HUD/预览锁定权威读 ClientPhaseProjection。
-     *
-     * <p>固化 F1 锁定边界契约：PLANNING/RUNNING/FINISHING 锁定预览（连锁进行中，避免转视角切走）；
-     * ARMED/IDLE 不锁（玩家可自由选目标）。本测在投影层断言五态分类，回归守 shouldLockCurrentPreview
-     * 的 phase→lock 映射（私有方法 JVM 不可直接达，但 phase 分类是 G2 夺权的数据契约核心）。</p>
-     */
+    /** 验证阶段投影的五态分类，PLANNING/RUNNING/FINISHING 为预览锁定提供活动阶段事实。 */
     @Test
     public void g2ProjectionLockPhasesContract() {
         ClientPhaseProjection projection = new ClientPhaseProjection();

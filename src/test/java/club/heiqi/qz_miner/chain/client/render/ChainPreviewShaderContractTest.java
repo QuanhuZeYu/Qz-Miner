@@ -102,14 +102,7 @@ public class ChainPreviewShaderContractTest {
         Assert.assertNull("aColor 已从 shader 路径移除（顶点属性契约修订 T51）", attributes.get("aColor"));
     }
 
-    /**
-     * 生长语义的<b>声明面</b>契约：进度与目标总数必须是已声明的 uniform，且不得留下死 uniform。
-     *
-     * <p>Lead 裁定：逐波生长只在 shader 路径生效（uAnimProgress &ge; 1 时整段可见，完全不读
-     * appearOrder），判据是「序号格之差」（cell 式）。这些<strong>行为</strong>由纯 JVM 参考模型
-     * 逐格数值断言（{@link ChainPreviewShaderMath#growthWeight}，见 ChainPreviewShaderGrowthWidthTest
-     * 与 ShaderPathContractTest），GLSL 侧与之一致性由真机验证 + shader 头部标记负责。</p>
-     */
+    /** 验证生长进度与目标总数 uniform 声明，数值生长由共享参考模型用例覆盖。 */
     @Test
     public void growthUniformSurfaceIsDeclared() throws IOException {
         GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH));
@@ -219,18 +212,7 @@ public class ChainPreviewShaderContractTest {
 
     // ------------------------------------------------------------------ T48c-A 显式相机矩阵
 
-    /**
-     * T48c-A：相机矩阵必须是**显式 mat4 uniform**（{@code uModelViewProjection} / {@code uModelView}）。
-     *
-     * <p>真机（GTNH 2.9 + Angelica 2.2.10 的 GLSM 用生成着色器模拟固定管线 +
-     * {@code use_no_error_g_l_context=true}）下，固定管线内建 {@code gl_ModelViewProjectionMatrix} /
-     * {@code gl_ModelViewMatrix} 与真实相机矩阵失同步，整条预览链会被画进错误空间（77px 窄竖条），
-     * 且失败完全不可观测。本测试只钉住<strong>声明面</strong>（两个 mat4 uniform 必须存在，名字由
-     * Java 侧按字符串解析、登记为硬必备）；「源码里不再出现内建矩阵名」这类<strong>文本</strong>禁令
-     * 已按裁定移除（源码文本快照重命名即误报、改语义却照样绿），现在由
-     * {@link Glsl120StaticChecker} 的固定管线内建禁令以<strong>词法规则</strong>承担——喂一份坏源码
-     * 进去就会红，见本类的 {@link #checkerRejectsFixedPipelineBuiltins()}。</p>
-     */
+    /** 验证两项显式 mat4 相机 uniform 声明，固定管线输入由词法校验器的负例覆盖。 */
     @Test
     public void cameraMatrixUniformsAreMat4() throws IOException {
         GlslSourceScanner vertex = GlslSourceScanner.of(read(VERTEX_PATH));

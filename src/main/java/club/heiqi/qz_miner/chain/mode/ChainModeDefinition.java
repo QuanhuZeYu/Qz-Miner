@@ -14,9 +14,7 @@ import club.heiqi.qz_miner.chain.planner.ChainResolverContext;
 /**
  * 连锁模式定义。
  *
- * <p>阶段8：旧 {@code ChainPlanningStrategy} 接口及 5 实现已删除，
- * {@code planningStrategy} 字段及 {@code getPlanningStrategy()} getter 同步移除。
- * 规划接入新链路由 {@code ChainPlanningEventBridge} 影子 traverser 接管（块2 真实破坏桥就位后生效）。</p>
+ * <p>组合 traverser/matcher resolver、执行器与范围表现；子模式注册项可覆盖主模式默认实现。</p>
  */
 public final class ChainModeDefinition {
 

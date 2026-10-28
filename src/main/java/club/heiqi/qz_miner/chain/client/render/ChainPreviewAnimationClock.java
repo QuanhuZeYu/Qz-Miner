@@ -1,23 +1,9 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 /**
- * 预览动画时钟：有界、零 per-frame 分配的标量状态机。
- *
- * <p>只依赖 {@link System#nanoTime()} 与「代级起点」：generation、动画档位（off↔flow↔wave）
- * 或 durationMs 任一变化都按新一轮处理（重置起点、下一帧生效），语义与 generation 变化一致；
- * animation=off（或 null / 未知 id）恒返回 {@link #COMPLETE}；flow / wave 按 durationMs
- * 线性推进；掉帧只跳进不失控（完成度钳制到 [0,1]）；时钟回退 / 同帧重入不产生负值。</p>
- *
- * <p>生命周期：预览结束、世界切换、后端热切换由调用方调用 {@link #reset()} 清理，
- * 不跨代残留；除标量字段外不持有任何缓冲。</p>
- *
- * <p><b>本时钟只产出 {@code animationU} 一个值</b>：索引段波表未启用（索引顺序 != appearOrder
- * 顺序，junction 相先写），逐波生长由 shader 按 aAux 逐顶点比较实现；plan 的
- * {@code waveEnds} 恒为 null / {@code waveVisible} 恒为 0，保留字段仅为未来索引有序场景。</p>
- *
- * <p>分配口径（T13-D4）：时钟自身只有标量字段、advance 零分配；动画期间 renderer 每帧会新建
- * 1 个不可变 {@link ChainPreviewDrawPlan.Visuals} 快照与 1 个 DrawPlan（已知分配点）——
- * 保持「plan 纯数据 / 不可变」契约，不做可变复用；动画 off / 完成后该路径零分配。</p>
+ * 标量动画时钟，按代、flow/wave 档位及时长重置起点，返回有界线性完成度。
+ * off 或非法档位立即完成，生命周期入口 reset。
+ * 时钟只提供 animationU，shader 按逐顶点 appearOrder 生长，索引段波表保留为空。
  */
 public final class ChainPreviewAnimationClock {
 

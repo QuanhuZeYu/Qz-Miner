@@ -19,12 +19,8 @@ import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapIntent;
 import club.heiqi.qz_miner.toolswap.protocol.AutoToolSwapProtocol;
 
 /**
- * Qz C2S transport 的已接线发送边界。
- *
- * <p>无网络降级与「只发 round-start / intent 两类报文」用真实对象断言（{@code MyMod.networkMain}
- * 为 null 即纯 JVM 可达路径）；报文类型无法在 headless 捕获（{@code NetworkMain} 与
- * {@code SimpleNetworkWrapper} 均为 final，且不得为测试新增 seam，见 Lead 裁定 A），
- * 因此改为「发送方法体内构造的报文标识符 + 类级发送点计数」的结构契约。</p>
+ * 验证客户端 transport 按 control intent 发送链路委派，实例装配与方法内顺序共同约束来源。
+ * 真实连接上的消息发送由游戏运行确认。
  */
 public class QzAutoToolSwapClientTransportStructureTest {
 

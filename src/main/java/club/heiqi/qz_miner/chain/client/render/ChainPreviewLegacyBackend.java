@@ -14,30 +14,11 @@ import org.lwjgl.opengl.GL30;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 
 /**
- * 固定管线（legacy）预览后端：从 ChainPreviewMeshCache 提取的 GL 缓冲实现。
+ * 渲染线程持有 legacy 的 VAO 与位置、CPU 颜色、quad 索引缓冲，能力要求包含 GL20/GL30。
+ * 帧内 upload/draw 复用 renderer 围栏，帧外 dispose 经统一绑定围栏释放资源。
  *
- * <p>GL 调用序列与历史 ChainPreviewMeshCache 逐条等价：VAO + attribute 0 位置流 +
- * client state 颜色流（glColorPointer）+ GL_QUADS 索引绘制；颜色语义保持 CPU 端
- * builtin 常量色 + 距离 α。</p>
- *
- * <p>绑定围栏：帧内 upload / draw 由调用方帧级围栏统一捕获 / 恢复（0 次 glGetInteger）；
- * 只有帧外入口 {@link #dispose()} 自带一次捕获。T26 / B4.3 起所有捕获 / 恢复动作都走
- * {@link ChainPreviewGlFences}（{@link WorldOverlayBackend#glAccess()} 注入），本类不再自己写
- * try / finally 恢复模板。</p>
- *
- * <p>能力要求（T8-D9 登记）：本后端与历史 ChainPreviewMeshCache 同源，使用 VAO（GL30）与
- * glVertexAttribPointer（GL20）。无 GL20 / GL30 时 {@link #ensureReady()} 返回 false 并记录
- * failure（见 {@link #describe()}），预览整体不可用；真正的无 VAO 固定管线回退路径属下一批
- * （B4.3）评估，本轮不做。</p>
- *
- * <p>淡入淡出（T14/B3.2）：legacy 的逐顶点 α 是 CPU 烘焙值，plan 的 {@code fadeAlpha}
- * 乘子无法通过 uniform 施加；普通距离透明阶段在 fadeAlpha &lt; 1 时启用「1×1 白纹理 + GL_MODULATE」
- * 把乘子乘进逐顶点 α（该阶段 fadeAlpha == 1 时无额外纹理调用）。纹理在渲染线程
- * 惰性创建、dispose 释放；创建失败降级为「无过渡、retiring 只延迟消失」并写入 describe()，
- * 不每帧重试、不抛异常。</p>
- *
- * <p>可见不透明阶段复用同一纹理，以 COMBINE 保留 primary rgb、用纹理 alpha 替换烘焙距离 alpha；
- * 全局淡入淡出仍写进纹理，稳态 alpha 为 1。失败时沿原调制降级路径保留距离透明显示。</p>
+ * <p>距离透明阶段以白纹理 GL_MODULATE 施加淡出，近处不透明阶段以 COMBINE 替换烘焙 alpha。
+ * 纹理惰性创建，失败锁存原因并保留距离透明显示；dispose 释放纹理和缓冲。</p>
  */
 public final class ChainPreviewLegacyBackend implements ChainPreviewRenderBackend {
 

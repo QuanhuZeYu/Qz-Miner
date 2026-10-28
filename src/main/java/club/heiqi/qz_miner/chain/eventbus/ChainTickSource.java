@@ -3,20 +3,11 @@ package club.heiqi.qz_miner.chain.eventbus;
 import cpw.mods.fml.common.FMLCommonHandler;
 import net.minecraft.server.MinecraftServer;
 
-/**
- * 连锁事件诊断时间戳来源。
- *
- * <p>守跨线程只经事件总线：仅供 {@code publish} 路径填充 {@code ChainEvent.serverTick}/
- * {@code timestampNanos} 诊断字段。事件是输入事件（ChainKeyPressed/BlockBreakObserved/...）时，
- * 调用方保证在主线程或跨线程入队前取值即可，本类不触碰任何主线程语义状态。</p>
- *
- * <p>严格 side-agnostic：不引用 {@code Minecraft.getMinecraft()} 等客户端专属类，
- * 服务端/客户端均可安全调用（但客户端目前无 publish 点，留阶段6预览接入时再考虑）。</p>
- */
+/** 为连锁事件提供诊断 tick 与单调纳秒戳，服务端和客户端共用。 */
 public final class ChainTickSource {
 
     private ChainTickSource() {
-        // 工具类，禁止实例化
+        // 工具类。
     }
 
     /**
@@ -25,7 +16,7 @@ public final class ChainTickSource {
      * <p>供 {@code publish} 路径填 {@code ChainEvent.serverTick}。
      * 若当前未运行服务端实例（如客户端早期 init 阶段），或 Forge 运行时未启动
      * （如纯 JVM 单测环境 {@code FMLCommonHandler.instance()} 触发 {@code ExceptionInInitializerError}），
-     * 均返回 {@code -1L} 占位，调用方不应基于此做主线程契约推断。</p>
+     * 均返回 {@code -1L} 诊断占位；线程身份由调用方所属执行入口确定。</p>
      *
      * @return 当前服务端 {@code getTickCounter()}，无服务端实例或无 Forge 运行时时返回 {@code -1L}
      */
@@ -34,8 +25,7 @@ public final class ChainTickSource {
             MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
             return server == null ? -1L : server.getTickCounter();
         } catch (LinkageError | RuntimeException e) {
-            // 无 Forge 运行时（如纯 JVM 单测）FMLCommonHandler 触发 ExceptionInInitializerError（LinkageError 子类）；
-            // 诊断字段回退占位值，不阻断事件流（守跨线程只经事件总线：ChainTickSource 仅诊断字段语义）
+            // Forge 尚未就绪时使用诊断占位，继续原事件流程。
             return -1L;
         }
     }

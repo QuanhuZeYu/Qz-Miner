@@ -20,48 +20,9 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * 连锁看门狗：异常兜底，N tick 无状态推进则 publish {@link WatchdogTimeout} 协作式回 IDLE（T10）。
- *
- * <h3>三路回 IDLE 中的角色（阶段7 收口）</h3>
- * <p>本类是<b>异常兜底路径</b>，与执行完成快速路径（{@code ChainExecutionEventBridge}）、
- * 生命周期清理（{@code ChainLifecycleBridge}）三路并存：</p>
- * <ul>
- *   <li>正常连锁完成走执行桥快速路径，不触发本类。</li>
- *   <li>异常卡死（worker 卡住、规划/执行卡在某态）→ 本类 N tick 无推进触发 WatchdogTimeout
- *       → 状态机 T10 回 IDLE。</li>
- *   <li>玩家登出/重生/切维度走生命周期桥强制清理（forced=true 豁免 genCheck）。</li>
- * </ul>
- *
- * <h3>推进信号源（奠基事实1）</h3>
- * <p>本类订阅 {@link ChainPhaseChanged}（阶段6 G1 加入，状态机 {@code applyTransition} 每次转移后 publish）
- * 建 per-player 活跃镜像。<b>不</b>自建钩子、<b>不</b>读状态机字段（守唯一写权威：只读广播）。</p>
- *
-     * <p>另订阅 {@link PlanProgress}（worker 分片提交 durable progress 时 publish）与 {@link ExecutionAdvanced}
-     * （目标消费后 publish）作为真实推进信号；{@link ExecutionDeferred} 只登记 shared deadline
-     * 排队的有界宽限，不改写真正的 lastProgress——
- * 因为 PLANNING/RUNNING 两次状态机转移之间无 ChainPhaseChanged 广播，长规划/长执行会被
-     * 「N tick 无状态推进」误判卡死。补订阅真实推进后，看门狗信号对齐「真实工作推进」语义
- * 而非「状态机转移」，根治误杀。新条目仍归 onPhaseChanged 的 T4 进 PLANNING 管，
- * 本订阅只刷新既有条目（守信号源分工）。</p>
- *
- * <h3>F.3 ARMED 不计时（A-armed-skip）</h3>
- * <p>遵循转移表 T10 现状：ARMED 态不纳入看门狗计时。ARMED 回收靠玩家松键 T2 或生命周期清理 T9，
- * 不靠看门狗。故 to=ARMED 的 ChainPhaseChanged 不新增镜像条目；已有条目保持（避免误删）。</p>
- *
- * <h3>F.4 镜像立即移除（C1）</h3>
- * <p>publish WatchdogTimeout 后立即从镜像移除该条目，避免后续 tick 重复 publish（防止看门狗风暴）。</p>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>边界不越权</b>：本类只 publish/remove 自己容器，绝不切 phase、不碰 worker、不写世界。</li>
- *   <li><b>协作式取消</b>：协作式取消——只 publish WatchdogTimeout，不 Future.cancel、不强杀 worker、
- *       不绕 endStage。worker 协作式停到安全边界，状态机 T10 自行切态。</li>
- *   <li><b>唯一写权威</b>：本类不写 slots，状态机是唯一写权威。</li>
- * </ul>
- *
- * <h3>线程契约</h3>
- * <p>{@link #onPhaseChanged} 由主线程 drain 调用，{@link #onServerTick} 由主线程 ServerTickEvent.START 调用，
- * 契约上单线程串行，{@link HashMap} 无需加锁（对齐 {@code ChainStateMachine.onLifecycleCleanup} 契约）。</p>
+ * 主线程追踪活跃任务的阶段与工作进度，超时后发布 WatchdogTimeout 交状态机和执行桥收尾。
+ * 阶段广播登记或更新活跃条目，IDLE 移除匹配轮次；真实工作事件刷新进度时间。
+ * 共享 deadline 延期在临近超时时提供一次有界宽限，阈值读取运行时配置。
  */
 public class ChainWatchdog {
 
@@ -77,46 +38,22 @@ public class ChainWatchdog {
      */
     private final Map<UUID, WatchEntry> activePlayers = new HashMap<UUID, WatchEntry>();
 
-    /**
-     * 构造看门狗并订阅 {@link ChainPhaseChanged}（不注册 FML bus，留 {@link #bootstrap()} 显式触发）。
-     *
-     * <p>构造器纯净可测：只调用 {@link ChainEventBus#subscribe}（操作 ConcurrentHashMap），
-     * 不触碰 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE），
-     * 对齐 {@code ChainStateProjectionBridge} 纯净可测模式。</p>
-     *
-     * @param bus 事件总线
-     */
+    /** 构造时订阅阶段与工作事件，FML tick 注册由 bootstrap 单独接入。 */
     public ChainWatchdog(ChainEventBus bus) {
         this.bus = bus;
         bus.subscribe(ChainPhaseChanged.class, this::onPhaseChanged);
-        // B 方案：补订阅真实工作推进信号，根治 PLANNING/RUNNING 阶段长任务误判卡死
+        // 工作推进和预算延期分别刷新进度与宽限状态。
         bus.subscribe(PlanProgress.class, this::onProgress);
         bus.subscribe(ExecutionAdvanced.class, this::onProgress);
         bus.subscribe(ExecutionDeferred.class, this::onDeferred);
     }
 
-    /**
-     * 向 FML 事件总线注册 ServerTickEvent 监听。
-     *
-     * <p>由 {@link MyMod#init} 在 ChainEventBusDrainer.bootstrap 之后调用（确保订阅顺序）。
-     * 提取独立方法是为了让单测构造时不触发 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE）。</p>
-     */
+    /** 初始化后注册 FML tick 监听，与 drainer 共享服务端主线程。 */
     public void bootstrap() {
         FMLCommonHandler.instance().bus().register(this);
     }
 
-    /**
-     * 进态广播订阅者：维护 per-player 活跃镜像。
-     *
-     * <p>分支：</p>
-     * <ul>
-     *   <li>{@code to != IDLE && to != ARMED}（F.3 A-armed-skip）→ put 新条目（覆盖旧 gen，新一代接管）。</li>
-     *   <li>{@code to == IDLE} → remove（回 IDLE 结束追踪）。</li>
-     *   <li>{@code to == ARMED} → 不新增条目（A-armed-skip）；已有条目保持（避免误删玩家武装前的残留）。</li>
-     * </ul>
-     *
-     * @param event 进态广播事件
-     */
+    /** 阶段广播维护活跃条目：IDLE 移除匹配轮次，ARMED 保留现状，其余阶段登记当前时间。 */
     private void onPhaseChanged(ChainPhaseChanged event) {
         UUID uuid = event.getPlayerUUID();
         ChainPhase to = event.getToPhase();
@@ -128,46 +65,26 @@ public class ChainWatchdog {
             }
             return;
         }
-        // F.3 A-armed-skip：ARMED 不启动计时（遵循 T10 现状），已有条目保持
+        // ARMED 等待输入，保留已有条目。
         if (to == ChainPhase.ARMED) {
             return;
         }
-        // to ∈ {PLANNING, RUNNING, FINISHING}：新增/刷新追踪条目（新一代覆盖旧 gen）
-        // P2-2：同时记录 nowNanos 作为 lastNanos，checkTimeouts 据此算真 elapsedNanos delta
+        // 活跃阶段登记代际、轮次、tick 与单调纳秒戳。
         activePlayers.put(uuid, new WatchEntry(event.getGeneration(), event.getServerRoundId(), event.getServerTick(),
                 ChainTickSource.nowNanos()));
     }
 
-    /**
-     * 真实工作推进信号订阅者：PLANNING 阶段的 {@link PlanProgress} 与 RUNNING 阶段的
-     * {@link ExecutionAdvanced} 共用本方法刷新既有条目（B 方案）。
-     *
-     * <p>仅刷新既有条目，不新增条目——新条目仍归 {@link #onPhaseChanged} 的 T4 进 PLANNING 管
-     * （守信号源分工：进态广播建条目 + 代际覆盖，工作推进信号只续命）。</p>
-     *
-     * <p>分支：</p>
-     * <ul>
-     *   <li>{@code existing == null} → return（无条目说明未在 PLANNING/RUNNING/FINISHING 追踪，
-     *       不为 ARMED/IDLE 期迟到的事件误建条目）。</li>
-      *   <li>{@code existing.generation/serverRoundId} 不匹配 → return（陈旧轮次防护：旧代际或旧轮迟到的
-      *       PlanProgress/ExecutionAdvanced 不误刷新新条目，避免给已回 IDLE 后的新一代「续命」
-     *       掩盖真卡死——世代隔离）。</li>
-     *   <li>否则覆盖刷新：用事件的 serverTick 与 timestampNanos 重建不可变 WatchEntry
-     *       （HashMap 单线程契约下安全，守 :52 注释；WatchEntry 保持不可变，最省改动）。</li>
-     * </ul>
-     *
-     * @param event 工作推进信号（PlanProgress 或 ExecutionAdvanced）
-     */
+    /** 仅刷新现有匹配代际和轮次的工作进度，时间戳保持单调。 */
     private void onProgress(ChainEvent event) {
         UUID uuid = event.getPlayerUUID();
         int eventGen = event.getGeneration();
         WatchEntry existing = activePlayers.get(uuid);
         if (existing == null) {
-            // 无条目：不为 ARMED/IDLE 期迟到的事件误建条目（守信号源分工）
+            // 工作事件仅刷新已登记条目。
             return;
         }
         if (existing.generation != eventGen || existing.serverRoundId != event.getServerRoundId()) {
-            // 陈旧代际或轮次迟到事件不误刷新新条目
+            // 仅匹配代际与轮次的事件可刷新当前条目。
             return;
         }
         if (event.getServerTick() < existing.lastProgressTick) {
@@ -178,14 +95,7 @@ public class ChainWatchdog {
                 event.getServerTick(), event.getTimestampNanos()));
     }
 
-    /**
-     * shared deadline 排队只提供一个 watchdog 窗口的有界宽限，不伪装成真实工作推进。
-     *
-     * <p>firstDeferredTick 仅在距上次推进 ≥ threshold-1（临近超时）时记录：超时后才开始的
-     * 晚到 deferral 同样最多重新打开一个 threshold 长的宽限窗口（能逐 tick 发 deferral 即证明
-     * 仍存活），窗口耗尽后无真实推进仍会回收——语义由
-     * {@code ChainWatchdogTest#lateStartedDeferralGrantsOneBoundedWindowThenReclaims} 固化。</p>
-     */
+    /** 临近超时时记录首次共享预算延期，提供一个阈值长度的有界宽限窗口。 */
     private void onDeferred(ExecutionDeferred event) {
         UUID uuid = event.getPlayerUUID();
         WatchEntry existing = activePlayers.get(uuid);
@@ -206,14 +116,7 @@ public class ChainWatchdog {
                 existing.lastProgressTick, existing.lastNanos, firstDeferredTick, lastDeferredTick));
     }
 
-    /**
-     * 服务端 tick 回调：取当前服务端 tick 后委托 {@link #checkTimeouts} 核心逻辑。
-     *
-     * <p>仅 START 阶段处理。{@link ChainTickSource#currentServerTick()} 在纯 JVM 单测环境返回 -1，
-     * 超时判定不可达，故核心逻辑提取到 {@link #checkTimeouts} 供单测注入 tick 绕过（P1-1 收口）。</p>
-     *
-     * @param event 服务端 tick 事件
-     */
+    /** 在服务端 tick START 取当前 tick，交给超时判定入口。 */
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.START) {
@@ -241,7 +144,7 @@ public class ChainWatchdog {
             return;
         }
         int threshold = Config.chainWatchdogTimeoutTicks;
-        // snapshot 避免遍历期 ConcurrentModification（put/remove 在同线程 drain 后才发生，但防御性快照更稳）
+        // 遍历活跃条目快照，逐项发布超时并移除原条目。
         // 实际单线程契约下可直接遍历，这里为可读性显式快照
         UUID[] keys = activePlayers.keySet().toArray(new UUID[0]);
         for (UUID uuid : keys) {
@@ -258,11 +161,11 @@ public class ChainWatchdog {
             // 推进事件在 execution/planning 回调发布后要到下一 Tick drain 才可见，阈值边界留一 Tick。
             if (elapsed > threshold && !boundedDeferralGrace) {
                 long nanos = ChainTickSource.nowNanos();
-                // P2-2：真实 elapsedNanos delta = nowNanos - 进态时记录的 lastNanos（不再占位）
+                // 以当前单调纳秒戳减条目上次时间，记录真实间隔。
                 long elapsedNanos = Math.max(0L, nanos - entry.lastNanos);
                 bus.publish(new WatchdogTimeout(uuid, entry.serverRoundId, entry.generation,
                         currentTick, nanos, elapsedNanos));
-                // F.4 C1：publish 后立即移除，避免后续 tick 重复 publish（看门狗风暴防护）
+                // 发布后移除所属条目，后续 tick 仅追踪新登记的工作。
                 activePlayers.remove(uuid);
                 MyMod.LOG.warn("[ChainWatchdog] timeout player={} gen={} elapsedTick={} threshold={}; publish WatchdogTimeout",
                         uuid, Integer.valueOf(entry.generation), Long.valueOf(elapsed), Integer.valueOf(threshold));

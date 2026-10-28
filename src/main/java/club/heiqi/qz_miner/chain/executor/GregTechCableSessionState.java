@@ -49,7 +49,7 @@ public final class GregTechCableSessionState {
     }
 
     /**
-     * 锁定主手 slot，用于返还旧线缆时跳过该 slot 避免占用主手。
+     * 锁定主手 slot，返还旧线缆时保留该槽位。
      *
      * @param session 会话
      * @param slotIndex 主手槽位

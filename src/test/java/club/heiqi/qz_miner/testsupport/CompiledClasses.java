@@ -36,47 +36,8 @@ import org.spongepowered.asm.lib.tree.TypeInsnNode;
 import club.heiqi.qz_miner.MyMod;
 
 /**
- * 生产编译产物的结构化读取工具：把「某类型是否被链接」「某方法是否被调用」「某注解是否挂在某方法上」
- * 变成对 {@code .class} 常量池与注解表的集合判定，替代对 Java 源码整文件做 {@code contains}。
- *
- * <p><b>为什么存在</b>：分侧边界、依赖方向、调用面清单这类契约，在源码层看是「谁 import 了谁」，
- * 一遇到等价重写、静态导入、字符串拼接就判不准；而编译产物里「常量池出现了这个类型 / 这个方法引用」
- * 是既成事实，与排版、局部变量名、注释无关。本类由两个并行批次的两份等价工具
- * （CompiledClasses / CompiledClassContent）收敛而来，是两者能力的并集：
- * 结构化读取（ASM ClassNode + 最小常量池解析器）与常量池文本子串读取并存——
- * 前者给集合，后者给「只要出现过就算」的快速否定式守卫。</p>
- *
- * <p><b>能证伪什么</b>：把被禁的类型 / 调用 / 字段真的写进实现（无论怎么排版、改什么局部变量名）；
- * 某个注解是否真的挂在类 / 方法 / 字段上，以及它的元素值（{@code @Mixin(value/targets/remap)}、
- * MixinExtras {@code @Definition} / {@code @Expression} 这类 <b>CLASS 保留</b>注解反射读不到，
- * 但就在产物的注解表里）；某方法是否真的接收该形参类型；某类型的直接超类与接口集合；
- * 某事件订阅方法的参数是不是事件基类的子类型；某类型在字节码里被实例化 / 被调用了几次、分别在哪个方法里
- * （{@link #instructionSites}：唯一实例化点、单一调用点这类唯一性契约）。</p>
- *
- * <p><b>守不到什么</b>：反射或字符串拼接出来的动态调用（常量池里只留下反射 API 名，看不到真实目标）；
- * 运行期的真实执行次数与顺序（这里只有「字节码里出现几次」）；控制流与数据流
- * （{@link #instructionSites} 给点位与计数，不回答「哪条分支会被走到」「这个值从哪来」）；
- * 注解元素的运行期语义（{@code @Mixin} 的目标是否真的被 Mixin 应用成功属真机 / Mixin AP 的事）；
- * 因此结构契约仍需源码切片工具（{@link JavaSourceSlices}）配合。</p>
- *
- * <p><b>服务用例</b>（client 域、chain.executor / chain.interaction 域与 mixins / toolswap 域）：
- * {@code AutoToolClientWiringStructureTest}、{@code BlockPickerEventRegistrationContractTest}、
- * {@code HudArchitectureBoundaryTest}、{@code KeyListenerMouseEventStructureTest}、
- * {@code PickerClassBoundaryTest}、{@code QzAutoToolSwapClientTransportStructureTest}、
- * {@code BlockInteractActionExecutorStructureTest}、{@code InteractionInventorySupportStructureTest}、
- * {@code LiquidSourceInteractActionExecutorStructureTest}、{@code ServerPlayerPoseTransactionStructureTest}、
- * {@code TargetRevalidatingBlockInteractActionExecutorStructureTest}、{@code InteractionRayTraceTest}、
- * {@code AutoToolSwapMixinStructureTest}、{@code LegacyNaturalMixinStructureTest}、
- * {@code ServerConfigurationManagerLifecycleMixinStructureTest}、{@code ChainPreviewVanillaHighlightMixinStructureTest}、
- * {@code AutoToolSwapRuntimeWiringStructureTest}、{@code PlayerManagerToolSwapLifecycleStructureTest}。</p>
- *
- * <p>常量池解析使用 JDK 自带的 {@link DataInputStream}（口径与仓内既有的 § 门禁解析器一致，
- * 只认 tag 结构，不依赖 ASM 版本）；注解表、类型层次与指令点位使用仓内已在用的 Mixin 内嵌 ASM
- * （{@code org.spongepowered.asm.lib}）；{@link #references(Class, String)} 则按类加载器资源取字节，
- * 与文件系统定位（{@link #root()}）互为补充。</p>
- *
- * <p>全部读取都只吃 {@code .class} 字节：<b>不加载被扫类型</b>（无 {@code Class.forName} / 无类初始化），
- * 因此 Minecraft 侧类型（{@code EntityPlayerMP}、{@code WorldServer} 等）可以安全读取字节做结构判定。</p>
+ * 从类加载器资源读取编译产物，供现有类型、注解、方法与常量池依赖检查复用。
+ * 原始常量池文本检查也会命中字符串文案，失败时按来源人工区分。
  */
 public final class CompiledClasses {
 

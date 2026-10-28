@@ -11,7 +11,7 @@ import net.minecraftforge.fluids.IFluidBlock;
 /**
  * 与冻结 seed 同种的静态可排液液体规则。
  *
- * <p>本类只查询流体身份与 {@link IFluidBlock#canDrain}，绝不调用 drain 修改世界。</p>
+ * <p>本类只读流体身份及 {@link IFluidBlock#canDrain}，实际交互由执行器调用物品右键语义。</p>
  */
 public final class ChainLiquidRules {
 

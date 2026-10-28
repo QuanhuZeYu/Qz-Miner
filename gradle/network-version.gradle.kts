@@ -1,6 +1,6 @@
 import org.gradle.api.GradleException
 
-// FML 区间与制品同源；不能用 @NetworkCheckHandler 抢占原生区间对象。
+// 从制品版本生成 FML 原生联机兼容区间。
 val buildVersion = project.version.toString()
 val generatedVersionRangeDir = layout.buildDirectory.dir("generated/sources/versionRange/java")
 

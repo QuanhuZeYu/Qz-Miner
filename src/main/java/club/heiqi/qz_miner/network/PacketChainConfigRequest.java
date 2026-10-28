@@ -11,7 +11,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
  * 客户端向服务端提交建议连锁参数。
  *
  * <p>Handler 只捕获原始 int 与端点身份，经 {@link ServerChainConfigRequestDispatch}
- * 进入 keyed latest-wins 泳道；不直接每包入普通 FIFO。</p>
+ * 进入 keyed latest-wins 泳道，按端点合并待处理请求。</p>
  */
 public class PacketChainConfigRequest implements IMessage {
 

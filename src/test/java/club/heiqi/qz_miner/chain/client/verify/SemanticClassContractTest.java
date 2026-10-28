@@ -12,13 +12,7 @@ import club.heiqi.qz_miner.chain.mode.ChainSubMode;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeBootstrap;
 import club.heiqi.qz_miner.chain.mode.ChainSubModeRegistry;
 
-/**
- * T17 语义类别独立契约探针（语义类别表（真源：ChainPreviewSemanticClass） + T16a；本轮按大模式重排值域）。
- *
- * <p>独立口径：类别 id 冻结（0/1/2 = 三个大模式的默认子模式，3 = 扩展子模式，4/5 = 远端/截断）、
- * 非法值收窄为 UNDEFINED、本地判定按「子模式 → 所属大模式」分派、与生产模式注册表的默认子模式表
- * 交叉一致（SPECIAL 没有默认子模式，其子模式一律落 SUB_MODE_LOCAL）。</p>
- */
+/** 交叉验证语义稳定 id、非法值归一、本地模式分类及生产注册表的默认子模式。 */
 public class SemanticClassContractTest {
 
     @Test

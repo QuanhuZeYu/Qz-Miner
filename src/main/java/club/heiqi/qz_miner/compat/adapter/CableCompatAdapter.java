@@ -10,7 +10,7 @@ import net.minecraftforge.common.util.ForgeDirection;
 /**
  * 线缆兼容适配器。
  *
- * 只暴露 Minecraft/Forge 基础类型，避免核心逻辑直接依赖具体线缆模组 API。
+ * 以 Minecraft/Forge 基础类型隔离可选线缆模组 API。
  */
 public interface CableCompatAdapter {
 
@@ -62,7 +62,7 @@ public interface CableCompatAdapter {
     List<ForgeDirection> captureConnectedSides(TileEntity tileEntity);
 
     /**
-     * 替换线缆但暂不恢复连接状态。
+     * 按既有连接位掩码完成单阶段线缆替换。
      *
      * @param player 执行替换的玩家
      * @param tileEntity 原线缆 TileEntity

@@ -9,15 +9,7 @@ import club.heiqi.qz_miner.chain.mode.ChainMode;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
-/**
- * 通用范围交互执行器必须 target-aware 且 fail-closed 的结构合同。
- *
- * <p>行为面为什么到不了这里：{@code canExecute}/{@code execute} 只接受 {@code EntityPlayerMP}，
- * 而 1.7.10 的 {@code EntityPlayerMP} 构造链要求 non-null {@code WorldServer}
- * （实测：{@code new EntityPlayerMP(null, null, profile, null)} 在 {@code Entity(World)} 里
- * 读 {@code world.isRemote} 直接 NPE），纯 JVM 构造不出玩家；本仓无 Mockito，也不为测试加 seam。
- * 因此这里只守「调用清单 / 位置关系 / 禁止调用面」这类结构契约，并在每条注释里写明它守不到什么。</p>
- */
+/** 验证通用右键执行器的虚拟姿态、方块激活与库存后置委派顺序；实际世界交互另经实机确认。 */
 public class BlockInteractActionExecutorStructureTest {
 
     private static final String SOURCE =
@@ -55,7 +47,7 @@ public class BlockInteractActionExecutorStructureTest {
         Assert.assertTrue("每个目标都必须重新读取当前主手",
                 JavaSourceSlices.mentions(execute, "getCurrentEquippedItem"));
 
-        // fail-closed：异常被吸收在 execute 内，且 catch 不得把失败翻成成功返回。
+        // execute 捕获异常后返回失败。
         Assert.assertTrue("模组异常必须在 execute 内被吸收", JavaSourceSlices.mentions(execute, "catch"));
         String catchBody = JavaSourceSlices.blockAfter(execute, "catch");
         Assert.assertFalse("模组异常必须 fail-closed，catch 内不得 return true", catchBody.contains("return true"));

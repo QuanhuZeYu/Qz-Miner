@@ -20,14 +20,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 
-/**
- * 目标化液体执行器的权限、手持门、精确射线、事件与恢复合同。
- *
- * <p>行为面为什么到不了这里：{@code canExecute}/{@code execute} 需要真实 {@code EntityPlayerMP}
- * 与 world（实测：{@code EntityPlayerMP} 构造链要求 non-null {@code WorldServer}），
- * 纯 JVM 构造不出玩家。可达的部分（手持门、精确命中判定、模式声明）走反射与真实对象断言，
- * 不可达的部分只守结构关系与编译产物调用面。</p>
- */
+/** 验证液体右键执行器的模式归属、物品委派与标准库存后置；真实补源与物品行为另经实机确认。 */
 public class LiquidSourceInteractActionExecutorStructureTest {
 
     private static final String SOURCE =
@@ -117,7 +110,7 @@ public class LiquidSourceInteractActionExecutorStructureTest {
         Assert.assertTrue("BLOCK 且三坐标全等才算精确命中", exactHit(exact, blockHit(4, 5, 6), target));
     }
 
-    /** 只服务 INTERACT；且不得复用通用激活入口、不得直接改液体世界、不得引入白名单物品依赖。 */
+    /** 核对 INTERACT 归属、独立物品委派及只读液体查询边界。 */
     @Test
     public void executorIsBoundToInteractModeAndAvoidsDirectLiquidWorldAccess() {
         LiquidSourceInteractActionExecutor executor = new LiquidSourceInteractActionExecutor();

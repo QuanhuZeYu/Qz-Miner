@@ -3,24 +3,9 @@ package club.heiqi.qz_miner.client;
 import club.heiqi.qz_miner.chain.planner.TunnelDirectionSource;
 import club.heiqi.qz_miner.network.PacketChainConfigSync;
 /**
- * 客户端连锁配置同步的纯数据调度边界。
- *
- * <p>该类不依赖 Minecraft 或客户端状态类型，便于纯 JVM 测试证明 publication 只在 dispatcher
- * 任务执行后发生。生产调用方在 ClientProxy 中注入 ClientMainThreadDispatcher 与
- * {@link ClientConnectionLifecycle} token 守卫。</p>
- *
- * <p>{@link #dispatch} 返回 dispatcher 是否接受任务；拒绝时不跨 lifecycle 重试，
- * 由调用方做限频/一次性诊断。inactive token 在入队前直接丢弃并返回 true（表示非 dispatcher
- * 拒绝，调用方不做 rejection warn）。</p>
- *
- * <h3>主线程任务顺序（契约）</h3>
- * <ol>
- *   <li><strong>先</strong>整包数值校验（radius/maxBlocks&gt;0 且 matchedCount≥0）</li>
- *   <li><strong>再</strong>在 lifecycle 线性化边界内复核 token 仍为 current 且 active，并 publication</li>
- * </ol>
- *
- * <p>校验与 gate 不得颠倒；gate 内 check+publication 必须原子（见
- * {@link LifecycleGate#publishIfCurrentAndActive}），禁止 check 后裸调用 publication。</p>
+ * 捕获纯值配置包并交客户端主线程发布，生命周期 token 由 ClientProxy 按真实连接提供。
+ * 主线程先整包验证，再在 lifecycle gate 内原子复核并发布；v2 同时验证 framing/version/code。
+ * inactive 入包按有意丢弃返回 true，dispatcher 拒绝返回 false，调用方据此分别诊断。
  */
 public final class ClientChainConfigSyncDispatch {
 
@@ -55,8 +40,7 @@ public final class ClientChainConfigSyncDispatch {
      * 生命周期守卫：入队前 active 检查与 publication 线性化 gate。
      *
      * <p>生产实现委托 {@link ClientConnectionLifecycle}；测试可注入假实现。
-     * publication 路径必须走 {@link #publishIfCurrentAndActive}，不得
-     * {@link #isCurrentAndActive} 后裸写状态。</p>
+     * publication 经 {@link #publishIfCurrentAndActive} 将检查与写入放在同一临界区。</p>
      */
     public interface LifecycleGate {
         /**
@@ -68,8 +52,7 @@ public final class ClientChainConfigSyncDispatch {
         /**
          * 只读快照：captured 是否仍为 current 且 active。
          *
-         * <p>不得用于「check 后裸 publication」；生产 publication 用
-         * {@link #publishIfCurrentAndActive}。</p>
+         * <p>此方法供只读查询，生产写入统一经 {@link #publishIfCurrentAndActive}。</p>
          *
          * @param token 入队时捕获的 token
          * @return 仍为 current 且 active 时为 true
@@ -111,7 +94,7 @@ public final class ClientChainConfigSyncDispatch {
      * 捕获三个值与 lifecycle token，并投递一次 publication。
      *
      * <p>capturedToken 非 null 且 gate 判定 inactive 时直接丢弃、不入队、返回 true
-     * （调用方不得当作 dispatcher 拒绝做 warn）。</p>
+     * （调用方按有意丢弃处理诊断）。</p>
      *
      * <p>主线程任务内：先整包校验，再经 {@link LifecycleGate#publishIfCurrentAndActive}
      * 在 lifecycle 线性化边界内复核并 publication。</p>
@@ -167,7 +150,7 @@ public final class ClientChainConfigSyncDispatch {
         return dispatcher.dispatch(new Runnable() {
             @Override
             public void run() {
-                // 1) 先整包数值校验（gate 外，避免非法包进入 lifecycle monitor）
+                // 先在 gate 外验证完整帧与数值。
                 final TunnelDirectionSource source = resolveSource(protocolVersion, directionCode, rawValid);
                 if (!isValidPacket(radius, maxBlocks, matchedCount) || source == null) {
                     return;
@@ -176,7 +159,7 @@ public final class ClientChainConfigSyncDispatch {
                     publication.publish(radius, maxBlocks, matchedCount, source);
                     return;
                 }
-                // 2) 再在 lifecycle 线性化边界内复核 token 并 publication（禁 check 后裸调用）
+                // 再在 lifecycle gate 内原子复核 token 并发布。
                 gate.publishIfCurrentAndActive(capturedToken, new Runnable() {
                     @Override
                     public void run() {

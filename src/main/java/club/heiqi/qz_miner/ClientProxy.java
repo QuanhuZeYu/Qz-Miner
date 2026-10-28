@@ -90,14 +90,14 @@ public class ClientProxy extends CommonProxy {
 
     public static ChainPreviewController chainPreviewController;
     public static ChainPreviewRenderer chainPreviewRenderer;
-    /** 阶段6：客户端连锁阶段投影容器（单玩家，P1-2=A）。 */
+    /** 本机玩家的服务端阶段投影。 */
     public static ClientPhaseProjection clientPhaseProjection;
     /** 预览表现投影单例，诊断经 ChainPreviewPresentationProjection.installed() 只读。 */
     public static ChainPreviewPresentationProjection chainPreviewPresentationProjection;
     /** 服务端 ACK 唯一写入的双点选区投影。 */
     public static ClientCuboidSelectionState clientCuboidSelectionState;
     public static CuboidSelectionRenderer cuboidSelectionRenderer;
-    /** 阶段6：客户端投影事件订阅者（订阅 clientChainEventBus 上的 ChainPhaseChanged）。 */
+    /** 客户端阶段投影订阅者。 */
     public static ClientPhaseProjectionSubscriber clientPhaseProjectionSubscriber;
     /** 新版自动工具换位唯一长寿命客户端 adapter。 */
     public static AutoToolSwapClientAdapter autoToolSwapAdapter;
@@ -126,7 +126,7 @@ public class ClientProxy extends CommonProxy {
                 MyMod.clientChainEventBus, clientPhaseProjection);
     }
 
-    /** 世界预览仍由原控制器、renderer 和表现投影共同承接，不依赖配置界面或 HUD。 */
+    /** 控制器、renderer 与表现投影共同承接世界预览，按独立生命周期注册。 */
     private void registerWorldPreview() {
         chainPreviewController = new ChainPreviewController();
         chainPreviewController.register();
@@ -154,7 +154,7 @@ public class ClientProxy extends CommonProxy {
     }
 
     /**
-     * 阶段8 块3 F3-a：处理客户端连锁配置同步下发。
+     * 处理客户端连锁配置同步下发。
      *
      * <p>本方法由 {@code PacketChainConfigSync.Handler} 在 Netty 线程调用。按
      * {@code netHandler} 对象 identity 捕获 connection token（非全局 capture），
@@ -185,7 +185,7 @@ public class ClientProxy extends CommonProxy {
             int protocolVersion, int tunnelDirectionCode, boolean rawValid, INetHandler netHandler) {
         final ClientConnectionLifecycle.Token capturedToken =
                 ClientConnectionLifecycle.captureForConnection(netHandler);
-        // identity 不匹配或连接 inactive：intentional drop，非 dispatcher rejection
+        // 缺少当前活跃连接时直接结束，诊断按有意丢弃处理。
         if (capturedToken == null) {
             return;
         }
@@ -444,10 +444,9 @@ public class ClientProxy extends CommonProxy {
     }
 
     /**
-     * 阶段6：处理连锁阶段快照下发。
+     * 处理连锁阶段快照下发。
      *
-     * <p>Netty 线程按 netHandler 捕获 token 与包数据，不直接改投影容器、不 publish 语义状态。
-     * 主线程在 world-active gate 内再 publish 到 clientChainEventBus（守跨线程只经事件总线）。</p>
+     * <p>Netty 按 netHandler 捕获 token 与包数据；主线程在 world-active gate 内发布到 clientChainEventBus。</p>
      *
      * @param phaseOrdinal 目标态 ordinal
      * @param generation   转移后的新代际
@@ -478,7 +477,7 @@ public class ClientProxy extends CommonProxy {
                         ChainPhase toPhase = capturedPhaseOrdinal >= 0 && capturedPhaseOrdinal < phases.length
                                 ? phases[capturedPhaseOrdinal]
                                 : ChainPhase.IDLE;
-                        // from 占位 IDLE：订阅者只消费 toPhase；gate 内短小 offer，禁阻塞
+                        // from 填 IDLE 占位，订阅者消费 toPhase；gate 内仅执行短小 offer。
                         MyMod.clientChainEventBus.publish(new ChainPhaseChanged(
                                 null,
                                 capturedGeneration,

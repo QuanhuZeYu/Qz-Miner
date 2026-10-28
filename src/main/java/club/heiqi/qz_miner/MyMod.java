@@ -50,10 +50,8 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     name = MyMod.MOD_NAME,
     guiFactory = "club.heiqi.qz_miner.client.settings.MinerConfigGuiFactory",
     acceptedMinecraftVersions = "[1.7.10]",
-    // 联机版本区间：编译期常量，由构建从制品版本派生（build.gradle.kts 的 generateVersionRange）。
-    // 形态 [X.Y.0-alpha, X.(Y+1).0-alpha) 由 FML 的 Maven ComparableVersion 序语义确定，恰好覆盖
-    // 本构建的 major.minor 族。声明区间后不得再有 @NetworkCheckHandler —— FML 的 NetworkModHolder
-    // 里两者互斥：有 handler 时 acceptableRange 根本不会创建，区间与「接受自身版本」自检一并失效。
+    // 构建生成同 major.minor 的 FML Maven 版本区间。FML 的 NetworkModHolder 优先选择
+    // @NetworkCheckHandler，直接声明区间可保留其范围比较与接受自身版本的检查。
     acceptableRemoteVersions = NetworkVersionRange.VALUE,
     dependencies = "required-after:qz_uilib@[5.0.0-beta3-miner-ui-r13,6.0.0);")
 public class MyMod {
@@ -76,34 +74,34 @@ public class MyMod {
     /** 当前服务端 session 的配置热发布入口，命令与集成服 listener 共用。 */
     public static ServerConfigHotApplyService serverConfigHotApplyService;
     public static ParallelTickExecutor parallelTickExecutor;
-    /** 阶段 2：连锁跨线程事件总线，publish 来自任意线程，drain 仅主线程。 */
+    /** 连锁跨线程事件总线，任意线程 publish，服务端主线程 drain。 */
     public static ChainEventBus chainEventBus;
-    /** 阶段 3：客户端独立事件总线（仅客户端实例化，仅空跑 drain 骨架，预览订阅留阶段6）。 */
+    /** 客户端独立事件总线，主线程 drain 驱动阶段投影。 */
     public static ChainEventBus clientChainEventBus;
-    /** 阶段 2：连锁状态机，currentPhase/currentGeneration 唯一写权威。 */
+    /** 连锁状态机，统一写入 phase 与 generation。 */
     public static ChainStateMachine chainStateMachine;
-    /** 阶段 4：规划事件桥，订阅 PlanStarted 发起影子 traverser，完成 publish PlanCompleted 推进 PLANNING→RUNNING。 */
+    /** 规划桥，冻结启动事实并发起只读 traverser worker。 */
     public static ChainPlanningEventBridge chainPlanningEventBridge;
-    /** 阶段5：执行上下文注册表（E1-c），worker 完成 put shadowQueue，执行订阅者 get 领取。 */
+    /** 执行上下文注册表，主线程登记后连接 worker 生产与主线程消费。 */
     public static ChainExecutionContextRegistry chainExecutionContextRegistry;
-    /** 阶段8 块2：执行事件桥（真实破坏），订阅 PlanCompleted + ServerTickEvent 消费队列真实破坏方块，完成 publish ExecutionFinished。 */
+    /** 主线程执行桥，消费规划目标并发布执行终局。 */
     public static ChainExecutionEventBridge chainExecutionEventBridge;
-    /** 阶段6：连锁状态投影下发桥（A1），订阅 ChainPhaseChanged 后 sendTo 客户端投影容器。 */
+    /** 阶段投影桥，将状态机转移广播下发到客户端。 */
     public static ChainStateProjectionBridge chainStateProjectionBridge;
-    /** 阶段8 块3 F3-a：连锁配置下发桥，订阅 PlanCompleted + PlayerStateEvent LOGIN 后 sendTo 客户端 ChainClientState 三字段。 */
+    /** 配置投影桥，登录及规划完成时同步已接受配置与匹配数。 */
     public static ChainConfigProjectionBridge chainConfigProjectionBridge;
     /** 将状态机不可变阶段事件投影到当前工具换位 round。 */
     public static AutoToolSwapRoundPhaseProjectionBridge autoToolSwapRoundPhaseProjectionBridge;
-    /** 阶段7：连锁看门狗（A 异常兜底），N tick 无推进 publish WatchdogTimeout 协作式回 IDLE（T10）。 */
+    /** 连锁 watchdog，超时后发布事件交统一协作收尾。 */
     public static ChainWatchdog chainWatchdog;
-    /** 阶段7：连锁生命周期桥（B 生命周期收口），平行订阅 PlayerStateEvent 转 LifecycleCleanup（守生命周期收口）。 */
+    /** 连锁生命周期桥，将玩家生命周期转为统一清理事件。 */
     public static ChainLifecycleBridge chainLifecycleBridge;
 
     /**
      * 确保并行 Tick 执行器可用。
      *
      * 单人世界退出时服务端停止事件会销毁执行器，
-     * 重新进入世界后需要按需重建，避免客户端预览或服务端规划空指针。
+     * 重进世界时由客户端预览或服务端规划按需重建。
      *
      * @return 可用的并行 Tick 执行器
      */
@@ -143,32 +141,23 @@ public class MyMod {
         }
         chainDropCollector = new ChainDropCollector();
         ServerMainThreadDispatcher.bootstrap();
-        // 阶段 2：接入事件总线 + 状态机，空跑 drain（此时无 publish 点，每 tick poll 空队列零副作用）。
-        // P2-D（阶段6）：服务端 bus 锚服务端主线程，bindMainThread 挪到 serverStarting（在服务器线程执行）。
-        // 客户端 bus 锚客户端主线程（ClientProxy.init 锚定），消除单人模式软校验 warn。
+        // 两侧总线分别绑定所属主线程：服务端在 serverStarting，客户端在 ClientProxy.init。
         chainEventBus = new ChainEventBus();
         // restore barrier 必须早于状态机、执行桥等会清理 state/registry 的订阅者。
         autoToolSwapServerBatchService.subscribeLifecycle(chainEventBus);
         chainStateMachine = new ChainStateMachine(chainEventBus);
         chainExecutionContextRegistry = new ChainExecutionContextRegistry();
-        // 执行桥统一登记 context 与掉落窗口，规划前置校验失败不会留下半开的执行态。
+        // 执行桥在规划前置校验通过后统一登记 context 并开启掉落窗口。
         chainExecutionEventBridge = ChainExecutionEventBridge.withLocalToolSwap(
                 chainEventBus, chainExecutionContextRegistry, autoToolSwapServerBatchService);
         chainPlanningEventBridge = new ChainPlanningEventBridge(chainEventBus, chainExecutionEventBridge);
-        // 阶段6：投影下发桥（A1），订阅 ChainPhaseChanged（状态机 applyTransition 进态广播），
-        // 守边界不越权：只 sendTo 客户端投影容器，不夺权（HUD/预览锁定权威仍读旧链路态，阶段8 才切换）。
+        // 已提交阶段下发客户端，供 HUD 与预览读取。
         chainStateProjectionBridge = new ChainStateProjectionBridge(chainEventBus);
-        // 阶段8 块3 F3-a：配置下发桥，订阅 PlanCompleted（matchedCount 真值 = totalTargets）+ LOGIN（基础 config）。
-        // 守边界不越权：只 sendTo 下发配置，不碰世界；接替旧八字段链删除后的 radius/maxBlocks/matchedCount 客户端同步。
+        // 登录和规划完成时下发已接受配置，匹配数来自本次规划确认目标。
         chainConfigProjectionBridge = new ChainConfigProjectionBridge(chainEventBus);
         autoToolSwapRoundPhaseProjectionBridge = new AutoToolSwapRoundPhaseProjectionBridge(
                 chainEventBus, autoToolSwapRoundService);
-        // 阶段7：看门狗 + 生命周期桥接线（三路回 IDLE 收口）。
-        // 接线顺序：状态机 → registry → 规划桥 → 执行桥 → 投影桥 → Drainer.bootstrap() → 执行桥.bootstrap()
-        // → 看门狗.bootstrap() → 生命周期桥.bootstrap()。
-        // 看门狗订阅 ChainPhaseChanged（状态机进态广播），生命周期桥订阅 PlayerStateEvent（QzEvents 全局总线），
-        // 两者均在构造期完成订阅，bootstrap 仅注册 FML bus / 占位。Drainer 先注册 FML bus 确保 ServerTickEvent
-        // 分发顺序：drainer.onServerTick（drain，触发 ChainPhaseChanged/PlayerStateEvent 派生）→ 看门狗.onServerTick。
+        // 先注册 drainer，再注册执行桥与 watchdog，使同 tick 先消费事件，再执行与检查超时。
         chainWatchdog = new ChainWatchdog(chainEventBus);
         chainLifecycleBridge = new ChainLifecycleBridge(chainEventBus);
         new ChainEventBusDrainer(chainEventBus).bootstrap();
@@ -217,9 +206,7 @@ public class MyMod {
     @Mod.EventHandler
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
-        // P2-D（阶段6）：服务端 bus 锚服务端主线程。FMLServerStartingEvent 在服务器线程执行，
-        // 与 ServerTickEvent.drain 同线程，消除单人模式软校验 warn（init 在客户端线程执行，
-        // 与集成服务器线程不同，原本触发 ChainEventBus.drain 的软校验 warn）。
+        // FMLServerStartingEvent 与服务端 tick 共用线程，在此绑定服务端总线。
         if (chainEventBus != null) {
             chainEventBus.bindMainThread(Thread.currentThread());
         }
@@ -240,7 +227,7 @@ public class MyMod {
                     AutoToolSwapServerBatchService.CloseCause.SERVER_STOP,
                     Math.max(0L, club.heiqi.qz_miner.chain.eventbus.ChainTickSource.currentServerTick()));
         }
-        // 再完成玩家生命周期清理，最后关闭 dispatcher，避免 stop 后 FIFO 拒绝清理任务
+        // 玩家生命周期清理先完成，再关闭 dispatcher，保证清理任务可分发。
         PlayerManager.clearAllPlayersOnServerStopping();
         if (chainStateService != null) {
             chainStateService.suspendDropsOnServerStopping();

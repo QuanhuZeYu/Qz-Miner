@@ -27,7 +27,7 @@ public final class ClassNameCompatSupport {
     /**
      * 按类名解析 Class，缺失或依赖不完整时返回 null。
      *
-     * 可选模组类只做存在性探测，不触发静态初始化，避免服务端加载客户端专属依赖。
+     * 以 initialize=false 探测可选模组类，静态初始化留到能力实际使用时。
      *
      * @param className 类名
      * @return 解析到的 Class

@@ -6,14 +6,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
-/**
- * 共享交互库存后置必须保留零栈与标准 listener 合同。
- *
- * <p>行为面为什么到不了这里：{@code normalizeAndSync(EntityPlayerMP, ChainTarget)} 需要真实
- * {@code EntityPlayerMP}（含 {@code inventory}/{@code openContainer}），纯 JVM 构造不出玩家
- * （实测：{@code EntityPlayerMP} 构造链要求 non-null {@code WorldServer}）。因此这里守结构关系：
- * 归一推进次序、清槽唯一性、listener 同步的接收者，以及「本类不得自造库存实现」的编译产物调用面。</p>
- */
+/** 验证共享库存后置的归一化次序、唯一清槽入口与 listener 接收者；真实容器同步另经实机确认。 */
 public class InteractionInventorySupportStructureTest {
 
     private static final String SUPPORT =
@@ -53,7 +46,7 @@ public class InteractionInventorySupportStructureTest {
                 JavaSourceSlices.blockAfter(body, "catch").contains("return true"));
     }
 
-    /** generic executor 的 finally 必须只委托共享后置，自己不得再动库存或 listener。 */
+    /** generic executor 在 finally 唯一委派共享库存后置。 */
     @Test
     public void genericExecutorUsesSharedSupport() throws Exception {
         String code = JavaSourceSlices.maskedMainSource(EXECUTOR);

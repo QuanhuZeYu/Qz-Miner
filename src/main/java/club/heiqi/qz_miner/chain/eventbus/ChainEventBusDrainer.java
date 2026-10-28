@@ -4,12 +4,7 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
-/**
- * 主线程 drain 接入点：在 {@link TickEvent.ServerTickEvent#START} 阶段调用 {@link ChainEventBus#drain()}。
- *
- * <p>阶段 2 起 {@link club.heiqi.qz_miner.MyMod#init} 已调用 {@link #bootstrap()}，
- * 将本实例注册到 {@link TickEvent.ServerTickEvent}，每 tick {@code START} 阶段调用一次 {@link ChainEventBus#drain()}。</p>
- */
+/** 服务端 tick START 阶段串行消费连锁事件；由 MyMod 初始化注册。 */
 public class ChainEventBusDrainer {
 
     /** 注入的总线实例。 */
@@ -23,7 +18,7 @@ public class ChainEventBusDrainer {
     }
 
     /**
-     * 向 FML 事件总线注册自身。阶段 2 起由 {@link club.heiqi.qz_miner.MyMod#init} 调用，
+     * 由 {@link club.heiqi.qz_miner.MyMod#init} 向 FML 事件总线注册自身，
      * 每 tick {@code START} 阶段触发一次 {@link ChainEventBus#drain()}。
      */
     public void bootstrap() {

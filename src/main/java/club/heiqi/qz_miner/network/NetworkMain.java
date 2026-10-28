@@ -73,13 +73,13 @@ public final class NetworkMain {
                 PacketLootGamesMinesweeperPreviewResponse.class,
                 DISCRIMINATOR_LOOTGAMES_PREVIEW_RESPONSE,
                 Side.CLIENT);
-        // 阶段6：连锁阶段快照下发（服务端 ChainStateProjectionBridge → 客户端投影容器）
+        // 服务端阶段投影桥下发客户端阶段快照。
         network.registerMessage(
                 PacketChainPhaseSnapshot.Handler.class,
                 PacketChainPhaseSnapshot.class,
                 DISCRIMINATOR_CHAIN_PHASE_SNAPSHOT,
                 Side.CLIENT);
-        // 阶段8 块3 F3-a：连锁配置同步下发（服务端 ChainConfigProjectionBridge → 客户端 ChainClientState 三字段）
+        // 服务端配置投影桥同步已接受配置与匹配数。
         network.registerMessage(
                 PacketChainConfigSync.Handler.class,
                 PacketChainConfigSync.class,

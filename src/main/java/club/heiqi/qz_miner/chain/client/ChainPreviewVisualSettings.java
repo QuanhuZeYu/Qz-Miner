@@ -10,13 +10,8 @@ import club.heiqi.qz_miner.config.PreviewLodMode;
 import club.heiqi.qz_miner.config.PreviewRenderBackend;
 
 /**
- * 连锁预览视觉参数的不可变快照（Lead 裁决：全项目唯一读取 clientPreview* 视觉键的入口）。
- *
- * <p>{@link #fromConfig()} 是生产路径唯一的配置读取面：构建线程与 renderer 只接收本对象，
- * 不得自行读取 Config。值相等（{@link #equals(Object)}）即观感无变化，供失效判定使用。</p>
- *
- * <p>枚举类配置以稳定文本 id 暴露，调用方不依赖 config 包类型；数值键一律做范围收窄，
- * null / NaN / 越界都不抛异常。</p>
+ * 视觉配置的不可变聚合快照；fromConfig 统一读取配置，构建线程与 renderer 消费本对象。
+ * 稳定文本 id 隔离配置枚举，数值在构造时收窄；值比较供预览失效判定使用。
  */
 public final class ChainPreviewVisualSettings {
 
@@ -29,19 +24,9 @@ public final class ChainPreviewVisualSettings {
     private static final float MIN_SCREEN_WIDTH_FALLBACK = 0.0F;
     /** 描边壳外扩宽度兜底（基线档：关闭）。 */
     private static final float OUTLINE_WIDTH_FALLBACK = 0.0F;
-    /**
-     * 连锁序亮度权重下限兜底（基线档：1.0 = 关闭本能力）。
-     *
-     * <p>与 {@link #OUTLINE_WIDTH_FALLBACK} 同一取向：兜底路径的语义是「拿不到配置 / 拿到的值非法」，
-     * 取恒等值才等于历史观感；配置默认 0.55 是「用户选择了开启」，两者不得混用。</p>
-     */
+    /** 配置不可用时取恒等亮度，保留原颜色强度。 */
     private static final float ORDER_MIN_BRIGHTNESS_FALLBACK = 1.0F;
-    /**
-     * 内部结构亮度系数兜底（基线档：1.0 = 关闭本能力）。
-     *
-     * <p>与 {@link #ORDER_MIN_BRIGHTNESS_FALLBACK} 同一取向：兜底路径的语义是「拿不到配置 / 拿到的值非法」，
-     * 取恒等值才等于历史观感；配置默认 0.65 是「用户选择了开启」，两者不得混用。</p>
-     */
+    /** 配置不可用时取恒等内部亮度，保留原颜色强度。 */
     private static final float INTERIOR_DIM_FALLBACK = 1.0F;
 
     private final float barThickness;
@@ -165,14 +150,7 @@ public final class ChainPreviewVisualSettings {
             maxTargetsHardCap, false);
     }
 
-    /**
-     * 完整构造（T34 / B2.5 追加第 24 参：原版方块高亮抑制开关）。
-     *
-     * <p>其余字段语义、范围收窄与 {@code null} 兜底与 23 参构造完全一致；旧调用点保持原语义
-     * （未显式传入时按默认关闭 false）。描边宽度未显式传入时按基线档 0（关闭描边）处理。</p>
-     *
-     * @param suppressVanillaHighlight 是否抑制原版方块选择框（B2.5；默认 false）
-     */
+    /** 补充原版高亮开关，其余视觉能力使用兼容构造的关闭值。 */
     public ChainPreviewVisualSettings(
             float barThickness,
             float minScreenWidthPx,
@@ -209,15 +187,7 @@ public final class ChainPreviewVisualSettings {
             maxTargetsHardCap, suppressVanillaHighlight, OUTLINE_WIDTH_FALLBACK);
     }
 
-    /**
-     * 描边宽度构造（B3.x 第 25 参）：面朝向明暗未显式传入时按基线档关闭。
-     *
-     * <p>描边宽度收窄到 {@code [0, 8]}——与着色器 {@code clamp(uOutlineWidthPx, 0.0, 8.0)} 及
-     * {@code ChainPreviewDrawPlan.MAX_OUTLINE_WIDTH_PX} 同区间，NaN / Infinity / 越界回落基线档 0；
-     * 其余字段语义与 24 参构造完全一致。</p>
-     *
-     * @param outlineWidthPx 描边壳外扩宽度（物理像素；0 = 关闭描边，仅着色器 OUTLINE 深度档消费）
-     */
+    /** 补充描边宽度，面明暗使用关闭值，其余字段沿兼容构造初始化。 */
     public ChainPreviewVisualSettings(
             float barThickness,
             float minScreenWidthPx,
@@ -254,16 +224,7 @@ public final class ChainPreviewVisualSettings {
             maxTargetsHardCap, suppressVanillaHighlight, outlineWidthPx, false);
     }
 
-    /**
-     * 26 参构造：连锁序权重未显式传入时按<b>基线档关闭</b>（{@code 1.0}）处理。
-     *
-     * <p>本构造曾是最完整的那个，现让位给追加了第 27 参的版本。不把 {@code orderMinBrightness} 默认成
-     * 配置默认 0.55 是刻意的：「未显式传入」不能读作「用户选择了开启」，否则任何拿不到配置的调用点
-     * 都会平白改变观感（同 {@link #OUTLINE_WIDTH_FALLBACK} 的取向）。</p>
-     *
-     * @param faceShadingEnabled 是否按面朝向烘焙明暗（默认 false = 等于接线前观感，逐字节不变）；
-     *                           开启后 legacy 颜色流与着色器顶点色使用同一张亮度表
-     */
+    /** 补充面明暗开关，连锁序亮度使用恒等值。 */
     public ChainPreviewVisualSettings(
             float barThickness,
             float minScreenWidthPx,
@@ -302,16 +263,7 @@ public final class ChainPreviewVisualSettings {
             ORDER_MIN_BRIGHTNESS_FALLBACK, INTERIOR_DIM_FALLBACK);
     }
 
-    /**
-     * 27 参构造：内部结构亮度系数未显式传入时按<b>基线档关闭</b>（{@code 1.0}）处理。
-     *
-     * <p>本构造曾是最完整的那个，现让位给追加了第 28 参的版本。不把 {@code interiorDim} 默认成
-     * 配置默认 0.65 是刻意的：「未显式传入」不能读作「用户选择了开启」，否则任何拿不到配置的调用点
-     * 都会平白改变观感（同 {@link #INTERIOR_DIM_FALLBACK} 的取向）。</p>
-     *
-     * @param orderMinBrightness 连锁序**亮度**权重下限（配置 {@code clientPreviewOrderMinBrightness}）；
-     *                      {@code 1.0} = 关闭本能力，默认档 0.55 = 起点 1.0、最远 0.55
-     */
+    /** 补充连锁序亮度，内部结构亮度使用恒等值。 */
     public ChainPreviewVisualSettings(
             float barThickness,
             float minScreenWidthPx,
@@ -351,16 +303,7 @@ public final class ChainPreviewVisualSettings {
             orderMinBrightness, INTERIOR_DIM_FALLBACK);
     }
 
-    /**
-     * 完整构造（本轮追加第 28 参：内部结构亮度系数）。
-     *
-     * <p>取值面与收窄：{@code [0,1]} 内原样保留；NaN / Infinity / 越界回落
-     * {@link #INTERIOR_DIM_FALLBACK}（= 1.0 = 恒等，等于接线前观感）。</p>
-     *
-     * @param interiorDim 内部结构亮度系数（配置 {@code clientPreviewInteriorDim}）；
-     *                      {@code 1.0} = 关闭本能力，默认档 0.65 = 内部格线压暗到 65%、
-     *                      贯通管面（外轮廓）保持 1.0；只乘颜色 rgb，不乘 alpha
-     */
+    /** 完整视觉快照构造；各数值按合法域收窄，非法亮度回退恒等值，rgb 与 alpha 分别计算。 */
     public ChainPreviewVisualSettings(
             float barThickness,
             float minScreenWidthPx,
@@ -430,7 +373,7 @@ public final class ChainPreviewVisualSettings {
     /**
      * 从顶层 Config 静态字段聚合快照。
      *
-     * <p>缺键 / null 枚举 / NaN / 越界一律兜底收窄，不抛异常；本方法是生产路径唯一配置读取面。</p>
+     * <p>在生产路径统一读取配置并收窄数值，缺省枚举使用稳定回退档位。</p>
      *
      * @return 不可变视觉参数快照
      */
@@ -490,7 +433,7 @@ public final class ChainPreviewVisualSettings {
         return outlineWidthPx;
     }
 
-    /** @return 是否按面朝向烘焙明暗（face shading；默认 false = 两个后端与颜色流都逐字节等于现状） */
+    /** @return 是否按面法线烘焙亮度，两个后端共享同一系数表 */
     public boolean isFaceShadingEnabled() {
         return faceShading;
     }
@@ -505,12 +448,7 @@ public final class ChainPreviewVisualSettings {
         return animationId;
     }
 
-    /**
-     * @return 动画相位稳定 id（order / hash）
-     *
-     * <p><b>登记（假旋钮）</b>：当前没有任何生产消费者——渲染路径只读 animationId 与
-     * animationDurationMs；该字段按保留的配置键位，B3.1 动画时钟接入后才生效。</p>
-     */
+    /** @return 保留的动画相位稳定 id；当前生产绘制路径尚未消费 */
     public String getAnimationPhaseId() {
         return animationPhaseId;
     }
@@ -631,28 +569,12 @@ public final class ChainPreviewVisualSettings {
         return lodMinAlpha;
     }
 
-    /**
-     * @return 连锁序**亮度**权重下限（{@code [0,1]}）；{@code 1.0} = 关闭本能力（等于接线前观感）
-     *
-     * <p>消费链：{@link club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.Visuals}
-     * → {@code ChainPreviewShaderBackend} 的 {@code uOrderMinBrightness} → {@code preview.vert} 的
-     * {@code orderWeight} 分支，最终乘在<b>颜色亮度</b>上（{@code color * orderWeight}），不参与 alpha。
-     * legacy 固定管线不消费本值（与描边宽度同理：只有着色器路径有该能力）。</p>
-     */
+    /** @return shader 连锁序 rgb 亮度权重下限，距离 alpha 独立计算 */
     public float getOrderMinBrightness() {
         return orderMinBrightness;
     }
 
-    /**
-     * @return 内部结构亮度系数（{@code [0,1]}）；{@code 1.0} = 关闭本能力（等于接线前观感）
-     *
-     * <p>消费链：{@link club.heiqi.qz_miner.chain.client.render.ChainPreviewDrawPlan.Visuals}
-     * → {@code ChainPreviewShaderBackend} 的 {@code uInteriorDim} → {@code preview.vert} 的
-     * 「内部结构压暗」分支，最终乘在<b>颜色 rgb</b> 上（{@code color = color * uInteriorDim}），
-     * 不参与 alpha。压暗对象是 tubeEdge 未定义（{@code ChainPreviewMesh.AUX_UNDEFINED}）的
-     * junction 补块 / 共享顶点，即「内部格线」；贯通管面（外轮廓）与描边 pass 都不消费本值。
-     * legacy 固定管线不消费本值（与描边宽度同理：只有着色器路径有该能力）。</p>
-     */
+    /** @return shader 主体内部格线的 rgb 亮度系数，贯通管面与描边保留原亮度 */
     public float getInteriorDim() {
         return interiorDim;
     }

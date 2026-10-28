@@ -148,7 +148,7 @@ public final class AutoToolSwapRoundService {
         return observeChainPhase(playerId, endpoint, serverRoundId, false, false);
     }
 
-    /** 投影阶段、冻结和关闭，不触碰 local physical owner。 */
+    /** 投影当前 wire round 的阶段、冻结和关闭，库存事务由 local physical owner 结算。 */
     public synchronized long observeChainPhase(UUID playerId, Object endpoint, long serverRoundId,
             boolean freezeSwap, boolean closeRound) {
         RoundRecord record = rounds.get(playerId);
@@ -177,7 +177,7 @@ public final class AutoToolSwapRoundService {
         return record.serverRoundId;
     }
 
-    /** 只结算严格 5.3 的 FREEZE/CLOSE control intent；inventory 参数永不读取。 */
+    /** 校验严格 5.3 的 FREEZE/CLOSE control intent 并结算 wire round，inventory 为兼容占位参数。 */
     public synchronized AutoToolSwapRoundResult handleIntent(UUID playerId, Object endpoint,
             AutoToolSwapIntent intent, AutoToolSwapInventoryPort inventory, long serverTick) {
         requireServerTick(serverTick);

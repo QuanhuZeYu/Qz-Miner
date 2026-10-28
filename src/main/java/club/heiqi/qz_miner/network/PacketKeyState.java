@@ -70,7 +70,7 @@ public class PacketKeyState implements IMessage {
             final int keyId = message.keyId;
             final boolean pressed = message.pressed;
             ServerMainThreadDispatcher.run(() -> {
-                // 同 UUID 重连后，旧 endpoint 的迟到松键不得 restore 或 forced-cleanup 新会话。
+                // 按真实 endpoint identity 复核当前连接，再处理其松键恢复与清理。
                 EntityPlayerMP captured = endpoint.get();
                 EntityPlayer current = MyMod.playerManager == null ? null : MyMod.playerManager.getPlayer(playerId);
                 if (captured == null || current != captured) {
@@ -92,20 +92,13 @@ public class PacketKeyState implements IMessage {
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainStateService != null) {
                     MyMod.chainStateService.setPlayerChainKeyPressed(playerId, pressed);
                 }
-                // 守跨线程只经事件总线：publish 在 ServerMainThreadDispatcher.run lambda 内（line 60），已收口主线程
-                // 阶段3影子并行：保留旧 setPlayerChainKeyPressed，新链路仅推进状态机观测
-                // 输入事件 generation 传 0 豁免代际判定（由转移规则本身约束消费态）
+                // 服务端主线程写入按键电平并发布观测，输入代际由状态机按当前阶段处理。
                 if (keyId == ChainConstants.KEY_CHAIN && MyMod.chainEventBus != null) {
                     MyMod.chainEventBus.publish(new ChainKeyPressed(
                             playerId, serverRoundId, 0,
                             serverTick, ChainTickSource.nowNanos(),
                             pressed));
-                    // E2 松键即停修复：松键（pressed=false）额外 publish LifecycleCleanup(reason="user-abort",
-                    // forced=true, removeSlot=false)。复用 forced=true 豁免 genCheck，无论当前处于
-                    // PLANNING/RUNNING/FINISHING/ARMED/IDLE 哪个态都能由状态机 T9/T8/IDLE early-return 收口
-                    // （活跃态→IDLE 走 T9，IDLE 幂等丢弃）。removeSlot=false：玩家在线保 gen 单调，
-                    // 后续连锁可正常武装。执行桥 onLifecycleCleanup 关掉落窗口 + 清 registry，
-                    // 中断活跃执行链（边搜边破坏的活跃连锁松键即停）。
+                    // 松键强制收口当前玩家任务，保留在线槽位代际；执行桥释放上下文并关闭窗口。
                     if (!pressed) {
                         MyMod.chainEventBus.publish(new LifecycleCleanup(
                                 playerId, serverRoundId, 0,

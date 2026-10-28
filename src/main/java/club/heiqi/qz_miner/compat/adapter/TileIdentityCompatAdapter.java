@@ -25,8 +25,8 @@ public interface TileIdentityCompatAdapter {
     /**
      * 捕获不可变纯值身份。
      *
-     * <p>已识别类型的任何成员缺失、读取异常或值类型错误都必须返回 UNRESOLVED，
-     * 禁止由门面继续降级到 runtime class。</p>
+     * <p>已识别类型的成员缺失、读取异常或类型错误统一返回 UNRESOLVED，
+     * 门面保留该结果，供匹配器按未解析处理。</p>
      *
      * @param tileEntity 待捕获 TileEntity
      * @return 身份令牌

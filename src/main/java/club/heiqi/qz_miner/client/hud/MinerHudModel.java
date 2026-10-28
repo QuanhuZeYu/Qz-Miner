@@ -21,7 +21,7 @@ import club.heiqi.uilib.ui.scene.node.SceneNode;
 /** 模式邻项、阶段状态与确认明细分别失效；稳定 tick 只读取固定标量事实。 */
 public final class MinerHudModel {
     private final Function<String, String> text;
-    /** 既有读取入口；标题只从 selection 派生，不再维护另一份模式事实。 */
+    /** 从 selection 派生当前模式标题。 */
     public final ReadableSignal<String> heading;
     public final Signal<String> status;
     public final Signal<Boolean> expanded;
@@ -64,7 +64,7 @@ public final class MinerHudModel {
 
     public void context(ChainClientState state, boolean known, String language) { context(state, known, language, 0L); }
 
-    /** 资源与能力代际各自失效；保留宿主既有重载，读取能力代际不触发兼容探测。 */
+    /** 资源和能力代际分别失效，能力代际直接读取已发布值。 */
     public void context(ChainClientState state, boolean known, String language, long resourceRevision) {
         if (state == null) return;
         long capabilityRevision = ChainModeRegistry.availabilityRevision();
@@ -80,7 +80,7 @@ public final class MinerHudModel {
         boolean capabilitiesChanged = capabilities != capabilityRevision;
         Object nextIntent = state.getSelectionIntent();
         int direction = selectionIntent != nextIntent ? state.getSelectionDirection() : 0;
-        // 即使本次输入未改变选择也消费意图，资料失效不得重放旧滚轮方向。
+        // 每次输入消费当前意图，后续资料失效仅重投影标签和能力。
         selectionIntent = nextIntent;
         if (contextSeen && !choiceChanged && !keyChanged && !confirmationChanged && !labelsChanged && !capabilitiesChanged) return;
 

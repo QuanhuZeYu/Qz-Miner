@@ -21,21 +21,9 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * 逻辑服务器同步并行执行器。
- *
- * 任务以“分片”形式在多个 Tick 之间持续推进：
- * 1. START 打开本 Tick 的并行执行窗口
- * 2. 后台 worker 在窗口内反复执行任务分片
- * 3. END 关闭窗口，并等待当前分片全部停在边界上
- *
- * 当前实现使用有界线程池，核心线程数为 1，最大线程数为 20，
- * 目的是稳定线程名并减少 Hodgepodge 对异步世界读取的重复告警噪声。
- *
- * <p>窗口预算由 {@link ParallelBudgetMode} 档位决定：deadline 档等于基线
- * （窗口预算 = {@code Config.tickBudgetMs}）；slice 档对客户端 stage 使用独立的
- * 小预算（{@code Config.parallelSliceBudgetMs}），并且主线程不再为「已经让出的任务」
- * 等满窗口 deadline。两个档位都不改变窗口关闭后的 worker 屏障等待语义，
- * 也不引入取消/强杀。</p>
+ * 按 Tick 窗口调度增量分片：START 开窗，worker 推进，END 关窗并等待活跃分片到达安全边界。
+ * 有界线程池复用稳定线程名，减少 Hodgepodge 对异步世界读取的重复告警。
+ * 预算档位决定窗口内等待策略，运行期取消通过协作请求与 endStage 屏障完成。
  */
 public final class ParallelTickExecutor {
 
@@ -231,8 +219,8 @@ public final class ParallelTickExecutor {
      *
      * <p>决策完全交给 {@link ParallelBudgetPolicy}：deadline 档等价基线（等到窗口 deadline
      * 或任务清空），slice 档在「没有活跃分片且每个注册任务都已获得本 tick 调度机会」时立即
-     * 返回，不再为已经让出的任务空耗墙钟。本方法只负责 park，不关闭窗口，也不参与
-     * {@link #endStage(ParallelTickStage)} 的 worker 屏障。</p>
+     * 返回。本方法负责窗口内 park，窗口关闭与 worker 屏障由
+     * {@link #endStage(ParallelTickStage)} 完成。</p>
      */
     private void waitForAvailableWindow(ParallelTickStage stage) {
         ParallelTickContext snapshot;
@@ -296,8 +284,7 @@ public final class ParallelTickExecutor {
     /**
      * 返回当前 stage 已冻结的共享时间预算。
      *
-     * <p>调用方只能在对应 Tick stage 内使用该快照；窗口关闭后旧快照即使仍可读，
-     * 也不得据此开始新工作。</p>
+     * <p>调用方在对应 Tick stage 的开放窗口内使用此快照开始工作。</p>
      */
     public TickTimeBudget currentTimeBudget(ParallelTickStage stage) {
         stateLock.lock();

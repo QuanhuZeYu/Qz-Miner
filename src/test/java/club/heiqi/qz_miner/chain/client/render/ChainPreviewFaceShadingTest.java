@@ -49,13 +49,7 @@ public class ChainPreviewFaceShadingTest {
                 false, 0.0F, faceShading));
     }
 
-    /**
-     * 关闭档：颜色流必须逐位等于基线常量，且不得有任何乘法残差。
-     *
-     * <p>只断言**显式关闭**的行为，不断言配置默认值——默认值已上调为开启（用户裁定 2026-09-14），
-     * 其快照由 {@code QzMinerConfigSchemaTest} / {@code PreviewConfigSurfaceTest} 的默认值表覆盖，
-     * 两处职责不重叠。</p>
-     */
+    /** 显式关闭面明暗时，颜色流逐位保留基线常量；配置默认由 schema 用例验证。 */
     @Test
     public void disabledKeepsBaselineColorStreamBitIdentical() {
         Assert.assertFalse("DrawPlan 基线档必须关闭",
@@ -148,15 +142,7 @@ public class ChainPreviewFaceShadingTest {
             rebuilt.getColors(), session.getMesh().getColors(), 0.0F);
     }
 
-    /**
-     * 门控 uniform 必须登记在清单里（否则链接期缺 location 会让功能静默失效），
-     * 且 Java 侧亮度表的每个系数必须逐位等于 GLSL 侧使用的十进制字面量。
-     *
-     * <p>「GLSL 源码里含字面量 1.00 / 0.72 / …」这类<strong>源码文本匹配</strong>已按裁定移除：
-     * 它重命名即误报、改语义却照样绿，拦不住真问题（GLSL 改系数、改判定顺序都不会让它变红）。
-     * 两侧同源改为：Java 侧数值在此逐位钉死 + GLSL<strong>逻辑</strong>改动走真机验证并在
-     * shader 头部「实机验证记录」追加标记（注释改动本身不触发重验）。</p>
-     */
+    /** 验证面明暗 uniform 清单及 Java 系数的精确值，GLSL 消费按实机记录核对。 */
     @Test
     public void faceShadingUniformIsRegisteredAndTableIsBitExact() {
         assertLiteral("1.00", ChainPreviewMeshBuilder.faceShading(0.0F, 1.0F, 0.0F));

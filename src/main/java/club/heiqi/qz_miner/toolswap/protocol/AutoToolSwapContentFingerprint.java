@@ -9,7 +9,7 @@ import java.security.NoSuchAlgorithmException;
 
 /**
  * 严格内容指纹：SHA-256(UTF-8(roleKey) + NUL + UTF-8(dynamicFingerprint))。
- * 完整 256-bit 摘要以四个 long 保留，绝不截短为 hashCode。
+ * 以四个 long 保存完整 256-bit 摘要，供内容等值比较。
  */
 public final class AutoToolSwapContentFingerprint implements Serializable {
 

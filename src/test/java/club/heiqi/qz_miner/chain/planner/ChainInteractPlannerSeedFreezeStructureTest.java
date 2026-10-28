@@ -57,13 +57,7 @@ public class ChainInteractPlannerSeedFreezeStructureTest {
                 "resolveInteractTarget(", "触发门必须先于目标解析");
     }
 
-    /**
-     * 非液体 BLOCK 保留 event 坐标；AIR 与所有液体动作只读共享 ray 命中。
-     *
-     * <p>路由判定已下沉为包级纯函数 {@link ChainInteractPlanner#resolvesBySharedRay}（与 T54
-     * {@code originRelativeTo} 同形），因此这条语义由真值表直接证伪；委派与「ray 解析不得读事件坐标」
-     * 仍是方法体区间内的结构契约。</p>
-     */
+    /** 真值表验证 BLOCK/AIR 与液体路由，方法体检查共享射线委派及事件坐标的读取归属。 */
     @Test
     public void blockAndAirUseSeparateTargetSourcesWithLiquidFlag() {
         assertRoute(ChainSubMode.INTERACT_LIQUID_SOURCE, PlayerInteractEvent.Action.RIGHT_CLICK_BLOCK, true);
@@ -86,12 +80,7 @@ public class ChainInteractPlannerSeedFreezeStructureTest {
         Assert.assertEquals("共享射线只允许一个调用点", 1,
                 JavaSourceSlices.count(planner, "InteractionRayTrace.trace("));
 
-        // 已删（断言形态改造，实测取证）：原逐字实参快照「hit.blockX, hit.blockY, hit.blockZ,
-        // normalizeFace(hit.sideHit), hit.hitVec」「event.x, event.y, event.z」「normalizeFace(event.face)」
-        // 属于「换行或提取局部变量即误报」的表达式文本快照；其语义无法行为化——实测
-        // new ChainInteractPlanner() 在纯 JVM 抛 ClassCastException(AppClassLoader → LaunchClassLoader)
-        // （MinecraftForge.EVENT_BUS.register 需要 FML 类加载器），私有目标解析方法取不到实例。
-        // 保留下来的可证伪部分是本用例的路由真值表、两条委派断言与 ray 禁读事件坐标边界。
+
     }
 
     /** block、完整 metadata 与 live TileEntity 必须按已解析目标在 publish 前立即纯值化。 */
@@ -128,13 +117,7 @@ public class ChainInteractPlannerSeedFreezeStructureTest {
                 seed.lastIndexOf("TileIdentityToken.unresolved()") > caught);
     }
 
-    /**
-     * 状态机与规划桥必须优先传播冻结 seed，不得用后来 world 值覆盖。
-     *
-     * <p>状态机一侧升级为真实行为断言：纯 JVM 驱动 {@link ChainEventBus}
-     * （ARMED → 右键观测）后，断言广播出的 {@link PlanStarted} 原样携带事件窗口冻结的
-     * block/metadata/身份 token 与工具轮次——旧写法只是断言源码里写了一串 getter 调用。</p>
-     */
+    /** 驱动 ARMED 右键观测，验证 PlanStarted 保留冻结身份及工具轮次；桥的结构检查验证冻结分支优先。 */
     @Test
     public void stateMachineAndBridgePreferFrozenSeed() {
         ChainEventBus bus = new ChainEventBus();

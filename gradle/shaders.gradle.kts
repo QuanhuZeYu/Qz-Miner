@@ -14,8 +14,8 @@ import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 
-// 使用 glslang 的 GLSL 1.20 语义校验，不能启用不支持该版本的 SPIR-V 后端。
-// 工具按版本与摘要缓存；下载或校验失败使 build 失败，禁止静默跳过。
+// 使用 glslang 校验 GLSL 1.20 desktop 语义，沿该版本支持的非 SPIR-V 路径执行。
+// 工具按版本与摘要缓存，下载或校验失败直接使构建失败。
 /** glslang 版本与各平台压缩包摘要（单一真源；升级版本号即整体失效重建）。 */
 val glslangVersion = "16.6.0"
 val glslangUrlWindows = "https://github.com/KhronosGroup/glslang/releases/download/" + glslangVersion +

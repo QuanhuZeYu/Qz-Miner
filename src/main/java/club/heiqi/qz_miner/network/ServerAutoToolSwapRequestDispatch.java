@@ -141,7 +141,7 @@ public final class ServerAutoToolSwapRequestDispatch {
         try {
             sender.send(playerId, endpoint, rawIntent, result);
         } catch (RuntimeException publicationFailure) {
-            // sender 未正常返回时不得确认 sequence/gate；exact C2S 重试只会重做 full resend + result send。
+            // 发送失败保留待确认 sequence/gate，精确 C2S 重试仅重发完整库存与结果。
             return;
         } catch (LinkageError publicationFailure) {
             return;

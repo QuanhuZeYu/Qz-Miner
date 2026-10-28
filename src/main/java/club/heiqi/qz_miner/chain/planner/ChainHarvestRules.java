@@ -12,7 +12,7 @@ import net.minecraft.item.ItemStack;
  */
 public final class ChainHarvestRules {
 
-    /** AREA/INTERACT/SPECIAL 规划 matcher 复用的世界与安全 admission；不读取工具或库存能力。 */
+    /** AREA/INTERACT/SPECIAL 规划 matcher 共用的世界与脚底安全 admission。 */
     static final HarvestEvaluator DEFAULT_EVALUATOR = new HarvestEvaluator() {
         @Override
         public HarvestEvaluation evaluate(EntityPlayer player, ChainTarget target, boolean diagnosticTracking) {
@@ -93,7 +93,7 @@ public final class ChainHarvestRules {
     }
 
     /**
-     * 仅用于规划线程判断目标的世界与脚底安全 admission，不读取当前工具或库存。
+     * 规划线程按世界身份与脚底安全判断目标入场，工具能力由各模式策略提供。
      *
      * @param player 玩家
      * @param target 目标方块
@@ -214,12 +214,12 @@ public final class ChainHarvestRules {
                 : equippedItem.getMaxDamage() - equippedItem.getItemDamage();
     }
 
-    /** 纯值测试接缝：规划期不以瞬时耐久拒绝，执行期使用统一储备门。 */
+    /** 纯值判据：规划保留目标，执行期统一检查耐久储备。 */
     static boolean acceptsDurabilityForPhase(int remainingDurability, boolean planningPhase) {
         return planningPhase || AutoToolUsabilityPolicy.hasDurabilityReserve(remainingDurability);
     }
 
-    /** 纯值接缝：合法世界目标只会被脚底安全门拒绝，不接收任何工具事实。 */
+    /** 纯值判据：在合法世界目标上应用脚底安全门。 */
     static boolean acceptsPlanningAdmission(boolean validWorldTarget, boolean standingOnTarget) {
         return validWorldTarget && !standingOnTarget;
     }
@@ -270,7 +270,7 @@ public final class ChainHarvestRules {
             return accepted;
         }
 
-        /** 由正式 matcher/共享规则统一记录，判定策略本身不写诊断状态。 */
+        /** matcher 与共享规则统一将本次纯值判定写入诊断器。 */
         void record(ChainPlanningRuntimeFactory.PlanningDiagnostics diagnostics, ChainTarget target) {
             if (diagnostics != null) {
                 diagnostics.logWorkerReadOnce(Thread.currentThread().getName());

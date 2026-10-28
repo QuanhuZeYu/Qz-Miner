@@ -6,17 +6,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
-/**
- * 客户端主线程 drain 接入点：在 {@link TickEvent.ClientTickEvent#START} 阶段调用
- * {@link ChainEventBus#drain()}。
- *
- * <p>守决策4（客户端总线仅空跑骨架）：客户端不 publish 任何客户端事件、不持有独立状态机，
- * 仅为预览订阅接入预留 drain 通道。预览订阅留阶段6接入。</p>
- *
- * <p>平行类设计（分歧4裁决）：不抽继承基类与 {@link ChainEventBusDrainer} 平行，
- * 仅订阅 {@link TickEvent.ClientTickEvent} 而非 {@code ServerTickEvent}。
- * 加 {@link SideOnly}({@link Side#CLIENT}) 注解确保不进入服务端类加载。</p>
- */
+/** 客户端 tick START 阶段消费独立事件队列，将网络阶段快照分发给客户端投影订阅者。 */
 @SideOnly(Side.CLIENT)
 public class ClientChainEventBusDrainer {
 
@@ -39,7 +29,7 @@ public class ClientChainEventBusDrainer {
     }
 
     /**
-     * 客户端 tick 回调，仅 START 阶段 drain。当前为空跑骨架。
+     * 客户端 tick 回调，在 START 阶段 drain。
      *
      * @param event 客户端 tick 事件
      */

@@ -62,7 +62,7 @@ public final class ToolSelector {
     }
 
     /**
-     * 判断候选是否命中。该操作只读已捕获身份，不访问 registry 或 OreDictionary。
+     * 按候选已捕获的 registry、subtype 与矿辞名纯值判断命中。
      *
      * @param candidate 候选
      * @return 是否命中

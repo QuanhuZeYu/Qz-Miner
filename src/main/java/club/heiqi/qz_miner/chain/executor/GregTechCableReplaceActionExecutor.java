@@ -33,13 +33,12 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
             return false;
         }
 
-        // RECONNECT 两阶段已停用（单阶段 replaceCableWithoutConnections 已完整恢复连接），
-        // phase 恒为 REPLACE，不再有 reconnect 任务，此处仅需校验目标仍是线缆。
+        // 执行前复核目标线缆身份。
         TileEntity tileEntity = player.worldObj.getTileEntity(target.getX(), target.getY(), target.getZ());
         if (!CompatAdapters.cable().isCable(tileEntity)) {
             return false;
         }
-        // P2-3：防御性主手校验（planner 已拦截，此处补 canExecute 入口，防会话锁与主手不一致）
+        // 执行前复核当前主手线缆。
         if (!CompatAdapters.cable().isCableStack(player.inventory.getCurrentItem())) {
             return false;
         }
@@ -47,12 +46,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
     }
 
     /**
-     * 执行 GT 线缆替换。
-     *
-     * <p>RECONNECT 两阶段已停用：单阶段 {@code replaceCableWithoutConnections}
-     * 已通过直写 {@code mConnections} 位掩码完整恢复连接，无需第二阶段 reconnect。
-     * 若 phase 仍为 RECONNECT（历史残留），直接返回 false 放弃，避免重新引入 connect() 危险 API。
-     * Batch 2 将清理 SessionState 中的 RECONNECT 相关字段。
+     * 主线程单阶段替换线缆，由 adapter 写回连接位掩码并更新网络；RECONNECT 状态按拒绝处理。
      */
     @Override
     public boolean execute(EntityPlayerMP player, ChainSession session, ChainTarget target) {
@@ -81,9 +75,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
         Integer protectedMainHandSlot = GregTechCableSessionState.getLockedMainHandSlot(session);
         int protectedSlot = protectedMainHandSlot == null ? -1 : protectedMainHandSlot.intValue();
 
-        // 单阶段原子替换：内部直写 mConnections + causeCableUpdate
-        // 删临时切手：replaceCable 不依赖 currentItem，只用 replacementStack/replacementSlotIndex
-        // protectedSlot 传给 adapter 保护主手 slot 不被返还的旧线缆占用
+        // adapter 使用指定物品栈和槽位原子替换，返还时跳过 protectedSlot，保留主手槽。
         CableReplacementResult result = CompatAdapters.cable().replaceCableWithoutConnections(
             player, tileEntity, lockedCableSlot.stack, lockedCableSlot.slotIndex, protectedSlot);
         if (!result.isSuccessful()) {
@@ -94,7 +86,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
     }
 
     /**
-     * 主线程优先返还背包；无法入包时写入玩家级掉落缓冲，禁止无保障生成实体。
+     * 主线程优先返还背包，剩余物品进入玩家级掉落缓冲。
      */
     private void returnOldCable(EntityPlayerMP player, ItemStack returnedStack, int protectedSlot) {
         if (returnedStack == null || returnedStack.stackSize <= 0) return;
@@ -123,10 +115,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
     }
 
     /**
-     * 不再入队 follow-up reconnect 目标。
-     *
-     * <p>RECONNECT 两阶段已停用：单阶段替换已完整恢复连接。
-     * 保留方法签名以兼容 {@link ChainActionExecutor} 接口，Batch 2 将随接口清理一并移除。
+     * 单阶段替换已恢复连接，本执行器的后续队列为空。
      *
      * @return 恒为 false
      */
@@ -138,14 +127,14 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
     /**
      * 选择替换用线缆槽位。
      * 替换类型基准 = 主手线缆 metaTileId（首次锁定，后续读会话锁）。
-     * 消耗顺序：主手外正序（slot 0→8→9→35）同种优先 → 主手最后兜底。
-     * 主手 slot 在返还旧线缆时受会话锁保护，避免旧线缆占用主手。
+     * 消耗顺序：主手外按槽位正序取同种线缆，再使用主手。
+     * 返还旧线缆时保留会话锁定的主手 slot。
      */
     private LockedCableSlot findLockedCableSlot(EntityPlayerMP player, ChainSession session) {
         int mainHandSlot = player.inventory.currentItem;
         ItemStack mainHandStack = player.inventory.getCurrentItem();
 
-        // 主手非线缆 → 不应到达此处（planner 已拦截），防御性返回 null
+        // 当前主手通过线缆校验后再取得会话锁。
         if (!CompatAdapters.cable().isCableStack(mainHandStack)) {
             return null;
         }
@@ -162,7 +151,7 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
 
         // 正序遍历主手外（跳过 mainHandSlot），找同种线缆优先消耗
         for (int i = 0; i < player.inventory.mainInventory.length; i++) {
-            if (i == mainHandSlot) continue;  // 主手最后兜底
+            if (i == mainHandSlot) continue;  // 主手留到最后使用。
             ItemStack stack = player.inventory.mainInventory[i];
             if (!CompatAdapters.cable().isCableStack(stack)) continue;
             if (stack.getItemDamage() == targetMetaId) {
@@ -170,12 +159,12 @@ public class GregTechCableReplaceActionExecutor implements ChainActionExecutor {
             }
         }
 
-        // 主手外无同种 → 主手兜底
+        // 主手外耗尽后使用主手同种线缆。
         if (mainHandStack.getItemDamage() == targetMetaId) {
             return new LockedCableSlot(mainHandSlot, mainHandStack, targetMetaId);
         }
 
-        return null;  // 料不够
+        return null;  // 缺少匹配线缆。
     }
 
     private static final class LockedCableSlot {

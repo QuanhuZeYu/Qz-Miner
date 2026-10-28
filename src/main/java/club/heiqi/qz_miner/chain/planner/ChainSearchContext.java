@@ -19,7 +19,7 @@ import net.minecraft.world.World;
  * 状态分层：
  * - currentFrontier：当前轮需要处理的候选点
  * - nextFrontier：下一轮需要处理的候选点（从当前轮扩展出来的邻居）
- * - visited：所有已检查过的点（避免重复检查）
+ * - visited：已检查位置的去重集合
  */
 public class ChainSearchContext {
 
@@ -81,7 +81,7 @@ public class ChainSearchContext {
                 maxRadius, maxTargets, currentFrontier, nextFrontier, visited, modeExtension, null);
     }
 
-    /** 供同包纯逻辑测试注入候选方块读取器，不改变生产 World 权威。 */
+    /** 供同包验证注入方块读取器，生产入口沿当前 World 读取。 */
     ChainSearchContext(
         World world, ChainTarget origin, Block sampleBlock, int sampleMeta,
         TileIdentityToken sampleTileIdentity, TileEntity sampleTileEntity,
@@ -245,7 +245,7 @@ public class ChainSearchContext {
         return result;
     }
 
-    /** 经同一 deadline 门提交 candidate filter 事务，避免空气探测耗尽窗口后继续读取世界。 */
+    /** candidate filter 与空气探测共用 deadline 门，预算可用时才提交后续世界读取。 */
     PlanningCandidateGate.FilterResult tryCommitPlanningCandidateFilter(
         ParallelTickControl control,
         ChainTarget target) {

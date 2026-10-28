@@ -5,18 +5,9 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL30;
 
 /**
- * 帧级 GL 绑定快照：VAO + ARRAY_BUFFER + ELEMENT_ARRAY_BUFFER。
- *
- * <p>B0.4 口径：绑定捕获每帧最多 3 次 glGetInteger（VAO / ARRAY_BUFFER / ELEMENT_ARRAY_BUFFER），
- * 帧末恢复一次；历史实现每帧 4 次 glGetInteger（3 次绑定 + 1 次 GL_MATRIX_MODE），
- * 矩阵模式已由调用方 glPushAttrib(GL_ALL_ATTRIB_BITS) / glPopAttrib 覆盖，不再单独查询。</p>
- *
- * <p>注：着色器后端自身的回读不在此口径内——着色器路径另有每帧 1 次 GL_VIEWPORT 与
- * 1 次 program 恢复回读，GL_PROJECTION_MATRIX 仅在 viewport 变化时读取
- * （由 T6 后端自行计数并暴露诊断，T8-D3/D4）。</p>
- *
- * <p>{@link Access} 是唯一 GL 直连点：注入假实现即可在纯 JVM 内断言
- * 「一次捕获 = 3 次查询、一次恢复 = 3 次绑定」。</p>
+ * 捕获并恢复 VAO、ARRAY_BUFFER、ELEMENT_ARRAY_BUFFER 的帧级绑定快照。
+ * 属性栈由外层围栏维护，后端矩阵及 program 回读分别计数。
+ * 删除资源后先将对应旧绑定归零，再恢复快照。
  */
 public final class ChainPreviewGlBindings {
 

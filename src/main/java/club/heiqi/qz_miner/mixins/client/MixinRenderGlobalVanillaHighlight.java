@@ -11,14 +11,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * B2.5 原版方块高亮协同：预览激活且瞄准方块就是当前预览目标时，取消原版黑色选择框，
- * 避免"双重指示"。
- *
- * <p>只注入 1.7.10 黑色描边唯一入口
- * {@code RenderGlobal.drawSelectionBox(EntityPlayer, MovingObjectPosition, int, float)} 的 HEAD：
- * index != 0、非方块命中、renderer 缺失、门控未通过（开关关闭 / 预览未激活 / 瞄准目标不匹配）
- * 全部直接 return，不 cancel、不写任何 GL 状态——默认档（suppressVanillaHighlight=false）
- * 逐字等于原版。破坏动画、粒子、实体描边位于其它方法，不受本注入影响。</p>
+ * 在 RenderGlobal.drawSelectionBox(EntityPlayer, MovingObjectPosition, int, float) 的 HEAD
+ * 按预览门控抑制原版方块选择框，使当前目标保留单一指示。
+ * index、命中和 renderer 校验通过后才取消，破坏动画、粒子与实体描边沿各自入口绘制。
  */
 @Mixin(RenderGlobal.class)
 public abstract class MixinRenderGlobalVanillaHighlight {

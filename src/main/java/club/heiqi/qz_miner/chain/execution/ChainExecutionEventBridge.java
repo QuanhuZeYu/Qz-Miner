@@ -45,66 +45,13 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * 阶段5 起：执行事件桥（新链路队列消费订阅者）。阶段8 块2 起接管真实破坏（旧 ChainExecutor 已于块1 删除）。
+ * 在服务端主线程登记执行上下文、管理掉落窗口，并按共享 soft deadline 消费目标。
  *
- * <p>订阅 {@link PlanCompleted}（领取执行上下文）+ {@link TickEvent.ServerTickEvent#START}
- * （主线程每 tick 消费队列），实现新链路完整执行闭环：
- * 主线程规划入口成功登记 ExecutionContext 并开启掉落窗口 → worker 发布规划结果 →
- * 每 tick START 在共享 soft deadline 内消费，
- * 真实破坏经 {@link ChainActionExecutor#execute}）→ 队列空 publish ExecutionFinished（G1 setExecuting(false) 关窗口）
- * → 状态机 T7 RUNNING→FINISHING → 同 tick publish LifecycleCleanup(reason="execution-complete") → 状态机 T8 FINISHING→IDLE。</p>
- *
- * <h3>阶段7 三路回 IDLE 收口（H2 三路并存裁决）</h3>
- * <p>本桥是<b>执行完成快速收尾路径</b>，与<b>看门狗异常兜底</b>（{@code ChainWatchdog}）+
- * <b>生命周期清理</b>（{@code ChainLifecycleBridge}）三路并存回 IDLE：</p>
- * <ul>
- *   <li>正常连锁完成走本桥快速路径（同 tick 完成 T7+T8，不卡 N tick 看门狗阈值，手感不受影响）。</li>
- *   <li>异常卡死走看门狗（N tick 无推进 → publish WatchdogTimeout → 状态机 T10 回 IDLE）。</li>
- *   <li>玩家登出/重生/切维度走生命周期桥（forced=true 豁免 genCheck 强制回 IDLE）。</li>
- * </ul>
- * <p>本桥 publish 的 LifecycleCleanup 用 {@code forced=false}（走 genCheck，gen 已知）+
- * {@code removeSlot=false}（玩家在线保 gen 单调）。三路铁律：本桥<b>绝不删</b>，FINISHING 只能由
- * 本桥 publish 的 LifecycleCleanup 走 T8 出口，删了会卡死 FINISHING 致二次连锁哑火。</p>
- *
- * <h3>两容器清理分工（阶段7 收口）</h3>
- * <p>状态机管 {@code slots}（{@code ChainStateMachine.onLifecycleCleanup} 内 remove），
- * 本桥管 {@code registry}（订阅 WatchdogTimeout/LifecycleCleanup 清理幽灵队列），
- * 各清各的容器，互不夺权（守唯一写权威）。</p>
- *
- * <h3>阶段8 块2：真实破坏桥 + G1 掉落窗口接线</h3>
- * <ul>
- *   <li><b>真实破坏</b>：consumeContext 调 {@link ChainActionExecutor#execute}（tryHarvestBlock/activateBlockOrUseItem），
- *       由 session 携带的 mode/subMode 经 ChainModeRegistry 解析执行器。守边界不越权：consumeContext 由
- *       onServerTick 在 {@code ServerTickEvent.START} 主线程调用，破坏在主线程。</li>
- *   <li><b>G1 掉落窗口</b>：成功 registerPlanningContext 流式开窗 true /
- *       onPlanCompleted 登记 true / publishExecutionFinishedWithCleanup
- *       完成 false / onWatchdogTimeout 兜底 false / onLifecycleCleanup 幂等 false /
- *       onPlanCancelled 取消 false，让
- *       {@code ChainDropCollector}:32 收集开关 + :58 释放开关正确工作（I5 生命线）。</li>
- * </ul>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>边界不越权</b>：consumeContext 在主线程 ServerTickEvent.START 调 tryHarvestBlock/activateBlockOrUseItem；
- *       session 仅是配置载体（mode/subMode/origin/interactFace），不破坏世界。</li>
- *   <li><b>掉落窗口正确</b>：G1 四点 setExecuting 全覆盖，ChainDropCollector 收集/释放窗口正确；
- *       flushPlayerDrops 保留在 ChainStateService（I5 兜底）。</li>
- *   <li><b>跨线程只经事件总线</b>：消费在主线程 ServerTickEvent.START，publish 经事件总线入队→主线程 drain。
- *       context 登记与窗口写均在主线程；worker 只推进队列并发布规划结果。</li>
- *   <li><b>唯一写权威</b>：本桥 <b>只 publish 不 transition</b>。状态机仍是 phase/generation 唯一写权威。</li>
- * </ul>
- *
- * <h3>gen 传递链铁律（根治时序竞态）</h3>
- * <p>{@link ExecutionFinished} 的 generation <b>必须</b>来自 {@link ChainExecutionContext}（经
- * {@link PlanCompleted#getGeneration()} 注入 context 构造时），<b>绝不</b>调
- * {@code ChainStateMachine.getCurrentGeneration}（package-private 跨包不可见，且时序竞态——
- * 执行中玩家重按键触发新一代会让状态机 gen 已自增，迟到旧 gen ExecutionFinished 被 genCheck 丢弃）。</p>
- *
- * <h3>E4-b 执行完成快速收尾桥（阶段7 三路并存正名）</h3>
- * <p>本桥 publish ExecutionFinished 后，<b>同 tick 紧接</b> publish LifecycleCleanup(reason="execution-complete")
- * 走 T8 FINISHING→IDLE，让状态机跑完完整闭环（避免玩家槽卡 FINISHING 致二次连锁哑火）。
- * 阶段7 起本桥与看门狗异常兜底（{@code ChainWatchdog}）、生命周期清理（{@code ChainLifecycleBridge}）
- * 三路并存回 IDLE，本路径是<b>正常完成快速路径</b>，绝不删（FINISHING 只有 T8 能出，删了卡死）。</p>
+ * <p>worker 追加规划目标，主线程经模式执行器修改世界。普通采掘逐目标检查预算并在批次尾统一结算；
+ * GT 线缆等待完整规划及预检后在单 tick 内原子执行。
+ * 终局尝试恢复借用工具并归类结果，再依次发布 ExecutionFinished 与 LifecycleCleanup。
+ * 本桥管理 registry 和执行窗口，状态机管理 phase、generation 与槽位。
+ * 轮次事件沿用 context 冻结的 UUID、generation、serverRoundId，清理按所属身份隔离。</p>
  */
 public class ChainExecutionEventBridge {
 
@@ -114,29 +61,22 @@ public class ChainExecutionEventBridge {
     private final ChainExecutionContextRegistry registry;
     /** 普通 CHAIN/AREA 的服务端本地候选与唯一 physical ledger owner。 */
     private final AutoToolSwapServerBatchService localToolSwap;
-    /** 上一个获得执行窗口的玩家；下 Tick 从其后继开始，避免固定 map 顺序长期饥饿。 */
+    /** 上一个获得执行窗口的玩家；下 tick 从其后继开始轮转。 */
     private UUID lastServedPlayerUUID;
 
     /**
-     * 构造桥并订阅 {@link PlanCompleted}（不注册 FML bus，留 {@link #bootstrap()} 显式触发）。
+     * 订阅连锁事件；FML tick 监听由 {@link #bootstrap()} 注册。
      *
-     * <p>构造器纯净可测：只调用 {@link ChainEventBus#subscribe}（操作 ConcurrentHashMap），
-     * 不触碰 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE）。
-     * FML bus 注册由 {@link #bootstrap()} 显式触发，与 {@code ChainEventBusDrainer.bootstrap()} 模式一致。</p>
+     * <p>初始化先注册 drainer，再注册本桥，使同 tick 的完成事件先被观察，再消费执行队列。</p>
      *
-     * <p>接线顺序（{@link MyMod#init}）：状态机 → registry → 本桥（注入 bus + registry）
-     * → planningBridge（注入本桥）→ ChainEventBusDrainer.bootstrap() → 本桥.bootstrap()。
-     * Drainer 先注册 FML bus，故 ServerTickEvent 触发顺序：drainer.onServerTick（drain，同步触发 onPlanCompleted 登记 context）
-     * → 本桥.onServerTick（消费 context），同 tick 完成登记+消费，无延迟。</p>
-     *
-     * @param bus      事件总线
+     * @param bus 事件总线
      * @param registry 执行上下文注册表
      */
     public ChainExecutionEventBridge(ChainEventBus bus, ChainExecutionContextRegistry registry) {
         this(bus, registry, null);
     }
 
-    /** 创建服务端本地批量工具接替执行桥，避免与旧三参构造的 null 调用产生重载歧义。 */
+    /** 创建带服务端批量工具接替能力的执行桥。 */
     public static ChainExecutionEventBridge withLocalToolSwap(ChainEventBus bus,
             ChainExecutionContextRegistry registry, AutoToolSwapServerBatchService localToolSwap) {
         return new ChainExecutionEventBridge(bus, registry, localToolSwap);
@@ -149,32 +89,24 @@ public class ChainExecutionEventBridge {
         this.localToolSwap = localToolSwap;
         bus.subscribe(PlanCompleted.class, this::onPlanCompleted);
         bus.subscribe(PlanCancelled.class, this::onPlanCancelled);
-        // 阶段7 B.4：订阅 WatchdogTimeout + LifecycleCleanup 清理 registry 幽灵队列（两容器清理分工）。
-        // 状态机管 slots，本桥管 registry，各清各的容器，互不夺权（守唯一写权威）。
+        // 超时与生命周期事件统一清理本桥持有的上下文。
         bus.subscribe(WatchdogTimeout.class, this::onWatchdogTimeout);
         bus.subscribe(LifecycleCleanup.class, this::onLifecycleCleanup);
     }
 
-    /**
-     * 向 FML 事件总线注册 ServerTickEvent 监听。
-     *
-     * <p>阶段5 起由 {@link MyMod#init} 调用。提取独立方法是为了让单测构造 bridge 时
-     * 不必触发 {@code FMLCommonHandler.instance()}（无 Forge 运行时环境会 NPE）。</p>
-     */
+    /** 由 {@link MyMod#init} 注册服务端 tick 监听，将 Forge 接入与构造分开。 */
     public void bootstrap() {
         FMLCommonHandler.instance().bus().register(this);
     }
 
     /**
-     * 主线程流式入口：登记成功与开启收集窗口一起完成，早期拒绝不触碰窗口。
-     *
-     * <p>规划桥在注册 worker 前调用；陈旧 context 被 registry 拒绝后不能开窗，
-     * worker 仅填充已登记队列。取消仍按 UUID/generation/serverRoundId 三元身份关窗。</p>
+     * 规划桥在注册 worker 前调用：重验当前授权，登记成功后同步开启掉落窗口。
+     * worker 仅追加已登记队列，取消按 UUID、generation 与 serverRoundId 关闭所属窗口。
      *
      * @return 是否取得该玩家当前执行上下文的所有权
      */
     public boolean registerPlanningContext(ChainExecutionContext context) {
-        // 空registry不代表仍获执行授权，cleanup之后的旧任务不得重新开窗。
+        // 重验状态机中的当前规划授权，再登记上下文。
         if (MyMod.chainStateMachine == null || !MyMod.chainStateMachine.permitsPlanning(
                 context.getPlayerUUID(), context.getGeneration(), context.getServerRoundId())) {
             return false;
@@ -187,28 +119,13 @@ public class ChainExecutionEventBridge {
         return true;
     }
 
-    /**
-     * 收到 PlanCompleted：领取执行上下文，登记以供后续 tick 消费。
-     *
-     * <p>契约：仅主线程 drain 调用。本桥与状态机 onPlanCompleted（T5）是同一事件的两个订阅者，
-     * 互不依赖、顺序不影响正确性（执行订阅者只登记 context，不消费、不依赖状态机 phase）。</p>
-     *
-     * <p>三种处理分支：</p>
-     * <ol>
-     *   <li><b>领取失败</b>（registry.get 返回 null，陈旧/不存在）：debug 日志 + return。</li>
-     *   <li><b>空规划边界（卡点5）</b>：context.isCompleted() 初始即为 true（totalTargets=0，队列初始即空）
-     *       → 立即 publish ExecutionFinished(reason="empty-plan") + 临时 LifecycleCleanup → return。</li>
-     *   <li><b>正常登记</b>：留后续 ServerTickEvent 消费。</li>
-     * </ol>
-     *
-     * @param event 规划完成事件（gen 取自事件注入 context）
-     */
+    /** 主线程观察匹配轮次的规划完成；处理挂起停止或空规划，其余目标留 tick 回调消费。 */
     private void onPlanCompleted(PlanCompleted event) {
         UUID playerUUID = event.getPlayerUUID();
         int gen = event.getGeneration();
         ChainExecutionContext context = registry.get(playerUUID, gen, event.getServerRoundId());
         if (context == null) {
-            // 陈旧/不存在：worker 未 put 或 gen 不匹配，状态机 genCheck 已兜底丢弃
+            // 缺少匹配上下文时保留当前轮次并结束处理。
             MyMod.LOG.debug("[ChainExecution] PlanCompleted gen={} player={} has no matching context; skip",
                     Integer.valueOf(gen), playerUUID);
             return;
@@ -216,42 +133,25 @@ public class ChainExecutionEventBridge {
         logTimeline(context, "PlanCompleted", "workerConfirmed=" + event.getTotalTargets()
                 + " queueNow=" + context.getTargets().size());
 
-        // worker 完成先胜出但执行 STOP 已挂起：先让 PlanCompleted 合法进 RUNNING，
-        // 再按正常执行终局发布 ExecutionFinished + Cleanup，禁止 STOP 抢跑。
+        // 完成先胜出时，待主线程观察 PlanCompleted 后再兑现挂起的停止请求。
         if (context.observePlanningCompletionAndShouldStop()) {
             publishExecutionFinishedWithCleanup(context, "auto-tool-local-stopped-after-plan-completed");
             registry.remove(playerUUID, gen, context.getServerRoundId());
             return;
         }
 
-        // 卡点5：空规划边界——totalTargets=0，队列初始即空，立即 publish ExecutionFinished + LifecycleCleanup，
-        // 不能卡 RUNNING（否则玩家槽卡 RUNNING 致二次连锁哑火）
+        // 规划完成且队列已空时立即收尾。
         if (context.isCompleted()) {
             publishExecutionFinishedWithCleanup(context, "empty-plan");
             registry.remove(playerUUID, gen, context.getServerRoundId());
             return;
         }
 
-        // 正常登记：留后续 ServerTickEvent 消费（不立刻消费，避免本 drain 帧内嵌套执行）
-        // G1（I5 生命线）：登记时即开掉落收集窗口（executionStatus=RUNNING），
-        // 让 ChainDropCollector:32 isExecuting() 通过、:58 暂存到 buffer（执行中不释放）。
-        // 时序铁律：必须在本处登记帧设，不能在 consumeContext 内设——consumeContext 在
-        // onServerTick START 才触发，迟于 onPlanCompleted 的登记帧。登记在先，setExecuting 必须同步在先。
+        // 观察完成时同步确认掉落窗口，目标交由后续 tick 回调消费。
         setExecutionWindow(playerUUID, true, "plan-completed");
     }
 
-    /**
-     * 服务端 tick 回调，仅 START 阶段消费所有活跃执行上下文（真实破坏，守边界不越权：主线程）。
-     *
-     * <p>对每个 context：经 {@link #consumeContext} 走真实破坏三元组（玩家解析 → 执行器解析 →
-     * canExecute/execute 循环 + 控速）。队列空（isCompleted）→ publish
-     * ExecutionFinished(reason="executor-consumed-all-targets") + 临时 LifecycleCleanup（E4-b 桥）+ registry.remove。</p>
-     *
-     * <p>注：Drainer 先于本桥注册到 FML bus，本回调在 drainer.onServerTick（drain）之后触发。
-     * drain 同步触发 onPlanCompleted 登记 context（含 G1 setExecuting(true) 开窗口），随后本回调同 tick 消费，无延迟。</p>
-     *
-     * @param event 服务端 tick 事件
-     */
+    /** 服务端 tick 的 START 阶段在共享预算内消费活跃上下文，完成后发布收尾事件。 */
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.START) {
@@ -264,10 +164,10 @@ public class ChainExecutionEventBridge {
         consumeScheduledContexts(timeBudget);
     }
 
-    /** 外层不按 deadline 截断；普通路径自行延期，GT 必须有机会进入原子分支。 */
+    /** 遍历所有上下文：普通路径按预算延期，GT 路径自行完成原子入场检查。 */
     void consumeScheduledContexts(TickTimeBudget timeBudget) {
         if (timeBudget == null) return;
-        // snapshot 是弱一致视图，遍历期间 worker put 不影响本批；起点跨 Tick 轮转。
+        // 将弱一致视图按 UUID 排序，起点跨 tick 轮转。
         List<ChainExecutionContext> contexts = roundRobinSnapshot(registry.snapshot(), lastServedPlayerUUID);
         for (ChainExecutionContext context : contexts) {
             if (consumeContext(context, timeBudget)) {
@@ -282,23 +182,11 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 消费单个执行上下文（阶段8 块2 起真实破坏，守边界不越权）。
+     * 主线程解析玩家和模式执行器，再按普通批次或 GT 原子路径消费上下文。
      *
-     * <p>真实破坏三元组（对齐旧 ChainExecutor:52-110）：</p>
-     * <ol>
-     *   <li>解析玩家（{@code MyMod.playerManager.getPlayer}），非 EntityPlayerMP → publish ExecutionFinished + return。</li>
-     *   <li>解析执行器（{@code context.getSession()} → mode → ChainModeDefinition → resolveActionExecutor(subMode)），
-     *       null → publish ExecutionFinished + return。</li>
-     *   <li>共享 deadline 检查 + while 循环 {@code canExecute}/{@code execute}。</li>
-     * </ol>
-     *
-     * <p>守边界不越权：本方法由 {@link #onServerTick} 在 {@link TickEvent.ServerTickEvent#START} 主线程调用，
-     * {@link ChainActionExecutor#execute} 调 {@code tryHarvestBlock}/{@code activateBlockOrUseItem} 均在主线程。
-     * session 仅作配置载体（mode/subMode/interactFace/hit），不破坏世界。</p>
-     *
-     * @param context         执行上下文
-     * @param timeBudget 当前 server tick 的共享 soft deadline；GT 入场后不受其截断
-     * @return 是否推进 ordinary round-robin cursor；GT 与未获事务窗口的普通 context 返回 false
+     * @param context 执行上下文
+     * @param timeBudget 当前 tick 的共享 soft deadline；GT 入场后完成整个原子批次
+     * @return 是否推进 ordinary round-robin cursor
      */
     boolean consumeContext(ChainExecutionContext context, TickTimeBudget timeBudget) {
         UUID playerUUID = context.getPlayerUUID();
@@ -335,7 +223,7 @@ public class ChainExecutionEventBridge {
 
         if (waitForPlanner) {
             // ===== GT 线缆特例：单 tick 原子替换（B1+B2+B3）=====
-            // B1 门：等规划完整链路，不流式边搜边替换（防中间态混压）
+            // 等完整链路规划完成后统一替换，保持链路电压一致。
             if (!context.isPlanningComplete()) {
                 // worker 仍在搜，留下一 tick 再判
                 return shouldAdvanceOrdinaryCursor(true, null, timeBudget);
@@ -376,12 +264,12 @@ public class ChainExecutionEventBridge {
                 notifyPlayer(player, "[QzMiner] 线缆替换完成：" + executed + "/" + totalTargets + " 根成功，" + failed + " 根失败");
             }
 
-            // 喂看门狗推进信号（即便单 tick 完成，也 publish 一次防状态机卡 RUNNING）
+            // 发布本批执行推进，供 watchdog 与投影观察。
             bus.publish(new ExecutionAdvanced(playerUUID, context.getServerRoundId(), gen,
                 ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                 executed, 0));
 
-            // 完成：publish ExecutionFinished + 清会话锁（F2 补齐：正常完成路径显式清锁）
+            // 完成后发布终局并释放线缆会话锁。
             publishExecutionFinishedWithCleanup(context, "cable-atomic-complete:" + executed);
             GregTechCableSessionState.clear(playerUUID);
             registry.remove(playerUUID, gen, context.getServerRoundId());
@@ -394,7 +282,7 @@ public class ChainExecutionEventBridge {
             return shouldAdvanceOrdinaryCursor(false, null, timeBudget);
         }
         if (!usesLocalToolSwap(session)) {
-            // INTERACT 与非 GT SPECIAL 不接入接替门，但与普通采掘共用 deadline 和零成功推进。
+            // INTERACT 与非 GT SPECIAL 直接使用模式执行器，共享 deadline 与消费计数。
             return consumeNonTakeoverTargets(player, session, actionExecutor, context, timeBudget);
         }
         final EntityPlayerMP ordinaryPlayer = player;
@@ -430,7 +318,7 @@ public class ChainExecutionEventBridge {
         return advanceOrdinaryCursor;
     }
 
-    /** INTERACT 与非 GT SPECIAL 不走接替门，但复用共享 deadline 的有界消费。 */
+    /** INTERACT 与非 GT SPECIAL 直接在共享 deadline 内消费模式目标。 */
     private boolean consumeNonTakeoverTargets(EntityPlayerMP player, ChainSession session,
             ChainActionExecutor actionExecutor, ChainExecutionContext context, TickTimeBudget timeBudget) {
         OrdinaryTickResult tickResult = consumeOrdinaryTargets(context, timeBudget::hasTimeLeft,
@@ -521,16 +409,8 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * publish ExecutionFinished + 临时 LifecycleCleanup（E4-b 桥）。
-     *
-     * <p>generation 与 serverRoundId 均来源于 ChainExecutionContext（事件流注入），绝不实时读状态机字段。
-     * 两条事件 publish 间隔几乎为零（同 drain 帧），状态机 drain 时 T7 先于 T8 处理（合法转移）。</p>
-     *
-     * <p>tick/nanos 来源：{@link ChainTickSource}。ChainTickSource 自身兜底无 Forge 运行时环境
-     * （如纯 JVM 单测）返回 {@code -1L}，故本方法无需防御性 catch（守跨线程只经事件总线：ChainTickSource 仅诊断字段语义）。</p>
-     *
-     * @param context    三元身份已冻结的执行上下文
-     * @param reason     ExecutionFinished 原因
+     * 先结算工具恢复尝试与结果，再沿 context 身份发布执行结束与生命周期清理。
+     * 状态机按此事件顺序完成 RUNNING→FINISHING→IDLE，并保留在线玩家代际。
      */
     private void publishExecutionFinishedWithCleanup(ChainExecutionContext context, String reason) {
         UUID playerUUID = context.getPlayerUUID();
@@ -551,19 +431,16 @@ public class ChainExecutionEventBridge {
                 + " consumed=" + context.getExecutionConsumedCount()
                 + " skipped=" + context.getExecutionSkippedCount()
                 + " succeeded=" + context.getExecutionSucceededCount());
-        // G1（I5 生命线）：正常完成关掉落收集窗口（executionStatus=IDLE）。
-        // ChainDropCollector:58 检测到 IDLE 后下个 WorldTick 释放 buffer 中聚合的掉落。
+        // 关闭收集窗口，交给后续 WorldTick 释放已聚合的掉落。
         setExecutionWindow(playerUUID, false, "execution-finished:" + reason);
-        // 阶段7 三路并存正名（H2 裁决）：执行完成快速收尾路径 publish LifecycleCleanup 走 T8 回 IDLE。
-        // forced=false（走 genCheck，执行完成 gen 已知）+ removeSlot=false（玩家在线保 gen 单调）。
-        // 三路铁律：本桥绝不删，FINISHING 只有 T8 能出，删了会卡死 FINISHING 致二次连锁哑火。
+        // 同轮清理紧随执行结束入队，供状态机退出 FINISHING 并保留玩家代际。
         bus.publish(new LifecycleCleanup(
                 playerUUID, serverRoundId, gen, tick, nanos, "execution-complete", false, false));
     }
 
     /**
      * ordinary local STOP 与 worker 完成线性化：取消胜出只发精确 Cleanup，完成胜出则等待
-     * PlanCompleted 被主线程观察后再走合法 ExecutionFinished 收口。方法名保留旧 source surface。
+     * PlanCompleted 被主线程观察后再走合法 ExecutionFinished 收口。
      */
     void stopOrdinaryPlanning(ChainExecutionContext context) {
         ChainExecutionContext.PlanningStopResult result = context.requestPlanningStop();
@@ -580,27 +457,14 @@ public class ChainExecutionEventBridge {
         UUID playerUUID = context.getPlayerUUID();
         long tick = ChainTickSource.currentServerTick();
         long nanos = ChainTickSource.nowNanos();
-        // PLANNING 期取消不得伪造 ExecutionFinished；非 forced cleanup 按冻结三元身份收口。
+        // 规划期取消使用冻结身份发布 Cleanup，直接收口本轮。
         setExecutionWindow(playerUUID, false, "planning-cancelled:auto-tool-local-stopped");
         bus.publish(new LifecycleCleanup(playerUUID, context.getServerRoundId(), context.getGeneration(),
                 tick, nanos, "auto-tool-local-stopped", false, false));
         registry.remove(playerUUID, context.getGeneration(), context.getServerRoundId());
     }
 
-    /**
-     * C 流式登记后的清理：PlanCancelled 时 context 可能已 put 进 registry。
-     *
-     * <p>修复边搜边破坏引入的清理路径：{@link ChainPlanningEventBridge#onPlanStarted} 改为提前 registry.put
-     * 后，worker 启动失败（shadow-pool-exhausted / shadow-player-unavailable 等返回前分支除外，
-     * 它们在 put 之前）以及 worker 运行中 cancelled / 全部搜完前 traversal-terminated 都会 publish
-     * PlanCancelled。若不订阅清理，registry 内残留 planningComplete=false 的幽灵 context 会被
-     * onServerTick 每次 tick snapshot 出来 poll（queue 空 isCompleted=false，无害但占内存并对状态机
-     * 无推进）。本订阅者守掉落窗口正确：关掉落窗口 + 清 registry（避免下 tick 消费幽灵 context）。</p>
-     *
-     * <p>守唯一写权威：只清本桥管的 registry，不碰状态机 slots（状态机 T6 PLANNING→IDLE 自行处理）。</p>
-     *
-     * @param event 规划取消事件
-     */
+    /** 移除匹配轮次的流式上下文并关闭掉落窗口；状态机处理规划取消转移。 */
     private void onPlanCancelled(PlanCancelled event) {
         UUID playerUUID = event.getPlayerUUID();
         int gen = event.getGeneration();
@@ -614,25 +478,13 @@ public class ChainExecutionEventBridge {
                 playerUUID, Integer.valueOf(gen), event.getReason());
     }
 
-    /**
-     * 看门狗超时订阅者：清理 registry 幽灵队列（阶段7 B.4 两容器清理分工）。
-     *
-     * <p>看门狗 publish WatchdogTimeout 后状态机 T10 回 IDLE，但执行桥 registry 内的
-     * {@link ChainExecutionContext} 队列可能仍有未消费目标（异常卡死时 worker 仍 put）。
-     * 若不清理，下一 tick ServerTickEvent 仍会消费幽灵队列（{@code oracle A.4} 竞态）。
-     * 本桥订阅 WatchdogTimeout 后仅按三元身份移除匹配的幽灵队列。</p>
-     *
-     * <p>守唯一写权威：本桥只 remove 自己管的 registry，不碰状态机 slots；状态机 T10 自行处理 slots。</p>
-     *
-     * @param event 看门狗超时事件
-     */
+    /** 超时后请求规划协作停止，移除匹配上下文并关闭所属窗口。 */
     private void onWatchdogTimeout(WatchdogTimeout event) {
         ChainExecutionContext context = registry.get(
                 event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId());
         if (context != null) context.requestPlanningStop();
         boolean removed = registry.remove(event.getPlayerUUID(), event.getGeneration(), event.getServerRoundId());
-        // G1（I5 生命线，必须）：看门狗只 publish WatchdogTimeout + 清 registry，
-        // 若漏设 executionStatus 会卡 RUNNING → ChainDropCollector:58 暂存条件永不满足 → buffer 永不释放。
+        // 成功移除所属上下文后关闭窗口，使缓冲掉落进入释放流程。
         if (removed) {
             setExecutionWindow(event.getPlayerUUID(), false, "watchdog-timeout");
         }
@@ -641,24 +493,13 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 生命周期清理订阅者：清理 registry（阶段7 B.4 两容器清理分工）。
-     *
-     * <p>玩家登出/重生/切维度时 {@code ChainLifecycleBridge} publish LifecycleCleanup，
-     * 状态机 handler 处理 slots，本订阅者清理 registry（登出防泄漏，重生/维度切换清幽灵队列）。</p>
-     *
-     * <p>{@code forced=true} 是 I7 全玩家生命周期收口：事件中的 generation/round 可为占位值，
-     * 必须按玩家 UUID 无条件移除当前 context，并无条件关闭执行窗口。{@code forced=false} 是执行轮
-     * 派生收口，仅在 UUID/generation/serverRoundId 三元身份匹配时移除并关闭对应窗口，防止旧轮事件
-     * 清理新轮 context。</p>
-     *
-     * <p>守唯一写权威：本桥只 remove 自己管的 registry，不碰状态机 slots。</p>
-     *
-     * @param event 生命周期清理事件
+     * forced 按 UUID 停止当前规划、移除上下文并幂等关闭窗口；
+     * 普通收尾按 UUID、generation 与 serverRoundId 清理所属执行轮。
      */
     private void onLifecycleCleanup(LifecycleCleanup event) {
         UUID playerUUID = event.getPlayerUUID();
         if (event.isForced()) {
-            // I7 全量收口不依赖事件占位身份；即使 registry 已空，也必须幂等关闭执行窗口。
+            // 强制清理按玩家释放当前上下文，并幂等关闭窗口。
             ChainExecutionContext active = null;
             for (ChainExecutionContext candidate : registry.snapshot()) {
                 if (playerUUID.equals(candidate.getPlayerUUID())) {
@@ -700,7 +541,7 @@ public class ChainExecutionEventBridge {
         return mode == ChainMode.CHAIN || mode == ChainMode.AREA;
     }
 
-    /** 普通执行队首的 local prepare 接缝；正常值不含网络 WAIT。 */
+    /** 普通执行队首的服务端工具准备入口。 */
     interface OrdinaryTargetGate {
         PrepareResult prepareTarget(ChainTarget target);
     }
@@ -794,7 +635,7 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * 在共享 deadline 内消费非 GT 普通目标；SKIP_TARGET 只消费队首且绝不到达执行器。
+     * 在共享 deadline 内消费非 GT 目标；SKIP_TARGET 消费队首并记录局部跳过。
      * deadline 只在目标事务开始前检查，已开始的 prepare/poll/execute 必须完整收口。
      */
     static OrdinaryTickResult consumeOrdinaryTargets(ChainExecutionContext context, BooleanSupplier hasTimeLeft,
@@ -821,7 +662,7 @@ public class ChainExecutionEventBridge {
             try {
                 if (!executor.canExecute(target) || !executor.execute(target)) continue;
             } catch (RuntimeException failure) {
-                // 单目标执行异常不得跳过 batch 尾屏障，否则 local ledger 可能失去恢复机会。
+                // 单目标异常结束本次尝试，批次尾统一结算。
                 continue;
             } catch (LinkageError failure) {
                 continue;
@@ -834,7 +675,7 @@ public class ChainExecutionEventBridge {
         return new OrdinaryTickResult(processed, executed, stopped, firstRoundSuccessfulTarget);
     }
 
-    /** 零处理且窗口已关闭表示真正延期，不得占用 ordinary round-robin cursor。 */
+    /** 已处理目标、收到 STOP 或仍有预算时推进轮转游标；预算延期保留当前位置。 */
     static boolean shouldAdvanceOrdinaryCursor(boolean waitForPlanner,
             OrdinaryTickResult tickResult, TickTimeBudget timeBudget) {
         if (waitForPlanner || tickResult == null || timeBudget == null) return false;
@@ -896,22 +737,8 @@ public class ChainExecutionEventBridge {
     // ============================ 纯逻辑构造（供单测覆盖） ============================
 
     /**
-     * G1 掉落窗口接线（I5 生命线）。
-     *
-     * <p>通过 {@code MyMod.chainStateService.getPlayerState(uuid).setExecuting(...)} 控
-     * {@link ChainDropCollector} 的收集开关（:32 isExecuting）与释放开关
-     * （:58 executionStatus!=IDLE 时暂存、回 IDLE 才释放）。调用点五处：
-     * {@link #onPlanStarted}（流式开窗 true）、{@link #onPlanCompleted}（登记 true）、
-     * {@link #publishExecutionFinishedWithCleanup}
-     * （publish 后 false）、{@link #onWatchdogTimeout}（必须 false）、
-     * {@link #onLifecycleCleanup}（幂等 false）、{@link #onPlanCancelled}（取消 false）。</p>
-     *
-     * <p>所有调用都防御 null（chainStateService / getPlayerState 均可能为 null，
-     * 玩家登出后 getPlayerState 返回 null，本桥不应在生命周期清理时抛 NPE）。</p>
-     *
-     * @param playerUUID 玩家 UUID
-     * @param executing  true 开窗口（RUNNING）/ false 关窗口（IDLE）
-     * @param reason     诊断原因（写入日志，便于排查时序）
+     * 更新玩家的掉落收集窗口；窗口开启时聚合掉落，关闭后交给收集器释放。
+     * 玩家状态已释放时直接结束，适配重复生命周期清理。
      */
     private void setExecutionWindow(UUID playerUUID, boolean executing, String reason) {
         if (MyMod.chainStateService == null) {
@@ -939,19 +766,7 @@ public class ChainExecutionEventBridge {
                 Integer.valueOf(context.getGeneration()), stage, details);
     }
 
-    /**
-     * 构造执行结束事件（纯逻辑，供单测覆盖）。
-     *
-     * <p>gen 传递链锚点：worker 收到的 planningGen 经 PlanCompleted 注入 ChainExecutionContext，
-     * 本方法 publish ExecutionFinished 时回填同一 gen，状态机据此 genCheck 判定陈旧/匹配。</p>
-     *
-     * @param playerUUID 触发玩家
-     * @param gen        代际（与 PlanCompleted 注入 context 的值一致，绝不实时读状态机）
-     * @param tick       服务端 tick
-     * @param nanos      纳秒戳
-     * @param reason     结束原因（自由文本，用于诊断/HUD）
-     * @return 执行结束事件
-     */
+    /** 构造兼容缺省轮次的执行结束事件，gen 沿用调用方冻结的上下文身份。 */
     public static ExecutionFinished buildExecutionFinished(UUID playerUUID, int gen, long tick, long nanos, String reason) {
         return buildExecutionFinished(playerUUID,
                 club.heiqi.qz_miner.chain.eventbus.ChainEvent.NO_SERVER_ROUND_ID, gen, tick, nanos, reason);
@@ -964,16 +779,16 @@ public class ChainExecutionEventBridge {
     }
 
     /**
-     * B3 预校验：GT 线缆单 tick 原子替换前的放行门。
+     * GT 线缆单 tick 原子替换前的放行门。
      * 三项校验：主手是线缆 / 链路不超单 tick 上限 / 背包同种线缆充足。
      *
      * @param player  触发玩家（主线程）
-     * @param session 会话（保留参数以备后续扩展）
+     * @param session 会话参数
      * @param context 执行上下文（读 targets 队列）
      * @return null 表示放行；非 null 为失败原因（聊天提示用）
      */
     private String precheckCableReplacement(EntityPlayerMP player, ChainSession session, ChainExecutionContext context) {
-        // 1. 主手是线缆（planner 已拦截，此处复核防会话锁与主手不一致）
+        // 执行前复核当前主手线缆。
         ItemStack mainHand = player.inventory.getCurrentItem();
         if (!CompatAdapters.cable().isCableStack(mainHand)) {
             return "主手未持有线缆，无法替换";

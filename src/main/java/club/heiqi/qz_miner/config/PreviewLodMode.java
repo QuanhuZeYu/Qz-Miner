@@ -3,20 +3,18 @@ package club.heiqi.qz_miner.config;
 /**
  * {@code client.clientPreviewLod} 的取值域。
  *
- * <p>id 是 YAML / UI 选项的稳定文本，不随枚举序数变化；{@link #ids()} 供 Schema options，
- * {@link #fromId(String)} 供语义校验收窄（未知返回 null，由调用方报错，不夹取）。</p>
- *
- * <p>off 等于历史行为；auto 才启用距离合并与 alpha 剔除。</p>
+ * <p>稳定文本 id 用于 YAML 与 UI；ids 提供 schema 选项，fromId 精确解析，未知值交调用方报错。</p>
+ * <p>auto 按目标中心 alpha 双阈值剔除，off 保留全部目标。</p>
  */
 public enum PreviewLodMode {
 
-    /** 关闭 LOD 与 alpha 剔除（本轮目标默认，等于历史行为）。 */
+    /** 保留全部 LOD 拓扑与 alpha。 */
     OFF("off"),
 
-    /** 按距离合并与 clientPreviewLodMinAlpha 剔除。 */
+    /** 按 clientPreviewLodMinAlpha 与退出阈值决定目标包含集。 */
     AUTO("auto");
 
-    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
+    /** 默认档位。 */
     private static final PreviewLodMode DEFAULT_VALUE = OFF;
 
     private final String id;
@@ -53,7 +51,7 @@ public enum PreviewLodMode {
         return null;
     }
 
-    /** @return 本轮默认档（Lead 裁定：不得超前于实现） */
+    /** @return 默认档位 */
     public static PreviewLodMode defaultValue() {
         return DEFAULT_VALUE;
     }

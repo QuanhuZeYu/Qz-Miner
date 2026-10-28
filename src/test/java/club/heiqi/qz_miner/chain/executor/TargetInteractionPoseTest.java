@@ -39,7 +39,7 @@ public class TargetInteractionPoseTest {
         }
     }
 
-    /** 极端合法 int 坐标仍不得产生 NaN/Infinity。 */
+    /** 极端合法 int 坐标仍得到有限姿态。 */
     @Test
     public void extremeCoordinatesRemainFinite() {
         assertFinite(TargetInteractionPose.forTarget(

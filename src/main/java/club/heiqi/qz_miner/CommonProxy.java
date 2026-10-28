@@ -58,7 +58,7 @@ public class CommonProxy {
     /**
      * 处理客户端扫雷预览结果（dedicated no-op）。
      *
-     * <p>签名仅 common 类型（含 {@link INetHandler}），禁止 client-only 类型进入描述符。</p>
+     * <p>签名仅使用 common 类型（含 {@link INetHandler}），供 dedicated server 安全加载。</p>
      *
      * @param requestId  请求 id
      * @param origin     原点
@@ -70,7 +70,7 @@ public class CommonProxy {
     }
 
     /**
-     * 阶段6：处理客户端连锁阶段快照下发（dedicated no-op）。
+     * 处理客户端连锁阶段快照下发（dedicated no-op）。
      *
      * @param phaseOrdinal 目标态 ordinal
      * @param generation   转移后的新代际
@@ -82,10 +82,10 @@ public class CommonProxy {
     }
 
     /**
-     * 阶段8 块3 F3-a：处理客户端连锁配置同步下发（dedicated no-op）。
+     * 处理客户端连锁配置同步下发（dedicated no-op）。
      *
      * <p>服务端保持 no-op。客户端 ClientProxy 覆写后必须先经 ClientMainThreadDispatcher，
-     * 按 connection identity capture token，再写 ChainClientState 三字段。</p>
+     * 按 connection identity 捕获 token 后发布 ChainClientState。</p>
      *
      * @param chainRadius        服务端连锁半径上限
      * @param chainMaxBlocks     服务端连锁目标数上限

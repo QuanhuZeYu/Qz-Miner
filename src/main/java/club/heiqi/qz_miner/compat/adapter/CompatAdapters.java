@@ -191,8 +191,7 @@ public final class CompatAdapters {
     }
 
     private static boolean matchesLiveBlock(World world, int x, int y, int z, Block block, int metadata) {
-        // 守卫必须留在世界查询之前：期望值非法（block==null / metadata<0）时不得先查世界——
-        // 与原实现保持同一短路顺序。纯函数内的同名判据是给真值表用的，不改这里的求值时机。
+        // 先校验期望身份，再读取世界；纯值判据复用同一匹配规则。
         if (world == null || block == null || metadata < 0) {
             return false;
         }
@@ -230,7 +229,7 @@ public final class CompatAdapters {
     /**
      * 在当前线程立即捕获 TileEntity 的不可变纯值身份。
      *
-     * <p>已识别适配器一旦选中，任何读取失败都保留 UNRESOLVED，禁止降级 runtime class。
+     * <p>选中的身份适配器读取失败时保留 UNRESOLVED，门面沿用该终局。
      * 未被适配器识别的 TileEntity 沿既有运行时类语义，以类型名纯值表示。</p>
      *
      * @param tileEntity 当前线程读取到的 TileEntity，可为 null

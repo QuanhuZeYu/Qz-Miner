@@ -14,7 +14,7 @@ final class ConfigStorage {
     private ConfigStorage() { }
 
     static void write(Path target, ConfigDocument candidate) throws IOException {
-        // 编码可能抛错，必须先在内存中完成，再创建临时文件；禁止截断当前权威文件。
+        // 先在内存完成编码，再创建临时文件，保留当前权威文件直到原子替换。
         StringWriter encoded = new StringWriter();
         candidate.write(encoded);
         Path absolute = target.toAbsolutePath();
@@ -22,7 +22,7 @@ final class ConfigStorage {
         boolean replaced = false;
         try {
             Files.write(temporary, encoded.toString().getBytes(StandardCharsets.UTF_8));
-            // 不降级为非原子 move；不支持原子替换也属于失败，保留当前权威和已发布快照。
+            // 原子替换失败向上传递，当前权威文件与已发布快照继续有效。
             Files.move(temporary, absolute, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             replaced = true;
         } finally {

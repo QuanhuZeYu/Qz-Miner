@@ -16,46 +16,9 @@ import club.heiqi.qz_miner.chain.client.render.ChainPreviewShaderProgram;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
- * 必备 uniform 的「可达性」独立复核（T48c-C 初版，T49 按分级重写）。
- *
- * <p>被复核的风险：{@code verifyRequiredUniforms()} 在缺 location 时让程序整体不可用并永久回退 legacy。
- * 若某个必备名字其实<b>没在顶点着色器里被真正使用</b>，GLSL 编译器会把该 uniform 优化掉、location 恒为 -1
- * ⇒ <b>每次都白回退</b>（比原缺陷更重的静默失效）。</p>
- *
- * <p><b>T49 修正的漏洞</b>：初版只数「名字出现次数 >= 2（声明 + 至少一次引用）」，而
- * {@code if (false && …)} 死块里的引用也被算了进去。被编译期常量门控的分支，其 uniform 引用对编译器
- * 而言等于未使用 —— 所以初版会在真机「每次都白回退」时照样变绿。现在改为：</p>
- * <ol>
- *   <li><b>硬必备</b>（{@code REQUIRED_UNIFORMS}）：必须声明，且在死块之外至少被引用一次；</li>
- *   <li><b>能力型</b>（{@code CAPABILITY_UNIFORMS}）：必须声明，允许只被死块引用（缺失 = 该能力关闭）；</li>
- *   <li>两类不得重叠，且「只被死块引用的 uniform」必须全部登记为能力型 —— 这条把清单漂移变成红灯。</li>
- * </ol>
- *
- * <p>反射说明：两个清单都是 private 静态常量，无公共读口；内部字段名变更需同步此处。
- * 字段缺失会直接抛 {@code NoSuchFieldException} ⇒ 改名即红，不会静默跳过。</p>
- *
- * <p><b>为什么本类保留源码分析</b>：它断言的是<strong>声明面 + 可达性</strong>（每个硬必备名字
- * 必须被声明、且在 {@code if (false && …)} 死块之外真的被引用），不是「某一行写成什么样」的文本
- * 快照——重命名会同时打断 Java 侧的字符串绑定，等价改写（换行、加括号、挪进辅助函数）不会误报。
- * 它拦的是一条<strong>静默</strong>失效：uniform 被编译器优化掉 ⇒ location = -1 ⇒ 整个着色器后端
- * 每次都白回退 legacy（观感「正常」，只是永远不走 shader）。</p>
- *
- * <p><b>口径复用</b>：去注释与<strong>词边界</strong>计数一律走 {@link JavaSourceSlices}
- * （{@code stripComments} / {@code wordIndexOf} / {@code wordCount}），死块区间用
- * {@link JavaSourceSlices#block} 的花括号配平截取——本类不再自带第二套花括号匹配。
- * 词边界是必须的：裸子串会把 {@code uModelView} 的存活引用算进 {@code uModelViewProjection}
- * 的出现里，而这两个名字正是同一份清单里的邻居，一旦前者只剩声明、后者仍在用，旧口径照样绿。
- * 只剩 GLSL 顶层的 {@code uniform <type> <name>;} 声明面解析留在本类：{@code JavaSourceSlices}
- * 是 Java 源码口径（没有 uniform 概念）。共享的 GLSL 扫描器
- * {@link club.heiqi.qz_miner.testsupport.GlslSourceScanner} 已并入 {@code testsupport}（本类从此够得到），
- * 把这条正则换成它的 {@code getUniforms()} 口径属于下一批次的断言语义回补，本次不动。</p>
- *
- * <p><b>已移除的文本禁令与其替代</b>：原先的 {@code shaderSourceHasNoFixedFunctionBuiltins}（在整份
- * 源码里搜 {@code gl_ModelViewProjectionMatrix} / {@code ftransform} 等 token）按裁定归入「读源码文本
- * 匹配」，已删除。禁令本身仍然有效，只是换了承载方式：现在由 {@code Glsl120StaticChecker} 的固定管线
- * 内建规则按<b>完整标识符</b>判定（喂一份坏源码进去就会红，见 ChainPreviewShaderContractTest 的
- * 「固定管线内建禁令」一节）；而<b>行为</b>正确性仍由真机验证 + shader 头部「实机验证记录」标记承担
- * （注释改动不触发重验）。</p>
+ * 反射 uniform 清单并核对声明与词边界引用，硬必备项需在显式常量死块之外可见。
+ * 能力项允许只在死块引用，两类清单保持互斥；词法检查覆盖当前源码结构，真实优化和链接由 GL 编译确认。
+ * 注释剥离、词边界及花括号切片复用 JavaSourceSlices，GLSL 声明沿本类现有解析器处理。
  */
 public class T48cCRequiredUniformReachabilityTest {
 

@@ -21,8 +21,7 @@ public final class NamedClassOreCompatAdapter implements OreCompatAdapter {
     public NamedClassOreCompatAdapter(String blockClassName, String tileEntityClassName) {
         this.blockType = ClassNameCompatSupport.resolveClass(blockClassName);
         this.tileEntityType = ClassNameCompatSupport.resolveClass(tileEntityClassName);
-        // 降级可观测性约定：两类都不可解析时记 warn，避免静默失效导致矿石匹配为 0 且无报错
-        // （GS 注：本条不对应不变量的强制要求，仅为可观测性实践）
+        // 两类都解析失败时记录 warn，标明该矿石能力已降级。
         if (this.blockType == null && this.tileEntityType == null) {
             MyMod.LOG.warn(
                 "[Compat][Ore] Ore adapter degraded - both classes unresolved: block={}, tile={}",

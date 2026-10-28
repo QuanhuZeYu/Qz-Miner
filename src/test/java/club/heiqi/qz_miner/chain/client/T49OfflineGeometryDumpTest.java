@@ -16,15 +16,8 @@ import club.heiqi.qz_miner.chain.client.ChainPreviewMeshBuilder.VisualParameters
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 
 /**
- * T49 离线几何探针：用**模拟数据**复现真机生产规模（半径 8 / 1024 目标），把 CPU 网格的
- * 顶点、包围盒、索引上界全部落盘，供离线光栅化与真机探针对照。
- *
- * <p>为什么需要它：真机表型是「整链塌缩成一个面」。真机探针只能证明「首个顶点正确、属性布局正确、
- * MVP 正确」，无法回答「这份几何本身是否塌缩」——本类在纯 JVM 内回答这个问题，并把顶点 dump 出来，
- * 供离线端用真机日志里的 P/MV 复算「应该看到什么」。</p>
- *
- * <p>输出：{@code build/t49-offline/vertices.csv}（相对 origin 的局部坐标）、
- * {@code meta.txt}（origin / 规模 / 包围盒 / 索引上界）。</p>
+ * 用模拟目标生成 CPU 几何，导出局部顶点与规模元数据供离线光栅化及实机矩阵对照。
+ * 输出位于 build/t49-offline，模拟数据用于检查几何形态，生产 GL 上传另经实机确认。
  */
 public class T49OfflineGeometryDumpTest {
 

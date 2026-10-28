@@ -3,20 +3,18 @@ package club.heiqi.qz_miner.config;
 /**
  * {@code client.clientPreviewColorSource} 的取值域。
  *
- * <p>id 是 YAML / UI 选项的稳定文本，不随枚举序数变化；{@link #ids()} 供 Schema options，
- * {@link #fromId(String)} 供语义校验收窄（未知返回 null，由调用方报错，不夹取）。</p>
- *
- * <p>builtin 档必须与历史行为逐字节一致，config 档才读取四个 RGB 键。</p>
+ * <p>稳定文本 id 用于 YAML 与 UI；ids 提供 schema 选项，fromId 精确解析，未知值交调用方报错。</p>
+ * <p>builtin 使用内置语义配色，config 使用 clientPreviewColor* 配色键。</p>
  */
 public enum PreviewColorSource {
 
-    /** 内置常量色 + 距离 α，等于历史行为（本轮目标默认）。 */
+    /** 使用内置语义配色。 */
     BUILTIN("builtin"),
 
-    /** 使用 clientPreviewColor* 四个 RGB 键的语义配色。 */
+    /** 使用 clientPreviewColor* 配置键的语义配色。 */
     CONFIG("config");
 
-    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
+    /** 默认档位。 */
     private static final PreviewColorSource DEFAULT_VALUE = BUILTIN;
 
     private final String id;
@@ -53,7 +51,7 @@ public enum PreviewColorSource {
         return null;
     }
 
-    /** @return 本轮默认档（Lead 裁定：不得超前于实现） */
+    /** @return 默认档位 */
     public static PreviewColorSource defaultValue() {
         return DEFAULT_VALUE;
     }

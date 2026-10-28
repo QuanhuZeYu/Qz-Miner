@@ -7,8 +7,7 @@ import java.lang.reflect.Method;
 /**
  * 可选模组反射成员解析工具。
  *
- * 反射可选模组时不能让缺失依赖或客户端专属签名传播到初始化流程，
- * 否则 dedicated server 会在兼容能力探测阶段直接崩溃。
+ * 将可选类型及成员解析失败收敛为空结果，使 dedicated server 保持兼容探测可用。
  */
 public final class ReflectiveMemberSupport {
 

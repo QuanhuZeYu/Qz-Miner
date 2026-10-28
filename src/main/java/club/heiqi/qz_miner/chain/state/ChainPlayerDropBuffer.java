@@ -8,7 +8,7 @@ import net.minecraft.item.ItemStack;
 /**
  * 玩家级掉落缓冲。
  *
- * 与单次连锁会话解耦，避免会话提前清理时丢失尚未释放的掉落。
+ * 独立持有待交付资产，单次会话清理后继续保留。
  */
 public final class ChainPlayerDropBuffer {
 

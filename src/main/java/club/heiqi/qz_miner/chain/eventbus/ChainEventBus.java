@@ -10,25 +10,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import club.heiqi.qz_miner.MyMod;
 
 /**
- * 连锁框架跨线程事件总线。
+ * 多线程发布、所属主线程串行消费的连锁事件队列。
  *
- * <p>严格 side-agnostic：只依赖 {@code java.util.concurrent}、{@link UUID} 与
- * {@link ChainEvent}，不 import 任何服务端/客户端专属类，便于阶段 3 客户端复用。</p>
- *
- * <h3>线程模型（守边界不越权、协作式取消与跨线程只经事件总线）</h3>
- * <ul>
- *   <li>{@link #publish(ChainEvent)}：任意线程可调，仅入队，不分发，<b>绝不</b>同步 drain</li>
- *   <li>{@link #subscribe(Class, EventSubscriber)}：任意线程可注册，线程安全</li>
- *   <li>{@link #drain()}：契约上仅主线程调用，串行分发入队事件</li>
- *   <li>{@link #mainThread} 为 volatile 软校验锚，不一致仅记 warn，不抛异常</li>
- * </ul>
- *
- * <h3>分发语义</h3>
- * <ul>
- *   <li>按 {@code event.getClass()} 精确匹配查订阅表，不做父类型向上匹配</li>
- *   <li>单个订阅者抛 {@link RuntimeException} 被 catch 隔离，不中断后续事件</li>
- *   <li>阶段 1 不做代际陈旧判定（阶段 2 引入状态机后补）</li>
- * </ul>
+ * <p>publish 仅入队，drain 按事件具体类型分发；订阅者 RuntimeException 记录后继续后续分发。
+ * 主线程绑定用于诊断，业务订阅者负责代际与轮次校验。</p>
  */
 public class ChainEventBus {
 
@@ -49,13 +34,7 @@ public class ChainEventBus {
         this.mainThread = thread;
     }
 
-    /**
-     * 发布事件。任意线程可调，仅 {@link #pendingQueue#offer}，不分发。
-     *
-     * <p>守边界不越权与协作式取消：发布路径绝不写世界、绝不同步 drain。</p>
-     *
-     * @param event 事件，null 直接返回不入队
-     */
+    /** 任意线程可发布；非 null 事件入队，交由所属主线程 drain 分发。 */
     public void publish(ChainEvent event) {
         if (event == null) {
             return;
@@ -76,11 +55,7 @@ public class ChainEventBus {
     }
 
     /**
-     * 主线程串行 drain 待分发事件。契约上仅主线程调用。
-     *
-     * <p>处理流程：循环 {@link #pendingQueue#poll}，按 {@code event.getClass()} 精确匹配查订阅表，
-     * 逐个 onEvent。单个订阅者抛 {@link RuntimeException} 被 catch 并 log warn，不中断后续事件。
-     * 不做代际陈旧判定（阶段 2 引入）。</p>
+     * 所属主线程串行分发待处理事件，逐订阅者隔离 RuntimeException。
      *
      * @return 本次处理的事件条数
      */
@@ -103,7 +78,7 @@ public class ChainEventBus {
                 try {
                     subscriber.onEvent(event);
                 } catch (RuntimeException e) {
-                    // catch 具体异常，不中断后续订阅者/事件（守 drain 隔离契约）
+                    // 记录订阅者异常后继续后续分发。
                     MyMod.LOG.warn("[ChainEventBus] subscriber {} threw on event {}",
                             subscriber.getClass().getName(), event.getClass().getSimpleName(), e);
                 }

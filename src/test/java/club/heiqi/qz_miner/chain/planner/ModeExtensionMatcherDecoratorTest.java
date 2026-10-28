@@ -111,19 +111,7 @@ public class ModeExtensionMatcherDecoratorTest {
             filter, new FrozenModePredicate(ModeExtensionSnapshot.EMPTY), null));
     }
 
-    /**
-     * 直接装饰器的兼容入口只允许绑定规划宽进门。
-     *
-     * <p>Lead 裁定第 14 条：改为 token 扫描并去掉对尾随逗号的依赖——断言类内出现的
-     * {@code ChainHarvestRules::x} 方法引用集合恰为 {canPlanHarvest}。旧写法依赖
-     * {@code "ChainHarvestRules::canHarvest,"} 的尾随逗号，写法一变即失效，
-     * 且「换绑另一个门」只在拼写完全一致时才会被发现。</p>
-     *
-     * <p>已删：{@code selectPlanningEvaluator(mode, capabilitySnapshot)}、
-     * {@code boundMatcher, diagnostics, planningEvaluator}、{@code evaluator.evaluate(currentPlayer, target}
-     * 三条逐字实参文本快照——同一语义已由 ChainHarvestRulesTest（模式门行为 + 装配接缝必须收到
-     * planningEvaluator + 扩展门先求值再落诊断）与 ChainPlanningDiagnosticsTest（原子装配顺序）承担。</p>
-     */
+    /** 解析 ChainHarvestRules 方法引用集合，验证直接装饰器的兼容入口绑定 canPlanHarvest。 */
     @Test
     public void productionHarvestExtensionUsesTopLevelModeSelectedPlanningGate() {
         String decorator = JavaSourceSlices.stripped(DECORATOR_PATH);

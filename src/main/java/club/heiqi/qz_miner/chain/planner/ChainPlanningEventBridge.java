@@ -35,42 +35,17 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 
 /**
- * 阶段 4 规划事件桥（A-shadow 影子双 worker 核心）。
+ * 在主线程接收 PlanStarted，冻结会话配置与采掘能力，登记上下文后启动只读规划 worker。
  *
- * <p>订阅 {@link PlanStarted}（状态机 T4 ARMED→PLANNING 转移后广播）→ 在主线程解析玩家与配置性状态 →
- * 发起独立影子 traverser worker（复用 {@link BudgetedChainTraverser} + {@link ChainTraversalSupport}）→
- * worker 完成 publish {@link PlanCompleted}（推进 PLANNING→RUNNING）/ 取消 publish {@link PlanCancelled}
- * （回 PLANNING→IDLE）。</p>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>边界不越权</b>：影子 worker 只读世界（traverser 只读）+ 只 publish 事件，<b>绝不</b>
- *       {@code setExecutionStatus}、<b>绝不</b>写 {@code ChainSession}、<b>绝不</b>
- *       {@code syncPlayerState}。阶段8 块1 已删除旧链路 worker（{@code AbstractFloodFillPlanningStrategy}/
- *       {@code BlockBoxScanPlanningStrategy} 等），I1 偏离随之清偿（偏离条目已移除）。</li>
- *   <li><b>复用既有入口</b>：复用 {@link ChainPlanningRuntimeFactory#createForServer} 与
- *       {@link ChainTraversalSupport#step}，不新造遍历逻辑。</li>
- *   <li><b>跨线程只经事件总线</b>：publish 跨线程入队、drain 主线程消费（{@link ChainEventBus} 天然满足），
- *       bridge 不碰主线程语义状态。</li>
- *   <li><b>唯一写权威</b>：bridge 只 publish 不 {@code transition}；陈旧 generation 的
- *       {@link PlanCompleted} 由状态机 genCheck 丢弃，bridge 无需也无法读状态机内部 generation。</li>
- * </ul>
- *
- * <h3>gen 传递链（根治时序竞态）</h3>
- * <p>规划代际经 {@link PlanStarted#getGeneration()} 注入 worker 闭包，worker publish 时回填同一值。
- * 这避免 worker 实时读状态机 generation 字段（跨包不可见 + 时序竞态——worker 启动早于状态机进 PLANNING），
- * 状态机收到 {@link PlanCompleted} 时用 genCheck 判定陈旧/匹配。</p>
- *
- * <h3>P2-C 双状态漂移防护</h3>
- * <p>影子并行期 {@code ChainStateService} 与 {@code ChainStateMachine} 双状态系统并存。
- * bridge 只从 {@link ChainPlayerState} 读 <b>配置性字段</b>（mode/subMode/radius/maxBlocks），
- * <b>绝不</b>读 {@code executionStatus}/{@code isChainKeyPressed} 做决策——新链路活性由状态机 generation 判定。</p>
+ * <p>worker 复用预算化 traverser 和 matcher，将确认目标追加到执行队列，并沿冻结代际、轮次发布进度与终局。
+ * 完成事件成功入队后才公开 planningComplete；发布异常转为单次取消。
+ * 执行桥管理掉落窗口及世界写入，状态机消费结果并维护阶段。</p>
  */
 public class ChainPlanningEventBridge {
 
     /** 注入的事件总线，构造期订阅 PlanStarted。 */
     private final ChainEventBus bus;
-    /** 主线程执行入口统一登记 context 并开窗，早期拒绝不取得执行所有权。 */
+    /** 主线程执行入口统一登记 context，并为成功登记的任务开启窗口。 */
     private final ChainExecutionEventBridge executionBridge;
 
     /**
@@ -85,14 +60,7 @@ public class ChainPlanningEventBridge {
         bus.subscribe(PlanStarted.class, this::onPlanStarted);
     }
 
-    /**
-     * 收到 PlanStarted 进态广播：主线程解析上下文 → 注册影子 traverser worker。
-     *
-     * <p>契约：仅主线程 drain 调用。本方法只读世界（种子解析）+ 注册 worker，
-     * 不切态、不写 ChainSession 主线程语义状态。</p>
-     *
-     * @param event 规划启动事件（携带 gen + origin/dimension/sideHit/hitOffset）
-     */
+    /** 主线程重验规划授权，冻结种子与会话配置，登记执行上下文后注册 worker。 */
     private void onPlanStarted(PlanStarted event) {
         // cleanup可能已先于排队的PlanStarted完成；任何玩家/世界解析前核对当前授权。
         if (MyMod.chainStateMachine == null || !MyMod.chainStateMachine.permitsPlanning(
@@ -100,9 +68,9 @@ public class ChainPlanningEventBridge {
             return;
         }
         final UUID playerUUID = event.getPlayerUUID();
-        // 轮次关联和代际一起在主线程冻结，worker 不得读取任何后来状态。
+        // 主线程冻结轮次关联，供 worker 沿事件流回填。
         final long serverRoundId = event.getServerRoundId();
-        // 规划代际经事件注入闭包，根治"worker 实时读 gen 会死"的时序竞态（见类注释 gen 传递链）
+        // 规划代际与轮次一起沿用启动事件。
         final int planningGen = event.getGeneration();
 
         // 主线程解析玩家实体（worker 启动后每次分片重新解析，此处仅在注册前快速失败）
@@ -115,7 +83,7 @@ public class ChainPlanningEventBridge {
         }
         final EntityPlayerMP player = (EntityPlayerMP) rawPlayer;
 
-        // P2-C 防护：只读配置性字段，绝不读 executionStatus/isChainKeyPressed 做决策
+        // 从玩家状态读取启动配置，规划授权由状态机提供。
         ChainPlayerState playerState = MyMod.chainStateService == null ? null : MyMod.chainStateService.getPlayerState(playerUUID);
         if (playerState == null) {
             bus.publish(buildPlanCancelled(playerUUID, serverRoundId, planningGen,
@@ -150,8 +118,7 @@ public class ChainPlanningEventBridge {
         }
 
         final ChainTarget origin = new ChainTarget(event.getX(), event.getY(), event.getZ());
-        // 种子解析：破坏与右键路径都优先使用各自原事件窗口冻结的 block/meta/token；
-        // 右键可能已在同次原版交互中改变世界，规划时不得覆盖冻结值。仅无冻结 seed 的左键兼容路径走 resolver。
+        // 破坏与右键沿用事件窗口冻结的 block/meta/token，保留动作前身份；左键缺省种子由 resolver 解析。
         BlockSeedSnapshot seedSnapshot;
         if (event.getSeedBlock() != null) {
             seedSnapshot = new BlockSeedSnapshot(
@@ -177,8 +144,7 @@ public class ChainPlanningEventBridge {
         ModeExtensionSnapshot modeExtension = rules == null ? ModeExtensionSnapshot.EMPTY
                 : rules.resolve(ObjectGroupMode.maskFor(subMode), registry, seedSnapshot.getSampleMeta());
 
-        // 影子会话：仅供 runtime 工厂装配 traverser/matcher 用，阶段 4 不消费其 pendingBreakTargets
-        // 新链路自己的 queue 阶段 5 才消费，阶段 4 只为 traverser 推进
+        // 冻结本轮配置，供 runtime 工厂装配 traverser/matcher 及执行桥解析执行器。
         final int requestedRadius = playerState.getRequestedChainRadius();
         final int requestedMaxBlocks = playerState.getRequestedChainMaxBlocks();
         final ChainSession shadowSession = new ChainSession(
@@ -194,15 +160,13 @@ public class ChainPlanningEventBridge {
         diagnostics.logPlanStarted(seedRegistryName == null ? "minecraft:unknown" : String.valueOf(seedRegistryName),
                 seedSnapshot.getSampleMeta(), origin, Thread.currentThread().getName(), player.inventory.currentItem,
                 MinecraftAutoToolSwapInventoryPort.describeStack(player.inventory.getCurrentItem()));
-        // CHAIN 的拓扑能力在 PlanStarted 主线程冻结；AREA/INTERACT/SPECIAL 不捕获工具能力，
-        // 继续按世界、空间和各子模式结构宽进。worker 后续只读该不可变副本。
+        // CHAIN 冻结采掘能力供 worker 判定拓扑；其余模式按世界、空间和子模式结构收集目标。
         final PlanningToolCapabilitySnapshot capabilitySnapshot =
                 ChainPlanningRuntimeFactory.usesFrozenToolCapabilities(mode)
                         ? PlanningToolCapabilitySnapshot.capture(
                                 player, Config.autoToolPrioritySelectors, true)
                         : null;
-        // 阶段8 块3：删旧 shadowSession.beginPlanning()（ChainSession 委托方法已删，新链路无需 plannerRunning 标志）。
-        // 新链路 worker 活性由状态机 generation 判定，session 仅作配置载体 + traversalTargets 装配。
+        // 复用 runtime 工厂装配本轮规划。
         final ChainPlanningRuntime runtime = ChainPlanningRuntimeFactory.createForServer(
                 player.worldObj, player, shadowSession, seedSnapshot, diagnostics, capabilitySnapshot);
         if (runtime == null) {
@@ -214,24 +178,20 @@ public class ChainPlanningEventBridge {
         final ChainSearchContext searchContext = runtime.getSearchContext();
         final BudgetedChainTraverser traverser = runtime.getTraverser();
         final ChainBlockMatcher matcher = runtime.getMatcher();
-        // 影子 queue：阶段 4 只为 traverser 推进，目标消费留阶段 5
+        // worker 追加确认目标，主线程执行桥消费。
         final ConcurrentLinkedQueue<ChainTarget> shadowQueue = new ConcurrentLinkedQueue<ChainTarget>();
         traverser.seed(searchContext);
 
-        // worker 启动前由同一主线程入口登记 context 并开窗，执行桥下 tick 可边搜边消费。
-        // 此前的种子、选区和 runtime 拒绝不会取得窗口所有权。
-        // 构造时 planningComplete=false：worker 未完成时 queue 瞬时为空 != 执行完成，主线程消费订阅者
-        // 据此跳过 publish ExecutionFinished（守 isCompleted 流式语义）。
-        // 注意 put 早于 registerPre：若 registerPre 抛 RejectedExecutionException，PlanCancelled 路径
-        // 由执行桥 onPlanCancelled 订阅者清 registry（见 ChainExecutionEventBridge）。
+        // worker 注册前登记并开窗；规划完成与队列耗尽共同决定执行终局。
+        // registerPre 拒绝时发布 PlanCancelled，由执行桥释放已登记的上下文与窗口。
         final ChainExecutionContext context = new ChainExecutionContext(
                 playerUUID, serverRoundId, planningGen, shadowQueue, shadowSession, diagnostics);
         if (!executionBridge.registerPlanningContext(context)) {
-            // 旧登记不得发布可能清理当前同身份 context 的取消，也不得再启动 worker。
+            // 登记失败即结束，保留当前上下文的所有权。
             return;
         }
 
-        // 影子 worker 注册（对齐旧 worker 结构，但去掉切态/stopExecution/syncState，改为 publish）
+        // 注册协作式规划 worker。
         try {
             ParallelTickSubscription subscription = MyMod.ensureParallelTickExecutor().registerPre(
                     "shadow-plan-" + playerUUID,
@@ -239,9 +199,7 @@ public class ChainPlanningEventBridge {
                             matcher, shadowQueue, shadowSession, context, diagnostics));
             context.attachPlanningSubscription(subscription);
         } catch (RejectedExecutionException e) {
-            // worker pool 20 槽已满（SynchronousQueue 无法交接 + 池达 MAX_WORKER_THREADS），
-            // 影子 worker 未注册成功；此代际已 PLANNING 但无人推进，必须主动 publish PlanCancelled，
-            // 否则会卡 PLANNING 直到阶段7 看门狗兜底——此处收口让状态机干净回 IDLE
+            // 线程池拒绝注册时主动取消本轮，让状态机与执行桥统一收尾。
             MyMod.LOG.error("[ChainPlanning] Shadow worker pool exhausted for player {}, cancelling plan gen {}",
                     playerUUID, Integer.valueOf(planningGen), e);
             diagnostics.logPlanCancelled("shadow-pool-exhausted");
@@ -253,21 +211,8 @@ public class ChainPlanningEventBridge {
     }
 
     /**
-     * 影子 worker 单分片执行：推进 traverser，完成/取消 publish 派生事件。
-     *
-     * <p>守边界不越权：worker 只读世界（traverser 只读）+ 只 publish，绝不 setExecutionStatus/写 session/syncPlayerState。
-     * 新链路活性由状态机 generation 判定，陈旧 gen 的 PlanCompleted 会被状态机 genCheck 丢弃。</p>
-     *
-     * @param control        并行 tick 控制
-     * @param playerUUID     玩家 UUID
-     * @param planningGen    本次规划代际（事件注入，非实时读状态机）
-     * @param traverser      预算化遍历器
-     * @param searchContext   搜索上下文（承载 confirmedCount）
-     * @param matcher        目标匹配器
-     * @param shadowQueue    影子 queue（阶段 4 只消费不入执行，阶段 5 才接执行）
-     * @param shadowSession  影子会话（阶段8 块2 起注入 ChainExecutionContext 供真实破坏桥解析 mode/subMode）
-     * @param context        C 流式登记的执行上下文（worker 完成时 markPlanningComplete 而非再 put）
-     * @return 分片结果
+     * 推进一片只读规划，向 shadowQueue 追加确认目标并发布进度或终局。
+     * 身份及会话配置沿用启动快照，控制器在预算与取消安全点协作让出。
      */
     private ParallelTaskResult runShadowSlice(
             ParallelTickControl control,
@@ -298,8 +243,7 @@ public class ChainPlanningEventBridge {
             return ParallelTaskResult.TERMINATED;
         }
 
-        // P2-C：不检查 isSessionActive/isChainKeyPressed/isExecuting——新链路不依赖旧 ChainSession/ChainPlayerState 状态
-        // 陈旧 gen 由状态机 genCheck 兜底丢弃
+        // 活性由 context 与控制器共同判定，事件携带冻结代际供状态机筛选。
 
         if (control.shouldYield()) {
             return ParallelTaskResult.YIELDED;
@@ -316,7 +260,7 @@ public class ChainPlanningEventBridge {
                 target -> {
                     if (!control.isCancelRequested()
                             && !context.isExternalPlanningCancellationRequested()) {
-                        // 阶段 4：影子 queue 仅推进 traverser 用，不驱动执行
+                        // 将确认目标交给主线程执行队列。
                         shadowQueue.add(target);
                     }
                 });
@@ -325,10 +269,8 @@ public class ChainPlanningEventBridge {
                     "shadow-traversal-terminated");
             return ParallelTaskResult.TERMINATED;
         }
-        // 仅在本分片提交了候选事务或可恢复游标时发布 PlanProgress；单纯 deadline
-        // deferral 不得给 watchdog 续命。TERMINATED 已发布 PlanCancelled，也不算推进。
-        // ChainSearchContext 无 getProcessedCount，processedCount 传 confirmedCount（诊断字段，
-        // 看门狗只读 serverTick/nanos 刷新，不读这两个值，语义略不精确但无功能影响）。
+        // 仅已提交的候选事务或可恢复游标推进刷新 watchdog。
+        // 两个诊断计数字段均传 confirmedCount，watchdog 依据进度事件时间戳判断活性。
         final int confirmedCount = searchContext.getConfirmedCount();
         if (searchContext.getProgressRevision() != progressRevisionBefore) {
             if (!context.publishPlanningProgressIfActive(new Runnable() {
@@ -346,15 +288,12 @@ public class ChainPlanningEventBridge {
         boolean shouldContinue = traversalResult == TraversalStepResult.CONTINUE
                 || traversalResult == TraversalStepResult.YIELDED;
         if (!shouldContinue) {
-            // C 流式执行修复：worker 完成路径不再 registry.put（context 已在 onPlanStarted 提前登记）。
-            // PlanCompleted 入队成功返回后，context 才最后暴露 planningComplete=true；异常由桥统一
-            // 走单次 PlanCancelled，避免 publication 失败留下 COMPLETED 幽灵状态。
+            // PlanCompleted 成功入队后公开完成状态，异常统一发布单次 PlanCancelled。
             boolean completed = tryCompletePlanningOrCancel(context, confirmedCount,
                     searchContext.isTargetLimitExceeded(), new Runnable() {
                 @Override
                 public void run() {
-                    // 生产 Runnable 只做 publication；诊断必须放在 publication 成功之后，
-                    // 防止诊断异常被误判为 PlanCompleted publication 失败。
+                    // publication 仅负责入队，诊断在成功后单独执行。
                     bus.publish(buildPlanCompleted(playerUUID, serverRoundId, planningGen,
                             ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(), confirmedCount));
                 }

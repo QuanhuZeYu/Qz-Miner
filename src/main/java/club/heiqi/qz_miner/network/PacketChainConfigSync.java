@@ -8,23 +8,8 @@ import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 import io.netty.buffer.ByteBuf;
 
 /**
- * 连锁配置同步包（阶段8 块3 F3-a：服务端→客户端 config 主线）。
- *
- * <p>服务端 {@code ChainConfigProjectionBridge} 在两类时机下发本包：</p>
- * <ul>
- *   <li>{@code PlanCompleted}：规划完成时下发 matchedCount（= totalTargets）+ radius/maxBlocks（取 {@link club.heiqi.qz_miner.Config}）。</li>
- *   <li>玩家 LOGIN：进服时下发基础 config（matchedCount=0），确保 HUD 初始有值。</li>
- * </ul>
- *
- * <p>客户端 Netty 线程收到后，将 {@code ctx.netHandler} 与三个 int 转交
- * {@code CommonProxy.handleClientChainConfigSync}；ClientProxy 按 connection identity
- * capture token，经主线程整包校验后 connection-active gate 再写状态。</p>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>边界不越权</b>：本包是只读配置下发，不要求客户端切态、不碰世界。</li>
- *   <li><b>跨线程只经事件总线</b>：Handler 在 Netty 线程只捕获纯数据与 common {@code INetHandler}，不触碰客户端状态。</li>
- * </ul>
+ * 下发玩家已接受的半径、数量、隧道方向与规划匹配数，支持 legacy 和 v2 帧。
+ * Netty 捕获有界原始值与 handler，客户端主线程整包校验后经连接 gate 发布。
  */
 public class PacketChainConfigSync implements IMessage {
 
@@ -33,9 +18,9 @@ public class PacketChainConfigSync implements IMessage {
     public static final int PROTOCOL_VERSION = 2;
     public static final int LEGACY_PROTOCOL_VERSION = 0;
 
-    /** 服务端全局连锁半径上限（取 {@link club.heiqi.qz_miner.Config#chainRadius}）。 */
+    /** 服务端为该玩家接受的连锁半径。 */
     public int chainRadius;
-    /** 服务端全局连锁目标数上限（取 {@link club.heiqi.qz_miner.Config#chainMaxBlocks}）。 */
+    /** 服务端为该玩家接受的目标数上限。 */
     public int chainMaxBlocks;
     /** 本次连锁已匹配目标数（PlanCompleted 时 = totalTargets；LOGIN 时 = 0）。 */
     public int matchedTargetCount;
@@ -93,12 +78,7 @@ public class PacketChainConfigSync implements IMessage {
         buf.writeInt(tunnelDirectionCode);
     }
 
-    /**
-     * Netty 线程 Handler：捕获包内纯数据与 {@code ctx.netHandler}，转交 proxy。
-     *
-     * <p>守跨线程只经事件总线：common packet 类不依赖 client-only dispatcher / {@code NetHandlerPlayClient}，
-     * 避免 dedicated server 类加载风险。不逐包打成功 debug。</p>
-     */
+    /** Netty 仅捕获字段与 common INetHandler，侧代理承担客户端主线程校验和发布。 */
     public static class Handler implements IMessageHandler<PacketChainConfigSync, IMessage> {
 
         @Override

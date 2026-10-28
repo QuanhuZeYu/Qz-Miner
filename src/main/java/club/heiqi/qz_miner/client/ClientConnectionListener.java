@@ -22,30 +22,13 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.WorldEvent;
 
 /**
- * 客户端连接与世界生命周期监听。
+ * 将 Forge 连接与世界事件转换为带 identity token 的主线程初始化、接管和清理。
  *
- * <p>connect/disconnect 以 {@code event.handler}（{@code INetHandler}）对象 identity
- * 绑定 {@link ClientConnectionLifecycle}；world load/unload 绑定远端 world 对象。
- * 初始化与清理均携带转移 token，主线程 gate 后执行；旧连接/旧世界迟到事件 no-op。</p>
- *
- * <h3>接管收敛（I7）</h3>
- * <ul>
- *   <li>仅 {@code TransitionResult.transitioned=true} 时调度连接初始化 / world 接管</li>
- *   <li>相同 active handler 重复 connect：不 reset 投影、不重复发 C2S</li>
- *   <li>相同 world 重复 load：不重复清理</li>
- *   <li>新 connection B 接管：B 主线程 init 在 B token gate 内先统一 takeover cleanup，
- *       再 reset 连接投影并发 C2S；旧 A disconnect cleanup 在 B 建立后 no-op 也不残留</li>
- *   <li>新 world B 替换 active A：仅 {@code replacedPreviousLifecycle=true} 时在 B world gate
- *       内接管清理（不发连接级 C2S、不重置无关连接状态）；首次 bind 不调度清理</li>
- * </ul>
- *
- * <p>生产 callback 目前在 lifecycle monitor 内：须短小、禁阻塞、禁反向 lifecycle 入口。
- * 网络 C2S 仍在 connect 初始化路径内发送（P2 残余：I/O 在 monitor 内；未扩大本轮架构）。</p>
- *
- * <p>可测性：{@code @SubscribeEvent} 方法只做字段提取后委托 package-private
- * {@link #handleConnected}/{@link #handleDisconnected}/{@link #handleWorldLoad}/
- * {@link #handleWorldUnload}；纯 JVM 测试经同一委托入口 + 可注入主线程调度边界，
- * 覆盖 transition 判断、dispatcher 排队、token gate 与 takeover/init/cleanup 分支。</p>
+ * <p>真实 handler/world 引用及转移代际隔离迟到事件；仅成功转移时调度回调，重复事件幂等结束。
+ * 新连接先统一清旧资源，再初始化投影和发送 C2S；同连接换世界仅清世界资源，保留连接级事实。
+ * 首次世界绑定保留初始化状态。
+ * 生产回调在 lifecycle monitor 内执行，保持短小并沿单向生命周期入口组织；
+ * connect 回调中的 C2S 发送仍处于该监视器范围内。</p>
  */
 @SideOnly(Side.CLIENT)
 public class ClientConnectionListener {
@@ -312,8 +295,7 @@ public class ClientConnectionListener {
     /**
      * 是否应调度 world 接管清理：transitioned 且替换了先前 active world。
      *
-     * <p>首次 world bind（replaced=false）不调度，避免首 load 空清理；
-     * 幂等 cleanup 本身安全，但以 replaced flag 收敛重复。</p>
+     * <p>仅 active world 被替换时清理世界资源，首次绑定保留连接初始化结果。</p>
      *
      * @param result bindWorld 转移结果
      * @return 应调度时为 true
@@ -442,9 +424,8 @@ public class ClientConnectionListener {
     /**
      * 统一清理：reset 无网络点击的工具换位、停预览、释放 GPU、清 phase、清 client event bus pending。
      *
-     * <p>须在对应 lifecycle gate 内调用；禁反向调用 lifecycle 入口。
-     * disconnect / unload / connection-takeover / world-takeover 共用，避免重复逻辑。
-     * 不清 event-bus 订阅关系。</p>
+     * <p>在对应 lifecycle gate 内调用，沿单向入口收口。
+     * disconnect、unload 与接管共用此实现，event-bus 订阅保留供后续生命周期复用。</p>
      *
      * @param reason 清理原因
      */
@@ -485,7 +466,7 @@ public class ClientConnectionListener {
             if (cleanupActions != null) cleanupActions.clearPhase();
             else if (ClientProxy.clientPhaseProjection != null) ClientProxy.clientPhaseProjection.clear();
         }});
-        // B1.1：表现投影失效——epoch 自增并丢 header（保留实例，重连后自动恢复采样）
+        // 清当前 header 并递增生命周期 epoch，保留实例供重连后恢复采样。
         runCleanupStep("preview-presentation", new Runnable() { @Override public void run() {
             ChainPreviewPresentationTicker.bumpLifecycleEpoch();
             ChainPreviewPresentationProjection installedProjection =
@@ -501,7 +482,7 @@ public class ClientConnectionListener {
         }});
     }
 
-    /** 隔离一个生命周期清理子项；常规故障与可选链接故障均不得逃逸主线程 callback。 */
+    /** 独立执行清理子项，记录运行及链接异常后继续其余清理。 */
     static void runCleanupStep(String step, Runnable cleanup) {
         try {
             cleanup.run();

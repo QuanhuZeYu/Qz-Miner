@@ -3,7 +3,7 @@ package club.heiqi.qz_miner.toolswap.protocol;
 import java.util.HashMap;
 import java.util.Map;
 
-/** 客户端请求的自动工具换位动作；wire code 不依赖声明顺序。 */
+/** 客户端请求的自动工具换位动作，wire code 显式固定。 */
 public enum AutoToolSwapAction {
     FREEZE(3),
     CLOSE(4);
@@ -21,7 +21,7 @@ public enum AutoToolSwapAction {
         return wireCode;
     }
 
-    /** 从 wire code 解码；未知值必须拒绝，不能猜测默认动作。 */
+    /** 按固定 wire code 解码，未知值抛出异常交入包边界拒绝。 */
     public static AutoToolSwapAction fromWireCode(int wireCode) {
         AutoToolSwapAction value = BY_WIRE_CODE.get(Integer.valueOf(wireCode));
         if (value == null) {

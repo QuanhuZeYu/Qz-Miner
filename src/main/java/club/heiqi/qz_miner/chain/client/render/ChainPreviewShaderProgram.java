@@ -16,28 +16,14 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 
 /**
- * 连锁预览着色器程序：{@code preview.vert} + {@code preview.frag} 的编译、链接、验证与 uniform 缓存。
+ * 在渲染线程管理业务 preview.vert/preview.frag 的编译、链接、验证、uniform 缓存与句柄释放。
+ * UILib GlApi 绑定独立 context，此处沿世界 renderer 的 GL20 上下文工作。
  *
- * <p>UILib 5 已撤除旧 shader helper；公开 GlApi 是绑定独立 context 的实例端口，不能代替
- * 世界 renderer 现有的 GL20 上下文。本类只管理这一对业务 shader 的资源读取、编译、链接及
- * uniform 缓存，不提供通用 shader 框架。每个创建成功的句柄都有独立失败清理，初始化和释放
- * 不接管其它 program 的绑定。</p>
+ * <p>初始化尝试一次，失败锁存原因供后端降级；各句柄独立清理，并恢复进入前的 program 绑定。
+ * 相机矩阵在 renderer 完成原点换基后显式读回、相乘并上传，适配 Angelica GLSM 的固定管线模拟。
+ * shader 接口按必备项与能力项校验，属性槽位使用链接后的运行时查询结果。</p>
  *
- * <p>UILib 5 迁移尚未游戏实机验证：离线编译不能证明真实 GL 状态恢复、资源重载与退出重入正确。</p>
- *
- * <p>失败语义（功能优先级与落点（真源：preview.vert 头部落点表））：{@link #ensureReady()} 只尝试一次；失败后置
- * {@link #isUnavailable()} 为 true，后续调用直接返回 false，<strong>不会每帧重试</strong>。
- * 所有 GL 异常在此处被捕获，绝不向渲染帧抛出。原因保存在 {@link #getLastFailureMessage()}，
- * 由后端写进 {@code describe()}。</p>
- *
- * <p><strong>相机矩阵（T48c-A）</strong>：着色器不再依赖固定管线内建
- * {@code gl_ModelViewProjectionMatrix} / {@code gl_ModelViewMatrix}（真机 GTNH 2.9 + Angelica
- * GLSM 模拟固定管线 + no-error context 下内建数与真实相机矩阵失同步）。改由
- * {@link #readCameraMatrices} 每帧从 {@code GL_PROJECTION_MATRIX} / {@code GL_MODELVIEW_MATRIX}
- * 读回，后端在 CPU 侧相乘成 MVP 后经 {@link #setModelViewProjection} / {@link #setModelView}
- * 上传；后端另做「modelview 平移列模长 ≈ |origin − renderPos|」自检，失败即一次性不可用并回退 legacy。</p>
- *
- * <p>线程契约：所有方法只在渲染线程调用（GPU 资源释放必须走渲染线程）。</p>
+ * <p>UILib 5 迁移后的真实 GL 状态恢复、资源重载与退出重入待游戏实机验证。</p>
  */
 public final class ChainPreviewShaderProgram {
 
@@ -53,30 +39,17 @@ public final class ChainPreviewShaderProgram {
 
     private static final int ATTRIB_POSITION = 0;
     private static final int ATTRIB_AUX = 1;
-    /** 外扩方向槽位的「请求」编号（T51）。编号本身不进入契约：实际槽位以运行时查询为准。 */
+    /** 外扩方向槽位的请求编号，实际槽位以链接后查询为准。 */
     private static final int ATTRIB_DIRECTION = 2;
 
-    /** T50 运行时解析出的属性槽位（链接后查询；-1 = 未解析或被优化掉）。 */
+    /** 链接后查询的属性槽位，-1 表示未解析或被优化掉。 */
     private int positionAttributeLocation = -1;
     private int auxAttributeLocation = -1;
     private int directionAttributeLocation = -1;
 
     private static final String MISSING_UNIFORM_PREFIX = "预览着色器缺少必备 uniform: ";
 
-    /**
-     * 必备 uniform：链接后 location 为 -1 即视为程序不可用（T48c-C）。
-     *
-     * <p>为什么必须硬失败：{@link #setUniformMatrix4} / {@link #setUniform1f} 对 missing 的 uniform 是
-     * 「静默跳过上传」。若 {@code uModelViewProjection} 因链接/优化行为缺失，shader 会拿默认零矩阵绘制，
-     * 而后端的平移列自检读的是<b>驱动矩阵</b>（不是 uniform 值）⇒ <b>自检通过、画面全错</b>。
-     * 链接完成后一次性校验即可封死这条通路。</p>
-     *
-     * <p><b>清单分两级（T49）</b>：{@link #REQUIRED_UNIFORMS} 缺失即整体不可用；
-     * {@link #CAPABILITY_UNIFORMS} 缺失只登记「该能力关闭」。原先不分级时，把「按契约保留但当前
-     * 关闭」的分支所引用的 uniform 也当必备，会让整个着色器后端被判不可用——2026-09-13 真机
-     * 「shader 档什么都不画」正是这条：{@code if (false && …)} 死块里的 uModelView / uPixelScale /
-     * uMinScreenWidthPx 被 GLSL 编译器优化掉（规范允许），location = -1 ⇒ 校验抛异常 ⇒ 程序不可用。</p>
-     */
+    /** 必备 uniform 链接后统一校验，缺失按程序不可用处理，使矩阵和视觉配置都有真实上传落点。 */
     private static final String[] REQUIRED_UNIFORMS = {
         "uModelViewProjection",
         "uOriginRel",
@@ -93,39 +66,21 @@ public final class ChainPreviewShaderProgram {
         "uColorSecondary",
         "uColorRemote",
         "uColorTruncated",
-        // T51：以下四项随「aDirection 位移」从能力型升为必备型——最小屏幕宽度与真描边现在
-        // 是活代码（不再被 if (false && …) 包住），编译器不会再优化掉它们；缺任一即无法算出
-        // 正确的外扩量，宁可判程序不可用回退 legacy，也不画出偏移错误的几何。
+        // 显式面方向外扩需要相机、像素尺度和条柱尺寸，统一列入必备项。
         "uModelView",
         "uPixelScale",
         "uBarThickness",
         "uMinScreenWidthPx",
         "uOutlineWidthPx",
-        // 面朝向明暗：开关本身是活引用（uFaceShading > 0.5 门控乘色分支），
-        // 缺失会让「开着明暗但常量没传」静默退化成关闭态——宁可判程序不可用回退 legacy。
+        // 面明暗开关参与当前乘色路径。
         "uFaceShading",
-        // 连锁序渐弱：门控本身是活引用（uOrderMinBrightness < 1.0 才进入 orderWeight 分支），
-        // 缺失会让「配置了非 1.0 的下限」静默退化成恒等——宁可判程序不可用回退 legacy，
-        // 也不画出一份与配置不符、且看不出哪里不对的亮度分布。
+        // 连锁序权重下限参与当前亮度路径。
         "uOrderMinBrightness",
-        // 内部结构压暗：门控本身是活引用（uInteriorDim < 1.0 且非描边 pass 才进入乘色分支），
-        // 缺失会让「配置了非 1.0 的系数」静默退化成恒等——宁可判程序不可用回退 legacy，
-        // 也不画出一份与配置不符、且看不出哪里不对的内部/轮廓对比。
+        // 内部亮度系数参与当前主体格线乘色。
         "uInteriorDim",
     };
 
-    /**
-     * 能力型 uniform：只被「按契约保留、但当前关闭」的分支引用（{@code if (false && …)} 或恒假路径）。
-     *
-     * <p>GLSL 规范允许编译器优化掉未被使用的 uniform ⇒ {@code glGetUniformLocation} 返回 -1。
-     * 这类 uniform 缺失是预期状态，不得据此判定程序不可用。</p>
-     *
-     * <p><b>T51 现状：清单为空。</b>原属本级的 uModelView / uPixelScale / uBarThickness /
-     * uMinScreenWidthPx 已随 aDirection 位移升为 {@link #REQUIRED_UNIFORMS}（否则位移量算错也没人发现）；
-     * uOutlineWidthPx 一直是活引用（描边壳段与主色分支都用它）。本级保留为空数组是为了让
-     * 「新 uniform 必须登记」的契约检查继续有明确落点：将来再出现「契约保留但当前关闭」的能力，
-     * 仍按同样方式登记在这里并出现在 {@link #getCapabilityReport()} 里。</p>
-     */
+    /** 能力型 uniform 缺失时登记该能力关闭；当前清单为空，活跃位移及亮度 uniform 列入必备项。 */
     private static final String[] CAPABILITY_UNIFORMS = {};
 
     private final Map<String, Integer> uniformLocations = new LinkedHashMap<String, Integer>();
@@ -333,18 +288,11 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 读取固定管线矩阵栈的投影矩阵与 modelview，供 CPU 侧相乘出 MVP（T48c-A）。
+     * renderer 执行 glTranslated(origin − renderPos) 后读回投影与 modelview，供 CPU 相乘并上传。
+     * 读取失败返回 false，程序可用性与后端回退由调用方判断。
      *
-     * <p><b>调用时机不可移动</b>：必须在 {@code ChainPreviewRenderer.drawPreview} 的
-     * {@code glTranslated(origin − renderPos)} <b>之后</b>（即真正的 draw 内）调用——那时栈上的
-     * modelview 才与被弃用的内建 {@code gl_ModelViewProjectionMatrix} 同义。读取不改写矩阵栈。</p>
-     *
-     * <p>失败（GL 不可用 / 上下文丢失 / native 缺失）返回 false，且<b>不</b>把本程序锁成不可用：
-     * 「矩阵来源是否可信 ⇒ 是否放弃绘制 ⇒ 是否回退 legacy」由后端统一裁决，程序层只回答
-     * 「读到了没有」。</p>
-     *
-     * @param outProjection 输出列主序投影矩阵（长度 &ge; 16）
-     * @param outModelView  输出列主序 modelview（长度 &ge; 16）
+     * @param outProjection 输出列主序投影矩阵，长度至少 16
+     * @param outModelView 输出列主序 modelview，长度至少 16
      * @return 是否读取成功
      */
     public boolean readCameraMatrices(float[] outProjection, float[] outModelView) {
@@ -355,7 +303,7 @@ public final class ChainPreviewShaderProgram {
             return false;
         }
         try {
-            // 缓冲惰性创建：绝不能在 static 初始化里碰 BufferUtils（见 readPixelScale 的注释）。
+            // 渲染调用时惰性创建缓冲，将 native 加载留在可捕获失败的入口。
             if (cameraProjectionBuffer == null) {
                 cameraProjectionBuffer = BufferUtils.createFloatBuffer(ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
                 cameraModelViewBuffer = BufferUtils.createFloatBuffer(ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
@@ -381,44 +329,16 @@ public final class ChainPreviewShaderProgram {
         return matrix != null && matrix.length >= ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS;
     }
 
-    /**
-     * 宿主安全初值：{@code ensureReady()} 链接成功后写入的不透明包络（{@code uFadeAlpha}）。
-     *
-     * <p>GLSL uniform 未赋值时为 0，会让整链 alpha 归零（观感是「着色器档什么都不画」）；
-     * {@code 1} 与「未启用动画」逐值同义（乘 1 不改变结果），故初值必须是它而不是 0。</p>
-     */
+    /** 链接后将 uFadeAlpha 初始化为不透明包络，覆盖 GLSL uniform 默认零带来的全链透明。 */
     static final float INITIAL_FADE_ALPHA = 1.0F;
 
-    /**
-     * 宿主安全初值：{@code uOrderMinBrightness} 的恒等值（{@link ChainPreviewShaderMath#ORDER_MIN_BRIGHTNESS_OFF}）。
-     *
-     * <p>与 {@link #INITIAL_FADE_ALPHA} 同一个坑：GLSL uniform 未赋值时为 {@code 0}，而 {@code 0}
-     * 对这个 uniform <b>不是</b>恒等——{@code 0 < 1.0} 会让 orderWeight 分支直接生效、最远处亮度权重降到 0
-     * （表型是「远处条柱整条纯黑」：几何与 alpha 都还在，只是颜色被压没）。写入 {@code 1.0} 后，
-     * 「宿主漏设」退化为「本能力关闭」，即接线前观感。</p>
-     */
+    /** 将 uOrderMinBrightness 初始化为恒等亮度，覆盖 uniform 默认零产生的远端黑色。 */
     static final float INITIAL_ORDER_MIN_BRIGHTNESS = ChainPreviewShaderMath.ORDER_MIN_BRIGHTNESS_OFF;
 
-    /**
-     * 宿主安全初值：{@code uInteriorDim} 的恒等值（{@link ChainPreviewShaderMath#INTERIOR_DIM_OFF}）。
-     *
-     * <p>与 {@link #INITIAL_ORDER_MIN_BRIGHTNESS} 同一个坑，且表型更重：GLSL uniform 未赋值时为
-     * {@code 0}，{@code 0 < 1.0} 会让内部压暗分支直接生效、内部格线乘 0 ——
-     * 那是<b>整片纯黑</b>（不是变暗），几何与 alpha 都还在，但颜色被压没。写入 {@code 1.0} 后，
-     * 「宿主漏设」退化为「本能力关闭」，即接线前观感。</p>
-     */
+    /** 将 uInteriorDim 初始化为恒等亮度，覆盖 uniform 默认零产生的内部黑色。 */
     static final float INITIAL_INTERIOR_DIM = ChainPreviewShaderMath.INTERIOR_DIM_OFF;
 
-    /**
-     * 包络 uniform 的合法域收敛：clamp 到 [0,1]，NaN 收敛为不透明（{@link #INITIAL_FADE_ALPHA}）。
-     *
-     * <p>写入边界（{@link #setFadeAlpha(float)}）与后端取值路径（backend 的 {@code fadeAlphaFor}）
-     * 共用本函数，避免两处各写一份 clamp 规则而漂移。NaN 走「不透明」而不是传播：异常配置不得让
-     * 整条链路静默消失。</p>
-     *
-     * @param fadeAlpha 原始包络（可为 NaN / 越界）
-     * @return [0,1] 的包络
-     */
+    /** 将包络收窄到 [0,1]，NaN 回退不透明；写入与后端取值共用。 */
     static float sanitizeFadeAlpha(float fadeAlpha) {
         if (Float.isNaN(fadeAlpha)) {
             return INITIAL_FADE_ALPHA;
@@ -433,7 +353,7 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 上传列主序 MVP（= 投影 × modelview），驱动 {@code gl_Position}（T48c-A）。
+     * 上传列主序 MVP（= 投影 × modelview），驱动 {@code gl_Position}。
      *
      * <p>语义等价于固定管线内建 {@code gl_ModelViewProjectionMatrix}，但值由 CPU 侧显式算出：
      * 在「固定管线由 Angelica GLSM 生成着色器模拟」的真机环境下内建数与真实相机矩阵失同步，
@@ -447,7 +367,7 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 上传列主序 modelview（相机相对坐标），驱动横向偏移与深度换算（T48c-A）。
+     * 上传列主序 modelview，驱动相机空间偏移与深度换算。
      *
      * @param columnMajor 16 元素列主序矩阵；null 或长度不足静默忽略
      * @return 是否真的上传成功（location &lt; 0 / 参数非法 / GL 失败都返回 false）
@@ -486,72 +406,27 @@ public final class ChainPreviewShaderProgram {
         setUniform1f("uBarThickness", barThickness);
     }
 
-    /**
-     * 设置真描边外扩宽度（B3.x）。
-     *
-     * <p>{@code 0} 表示关闭描边（xray / occlude / OUTLINE 主体段），此时顶点位移矩阵恒等，
-     * 与启用本功能前逐值一致。宽度在 host 侧已收敛到 [0, MAX_OUTLINE_WIDTH_PX]。</p>
-     *
-     * @param outlineWidthPx 物理像素宽度；非正数视为关闭
-     */
+    /** 上传物理像素描边宽度，零关闭描边外扩，最小宽度独立生效；写入前按统一规则收窄。 */
     public void setOutlineWidthPx(float outlineWidthPx) {
         setUniform1f("uOutlineWidthPx", ChainPreviewShaderMath.outlineWidthPx(outlineWidthPx));
     }
 
-    /**
-     * 设置面朝向明暗开关（face shading）。
-     *
-     * <p>{@code 0} 表示关闭（默认）：GLSL 侧整段乘色分支不执行，输出逐字节等于接线前。
-     * 传 {@code 1} 才进入 {@code color * faceShading(aDirection.xyz)}。</p>
-     *
-     * @param faceShading 0 = 关闭，1 = 开启（其余值按 {@code > 0.5} 判定）
-     */
+    /** 设置面明暗开关，大于 0.5 时按面法线乘色，其余使用原 rgb。 */
     public void setFaceShading(float faceShading) {
         setUniform1f("uFaceShading", faceShading > 0.5F ? 1.0F : 0.0F);
     }
 
-    /**
-     * 设置连锁序**亮度**权重下限（appearOrder 亮度权重）。
-     *
-     * <p>{@code 1.0} 表示关闭：GLSL 侧 {@code uOrderMinBrightness >= 1.0} 时完全不进入 orderWeight 分支，
-     * 输出逐值等于接线前。权重的消费位置是<b>颜色亮度</b>（{@code color * orderWeight}），
-     * 与 alpha 链路无关（用户裁定：距离淡出与连锁序是两个独立维度）。
-     * 写入前按 host 侧口径收敛
-     * （{@link ChainPreviewShaderMath#orderMinBrightness(float)}：clamp 到 [0,1]，NaN / Infinity → 1.0），
-     * 不把非法值送进 uniform。</p>
-     *
-     * @param orderMinBrightness [0,1] 的亮度权重下限；{@code 1.0} = 关闭本能力
-     */
+    /** 将连锁序 rgb 权重下限收窄到 [0,1]，非法值回退恒等亮度。 */
     public void setOrderMinBrightness(float orderMinBrightness) {
         setUniform1f("uOrderMinBrightness", ChainPreviewShaderMath.orderMinBrightness(orderMinBrightness));
     }
 
-    /**
-     * 设置内部结构亮度系数（内部格线压暗）。
-     *
-     * <p>{@code 1.0} 表示关闭：GLSL 侧 {@code uInteriorDim >= 1.0} 时完全不进入内部压暗分支，
-     * 输出逐值等于接线前。系数的消费位置是<b>颜色 rgb 上的一次乘法</b>
-     * （{@code if (auxChannel(aAux.y) >= 4.0 && uOutlineWidthPx <= 0.0) color = color * uInteriorDim;}），
-     * 与 alpha 链路无关，也不作用于描边 pass（描边色即外轮廓）。
-     * 写入前按 host 侧口径收敛
-     * （{@link ChainPreviewShaderMath#interiorDim(float)}：clamp 到 [0,1]，NaN / Infinity → 1.0），
-     * 不把非法值送进 uniform。</p>
-     *
-     * @param interiorDim [0,1] 的内部结构亮度系数；{@code 1.0} = 关闭本能力
-     */
+    /** 将主体内部格线 rgb 系数收窄到 [0,1]，非法值回退恒等亮度；描边与 alpha 独立计算。 */
     public void setInteriorDim(float interiorDim) {
         setUniform1f("uInteriorDim", ChainPreviewShaderMath.interiorDim(interiorDim));
     }
 
-    /**
-     * 设置淡入淡出包络（B3.2）。
-     *
-     * <p>{@code fadeAlpha = 1} 表示完全不透明，与启用动画前逐值一致。宿主必须每帧显式设置：
-     * GLSL uniform 未赋值时为 0，若宿主漏设会让整链透明（因此 {@link #ensureReady()} 成功后
-     * 会先写入安全初值 {@link #INITIAL_FADE_ALPHA}）。收敛规则见 {@link #sanitizeFadeAlpha(float)}。</p>
-     *
-     * @param fadeAlpha [0,1]；越界被 clamp，NaN 收敛为不透明
-     */
+    /** 上传本帧全局淡入淡出包络，收窄规则复用 sanitizeFadeAlpha；链接时先写不透明初值。 */
     public void setFadeAlpha(float fadeAlpha) {
         setUniform1f("uFadeAlpha", sanitizeFadeAlpha(fadeAlpha));
     }
@@ -586,13 +461,7 @@ public final class ChainPreviewShaderProgram {
 
     // ---------------------------------------------------------------- 内部
 
-    /**
-     * 校验必备 uniform 的 location；缺失即抛 {@link IllegalStateException}。
-     *
-     * <p>由 {@link #ensureReady()} 统一收敛：异常 ⇒ {@code unavailable = true} + 原因进
-     * {@link #getLastFailureMessage()} ⇒ 后端 ensureReady() 返回 false ⇒ renderer 既有的一次性永久
-     * 回退 legacy（不新增回退机制）。失败只判一次，不每帧重试。</p>
-     */
+    /** 校验必备 uniform，缺失抛异常交 ensureReady 锁存失败原因，后端统一处理降级。 */
     private void verifyRequiredUniforms() {
         StringBuilder missing = null;
         for (String name : REQUIRED_UNIFORMS) {
@@ -672,7 +541,7 @@ public final class ChainPreviewShaderProgram {
         }
     }
 
-    /** 创建未提交给实例的 shader 由本方法兜底，编译异常也不能遗失句柄。 */
+    /** 创建 shader 并在编译失败时释放尚未移交的句柄。 */
     private static int compilePreviewShader(String resource, int type, String errorPrefix) {
         String source = readPreviewShader(resource);
         int shaderId = GL20.glCreateShader(type);
@@ -713,12 +582,8 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * 请求固定属性槽位（顶点属性契约（真源：preview.vert 头部属性段） 的 attribute 0/1/2）。
-     *
-     * <p><b>这只是「请求」，不是「事实」</b>：真机实测（Angelica GLSM + lwjgl3ify + core profile）
-     * 下本调用返回成功却不生效，驱动把 {@code aPos} 分到了槽位 1、{@code aAux} 分到了槽位 2
-     * （GLSL 1.20 兼容档里 {@code gl_Vertex} 占住槽位 0 之后的默认分配）。因此槽位一律以
-     * {@link #resolveAttributeLocations()} 的查询结果为准，本方法只作为「请求」保留。</p>
+     * 链接前请求属性槽位，链接后以 resolveAttributeLocations 的实际查询为准。
+     * Angelica GLSM + lwjgl3ify + core profile 实机可对成功请求重新分配槽位。
      */
     private void bindAttributeLocations() {
         GL20.glBindAttribLocation(shaderProgramId, ATTRIB_POSITION, "aPos");
@@ -727,16 +592,8 @@ public final class ChainPreviewShaderProgram {
     }
 
     /**
-     * T50：链接后向驱动查询三个属性的真实槽位。
-     *
-     * <p><b>为什么必须查询</b>：{@code glBindAttribLocation} 在本环境实测不生效（无报错、无
-     * Unmapped 警告，但查询结果是 1/2/-1）。此前 Java 侧把顶点数据写死在槽位 0、aux 写死在 1，
-     * 于是 GPU 把 <b>aux 的 uint8 字节值当作顶点坐标</b>读——所有顶点落进 [0,1]³ 的小盒子，
-     * 屏幕上就是「瞄准方块上的一小块色斑」，而数据回读、绑定回读、矩阵回读全部自洽。
-     * 这是「离线全绿、真机错位」的最后一层，只有把槽位当运行时事实才能根治。</p>
-     *
-     * <p>{@code aPos} / {@code aAux} 缺一不可：缺失即抛，由 {@code ensureReady} 收敛为
-     * 「程序不可用」⇒ 后端一次性回退 legacy，绝不留错误空间的一帧。</p>
+     * 链接后查询真实属性槽位并验证必备位置和语义流；缺失交 ensureReady 收敛为不可用。
+     * 槽位错误会将 aux 字节误作坐标读取，数据、绑定和矩阵诊断均可能仍正常。
      */
     private void resolveAttributeLocations() {
         positionAttributeLocation = GL20.glGetAttribLocation(shaderProgramId, "aPos");
@@ -781,7 +638,7 @@ public final class ChainPreviewShaderProgram {
                     GL20.glUseProgram(0);
                 }
             } catch (Throwable ignored) {
-                // 上下文失效时仍继续尝试删除；不得改写其它 program 的绑定。
+                // 上下文失效时继续尝试删除，其他 program 沿用原绑定。
             }
             try {
                 GL20.glDeleteProgram(programId);
@@ -816,7 +673,7 @@ public final class ChainPreviewShaderProgram {
         try {
             GL20.glDetachShader(shaderProgramId, shaderId);
         } catch (Throwable ignored) {
-            // 上下文失效也必须继续删除两个 shader，不能阻断 program 的后续清理。
+            // 上下文失效时继续独立释放 shader 与 program。
         }
     }
 
@@ -827,7 +684,7 @@ public final class ChainPreviewShaderProgram {
         try {
             GL20.glDeleteShader(shaderId);
         } catch (Throwable ignored) {
-            // 释放失败不得遮盖原始编译/链接失败，或阻断另一个句柄的回收。
+            // 保留原始编译/链接失败，后续句柄继续独立回收。
         }
     }
 
@@ -843,14 +700,7 @@ public final class ChainPreviewShaderProgram {
         }
     }
 
-    /**
-     * 上传列主序 4×4 uniform。
-     *
-     * <p>{@code location < 0} 时返回 false 而不是静默成功：矩阵是「缺失即画面全错」的必备 uniform，
-     * 调用方（后端）必须据此放弃本帧并回退，而不是发出一帧零矩阵的绘制（T48c-C）。</p>
-     *
-     * @return 是否上传成功
-     */
+    /** 上传列主序矩阵；参数非法、location 缺失或 GL 异常返回 false，调用方据此放弃本帧。 */
     private boolean setUniformMatrix4(String name, float[] columnMajor) {
         if (!hasMatrixCapacity(columnMajor)) {
             return false;
@@ -867,7 +717,7 @@ public final class ChainPreviewShaderProgram {
             matrixUploadBuffer.clear();
             matrixUploadBuffer.put(columnMajor, 0, ChainPreviewShaderMatrixMath.MATRIX_ELEMENTS);
             matrixUploadBuffer.flip();
-            // transpose = false：数组已是 GL 约定的列主序，绝不能"顺手"转置。
+            // 数组已按 GL 列主序排列，transpose 取 false。
             GL20.glUniformMatrix4(location, false, matrixUploadBuffer);
             return true;
         } catch (Throwable failure) {
@@ -876,14 +726,7 @@ public final class ChainPreviewShaderProgram {
         }
     }
 
-    /**
-     * 是否发生过「矩阵 uniform 缺失导致未上传」。
-     *
-     * <p>正常情况下不可能为 true（{@link #verifyRequiredUniforms()} 已把缺失挡在 ensureReady 之外），
-     * 保留它是为了让「矩阵未上传」这件事在诊断上可观测，而不是静默画一帧零矩阵。</p>
-     *
-     * @return 是否发生过未上传
-     */
+    /** @return 是否发生矩阵 uniform 缺失，用于诊断本帧上传失败 */
     public boolean hasMissingMatrixUniforms() {
         return missingMatrices;
     }
@@ -915,7 +758,7 @@ public final class ChainPreviewShaderProgram {
         try {
             location = GL20.glGetUniformLocation(shaderProgramId, name);
         } catch (Throwable failure) {
-            // GL 类不可初始化 / 上下文丢失：收敛为「无此 uniform」，不得冒泡到渲染帧。
+            // GL 类初始化或上下文失败时锁存不可用状态并保留诊断。
             unavailable = true;
             if (lastFailureMessage.isEmpty()) {
                 lastFailureMessage = failure.getClass().getSimpleName();

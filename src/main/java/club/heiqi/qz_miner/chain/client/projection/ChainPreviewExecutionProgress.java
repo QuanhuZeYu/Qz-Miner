@@ -14,39 +14,11 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * B5.2 执行进度（客户端世界采样）· 投影侧数据源。
+ * 客户端按预算采样预览目标，将已加载区块内变为空气的位置发布为观测，下一次 drain 去重计数。
  *
- * <p><b>数据链路</b>（零协议改动、可回退；off 档零开销）：</p>
- * <ol>
- *   <li><b>采样</b>：客户端主线程每 tick 按 {@link #SAMPLE_BUDGET_PER_TICK} 预算扫描当前预览代目标坐标；
- *       命中「区块已加载且方块已消失」的位置即向客户端总线 {@link ChainEventBus#publish} 一条
- *       {@link BlockBreakObserved} 观测事件（观测语义，不是玩家动作回放：seedBlock=null、sideHit=0，
- *       维度取被采样世界，uuid 为本地玩家）。同一位置在后续 pass 会重复投递，由计数侧去重。</li>
- *   <li><b>计数</b>：订阅 {@code MyMod.clientChainEventBus} 的 {@link BlockBreakObserved}，由既有
- *       {@code ClientChainEventBusDrainer} 在 {@code ClientTickEvent.START} 主线程 drain 时回调；
- *       只有「属于当前预览代目标集合」的位置才计入，同一位置只计一次。</li>
- * </ol>
- *
- * <h3>身份窗口与单调性（沿用 header 六维失效口径）</h3>
- * <p>{@code executedCount} 在同一身份窗口（worldIdentity / lifecycleEpoch / previewGeneration）内单调不减；
- * 任一身位变化（换代 / 世界切换 / 断线重连 lifecycle epoch 自增）即清空计数与去重集合，从头计。
- * 预览不活动或开关关闭时恒 0。</p>
- *
- * <h3>内存有界</h3>
- * <p>去重集合只保存「本代已计入的位置」，容量上界 = 本代目标数（已由 B4.2 容量上限与
- * {@code clientPreviewMaxTargetsHardCap} 约束），随身份窗口变化清空；另设 {@link #MAX_COUNTED_POSITIONS}
- * 防御硬顶，达到后停止计入（宁可少计，不可无界增长）。采样侧不复制目标集合，只持有一个 pass 的
- * 持久链迭代器（一次引用）。</p>
- *
- * <h3>采样口径（如实标注）</h3>
- * <p>只有「目标位置区块已加载 + 方块变为空气/air 材质」才算已执行 ⇒ 破坏/采掘类模式准确；
- * 交互类（不破坏方块）与替换类（方块变成另一方块而非空气）目标不计入；区块未加载时不可判定，
- * 保守不计入。</p>
- *
- * <h3>订阅唯一性</h3>
- * <p>{@link ChainEventBus} 无退订 API，故 {@link #install(ChainEventBus)} 只订阅一次且 {@code subscribed}
- * 永不复位（重复 install/dispose 不累积回调）；生命周期开关走 {@link #dispose()} 的 active 位，
- * 配置开关走每次采样的 enabled 入参。</p>
+ * <p>计数和有界位置集随 worldIdentity、lifecycleEpoch 或 previewGeneration 变化重置。
+ * 交互和替换目标按空气判据自然留在未计入状态；区块未加载时保留未知。
+ * 总线订阅安装一次，dispose 关闭计数并清窗口，后续 install 复用订阅。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class ChainPreviewExecutionProgress {

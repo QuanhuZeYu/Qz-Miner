@@ -4,7 +4,7 @@ package club.heiqi.qz_miner.chain.client.render;
  * 预览淡入 / 淡出与 retiring 生命周期状态机（纯标量字段、零 per-frame 分配）。
  *
  * <p>门控：只在 animation ∈ {flow, wave} 且 durationMs &gt; 0 时启用；off / duration &lt;= 0 时
- * 与历史一致——激活恒 alpha = 1，结束立即达到 {@link Phase#IDLE}（无 retiring、无过渡）。</p>
+ * 激活恒 alpha = 1，结束立即达到 {@link Phase#IDLE}（无 retiring、无过渡）。</p>
  *
  * <p>相位：{@code IDLE → (激活且启用) FADING_IN → ACTIVE → (取消且启用) RETIRING → IDLE}。
  * 激活时若处于 RETIRING（新 generation / 新预览代），立即抢占：旧 retiring 状态丢弃并重新淡入。</p>
@@ -64,8 +64,7 @@ public final class ChainPreviewFadeController {
      * @param nowNanos    {@link System#nanoTime()} 采样值
      * @return 本帧不透明度乘子 [0,1]；激活且未启用过渡时为 1，{@link Phase#IDLE} 时恒为 0
      *
-     * <p>清空依据是相位（{@link #isIdle()}），不是 alpha：IDLE 下 alpha 恒 0 只是防御语义，
-     * 避免未来有人按 {@code alpha > 0} 判断绘制时出现一整帧残留全亮。</p>
+     * <p>调用方按 {@link #isIdle()} 清空资源；IDLE 的 alpha 同时归零。</p>
      */
     public float advance(boolean active, int generation, boolean fadeEnabled, int durationMs, long nowNanos) {
         if (!fadeEnabled || durationMs <= 0) {
@@ -118,7 +117,7 @@ public final class ChainPreviewFadeController {
             }
             return this.alpha;
         }
-        // IDLE 且未激活：恒返回 0（防御语义；清空依据是相位而非 alpha）
+        // IDLE 且未激活，返回零透明度。
         this.alpha = 0.0F;
         return 0.0F;
     }

@@ -4,19 +4,9 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 预览条柱网格的不可变 CPU 数据。
- *
- * <p>aAux 布局见 {@link #AUX_BYTES_PER_VERTEX}。顶点按几何 key 去重后，appearOrder 与
- * semanticClass 取所有 incident 写入者的最小值对应的目标（两者同源），tubeEdge 取首写者。</p>
- *
- * <p>tubeEdge 本轮实测可达集合为 {0, 1, 255}（verifier 独立双向量化：line(64) = 0:508 /
- * 1:508 / 255:56）：相邻链直通格点的 tube 相顶点只首写槽位 0/1，junction 相与共享顶点保留
- * {@link #AUX_UNDEFINED}。槽位 2/3 在当前「junction 相先于 tube 相」的首写策略下不可达——
- * 每个管段端点的 4 个角点已被 junction 的两个面全部覆盖，2/3 永不首写；四象限齐备性留待
- * B2.3/B3.x 再评估（已登记为已知限制，本轮不调整首写策略）。</p>
- *
- * <p>长度不符时语义流降级为不可用，原因见 {@link #getAuxDegradationReason()} 与
- * {@link #getAuxDegradedMeshCount()}。</p>
+ * 预览条柱网格的不可变 CPU 数据，语义流按 incident 目标最小序号归属，tubeEdge 取首写者。
+ * junction 先于 tube 发射，当前首写策略使 tubeEdge 使用 0/1 及 AUX_UNDEFINED。
+ * 语义流长度异常时保留几何并记录降级原因与计数。
  */
 public class ChainPreviewMesh {
 
@@ -211,7 +201,7 @@ public class ChainPreviewMesh {
         return vertexFloatCount;
     }
 
-    /** @return 顶点数（= {@link #getVertexFloatCount()} / 3）；B4.2 容量峰值口径 */
+    /** @return 顶点数，取有效位置 float 数除以 3 */
     public int getVertexCount() {
         return vertexFloatCount / 3;
     }
@@ -313,7 +303,7 @@ public class ChainPreviewMesh {
     /**
      * 内部顶点数组只读视图（不拷贝）。
      *
-     * <p>仅限渲染线程上传路径使用：禁止修改返回数组，禁止跨帧持有。</p>
+     * <p>渲染线程仅在本帧上传期间只读访问返回数组。</p>
      */
     public float[] vertexArray() {
         return vertices;
@@ -322,7 +312,7 @@ public class ChainPreviewMesh {
     /**
      * 内部颜色数组只读视图（不拷贝）。
      *
-     * <p>仅限渲染线程上传路径使用：禁止修改返回数组，禁止跨帧持有。</p>
+     * <p>渲染线程仅在本帧上传期间只读访问返回数组。</p>
      */
     public float[] colorArray() {
         return colors;
@@ -331,7 +321,7 @@ public class ChainPreviewMesh {
     /**
      * 内部索引数组只读视图（不拷贝）。
      *
-     * <p>仅限渲染线程上传路径使用：禁止修改返回数组，禁止跨帧持有。</p>
+     * <p>渲染线程仅在本帧上传期间只读访问返回数组。</p>
      */
     public int[] indexArray() {
         return indices;
@@ -340,7 +330,7 @@ public class ChainPreviewMesh {
     /**
      * 内部 aAux 数组只读视图（不拷贝）；null 表示未启用。
      *
-     * <p>仅限渲染线程上传路径使用：禁止修改返回数组，禁止跨帧持有。</p>
+     * <p>渲染线程仅在本帧上传期间只读访问返回数组。</p>
      */
     public byte[] auxArray() {
         return aux;

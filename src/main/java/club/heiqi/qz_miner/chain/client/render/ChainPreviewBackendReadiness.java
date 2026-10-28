@@ -1,19 +1,8 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 /**
- * 纯决策：后端 {@code ensureReady()==false} 时的动作（T48c-B 简化后的兜底入口）。
- *
- * <p>复用既有「一次性永久回退」语义，不引入新的 GL 对象 / 回读探针：能力不足或不可验证时
- * 一律收敛到 legacy，且由 renderer 的 shaderAttemptFailed 保证不再重试。</p>
- *
- * <ul>
- *   <li>未就绪的是 legacy → {@link Action#KEEP_ACTIVE}：保持既有行为（预览整体不可用，
- *       不切换后端、不重复创建）；</li>
- *   <li>未就绪的是 shader 且 legacy 能力可用 → {@link Action#SWITCH_TO_LEGACY}：
- *       一次性永久回退（调用方负责 dispose + reset + 一次性 WARN）；</li>
- *   <li>未就绪的是 shader 且 legacy 不可用 → {@link Action#NO_USABLE_PATH}：
- *       显式降级，不创建必然失败的后端。</li>
- * </ul>
+ * 决定后端未就绪时的后续动作：legacy 保持当前实例，shader 按能力回退 legacy 或标记无可用路径。
+ * renderer 负责释放旧实例、记录原因与锁存失败。
  */
 public final class ChainPreviewBackendReadiness {
 

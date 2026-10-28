@@ -17,12 +17,7 @@ import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.world.BlockEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
-/**
- * 连锁规划器调度器。
- *
- * <p>阶段8：旧链路 {@code startPlanning} 调用已删除，仅 publish {@link BlockBreakObserved}
- * 走新链路 T4 破坏观测入口（状态机统一推进 ARMED→PLANNING）。</p>
- */
+/** 观察服务端原版破坏，在动作窗口冻结种子与方向并发布 BlockBreakObserved，交状态机启动规划。 */
 public class ChainPlanner {
 
     public ChainPlanner() {
@@ -68,9 +63,7 @@ public class ChainPlanner {
             return;
         }
 
-        // 守边界不越权：BreakEvent 在服务端主线程触发；publish 仅入队不切态
-        // 阶段8：旧 startPlanning 已删，仅 publish 走新链路 T4 破坏观测入口
-        // 输入事件 generation 传 0 豁免代际判定
+        // 主线程发布动作观测；输入代际填零，由状态机按当前阶段处理。
         int frozenFace = 0;
         frozenFace = freezeBreakFace(playerState, playerState.getSelectedSubMode(),
                 player.dimension, event.x, event.y, event.z,
@@ -79,7 +72,7 @@ public class ChainPlanner {
             long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
                     : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
             // BreakEvent 仍在服务端主线程、原版 removeBlock 前：在此读取一次 live TE 并立即纯值化。
-            // token 不含 TileEntity/World/NBT/Class/坐标，可随事件安全传播到 worker。
+            // 纯值 token 随事件传给 worker，live TileEntity 引用留在此动作窗口。
             TileIdentityToken seedTileIdentity;
             try {
                 TileEntity seedTileEntity = player.worldObj.getTileEntity(event.x, event.y, event.z);
@@ -87,24 +80,18 @@ public class ChainPlanner {
             } catch (RuntimeException | LinkageError failure) {
                 seedTileIdentity = TileIdentityToken.unresolved();
             }
-            // 破坏时刻捕获种子方块 + metadata：BlockEvent.BreakEvent 在 tryHarvestBlock 同步 removeBlock 之前触发，
-            // 但 drainer 推迟到下一 tick START drain，届时方块已成空气，WorldBlockSeedResolver 会读空 null。
-            // 故 publish 时把 event.block / event.blockMetadata 透传给 BlockBreakObserved，
-            // 由 ChainPlanningEventBridge.onPlanStarted 优先用事件携带 seed 构造种子，跳过 resolver。
+            // BreakEvent 早于同步 removeBlock，先传递 event.block/meta，供后续 drain 保留破坏前种子身份。
             MyMod.chainEventBus.publish(new BlockBreakObserved(
                     player.getUniqueID(), serverRoundId, 0,
                     ChainTickSource.currentServerTick(), ChainTickSource.nowNanos(),
                     event.x, event.y, event.z, player.dimension, frozenFace,
                     event.block, event.blockMetadata, seedTileIdentity));
-            // 起点方块掉落捕获：原版 tryHarvestBlock 在本 tick 同步 removeBlock+触发 HarvestDropsEvent，
-            // 早于 collector 窗口打开（onPlanCompleted 时 setExecutionWindow(true)，下 tick drain）；
-            // 用一次 armed 标志让 collector 在守卫 isExecuting()=false 时也收起点方块掉落进 buffer。
-            // 同 tick 戳校验兜底跨 tick 陈旧；consumed 一次即清零防 onPlanCompleted 后误判。
+            // 起点 HarvestDropsEvent 在本 tick 同步发生，先 arm 一次同 tick 捕获，覆盖稍后规划登记前的窗口。
             playerState.armSeedDropCapture(ChainTickSource.currentServerTick());
         }
     }
 
-    /** 纯状态冻结边界：非隧道不读取/消费 pending，隧道按 accepted source 决定具体 face。 */
+    /** 隧道按已接受方向来源消费 pending 并冻结 face，其余子模式返回缺省面。 */
     static int freezeBreakFace(ChainPlayerState state, ChainSubMode subMode,
             int dimensionId, int x, int y, int z, int lookFace) {
         if (state == null || subMode != ChainSubMode.AREA_TUNNEL) {

@@ -21,12 +21,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 
-/**
- * INTERACT 模式右键触发规划器。
- *
- * <p>阶段8：旧链路 {@code startPlanning} 调用已删除，仅 publish {@link RightClickObserved}
- * 走新链路 T4 右键观测入口（状态机统一推进 ARMED→PLANNING）。</p>
- */
+/** 观察服务端 INTERACT 右键，冻结动作前种子与命中点并发布 RightClickObserved。 */
 public class ChainInteractPlanner {
 
     public ChainInteractPlanner() {
@@ -67,13 +62,10 @@ public class ChainInteractPlanner {
             return;
         }
 
-        // 原右键回调发布前是语义目标 seed 的最后存活窗口：先冻结 block/meta/TE token，
-        // 后续 drain/规划不得用已经被本次右键改变的 live world 覆盖。
+        // 在原右键窗口冻结 block/meta/TE token，保留交互前种子供后续规划使用。
         FrozenInteractSeed frozenSeed = freezeInteractSeed(player, resolvedTarget);
         HitOffset hitOffset = resolveHitOffset(resolvedTarget);
-        // 守边界不越权：PlayerInteractEvent 在服务端主线程触发；publish 仅入队不切态
-        // 阶段8：旧 startPlanning 已删，仅 publish 走新链路 T4 右键观测入口
-        // 输入事件 generation 传 0 豁免代际判定；命中偏移携带是 T4 扩右键的根因
+        // 主线程发布右键观测，携带冻结命中偏移；输入代际由状态机按当前阶段处理。
         if (MyMod.chainEventBus != null) {
             long serverRoundId = MyMod.autoToolSwapRoundService == null ? 0L
                     : MyMod.autoToolSwapRoundService.currentRoundId(player.getUniqueID(), player);
@@ -88,7 +80,7 @@ public class ChainInteractPlanner {
     }
 
     /**
-     * 在原服务端右键事件窗口冻结规划种子；任一世界读取异常都保留 UNRESOLVED，禁止跨 tick 猜测。
+     * 在原服务端右键窗口冻结规划种子，读取异常时保留 UNRESOLVED。
      */
     private FrozenInteractSeed freezeInteractSeed(EntityPlayerMP player, ResolvedInteractTarget target) {
         Block seedBlock = Blocks.air;
@@ -120,14 +112,7 @@ public class ChainInteractPlanner {
         return resolveBlockEventTarget(player, event);
     }
 
-    /**
-     * 纯值路由接缝（包级，与 T54 {@code originRelativeTo} 同形）：决定语义目标来自共享射线还是 Forge 事件坐标。
-     *
-     * <p>液体子模式与 AIR 没有可用的方块坐标，必须走共享射线；其余 BLOCK 保留 Forge 事件坐标。
-     * 抽成只吃 {@code (subMode, action)} 的纯函数后，这条边界可以被真值表直接证伪——
-     * 内联在 {@code resolveInteractTarget} 里时只能靠表达式文本快照，等价重写（提取局部变量、
-     * 调换 {@code ||} 两侧）就会失效，且无法证明液体分支没被顺手删掉。</p>
-     */
+    /** 液体子模式与 RIGHT_CLICK_AIR 使用共享射线，其余 BLOCK 动作保留 Forge 事件坐标。 */
     static boolean resolvesBySharedRay(ChainSubMode subMode, PlayerInteractEvent.Action action) {
         return subMode == ChainSubMode.INTERACT_LIQUID_SOURCE
                 || action == PlayerInteractEvent.Action.RIGHT_CLICK_AIR;
@@ -151,7 +136,7 @@ public class ChainInteractPlanner {
                 event.x, event.y, event.z, normalizeFace(event.face), hitVec);
     }
 
-    /** 使用服务端当前方块 reach 调共享、side-neutral 射线；异常不影响原 Forge 动作。 */
+    /** 使用服务端当前 reach 调共享射线，异常时返回空结果，原 Forge 动作继续。 */
     private MovingObjectPosition tracePlayerTarget(EntityPlayerMP player, boolean includeLiquids) {
         if (player == null || player.theItemInWorldManager == null) {
             return null;
@@ -173,7 +158,7 @@ public class ChainInteractPlanner {
     }
 
     /**
-     * 规范化点击面，避免异常值影响交互执行。
+     * 将异常点击面回退为上表面。
      *
      * @param face 原始点击面
      * @return 合法点击面

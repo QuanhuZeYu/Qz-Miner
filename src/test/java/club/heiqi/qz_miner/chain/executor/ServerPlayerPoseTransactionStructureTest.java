@@ -10,15 +10,7 @@ import org.junit.Test;
 import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
-/**
- * 虚拟玩家姿态事务的字段全集、精确碰撞盒与幂等恢复合同。
- *
- * <p>行为面为什么到不了这里：{@code capture(EntityPlayerMP)} 只接受服务端玩家，而 1.7.10 的
- * {@code EntityPlayerMP} 构造链要求 non-null {@code WorldServer}（实测 NPE 于 {@code Entity(World)}
- * 读 {@code world.isRemote}），纯 JVM 构造不出玩家，也不为测试新增 stub 玩家 seam。
- * 因此这里守的是「捕获集合 = 改写集合 = 恢复集合」这类字段级一致性契约：把「改了却没捕获/
- * 没恢复」的回归钉死，同时不再逐条匹配赋值语句文本。</p>
- */
+/** 验证虚拟姿态事务的捕获、finally 恢复及本地状态边界，方法体 token 与编译依赖共同覆盖结构。 */
 public class ServerPlayerPoseTransactionStructureTest {
 
     private static final String SOURCE =
@@ -85,7 +77,7 @@ public class ServerPlayerPoseTransactionStructureTest {
                 JavaSourceSlices.mentions(close, "throw"));
     }
 
-    /** 虚拟姿态只改本地状态：编译产物不得引用位置发布与网络发送 API。 */
+    /** 检查虚拟姿态的编译依赖保持本地状态范围。 */
     @Test
     public void virtualPoseNeverPublishesToClient() {
         Assert.assertFalse("虚拟姿态不得向客户端发布位置",

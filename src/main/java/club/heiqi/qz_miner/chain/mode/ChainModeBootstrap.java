@@ -11,8 +11,7 @@ import club.heiqi.qz_miner.compat.adapter.CompatAdapters;
 /**
  * 连锁模式注册引导。
  *
- * <p>阶段8：旧 {@code ChainPlanningStrategy} 系列已删除，{@code ChainModeDefinition}
- * 构造器同步去掉 strategy 参数。模式定义只保留 traverser/matcher resolver + actionExecutor。</p>
+ * <p>登记主模式的遍历、匹配、执行与表现默认值，可选能力按 adapter 探测结果注册。</p>
  */
 public final class ChainModeBootstrap {
 

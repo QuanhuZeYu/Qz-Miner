@@ -67,13 +67,11 @@ public class PacketChainModeSwitch implements IMessage {
                 if (state.getSelectedMode() == previousMode) {
                     return;
                 }
-                // 守跨线程只经事件总线：publish 在 ServerMainThreadDispatcher.run lambda 内（line 41），已收口主线程
-                // 阶段3影子并行：保留旧 setPlayerSelectedMode，新链路仅推进状态机观测
-                // 输入事件 generation 传 0 豁免代际判定
+                // 主线程更新玩家选择并发布观测，输入代际由状态机按当前阶段处理。
                 if (MyMod.chainEventBus != null) {
                     ChainMode newMode = state.getSelectedMode();
                     ChainSubMode newSubMode = state.getSelectedSubMode();
-                    // state 解析出的子模式理论上非 null（registry 已 resolve），但防御性兜底避免下游 NPE
+                    // 缺省子模式使用 CHAIN_BASE 形成完整观测。
                     if (newSubMode == null) {
                         newSubMode = ChainSubMode.CHAIN_BASE;
                     }

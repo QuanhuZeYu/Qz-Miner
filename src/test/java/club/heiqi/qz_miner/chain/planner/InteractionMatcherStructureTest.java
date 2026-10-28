@@ -14,7 +14,7 @@ import net.minecraft.block.Block;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
-/** 作物/液体交互 matcher 的 live 读取与无世界持有结构合同。 */
+/** 以方法体 token 及编译依赖验证交互 matcher 的只读身份与纯值规则委派，规则结果由行为用例覆盖。 */
 public class InteractionMatcherStructureTest {
 
     private static final String IMMATURE_PATH =

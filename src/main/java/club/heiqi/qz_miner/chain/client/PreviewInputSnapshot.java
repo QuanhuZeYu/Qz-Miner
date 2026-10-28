@@ -8,26 +8,9 @@ import club.heiqi.qz_miner.config.CommittedSnapshot;
 import club.heiqi.qz_miner.config.ConfigBootstrap;
 
 /**
- * 预览输入版本化快照（B1.2 / task-20）。
- *
- * <p>把「世界 / 目标 / 命中面 / 模式 / 子模式 / 半径 / 上限 / 视觉设置（含 barThickness、depthMode、
- * colorSource、fade、alpha）/ 配置 revision / 对象组 revision」收进一个不可变值对象；
- * 预览是否需要换 generation 退化为「快照不相等即换」。相等即无需重建。</p>
- *
- * <h3>零分配与热路径契约</h3>
- * <ul>
- *   <li>{@link #differsInSemanticIdentity(PreviewInputSnapshot)} /
- *       {@link #hasSameTarget(PreviewInputSnapshot)} / {@link #equals(Object)} 均不分配。</li>
- *   <li>生产调用方先做无分配判定，只有确实需要换 generation 时才构造新快照
- *       （每 tick 不产生垃圾）。</li>
- *   <li>视觉设置按 {@code equals} 值比较：1 Hz 重建但内容相同的快照引用变化<b>不</b>触发重建；
- *       内容变化（配置热改）才触发。</li>
- * </ul>
- *
- * <h3>语义维度</h3>
- * <p>world / face / mode / subMode / radius / maxTargets / visualSettings / configRevision /
- * objectGroupRevision 任一变化属于「语义变化」，必须立即换 generation（不得走入去抖）；
- * 仅 target 变化时才允许按 {@link ChainPreviewController} 的 2 tick 稳定窗口去抖。</p>
+ * 冻结世界、目标、模式、空间参数、视觉设置与配置代际的预览输入快照。
+ * 语义维度变化立即换代，仅目标变化由控制器去抖；值相同的视觉快照沿用当前代。
+ * 生产侧先用无分配比较判定变化，确定换代后构造快照。
  */
 public final class PreviewInputSnapshot {
 

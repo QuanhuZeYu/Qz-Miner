@@ -5,25 +5,7 @@ import club.heiqi.qz_miner.chain.eventbus.event.ChainPhaseChanged;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
-/**
- * 阶段6 A2：客户端投影事件订阅者。
- *
- * <p>订阅客户端 {@code clientChainEventBus} 上的 {@link ChainPhaseChanged}（复用 ChainPhaseChanged
- * 类型作投影事件，P1-1=A 决议走 clientChainEventBus），收到后调
- * {@link ClientPhaseProjection#update} 更新容器。</p>
- *
- * <p>事件来源：{@code PacketChainPhaseSnapshot.Handler}（Netty 线程）调
- * {@code ClientProxy.handleClientChainPhaseSnapshot} → 组装 ChainPhaseChanged 投影事件
- * publish 到 clientChainEventBus → {@code ClientChainEventBusDrainer} 在 ClientTickEvent.START
- * drain（客户端主线程）→ 触发本订阅者。</p>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>跨线程只经事件总线</b>：本订阅者仅由客户端主线程 drain 调用（clientChainEventBus.drain 在 ClientTickEvent.START），
- *       实际更新在主线程，不在 Netty 线程直接改容器。</li>
- *   <li><b>唯一写权威</b>：clientChainEventBus 是客户端独立实例，物理隔离进不了服务端状态机。</li>
- * </ul>
- */
+/** 客户端主线程订阅阶段广播，将服务端快照写入本机投影，供 HUD 与预览读取。 */
 @SideOnly(Side.CLIENT)
 public class ClientPhaseProjectionSubscriber {
 

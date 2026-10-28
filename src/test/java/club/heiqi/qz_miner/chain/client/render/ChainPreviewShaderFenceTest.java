@@ -234,12 +234,7 @@ public class ChainPreviewShaderFenceTest {
         Assert.assertTrue("投影矩阵读回必须在缓存未命中分支内", projectionRead > guard);
     }
 
-    /**
-     * 静态初始化契约（Lead 裁定）：类首次加载不得触碰 LWJGL。
-     *
-     * <p>一旦 static 初始化里调 BufferUtils/GL，无 GL 环境下会抛 ExceptionInInitializerError，
-     * JVM 会把该类永久标记为不可用（NoClassDefFoundError），真机上等于一次失败永久失去该后端。</p>
-     */
+    /** 类首次加载保持 native 惰性访问，使无上下文失败留在可处理的实例入口。 */
     @Test
     public void staticInitializationDoesNotTouchLwjgl() throws Exception {
         // 若静态初始化触碰 LWJGL native，这里的首次主动使用就会抛 UnsatisfiedLinkError /
@@ -294,15 +289,8 @@ public class ChainPreviewShaderFenceTest {
     }
 
     /**
-     * 真机崩溃防线（T51 实机取证）：GL 上传的 staging 必须来自 allocator（direct）。
-     *
-     * <p>heap 缓冲（{@code java.nio.ByteBuffer.allocate}）走 {@code hasArray()} 分支，驱动拿到的是
-     * 非法地址——真机表型是 {@code nvoglv64.dll} 内部 + {@code glBufferSubData} 的
-     * {@code EXCEPTION_ACCESS_VIOLATION}：整进程崩溃，且因为崩在 native 层，连一条 Java 栈都看不到。</p>
-     *
-     * <p><b>为什么必须是源码级检查</b>：单元测试注入的是纯 JVM 分配器，heap 在那里是<b>正常</b>的
-     * （headless 不加载 LWJGL native），运行时守卫 {@code requireDirect} 因此对测试替身豁免——
-     * 这类写法能一路全绿到真机才炸。</p>
+     * 验证 staging 经生产 allocator 分配 direct 缓冲，测试替身沿离线分配器运行。
+     * heap 缓冲曾使 nvoglv64.dll 的 glBufferSubData 发生原生访问违规，源码检查覆盖该分配边界。
      */
     @Test
     public void backendStagingNeverUsesHeapByteBuffer() throws IOException {

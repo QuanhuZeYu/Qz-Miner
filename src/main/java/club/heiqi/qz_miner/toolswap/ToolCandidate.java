@@ -7,7 +7,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * 已由 adapter 捕获的纯候选事实，不持有 ItemStack 或 registry 对象。
+ * adapter 捕获的候选纯值快照，冻结身份、能力与耐久供排序和选择。
  */
 public final class ToolCandidate {
 

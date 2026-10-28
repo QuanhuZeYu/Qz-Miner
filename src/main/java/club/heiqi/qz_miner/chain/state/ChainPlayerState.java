@@ -33,26 +33,14 @@ public class ChainPlayerState extends AbstractChainModeState {
     private volatile ChainSession session;
     private volatile CuboidSelection cuboidSelection = CuboidSelection.empty();
 
-    /** 掉落失败仅影响主线程重试调度；不参与 phase/generation，也不授权清空缓冲。 */
+    /** 连续失败数用于主线程重试调度与摘要诊断，资产保留在独立缓冲。 */
     private volatile int dropReleaseConsecutiveFailures;
     private long nextDropReleaseTick;
 
     /**
-     * 起点方块掉落捕获一次性 armed 标志。
-     *
-     * <p>背景：Forge 1.7.10 {@code ItemInWorldManager.tryHarvestBlock} 在同 tick 内同步执行
-     * {@code BreakEvent}（ChainPlanner 看到）→ {@code removeBlock} → {@code harvestBlock}
-     * → {@code HarvestDropsEvent}（ChainDropCollector 看到）。但 collector 执行窗口要等
-     * {@code onPlanCompleted} 下 tick drain 才开（{@code setExecutionWindow(true)}），
-     * 早于窗口的起点方块掉落会被 {@code isExecuting()} 守卫拦截止，结果走 vanilla 未收。</p>
-     *
-     * <p>方案：ChainPlanner.onBlockBreak publish {@link club.heiqi.qz_miner.chain.eventbus.event.BlockBreakObserved}
-     * 后立即 {@link #armSeedDropCapture(long)} arm 一次；collector 守卫扩展为
-     * {@code (isExecuting() || consumeSeedDropCaptureIfArmed(tick))}，armed 时也收一次。</p>
-     *
-     * <p>守唯一写权威（状态机唯一写权威）：本字段独立于 {@link #executionStatus}/phase/generation，
-     * 不复用 {@link #setExecuting(boolean)} 写入口；{@code volatile} 保证主线程 publish 侧 arm 与
-     * 主线程 collector 侧 consume 的可见性（同 tick 同步链路，无跨线程竞争）。</p>
+     * 捕获原版起点方块掉落的一次性标志，独立于执行窗口与状态机阶段。
+     * BreakEvent 与 HarvestDropsEvent 在同 tick 同步发生，规划登记稍后经 drain 执行；
+     * 规划入口先 arm，collector 按同 tick 消费一次，使起点掉落进入玩家缓冲。
      */
     private volatile boolean seedDropCaptureArmed;
 
@@ -73,7 +61,7 @@ public class ChainPlayerState extends AbstractChainModeState {
         return pendingRemoval;
     }
 
-    /** 退休 owner 不再持有会话，仅留玩家标识与未交付缓冲供后续领取。 */
+    /** 退休 owner 释放会话，保留玩家标识与未交付缓冲供后续领取。 */
     void retireRuntimeState(String reason) {
         clearRuntimeState(reason);
         setChainKeyPressed(false);
@@ -178,8 +166,6 @@ public class ChainPlayerState extends AbstractChainModeState {
         return session;
     }
 
-    // 阶段8 块3：删旧 getMatchedTargetCount/getPendingBreakTargetCount/hasPlannerSubscription
-    // （ChainSession 委托方法已删，这些读取链已断；syncPlayerState 已删无调用方）。
 
     public boolean isSessionActive(ChainSession session) {
         return session != null && this.session == session;
@@ -357,14 +343,12 @@ public class ChainPlayerState extends AbstractChainModeState {
                 clearSession();
             }
         }
-        // 新的运行态从即时重试开始；缓冲资产不随失败计数和节流状态清理。
+        // 重置运行态的重试节奏，待交付资产继续由缓冲持有。
         resetDropReleaseFailure();
         clearPendingTunnelHit();
         MyMod.LOG.debug("[ChainState] Cleared runtime state for player {}, reason={}", playerUUID, reason);
     }
 
-    // 阶段8 块3：删旧 stopExecutionPreservingDrops（三层死代码：ChainRuntimeState/ChainSession/ChainPlayerState）。
-    // 新链路无外部调用方（G1 掉落窗口由 ChainDropCollector + executionStatus 守，不依赖 stopExecution 收口）。
 
     /**
      * Arm 起点方块掉落捕获一次性标志。
@@ -373,8 +357,7 @@ public class ChainPlayerState extends AbstractChainModeState {
      * 后立即调用，记录 arm 时的服务端 tick 戳。collector 侧 {@link #consumeSeedDropCaptureIfArmed(long)}
      * 在同 tick 戳消费一次即清零。</p>
      *
-     * <p>守唯一写权威：不复用 {@link #setExecuting(boolean)}/{@link #setExecutionStatus} 写入口，
-     * 独立字段，状态机唯一写权威不受影响。</p>
+     * <p>该标志独立记录原版同步收获窗口，由收集器按同 tick 一次性消费。</p>
      *
      * @param currentServerTick arm 时的服务端 tick 计数
      */
@@ -387,12 +370,8 @@ public class ChainPlayerState extends AbstractChainModeState {
     /**
      * 消费起点方块掉落捕获标志：仅当 armed 且 tick 戳相同才返回 true 并清零（一次性）。
      *
-     * <p>由 {@code ChainDropCollector.onHarvestDrops} 守卫调用。同 tick 戳校验是兜底：
-     * 若 HarvestDropsEvent 不是同 tick 触发（例如延迟触发），下一个 tick 戳不同则返回 false，
-     * 陈旧标志自然失效，不需主动清零。</p>
-     *
-     * <p>一次性语义：调用一次即清零，执行链 worker 同 tick 处理多次 或 onPlanCompleted 后
-     * collector 再次开窗口 都不会因为残留 armed 误判。</p>
+     * <p>由 {@code ChainDropCollector.onHarvestDrops} 调用；仅相同 tick 的首次消费清零，
+     * 延迟到后续 tick 的事件按过期标志处理。</p>
      *
      * @param currentServerTick 消费时的服务端 tick 计数
      * @return 仅当 armed 且 tick 相同时返回 true 并清零；否则 false（不动状态）
@@ -409,7 +388,7 @@ public class ChainPlayerState extends AbstractChainModeState {
     /**
      * 累加 world-tick 掉落释放连续失败计数并返回累加后的值。
      *
-     * <p>所有释放位置都失败后累加，仅用于延后重试和摘要日志。长期未交付也不得溢出回零。</p>
+     * <p>所有释放位置都失败后累加，仅用于重试与诊断；计数在 int 上界饱和。</p>
      *
      * @return 累加后的连续失败次数
      */
@@ -428,7 +407,7 @@ public class ChainPlayerState extends AbstractChainModeState {
         nextDropReleaseTick = 0L;
     }
 
-    /** 主线程按服务端 tick 调度，避免同 tick 多维度重复重试。 */
+    /** 主线程按服务端 tick 统一调度各维度的释放重试。 */
     public boolean isDropReleaseReady(long serverTick) {
         return serverTick >= nextDropReleaseTick;
     }
@@ -437,7 +416,7 @@ public class ChainPlayerState extends AbstractChainModeState {
         nextDropReleaseTick = serverTick;
     }
 
-    /** 不持有 World/Player/Event 的一次性左键命中快照。 */
+    /** 仅含维度、坐标与方向纯值的一次性左键命中快照。 */
     private static final class PendingTunnelHit {
         private final int dimensionId;
         private final int x;

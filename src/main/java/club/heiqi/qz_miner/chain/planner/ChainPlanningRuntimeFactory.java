@@ -69,9 +69,8 @@ public final class ChainPlanningRuntimeFactory {
         int effectiveRadius = requestedRadius > 0 ? Math.min(Config.chainRadius, requestedRadius) : Config.chainRadius;
         int effectiveMaxBlocks = requestedMaxBlocks > 0 ? Math.min(Config.chainMaxBlocks, requestedMaxBlocks) : Config.chainMaxBlocks;
         if (session.getRequest().getSubMode() == ChainSubMode.SPECIAL_GT_CABLE_REPLACE) {
-            // GT 必须证明完整连通分量未被截断；半径不能制造可执行的混压前缀。
-            // MAX_VALUE 是「不裁剪」哨兵：遍历器的距离检查对世界坐标有界、不会溢出为负；
-            // 规模上限由 effectiveMaxBlocks ≤ cableReplaceMaxPerTick 与入场预校验（B3）联合约束。
+            // GT 按完整连通分量规划，半径使用 MAX_VALUE 哨兵；
+            // 数量上限与执行前预检共同保证整个链路可原子替换。
             effectiveRadius = Integer.MAX_VALUE;
             effectiveMaxBlocks = Math.min(effectiveMaxBlocks, Config.cableReplaceMaxPerTick);
         }
@@ -284,8 +283,7 @@ public final class ChainPlanningRuntimeFactory {
         club.heiqi.qz_miner.objectgroup.ModeExtensionSnapshot modeExtension) {
         ConcurrentLinkedQueue<ChainTarget> nextFrontier = new ConcurrentLinkedQueue<ChainTarget>();
         Set<ChainTarget> visited = ConcurrentHashMap.newKeySet();
-        // 普通 same-block 规划只传播纯值 token，不把 seed TileEntity 交给 worker。
-        // GT 线缆特殊模式继续保留既有专用兼容字段，避免改变其 profile/preview 行为。
+        // 普通 same-block 规划仅传播纯值 token，GT 线缆保留 profile/preview 使用的专用引用。
         TileEntity specialModeTileEntity = subMode == ChainSubMode.SPECIAL_GT_CABLE_REPLACE
                 ? seedSnapshot.getSampleTileEntity() : null;
         return new ChainSearchContext(
@@ -415,7 +413,7 @@ public final class ChainPlanningRuntimeFactory {
         private final ConcurrentHashMap<ChainTarget, CandidateObservation> observations =
                 new ConcurrentHashMap<ChainTarget, CandidateObservation>();
 
-        /** 创建生产诊断器；DEBUG 保留文件诊断并避免默认终端刷屏，明细由 round 预算限制。 */
+        /** 创建生产诊断器，DEBUG 输出文件日志，候选明细受 round 预算限制。 */
         public static PlanningDiagnostics production(UUID playerUUID, long serverRoundId, int generation,
                 String mode, String subMode) {
             return new PlanningDiagnostics(playerUUID, serverRoundId, generation, mode, subMode,
@@ -557,7 +555,7 @@ public final class ChainPlanningRuntimeFactory {
                     + " pendingDetails=" + observations.size());
         }
 
-        /** 输出取消汇总，不改写原业务 reason。 */
+        /** 沿用业务 reason 输出本轮取消汇总。 */
         public void logPlanCancelled(String reason) {
             log("stage=PlanCancelled reason=" + safe(reason)
                     + " candidates=" + candidateCount.get()
@@ -616,7 +614,7 @@ public final class ChainPlanningRuntimeFactory {
             } catch (RuntimeException ignored) {
                 // 诊断 sink 与业务 predicate 隔离。
             } catch (LinkageError ignored) {
-                // 日志实现缺失不能改变规划结果。
+                // 日志链接失败留在诊断边界内，规划沿原结果继续。
             }
         }
 
@@ -673,7 +671,7 @@ public final class ChainPlanningRuntimeFactory {
         }
     }
 
-    /** 一条候选明细的 primitive/string 聚合，不持有 World/Player/Block。 */
+    /** 仅含 primitive/string 的单条候选诊断快照。 */
     private static final class CandidateObservation {
 
         private final int x;

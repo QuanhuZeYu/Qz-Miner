@@ -45,7 +45,7 @@ final class MinerHudBezel {
         if (opacity <= 0) return;
         draw(target, clip, fit, shadow, 0x70000000, opacity);
         draw(target, clip, fit, rim, MinerHudPalette.bezel(palette), opacity);
-        // 凹槽保持不透明；不能再用透明刻度直接与游戏画面的亮度竞争。
+        // 不透明凹槽为刻度提供稳定的亮度背景。
         draw(target, clip, fit, well, palette.background, opacity);
         draw(target, clip, fit, face, MinerHudPalette.face(palette, accent), opacity);
         draw(target, clip, fit, edge, SceneMotion.alpha(palette.text, palette.dark ? .2f : .24f), opacity);

@@ -8,31 +8,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * GLSL 源码的词汇/顶层结构读取入口：剥注释、抽 attribute/varying/uniform 声明面、函数签名与函数体。
- *
- * <p><b>为什么存在</b>：着色器的「声明面」是 Java 侧按字符串解析的运行时接口
- * （{@code glGetUniformLocation} / {@code glGetAttribLocation} 拿名字去问），所以「某个 uniform 到底
- * 声明没有、是 mat4 还是 vec4、只在顶点阶段还是两阶段都有、函数还在不在」是真实契约而不是文本快照；
- * 但它是 GLSL 而不是 Java，{@link JavaSourceSlices} 的 Java 口径（方法体、调用实参、标识符）
- * 在这里没有对应概念。本类原先住在 {@code chain.client.render} 包内且是包私有，
- * {@code chain.client.verify} 的用例够不到，只能各自写正则——已并入 {@code testsupport}，
- * 让任何包都能用同一套词法与结构口径（注释剥离也只有这一份实现：
- * 原包内的 GLSL 校验器改为委托本类，避免两套注释剥离器随版本分叉）。</p>
- *
- * <p><b>能证伪什么</b>：删掉/改名一个 uniform、attribute、varying 或函数（声明面集合立即变化）；
- * 把 uniform 从顶点阶段挪到片元阶段（两阶段集合互换）；改 uniform 类型（如 mat4 写成 vec3）；
- * 两阶段 varying 名字或类型不一致（链接期必然失败）；把代码写进注释冒充声明；
- * 某个 uniform 只声明、从不被函数体引用（{@link #countIdentifier} 的词边界计数为 0）。</p>
- *
- * <p><b>守不到什么</b>：GLSL 语义与行为（类型推导、参数个数、表达式取值、编译器实际是否保留某 uniform
- * 全都不在这里判定，本类只做顶层文本结构抽取）；预处理器分支（{@code #ifdef} 里外的声明一视同仁）；
- * 多行折叠的声明写法（声明必须落在同一行，这是本仓着色器的既有排版约束）；
- * 运行时是否真的绑定成功（真机验证 + shader 头部「实机验证记录」承担）。</p>
- *
- * <p><b>服务哪些用例</b>：{@code ChainPreviewShaderContractTest}（属性三元组、varying 一致性、
- * 阶段归属、uniform 清单对账）、{@code ChainPreviewShaderSemanticColorTest} 与
- * {@code ChainPreviewShaderFenceTest}（经原包校验器间接使用注释剥离）、
- * {@code chain.client.verify.T48cCRequiredUniformReachabilityTest}（声明面；其正则口径的替换见该类注释）。</p>
+ * 剥离注释后抽取 GLSL 顶层属性、varying、uniform、函数及调用关系，供既有结构验证复用。
+ * 声明按本仓单行写法识别，预处理分支统一纳入；语义编译、优化结果及 GL 绑定由编译器和实机确认。
  */
 public final class GlslSourceScanner {
 

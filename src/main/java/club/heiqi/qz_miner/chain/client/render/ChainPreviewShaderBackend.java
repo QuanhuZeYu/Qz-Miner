@@ -16,36 +16,12 @@ import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
 /**
- * 预览着色器后端：GPU 距离淡出 + 屏幕最小宽度钳制 + 逐波生长 + 语义颜色。
+ * 渲染线程持有 shader、VAO 与位置/语义/方向缓冲，GPU 计算距离淡出、生长、语义色和屏幕外扩。
+ * mesh 以 quad 表达业务面，上传时展开三角形索引以适配 Angelica GLSM core profile。
  *
- * <p><strong>失败必回退</strong>：任何编译 / 链接 / 验证 / 能力缺失都在 {@link #ensureReady()}
- * 内被捕获，返回 false 并把原因写进 {@link #describe()}；失败后不再重试（{@code unavailable}），
- * 渲染帧不会因本类抛异常。runtime 异常在 {@link #draw(ChainPreviewDrawPlan)} 内被吞并计数，
- * 保证不中断渲染主循环。</p>
- *
- * <p><strong>零 CPU 颜色上传</strong>：{@link #usesCpuColors()} 返回 false，颜色由 aAux 语义类别
- * + uniform 调色板在 GPU 侧决定。着色器不声明 aColor、也不保留该顶点流（顶点属性契约修订，T51）：
- * 该流只服务 legacy 的 CPU 烘焙逐顶点 α，上传一份永不被读取的颜色数据纯属浪费。</p>
- *
- * <p><strong>显式相机矩阵 + 自检（T48c-A）</strong>：着色器不再读固定管线内建矩阵。每次 draw 在
- * renderer 完成 {@code glTranslated(origin − renderPos)} 之后，用 {@code glGetFloatv} 取
- * GL_PROJECTION_MATRIX / GL_MODELVIEW_MATRIX，CPU 侧相乘成 MVP 并上传 {@code uModelViewProjection}
- * / {@code uModelView}；随后对 modelview 平移列做 {@code |平移列| ≈ |origin − renderPos|} 自检
- * （真机下内建矩阵失同步时栈保持单位阵 ⇒ 模长 0 ⇒ 立即检出）。自检不通过 ⇒ 一次性
- * {@code unavailable} ⇒ {@link #ensureReady()} 返回 false ⇒ renderer 既有的
- * {@code ensureReadyBackend()} 永久回退 legacy：不新增回退机制，也绝不画错帧。</p>
- *
- * <p><strong>T48c-C 加固</strong>：① 程序链接后校验必备 uniform 的 location（缺失 ⇒ 程序不可用，
- * 见 {@link ChainPreviewShaderProgram}），并让矩阵上传返回成功与否 —— 堵住「uniform 缺失静默跳过 ⇒
- * shader 拿零矩阵、而自检读驱动矩阵照样通过」；② 自检扩展为「投影可信 + 线性部分刚性 + 平移列模长 +
- * 平移-线性一致性」（原版相机扭曲期间跳过后两项，见 {@link #vanillaCameraWarpActive()}）。</p>
- *
- * <p><strong>GL 状态契约</strong>：帧级 pushAttrib / pushClientAttrib 与绑定围栏由 renderer 统一
- * 负责；本类内部除了 {@link #dispose()}（可能被帧外生命周期调用）以外不捕获绑定快照，也不改
- * 矩阵 / 混合 / 深度状态，只在 draw 内切换自己需要的程序与顶点属性槽位并恢复 attrib 1/2。
- * 自己拥有的 VAO 在 draw 结束时回到 0，避免覆盖 renderer 之后的状态。</p>
- *
- * <p>线程契约：所有方法只在渲染线程调用。</p>
+ * <p>draw 在原点换基后显式读取并上传相机矩阵，按可信性检查决定本帧绘制；
+ * 初始化或矩阵可信性失败锁存不可用状态并交 renderer 选择后续路径；普通绘制异常计数后结束本帧。
+ * 帧内绑定和状态由 renderer 围栏恢复，帧外 dispose 自带围栏，GPU 资源经渲染线程释放。</p>
  */
 public final class ChainPreviewShaderBackend implements ChainPreviewRenderBackend {
 
@@ -62,7 +38,6 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     /** 程序首次就绪的能力对账日志是否已输出（一次性）。 */
     private boolean programReadyReported;
-    /** uModelView 缺失（被编译器优化掉）的一次性说明是否已输出。 */
 
     private int vao;
     private int vbo;
@@ -122,7 +97,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         ByteBuffer byteBuffer(int capacity);
     }
 
-    /** 默认分配器：惰性实例，避免类初始化期触碰 LWJGL native。 */
+    /** 默认分配器在分配调用时加载 LWJGL native。 */
     private static final BufferAllocator LWJGL_ALLOCATOR = new BufferAllocator() {
 
         @Override
@@ -209,7 +184,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
                         ? "着色器程序不可用" : program.getLastFailureMessage();
                 return false;
             }
-            // T50：槽位必须在写 VAO 之前解析——绑错槽位就是「顶点数据永远读不到」。
+            // 写 VAO 前解析驱动实际分配的属性槽位。
             resolveAttributeBindings();
             initializeGl();
             initialized = true;
@@ -230,9 +205,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
     @Override
     public void uploadTopology(ChainPreviewMesh mesh) {
-        // 契约（ChainPreviewRenderBackend）：空网格不得触发 GL 初始化。
-        // renderer 的 clearMesh 路径在帧围栏之外调用本方法，若此处先 ensureReady()
-        // 就会把着色器编译 + VAO/buffer 绑定带到无围栏路径（对齐 legacy 后端顺序）。
+        // 空网格仅清绘制范围，帧外 clearMesh 因此保持惰性初始化。
         if (mesh == null || mesh.isEmpty()) {
             indexCount = 0;
             vertexCount = 0;
@@ -255,9 +228,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         int[] uploadIndices = triangleIndexScratch;
         indexCount = uploadIndexCount;
         vertexCount = vertexFloatCount / 3;
-        // 刻意不缓存 meshOrigin：uOriginRel 与自检期望值一律取 plan 的 origin（renderer 的
-        // glTranslated 与 legacy 后端都用 plan origin）。上传期缓存会在「同 mesh 换 plan」时
-        // 让两后端语义分叉（T48c-A）。
+        // 原点留到 draw 读取本帧 plan，与 renderer 换基和 legacy 保持同源。
         appearSpan = maxAppearOrder(aux, vertexCount);
 
         // ARRAY_BUFFER 绑定是**全局**状态（不属于 VAO）：本方法为写 VBO / ABO 连续切换绑定，
@@ -274,11 +245,8 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
         int requiredVboSize = vertexFloatCount * 4;
-        // T49：真机实测「不前置 glBufferData 的 glBufferSubData」会静默丢失——只有 vboCapacity
-        // 增长的那一次写入有效，后续写入后立即回读仍全 0（draw 期同样为 0）。本环境 GL 调用
-        // 会被 Angelica 的 GLSMRedirector 重写进 GLStateManager（它跟踪 boundVBO），继续逆向
-        // 其内部时序性价比低，改用已被证明有效的组合：每次上传先重新分配（buffer orphaning）
-        // 再写入。语义不变（本来就是全量重传），代价是每次上传一次缓冲重分配。
+        // Angelica GLSMRedirector/GLStateManager 环境实机出现复用缓冲写入丢失；
+        // 每次全量上传先 orphan 再写入，使用已验证的分配与写入组合。
         vboCapacity = calculateNewCapacity(requiredVboSize);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, vboCapacity, GL15.GL_DYNAMIC_DRAW);
         vertexStaging = prepareFloatBuffer(vertexStaging, vertices, vertexFloatCount);
@@ -289,15 +257,14 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, ebo);
         int requiredEboSize = indexCount * 4;
-        // T49：同 VBO/ABO，每次重新分配后再写入；EBO 此前看似正确其实是假阳性
-        // （前几个索引在不同几何间恰好相同），一并纳入同一策略。
+        // EBO 同样先重新分配，再写入全量索引。
         eboCapacity = calculateNewCapacity(requiredEboSize);
         GL15.glBufferData(GL15.GL_ELEMENT_ARRAY_BUFFER, eboCapacity, GL15.GL_DYNAMIC_DRAW);
         indexStaging = prepareIntBuffer(indexStaging, uploadIndices, uploadIndexCount);
         GL15.glBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, 0, indexStaging);
 
         GL30.glBindVertexArray(0);
-        // 成对恢复：与 draw 路径同一纪律（draw 早已恢复 ARRAY_BUFFER，upload 此前遗漏）。
+        // 恢复进入上传前的全局 ARRAY_BUFFER 绑定。
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, previousArrayBuffer);
     }
 
@@ -329,7 +296,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
 
         int previousProgram = 0;
         try {
-            // GL_CURRENT_PROGRAM 不受 glPushAttrib 覆盖，必须显式保存 / 恢复（Lead 批准 +1 次查询）。
+            // GL_CURRENT_PROGRAM 由此处显式保存和恢复。
             previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
             program.use();
             if (!applyUniforms(plan)) {
@@ -492,30 +459,17 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     /**
-     * 生长 uniform（{@code uAnimProgress} / {@code uAppearSpan}）的取值。
+     * 写入生长完成度与真实目标总数。appearSpan 为最大序号，缺少 aux 时为负数。
+     * 动画完成后仍保留总数，供静止态连锁序亮度归一化使用；非法进度取全部可见。
      *
-     * <p>序号总数语义（T13-D1）：{@code appearSpan} 是「最大出现序号」，单目标时为 0——拿它当关闭
-     * 条件会把 1 个目标的链路误判成「关闭生长」而立即全显；真正表示「无序号信息」的是 aux 缺失
-     * （{@code appearSpan < 0}，此时总数写 0）。</p>
-     *
-     * <p><b>uAppearSpan 恒携带真实序号总数</b>（唯一的例外是无序号信息时写 0）。它是「归一化分母」
-     * 的单一真源，同时供<b>连锁序权重</b>（{@code uOrderMinBrightness} → {@code orderWeight}，
-     * 乘在颜色亮度上）在<b>静止态</b>使用——静止态正是生长动画已完成的场景。旧写法在 {@code u >= 1} 时把 span 写成 0，
-     * 那是「为省开销而对 span 撒谎」，会让连锁序权重在默认档（{@code animation=off}，u 恒 1）
-     * 恒等失效。省开销已下移到 GLSL 的 {@code growthActive || orderWeightActive} 按需门控：
-     * 两个消费方都不需要时仍然整段不读 appearOrder。</p>
-     *
-     * <p>进度 {@code u >= 1} 或无序号信息时写 1（整段可见）。进度经 {@code clamp01} 收敛，
-     * NaN 收敛为 1，不产生整链丢弃。</p>
-     *
-     * @param plan       当前 draw plan（进度来源）
-     * @param appearSpan 同代最大出现序号（{@link #maxAppearOrder(byte[], int)} 的结果；&lt; 0 = 无 aAux）
-     * @param out        输出缓冲（长度 &ge; 2）：out[0] = uAnimProgress，out[1] = uAppearSpan
+     * @param plan 当前绘制计划
+     * @param appearSpan 同代最大出现序号，负值表示缺少 aux
+     * @param out 至少两项，依次接收 uAnimProgress 与 uAppearSpan
      */
     static void growthUniforms(ChainPreviewDrawPlan plan, float appearSpan, float[] out) {
         float orderCount = appearSpan >= 0.0F ? appearSpan + 1.0F : 0.0F;
         float animationU = plan.getAnimationU();
-        // span 恒传真实总数（0 只表示「无序号信息」），不再在 u >= 1 时撒谎为 0。
+        // 总数同时服务生长与静止态序号亮度，零表示缺少序号信息。
         out[1] = orderCount;
         out[0] = (orderCount <= 0.0F || animationU >= ChainPreviewDrawPlan.ANIMATION_COMPLETE)
             ? 1.0F
@@ -523,25 +477,10 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
     }
 
     /**
-     * 六槽语义调色板 uniform 的取值（顺序 = {@link ChainPreviewShaderMath#PALETTE_CHAIN} …
-     * {@link ChainPreviewShaderMath#PALETTE_TRUNCATED}）。
+     * builtin 返回静态只读精确调色板，CHAIN 保留 legacy 的 float 基色精度。
+     * config 按 int RGB 写入调用方复用缓冲。
      *
-     * <p>两档走不同精度通道：</p>
-     * <ul>
-     *   <li><b>builtin（生产默认）</b>：返回<b>静态复用的精确调色板表</b>（CHAIN 槽 = 精确基线常量
-     *       (0.25, 0.9, 1.0)，其余五槽按 /255 取显式 0xRRGGBB）。刻意不消费 plan 的
-     *       {@code Colors.BUILTIN_CHAIN_RGB}（= 0x40E6FF 的 8bit 量化值）——量化后
-     *       R=0.25098…、G=0.90196…，与 legacy 颜色流有 ≤0.002 色差，会破坏
-     *       「默认档逐字节等于现状」；plan 侧该量化值只用于值相等与诊断。</li>
-     *   <li><b>config</b>：六槽取 plan 的六色（配置本以 int RGB 存储），按 8bit 量化（{@code /255}）
-     *       写进调用方提供的复用缓冲；该量化差异只出现在本档，已登记。</li>
-     * </ul>
-     *
-     * @param plan          当前 draw plan（颜色来源只经 plan 传入，遵守 单通道）
-     * @param configScratch config 档输出缓冲（{@link ChainPreviewShaderMath#PALETTE_SLOT_COUNT} × 3
-     *                      槽位数组，调用方复用）；builtin 档不使用
-     * @return 长度 {@link ChainPreviewShaderMath#PALETTE_SLOT_COUNT} 的 RGB 表；builtin 档为
-     *         <b>静态只读表</b>，调用方不得修改
+     * @return 六槽 RGB 表；builtin 返回值由调用方只读使用
      */
     static float[][] paletteUniforms(ChainPreviewDrawPlan plan, float[][] configScratch) {
         if (!ChainPreviewShaderMath.COLOR_SOURCE_CONFIG.equals(plan.getColorSourceId())) {
@@ -563,79 +502,26 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         slot[2] = ChainPreviewShaderMath.colorChannel(rgb, 0);
     }
 
-    /**
-     * 淡入淡出包络 uniform（{@code uFadeAlpha}）的取值：clamp 到 [0,1]，NaN 收敛为不透明。
-     *
-     * <p>默认档 {@code getFadeAlpha() == 1} ⇒ 逐值等于启用动画前（乘 1 不改变结果）；异常配置
-     * 不得让整条链路静默消失，故 NaN 走「不透明」而不是「传播」。收敛口径的单一真源在
-     * {@link ChainPreviewShaderProgram#sanitizeFadeAlpha(float)}（uniform 的写入边界）。</p>
-     *
-     * @param plan 当前 draw plan
-     * @return [0,1] 的包络
-     */
+    /** @return 按程序写入边界规则收窄的全局包络，NaN 取不透明 */
     static float fadeAlphaFor(ChainPreviewDrawPlan plan) {
         return ChainPreviewShaderProgram.sanitizeFadeAlpha(plan.getFadeAlpha());
     }
 
-    /**
-     * 连锁序**亮度**权重下限 uniform（{@code uOrderMinBrightness}）的取值。
-     *
-     * <p>默认档（未接线前的历史观感）是 {@code 1.0} = 关闭：GLSL 侧 {@code uOrderMinBrightness >= 1.0}
-     * 完全不进入 orderWeight 分支。非 1.0 时该权重只乘<b>颜色亮度</b>（{@code color * orderWeight}，
-     * 位于面朝向明暗之外层），alpha 链路（fade × growth × uFadeAlpha）不含它——距离淡出与连锁序
-     * 因此各自权威（用户裁定）。收敛口径的单一真源在
-     * {@link ChainPreviewShaderMath#orderMinBrightness(float)}（NaN / 越界 → 1.0），不把非法值送进 uniform。</p>
-     *
-     * <p><b>生效前提</b>：orderWeight 的分母是 {@code uAppearSpan}（= 同代目标总数），由
-     * {@link #growthUniforms} 逐帧供给；该供给口恒携带真实总数（只有「无 aAux」才写 0），
-     * 因此本能力在静止态（{@code animation=off}，u 恒 1）同样生效——那正是默认档的常见场景。
-     * 「无序号信息」仍走 GLSL 的恒等出口（{@code uAppearSpan <= 0}）：这是供给口的语义，
-     * 不是本函数的判断。</p>
-     *
-     * @param plan 当前 draw plan
-     * @return [0,1] 的亮度权重下限；{@code 1.0} = 关闭本能力
-     */
+    /** @return 按共享数学规则收窄的连锁序 rgb 权重下限，恒等值关闭该乘色能力 */
     static float orderMinBrightnessFor(ChainPreviewDrawPlan plan) {
         return ChainPreviewShaderMath.orderMinBrightness(plan.getOrderMinBrightness());
     }
 
-    /**
-     * 内部结构亮度系数 uniform（{@code uInteriorDim}）的取值。
-     *
-     * <p>默认档（未接线前的历史观感）是 {@code 1.0} = 关闭：GLSL 侧 {@code uInteriorDim >= 1.0}
-     * 完全不进入内部压暗分支。非 1.0 时该系数只乘<b>内部格线</b>（{@code auxChannel(aAux.y) >= 4.0}，
-     * 即 tubeEdge 未定义的 junction 补块 / 共享顶点）的<b>颜色 rgb</b>，alpha 链路
-     * （fade × growth × uFadeAlpha）不含它，描边 pass 也不含它</p>
-     *
-     * <p><b>为什么压暗对象是「未定义 tubeEdge」</b>：贯通管面槽位 0..3 的顶点承担外轮廓，
-     * 必须保持原亮度；junction 补块与共享顶点首写即为
-     * {@link club.heiqi.qz_miner.chain.client.ChainPreviewMesh#AUX_UNDEFINED}（实测可达集合
-     * {0, 1, 255}），正是「内部格线」的几何身份。判据见
-     * {@link ChainPreviewShaderMath#INTERIOR_TUBEEDGE_THRESHOLD}。</p>
-     *
-     * <p>收敛口径的单一真源在 {@link ChainPreviewShaderMath#interiorDim(float)}
-     * （NaN / 越界 → 1.0），不把非法值送进 uniform。</p>
-     *
-     * @param plan 当前 draw plan
-     * @return [0,1] 的亮度系数；{@code 1.0} = 关闭本能力
-     */
+    /** @return 主体内部格线 rgb 系数，非法值取恒等；贯通管面、描边与 alpha 各沿自身路径 */
     static float interiorDimFor(ChainPreviewDrawPlan plan) {
         return ChainPreviewShaderMath.interiorDim(plan.getInteriorDim());
     }
 
     /**
-     * 相机相对 origin 的偏移（plan origin − 相机世界坐标），在 double 域相减后再由调用方收窄为 float。
+     * 取本帧 plan origin，与 renderer 换基及 legacy 使用同源原点。
+     * 在 double 域减相机世界坐标后再收窄为 float，保留大坐标下的局部精度。
      *
-     * <p><b>来源恒为 plan 的 origin</b>（与 renderer 的 {@code glTranslated}、legacy 后端同源）：
-     * 上传期缓存的 origin 会在「同 mesh 换 plan」时让两后端语义分叉（T48c-A）。double 域相减不是
-     * 形式主义：30M 级世界坐标下 float 相减会把 0.75 格差算成 0（float 在 3e7 处的间距是 4），
-     * 表型是整链相对方块抖动。</p>
-     *
-     * @param plan       当前 draw plan
-     * @param renderPosX 相机世界 X（{@code RenderManager.renderPosX}）
-     * @param renderPosY 相机世界 Y
-     * @param renderPosZ 相机世界 Z
-     * @param out        输出缓冲（长度 &ge; 3）：out[0..2] = X / Y / Z
+     * @param out 至少三项，依次接收相机相对 X/Y/Z
      */
     static void originRelativeTo(
             ChainPreviewDrawPlan plan, double renderPosX, double renderPosY, double renderPosZ, double[] out) {
@@ -769,13 +655,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             markMatrixSourceUntrusted("uModelViewProjection 未上传（location < 0 或 GL 失败）");
             return false;
         }
-        // 能力矩阵：uModelView 当前只服务「屏幕最小宽度 / 深度换算」这些尚未启用的分支，GLSL 编译器
-        // 可以按规范把它优化掉（location = -1）。缺失 ⇒ 该能力关闭（已登记进 capabilityReport），
-        // 但投影本身仍正确，不得据此作废整帧 —— 这是 2026-09-13 真机「shader 档什么都不画」的第二段原因。
-        // 返回值仍被显式消费：一次性说明「哪个能力因此关闭」，避免再次静默。
-        // T51：uModelView 已进入硬必备清单——aDirection 位移要用它算「单位深度上的像素/世界单位」，
-        // 缺它位移量就是错的。上传失败即放弃本帧（与 uModelViewProjection 同口径），
-        // 不再像 T49 那样只记一条「该能力关闭」。
+        // uModelView 决定方向外扩的像素/世界尺度，作为必备矩阵验证上传结果。
         if (!program.setModelView(modelViewMatrix)) {
             markMatrixSourceUntrusted("uModelView 未上传（location < 0 或 GL 失败）");
             return false;
@@ -868,14 +748,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         return ChainPreviewShaderMatrixMath.TRANSLATION_DIRECTION_SLACK + pullback;
     }
 
-    /**
-     * 矩阵来源不可信 ⇒ 一次性不可用，<b>不新建回退机制</b>。
-     *
-     * <p>renderer 下一帧调用 {@link #ensureReady()} 拿到 false，随即走既有的一次性永久回退 legacy
-     * 路径（一次 WARN + describe 诊断）。失败只发生一次、不每帧重试，也绝不画错误空间。</p>
-     *
-     * @param reason 人类可读原因（同时写进 {@link #describe()}）
-     */
+    /** 锁存矩阵失败原因并停止本帧；renderer 后续按 ensureReady 结果选择回退路径。 */
     private void markMatrixSourceUntrusted(String reason) {
         unavailable = true;
         matrixSourceFailure = reason;
@@ -884,14 +757,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         }
     }
 
-    /**
-     * 设置六色调色板（uniform 声明在**顶点**着色器：选色在顶点阶段完成，F1）。
-     *
-     * <p>取值规则见 {@link #paletteUniforms(ChainPreviewDrawPlan, float[][])}（纯函数，可 headless
-     * 断言数值）：builtin 档传内置调色板（CHAIN 槽为精确基线常量），config 档按 8bit 量化传 plan 六色。</p>
-     *
-     * @param plan 当前 draw plan（配置只经 plan 传入，保持「只读 plan + uniform」单通道，遵守 读取面单通道（真源：ChainPreviewVisualSettings））
-     */
+    /** 按 paletteUniforms 的精度规则上传六槽顶点着色器调色板。 */
     private void applyColorPalette(ChainPreviewDrawPlan plan) {
         float[][] palette = paletteUniforms(plan, colorPaletteScratch);
         for (int slot = ChainPreviewShaderMath.PALETTE_CHAIN;
@@ -905,9 +771,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, abo);
         int requiredAboSize = Math.max(vertexCount * ChainPreviewMesh.AUX_BYTES_PER_VERTEX, 1);
         if (aux == null || aux.length < requiredAboSize) {
-            // 无语义流（或流长不足）时整段填「未定义」：semanticClass/tubeEdge = 255、
-            // appearOrder = 0xFFFF。只填前 64 字节会让后续顶点的 aAux 读到未定义数据，
-            // B2.3 接线颜色语义后会显形（cross-review D5）。
+            // 缺失或不足的语义流整段填未定义值，覆盖全部顶点。
             aboCapacity = calculateNewCapacity(requiredAboSize);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
             undefinedAuxStaging = prepareUndefinedBuffer(undefinedAuxStaging, requiredAboSize, allocator);
@@ -915,24 +779,14 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, auxStaging);
             return;
         }
-        // T49：同 VBO，每次重新分配后再写入（见 uploadTopology 的说明）。
+        // 与位置流共用先 orphan 再全量写入的策略。
         aboCapacity = calculateNewCapacity(requiredAboSize);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, aboCapacity, GL15.GL_DYNAMIC_DRAW);
         auxStaging = prepareByteBuffer(auxStaging, aux);
         GL15.glBufferSubData(GL15.GL_ARRAY_BUFFER, 0, auxStaging);
     }
 
-    /**
-     * 上传每顶点外扩方向（aDirection）。
-     *
-     * <p>写入纪律与 VBO / ABO / EBO 一致：<b>每次先 {@code glBufferData} 重新分配再
-     * {@code glBufferSubData}</b>——T49 真机实测证明本环境里「不前置 glBufferData 的
-     * glBufferSubData」会静默丢失，只有重分配那一次写入生效。方向流是每代全量重传，
-     * 语义不变，代价只是每代一次缓冲重分配。</p>
-     *
-     * <p>方向流缺失（网格来自未提供方向的路径 / 长度退化）时整段填零：零方向顶点在着色器里
-     * 恒等退化（{@code displaced = aPos}），与禁用最小宽度和描边逐值一致，是安全降级。</p>
-     */
+    /** 全量上传方向流，每次 orphan 缓冲后写入；缺失或退化方向填零，shader 使用原顶点位置。 */
     private void uploadDirections(byte[] directions, int vertexCount) {
         int bytes = vertexCount * ChainPreviewMesh.DIRECTION_BYTES_PER_VERTEX;
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, dbo);
@@ -1069,7 +923,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
         GL20.glVertexAttribPointer(attributeDirection, 4, GL11.GL_BYTE, true, DIRECTION_STRIDE_BYTES, 0L);
     }
 
-    /** T50：链接后取驱动分配的属性槽位；任一必需属性缺失即置后端不可用（绝不画错误空间的一帧）。 */
+    /** 链接后取得真实属性槽位，必备属性缺失时锁存不可用状态。 */
     private void resolveAttributeBindings() {
         attributePosition = program.getPositionAttributeLocation();
         attributeAux = program.getAuxAttributeLocation();
@@ -1162,7 +1016,7 @@ public final class ChainPreviewShaderBackend implements ChainPreviewRenderBacken
             GL15.glDeleteBuffers(deletedDbo);
             GL15.glDeleteBuffers(deletedEbo);
         } finally {
-            // 颜色缓冲参数恒为 0：shader 路径不再持有 CBO（顶点属性契约修订 T51 移除了 aColor 顶点流）。
+            // shader 颜色由语义流和 uniform 生成，CBO 句柄填零。
             previous.withoutDeletedBuffers(
                 deletedVao, deletedVbo, 0, deletedAbo, deletedDbo, deletedEbo).restore();
         }

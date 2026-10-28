@@ -11,21 +11,8 @@ import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
- * PlayerManager 的 endpoint 生命周期契约：local restore 屏障必须先于玩家映射表的改动，
- * 且 PlayerManager 自身不订阅 Forge/FML 事件总线（订阅点是 Mixin 侧）。
- *
- * <p><b>为什么不行为化</b>：所有入口都收 {@code EntityPlayerMP}（1.7.10 里构造玩家实体要求
- * WorldServer），本仓没有玩家 fixture，裁定也禁止为测试新增 seam / DI 点，所以路径只有两条，
- * 这里各用其正确形态：</p>
- * <ul>
- *   <li><b>顺序与委派</b>：{@link JavaSourceSlices} 先切方法体，再比标识符位置——旧写法从方法签名
- *       一路 {@code indexOf} 到文件尾，后续方法里的同名调用也能满足位置关系。</li>
- *   <li><b>依赖边界</b>：直接读 {@code .class} 常量池与注解表——「有没有订阅事件总线」在编译产物里
- *       是既成事实，与排版、局部变量名、注释无关；源码子串在「换个写法继续订阅」时会漏检。</li>
- * </ul>
- *
- * <p><b>守不到什么</b>：finalize 的真实副作用（本地工具换位是否真的还原、屏障是否真的先于世界改动），
- * 那需要真机或玩家 fixture。</p>
+ * 验证玩家 endpoint 改动前的恢复委派顺序，以及 PlayerManager 的事件总线依赖边界。
+ * 方法体切片检查调用顺序，编译产物检查类型及注解；实际库存恢复和世界时序另经实机确认。
  */
 public class PlayerManagerToolSwapLifecycleStructureTest {
 
@@ -33,7 +20,7 @@ public class PlayerManagerToolSwapLifecycleStructureTest {
             "src/main/java/club/heiqi/qz_miner/core/PlayerManager.java";
     private static final String CLASS_NAME = "club/heiqi/qz_miner/core/PlayerManager";
 
-    /** 禁止出现在 PlayerManager 依赖面里的事件类（简单名，覆盖 FML 的嵌套命名）。 */
+    /** 用于核对 Mixin 侧事件归属的类型清单，覆盖 FML 嵌套命名。 */
     private static final String[] FORBIDDEN_EVENT_TYPES = {
             "PlayerLoggedInEvent",
             "PlayerRespawnEvent",

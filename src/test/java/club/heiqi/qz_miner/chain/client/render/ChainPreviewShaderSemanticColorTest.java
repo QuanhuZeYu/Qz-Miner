@@ -6,24 +6,8 @@ import org.junit.Test;
 import club.heiqi.qz_miner.chain.client.ChainPreviewSemanticClass;
 
 /**
- * 语义类别取色的行为契约（task-16c，语义类别表（真源：ChainPreviewSemanticClass）；本轮按大模式重排值域与调色板槽位）。
- *
- * <p>取色链路共四段，逐段可证伪：</p>
- * <ol>
- *   <li><b>aAux.x → 类别 id</b>：归一化 ubyte 精确还原（round(x×255)）；</li>
- *   <li><b>类别 id → 调色板槽位</b>：0/1/2→CHAIN/AREA/INTERACT、3→扩展子模式、4→远端、5→截断，
- *       6/7/255→CHAIN 兜底；</li>
- *   <li><b>槽位 → 最终 RGB</b>：builtin 档 CHAIN 槽为精确基线常量 (0.25,0.9,1.0)（默认档逐字节等于
- *       现状），其余五槽是显式 0xRRGGBB 的 /255 换算；config 档按 8bit 量化（差异只在该档）；
- *       后端把 plan 映射成六槽 uniform 取值的那一步是纯函数
- *       （{@link ChainPreviewShaderBackend#paletteUniforms(ChainPreviewDrawPlan, float[][])}），
- *       同样按数值断言；</li>
- *   <li><b>插值语义（F1）</b>：选色必须在<strong>顶点阶段</strong>完成。varying 是 smooth 插值的，
- *       同一 quad 内两顶点类别不同时插值落在两个整数之间——若片元再用 {@code ==} 比较，插值结果可能
- *       恰好命中<em>另一个</em>类别的整数而画出错误颜色（本文件用一个具体数值证明这一点）。
- *       GLSL 侧不做源码文本匹配（重命名即误报、改系数却照样绿），改为真机验证 + shader 头部
- *       「实机验证记录」标记（注释改动不触发重验）。</li>
- * </ol>
+ * 数值验证 normalized byte 还原、语义到槽位、builtin 精确色与 config 量化色。
+ * 插值反例验证顶点选色的必要性，后端纯函数验证六槽 uniform 数据；GLSL 像素另经实机确认。
  */
 public class ChainPreviewShaderSemanticColorTest {
 
@@ -292,13 +276,7 @@ public class ChainPreviewShaderSemanticColorTest {
 
     // ------------------------------------------------------------------ 段 4：F1 插值语义
 
-    /**
-     * 插值模型：两顶点类别不同 → 顶点阶段已定色的结果参与混合，不会丢色。
-     *
-     * <p>反证（为什么不能在片元用 {@code ==} 选类别）：CHAIN_LOCAL=0 与 REMOTE_PREDICTED=4
-     * 的插值中点是 <b>2.0</b>，恰好等于 INTERACT_LOCAL —— 片元比较会画出一种「合法但错误」的颜色。
-     * 本断言把这个数值事实固化为契约。</p>
-     */
+    /** 对照顶点选色后混合与类别数值插值，验证不同类别的片元仍保留对应混合色。 */
     @Test
     public void interpolatedFragmentKeepsBothCategoryColors() {
         float[] remote = rgbOf(ChainPreviewSemanticClass.REMOTE_PREDICTED);

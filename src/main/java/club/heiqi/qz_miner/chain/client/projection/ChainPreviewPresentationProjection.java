@@ -12,33 +12,11 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * 连锁预览表现投影单一事实源（B1.1 / task-19a）。
+ * 将预览、阶段与诊断采样合为不可变标量 header，供 HUD 等消费者统一订阅。
  *
- * <p>把 phase / generation / scanned / matched / visible / truncated(reason+count) /
- * remoteRequest(状态+id) / cancelReason 收口为一份不可变 O(1) header，并对外提供唯一订阅入口；
- * HUD / 截断提示 / 远端失败等消费方改为订阅本投影，不再各自旁路读
- * {@link ChainPreviewState}。</p>
- *
- * <h3>线程契约</h3>
- * <ul>
- *   <li>{@link #project} / {@link #subscribe} / {@link #unsubscribe} 契约上都在客户端主线程
- *       （{@code ClientTickEvent.START} 的 drain 内）；{@link #bindMainThread(Thread)} 做软校验，
- *       违反只记 warn，不抛异常（与 {@code ChainEventBus.drain} 的软校验一致）。</li>
- *   <li>回调在 {@link #project} 内<b>同步</b>执行：订阅者可安全持有 header 引用直到下次回调。</li>
- *   <li>单个订阅者抛 {@link RuntimeException} 被隔离并计 warn，不中断其他订阅者，不摘除订阅。</li>
- * </ul>
- *
- * <h3>失效契约（六个身份维度）</h3>
- * <p>worldIdentity / lifecycleEpoch / serverRoundId / configRevision / objectGroupRevision /
- * serverGeneration（以及 previewGeneration）任一变化即视为新 header：{@link #project} 发布新
- * revision 并通知全部订阅者，订阅者据此重置本地缓存。全部字段不变时不发布（零通知）。</p>
- *
- * <h3>生命周期</h3>
- * <p>断线/世界卸载时由装配点调用 {@link #clear()}（丢弃当前 header、revision 水位重置、订阅者保留），
- * 使 HUD 自动降级并在重连后的下一 tick 恢复；{@link #clearSubscriptions()} 连通订阅者一起摘除；
- * {@link Subscription#unsubscribe()} 幂等。{@link #uninstall} 仅用于测试/进程退出——生产 cleanup
- * <b>不</b> uninstall（ClientProxy.init 只在客户端启动执行一次，uninstall 会让重连后的 HUD 永久读不到
- * 投影实例）。</p>
+ * <p>客户端主线程同步发布，内容或身份变化时递增 revision；单个订阅者异常记录后继续分发。
+ * clear 释放当前 header 并保留订阅，重连后复用装配实例；显式 clearSubscriptions 才摘除监听，
+ * uninstall 供验证或进程退出使用。线程绑定提供告警式校验。</p>
  */
 @SideOnly(Side.CLIENT)
 public final class ChainPreviewPresentationProjection {
@@ -279,7 +257,7 @@ public final class ChainPreviewPresentationProjection {
         publishedRevision.set(0L);
     }
 
-    /** 生命周期清理：摘除全部订阅者（断线/世界卸载时由装配点调用）。 */
+    /** 显式摘除全部订阅者，供装配卸载使用。 */
     public void clearSubscriptions() {
         checkThread("clearSubscriptions");
         listeners.clear();

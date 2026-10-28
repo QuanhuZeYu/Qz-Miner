@@ -5,8 +5,7 @@ import java.util.Objects;
 /**
  * TileEntity 身份的不可变纯值令牌。
  *
- * <p>令牌只保存状态与字符串身份，不持有 TileEntity、World、NBT、Class、坐标或反射成员，
- * 因而可从主线程安全传播到规划 worker。</p>
+ * <p>令牌仅含状态与字符串身份，可从主线程安全传播到规划 worker。</p>
  */
 public final class TileIdentityToken {
 
@@ -75,7 +74,7 @@ public final class TileIdentityToken {
         return typeName;
     }
 
-    /** @return 纯值身份键；诊断不得输出该字段 */
+    /** @return 用于身份比较的纯值键；诊断使用状态与类型名 */
     public String getIdentityKey() {
         return identityKey;
     }

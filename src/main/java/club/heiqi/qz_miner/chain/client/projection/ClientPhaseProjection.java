@@ -5,42 +5,21 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * 阶段6 A2：客户端连锁阶段投影容器（单玩家，P1-2=A 决议）。
- *
- * <p>客户端只有本地玩家，单实例容器。{@code currentPhase}/{@code currentGeneration}/
- * {@code lastUpdateServerTick} 三个 volatile 字段供 HUD/诊断读取"服务端状态机最新态"。</p>
- *
- * <p><b>阶段8 块3 起投影夺权</b>：HUD/预览锁定权威已从旧 {@code serverExecutionStatus}
- * 切到本投影（G2 不夺权铁律解除）。阶段6-7 影子期的"只可见不夺权"已结束。</p>
- *
- * <h3>守框架约束</h3>
- * <ul>
- *   <li><b>跨线程只经事件总线</b>：本容器 {@code update} 由 {@code ClientPhaseProjectionSubscriber} 在
- *       ClientTickEvent.START drain（客户端主线程）调用，不在 Netty 线程直接改。</li>
- *   <li><b>生命周期收口</b>：玩家断线/切维度/世界卸载时由 {@code ClientConnectionListener} 调 {@link #clear()}。</li>
- *   <li><b>唯一写权威</b>：客户端没有状态机实例，投影容器与状态机物理隔离，只可见不可切态。</li>
- * </ul>
+ * 客户端维护的服务端阶段投影，供 HUD 与预览锁定条件消费。
+ * 订阅者在客户端主线程 drain 时应用匹配或较新的代际，serverTick 留作诊断。
+ * 连接与世界生命周期切换时统一清空投影。
  */
 @SideOnly(Side.CLIENT)
 public class ClientPhaseProjection {
 
-    /** 当前投影阶段，初值 IDLE。volatile 守跨线程只经事件总线：跨线程可见性（实际写都在客户端主线程 drain）。 */
+    /** 当前投影阶段，初值 IDLE，由客户端主线程 drain 更新。 */
     private volatile ChainPhase currentPhase = ChainPhase.IDLE;
     /** 当前投影代际，初值 0。 */
     private volatile int currentGeneration = 0;
     /** 最后一次更新的服务端 tick（诊断字段）。 */
     private volatile long lastUpdateServerTick = -1L;
 
-    /**
-     * 更新投影。
-     *
-     * <p>代际陈旧判定：新 {@code generation < currentGeneration} 丢弃（迟到旧快照）；
-     * {@code >=} 接受（== 是同代重复，幂等覆盖；> 是新代际，正常更新）。</p>
-     *
-     * @param phase       目标态
-     * @param generation  转移后的新代际
-     * @param serverTick  发布时服务端 tick
-     */
+    /** 应用相同或较新的代际快照，保留本次快照的诊断 tick。 */
     public void update(ChainPhase phase, int generation, long serverTick) {
         if (generation < currentGeneration) {
             // 陈旧快照迟到，丢弃
@@ -52,7 +31,7 @@ public class ClientPhaseProjection {
     }
 
     /**
-     * 清理投影（守生命周期收口：玩家断线/切维度/世界卸载时调用）。
+     * 连接或世界生命周期切换时重置为本机 IDLE 初态。
      */
     public void clear() {
         this.currentPhase = ChainPhase.IDLE;

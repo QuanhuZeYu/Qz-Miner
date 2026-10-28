@@ -7,16 +7,7 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.planner.ChainTarget;
 import club.heiqi.qz_miner.parallel.ParallelTickSubscription;
 
-/**
- * 单次连锁运行时状态。
- *
- * <p>阶段8 块3 瘦身：删除旧链路依赖的 5 字段（pendingBreakTargets/plannerRunning/plannerCompleted/
- * matchedTargetCount）+ stopExecutionPreservingDrops 三层死代码。
- * 新链路的目标队列由 {@link club.heiqi.qz_miner.chain.execution.ChainExecutionContext} 承载，
- * 普通执行节奏由共享 Tick deadline 控制，matchedCount 由 PlanCompleted 事件承载。
- * 本类仅保留 traversalTargets（ChainPlanningRuntimeFactory 装配 traverser 用）+ plannerSubscription
- * （规划订阅句柄，clear 时摘除）。</p>
- */
+/** 持有本轮 traverser 候选队列与规划订阅，清理时协作注销并释放队列。 */
 public final class ChainRuntimeState {
 
     private final UUID playerUUID;
@@ -44,14 +35,7 @@ public final class ChainRuntimeState {
         return traversalTargets;
     }
 
-    /**
-     * 清理运行时状态（生命周期收口时调用）。
-     *
-     * <p>摘除规划订阅句柄 + 清空 traversal 队列。阶段8 块3 后不再持有 pendingBreak/matched/throttle 等
-     * 旧字段（已迁移到 ChainExecutionContext）。</p>
-     *
-     * @param reason 清理原因
-     */
+    /** 生命周期收口时注销规划订阅并清空 traversal 队列。 */
     public void clear(String reason) {
         if (plannerSubscription != null) {
             plannerSubscription.unregister();

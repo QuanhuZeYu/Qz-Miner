@@ -3,17 +3,8 @@ package club.heiqi.qz_miner.chain.eventbus;
 import java.util.UUID;
 
 /**
- * 连锁框架事件基类。
- *
- * <p>不可变事件，构造后所有字段不可再修改，可安全跨线程传递（守边界不越权与跨线程只经事件总线）。
- * 子类自有字段也必须全部 {@code final}。</p>
- *
- * <ul>
- *   <li>{@code generation}：所属连锁代际，用于阶段 2 状态机做代际陈旧判定</li>
- *   <li>{@code serverTick}：发布时服务端 tick 计数</li>
- *   <li>{@code playerUUID}：触发玩家 UUID</li>
- *   <li>{@code timestampNanos}：发布时刻 {@link System#nanoTime()}，仅供诊断/时序分析</li>
- * </ul>
+ * 连锁事件的不可变身份与诊断时间戳，供跨线程传递。
+ * 子类同样使用 final 字段；generation 供状态机筛选代际，serverRoundId 关联所属执行轮。
  */
 public abstract class ChainEvent {
 

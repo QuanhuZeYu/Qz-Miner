@@ -124,12 +124,7 @@ public class ChainExecutionContextTest {
         Assert.assertEquals(0, context.getExecutionSucceededCount());
     }
 
-    /**
-     * 阶段8 块2 E1：session 字段经构造注入后 getSession() 返回同一引用。
-     *
-     * <p>真实破坏桥通过 getSession() 拿 session 解析 mode/subMode → ChainModeRegistry → actionExecutor。
-     * 单测构造可传 null（不依赖运行时装配），生产路径由 worker 传入 shadowSession。</p>
-     */
+    /** 验证构造注入的 session 引用保留给执行器模式解析，null 覆盖独立构造路径。 */
     @Test
     public void sessionCarriedByConstructor() {
         ChainSession session = new ChainSession(PLAYER_A, null, null, new ChainTarget(1, 2, 3));
@@ -184,7 +179,7 @@ public class ChainExecutionContextTest {
         Assert.assertTrue(context.isPlanningTargetLimitExceeded());
     }
 
-    /** publication 返回前不得对主线程暴露完成标志或空队列终态。 */
+    /** 验证完成标志在 publication 返回后发布，主线程此前保持运行观察。 */
     @Test
     public void completionPublicationIsTheLinearizationPoint() throws Exception {
         final ChainExecutionContext context = context();
@@ -383,7 +378,7 @@ public class ChainExecutionContextTest {
         Assert.assertTrue(registry.snapshot().contains(ctxB));
     }
 
-    /** 同 generation 的 R1/R2 必须按 round 隔离，旧轮不得领取或删除 R2 context。 */
+    /** 按 round 隔离同 generation 的 R1/R2 上下文领取与删除。 */
     @Test
     public void registrySeparatesSameGenerationDifferentRounds() {
         ChainExecutionContextRegistry registry = new ChainExecutionContextRegistry();

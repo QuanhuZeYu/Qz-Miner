@@ -15,11 +15,8 @@ import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 import club.heiqi.qz_miner.testsupport.JsonResources;
 
 /**
- * 自动工具只保留首块成功 Mixin，网络事务路径必须为零。
- *
- * <p>断言对象是编译产物的注解元数据与 mixin 清单数据：{@code @Inject} 是 RUNTIME 保留，
- * 注入点可从产物读出；回调顺序与「只走 true 返回值分支」用 handler 方法体切片判定；
- * 注册清单按 JSON 解析后判归属，不再整文件 {@code contains}。</p>
+ * 以编译后的注解和依赖验证输入与生命周期 mixin 入口，按 JSON 解析注册归属。
+ * 方法切片验证 handler 的委派顺序。
  */
 public class AutoToolSwapMixinStructureTest {
 
@@ -65,7 +62,7 @@ public class AutoToolSwapMixinStructureTest {
         Assert.assertFalse("网络 mixin 必须已删除", new File(NETWORK_MIXIN_SOURCE).exists());
     }
 
-    /** mixin 归属表契约：该 mixin 必须注册在 client 数组，且已删除的网络 mixin 不得在任何数组里复活。 */
+    /** 核对 mixin 的 client 归属，并验证注册表仅保留当前入口。 */
     @Test
     public void clientMixinListDoesNotRegisterVanillaNetworkPath() throws Exception {
         JsonObject config = JsonResources.readRepoFile(MIXIN_CONFIG);

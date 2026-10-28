@@ -3,14 +3,12 @@ package club.heiqi.qz_miner.config;
 /**
  * {@code client.clientPreviewDepthMode} 的取值域。
  *
- * <p>id 是 YAML / UI 选项的稳定文本，不随枚举序数变化；{@link #ids()} 供 Schema options，
- * {@link #fromId(String)} 供语义校验收窄（未知返回 null，由调用方报错，不夹取）。</p>
- *
- * <p>xray 等于历史行为；其余档位只改绘制通道，不改拓扑。</p>
+ * <p>稳定文本 id 用于 YAML 与 UI；ids 提供 schema 选项，fromId 精确解析，未知值交调用方报错。</p>
+ * <p>各档配置深度与透明度通道，几何拓扑由绘制计划共享。</p>
  */
 public enum PreviewDepthMode {
 
-    /** 恒可见通道（本轮目标默认，等于历史行为）。 */
+    /** 穿墙可见通道。 */
     XRAY("xray"),
 
     /** 参与深度测试，近处遮挡远处。 */
@@ -22,7 +20,7 @@ public enum PreviewDepthMode {
     /** 可见部分不按距离变透明，遮挡部分保留距离透明度；两者均保留动画包络。 */
     DEPTH_OPAQUE("depthOpaque");
 
-    /** 本轮目标默认（配置键位与默认值（真源：QzMinerConfigDefaults））。 */
+    /** 默认档位。 */
     private static final PreviewDepthMode DEFAULT_VALUE = XRAY;
 
     private final String id;
@@ -59,7 +57,7 @@ public enum PreviewDepthMode {
         return null;
     }
 
-    /** @return 本轮默认档（Lead 裁定：不得超前于实现） */
+    /** @return 默认档位 */
     public static PreviewDepthMode defaultValue() {
         return DEFAULT_VALUE;
     }

@@ -1,14 +1,8 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 /**
- * B2.5 原版方块高亮协同纯决策（无 GL、无状态、不依赖 Minecraft 类型）。
- *
- * <p>三条件同时满足才抑制原版黑色选择框：开关开启 + 预览激活 + 瞄准方块属于当前预览代
- * （坐标与 {@code ChainPreviewState.getOrigin()} 一致）。任一条件不满足一律返回 false
- * （fail-open：宁可多画原版框，也不误抑制）；开关关闭时第一项即短路，默认档逐字等于今天。</p>
- *
- * <p>匹配基准使用 controller 的预览代 origin（播种目标），不是 draw plan 的 origin——
- * B4.1 后 plan origin 是代内稳定锚点，可能与瞄准方块不同。</p>
+ * 开关、预览激活与播种 origin 匹配同时成立时抑制原版选择框。
+ * 缺少任一条件保留原版绘制；几何稳定锚点另作换基，比较始终使用预览播种坐标。
  */
 public final class ChainPreviewVanillaHighlight {
 

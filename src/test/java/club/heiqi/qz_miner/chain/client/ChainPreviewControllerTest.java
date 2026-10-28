@@ -23,21 +23,8 @@ import club.heiqi.qz_miner.testsupport.CompiledClasses;
 import club.heiqi.qz_miner.testsupport.JavaSourceSlices;
 
 /**
- * seed 租约刷新与生命周期隔离合同（无 GL、无 Minecraft 单例）。
- *
- * <p><b>形态口径</b>：控制器自身是纯逻辑，可 headless 构造，因此「锁不锁、什么时候放租约」一律
- * <strong>行为化</strong>——装出一个真实控制器 + 真实 {@link ClientPhaseProjection} 投影 + 真实
- * {@link ChainStateService}，反射调私有判定入口，断言返回的布尔值；旧写法断言
- * {@code source.contains("localOriginLocked || phase == ChainPhase.PLANNING")} 一类的表达式文本，
- * 加个括号、提个局部变量、换个等价写法就误报。</p>
- *
- * <p>只有真正无行为探针的部分才留结构断言：</p>
- * <ul>
- *   <li>tick 路径内部的调用次序与「本地破坏入口不回读已变为空气的 origin」——需要 Minecraft 单例与
- *       世界实例（1.7.10 不可 headless 构造），只能切方法体后比标识符与位置；</li>
- *   <li>「库存回退刷新已删除」——改成读编译产物常量池：不再引用 {@code AutoToolSwapAction} /
- *       {@code onToolLayoutVerified}，复活旧路径即红，且与命名、排版无关。</li>
- * </ul>
+ * 装配真实 controller、阶段投影与状态服务，验证 seed 租约及预览锁定行为。
+ * tick 委派顺序由方法体切片检查，客户端库存旧依赖由编译产物检查；真实世界接入另经实机确认。
  */
 public class ChainPreviewControllerTest {
 

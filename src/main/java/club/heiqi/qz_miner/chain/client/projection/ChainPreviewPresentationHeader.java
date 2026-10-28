@@ -7,23 +7,9 @@ import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * 连锁预览表现投影的不可变 O(1) header（B1.1 / task-19a）。
- *
- * <p>只承载固定字段的标量快照，<b>不携带任何随目标数增长的集合</b>；目标集合仍由
- * {@link ChainPreviewState} 持有。header 一旦发布即不可变，订阅者可安全持有引用直到下一次回调。</p>
- *
- * <p>身份维度（worldIdentity / lifecycleEpoch / serverRoundId / configRevision /
- * objectGroupRevision / serverGeneration / previewGeneration）参与相等判定：任一变即视为新 header，
- * 订阅者据此重置本地缓存。</p>
- *
- * <p>字段数据源边界（如实标注）：{@code visibleCount} 仍与 {@code matchedCount} 同源（B5.2 只新增
- * {@code executedCount}，不臆造「可见」维度）；{@code executedCount} 来自客户端世界采样 + 位置去重
- * （{@code ChainPreviewExecutionProgress}，同代单调不减，换代/lifecycle/世界切换归零），
- * {@code executionProgressEnabled} 是 {@code clientPreviewExecutionProgress} 的投影位。
- * {@code configRevision} 取自
- * {@code ConfigBootstrap} 提交 epoch（无提交时 0=未接线）。{@code serverRoundId} 客户端当前
- * <b>无协议来源</b>（相位包不含 round 字段），恒 0=未接线；服务端代际失效由 phase 投影的
- * generation 覆盖，真接需协议扩展（下一批评估，本轮不扩协议）。</p>
+ * 预览表现的不可变标量快照，身份维度参与内容比较，目标集合由 ChainPreviewState 持有。
+ * visibleCount 沿用 matchedCount，executedCount 取客户端世界采样及位置去重；
+ * configRevision 取提交 epoch，serverRoundId 当前使用零占位，服务端换代由阶段投影表达。
  */
 @SideOnly(Side.CLIENT)
 public final class ChainPreviewPresentationHeader {

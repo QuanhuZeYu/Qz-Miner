@@ -7,17 +7,8 @@ import club.heiqi.qz_miner.compat.adapter.TileIdentityToken;
 import net.minecraft.block.Block;
 
 /**
- * 连锁规划开始事件。
- *
- * <p>携带规划启动上下文（origin/dimension/sideHit/hitOffset），供 {@code ChainPlanningEventBridge}
- * 在阶段 4 拿到 {@code generation} + 上下文后发起影子 traverser。本事件由 {@code ChainStateMachine}
- * 在 T4 ARMED→PLANNING 转移完成后作为进态广播 publish（阶段 4 起）。</p>
- *
- * <p>守边界不越权：不可变事件，所有字段 {@code final}，构造后不可修改，
- * 可安全跨线程传递（主线程 drain publish → worker 线程读取上下文）。</p>
- *
- * <p>字段集与 {@link RightClickObserved} 对齐：破坏路径（{@code BlockBreakObserved}）无命中偏移，
- * 故 hitX/Y/Z 填 0；右键路径填实际值供 INTERACT 模式 flood fill 方向判定。</p>
+ * 状态机进入 PLANNING 后发布的不可变规划上下文，供规划桥冻结配置并启动 worker。
+ * 破坏路径的命中偏移取零，右键保留实际命中点；种子身份沿用原动作窗口的冻结值。
  */
 public final class PlanStarted extends ChainEvent {
 

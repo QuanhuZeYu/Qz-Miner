@@ -83,13 +83,7 @@ public class ChainLiquidRulesTest {
         Assert.assertEquals(1, seed.getFluidCalls);
     }
 
-    // 已删除（断言形态改造，Lead 裁定第 13 条）：原 productionNeverCallsDrain 的三条断言
-    // （FluidRegistry.lookupFluidForBlock(block) / .canDrain(world, x, y, z) / 禁止 .drain(）
-    // 只证明源码里出现过某段字符——注释、import 与字符串字面量同样能命中，改链接写法又能漏检，
-    // 属于典型拼写快照。「规则只探测不排液」已由本类真实调用计数覆盖：
-    // forgeSourcesUseFluidIdentityAndCanDrain（source/flowing 的 drainCalls==0）、
-    // forgeFailuresAreFailClosed（throwingCanDrain.drainCalls==0）。整条用例随之删除，
-    // 不留「已不可能失败」的空壳。
+
 
     /** 可控 Forge IFluidBlock。 */
     private static final class TestFluidBlock extends Block implements IFluidBlock {

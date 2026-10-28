@@ -12,7 +12,7 @@ import club.heiqi.qz_miner.config.ConfigSemanticValidator.ValidatedSnapshot;
 import club.heiqi.uilib.ui.config.ConfigDocument;
 import club.heiqi.uilib.ui.config.ConfigKey;
 
-/** YAML 文档是唯一业务权威；派生快照只作分侧主线程发布载荷，不能写回权威。 */
+/** YAML 文档维护业务权威，派生快照作为所属主线程的发布载荷。 */
 public final class ConfigBootstrap {
     public static final String YAML_FILE_NAME = "qz_miner.yaml";
     private static final CopyOnWriteArrayList<CommitListener> LISTENERS = new CopyOnWriteArrayList<CommitListener>();
@@ -98,7 +98,7 @@ public final class ConfigBootstrap {
         return committed;
     }
 
-    /** read 及业务校验全部成功后才更换权威；失败不改变当前文档或发布令牌。 */
+    /** 完整 read 与业务校验成功后更换权威，并发布同一提交令牌。 */
     public static CommittedSnapshot reload() throws IOException {
         CommittedSnapshot committed;
         synchronized (ConfigBootstrap.class) {
@@ -115,7 +115,7 @@ public final class ConfigBootstrap {
         return committed;
     }
 
-    /** 先订阅再返回 current，替换订阅者可用同一已提交令牌补种，无需重捕获或额外 epoch。 */
+    /** 先订阅再返回 current，替换订阅者用同一已提交令牌补种。 */
     public static CommittedSnapshot subscribe(CommitListener listener) {
         requireState();
         LISTENERS.addIfAbsent(Objects.requireNonNull(listener, "listener"));
@@ -132,12 +132,12 @@ public final class ConfigBootstrap {
     }
 
     private static void notifyCommitted(CommittedSnapshot committed) {
-        // 锁外通知避免订阅生命周期与文件事务形成反向锁；mailbox 以 current identity 丢弃过期载荷。
+        // 锁外通知隔离订阅生命周期与文件事务；mailbox 按 current identity 筛选载荷。
         for (CommitListener listener : LISTENERS) {
             try {
                 listener.onCommitted(committed);
             } catch (RuntimeException failure) {
-                // 文件与权威已经提交，观察者故障不能伪装为保存失败，也不阻断其它观察者。
+                // 提交已完成，观察者故障单独记录，继续通知其余观察者。
                 MyMod.LOG.error("Config committed notification failed", failure);
             }
         }

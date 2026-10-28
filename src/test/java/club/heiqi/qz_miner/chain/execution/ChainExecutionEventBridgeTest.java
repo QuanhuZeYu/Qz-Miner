@@ -226,7 +226,7 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertTrue("registry 无此玩家应不 publish", finishedCaptured.isEmpty());
     }
 
-    // ============================ G1 掉落窗口接线（阶段8 块2） ============================
+    // 掉落窗口生命周期。
     //
     // 无 context 提前取消、成功登记开窗和旧轮隔离用真实状态服务断言；
     // 其余 registry 清理用例保留 null service 兼容覆盖，真实世界破坏与生成仍需实机。
@@ -295,7 +295,7 @@ public class ChainExecutionEventBridgeTest {
         }
     }
 
-    /** 同 generation 的旧 round 非强制清理不得删除新 round context。 */
+    /** 同 generation 的非强制清理仅作用于所属 round。 */
     @Test
     public void staleRoundLifecycleCleanupDoesNotClearNewRoundContext() {
         ChainEventBus bus = new ChainEventBus();
@@ -379,7 +379,7 @@ public class ChainExecutionEventBridgeTest {
         }
     }
 
-    /** runtime/seed 等在 context 登记前拒绝时，不得留下阻塞后续采掘和释放的执行窗口。 */
+    /** 登记前拒绝 runtime/seed 时，执行窗口保持关闭。 */
     @Test
     public void planStartedThenCancelledWithoutContextLeavesExecutionWindowClosed() {
         ChainStateService previousService = MyMod.chainStateService;
@@ -450,7 +450,7 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertNull(registry.get(PLAYER, 1));
     }
 
-    /** 同 generation 的 R1 PlanCancelled 不得清除或关闭 R2 的执行上下文。 */
+    /** R1 取消后，同 generation 的 R2 上下文与窗口保持有效。 */
     @Test
     public void oldRoundCancellationDoesNotClearNewRoundContext() {
         ChainStateService previousService = MyMod.chainStateService;
@@ -536,15 +536,7 @@ public class ChainExecutionEventBridgeTest {
         Assert.assertFalse(ChainExecutionEventBridge.usesLocalToolSwap(ChainMode.SPECIAL));
     }
 
-    /**
-     * 挖掘执行器必须把原版收获结果当返回值，不得假定成功。
-     *
-     * <p><b>为什么不行为化</b>：{@code execute} 收 {@code EntityPlayerMP}（1.7.10 构造玩家实体要求
-     * WorldServer），本仓没有玩家 fixture，裁定也禁止为测试新增 seam，所以判据落在切出来的方法体上：
-     * 必须委派原版 {@code tryHarvestBlock}，且成功路径不得出现 {@code return true}
-     * （「先调用、再无条件返回成功」会把收获失败静默吞掉）。旧写法整句匹配实参文本 + 依赖精确换行缩进的
-     * {@code "…;\n            return true;"}，等价重写（提局部变量、换行、加括号）即误报。</p>
-     */
+    /** 通过 execute 方法体委派与返回 token 验证原版收获结果向上传递，真实破坏副作用另经实机确认。 */
     @Test
     public void blockHarvestExecutorReturnsVanillaHarvestResultInsteadOfAssumingSuccess() throws Exception {
         String execute = JavaSourceSlices.methodBody(

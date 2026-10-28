@@ -1,14 +1,8 @@
 package club.heiqi.qz_miner.chain.client.render;
 
 /**
- * 「GL 能力 → 覆盖层路径」选择纯函数（T26 / B4.3；无 GL、无状态，可离线直连断言）。
- *
- * <p>与 {@link ChainPreviewBackendSelector} 的分工：selector 负责「配置 + 能力 + 上次失败 → 后端 id」，
- * 本类在其上补一层「该后端在本机能力下是否真的可用」的判据——legacy 路径依赖 VAO
- * （GL30 / ARB_vertex_array_object）、GL20 顶点属性与 ≥2 个 attrib，缺一不可；不满足时必须显式降级为
- * {@link Path#UNAVAILABLE} 并给出诊断，而不是继续选择一个必然失败的后端。</p>
- *
- * <p>真正的固定管线（无 VAO）回退路径仍留后续批次（登记）；本类只负责「不可用就不选择」。</p>
+ * 在 BackendSelector 的后端 id 上复核实际路径能力，生成可用路径或 UNAVAILABLE 及原因。
+ * legacy 同样要求 VAO、GL20 和足够属性槽位；缺项时跳过绘制并保留诊断。
  */
 public final class ChainPreviewOverlayPath {
 

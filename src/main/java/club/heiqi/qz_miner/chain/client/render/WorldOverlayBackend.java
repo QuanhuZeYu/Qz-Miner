@@ -6,27 +6,11 @@ import club.heiqi.qz_miner.MyMod;
 import club.heiqi.qz_miner.chain.client.ChainPreviewMesh;
 
 /**
- * 世界覆盖层后端封装（T26 / B4.3）：预览渲染「GL 状态恢复 + 能力探测 + 线程契约 + 资源重载」的
- * 唯一持有者，renderer 与后端不再各自维护这些假设。
+ * 统一持有世界覆盖层的能力缓存、GL 围栏、线程诊断与资源重载信号。
  *
- * <p>职责边界：</p>
- *
- * <ul>
- *   <li><b>GL 状态恢复</b>：帧级围栏 {@link #beginFrame()}、帧外清空 {@link #clearMesh}、
- *       通用帧外围栏 {@link #runFenced} 全部委托 {@link ChainPreviewGlFences}，恢复动作只有一份实现；
- *       后端通过 {@link #glAccess()} 拿到同一个 GL 状态访问点（legacy 纹理乘子围栏共用）；</li>
- *   <li><b>能力探测</b>：{@link #capabilities()} 每 lifecycle 只探测一次并缓存；探测异常 / 空结果
- *       显式记录（{@link #describe()} 可见），资源重载只作废缓存、下一帧按需重探（惰性）；</li>
- *   <li><b>路径决策接线</b>：{@link #planPath} 委托纯函数 {@link ChainPreviewOverlayPath#decide}
- *       （无 GL），并累计显式降级事件；</li>
- *   <li><b>线程契约</b>：GPU 释放在渲染线程（{@link #dispose}），校验只在 debug 档开启
- *       （{@link #setThreadContractEnforced} / {@link #THREAD_CONTRACT_PROPERTY}），默认零校验开销；</li>
- *   <li><b>资源重载</b>：{@link #markResourcesDirty} 只置位，{@link #consumeResourceReload} 由
- *       渲染帧消费，具体重建交给 renderer 在下一帧惰性执行，不跨代 / 跨世界保留 GL 对象。</li>
- * </ul>
- *
- * <p>本类不创建后端、不绘制：后端选择保持 {@link ChainPreviewBackendSelector} 语义，由 renderer 完成，
- * 以保证「配置热切换 → 下一帧生效、旧后端渲染线程 dispose」的历史行为逐字不变。</p>
+ * <p>能力惰性探测并缓存，失败发布降级原因；路径决策复用未变输入的结果。
+ * 重载只置位，由渲染帧作废缓存并重建资源；后端选择与实际绘制由 renderer 承担。
+ * GPU 释放在渲染线程执行，debug 线程校验和释放异常独立记录。</p>
  */
 public final class WorldOverlayBackend {
 
@@ -81,7 +65,7 @@ public final class WorldOverlayBackend {
     /**
      * 注入版构造：离线 / 探针测试用。
      *
-     * @param scaleCounters 帧级捕获计数（可为 null，内部兜底一个实例）
+     * @param scaleCounters 帧级捕获计数（可为 null，内部创建默认实例）
      * @param glAccess      GL 状态访问点（可为 null → LWJGL）
      * @param capabilityProbe 能力探测点（可为 null → 真实 GL 探测）
      */
@@ -159,7 +143,7 @@ public final class WorldOverlayBackend {
 
     /**
      * 纯决策接线：能力 + 配置 + 上次失败 → 路径决策；不可用时累计一次显式降级事件
-     * （原因变化才计数，避免每帧噪声）。
+     * （仅原因变化时计数）。
      *
      * @param configured          后端档位（auto / shader / legacy）
      * @param shaderAttemptFailed 上次 shader 后端加载 / 初始化是否失败
@@ -242,7 +226,7 @@ public final class WorldOverlayBackend {
             return;
         }
         assertRenderThread(operation);
-        // 状态访问点解析也纳入静默路径：上下文失效不得从帧外入口逃逸
+        // 状态访问点解析失败在帧外入口记录并收敛。
         ChainPreviewGlBindings.Access bindingAccess = ChainPreviewGlFences.bindingsQuietly(glAccess);
         ChainPreviewGlBindings bindings = ChainPreviewGlFences.captureBindingsQuietly(bindingAccess);
         try {
@@ -253,7 +237,7 @@ public final class WorldOverlayBackend {
     }
 
     /**
-     * GPU 释放入口：线程契约校验（debug 档）+ 释放异常隔离（不得逃逸渲染帧）。
+     * GPU 释放入口：debug 检查所属线程，独立记录并隔离释放异常。
      *
      * @param target 待释放后端，可为 null
      */
@@ -330,7 +314,7 @@ public final class WorldOverlayBackend {
             try {
                 MyMod.LOG.warn("[ChainPreview] " + violation + "; " + describe());
             } catch (Throwable ignored) {
-                // 诊断日志异常不得影响渲染帧
+                // 日志异常留在诊断边界内，渲染继续。
             }
         } else {
             lastContractViolation = violation;

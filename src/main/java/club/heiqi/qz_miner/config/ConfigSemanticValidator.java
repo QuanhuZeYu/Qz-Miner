@@ -34,7 +34,7 @@ public final class ConfigSemanticValidator {
         ObjectGroupParser.ParseResult groups = ObjectGroupParser.parse(document.get(QzMinerConfigSchema.OBJECT_GROUPS));
         if (groups.isValid()) {
             try {
-                // 总容量只有真实 wire 边界掌握；提交前复用它，避免落盘后同步才失败。
+                // 提交前复用 wire 编码边界校验总容量，使已落盘候选可完整同步。
                 ObjectGroupWireConfig.fromRuleSet(0L, groups.rules());
                 typed.put("client.objectGroups", groups.rules());
             } catch (IllegalArgumentException failure) {

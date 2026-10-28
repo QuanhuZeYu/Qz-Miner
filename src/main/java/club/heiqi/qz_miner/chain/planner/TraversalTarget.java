@@ -92,7 +92,7 @@ final class TraversalTarget {
         if (matcher.matches(target)) {
             phase = Phase.SUBMIT;
         } else {
-            // CHAIN 的 matcher 包含冻结采掘能力；拒绝不能桥接后续拓扑。
+            // CHAIN 按冻结采掘能力终裁，拒绝时结束该目标的拓扑扩展。
             clear();
         }
         return TraversalStepResult.CONTINUE;
