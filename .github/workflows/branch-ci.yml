@@ -28,4 +28,4 @@ jobs:
       - name: Verify
         uses: ./.github/actions/verify
         with:
-          version: 6.0.0-ci+${{ github.sha }}
+          version: 5.5.0-ci+${{ github.sha }}

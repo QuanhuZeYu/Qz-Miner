@@ -16,7 +16,7 @@ public class MyModMetadataTest {
         Assert.assertTrue(declaration.startsWith(prefix));
         String range = declaration.substring(prefix.length()).replace(";", "");
         VersionRange versions = VersionRange.createFromVersionSpec(range);
-        Assert.assertTrue(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r13")));
+        Assert.assertTrue(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta4")));
         Assert.assertFalse(versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r10")));
         Assert.assertFalse("必须拒绝存在跨浮层合批遮挡问题的 r9 组合",
                 versions.containsVersion(new DefaultArtifactVersion("qz_uilib", "5.0.0-beta3-miner-ui-r9")));

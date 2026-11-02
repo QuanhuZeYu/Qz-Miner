@@ -53,7 +53,7 @@ import cpw.mods.fml.common.event.FMLServerStartingEvent;
     // 构建生成同 major.minor 的 FML Maven 版本区间。FML 的 NetworkModHolder 优先选择
     // @NetworkCheckHandler，直接声明区间可保留其范围比较与接受自身版本的检查。
     acceptableRemoteVersions = NetworkVersionRange.VALUE,
-    dependencies = "required-after:qz_uilib@[5.0.0-beta3-miner-ui-r13,6.0.0);")
+    dependencies = "required-after:qz_uilib@[5.0.0-beta4,6.0.0);")
 public class MyMod {
 
     public static final String MODID = "qz_miner";
