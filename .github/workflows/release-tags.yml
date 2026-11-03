@@ -63,6 +63,8 @@ jobs:
 
       - name: Verify
         uses: ./.github/actions/verify
+        env:
+          GRADLE_OPTS: -Dorg.gradle.internal.http.connectionTimeout=60000 -Dorg.gradle.internal.http.socketTimeout=120000
         with:
           version: ${{ inputs.tag }}
 
